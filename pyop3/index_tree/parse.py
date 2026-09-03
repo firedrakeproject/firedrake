@@ -372,7 +372,10 @@ def _desugar_index_label(label, /, *, axes, path) -> Index:
     try:
         component = utils.just_one(c for c in axis.components if c.label == label)
     except pyop3.exceptions.EmptyIterableException as err:
-        raise ValueError(f"Component label '{label}' does not exist in this axis") from err
+        try:
+            raise ValueError(f"Component label '{label}' does not exist in this axis") from err
+        except:
+            breakpoint()
 
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)
@@ -668,8 +671,8 @@ def relabel_indices(indices, relabeler):
     return relabeler(indices)
 
 
-@relabel_indices.register(tuple)
-def _(tuple_, relabeler):
+@relabel_indices.register
+def _(tuple_: tuple, relabeler):
     return tuple(relabel_indices(item, relabeler) for item in tuple_)
 
 
@@ -677,6 +680,12 @@ def _(tuple_, relabeler):
 def _(label: str | utils.Atom, relabeler):
     # A string/atom is a component label, which we don't change
     return label
+
+
+@relabel_indices.register
+def _(list_: list, relabeler):
+    # A list is a collection of component labels, which we don't change
+    return list_
 
 
 @relabel_indices.register

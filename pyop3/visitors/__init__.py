@@ -61,6 +61,8 @@ class CacheKeyGetter(pyop3.node.NodeVisitor):
 
     def __init__(self) -> None:
         self.renamer = pyop3.visitors.base.Renamer()
+        self.seen_loop_indices = []
+        self.seen_axes = []
         super().__init__()
 
     # NOTE: copied from pyop3/visitors/relabel.py
@@ -70,6 +72,18 @@ class CacheKeyGetter(pyop3.node.NodeVisitor):
             new_axis = self.renamer.add_type(pyop3.axis_tree.Axis, axis)
             new_path[new_axis] = component
         return idict(new_path)
+
+    @contextlib.contextmanager
+    def active_loop_index(self, label):
+        self.seen_loop_indices.append(label)
+        yield
+        self.seen_loop_indices.pop(-1)
+
+    @contextlib.contextmanager
+    def active_axis(self, label):
+        self.seen_axes.append(label)
+        yield
+        self.seen_axes.pop(-1)
 
 
 class DiskCacheKeyGetter(CacheKeyGetter):

@@ -143,7 +143,7 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
     """
     relabeled_layouts, sf = _compute_layouts_cached(axis_tree._canonicalized)
-    unrelabeler = axis_tree._full_canonical_unrelabeler
+    unrelabeler = axis_tree._canonical_unrelabeler
     layouts = idict({
         unrelabeler.visit_path(path): unrelabeler(expr)
         for path, expr in relabeled_layouts.items()

@@ -478,11 +478,12 @@ class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
     label: AxisLabelT
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            tuple(map(visitor, self.components)),
-            visitor.renamer.add_type(type(self), self.label),
-        )
+        with visitor.active_axis(self.label):
+            return (
+                type(self),
+                tuple(map(visitor, self.components)),
+                visitor.renamer.add_type(type(self), self.label),
+            )
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -766,7 +767,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     # Useful cached properties to facilitate fast cache accesses.
 
     @cached_property
-    def _canonical_cache_key_and_shallow_relabel_map(self):
+    def _canonical_cache_key_and_relabel_map(self):
         import pyop3.visitors
 
         visitor = pyop3.visitors.MemoryCacheKeyGetter()
@@ -779,57 +780,27 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         return key
 
     @cached_property
-    def _shallow_canonical_relabel_map(self) -> pyop3.visitors.Relabeler:
-        _, relabel_map = self._canonical_cache_key_and_shallow_relabel_map
+    def _canonical_relabel_map(self) -> pyop3.visitors.Relabeler:
+        _, relabel_map = self._canonical_cache_key_and_relabel_map
         return relabel_map
 
     @cached_property
-    def _shallow_canonical_relabeler(self) -> pyop3.visitors.Relabeler:
+    def _canonical_relabeler(self) -> pyop3.visitors.Relabeler:
         import pyop3.visitors
 
-        return pyop3.visitors.Relabeler(self._shallow_canonical_relabel_map)
+        return pyop3.visitors.Relabeler(self._canonical_relabel_map)
 
     @cached_property
-    def _shallow_canonical_unrelabeler(self) -> pyop3.visitors.Relabeler:
+    def _canonical_unrelabeler(self) -> pyop3.visitors.Relabeler:
         import pyop3.visitors
 
         return pyop3.visitors.Relabeler(
-            self._shallow_canonical_relabeler.inverse_relabel_map,
+            self._canonical_relabeler.inverse_relabel_map,
         )
-
-    @cached_property
-    def _canonicalized_and_full_relabel_map(self):
-        import pyop3.visitors
-
-        relabeler = pyop3.visitors.Relabeler(
-            self._shallow_canonical_relabel_map, allow_missing=True
-        )
-        canonicalized = relabeler(self)
-        return (canonicalized, relabeler.relabel_map)
 
     @cached_property
     def _canonicalized(self):
-        canonicalized, _ = self._canonicalized_and_full_relabel_map
-        return canonicalized
-
-    @cached_property
-    def _full_canonical_relabel_map(self):
-        _, relabel_map = self._canonicalized_and_full_relabel_map
-        return relabel_map
-
-    @cached_property
-    def _full_canonical_relabeler(self) -> pyop3.visitors.Relabeler:
-        import pyop3.visitors
-
-        return pyop3.visitors.Relabeler(self._full_canonical_relabel_map)
-
-    @cached_property
-    def _full_canonical_unrelabeler(self) -> pyop3.visitors.Relabeler:
-        import pyop3.visitors
-
-        return pyop3.visitors.Relabeler(
-            self._full_canonical_relabeler.inverse_relabel_map,
-        )
+        return self._canonical_relabeler(self)
 
     # }}}
 
@@ -898,7 +869,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
             return self
 
         relabeler = pyop3.visitors.Relabeler(
-            self._full_canonical_relabel_map, allow_missing=True
+            self._canonical_relabel_map, allow_missing=True
         )
         relabeled_indices = pyop3.index_tree.parse.relabel_indices(
             indices, relabeler
@@ -2288,11 +2259,11 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     @cached_property
     def unindexed(self) -> LoopContextFreeAxisTreeLike | None:
-        return type(self)(t.unindexed for t in self.trees)
+        return type(self)(t.unindexed for t in self)
 
     @property
     def owned(self) -> AxisForest:
-        return self.record_new(_trees=tuple(tree.owned for tree in self.trees))
+        return self.record_new(_trees=tuple(tree.owned for tree in self))
 
     @property
     def unconstrained(self) -> AxisForest:
@@ -2301,54 +2272,57 @@ class AxisForest(LoopContextFreeAxisTreeLike):
         # rogue axis tree - it will be larger because nothing is getting dropped in the indexing.
         # Better fix: raise an exception about non-contiguous region numbering and drop in a generic way
         # Also: we usually want .free which gets both at once - this may not be needed
-        new_trees = [tree.unconstrained for tree in self.trees]
+        new_trees = [tree.unconstrained for tree in self]
         min_size = min(tree.local_size for tree in new_trees)
         new_trees = tuple(tree for tree in new_trees if tree.local_size == min_size)
         return self.record_new(_trees=new_trees)
 
     def with_region_labels(self, labels, **kwargs) -> AxisForest:
-        return type(self)(tree.with_region_labels(labels, **kwargs) for tree in self.trees)
+        return type(self)(tree.with_region_labels(labels, **kwargs) for tree in self)
 
     @cached_property
     def region_sets(self) -> tuple[frozenset[str], ...]:
-        return utils.single_valued(t.region_set for t in self.trees)
+        return utils.single_valued(t.region_set for t in self)
 
     def buffer_slice(self, *, include_ghosts: bool):
         return utils.single_valued(
-            t.buffer_slice(include_ghosts=include_ghosts) for t in self.trees
+            t.buffer_slice(include_ghosts=include_ghosts) for t in self
         )
 
     def buffer_size(self, *, include_ghosts: bool) -> int:
         return utils.single_valued(
-            t.buffer_size(include_ghosts=include_ghosts) for t in self.trees
+            t.buffer_size(include_ghosts=include_ghosts) for t in self
         )
 
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray:
         return utils.single_valued(
-            t._buffer_indices(include_ghosts=include_ghosts) for t in self.trees
+            t._buffer_indices(include_ghosts=include_ghosts) for t in self
         )
 
     @property
     def block_shape(self) -> tuple[int, ...]:
         # Must use the shortest available block shape
-        block_shapes = tuple(tree.block_shape for tree in self.trees)
+        block_shapes = tuple(tree.block_shape for tree in self)
         min_block_shape_size = min(map(len, block_shapes))
         if min_block_shape_size == 0:
             return ()
         else:
             return utils.single_valued(
-                tree.block_shape[-min_block_shape_size:] for tree in self.trees
+                tree.block_shape[-min_block_shape_size:] for tree in self
             )
 
     @property
     def is_nested(self) -> bool:
-        return utils.single_valued(t.is_nested for t in self.trees)
+        return utils.single_valued(t.is_nested for t in self)
 
     @property
     def is_linear(self) -> bool:
-        return utils.single_valued(t.is_linear for t in self.trees)
+        return utils.single_valued(t.is_linear for t in self)
 
     # }}}
+
+    def __iter__(self):
+        return iter(self.trees)
 
     def __str__(self, /) -> str:
         sep = f"\n{'*'*80}\n"

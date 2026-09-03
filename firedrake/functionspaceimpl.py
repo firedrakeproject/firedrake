@@ -874,15 +874,13 @@ class AbstractFunctionSpace:
     def _iterset_to_node_map(self, iter_type):
         map_dat = self._iterset_to_node_map_dat(iter_type)
 
-        src_axis, dest_axis = map_dat.axes.nodes
+        src_axis, dest_axis = map_dat.axes.axes
         return op3.Map(
             {
                 idict({src_axis.label: src_axis.component.label}): [
                     [op3.TabulatedMapComponent("nodes", None, map_dat)]
                 ],
             }, 
-            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
-            name=dest_axis.label
         )
 
     @cached_property

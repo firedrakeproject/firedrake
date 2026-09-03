@@ -2072,7 +2072,7 @@ class ParloopBuilder:
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):
         if self._mesh.extruded:
-            return self._mesh._base_mesh.cell_to_facets[self._mesh.extr_cell_to_base_cell_map(index)]
+            return self._mesh._base_mesh.cell_to_facets[self._mesh.extr_cell_to_base_cell_map(index, label="extr_cell_base_cell")]
         else:
             return self._mesh.cell_to_facets[index]
 

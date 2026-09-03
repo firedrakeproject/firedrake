@@ -47,8 +47,6 @@ def fine_node_to_coarse_node_map(Vf, Vc):
             {
                 idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
             },
-            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
-            name=target_axis.label,
         )
         return cache.setdefault(key, node_map)
 
@@ -112,8 +110,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
             {
                 idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
             }, 
-            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
-            name=target_axis.label
         )
         return cache.setdefault(key, node_map)
 
@@ -164,8 +160,6 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             {
                 idict({src_axis.label: src_axis.component.label}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
             }, 
-            # TODO: This is only here so labels resolve, ideally we would relabel to make this fine
-            name=target_axis.label
         )
         return cache.setdefault(key, node_map)
 

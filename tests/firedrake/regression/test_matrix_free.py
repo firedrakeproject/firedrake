@@ -307,7 +307,7 @@ def test_duplicate(a, bcs):
         ksp.solve(b, x)
 
     # Multiply with copied matrix B
-    with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
+    with solution1.dat.vec_ro as x, solution2.dat.vec_wo as y:
         B_petsc.mult(x, y)
     # Check if original rhs is equal to BA^-1 (rhs)
     assert np.allclose(rhs.dat.data_ro, solution2.dat.data_ro)
