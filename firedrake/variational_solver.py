@@ -402,6 +402,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         solver_parameters = flatten_parameters(solver_parameters or {})
 
+        # debugging
+        assert appctx is None, "old api"
+
         if isinstance(problem.J, MatrixBase):
             solver_parameters.setdefault("mat_type", problem.J.mat_type)
             if solver_parameters["mat_type"] != problem.J.mat_type:
