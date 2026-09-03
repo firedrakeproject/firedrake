@@ -125,7 +125,9 @@ source/petsc_configure_options.txt:
 	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
+	sphinx-apidoc --module-first --separate --force -o source/ ../firedrake ../firedrake/cython/*.so
+	@# Add :orphan: directive to modules.rst to avoid a warning
+	sed -i '1i\:orphan:\n' source/modules.rst
 
 clean:
 	-rm -rf $(BUILDDIR)/*
