@@ -168,7 +168,7 @@ e.g. for output. ::
   m0, u0 = w0.subfunctions
   m1, u1 = w1.subfunctions
 
-We choose a final time, and initialise a :class:`VTKFile <firedrake.vtk_output.VTKFile>`
+We choose a final time, and initialise a :class:`VTKFile <firedrake.output.VTKFile>`
 object for storing ``u``. as well as an array for storing the function
 to be visualised::
 
