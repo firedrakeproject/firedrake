@@ -4010,18 +4010,19 @@ class VertexOnlyMeshSF:
 
 
 class FiredrakeDMSwarm:
-    """A DMSwarm for use with :func:`VertexOnlyMesh`."""
+    """A DMSwarm for use with :func:`VertexOnlyMesh`. This class provides
+    convenience methods for creating the swarm, and accessing fields defined
+    on the swarm.
+
+    Parameters
+    ----------
+    dm : PETSc.DMSwarm
+        The underlying PETSc DMSwarm.
+    extruded : bool
+        Whether the swarm is embedded in an extruded mesh.
+    """
 
     def __init__(self, dm: PETSc.DMSwarm, extruded: bool = False):
-        """Initialize a Firedrake DMSwarm.
-
-        Parameters
-        ----------
-        dm : PETSc.DMSwarm
-            The underlying PETSc DMSwarm.
-        extruded : bool
-            Whether the swarm is embedded in an extruded mesh.
-        """
         if not isinstance(dm, PETSc.DMSwarm):
             raise TypeError(f"`dm` must be a `PETSc.DMSwarm`, not a {type(dm).__name__}")
         self.dm = dm
