@@ -1,7 +1,11 @@
 Cross-Mesh Coupled equations
 =================
 
-This tutorial provides a guide to solving cross-mesh coupled equations in Firedrake. As an example, we couple a Poisson and Helmholtz equation on meshes connected along one edge with Dirichlet and Neumann boundary conditions.
+The demo was contributed by `Na Wang
+    <mailto:na.wang26@imperial.ac.uk>`__ and `Leo Collins
+    <mailto:l.collins24@imperial.ac.uk>`__.
+
+This demo provides a guide to solving cross-mesh coupled equations in Firedrake. As an example, we couple a Poisson and Helmholtz equation on meshes connected along one edge with Dirichlet and Neumann boundary conditions.
 
 Coupled Poisson and Helmholtz equations
 ---------------------------------------
