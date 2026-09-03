@@ -78,23 +78,23 @@ We then set the parameters for the scheme. ::
   dt = 0.1
   Dt = Constant(dt)
 
-These are set with type :class:`~.Constant` so that the values can be
+These are set with type :class:`constant <firedrake.Constant>` so that the values can be
 changed without needing to regenerate code.
 
-We use a :func:`periodic mesh <.PeriodicIntervalMesh>` of width 40
+We use a :func:`periodic mesh <firedrake.PeriodicIntervalMesh>` of width 40
 with 100 cells, ::
 
   n = 100
   mesh = PeriodicIntervalMesh(n, 40.0)
 
-and build a :class:`mixed function space <.MixedFunctionSpace>` for the
+and build a :class:`mixed function space <firedrake.MixedFunctionSpace>` for the
 two variables. ::
 
   V = FunctionSpace(mesh, "CG", 1)
   W = MixedFunctionSpace((V, V))
 
-We construct a :class:`~.Function` to store the two variables at time
-level ``n``, and :attr:`~.Function.subfunctions` it so that we can
+We construct a :class:`function <firedrake.Function>` to store the two variables at time
+level ``n``, and :attr:`subfunctions <firedrake.Function.subfunctions>` it so that we can
 interpolate the initial condition into the two components. ::
 
   w0 = Function(W)
@@ -130,7 +130,7 @@ solver since the problem is one dimensional). ::
 
 Next we build the weak form of the timestepping algorithm. This is expressed
 as a mixed nonlinear problem, which must be written as a bilinear form
-that is a function of the output :class:`~.Function` ``w1``. ::
+that is a function of the output :class:`function <firedrake.Function>` ``w1``. ::
 
   p, q = TestFunctions(W)
 
@@ -140,7 +140,7 @@ that is a function of the output :class:`~.Function` ``w1``. ::
   m0, u0 = split(w0)
 
 Note the use of :func:`split(w1) <ufl.split_functions.split>` here, which splits up a
-:class:`~.Function` so that it may be inserted into a UFL
+:class:`function <firedrake.Function>` so that it may be inserted into a UFL
 expression. ::
 
   mh = 0.5*(m1 + m0)
@@ -161,14 +161,14 @@ rather than blocked system. ::
       'ksp_type': 'preonly',
       'pc_type': 'lu'})
 
-Next we use the other form of :attr:`~.Function.subfunctions`, ``w0.subfunctions``,
+Next we use the other form of :attr:`subfunctions <firedrake.Function.subfunctions>`, ``w0.subfunctions``,
 which is the way to split up a Function in order to access its data
 e.g. for output. ::
 
   m0, u0 = w0.subfunctions
   m1, u1 = w1.subfunctions
 
-We choose a final time, and initialise a :class:`~.vtk_output.VTKFile`
+We choose a final time, and initialise a :class:`VTKFile <firedrake.vtk_output.VTKFile>`
 object for storing ``u``. as well as an array for storing the function
 to be visualised::
 

@@ -14,7 +14,7 @@ Creating a geometric hierarchy
 
 Geometric multigrid requires a geometric hierarchy of meshes on which
 the equations will be discretised.  To create a hierarchy, we use
-:func:`~.MeshHierarchy` to create a hierarchy of meshes, the resulting
+:func:`MeshHierarchy <firedrake.MeshHierarchy>` to create a hierarchy of meshes, the resulting
 object remembers the relationships between them.  Currently, these
 hierarchies are constructed using regular bisection refinement, so we
 must create a coarse mesh. ::

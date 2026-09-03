@@ -7,7 +7,7 @@ Changing mesh coordinates
 
 Users may want to change the coordinates of an existing mesh object
 for certain reasons. The coordinates can be accessed as a
-:py:class:`~.Function` through ``mesh.coordinates`` where ``mesh`` is
+:py:class:`function <firedrake.Function>` through ``mesh.coordinates`` where ``mesh`` is
 a mesh object. For example,
 
 .. code-block:: python3
@@ -43,7 +43,7 @@ Changing the coordinate function space
 
 For more complicated situations, one might wish to replace the mesh
 coordinates with a field which lives on a different
-:py:class:`~.FunctionSpace` (e.g. higher-order meshes).
+:py:class:`FunctionSpace <firedrake.FunctionSpace>` (e.g. higher-order meshes).
 
 .. note::
 
@@ -64,9 +64,9 @@ mesh object from a field `f`:
 ``new_mesh`` has the same mesh topology as the original mesh, but its
 coordinate values and coordinate function space are from `f`. The
 coordinate function space must be a rank-1
-:py:class:`~.FunctionSpace`, constructed either with
+:py:class:`FunctionSpace <firedrake.FunctionSpace>`, constructed either with
 :py:func:`~.VectorFunctionSpace`, or by providing a
-:py:class:`~ufl.classes.VectorElement` to :py:func:`~.FunctionSpace`.  For
+:py:class:`~ufl.classes.VectorElement` to :py:func:`function space <firedrake.FunctionSpace>`.  For
 efficiency, the new mesh object shares data with `f`. That is,
 changing the values of `f` will change the coordinate values of the
 mesh, and *vice versa*.  If this behaviour is undesired, one should
@@ -112,7 +112,7 @@ Replacing the mesh geometry of an existing function
 ---------------------------------------------------
 
 Creating a new mesh geometry object, as described above, leaves any
-existing :py:class:`~.Function`\s untouched -- they continue to live
+existing :py:class:`function <firedrake.Function>`\s untouched -- they continue to live
 on their original mesh geometries.  One may wish to move these
 functions over to the new mesh.  To move `f` over to ``mesh``, use:
 
@@ -121,7 +121,7 @@ functions over to the new mesh.  To move `f` over to ``mesh``, use:
    g = Function(functionspaceimpl.WithGeometry(f.function_space(), mesh),
                 val=f.topological)
 
-This creates a :py:class:`~.Function` `g` which shares data with `f`,
+This creates a :py:class:`function <firedrake.Function>` `g` which shares data with `f`,
 but its mesh geometry is ``mesh``.
 
 .. warning::

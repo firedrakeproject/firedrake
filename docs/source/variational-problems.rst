@@ -9,17 +9,17 @@ Firedrake uses a high-level language, `UFL`_, to describe variational
 problems.  To do this, we need a number of pieces.  We need a
 representation of the domain we're solving the :abbr:`PDE (partial
 differential equation)` on: Firedrake uses a
-:py:func:`~.Mesh` for this.  On top of this mesh,
-we build :py:class:`~.FunctionSpace`\s which
+:py:func:`firedrake.Mesh` for this.  On top of this mesh,
+we build :py:class:`FunctionSpace <firedrake.FunctionSpace>`\s which
 define the space in which the solutions to our equation live.  Finally
-we define :py:class:`~.Function`\s in those
+we define :py:class:`function <firedrake.Function>`\s in those
 function spaces to actually hold the solutions.
 
 Constructing meshes
 -------------------
 
 Firedrake can read meshes in `Gmsh`_, `triangle`_, `CGNS`_, and
-`Exodus`_ formats.  To build a mesh one uses the :py:func:`~.Mesh`
+`Exodus`_ formats.  To build a mesh one uses the :py:func:`firedrake.Mesh`
 constructor, passing the name of the file as an argument, which see
 for more details.  The mesh type is determined by the file extension,
 for example if the provided filename is ``coastline.msh`` the mesh is
@@ -44,7 +44,7 @@ reordering on the adjacency matrix of the input mesh.  If you know
 your mesh has a good numbering (perhaps your mesh generator uses space
 filling curves to number entities) then you can switch off this
 reordering by passing ``reorder=False`` to the appropriate
-:py:func:`~.Mesh` constructor.  You can control Firedrake's default
+:py:func:`firedrake.Mesh` constructor.  You can control Firedrake's default
 behaviour in reordering meshes with the ``"reorder_meshes"``
 parameter.  For example, to turn off mesh reordering globally:
 
@@ -159,7 +159,7 @@ Building function spaces
 Now that we have a mesh of our domain, we need to build the function
 spaces the solution to our :abbr:`PDE (partial differential equation)`
 will live in, along with the spaces for the trial and test functions.
-To do so, we use the :py:func:`~.FunctionSpace` constructor.
+To do so, we use the :py:func:`function space <firedrake.FunctionSpace>` constructor.
 This is the only way to obtain a function space for a scalar variable,
 such as pressure, which has a single value at each point in the
 domain.
@@ -174,14 +174,14 @@ continuous piecewise-cubic polynomials, we write:
 
 There are three main routes to obtaining a function space for a
 vector-valued variable such as velocity. Firstly, you can pass the
-:py:func:`~.FunctionSpace` constructor a natively *vector-valued*
+:py:func:`function space <firedrake.FunctionSpace>` constructor a natively *vector-valued*
 family such as ``"Raviart-Thomas"``. Secondly, you may use the
 :py:func:`~.VectorFunctionSpace` constructor with a *scalar-valued*
 family, which gives a vector-valued space where each component is
 identical to the appropriate scalar-valued
-:py:class:`~.FunctionSpace`.  Thirdly, you can create a
+:py:class:`FunctionSpace <firedrake.FunctionSpace>`.  Thirdly, you can create a
 :py:class:`~finat.ufl.mixedelement.VectorElement` directly (which is itself
-*vector-valued* and pass that to the :py:func:`~.FunctionSpace`
+*vector-valued* and pass that to the :py:func:`function space <firedrake.FunctionSpace>`
 constructor).
 
 To build a vector-valued function space using the lowest-order
@@ -292,7 +292,7 @@ For CG and DG spaces on simplices, Firedrake offers both equispaced points and
 the better conditioned recursive Legendre points from :cite:`Isaac2020` via the
 `recursivenodes`_ module. These are selected by passing ``variant="equispaced"``
 or ``variant="spectral"`` to the :py:class:`~finat.ufl.finiteelement.FiniteElement` or
-:py:func:`~.FunctionSpace` constructors. For example:
+:py:func:`function space <firedrake.FunctionSpace>` constructors. For example:
 
 .. code-block:: python3
 
@@ -357,14 +357,14 @@ see that the solve is invoked by writing
 
    solve(a == L, s)
 
-but solver reuse can be achieved using :py:class:`~.LinearVariationalSolver`,
+but solver reuse can be achieved using :py:class:`linear variational solver <firedrake.LinearVariationalSolver>`,
 which is usually the most efficient option for timestepping problems.
    
 A nonlinear variational problem is defined in terms of a linear form
 :math:`F[u;v]` which is linear in the test function :math:`v` but may
 be nonlinear in the coefficient :math:`u`. The nonlinear variational
 problem seeks :math:`u\in V` such that :math:`F[u;v]=0\, \forall v\in
-V`. In UFL, the solution variable should be of type :py:class:`~.Function`
+V`. In UFL, the solution variable should be of type :py:class:`function <firedrake.Function>`
 instead of :py:class:`~firedrake.ufl_expr.TrialFunction`.
 
 .. code-block:: python3
@@ -372,7 +372,7 @@ instead of :py:class:`~firedrake.ufl_expr.TrialFunction`.
    solve(F == 0, s)
 
 but solver reuse can be achieved using
-:py:class:`~.NonlinearVariationalSolver`, which is usually the most
+:py:class:`NonlinearVariationalSolver <firedrake.NonlinearVariationalSolver>`, which is usually the most
 efficient option for timestepping problems. The solution approach for
 this problems is some form of Newton's method. UFL automates the
 symbolic differentiation of :math:`F` to obtain the Jacobian expressed
@@ -395,7 +395,7 @@ an appropriate space along with a function to hold the solution and
 perhaps a trial function.  Test functions are obtained via a call to
 :py:class:`~firedrake.ufl_expr.TestFunction`, trial functions via
 :py:class:`~firedrake.ufl_expr.TrialFunction` and functions with
-:py:class:`~.Function`.  The former two are purely
+:py:class:`function <firedrake.Function>`.  The former two are purely
 symbolic objects, the latter contains storage for the coefficients of
 the basis functions in the function space.  We use them as follows:
 
@@ -407,7 +407,7 @@ the basis functions in the function space.  We use them as follows:
 
 .. note::
 
-   A newly allocated :py:class:`~.Function` has
+   A newly allocated :py:class:`function <firedrake.Function>` has
    coefficients which are all zero.
 
 If ``V`` above were a
@@ -524,13 +524,13 @@ but may vary in time.  For example, a time-varying diffusivity, or a
 time-dependent forcing function.  Although you can create a new form
 for each new value of this constant, this will not be efficient, since
 Firedrake must generate new code each time the value changes.  A
-better option is to use a :py:class:`~.Constant` coefficient.  This
-object behaves exactly like a :py:class:`~.Function`, except that it
+better option is to use a :py:class:`constant <firedrake.Constant>` coefficient.  This
+object behaves exactly like a :py:class:`function <firedrake.Function>`, except that it
 has a single value over the whole mesh.  One may assign a new value to
-the :py:class:`~.Constant` using the :py:meth:`~.Constant.assign`
+the :py:class:`constant <firedrake.Constant>` using the :py:meth:`~.Constant.assign`
 method.  As an example, let us consider a form which contains a time
 varying constant which we wish to assemble in a time loop.  We can use
-a :py:class:`~.Constant` to do this:
+a :py:class:`constant <firedrake.Constant>` to do this:
 
 .. code-block:: python3
 
@@ -550,7 +550,7 @@ a :py:class:`~.Constant` to do this:
 .. warning::
 
    Although UFL supports computing the derivative of a form with
-   respect to a :py:class:`~.Constant`, the resulting form will have
+   respect to a :py:class:`constant <firedrake.Constant>`, the resulting form will have
    an unknown in the reals, which is currently unsupported by
    Firedrake.
 
@@ -565,7 +565,7 @@ incorporated into the variational form.  `Essential` (often termed
 of the solution, become prescriptions on the function space.  In
 Firedrake, the former are naturally expressed as part of the
 formulation of the variational problem, the latter are represented as
-:py:class:`~.DirichletBC` objects and are applied when
+:py:class:`DirichletBC <firedrake.DirichletBC>` objects and are applied when
 solving the variational problem.  Construction of such a strong
 boundary condition requires a function space (to impose the boundary
 condition in), a value and a subdomain to apply the boundary condition
@@ -581,8 +581,8 @@ for the various :ref:`utility meshes <utility_mesh_functions>` are
 described in their respective constructor documentation.  For
 externally generated meshes, Firedrake just uses whichever ids the
 mesh generator provided.  The ``value`` may be either a scalar, or
-more generally a UFL expression, for example a :class:`~.Function` or
-:py:class:`~.Constant`, of the appropriate shape.  You may also supply
+more generally a UFL expression, for example a :class:`function <firedrake.Function>` or
+:py:class:`constant <firedrake.Constant>`, of the appropriate shape.  You may also supply
 an iterable of literal constants:
 
 .. code-block:: python3
@@ -634,12 +634,12 @@ Specifying conditions on components of a space
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When solving a problem defined on either a
-:class:`~.MixedFunctionSpace` or a rank-1 :class:`~.FunctionSpace`, it is
+:class:`~.MixedFunctionSpace` or a rank-1 :class:`FunctionSpace <firedrake.FunctionSpace>`, it is
 common to want to specify boundary values for only some of the
 components.  In the former case, this is the only supported method of
 setting boundary values, the latter also supports setting the value
 for all components.  In both cases, the syntax is the same.  When
-defining the :py:class:`~.DirichletBC` we must index the function space
+defining the :py:class:`DirichletBC <firedrake.DirichletBC>` we must index the function space
 used.  For example, to specify that the third component of a
 :py:func:`~.VectorFunctionSpace` should take the boundary value 0, we write:
 
@@ -682,12 +682,12 @@ Time dependent boundary conditions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Imposition of time-dependent boundary conditions can by carried out by
-modifying the value in the appropriate :py:class:`~.DirichletBC`
+modifying the value in the appropriate :py:class:`DirichletBC <firedrake.DirichletBC>`
 object.  Note that if you use a literal value to initialise the
 boundary condition object within the timestepping loop, this will
 necessitate a recompilation of code every time the boundary condition
 changes.  For this reason we either recommend using a
-:py:class:`~.Constant` if the boundary condition is spatially uniform,
+:py:class:`constant <firedrake.Constant>` if the boundary condition is spatially uniform,
 or a UFL expression if it has both space and
 time-dependence.  For example, a purely time-varying boundary
 condition might be implemented as:

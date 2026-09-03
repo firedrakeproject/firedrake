@@ -428,15 +428,15 @@ only apply to the normal component of H(div) functions.
 Elsewhere on the boundary we enforce :math:`J_i \cdot N = 0`. Finally, instead of specifying
 the value of the barycentric velocity :math:`v` on the inflows and outflows,
 we enforce :math:`v = \rho^{-1}(G_1 + G_2)`. Boundary conditions that couple
-unknowns and/or are nonlinear must be implemented with :class:`~.EquationBC` instead of :class:`~.DirichletBC`.
+unknowns and/or are nonlinear must be implemented with :class:`EquationBCs <firedrake.EquationBC>` instead of :class:`DirichletBC <firedrake.DirichletBC>`.
 Since the barycentric velocity is in :math:`[\textrm{CG}_k]^2` it has degrees of freedom located at the points
 where the inlets/outlet meet the walls. Even though the boundary conditions on the inlets/outlet
-and the walls are compatible at these points, :class:`~.EquationBC` enforces the boundary conditions weakly whilst
-:class:`~.DirichletBC` enforces them strongly. Hence, to avoid ambiguity, we set Dirichlet boundary
+and the walls are compatible at these points, :class:`EquationBCs <firedrake.EquationBC>` enforces the boundary conditions weakly whilst
+:class:`DirichletBC <firedrake.DirichletBC>` enforces them strongly. Hence, to avoid ambiguity, we set Dirichlet boundary
 conditions on the boundary of the boundary, i.e. the points where the inlets/outlet meet the walls.
 To enforce these Dirichlet boundary conditions, tuples with the numbers of the boundary edges coincidental
 to these points need to be constructed first. This is then passed on to a Dirichlet boundary condition
-which is passed on to :class:`~.EquationBC`.::
+which is passed on to :class:`EquationBCs <firedrake.EquationBC>`.::
 
     # Reference species velocities, which we choose to symmetrize so that the molar fluxes agree
     v_ref_1 = Constant(0.4e-6)                      # Reference inflow velocity of benzene, m / s

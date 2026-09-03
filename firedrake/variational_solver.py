@@ -18,7 +18,7 @@ from ufl import as_ufl, replace, Form
 from functools import cached_property
 from collections.abc import Callable
 
-__all__ = ["LinearVariationalProblem", "NonlinearVariationalProblem"]
+__all__ = ["LinearVariationalProblem"]
 
 
 def check_pde_args(F, J, Jp, E=None):
@@ -187,7 +187,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             An optional callable ``form_transform(form, coefficient_mapping)``
             used instead of `ufl.replace` to reconstruct each UFL form.
         homogenize_bcs
-            Whether to homogenize the :class:`~.DirichletBC` values.
+            Whether to homogenize the :class:`DirichletBC <firedrake.DirichletBC>` values.
 
         Returns
         -------
@@ -502,14 +502,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ----------
         bounds : tuple of firedrake.function.Function
             Optional bounds on the solution, given as ``(lower, upper)``.
-            ``lower`` and ``upper`` must both be :class:`~.Function`\s.
+            ``lower`` and ``upper`` must both be :class:`function <firedrake.Function>`\s.
 
         Returns
         -------
         firedrake.function.Function
             The (possibly adapted) solution. If the solver performed
             mesh adaptation during the solve, this is the solution
-            :class:`~.Function` on the adapted mesh, which may differ
+            :class:`function <firedrake.Function>` on the adapted mesh, which may differ
             from the ``u`` that was passed in to the
             :class:`.NonlinearVariationalProblem`.
 

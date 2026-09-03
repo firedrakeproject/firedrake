@@ -202,7 +202,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     elements on embedded manifolds).
 
     The coordinates are extracted from the domain of the integral (a
-    :func:`~.Mesh`)
+    :func:`firedrake.Mesh`)
 
     """
 

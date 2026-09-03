@@ -91,7 +91,7 @@ class HierarchyBase(object):
     def __getitem__(self, idx):
         """Return a mesh in the hierarchy
 
-        :arg idx: The :func:`~.Mesh` to return"""
+        :arg idx: The :func:`firedrake.Mesh` to return"""
         return self.meshes[idx]
 
     def add_mesh(self, mesh, coarse_to_fine_cells=None, fine_to_coarse_cells=None):
@@ -205,7 +205,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
         If not False the hierachy is constructed using ngsPETSc, if
         None hierarchy constructed in a standard manner.
     distribution_parameters : dict
-        options controlling mesh distribution, see :py:func:`.Mesh`
+        options controlling mesh distribution, see :py:func:`Mesh <firedrake.Mesh>`
         for details.  If ``None``, use the same distribution
         parameters as were used to distribute the coarse mesh,
         otherwise, these options override the default.
@@ -341,7 +341,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     :arg mesh_builder: function used to turn a ``Mesh`` into an
        extruded mesh. Used by pyadjoint.
 
-    See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
+    See :func:`ExtrudedMesh <firedrake.ExtrudedMesh>` for the meaning of the remaining parameters.
     """
     if not isinstance(base_hierarchy, HierarchyBase):
         raise ValueError("Expecting a HierarchyBase, not a %r" % type(base_hierarchy))
@@ -394,7 +394,7 @@ def SemiCoarsenedExtrudedHierarchy(base_mesh, height, nref=1, base_layer=-1, ref
     :arg mesh_builder: function used to turn a ``Mesh`` into an
        extruded mesh. Used by pyadjoint.
 
-    See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
+    See :func:`ExtrudedMesh <firedrake.ExtrudedMesh>` for the meaning of the remaining parameters.
 
     See also :func:`~.ExtrudedMeshHierarchy` if you want to extruded a
     hierarchy of unstructured meshes.

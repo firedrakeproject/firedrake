@@ -65,9 +65,9 @@ class DumbCheckpoint:
 
     r"""A very dumb checkpoint object.
 
-    This checkpoint object is capable of writing :class:`~.Function`\s
+    This checkpoint object is capable of writing :class:`function <firedrake.Function>`\s
     to disk in parallel (using HDF5) and reloading them on the same
-    number of processes and a :func:`~.Mesh` constructed identically.
+    number of processes and a :func:`firedrake.Mesh` constructed identically.
 
     :arg basename: the base name of the checkpoint file.
     :arg single_file: Should the checkpoint object use only a single
@@ -85,7 +85,7 @@ class DumbCheckpoint:
     .. note::
 
        This object contains both a PETSc ``Viewer``, used for storing
-       and loading :class:`~.Function` data, and an :class:`h5py.File`
+       and loading :class:`function <firedrake.Function>` data, and an :class:`h5py.File`
        opened on the same file handle.  *DO NOT* call
        :meth:`h5py.File.close` on the latter, this will cause
        breakages.
@@ -93,7 +93,7 @@ class DumbCheckpoint:
     .. warning::
 
        ``DumbCheckpoint`` is deprecated and will be removed soon.  Use
-       :class:`~.CheckpointFile` instead.
+       :class:`firedrake.CheckpointFile` instead.
 
     """
     def __init__(self, basename, single_file=True,
@@ -158,7 +158,7 @@ class DumbCheckpoint:
              of ``.h5`` is automatically appended.
 
         If ``name`` is not provided, a filename is generated from the
-        ``basename`` used when creating the :class:`~.DumbCheckpoint`
+        ``basename`` used when creating the :class:`firedrake.DumbCheckpoint`
         object.  If ``single_file`` is ``True``, then we write to
         ``BASENAME.h5`` otherwise, each time
         :meth:`~.DumbCheckpoint.new_file` is called, we create a new
@@ -353,9 +353,9 @@ class HDF5File:
 
     r"""An object to facilitate checkpointing.
 
-    This checkpoint object is capable of writing :class:`~.Function`\s
+    This checkpoint object is capable of writing :class:`function <firedrake.Function>`\s
     to disk in parallel (using HDF5) and reloading them on the same
-    number of processes and a :func:`~.Mesh` constructed identically.
+    number of processes and a :func:`firedrake.Mesh` constructed identically.
 
     :arg filename: filename (including suffix .h5) of checkpoint file.
     :arg file_mode: the access mode, passed directly to h5py, see
@@ -369,7 +369,7 @@ class HDF5File:
     .. warning::
 
        HDF5File class will soon be deprecated.
-       Use :class:`~.CheckpointFile` class instead.
+       Use :class:`firedrake.CheckpointFile` class instead.
 
     """
     def __init__(self, filename, file_mode, comm=None):
@@ -542,7 +542,7 @@ def _generate_function_space_name(V):
 
 
 class TemporaryFunctionCheckpointFile:
-    """An HDF5 file for saving and loading :class:`~.Function` data on a sub-communicator.
+    """An HDF5 file for saving and loading :class:`function <firedrake.Function>` data on a sub-communicator.
 
     This class has a deliberately narrow contract that differs from
     :class:`CheckpointFile` in several important ways:
@@ -551,17 +551,17 @@ class TemporaryFunctionCheckpointFile:
       COMM_WORLD (e.g. ``COMM_SELF`` for per-rank files, or a node-local
       communicator for per-node files). All I/O is collective only on that
       communicator — no COMM_WORLD operations are performed.
-    - It stores and retrieves :class:`~.Function` *data* (the local Vec
+    - It stores and retrieves :class:`function <firedrake.Function>` *data* (the local Vec
       array) only. It has no knowledge of mesh topology, DM sections, or
       PETSc SF. This is why :meth:`load_function` takes a
-      :class:`~.FunctionSpace` rather than a mesh: the caller already holds
+      :class:`FunctionSpace <firedrake.FunctionSpace>` rather than a mesh: the caller already holds
       the function space and we simply fill in the values.
     - It is ephemeral: files are not intended to survive between programme
       runs. The communicator layout (partition) must be identical on save
       and restore.
     - The caller is responsible for assigning unique ``name``/``idx`` pairs
       on save and for restoring the correct ``name`` and ``count`` on the
-      returned :class:`~.Function` after load.
+      returned :class:`function <firedrake.Function>` after load.
 
     These constraints are intentional. Using :class:`CheckpointFile` with a
     sub-communicator deadlocks on load because the mesh DM operations
@@ -666,14 +666,14 @@ class TemporaryFunctionCheckpointFile:
 
 class CheckpointFile:
 
-    r"""Checkpointing meshes and :class:`~.Function` s in an HDF5 file.
+    r"""Checkpointing meshes and :class:`function <firedrake.Function>` s in an HDF5 file.
 
     :arg filename: the name of the HDF5 checkpoint file (.h5 or .hdf5).
     :arg mode: the file access mode (:obj:`~.FILE_READ`, :obj:`~.FILE_CREATE`, :obj:`~.FILE_UPDATE`) or ('r', 'w', 'a').
     :arg comm: the communicator.
 
     This object allows for a scalable and flexible checkpointing of states.
-    One can save and load meshes and :class:`~.Function` s entirely in parallel
+    One can save and load meshes and :class:`function <firedrake.Function>` s entirely in parallel
     without needing to gather them to or scatter them from a single process.
     One can also use different number of processes for saving and for loading.
 
@@ -1073,9 +1073,9 @@ class CheckpointFile:
 
     @PETSc.Log.EventDecorator("SaveFunction")
     def save_function(self, f, idx=None, name=None, timestepping_info={}):
-        r"""Save a :class:`~.Function`.
+        r"""Save a :class:`function <firedrake.Function>`.
 
-        :arg f: the :class:`~.Function` to save.
+        :arg f: the :class:`function <firedrake.Function>` to save.
         :kwarg idx: optional timestepping index. A function can
             either be saved in timestepping mode or in normal
             mode (non-timestepping); for each function of interest,
@@ -1327,13 +1327,13 @@ class CheckpointFile:
 
     @PETSc.Log.EventDecorator("LoadMeshTopology")
     def _load_mesh_topology(self, tmesh_name, reorder, distribution_parameters):
-        """Load the :class:`~.MeshTopology`.
+        """Load the :class:`firedrake.MeshTopology`.
 
-        :arg tmesh_name: The name of the :class:`~.MeshTopology` to load.
-        :arg reorder: whether to reorder the mesh (bool); see :func:`~.Mesh`.
+        :arg tmesh_name: The name of the :class:`firedrake.MeshTopology` to load.
+        :arg reorder: whether to reorder the mesh (bool); see :func:`firedrake.Mesh`.
         :arg distribution_parameters: the `distribution_parameters` used for
-            distributing the mesh; see :func:`~.Mesh`.
-        :returns: The loaded :class:`~.MeshTopology`.
+            distributing the mesh; see :func:`firedrake.Mesh`.
+        :returns: The loaded :class:`firedrake.MeshTopology`.
         """
         # -- Load DMPlex --
         path = self._path_to_distributions(tmesh_name)
@@ -1476,13 +1476,13 @@ class CheckpointFile:
 
     @PETSc.Log.EventDecorator("LoadFunction")
     def load_function(self, mesh, name, idx=None):
-        r"""Load a :class:`~.Function` defined on `mesh`.
+        r"""Load a :class:`function <firedrake.Function>` defined on `mesh`.
 
         :arg mesh: the mesh on which the function is defined.
-        :arg name: the name of the :class:`~.Function` to load.
+        :arg name: the name of the :class:`function <firedrake.Function>` to load.
         :kwarg idx: optional timestepping index. A function can
             be loaded with idx only when it was saved with idx.
-        :returns: the loaded :class:`~.Function`.
+        :returns: the loaded :class:`function <firedrake.Function>`.
         """
         # TODO: Add general MeshSequence support.
         mesh = mesh.unique()

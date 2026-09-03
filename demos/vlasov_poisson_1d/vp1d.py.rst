@@ -177,7 +177,7 @@ specified through the ``vfamily``. ::
   
   Wbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
 
-We create a :class:`~.Function` to store the solution at the current
+We create a :class:`function <firedrake.Function>` to store the solution at the current
 time, and then set its initial condition,
 
 .. math::
@@ -198,16 +198,16 @@ equation. ::
   One = Function(V).assign(1.0)
   fbar = assemble(fn*dx)/assemble(One*dx)
 
-We create a :class:`~.Function` to store the electrostatic potential. ::
+We create a :class:`function <firedrake.Function>` to store the electrostatic potential. ::
 
   phi = Function(Wbar, name="potential")
 
 The next task is to create the solver for the electrostatic potential, which
 will be called every timestep. 
   
-We create a :class:`~.Function` to store the intermediate densities at each
+We create a :class:`function <firedrake.Function>` to store the intermediate densities at each
 Runge-Kutta stage. The right hand side of the Poisson equation will be
-evaluated using this :class:`~.Function` to obtain the potential at each
+evaluated using this :class:`function <firedrake.Function>` to obtain the potential at each
 stage. Defining this beforehand will enable us to reuse the solver. ::
 
   fstar = Function(V)
@@ -235,12 +235,12 @@ will be non-singular and so solvable with direct methods. ::
   
   shift_eqn = dphi.dx(0)*psi.dx(0)*dx + dphi*psi*dx
 
-We use these to define a :class:`~.LinearVariationalProblem`. ::
+We use these to define a :class:`LinearVariationalProblem <firedrake.LinearVariationalProblem>`. ::
   
   phi_problem = LinearVariationalProblem(lhs(phi_eqn), rhs(phi_eqn),
                                          phi, aP=shift_eqn)
 
-Now we build the :class:`~.LinearVariationalSolver`. The problem
+Now we build the :class:`linear variational solver <firedrake.LinearVariationalSolver>`. The problem
 is preconditioned by the shifted operator which is solved using a direct
 solver, and we pass the nullspace of globally constant functions to
 the solver. ::
@@ -304,7 +304,7 @@ parameters. ::
   dt = T/nsteps
   dtc.assign(dt)
 
-We set up some :class:`~.Function`\s to store Runge-Kutta stage variables. ::
+We set up some :class:`function <firedrake.Function>`\s to store Runge-Kutta stage variables. ::
   
   f1 = Function(V)
   f2 = Function(V)

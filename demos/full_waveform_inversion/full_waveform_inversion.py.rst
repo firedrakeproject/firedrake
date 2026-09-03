@@ -278,7 +278,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
         misfit = guess_receiver - true_data_receivers[step]
         J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
 
-We now instantiate :class:`~.EnsembleReducedFunctional`::
+We now instantiate :class:`EnsembleReducedFunctional <firedrake.EnsembleReducedFunctional>`::
 
     J_hat = EnsembleReducedFunctional(J_val,
                                       Control(c_guess, riesz_map="l2"),
@@ -289,7 +289,7 @@ where the :math:`J_s` and its gradients :math:`\nabla_{\mathtt{c\_guess}} J_s` a
 based on the ``my_ensemble`` configuration.
 
 
-**Steps 4-6**: The instance of the :class:`~.EnsembleReducedFunctional`, named ``J_hat``,
+**Steps 4-6**: The instance of the :class:`EnsembleReducedFunctional <firedrake.EnsembleReducedFunctional>`, named ``J_hat``,
 is then passed as an argument to the ``minimize`` function. The default ``minimize`` function
 uses ``scipy.minimize``, and wraps the ``ReducedFunctional`` in a ``ReducedFunctionalNumPy``
 that handles transferring data between Firedrake and numpy data structures. However, because

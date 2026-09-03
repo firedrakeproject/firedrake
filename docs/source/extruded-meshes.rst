@@ -55,10 +55,10 @@ the performance should approach that of a fully structured mesh.
 Generating Extruded Meshes in Firedrake
 ---------------------------------------
 
-Extruded meshes are built using :py:func:`~.ExtrudedMesh`. There
+Extruded meshes are built using :py:func:`ExtrudedMesh <firedrake.ExtrudedMesh>`. There
 are several built-in extrusion types that generate commonly-used extruded
 meshes. To create a more complicated extruded mesh, one can either pass a
-hand-written kernel to :py:func:`~.ExtrudedMesh`, or one
+hand-written kernel to :py:func:`ExtrudedMesh <firedrake.ExtrudedMesh>`, or one
 can use a built-in extrusion type and modify the coordinate field afterwards.
 
 The following information may be passed in to the constructor:
@@ -288,7 +288,7 @@ For more details on the implementation, see
 Function Spaces on Extruded Meshes
 ----------------------------------
 
-The syntax for building a :py:class:`~.FunctionSpace` on an extruded mesh is
+The syntax for building a :py:class:`FunctionSpace <firedrake.FunctionSpace>` on an extruded mesh is
 an extension of the existing syntax used with normal meshes. On a
 non-extruded mesh, the following syntax is used:
 

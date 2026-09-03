@@ -138,7 +138,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         See also :attr:`subfunctions`.
 
         If the :class:`Function` is defined on a
-        rank-n :class:`~.FunctionSpace`, this returns a proxy object
+        rank-n :class:`FunctionSpace <firedrake.FunctionSpace>`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         mixed = type(self.function_space().ufl_element()) is MixedElement
@@ -212,7 +212,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
 class Function(ufl.Coefficient, FunctionMixin):
     r"""A :class:`Function` represents a discretised field over the
-    domain defined by the underlying :func:`.Mesh`. Functions are
+    domain defined by the underlying :func:`Mesh <firedrake.Mesh>`. Functions are
     represented as sums of basis functions:
 
     .. math::
@@ -582,7 +582,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         :kwarg dont_raise: Do not raise an error if a point is not found.
         :kwarg tolerance: Tolerence to use when checking if a point is
             in a cell. Default is the ``tolerance`` provided when
-            creating the :func:`~.Mesh` the function is defined on.
+            creating the :func:`firedrake.Mesh` the function is defined on.
             Changing this from default will cause the rtree to
             be rebuilt which can take some time.
         """
@@ -780,7 +780,7 @@ class PointEvaluator:
         .. warning::
 
             This method returns a numpy array and hence isn't taped for use with firedrake-adjoint.
-            If you want to use point evaluation with the adjoint, create a :func:`~.VertexOnlyMesh`
+            If you want to use point evaluation with the adjoint, create a :func:`firedrake.VertexOnlyMesh`
             as described in the manual.
         """
         from firedrake import assemble, interpolate

@@ -12,10 +12,10 @@ from firedrake.norms import norm
 
 class EnsembleFunctionBase(EnsembleFunctionMixin):
     """
-    A mixed (co)function defined on a :class:`~.ensemble.Ensemble`.
+    A mixed (co)function defined on a :class:`firedrake.Ensemble.Ensemble`.
     The subcomponents are distributed over the ensemble members, and
     are specified locally in an
-    :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
+    :class:`firedrake.Ensemble_functionspace.EnsembleFunctionSpace`.
 
     Parameters
     ----------
@@ -25,7 +25,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
     Notes
     -----
-    Passing an :class:`~.ensemble_functionspace.EnsembleDualSpace` to
+    Passing an :class:`firedrake.Ensemble_functionspace.EnsembleDualSpace` to
     :class:`EnsembleFunction` will return an instance of :class:`EnsembleCofunction`.
 
     This class does not carry UFL symbolic information, unlike a
@@ -287,7 +287,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
 class EnsembleFunction(EnsembleFunctionBase):
     """
-    A mixed Function defined on a :class:`~.ensemble.Ensemble`.
+    A mixed Function defined on a :class:`firedrake.Ensemble.Ensemble`.
     The subcomponents are distributed over the ensemble members, and
     are specified locally in an :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace`.
 
@@ -309,10 +309,10 @@ class EnsembleFunction(EnsembleFunctionBase):
 
     See Also
     --------
-    :class:`~.ensemble_functionspace.EnsembleFunctionSpace`
-    :class:`~.ensemble_function.EnsembleFunction`
-    :class:`~.ensemble_functionspace.EnsembleDualSpace`
-    :class:`~.ensemble_function.EnsembleCofunction`
+    :class:`firedrake.Ensemble_functionspace.EnsembleFunctionSpace`
+    :class:`firedrake.Ensemble_function.EnsembleFunction`
+    :class:`firedrake.Ensemble_functionspace.EnsembleDualSpace`
+    :class:`firedrake.Ensemble_function.EnsembleCofunction`
     """
     def __new__(cls, function_space: EnsembleFunctionSpaceBase):
         if isinstance(function_space, EnsembleDualSpace):
@@ -365,10 +365,10 @@ class EnsembleCofunction(EnsembleFunctionBase):
 
     See Also
     --------
-    :class:`~.ensemble_functionspace.EnsembleFunctionSpace`
-    :class:`~.ensemble_function.EnsembleFunction`
-    :class:`~.ensemble_functionspace.EnsembleDualSpace`
-    :class:`~.ensemble_function.EnsembleCofunction`
+    :class:`firedrake.Ensemble_functionspace.EnsembleFunctionSpace`
+    :class:`firedrake.Ensemble_function.EnsembleFunction`
+    :class:`firedrake.Ensemble_functionspace.EnsembleDualSpace`
+    :class:`firedrake.Ensemble_function.EnsembleCofunction`
     """
     def __init__(self, function_space: EnsembleDualSpace):
         if not isinstance(function_space, EnsembleDualSpace):

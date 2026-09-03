@@ -109,7 +109,7 @@ linear system, Firedrake allows specifying that the problem should be
 preconditioned with an operator different to the operator defining the
 problem to be solved.  We will use this functionality in a number of
 cases later.  The ``aP`` function will take one argument, the
-:class:`~.FunctionSpace` defining the space, and return a bilinear
+:class:`FunctionSpace <firedrake.FunctionSpace>` defining the space, and return a bilinear
 form suitable for assembling as an operator.  Obviously we only do so
 if ``aP`` is provided. ::
 
@@ -118,7 +118,7 @@ if ``aP`` is provided. ::
             aP = aP(W)
 
 Now we have all the pieces to build our linear system.  We will return a
-:class:`~.LinearVariationalSolver` object from this function.  It is here that
+:class:`linear variational solver <firedrake.LinearVariationalSolver>` object from this function.  It is here that
 we must specify whether we want a monolithic matrix or not, by setting the
 preconditioner matrix type in the solver parameters.  ::
 
@@ -147,7 +147,7 @@ To illustrate the problem, we first attempt to solve the problem on a
 sequence of finer and finer meshes preconditioning the problem with
 zero-fill incomplete LU factorisation.  Configuration of the solver is
 carried out by providing appropriate parameters when constructing the
-:class:`~.LinearVariationalSolver` object through the ``solver_parameters``
+:class:`linear variational solver <firedrake.LinearVariationalSolver>` object through the ``solver_parameters``
 keyword argument which should be a :class:`dict` of parameters.  These
 parameters are passed directly to PETSc_, and their form is described
 in more detail in :doc:`/solving-interface`.  For this problem, we use
@@ -449,7 +449,7 @@ we then use to solve the problem, we can provide one ourselves.
 Recall that :math:`S` is spectrally a Laplacian only in a
 discontinuous space.  A natural choice is therefore to use an interior
 penalty DG formulation for the Laplacian term on the block of the scalar
-variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python preconditioner. Note that the ```form``` method in ```AuxiliaryOperatorPC``` takes the test functions as the first argument and the trial functions as the second argument, which is the reverse of the usual convention. ::
+variable. We can provide it as an :class:`AuxiliaryOperatorPC <firedrake.AuxiliaryOperatorPC>` via a python preconditioner. Note that the ```form``` method in ```AuxiliaryOperatorPC``` takes the test functions as the first argument and the trial functions as the second argument, which is the reverse of the usual convention. ::
 
     class DGLaplacian(AuxiliaryOperatorPC):
         def form(self, pc, v, u):

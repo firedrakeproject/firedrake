@@ -2273,7 +2273,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
-        :class:`~.VertexOnlyMeshTopology` whilst preserving other information, such as
+        :class:`firedrake.VertexOnlyMeshTopology` whilst preserving other information, such as
         the global indices and parent mesh cell information.
 
         Notes
@@ -2318,7 +2318,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_sf(self):
         """
-        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
+        Return a PETSc SF which has :func:`firedrake.VertexOnlyMesh` input ordering
         vertices as roots and this mesh's vertices (including any halo cells)
         as leaves.
         """
@@ -2335,7 +2335,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_without_halos_sf(self):
         """
-        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
+        Return a PETSc SF which has :func:`firedrake.VertexOnlyMesh` input ordering
         vertices as roots and this mesh's non-halo vertices as leaves.
         """
         # The leaves have been ordered according to the pyop2 classes with non-halo
@@ -2447,7 +2447,7 @@ values from f.)"""
 
     @cached_property
     def cell_sizes(self):
-        """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
+        """A :class:`function <firedrake.Function>` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
         from firedrake.ufl_expr import CellSize
@@ -2847,7 +2847,7 @@ values from f.)"""
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
-        :func:`~.VertexOnlyMesh` whilst preserving other information, such as
+        :func:`firedrake.VertexOnlyMesh` whilst preserving other information, such as
         the global indices and parent mesh cell information.
 
         Notes
@@ -4938,7 +4938,7 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     To make a submesh of co-dimension 1, the parent mesh must have
     been overlapped with :class:`DistributedMeshOverlapType` of
     {``None``, `VERTEX``, ``RIDGE``}; see ``distribution_parameters``
-    kwarg of :func:`~.Mesh`.
+    kwarg of :func:`firedrake.Mesh`.
 
     To use interior facet integration on a submesh of co-dimension 1,
     the parent mesh must have been overlapped with

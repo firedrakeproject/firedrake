@@ -51,7 +51,7 @@ provided as a convenient shorthand.
 For integrals that do not specify a fixed or maximum quadrature degree, a default value
 may be keyed as the ``"quadrature_degree"`` or ``"max_quadrature_degree"`` entry
 respectively in the ``form_compiler_parameters`` dictionary passed on to :py:func:`~firedrake.solving.solve`,
-:py:func:`~.project`, :py:class:`~.NonlinearVariationalProblem`, or :py:func:`~firedrake.assemble.assemble`.
+:py:func:`~.project`, :py:class:`NonlinearVariationalProblem <firedrake.NonlinearVariationalProblem>`, or :py:func:`~firedrake.assemble.assemble`.
 
 .. code-block:: python3
 
@@ -97,7 +97,7 @@ lumped quadrature schemes to produce a diagonal mass matrix.
 The Quadrature space
 --------------------
 
-It is possible to define a finite element :py:class:`~.Function` on a quadrature rule.
+It is possible to define a finite element :py:class:`function <firedrake.Function>` on a quadrature rule.
 The ``"Quadrature"`` and ``"Boundary Quadrature"`` spaces are useful to
 interpolate data at quadrature points on cell interiors and cell boundaries,
 respectively.
@@ -110,7 +110,7 @@ respectively.
 
 The ``quad_scheme`` keyword argument again may be either
 :py:class:`~finat.quadrature.QuadratureRule` or a string.
-If a :py:class:`~.Function` in the ``"Quadrature"`` space appears within an
+If a :py:class:`function <firedrake.Function>` in the ``"Quadrature"`` space appears within an
 integral, Firedrake will automatically select the quadrature rule that corresponds
 to ``dx(degree=quad_degree, scheme=quad_scheme)`` to match the one associated
 with the quadrature space.
@@ -124,7 +124,7 @@ Finite element spaces with :ref:`integral-type degrees of freedom <element_varia
 support different quadrature rules.
 These are selected by passing a string to the ``"quad_scheme"`` keyword argument of
 the :py:class:`~finat.ufl.finiteelement.FiniteElement` or
-:py:func:`~.FunctionSpace` constructors. For example, to construct a
+:py:func:`function space <firedrake.FunctionSpace>` constructors. For example, to construct a
 Crouzeix-Raviart space with degrees of freedom consisting of integrals along the edges
 computed from a 2-point average at the endpoints, one can set ``quad_scheme="KMV"``:
 

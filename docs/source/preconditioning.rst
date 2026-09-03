@@ -73,7 +73,7 @@ multiplicatively within an MPI rank and additively between ranks.
    The additive Schwarz preconditioners listed here construct patches around
    mesh entities.  Crucially, the mesh must have an overlapping parallel domain
    decomposition that supports the patches. This is set via the
-   `distribution_parameters` kwarg of the :func:`.Mesh` constructor.  For
+   `distribution_parameters` kwarg of the :func:`Mesh <firedrake.Mesh>` constructor.  For
    instance, vertex-star patches require ::
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 1)
@@ -154,7 +154,7 @@ operator instead.
    :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022` and :cite:`Brubeck2024`.
 :class:`.MassInvPC`
    Preconditioner for applying an inverse mass matrix.
-:class:`~.PCDPC`
+:class:`PCDPC <firedrake.PCDPC>`
    A preconditioner providing the Pressure-Convection-Diffusion
    approximation to the Schur complement for the Navier-Stokes
    equations. Note that this implementation only treats problems with

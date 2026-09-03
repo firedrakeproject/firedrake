@@ -111,7 +111,7 @@ class ASMPatchPC(PCBase):
     def get_patches(self, V):
         ''' Get the patches used for PETSc PCASM
 
-        :param  V: the :class:`~.FunctionSpace`.
+        :param  V: the :class:`FunctionSpace <firedrake.FunctionSpace>`.
 
         :returns: a list of index sets defining the ASM patches in local
             numbering (before lgmap.apply has been called).

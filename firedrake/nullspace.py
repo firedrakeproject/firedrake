@@ -103,7 +103,7 @@ class VectorSpaceBasis(object):
         Parameters
         ----------
         function_space
-            the new :class:`~.FunctionSpace`.
+            the new :class:`FunctionSpace <firedrake.FunctionSpace>`.
 
         Returns
         -------
@@ -263,7 +263,7 @@ class MixedVectorSpaceBasis(object):
         Parameters
         ----------
         function_space
-            the new :class:`~.FunctionSpace`.
+            the new :class:`FunctionSpace <firedrake.FunctionSpace>`.
 
         Returns
         -------

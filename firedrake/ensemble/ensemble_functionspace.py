@@ -20,7 +20,7 @@ def _is_primal_or_dual(local_spaces, ensemble):
 
     local_spaces : Collection
         The list of :class:`~firedrake.functionspaceimpl.FunctionSpace` on the local ensemble.comm.
-    ensemble : :class:`~.ensemble.Ensemble`
+    ensemble : :class:`firedrake.Ensemble.Ensemble`
         The Ensemble to test collectively over.
 
     Returns
@@ -64,7 +64,7 @@ def _is_primal_or_dual(local_spaces, ensemble):
 
 class EnsembleFunctionSpaceBase:
     """
-    Base class for mixed function spaces defined on an :class:`~.ensemble.Ensemble`.
+    Base class for mixed function spaces defined on an :class:`firedrake.Ensemble.Ensemble`.
     The subcomponents are distributed over the ensemble members, and are specified locally.
 
 
@@ -110,25 +110,25 @@ class EnsembleFunctionSpaceBase:
 
     @property
     def ensemble(self):
-        """The :class:`~.ensemble.Ensemble` that the function space is defined over
+        """The :class:`firedrake.Ensemble.Ensemble` that the function space is defined over
         """
         return self._ensemble
 
     @property
     def comm(self):
-        """The spatial communicator from the :class:`~.ensemble.Ensemble` communicator.
+        """The spatial communicator from the :class:`firedrake.Ensemble.Ensemble` communicator.
         """
         return self._ensemble.comm
 
     @property
     def ensemble_comm(self):
-        """The ensemble communicator from the :class:`~.ensemble.Ensemble` communicator.
+        """The ensemble communicator from the :class:`firedrake.Ensemble.Ensemble` communicator.
         """
         return self._ensemble.ensemble_comm
 
     @property
     def global_comm(self):
-        """The global communicator from the :class:`~.ensemble.Ensemble` communicator.
+        """The global communicator from the :class:`firedrake.Ensemble.Ensemble` communicator.
         """
         return self._ensemble.global_comm
 
@@ -231,7 +231,7 @@ class EnsembleFunctionSpaceBase:
 
 class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
     """
-    A mixed primal function space defined on an :class:`~.ensemble.Ensemble`.
+    A mixed primal function space defined on an :class:`firedrake.Ensemble.Ensemble`.
     The subcomponents are distributed over the ensemble members, but
     are specified locally on each ensemble member.
 
@@ -239,7 +239,7 @@ class EnsembleFunctionSpace(EnsembleFunctionSpaceBase):
     ----------
     local_spaces : Collection
         The list of primal function spaces on the local ``Ensemble.comm``.
-    ensemble : :class:`~.ensemble.Ensemble`
+    ensemble : :class:`firedrake.Ensemble.Ensemble`
         The communicator that the function space is defined over.
 
     Notes

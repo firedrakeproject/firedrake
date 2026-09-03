@@ -10,14 +10,14 @@ def obj_name(obj):
 
 class EnsemblePCBase(petsctools.PCBase):
     """
-    Base class for python type PCs defined over an :class:`~.ensemble.Ensemble`.
+    Base class for python type PCs defined over an :class:`firedrake.Ensemble.Ensemble`.
 
-    The pc operators must be python Mats with :class:`~.ensemble_mat.EnsembleMatCtxBase`.
+    The pc operators must be python Mats with :class:`firedrake.Ensemble_mat.EnsembleMatCtxBase`.
 
     Notes
     -----
     The main use of this base class is to enable users to implement the preconditioner
-    action as acting on and resulting in an :class:`~.ensemble_function.EnsembleFunction`.
+    action as acting on and resulting in an :class:`firedrake.Ensemble_function.EnsembleFunction`.
     This is done by implementing the ``apply_impl`` method.
 
     See Also
@@ -58,8 +58,8 @@ class EnsemblePCBase(petsctools.PCBase):
 
 class EnsembleBJacobiPC(EnsemblePCBase):
     """
-    A python PC context for a block Jacobi method defined over an :class:`~.ensemble.Ensemble`.
-    Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`
+    A python PC context for a block Jacobi method defined over an :class:`firedrake.Ensemble.Ensemble`.
+    Each block acts on a single subspace of an :class:`firedrake.Ensemble_functionspace.EnsembleFunctionSpace`
     and is (approximately) solved with its own KSP, which defaults to -ksp_type preonly.
 
     Available options:
@@ -70,7 +70,7 @@ class EnsembleBJacobiPC(EnsemblePCBase):
 
     Notes
     -----
-    Currently this is only implemented for :class:`~.ensemble_mat.EnsembleBlockDiagonalMatCtx` matrices.
+    Currently this is only implemented for :class:`firedrake.Ensemble_mat.EnsembleBlockDiagonalMatCtx` matrices.
 
     See Also
     --------

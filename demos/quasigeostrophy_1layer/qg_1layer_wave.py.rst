@@ -128,7 +128,7 @@ Firedrake's ability to :doc:`interpolate UFL expressions <../interpolation>`. ::
   x = SpatialCoordinate(mesh)
   q0 = Function(Vdg).interpolate(0.1 * sin(x[0]) * sin(x[1]))
 
-We define some :class:`~.Function`\s to store the fields::
+We define some :class:`function <firedrake.Function>`\s to store the fields::
 
   dq1 = Function(Vdg)  # PV fields for different time steps
   qh = Function(Vdg)
@@ -195,8 +195,8 @@ fill. ::
                                                         "sub_pc_type": "ilu"})
 
 To visualise the output of the simulation, we create a
-:class:`~.vtk_output.VTKFile` object.  To which we can store multiple
-:class:`~.Function`\s.  So that we can distinguish between them we will
+:class:`VTKFile <firedrake.vtk_output.VTKFile>` object.  To which we can store multiple
+:class:`function <firedrake.Function>`\s.  So that we can distinguish between them we will
 give them descriptive names. ::
 
   q0.rename("Potential vorticity")
