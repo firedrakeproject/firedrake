@@ -644,15 +644,7 @@ that you want to install (``main`` or ``release``, see
 
       $ git clone https://gitlab.com/petsc/petsc.git
 
-#. Configure and build PETSc as usual:
-
-   .. code-block:: text
-
-      $ cd petsc
-      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
-      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
-      $ make check
-      $ cd ..
+#. Configure and build PETSc :ref:`as usual<install_petsc>`.
 
 #. Clone the desired branch of Firedrake::
 
