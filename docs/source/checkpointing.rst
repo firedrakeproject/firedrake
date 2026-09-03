@@ -78,7 +78,7 @@ data have been saved.
 One can view the contents of the HDF5 file with "h5dump" utility shipped with
 the HDF5 installation; "h5dump -n example.h5", for instance, shows:
 
-.. code-block:: python
+.. code-block:: text
 
     HDF5 "example.h5" {
     FILE_CONTENTS {
