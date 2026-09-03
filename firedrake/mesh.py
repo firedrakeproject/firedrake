@@ -3915,6 +3915,17 @@ class VertexOnlyMeshSF:
     @classmethod
     @PETSc.Log.EventDecorator()
     def candidate_sf(cls, parent_mesh: MeshGeometry, root_coordinates: np.ndarray) -> "VertexOnlyMeshSF":
+        """Return the candidate star forest used for embedding a VertexOnlyMesh.
+        This is star forest which maps input coordinates (the `root_coordinates`)
+        to candidate points on MPI ranks determined by the parent mesh's partition R-tree.
+
+        Parameters
+        ----------
+        parent_mesh : MeshGeometry
+            The parent mesh of the VertexOnlyMesh.
+        root_coordinates : np.ndarray
+            The coordinates of the input points.
+        """
         root_coordinates = np.asarray(
             root_coordinates.real,
             dtype=np.float64,
