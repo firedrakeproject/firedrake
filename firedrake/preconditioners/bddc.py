@@ -36,19 +36,17 @@ class BDDCPC(PCBase):
     - ``'bddc_pc_bddc_neumann'`` to set sub-KSPs on subdomains excluding corners,
     - ``'bddc_pc_bddc_dirichlet'`` to set sub-KSPs on subdomain interiors,
     - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
-
-    This PC also inspects optional callbacks supplied in the application context:
-    - ``'get_discrete_gradient'`` for 3D problems in H(curl), this is a callable that
-    provide the arguments (a Mat tabulating the gradient of the auxiliary H1 space) and
-    keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
-    - ``'get_divergence_mat'`` for problems in H(div) (resp. 2D H(curl)), this is
-    provide the arguments (a Mat with the assembled bilinear form testing the divergence
-    (curl) against an L2 space) and keyword arguments supplied to ``PETSc.PC.setDivergenceMat``.
-    - ``'primal_markers'`` a Function marking degrees of freedom of the solution space to be included in the
-    coarse space. Any nonzero value is counted as a marked degree of freedom.
-    If a DG(0) Function is provided, then all degrees of freedom on the cell are marked.
-    Alternatively, ``'primal_markers'`` can be a list of the global degrees of freedom to
-    be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
+    - ``'bddc_get_discrete_gradient'`` for 3D problems in H(curl), this is a callable that
+        provide the arguments (a Mat tabulating the gradient of the auxiliary H1 space) and
+        keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
+    - ``'bddc_get_divergence_mat'`` for problems in H(div) (resp. 2D H(curl)), this is
+        provide the arguments (a Mat with the assembled bilinear form testing the divergence
+        (curl) against an L2 space) and keyword arguments supplied to ``PETSc.PC.setDivergenceMat``.
+    - ``'bddc_primal_markers'`` a Function marking degrees of freedom of the solution space to be included in the
+        coarse space. Any nonzero value is counted as a marked degree of freedom.
+        If a DG(0) Function is provided, then all degrees of freedom on the cell are marked.
+        Alternatively, ``'primal_markers'`` can be a list of the global degrees of freedom to
+        be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
     """
 
     _prefix = "bddc_"
@@ -121,8 +119,6 @@ class BDDCPC(PCBase):
         neu_bndr = PETSc.IS().createGeneral(neu_nodes, comm=pc.comm)
         bddcpc.setBDDCNeumannBoundaries(neu_bndr)
 
-        appctx = self.get_appctx(pc)
-
         # Set coordinates if corner selection is requested or needed
         # There's no API to query from PC
         entity_dofs = V.finat_element.entity_dofs()
@@ -142,7 +138,7 @@ class BDDCPC(PCBase):
 
         if use_divergence:
             allow_repeated = P.getISAllowRepeated()
-            get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
+            get_divergence = ctx.get_python_option(prefix, "get_divergence_mat", get_divergence_mat)
             divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
             try:
                 div_args, div_kwargs = divergence
@@ -151,7 +147,7 @@ class BDDCPC(PCBase):
                 div_kwargs = dict()
             bddcpc.setBDDCDivergenceMat(*div_args, **div_kwargs)
         if use_gradient:
-            get_gradient = appctx.get("get_discrete_gradient", get_discrete_gradient)
+            get_gradient = ctx.get_python_option(prefix, "get_discrete_gradient", get_discrete_gradient)
             gradient = get_gradient(V)
             try:
                 grad_args, grad_kwargs = gradient
@@ -161,7 +157,7 @@ class BDDCPC(PCBase):
             bddcpc.setBDDCDiscreteGradient(*grad_args, **grad_kwargs)
 
         # Set the user-defined primal (coarse) degrees of freedom
-        primal_markers = appctx.get("primal_markers")
+        primal_markers = ctx.get_python_option(prefix, "primal_markers", None)
         if primal_markers is not None:
             primal_indices = get_primal_indices(V, primal_markers)
             primal_is = PETSc.IS().createGeneral(primal_indices.astype(PETSc.IntType), comm=pc.comm)
