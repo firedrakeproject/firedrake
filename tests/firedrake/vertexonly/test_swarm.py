@@ -364,7 +364,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             # have to check for a subset
             assert np.all(np.isin(petsclocalparentcellindices, localparentcellindices))
 
-    # The input-ordering swarm is composed with the distributed swarm's DM.
     assert isinstance(original_swarm.getCellDM(), PETSc.DMSwarm)
     assert original_swarm.getCellDM() == swarm
 
