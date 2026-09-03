@@ -302,7 +302,7 @@ class MassMatrix(AuxiliaryOperatorPC):
         # Extract the original form and bcs
         a, bcs = super().form(pc, test, trial)
         # Grab the definition of nu from the options database
-        prefix = pc.getOptionsPrefix() or ""
+        prefix = (pc.getOptionsPrefix() or "") + self._prefix
         nu = petsctools.Options(prefix)["nu"]
         return (-1/nu * test*trial*dx, bcs)
 
