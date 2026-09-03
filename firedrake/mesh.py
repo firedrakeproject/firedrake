@@ -3890,27 +3890,61 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
 
 
 class VertexOnlyMeshSF:
-    """A PETSc.SF to use for VertexOnlyMesh"""
+    """A PETSc.SF to use for VertexOnlyMesh. Provides convenience
+    methods of constructing and broadcasting/reducing using a star forest."""
 
     def __init__(self, sf: PETSc.SF) -> None:
         if not isinstance(sf, PETSc.SF):
             raise TypeError(f"`sf` must be a `PETSc.SF`, not a {type(sf).__name__}")
 
-        nroots, leaf_indices, remote = sf.getGraph()
-
-        leaf_indices.setflags(write=False)
-        remote.setflags(write=False)
-
         self.sf = sf
-        self.nroots = nroots
-        self.nleaves = len(leaf_indices)
-        self.leaf_indices = leaf_indices
-        self.remote = remote
-        self.input_ranks = remote[:, 0]
-        self.input_indices = remote[:, 1]
-        self.leaf_buffer_size = (
-            0 if len(leaf_indices) == 0 else int(leaf_indices.max()) + 1
-        )
+
+    @cached_property
+    def graph(self) -> tuple[int, np.ndarray, np.ndarray]:
+        """The graph defining the star forest."""
+        nroots, ilocal, iremote = self.sf.getGraph()
+        ilocal.setflags(write=False)
+        iremote.setflags(write=False)
+        return nroots, ilocal, iremote
+
+    @property
+    def nroots(self) -> int:
+        """Number of root vertices on this rank."""
+        return self.graph[0]
+
+    @property
+    def leaf_indices(self) -> np.ndarray:
+        """Local indices into the leafdata buffer."""
+        return self.graph[1]
+
+    @property
+    def remote(self) -> np.ndarray:
+        """The remote array defining the connectivity of the star forest.
+        These are (rank, index) pairs determining the root associated with each leaf.
+        """
+        return self.graph[2]
+
+    @property
+    def nleaves(self) -> int:
+        """Number of leaves, equal to len(self.leaf_indices)."""
+        return len(self.leaf_indices)
+
+    @property
+    def input_ranks(self) -> np.ndarray:
+        """MPI ranks owning the corresponding roots."""
+        return self.remote[:, 0]
+
+    @property
+    def input_indices(self) -> np.ndarray:
+        """Indices of the input roots, local to `self.input_ranks`."""
+        return self.remote[:, 1]
+
+    @cached_property
+    def leaf_buffer_size(self) -> int:
+        """Length required for a buffer for broadcasting to leaves.
+        """
+        # implemented here since petsc4py doesn't expose `PetscSFGetLeafRange`.
+        return 0 if self.nleaves == 0 else int(self.leaf_indices.max()) + 1
 
     @classmethod
     @PETSc.Log.EventDecorator()
