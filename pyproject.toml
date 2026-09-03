@@ -28,7 +28,8 @@ dependencies = [
   "h5py>3.12.1",
   "firedrake-rtree>=2026.2.0",
   "immutabledict",
-  "libsupermesh>=2026.0",
+  # TODO RELEASE
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
   "loopy>2024.1",
   "numpy",
   "packaging",
@@ -42,8 +43,10 @@ dependencies = [
   "pycparser",
   "pytools[siphash]",
   "requests",
+  "rtree",
   "scipy",
   "sympy",
+  "islpy<2026.2",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
 classifiers = [
@@ -159,7 +162,8 @@ docker = [  # Used in firedrake-vanilla container
 requires = [
   "Cython>=3.0",
   "firedrake-rtree>=2026.2.0",
-  "libsupermesh>=2026.0",
+  # TODO RELEASE
+  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
@@ -169,6 +173,7 @@ requires = [
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
+  "rtree",
 ]
 build-backend = "setuptools.build_meta"
 
@@ -197,4 +202,10 @@ pyop2 = [
   "*.pxd",
   "*.pyx",
   "codegen/c/*.c",
+]
+
+[tool.cython-lint]
+max-line-length = 88 # default
+ignore = [
+  "E501", # line too long
 ]

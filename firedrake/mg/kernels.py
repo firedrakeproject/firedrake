@@ -1,5 +1,6 @@
 import numpy
 import string
+from collections import defaultdict
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, RealType, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS, single_mode
@@ -8,6 +9,7 @@ from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
+from ufl.classes import ReferenceValue
 from ufl.domain import extract_unique_domain
 
 import loopy as lp
@@ -450,7 +452,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      scalar_type=parameters["scalar_type"])
 
     macro_context = fem.PointSetContext(**macro_cfg)
-    fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, macro_context)
     detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(extract_unique_domain(f))),
@@ -518,9 +519,25 @@ def dg_injection_kernel(Vf, Vc, ncell):
     tensor_indices = tuple(gem.Index(extent=d) for d in index_shape)
 
     phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
+    fexpr, = fem.compile_ufl(ReferenceValue(f), macro_context)
     fexpr = gem.Indexed(fexpr, tensor_indices)
+    inner_prod = gem.Product(phi_c, fexpr)
+
+    if Vf.ufl_element().mapping() == "symmetries":
+        # Symmetric elements only store independent components.
+        # The L2 inner product adds entrywise products of every component of the full tensor.
+        # We work with the reference components so we need to scale by their multiplicities.
+        symmetry = Vf.ufl_element().symmetry()
+        multiplicity = defaultdict(int)
+        for idx in numpy.ndindex(Vf.value_shape):
+            idx = symmetry.get(idx, idx)
+            multiplicity[idx] += 1
+        block_scale = numpy.array([scale for idx, scale in multiplicity.items()])
+        scale = gem.Indexed(gem.Literal(block_scale), tensor_indices)
+        inner_prod = gem.Product(scale, inner_prod)
+
     quadrature_weight = macro_quadrature_rule.weight_expression
-    expr = gem.Product(gem.IndexSum(gem.Product(phi_c, fexpr), tensor_indices),
+    expr = gem.Product(gem.IndexSum(inner_prod, tensor_indices),
                        gem.Product(macro_detJ, quadrature_weight))
 
     quadrature_indices = macro_builder.indices + macro_quadrature_rule.point_set.indices

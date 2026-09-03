@@ -56,7 +56,7 @@ def test_transpose_nullspace():
         a = inner(grad(u), grad(v))*dx
         L = conj(v)*dx
 
-        nullspace = VectorSpaceBasis(constant=True)
+        nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
         u = Function(V)
         u.interpolate(SpatialCoordinate(mesh)[0])
         # Solver diverges with indefinite PC if we don't remove
@@ -183,7 +183,7 @@ def test_near_nullspace(tmpdir):
 
     w1 = Function(V)
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
-        'ksp_monitor_short': "ascii:%s:" % w_nns_log,
+        'ksp_monitor': "ascii:%s:" % w_nns_log,
         'ksp_rtol': 1e-5 if single_mode else 1e-8, 'ksp_atol': 1e-5 if single_mode else 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
@@ -191,7 +191,7 @@ def test_near_nullspace(tmpdir):
 
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
-        'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
+        'ksp_monitor': "ascii:%s:" % wo_nns_log,
         'ksp_rtol': 1e-5 if single_mode else 1e-8, 'ksp_atol': 1e-5 if single_mode else 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
@@ -277,7 +277,7 @@ def test_nullspace_mixed_multiple_components():
     uv_nullspace = VectorSpaceBasis([ux0, uy0])
     uv_nullspace.orthonormalize()
 
-    p_nullspace = VectorSpaceBasis(constant=True)
+    p_nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
 
     mix_nullspace = MixedVectorSpaceBasis(Z, [uv_nullspace, p_nullspace])
 
@@ -302,7 +302,8 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
     # fails in parallel if nullspace is copied to fieldsplit_1_Mp_ksp solve (see PR #3488)
     n = 64
-    mesh = UnitSquareMesh(n, n)
+    # Force a deterministic parallel distribution
+    mesh = UnitSquareMesh(n, n, distribution_parameters={"partitioner_type": "simple"})
     V = VectorFunctionSpace(mesh, "CG", 2)
     P = FunctionSpace(mesh, "CG", 1)
     W = V*P
@@ -350,7 +351,7 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     near_nullmodes.orthonormalize()
     near_nullmodes_W = MixedVectorSpaceBasis(W, [near_nullmodes, W.sub(1)])
 
-    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
 
     w = Function(W)
     solver_parameters = {
@@ -397,4 +398,4 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     A, P = ksp_inner.getOperators()
     assert A.getNearNullSpace().handle
     # currently ~22 (25 on 2 cores) vs. >45-ish for with/without near nullspace
-    assert ksp_inner.getIterationNumber() < 27
+    assert ksp_inner.getIterationNumber() < 24

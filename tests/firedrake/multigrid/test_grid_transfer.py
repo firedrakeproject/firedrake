@@ -205,11 +205,11 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("transfer_type", ["prolongation", "restriction", "injection"])
-def test_grid_transfer_symmetric(transfer_type):
+@pytest.mark.parametrize("space", ("CG", "DG"))
+def test_grid_transfer_symmetric(transfer_type, space):
     base = UnitSquareMesh(3, 3)
     hierarchy = MeshHierarchy(base, 1)
 
-    space = "Lagrange"
     degrees = (1,)
     shape = "symmetric-tensor"
     run_transfer(hierarchy, shape, space, degrees, transfer_type)
