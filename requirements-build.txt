@@ -17,5 +17,6 @@ rtree
 hatchling
 meson-python
 scikit_build_core
+# TODO RELEASE: remove these
 maturin>=1.12,<2.0
 puccinialin
