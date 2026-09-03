@@ -259,8 +259,9 @@ class PMGBase(PCSNESBase):
         fine_to_coarse_map = dict(zip(fproblem.J.arguments(), cproblem.J.arguments()))
         fine_to_coarse_map[fu] = cu
 
+        # FIXME: this makes no sense for things in the options dictionary
         # Coarsen the appctx: the user might want to provide solution-dependent expressions and forms
-        cappctx = dict(fctx.appctx)
+        cappctx = dict(fctx._appctx)
         for key in cappctx:
             val = cappctx[key]
             if isinstance(val, dict):

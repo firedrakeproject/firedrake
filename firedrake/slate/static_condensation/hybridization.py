@@ -210,7 +210,7 @@ class HybridizationPC(SCBase):
         self._assemble_Srhs = get_assembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        form_assembler = get_assembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+        form_assembler = get_assembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=dmhooks.get_appctx(pc.getDM())._appctx)
         self.S = form_assembler.allocate()
         self._assemble_S = form_assembler.assemble
 
