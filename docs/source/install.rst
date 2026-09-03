@@ -141,12 +141,7 @@ do the following steps:
 
    $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
 
-#. Compile PETSc by running the ``make`` command prompted by ``configure``. This
-   will look something like:
-
-   .. code-block:: text
-
-      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+#. Compile PETSc by running the ``make`` command prompted by ``configure``.
 
 #. Test the installation (optional) and return to the parent directory::
 
