@@ -4064,10 +4064,6 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
     extruded : bool
         Whether the swarm is embedded in an extruded mesh.
     """
-
-    def __init__(self, extruded: bool = False):
-        self.extruded = extruded
-
     @classmethod
     def create_with_fields(
         cls,
@@ -4097,7 +4093,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         FiredrakeDMSwarm
             The empty swarm with all fields registered.
         """
-        swarm = cls(extruded=extruded)
+        swarm = cls()
         PETSc.DMSwarm.create(swarm, comm=cell_dm.comm)
 
         swarm.setDimension(gdim)
