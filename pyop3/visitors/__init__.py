@@ -98,19 +98,19 @@ def get_disk_cache_key(obj: pyop3.obj.Object) -> Hashable:
 
 class MemoryCacheKeyGetter(CacheKeyGetter):
 
-    def __init__(self, *, weak_hash_outer_buffers: bool = False) -> None:
-        self._weak_hash_buffers = weak_hash_outer_buffers
+    def __init__(self, *, identity_hash_outer_buffers: bool = True) -> None:
+        self._identity_hash_buffers = identity_hash_outer_buffers
         super().__init__()
 
     @contextlib.contextmanager
-    def strong_hash_buffers(self):
-        prev_weak_hash = self._weak_hash_buffers
-        self._weak_hash_outer_buffers = False
+    def identity_hash_buffers(self):
+        prev = self._identity_hash_buffers
+        self._identity_hash_buffers = True
         yield
-        self._weak_hash_buffers = prev_weak_hash
+        self._identity_hash_buffers = prev
 
     def get_cache_key(self, obj: pyop3.obj.Object, /, **kwargs):
-        return (*super().get_cache_key(obj, **kwargs), self._weak_hash_buffers)
+        return (*super().get_cache_key(obj, **kwargs), self._identity_hash_buffers)
 
     @functools.singledispatchmethod
     def process(self, obj: Any, /) -> Hashable:
@@ -142,4 +142,4 @@ def get_instruction_executor_cache_key(obj: pyop3.obj.Object) -> Hashable:
     as dat3/dat4. We can reuse the indirection maps and preprocessing optimisations etc and just change
     the buffers at the top-level.
     """
-    return MemoryCacheKeyGetter(weak_hash_outer_buffers=True)(obj)
+    return MemoryCacheKeyGetter(identity_hash_outer_buffers=False)(obj)

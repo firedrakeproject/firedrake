@@ -12,7 +12,6 @@ import pyop3.insn
 import pyop3.node
 import pyop3.obj
 
-# import pyop3.visitors.identity
 from pyop3 import utils
 
 from .identity import IdentityVisitor
@@ -34,38 +33,33 @@ class Relabeler(IdentityVisitor):
         *,
         allow_missing: bool | None = None,
     ) -> None:
-        if relabel_map is not None:
-            renamer = None
+        if relabel_map is None:
+            assert allow_missing is None
+            relabel_map = {}
+            allow_missing = True
         else:
-            relabel_map = None
-            if allow_missing is not None:
-                raise ValueError("allow_missing cannot be specified if no relabel map is provided")
-            renamer = pyop3.visitors.base.Renamer()
+            if allow_missing is None:
+                allow_missing = False
 
-        self.relabel_map = relabel_map
-        self.allow_missing = allow_missing
-        self._renamer = renamer
+        self._renamer = pyop3.visitors.base.Renamer(
+            existing_type_store=relabel_map,
+            allow_missing=allow_missing,
+        )
         super().__init__()
 
-    def _get_label(self, type_: type, key: Hashable) -> str:
-        if self.relabel_map is not None:
-            if self.allow_missing:
-                try:
-                    return self.relabel_map[type_][key]
-                except KeyError:
-                    return key
-            else:
-                return self.relabel_map[type_][key]
-        else:
-            return self._renamer.add_type(type_, key)
+    @property
+    def relabel_map(self):
+        return self._renamer.type_store
 
     @property
     def inverse_relabel_map(self):
-        assert self._renamer is not None
         inv_map = {}
-        for type_, label_map_per_type in self._renamer._type_store.items():
+        for type_, label_map_per_type in self._renamer.type_store.items():
             inv_map[type_] = utils.invert_mapping(label_map_per_type)
         return inv_map
+
+    def _get_label(self, type_: type, key: Hashable) -> str:
+        return self._renamer.add_type(type_, key)
 
     def visit_path(self, path):
         new_path = {}

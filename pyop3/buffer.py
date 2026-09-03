@@ -291,7 +291,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         # up map1 and map2*. If those change then we need to recompute map3 from
         # scratch. The cache key here therefore distinguishes between outermost buffers
         # and inner ones.
-        if not visitor._weak_hash_buffers:
+        if visitor._identity_hash_buffers:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
+        else:
             return (
                 type(self),
                 self.dtype,
@@ -300,9 +303,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
                 self._rank_equal,
                 self._ordered,
             )
-        else:
-            # Inside an axis tree or similar, we aren't allowed to change buffers here
-            return self
 
     def __init__(
         self,
@@ -1006,15 +1006,15 @@ class PetscMatBuffer(ConcreteBuffer):
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         # we can hit buffers in multiple places...
         # on the outside these are allowed to differ but inside they aren't
-        if not visitor._weak_hash_buffers:
+        if visitor._identity_hash_buffers:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
+        else:
             return (
                 type(self),
                 visitor.renamer.add_obj(self),
                 self._constant,
             )
-        else:
-            # Inside an axis tree or similar, we aren't allowed to change buffers here
-            return self
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
