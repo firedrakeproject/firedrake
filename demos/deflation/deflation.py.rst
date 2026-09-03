@@ -46,18 +46,17 @@ We implement the usual weak formulation of the equation in Firedrake as standard
 
 Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonlinear solver, and a :class:`~.Deflation` object. The :class:`~.Deflation` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product: ::
 
+    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
           "deflated_snes_type": "newtonls",
           "deflated_snes_monitor": None,
           "deflated_snes_linesearch_type": "basic",
+          "deflated_snes_deflation": deflation,
           "deflated_ksp_type": "preonly",
           "deflated_pc_type": "lu"}
 
-    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
-    appctx = {"deflation": deflation}
-
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
 
 We now find the first solution: ::
 
