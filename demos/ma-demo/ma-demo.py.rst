@@ -72,27 +72,37 @@ since then :math:`u=0` is an appropriate initial guess. This setup
 also makes the application of the weak boundary conditions easier.
 
 We now proceed to set up the problem in Firedrake using a square
-mesh of quadrilaterals. ::
+mesh of quadrilaterals.
+
+.. code-block:: python
 
   from firedrake import *
   n = 100
   mesh = UnitSquareMesh(n, n, quadrilateral=True)
 
-We construct the quadratic function space for :math:`u`, ::
+We construct the quadratic function space for :math:`u`,
+
+.. code-block:: python
 
   V = FunctionSpace(mesh, "CG", 2)
 
-and the function space for :math:`\sigma`. ::
+and the function space for :math:`\sigma`.
+
+.. code-block:: python
 
   Sigma = TensorFunctionSpace(mesh, "CG", 2)
 
-We then combine them together in a mixed function space. ::
+We then combine them together in a mixed function space.
+
+.. code-block:: python
 
   W = V*Sigma
 
 Next, we set up the source function, which must integrate to the area
 of the domain.  Note how in the integration of the :class:`~.Constant`
-one, we must explicitly specify the domain we wish to integrate over. ::
+one, we must explicitly specify the domain we wish to integrate over.
+
+.. code-block:: python
 
   x, y = SpatialCoordinate(mesh)
   fexpr = exp(-(cos(x)**2 + cos(y)**2))
@@ -103,7 +113,9 @@ one, we must explicitly specify the domain we wish to integrate over. ::
 
 Now we build the UFL expression for the variational form. We will use
 the nonlinear solve, so the form needs to be a 1-form that depends on
-a Function, w. ::
+a Function, w.
+
+.. code-block:: python
 
   v, tau = TestFunctions(W)
   w = Function(W)
@@ -119,32 +131,44 @@ a Function, w. ::
   L -= (det(I + sigma) - f)*v*dx
 
 We must specify the nullspace for the operator. First we define a constant
-nullspace, ::
+nullspace,
+
+.. code-block:: python
 
   V_basis = VectorSpaceBasis(constant=True)
 
-then we use it to build a nullspace of the mixed function space :math:`W`. ::
+then we use it to build a nullspace of the mixed function space :math:`W`.
+
+.. code-block:: python
 
   nullspace = MixedVectorSpaceBasis(W, [V_basis, W.sub(1)])
 
-Then we set up the variational problem. ::
+Then we set up the variational problem.
+
+.. code-block:: python
 
   u_prob = NonlinearVariationalProblem(L, w)
 
 We need to set quite a few solver options, so we'll put them into a
-dictionary. ::
+dictionary.
+
+.. code-block:: python
 
   sp_it = {
 
 We'll only use stationary preconditioners in the Schur complement, so
-we can get away with GMRES applied to the whole mixed system ::
+we can get away with GMRES applied to the whole mixed system:
+
+.. code-block:: python
 
   #
      "ksp_type": "gmres",
 
 We set up a Schur preconditioner, which is of type "fieldsplit". We also
 need to tell the preconditioner that we want to eliminate :math:`\sigma`,
-which is field "1", to get an equation for :math:`u`, which is field "0". ::
+which is field "1", to get an equation for :math:`u`, which is field "0".
+
+.. code-block:: python
 
   #
      "pc_type": "fieldsplit",
@@ -152,18 +176,24 @@ which is field "1", to get an equation for :math:`u`, which is field "0". ::
      "pc_fieldsplit_0_fields": "1",
      "pc_fieldsplit_1_fields": "0",
 
-The "selfp" option selects a diagonal approximation of the A00 block. ::
+The "selfp" option selects a diagonal approximation of the A00 block.
+
+.. code-block:: python
 
   #
      "pc_fieldsplit_schur_precondition": "selfp",
 
-We just use ILU to approximate the inverse of A00, without a KSP solver, ::
+We just use ILU to approximate the inverse of A00, without a KSP solver,
+
+.. code-block:: python
 
   #
      "fieldsplit_0_pc_type": "ilu",
      "fieldsplit_0_ksp_type": "preonly",
 
-and use GAMG to approximate the inverse of the Schur complement matrix. ::
+and use GAMG to approximate the inverse of the Schur complement matrix.
+
+.. code-block:: python
 
   #
      "fieldsplit_1_ksp_type": "preonly",
@@ -171,7 +201,9 @@ and use GAMG to approximate the inverse of the Schur complement matrix. ::
      "fieldsplit_1_mg_levels_pc_type": "sor",
 
 Finally, we'd like to see some output to check things are working, and
-to limit the KSP solver to 20 iterations. ::
+to limit the KSP solver to 20 iterations.
+
+.. code-block:: python
 
   #
      "ksp_monitor": None,
@@ -179,12 +211,16 @@ to limit the KSP solver to 20 iterations. ::
      "snes_monitor": None
      }
 
-We then put all of these options into the iterative solver, ::
+We then put all of these options into the iterative solver,
+
+.. code-block:: python
 
   u_solv = NonlinearVariationalSolver(u_prob, nullspace=nullspace,
                                       solver_parameters=sp_it)
 
-and output the solution to a file. ::
+and output the solution to a file.
+
+.. code-block:: python
 
   u, sigma = w.subfunctions
   u_solv.solve()

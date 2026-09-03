@@ -7,7 +7,9 @@ Contributed by Anurag Rao.
 The purpose of this demo is to show how to use Firedrake's multigrid solver on a hierarchy of adaptively refined Netgen meshes.
 A :func:`~.MeshHierarchy` is not restricted to uniform refinement: the same object records the parent child relations between adaptively refined meshes, and grows a level at a time as the solution is resolved.
 We will first have a look at how to construct such a hierarchy from Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain, and finally we will use the hierarchy to construct a scalable solver.
-We begin by importing the necessary libraries ::
+We begin by importing the necessary libraries:
+
+.. code-block:: python
 
    from firedrake import *
    from netgen.occ import *
@@ -17,8 +19,10 @@ Constructing the Mesh Hierarchy
 -------------------------------
 We first must construct the domain over which we will solve the problem. For a more comprehensive demo on how to use Open Cascade Technology (OCC) and Constructive Solid Geometry (CSG),
 see `Netgen integration in Firedrake <netgen_mesh.py>`_. 
-We begin with the L-shaped domain, which we build as the union of two rectangles: ::
-  
+We begin with the L-shaped domain, which we build as the union of two rectangles:
+
+.. code-block:: python
+
    rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
    rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
    L = rect1 + rect2
@@ -33,8 +37,10 @@ It is important to convert the initial Netgen mesh into a Firedrake mesh before 
    :align: center
    :alt: Initial mesh.
 
-We initialize the :func:`~.MeshHierarchy` here. The default of zero uniform refinement levels gives a hierarchy holding just the initial mesh, which we will grow adaptively below; passing a positive number instead would start us off with that many uniformly refined levels, and the adaptive levels would stack on top of them just the same: ::
-  
+We initialize the :func:`~.MeshHierarchy` here. The default of zero uniform refinement levels gives a hierarchy holding just the initial mesh, which we will grow adaptively below; passing a positive number instead would start us off with that many uniformly refined levels, and the adaptive levels would stack on top of them just the same:
+
+.. code-block:: python
+
    mh = MeshHierarchy(mesh)
 
 Poisson Problem
@@ -45,7 +51,9 @@ Now we can define a simple Poisson problem
 
    - \nabla^2 u = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
-Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`~.DirichletBC` object and apply it to the entire boundary: ::
+Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`~.DirichletBC` object and apply it to the entire boundary:
+
+.. code-block:: python
 
    def solve_poisson(mesh, params):
       V = FunctionSpace(mesh, "CG", 1)
@@ -65,7 +73,9 @@ Our approach strongly follows the similar problem in this `lecture course <https
       its = solver.snes.getLinearSolveIterations()
       return uh, its
 
-To use the hierarchy in a multigrid solver, we just set the usual multigrid solver parameters. Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
+To use the hierarchy in a multigrid solver, we just set the usual multigrid solver parameters. Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with:
+
+.. code-block:: python
 
    solver_params = {
       "mat_type": "matfree",
@@ -106,7 +116,9 @@ where :math:`K` is the element, :math:`h_K` is the diameter of the element, :mat
 .. math::
    \int_\Omega \eta_K^2 q \,\mathrm{d}x = \int_\Omega \sum_K h_K^2 \int_K (f + \text{div} (\text{grad} u_h) )^2 \,\mathrm{d}x q \,\mathrm{d}x + \int_\Omega \sum_K \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} \left[[ \nabla u_h \cdot \mathbf{n} \right]]^2 \,\mathrm{d}s q \,\mathrm{d}x \quad \forall\, q \in \mathrm{DG}_0
 
-Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.  ::
+Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.
+
+.. code-block:: python
 
    def estimate_error(mesh, uh):
        Q = FunctionSpace(mesh, "DG", 0)
@@ -144,7 +156,9 @@ The next step is to choose which elements to refine. For this we use a simplifie
    \eta_K \geq \theta \text{max}_L \eta_L
 
 The logic is to select an element :math:`K` to refine if the estimator is greater than some factor :math:`\theta` of the maximum error estimate of the mesh, where :math:`\theta` ranges from 0 to 1. In our code we choose :math:`\theta=0.5`.
-With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid up to level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we adaptively refine the mesh and repeat. ::
+With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid up to level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we adaptively refine the mesh and repeat.
+
+.. code-block:: python
 
    theta = 0.5
    refinements = 15
@@ -203,7 +217,9 @@ The solutions at level 4 and 15 are shown below.
 |    *MG solution at level 4*        |    *MG solution at level 15*       |
 +------------------------------------+------------------------------------+
 
-The convergence follows the expected optimal behavior: ::
+The convergence follows the expected optimal behavior:
+
+.. code-block:: python
 
    from matplotlib import pyplot as plt
 
@@ -220,7 +236,9 @@ The convergence follows the expected optimal behavior: ::
    :align: center
    :alt: Convergence of the error estimator.
 
-Moreover, the multigrid iteration count is robust to the level of refinement ::
+Moreover, the multigrid iteration count is robust to the level of refinement:
+
+.. code-block:: python
 
    print(" Level\t | Iterations")
    print("---------------------")

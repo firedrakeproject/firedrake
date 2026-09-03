@@ -248,7 +248,9 @@ For example, we might create this extruded mesh:
    extmesh = ExtrudedMesh(mesh, layers=[[0, 2], [1, 1], [2, 1]],
                           layer_height=0.25)
 
-which results in the following mesh topology.::
+which results in the following mesh topology.
+
+.. code-block:: python
 
                        x--------x
                        |        |

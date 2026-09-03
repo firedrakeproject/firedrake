@@ -40,13 +40,17 @@ scripts in your path.
 1. Use ``firedrake-zenodo`` to generate a JSON file containing the
    versions of Firedrake components you are using, as well as a title
    describing what this version was used for (this will appear online
-   on Zenodo). For example::
+   on Zenodo). For example:
+
+.. code-block:: python
 
      firedrake-zenodo -t "My paper title"
 
    You can additionally provide a single file that contains any extra
    (free-form) information that you want to appear in the uploaded
-   Zenodo record::
+   Zenodo record:
+
+.. code-block:: python
 
      firedrake-zenodo -t "My paper title" --info-file README.txt
 
@@ -76,14 +80,18 @@ scripts in your path.
 
 4. You can use this release tag to generate a BibTeX entry (including
    the DOI) for the collated "meta"-record, which in turn links to all
-   the individual components::
+   the individual components:
+
+.. code-block:: python
 
      firedrake-zenodo --bibtex Zenodo_YYYYMMDD.N
 
    Obviously, you substitute in your Firedrake release tag.
 
 You can explore the full set of options for ``firedrake-zenodo``
-with::
+with:
+
+.. code-block:: python
 
   firedrake-zenodo -h
 

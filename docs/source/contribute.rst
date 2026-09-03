@@ -115,13 +115,17 @@ to have done the following:
 #. Code should conform to Firedrake's `coding guide <https://github.com/firedrakeproject/firedrake/wiki/Firedrake-Coding-Guide>`__.
 
 #. Code should pass linting checks. To check this locally, you should
-   run the command::
+   run the command:
+
+.. code-block:: python
 
       $ make srclint
 
 #. Documentation changes should be checked to make sure that they are
    correctly rendered. To build the documentation locally you should
-   run::
+   run:
+
+.. code-block:: python
 
       $ cd docs
       $ make html
