@@ -207,6 +207,7 @@ linkcheck_ignore = [
     r'https://mpecdt.ac.uk',
     r'https://www.ox.ac.uk',
     r'https://le.ac.uk/people/',
+    r'https://gtr.ukri.org',
 
     # event links
     r'https://www.crosscountrytrains.co.uk/',
