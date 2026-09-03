@@ -37,7 +37,7 @@ Beside the empty set, the domain that minimizes :math:`J(\Omega)` is a disc of
 radius :math:`1.1` centered at :math:`(0.5,0.5)`.
 
 We can now proceed to set up the problem. We import firedrake and pyadjoint and
-choose an initial guess (in this case, a unit disc centred at the origin)
+choose an initial guess (in this case, a unit disc centred at the origin):
 
 .. code-block:: python
 

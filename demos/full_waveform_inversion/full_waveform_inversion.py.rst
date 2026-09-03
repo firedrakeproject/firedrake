@@ -70,7 +70,7 @@ equation (3) with different forcing terms :math:`f_s(\mathbf{x}, t)`, different 
 gradients (which we will discuss later).
 
 Instantiating an ensemble requires a communicator (usually MPI_COMM_WORLD) plus the number of MPI
-processes to be used in each member of the ensemble (2, in this case)
+processes to be used in each member of the ensemble (2, in this case):
 
 .. code-block:: python
 
@@ -92,7 +92,7 @@ The subcommunicators in each ensemble member are: ``Ensemble.comm`` and ``Ensemb
 the ensemble members. In this example, ``Ensemble.ensemble_comm`` benefits the communication of the
 functionals :math:`J_s` and their gradients for the distinct the wave sources.
 
-The number of sources is defined with ``my_ensemble.ensemble_comm.size`` (3 in this case)
+The number of sources is defined with ``my_ensemble.ensemble_comm.size`` (3 in this case):
 
 .. code-block:: python
 

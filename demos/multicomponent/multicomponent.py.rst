@@ -278,7 +278,7 @@ Our implementation of the non-dimensionalised volumetric equation of state
     c_tot, c_1, c_2 = conc_relation(x_1, x_2)
 
 Moreover, to express that :math:`1 / \rho^{-1} = \rho = \sum_{j=1}^n M_j c_j`, we simply take the
-:math:`L^2`-projection of this expression (in non-dimensionalised form)
+:math:`L^2`-projection of this expression (in non-dimensionalised form):
 
 .. code-block:: python
 
@@ -541,7 +541,7 @@ Analogously to :doc:`the steady Boussinesq demo <boussinesq.py>` we use
 :code:`FixAtPointBC` to remove the pressure nullspace and pin the
 :math:`\mu_{i, \textrm{aux}}` at a DOF (by carefully studying which rows in the
 discretised Jacobian are linearly dependent, one checks that it is
-mathematically valid to do this)
+mathematically valid to do this):
 
 .. code-block:: python
 

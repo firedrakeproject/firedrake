@@ -25,7 +25,7 @@ including types like `Vec <https://petsc.org/release/manualpages/Vec/>`_:
 
 In serial the next line could be ``print('setting up mesh...')``  However,
 in parallel that would print :math:`P` times on :math:`P` processes.  In the
-following form the print happens only once (because it is done only on rank 0)
+following form the print happens only once (because it is done only on rank 0):
 
 .. code-block:: python
 

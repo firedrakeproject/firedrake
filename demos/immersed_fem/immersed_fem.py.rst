@@ -98,7 +98,7 @@ are all curves in Gmsh and must possess a unique tag.
   Curve Loop( 9) = {1, 2, 3, 4};
   Curve Loop(10) = {8, 5, 6, 7};
 
-Then, we define two plane surfaces: the rectangle without the disc first, and the disc itself then.
+Then, we define two plane surfaces: the rectangle without the disc first, and the disc itself then:
 
 .. code-block:: none
 
@@ -119,7 +119,7 @@ between parts of the mesh (see the concrete example at the end of this page).
 
 For simplicity, we have gathered all this commands in the file
 :demo:`immersed_domain.geo <immersed_domain.geo>`. To generate a mesh using this file,
-you can type the following command in the terminal
+you can type the following command in the terminal:
 
 .. code-block:: none
 
