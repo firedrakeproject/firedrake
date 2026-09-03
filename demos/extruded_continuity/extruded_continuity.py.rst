@@ -45,7 +45,7 @@ We use an *extruded* mesh, where the base mesh is a 20 by 20 unit square,
 divided into triangles, with 10 evenly-spaced vertical layers. This gives
 prism-shaped cells.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   m = UnitSquareMesh(20, 20)
@@ -54,7 +54,7 @@ prism-shaped cells.
 We will use a simple piecewise-constant function space for the unknown scalar
 :math:`q`:
 
-.. code-block:: python
+.. code-block:: python3
 
   V = FunctionSpace(mesh, "DG", 0)
 
@@ -63,7 +63,7 @@ this is more complicated than element spaces that have appeared previously. The
 horizontal and vertical components of the field are specified separately. They
 are combined into a single element which is used to build a FunctionSpace.
 
-.. code-block:: python
+.. code-block:: python3
 
   # RT1 element on a prism
   W0_h = FiniteElement("RT", "triangle", 1)
@@ -78,7 +78,7 @@ are combined into a single element which is used to build a FunctionSpace.
 As an aside, since our prescibed velocity is purely in the vertical direction, a
 simpler space would have sufficed:
 
-.. code-block:: python
+.. code-block:: python3
 
   # Vertical part of RT1 element
   # W_h = FiniteElement("DG", "triangle", 0)
@@ -88,14 +88,14 @@ simpler space would have sufficed:
 
 Or even:
 
-.. code-block:: python
+.. code-block:: python3
 
   # Why can't everything in life be this easy?
   # W = VectorFunctionSpace(mesh, "CG", 1)
 
 Next, we set the prescribed velocity field:
 
-.. code-block:: python
+.. code-block:: python3
 
   velocity = as_vector((0.0, 0.0, 1.0))
   u = project(velocity, W)
@@ -107,7 +107,7 @@ Next, we set the prescribed velocity field:
 Next, we will set the boundary value on our scalar to be a simple indicator
 function over part of the bottom of the domain:
 
-.. code-block:: python
+.. code-block:: python3
 
   x, y, z = SpatialCoordinate(mesh)
   inflow = conditional(And(z < 0.02, x > 0.5), 1.0, -1.0)
@@ -118,14 +118,14 @@ Now we will define our forms.  We use the same trick as in the
 :doc:`previous example <DG_advection.py>` of defining ``un`` to aid
 with the upwind terms:
 
-.. code-block:: python
+.. code-block:: python3
 
   n = FacetNormal(mesh)
   un = 0.5*(dot(u, n) + abs(dot(u, n)))
 
 We define our trial and test functions in the usual way:
 
-.. code-block:: python
+.. code-block:: python3
 
   q = TrialFunction(V)
   phi = TestFunction(V)
@@ -143,7 +143,7 @@ our velocity field is purely in the vertical direction, we will omit the
 integral over vertical interior facets, since we know
 :math:`\vec{u} \cdot \vec{n}` is zero for these.
 
-.. code-block:: python
+.. code-block:: python3
 
   a1 = -q*dot(u, grad(phi))*dx
   a2 = dot(jump(phi), un('+')*q('+') - un('-')*q('-'))*dS_h
@@ -154,21 +154,21 @@ integral over vertical interior facets, since we know
 
 Finally, we will compute the solution:
 
-.. code-block:: python
+.. code-block:: python3
 
   out = Function(V)
   solve(a == L, out)
 
 By construction, the exact solution is quite simple:
 
-.. code-block:: python
+.. code-block:: python3
 
   exact = Function(V)
   exact.interpolate(conditional(x > 0.5, 1.0, -1.0))
 
 We finally compare our solution to the expected solution:
 
-.. code-block:: python
+.. code-block:: python3
 
   assert max(abs(out.dat.data - exact.dat.data)) < 1e-10
 

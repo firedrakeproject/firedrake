@@ -33,7 +33,7 @@ stability we elect to use a backward Euler discretisation:
 
 We can now proceed to set up the problem. We choose a resolution and set up a square mesh:
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   n = 30
@@ -42,7 +42,7 @@ We can now proceed to set up the problem. We choose a resolution and set up a sq
 We choose degree 2 continuous Lagrange polynomials. We also need a
 piecewise linear space for output purposes:
 
-.. code-block:: python
+.. code-block:: python3
 
   V = VectorFunctionSpace(mesh, "CG", 2)
   V_out = VectorFunctionSpace(mesh, "CG", 1)
@@ -51,7 +51,7 @@ We also need solution functions for the current and the next
 timestep. Note that, since this is a nonlinear problem, we don't
 define trial functions:
 
-.. code-block:: python
+.. code-block:: python3
 
   u_ = Function(V, name="Velocity")
   u = Function(V, name="VelocityNext")
@@ -60,7 +60,7 @@ define trial functions:
 
 For this problem we need an initial condition:
 
-.. code-block:: python
+.. code-block:: python3
 
   x = SpatialCoordinate(mesh)
   ic = project(as_vector([sin(pi*x[0]), 0]), V)
@@ -69,14 +69,14 @@ We start with current value of u set to the initial condition, but we
 also use the initial condition as our starting guess for the next
 value of u:
 
-.. code-block:: python
+.. code-block:: python3
 
   u_.assign(ic)
   u.assign(ic)
 
 :math:`\nu` is set to a (fairly arbitrary) small constant value:
 
-.. code-block:: python
+.. code-block:: python3
 
   nu = 0.0001
 
@@ -85,7 +85,7 @@ around 1. Since we are employing backward Euler, this is stricter than
 is required for stability, but ensures good temporal resolution of the
 system's evolution:
 
-.. code-block:: python
+.. code-block:: python3
 
   timestep = 1.0/n
 
@@ -98,14 +98,14 @@ Note once again that for a nonlinear problem, there are no trial functions in
 the formulation. These will be created automatically when the residual
 is differentiated by the nonlinear solver:
 
-.. code-block:: python
+.. code-block:: python3
 
   F = (inner((u - u_)/timestep, v)
        + inner(dot(u,nabla_grad(u)), v) + nu*inner(grad(u), grad(v)))*dx
 
 We now create an object for output visualisation:
 
-.. code-block:: python
+.. code-block:: python3
 
   outfile = VTKFile("burgers.pvd")
 
@@ -118,7 +118,7 @@ projection (by passing ``project_output=True`` when creating the
 the :meth:`~.vtk_output.VTKFile.write` method of
 :class:`~.vtk_output.VTKFile` objects:
 
-.. code-block:: python
+.. code-block:: python3
 
   outfile.write(project(u, V_out, name="Velocity"))
 
@@ -126,7 +126,7 @@ Finally, we loop over the timesteps solving the equation each time and
 outputting each result. Firedrake's default solver parameters are used,
 which amount to applying a full LU decomposition as a preconditioner.
 
-.. code-block:: python
+.. code-block:: python3
 
   t = 0.0
   end = 0.5

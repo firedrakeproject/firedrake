@@ -117,7 +117,7 @@ to have done the following:
 #. Code should pass linting checks. To check this locally, you should
    run the command:
 
-.. code-block:: python
+.. code-block::
 
       $ make srclint
 
@@ -125,7 +125,7 @@ to have done the following:
    correctly rendered. To build the documentation locally you should
    run:
 
-.. code-block:: python
+.. code-block::
 
       $ cd docs
       $ make html

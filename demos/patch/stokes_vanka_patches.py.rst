@@ -23,7 +23,7 @@ exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the Vanka patches. This is set
 via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
 
@@ -36,7 +36,7 @@ Next, this function solves the Stokes equation discretized with Taylor-Hood
 elements and user-provided solver parameters and returns the iteration count
 required for convergence.  Here, we use a driven cavity problem:
 
-.. code-block:: python
+.. code-block:: python3
 
   def run_solve(mesh, params):
       V = VectorFunctionSpace(mesh, "CG", 2)
@@ -66,7 +66,7 @@ relaxation options and matrix assembly type.  On the coarsest level of the
 multigrid hierarchy, we force the matrix to be assembled and use a sparse direct
 solver.
 
-.. code-block:: python
+.. code-block:: python3
 
   def mg_params(relax, mat_type="aij"):
       return {
@@ -93,7 +93,7 @@ each subdomain.  Hence, it does not require the global stiffness
 matrix to be assembled.  These are quite similar to the options used in
 <poisson_mg_patches.py>:
 
-.. code-block:: python
+.. code-block:: python3
 
   patch_relax = mg_params(
       {"pc_type": "python",
@@ -113,7 +113,7 @@ matrix to be assembled.  These are quite similar to the options used in
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
 patch operators for each patch from the already-assembled global stiffness matrix.
 
-.. code-block:: python
+.. code-block:: python3
 
   asm_relax = mg_params(
       {"pc_type": "python",
@@ -133,7 +133,7 @@ over a range of polynomial degrees.  We see that the Jacobi relaxation leads to 
 in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
 latter options do the same operations, just via different code paths.
 
-.. code-block:: python
+.. code-block:: python3
 
   names = {"ASM Vanka": asm_relax,
            "Patch Vanka": patch_relax}

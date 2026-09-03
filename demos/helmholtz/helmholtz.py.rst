@@ -48,7 +48,7 @@ method, so lets go ahead and produce a numerical solution.
 
 First, we always need a mesh. Let's have a :math:`10\times10` element unit square:
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   mesh = UnitSquareMesh(10, 10)
@@ -57,14 +57,14 @@ We need to decide on the function space in which we'd like to solve the
 problem. Let's use piecewise linear functions continuous between
 elements:
 
-.. code-block:: python
+.. code-block:: python3
 
   V = FunctionSpace(mesh, "CG", 1)
 
 We'll also need the test and trial functions corresponding to this
 function space:
 
-.. code-block:: python
+.. code-block:: python3
 
   u = TrialFunction(V)
   v = TestFunction(V)
@@ -72,7 +72,7 @@ function space:
 We declare a function over our function space and give it the
 value of our right hand side function:
 
-.. code-block:: python
+.. code-block:: python3
 
   f = Function(V)
   x, y = SpatialCoordinate(mesh)
@@ -81,7 +81,7 @@ value of our right hand side function:
 We can now define the bilinear and linear forms for the left and right
 hand sides of our equation respectively:
 
-.. code-block:: python
+.. code-block:: python3
 
   a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
   L = inner(f, v) * dx
@@ -89,7 +89,7 @@ hand sides of our equation respectively:
 Finally we solve the equation. We redefine `u` to be a function
 holding the solution:
 
-.. code-block:: python
+.. code-block:: python3
 
   u = Function(V)
 
@@ -97,7 +97,7 @@ Since we know that the Helmholtz equation is
 symmetric, we instruct PETSc to employ the conjugate gradient method
 and do not worry about preconditioning for the purposes of this demo:
 
-.. code-block:: python
+.. code-block:: python3
 
   solve(a == L, u, solver_parameters={'ksp_type': 'cg', 'pc_type': 'none'})
 
@@ -107,7 +107,7 @@ of the manual on :doc:`solving PDEs <../solving-interface>`.
 Next, we might want to look at the result, so we output our solution
 to a file:
 
-.. code-block:: python
+.. code-block:: python3
 
   VTKFile("helmholtz.pvd").write(u)
 
@@ -117,7 +117,7 @@ We could use the built-in plotting functions of firedrake by calling
 :func:`tripcolor <firedrake.pyplot.tripcolor>` to make a pseudo-color plot.
 Before that, matplotlib.pyplot should be installed and imported:
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
     import matplotlib.pyplot as plt
@@ -136,7 +136,7 @@ The plotting functions in Firedrake mimic those of matplotlib; to produce a
 contour plot instead of a pseudocolor plot, we can call
 :func:`tricontour <firedrake.pyplot.tricontour>` instead:
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
     fig, axes = plt.subplots()
@@ -147,7 +147,7 @@ contour plot instead of a pseudocolor plot, we can call
 
 Don't forget to show the image:
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
     plt.show()
@@ -157,7 +157,7 @@ Don't forget to show the image:
 Alternatively, since we have an analytic solution, we can check the
 :math:`L_2` norm of the error in the solution:
 
-.. code-block:: python
+.. code-block:: python3
 
   f.interpolate(cos(x*pi*2)*cos(y*pi*2))
   print(sqrt(assemble(dot(u - f, u - f) * dx)))

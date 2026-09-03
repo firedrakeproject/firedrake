@@ -192,7 +192,7 @@ simulation more accurate/expensive. The distribution parameters
 configure the mesh partitioning to enable greater overlap than usual,
 which is necessary for vertex-star relaxation in parallel.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   from firedrake.petsc import PETSc
@@ -210,7 +210,7 @@ which is necessary for vertex-star relaxation in parallel.
 
 We define the BDM–DG mixed space.
 
-.. code-block:: python
+.. code-block:: python3
 
   k = 2
   V = FunctionSpace(mesh, "BDM", k)
@@ -220,7 +220,7 @@ We define the BDM–DG mixed space.
 The boundary conditions impose the no-slip and lid conditions on the
 velocity component of the mixed space.
 
-.. code-block:: python
+.. code-block:: python3
 
   Re = Constant(1)
   bcs = [DirichletBC(W.sub(0), 0, (1, 2, 3)),
@@ -228,7 +228,7 @@ velocity component of the mixed space.
 
 We set up the solution function and test functions.
 
-.. code-block:: python
+.. code-block:: python3
 
   w = Function(W, name="Solution")
   (u, p) = split(w)
@@ -251,7 +251,7 @@ is :math:`\tfrac{1}{2}(u \cdot n + |u \cdot n|) u`.
 
 The final group implements the pressure gradient and the divergence constraint.
 
-.. code-block:: python
+.. code-block:: python3
 
   gamma = Constant(10000)
   sigma = Constant(5 * (k+1)**2)
@@ -277,7 +277,7 @@ Boundary conditions are imposed weakly via two helper functions.
 interior penalty terms restricted to boundary facets), and ``c_bc``
 contributes the convective upwind flux on boundary facets.
 
-.. code-block:: python
+.. code-block:: python3
 
   def a_bc(u, v, bid, g):
       ures = u - g if g else u
@@ -297,7 +297,7 @@ We loop over the Dirichlet boundary conditions, adding the weak
 boundary terms for each marked wall, and separately handle any
 remaining exterior facets with a zero-inflow flux.
 
-.. code-block:: python
+.. code-block:: python3
 
   exterior_markers = set(mesh.exterior_facets.unique_markers)
   for bc in bcs:
@@ -319,7 +319,7 @@ differentiate to obtain the preconditioning bilinear form ``Jp``
 from which PETSc will extract :math:`A_\gamma` and :math:`-\gamma^{-1}Q`
 required for the Schur factorization.
 
-.. code-block:: python
+.. code-block:: python3
 
   Fp = F + inner(div(u)*gamma, div(v))*dx - inner(p/gamma, q)*dx 
   Jp = derivative(Fp, w)
@@ -350,7 +350,7 @@ The pressure block inverts the pressure mass matrix. For the
 integral-variant DG space the mass matrix is diagonal, so Jacobi is
 exact.
 
-.. code-block:: python
+.. code-block:: python3
 
   sp = {
       'mat_type': 'matfree',
@@ -403,7 +403,7 @@ diagnostic, we also print :math:`\|\nabla \cdot u\|_{L^2}`. Since the
 discretisation is exactly incompressible, this should remain close to machine
 precision.
 
-.. code-block:: python
+.. code-block:: python3
 
   (u_, p_) = w.subfunctions
   u_.rename("Velocity")

@@ -76,13 +76,13 @@ multiplicatively within an MPI rank and additively between ranks.
    `distribution_parameters` kwarg of the :func:`.Mesh` constructor.  For
    instance, vertex-star patches require:
 
-.. code-block:: python
+.. code-block:: python3
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 1)
 
    while Vanka patches require:
 
-.. code-block:: python
+.. code-block:: python3
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 2)
 

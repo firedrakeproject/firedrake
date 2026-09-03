@@ -13,7 +13,7 @@ For more details about Gmsh, please
 refer to the `Gmsh documentation <http://gmsh.info/#Documentation>`_.
 The Gmsh syntax used in this document is for Gmsh version 4.4.1.
 
-.. code-block:: python
+.. code-block:: python3
 
    import matplotlib.pyplot as plt
    from firedrake import *
@@ -32,7 +32,7 @@ Relative to a central origin, ``(x0, y0, z0)``, the rectangle is parameterised b
 and width, ``W``. Likewise, the disc is parameterised its radius, ``R``. The target element size is
 set to ``dx_rec=0.5`` and ``dx_disc=0.1`` to generate finer triangles around the disc.
 
-.. code-block:: python
+.. code-block:: python3
 
    x0, y0, z0 = 0., 0., 0.
    L = 12.
@@ -139,7 +139,7 @@ and improved readability of the mesh generation code.
 
 We first need to ``initialize`` the Gmsh API and create a new empty mesh model.
 
-.. code-block:: python
+.. code-block:: python3
 
    gmsh.initialize()
    model = gmsh.model
@@ -147,7 +147,7 @@ We first need to ``initialize`` the Gmsh API and create a new empty mesh model.
 
 As before, we define the four rectangle corner points and target element size.
 
-.. code-block:: python
+.. code-block:: python3
 
    rectangle_points = [
    model.geo.addPoint(x0 - L/2, y0 + W/2, z0, dx_rec, tag = 1), # top left
@@ -158,7 +158,7 @@ As before, we define the four rectangle corner points and target element size.
 
 Then, we define 5 points to describe a circle.
 
-.. code-block:: python
+.. code-block:: python3
 
    center = model.geo.addPoint(x0, y0, z0, tag = 5)
    circle_points = [
@@ -170,7 +170,7 @@ Then, we define 5 points to describe a circle.
 
 Then, we create 8 edges: 4 for the rectangle and 4 for the circle.
 
-.. code-block:: python
+.. code-block:: python3
 
    rectangle_lines = [
    model.geo.addLine(rectangle_points[0], rectangle_points[1], tag = 1), # left
@@ -194,7 +194,7 @@ anything after in the list is treated as the boundary of a hole (or holes)
 in the domain. These need to be registered to the model with ``synchronize`` 
 before we can use them.
 
-.. code-block:: python
+.. code-block:: python3
 
    rectangle_loop = model.geo.addCurveLoop(rectangle_lines, tag = 9)
    circle_loop = model.geo.addCurveLoop(circle_arcs, tag = 10)
@@ -205,7 +205,7 @@ before we can use them.
    
 Finally, we group together some edges and define ``Physical`` entities.
 
-.. code-block:: python
+.. code-block:: python3
 
    model.addPhysicalGroup(dim = 1, tags = [rectangle_lines[1], rectangle_lines[3]], tag = 11, name="HorEdges")
    model.addPhysicalGroup(dim = 1, tags = [rectangle_lines[0], rectangle_lines[2]], tag = 12, name="VerEdges")
@@ -225,7 +225,7 @@ For more information see the `Gmsh algorithm overview <https://gmsh.info/doc/tex
 When writing the mesh to file, the format is determined by the file extension. For example,
 ``.msh2`` for Gmsh 2.x, ``.msh`` for GMSH 4.x.
 
-.. code-block:: python
+.. code-block:: python3
 
    gmsh.option.setNumber("Mesh.Algorithm", 6)
    gmsh.option.setNumber("Mesh.MshFileVersion", 4.1)
@@ -234,7 +234,7 @@ When writing the mesh to file, the format is determined by the file extension. F
    
 We close the Gmsh API kernel after finalising the mesh.
 
-.. code-block:: python
+.. code-block:: python3
 
    gmsh.finalize()
 
@@ -248,7 +248,7 @@ in Gmsh for more details.
 
 As with the Gmsh API, we ``initialize`` and start constructing a new mesh model.
 
-.. code-block:: python
+.. code-block:: python3
 
    gmsh.initialize()
    model = gmsh.model
@@ -258,7 +258,7 @@ We first use OpenCASCADE to create a rectangle and a cylinder object. This autom
 the create of points, lines, and surfaces. Both objects need to be registered to the 
 model with ``synchronize`` before we can use them.
 
-.. code-block:: python
+.. code-block:: python3
 
    rectangle_obj_tag = model.occ.addRectangle(x0 - L/2, y0 - W/2, z0, L, W, tag = 1)
    disc_obj_tag = model.occ.addDisk(x0, y0, z0, rx = R, ry = R, tag = 2)
@@ -270,7 +270,7 @@ takes and returns a list of tuples ``(dimension, tag)`` as do other functions su
 ``getBoundary`` used below. We save the tag of the combined object for later use 
 and register the new object to the model with ``synchronize``.
 
-.. code-block:: python
+.. code-block:: python3
 
    punched_surface = model.occ.cut([(2, rectangle_obj_tag)], [(2, disc_obj_tag)], removeTool=False)
    punched_surface_tag = punched_surface[0][0][1]
@@ -282,7 +282,7 @@ per entity (``combined = false``) or as a single shape (``combined = true``), an
 adjust the signs to reflect orientation if ``oriented = true``. The boundary operator 
 is applied down to point-level, or dimension 0, when ``recursive = True``.
 
-.. code-block:: python
+.. code-block:: python3
 
    punched_lines = model.getBoundary([(2, punched_surface_tag)],
                                         combined = True, oriented = True, recursive = False)
@@ -294,7 +294,7 @@ zero-dimensional points to the background size, and then override the mesh size 
 points on the circle boundary. Another strategy documented in the Gmsh manual is to
 identify the desired points by a bounding box search.
 
-.. code-block:: python
+.. code-block:: python3
 
    model.mesh.setSize(gmsh.model.occ.getEntities(0), dx_rec)
    model.mesh.setSize(disc_points, dx_disc)
@@ -303,7 +303,7 @@ We parse just the line tags to create a list of physical group tags. In this cas
 assignment of the lines was done manually through trial and inspection. 
 TODO: add a function to automatically assign the lines to the physical groups.
 
-.. code-block:: python
+.. code-block:: python3
 
    punched_line_tags = [abs(line) for dim,line in punched_lines]
    model.addPhysicalGroup(dim = 1, tags = [punched_line_tags[1], punched_line_tags[4]], tag = 11, name="HorEdges")
@@ -321,7 +321,7 @@ Compare Meshes
 --------------
 We can load and check the generated meshes in Firedrake.
 
-.. code-block:: python
+.. code-block:: python3
 
    meshes = [Mesh('gmsh_occ_demo.msh', name = "Gmsh API"),
              Mesh('gmsh_api_demo.msh', name = "Gmsh OpenCASCADE")]
@@ -372,7 +372,7 @@ The resulting weak formulation reads as follows:
 The following Firedrake code shows how to solve this variational problem
 using linear Lagrangian finite elements.
 
-.. code-block:: python
+.. code-block:: python3
 
    # load the mesh generated with Gmsh
    mesh = Mesh('gmsh_occ_demo.msh')

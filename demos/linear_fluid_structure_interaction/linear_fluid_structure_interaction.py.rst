@@ -63,7 +63,7 @@ The underlined terms are the coupling terms. Note that the first equation for :m
 
 Now we present the code used to solve the system of equations above. We start with appropriate imports:
 
-.. code-block:: python
+.. code-block:: python3
 
     from firedrake import *
     import math
@@ -71,7 +71,7 @@ Now we present the code used to solve the system of equations above. We start wi
 
 Then, we set parameters of the simulation:
 
-.. code-block:: python
+.. code-block:: python3
 
     # parameters in SI units
     t_end = 5.0  # time of simulation [s]
@@ -100,7 +100,7 @@ Then, we set parameters of the simulation:
 
 The equations are in nondimensional units, hence we transform:
 
-.. code-block:: python
+.. code-block:: python3
 
     L = Lz
     T = L / math.sqrt(g * L)
@@ -115,7 +115,7 @@ The equations are in nondimensional units, hence we transform:
 
 Let us define function spaces, including the mixed one:
 
-.. code-block:: python
+.. code-block:: python3
 
     V_W = FunctionSpace(mesh, "CG", 1)
     V_B = VectorFunctionSpace(mesh, "CG", 1)
@@ -123,7 +123,7 @@ Let us define function spaces, including the mixed one:
 
 Then, we define functions. First, in the fluid domain:
 
-.. code-block:: python
+.. code-block:: python3
 
     phi = Function(V_W, name="phi")
     phi_f = Function(V_W, name="phi_f")  # at the free surface
@@ -133,7 +133,7 @@ Then, we define functions. First, in the fluid domain:
 
 Second, in the beam domain:
 
-.. code-block:: python
+.. code-block:: python3
 
     X = Function(V_B, name="X")
     U = Function(V_B, name="U")
@@ -142,7 +142,7 @@ Second, in the beam domain:
 
 And last, mixed functions in the mixed domain:
 
-.. code-block:: python
+.. code-block:: python3
 
     trial_f, trial_s = TrialFunctions(mixed_V)
     v_f, v_s = TestFunctions(mixed_V)
@@ -152,7 +152,7 @@ And last, mixed functions in the mixed domain:
 
 We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the other. They are needed both in "CG" and "DG" space. We use the fact that the fluid and structure subdomains are defined in the mesh file with an appropriate ID number that Firedrake is able to recognise. That can be used in constructing indicator functions:
 
-.. code-block:: python
+.. code-block:: python3
 
     V_DG0_W = FunctionSpace(mesh, "DG", 0)
     V_DG0_B = FunctionSpace(mesh, "DG", 0)
@@ -179,14 +179,14 @@ We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the 
 
 We use indicator functions to construct normal unit vector outward to the fluid domain at the fluid-structure interface:
 
-.. code-block:: python
+.. code-block:: python3
 
     n_vec = FacetNormal(mesh)
     n_int = I_B("+") * n_vec("+") + I_B("-") * n_vec("-")
 
 Now we can construct special boundary conditions that limit the solvers only to the appropriate subdomains of our interest:
 
-.. code-block:: python
+.. code-block:: python3
 
     class MyBC(DirichletBC):
         def __init__(self, V, value, markers):
@@ -227,7 +227,7 @@ Now we can construct special boundary conditions that limit the solvers only to 
 
 Finally, we are ready to define the solvers of our equations. First, equation for :math:`\phi` at the free surface:
 
-.. code-block:: python
+.. code-block:: python3
 
     a_phi_f = trial_W * v_W * ds(top_id)
     L_phi_f = (phi_f - dt * eta) * v_W * ds(top_id)
@@ -236,7 +236,7 @@ Finally, we are ready to define the solvers of our equations. First, equation fo
 
 Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it to the bottom by applying zero Dirichlet boundary condition:
 
-.. code-block:: python
+.. code-block:: python3
 
     a_X = dot(trial_B, v_B) * dx(structure_id)
     L_X = dot((X + dt * U), v_B) * dx(structure_id)
@@ -247,7 +247,7 @@ Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it
 
 Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in the mixed domain. In particular, value of :math:`\phi` at the free surface is used as a boundary condition. Note that avg(...) is necessary for terms in expressions containing n_int, which is built in "DG" space:
 
-.. code-block:: python
+.. code-block:: python3
 
     # phi-U
     # no-motion beam bottom boundary condition in the mixed space
@@ -281,7 +281,7 @@ Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in
 
 Let us set the initial condition. We choose no motion at the beginning in both fluid and structure, zero displacement in the structure and deflected free surface in the fluid. The shape of the deflection is computed from the analytical solution:
 
-.. code-block:: python
+.. code-block:: python3
 
     # initial condition in fluid based on analytical solution
     # compute analytical initial phi and eta
@@ -305,13 +305,13 @@ Let us set the initial condition. We choose no motion at the beginning in both f
 
 A file to store data for visualization:
 
-.. code-block:: python
+.. code-block:: python3
 
     outfile_phi = VTKFile("results_pvd/phi.pvd")
 
 To save data for visualization, we change the position of the nodes in the mesh, so that they represent the computed dynamic position of the free surface and the structure:
 
-.. code-block:: python
+.. code-block:: python3
 
     def output_data():
         output_data.counter += 1
@@ -328,7 +328,7 @@ To save data for visualization, we change the position of the nodes in the mesh,
 
 In the end, we proceed with the actual computation loop:
 
-.. code-block:: python
+.. code-block:: python3
 
     t = 0.0
     output_data()

@@ -8,7 +8,7 @@ cavity.
 
 As ever, we import firedrake and define a mesh.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
 
@@ -31,7 +31,7 @@ The boundary conditions are defined on the velocity space.  Zero
 Dirichlet conditions on the bottom and side walls, a constant :math:`u
 = (1, 0)` condition on the lid.
 
-.. code-block:: python
+.. code-block:: python3
 
   bcs = [DirichletBC(Z.sub(0), Constant((1, 0)), (4,)),
          DirichletBC(Z.sub(0), Constant((0, 0)), (1, 2, 3))]
@@ -42,7 +42,7 @@ Since we do not specify boundary conditions on the pressure space, it
 is only defined up to a constant.  We will remove this component of
 the solution in the solver by providing the appropriate nullspace.
 
-.. code-block:: python
+.. code-block:: python3
 
   nullspace = MixedVectorSpaceBasis(
       Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
@@ -52,14 +52,14 @@ sparse direct solver MUMPS must be installed.  Hence this solve is
 wrapped in a ``try/except`` block so that an error is not raised in
 the case that it is not, to do this we must import ``PETSc``:
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake.petsc import PETSc
 
 To factor the matrix from this mixed system, we must specify
 a ``mat_type`` of ``aij`` to the solve call.
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
       solve(a == L, up, bcs=bcs, nullspace=nullspace,
@@ -78,13 +78,13 @@ matrices.  We can do all of this purely by changing the solver
 options.  We'll define the parameters separately to run through the
 options.
 
-.. code-block:: python
+.. code-block:: python3
 
   parameters = {
 
 First up we select the unassembled matrix type:
 
-.. code-block:: python
+.. code-block:: python3
 
       "mat_type": "matfree",
 
@@ -93,7 +93,7 @@ the Schur complement factorisation to approximate the inverse.  We'll
 also monitor the convergence of the residual, and ask PETSc to view
 the configured Krylov solver object.
 
-.. code-block:: python
+.. code-block:: python3
 
       "ksp_type": "gmres",
       "ksp_monitor_true_residual": None,
@@ -106,7 +106,7 @@ Next we configure the solvers for the blocks.  For the velocity block,
 we use an :class:`.AssembledPC` and approximate the inverse of the
 vector laplacian using a single multigrid V-cycle.
 
-.. code-block:: python
+.. code-block:: python3
 
       "fieldsplit_0_ksp_type": "preonly",
       "fieldsplit_0_pc_type": "python",
@@ -122,7 +122,7 @@ MassInvPC will choose a default value of 1.0 if not set.  For high viscosity
 contrasts, this preconditioner is mesh-dependent and should be replaced
 by some form of approximate commutator.
 
-.. code-block:: python
+.. code-block:: python3
 
       "fieldsplit_1_ksp_type": "preonly",
       "fieldsplit_1_pc_type": "python",
@@ -131,7 +131,7 @@ by some form of approximate commutator.
 The mass inverse is dense, and therefore approximated with an incomplete
 LU factorization, which we configure now:
 
-.. code-block:: python
+.. code-block:: python3
 
       "fieldsplit_1_Mp_mat_type": "aij",
       "fieldsplit_1_Mp_pc_type": "ilu"
@@ -140,7 +140,7 @@ LU factorization, which we configure now:
 Having set up the parameters, we can now go ahead and solve the
 problem.
 
-.. code-block:: python
+.. code-block:: python3
 
   up.assign(0)
   solve(a == L, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters)
@@ -150,7 +150,7 @@ visualisation.  We split the function into its velocity and pressure
 parts and give them reasonable names, then write them to a paraview
 file.
 
-.. code-block:: python
+.. code-block:: python3
 
   u, p = up.subfunctions
   u.rename("Velocity")
@@ -164,7 +164,7 @@ argument.  To do this, we must specify the ``mat_type`` inside the
 preconditioner.  We can use the previous set of parameters and just
 modify them slightly.
 
-.. code-block:: python
+.. code-block:: python3
 
   parameters["fieldsplit_1_Mp_mat_type"] = "matfree"
 
@@ -172,7 +172,7 @@ With an unassembled matrix, of course, we are not able to use standard
 preconditioners, so for this example, we will just invert the mass
 matrix using unpreconditioned conjugate gradients.
 
-.. code-block:: python
+.. code-block:: python3
 
   parameters["fieldsplit_1_Mp_pc_type"] = "ksp"
   parameters["fieldsplit_1_Mp_ksp_ksp_type"] = "cg"

@@ -61,14 +61,14 @@ norm, which guarantees regularity of the numerical solution.
 As usual, to implement this problem, we start by importing the
 Firedrake namespace.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
 
 To visualise the output, we also need to import matplotlib.pyplot to display
 the visual output:
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
     import matplotlib.pyplot as plt
@@ -77,7 +77,7 @@ the visual output:
 
 We then set the parameters for the scheme.
 
-.. code-block:: python
+.. code-block:: python3
 
   alpha = 1.0
   alphasq = Constant(alpha**2)
@@ -90,7 +90,7 @@ changed without needing to regenerate code.
 We use a :func:`periodic mesh <.PeriodicIntervalMesh>` of width 40
 with 100 cells,
 
-.. code-block:: python
+.. code-block:: python3
 
   n = 100
   mesh = PeriodicIntervalMesh(n, 40.0)
@@ -98,7 +98,7 @@ with 100 cells,
 and build a :class:`mixed function space <.MixedFunctionSpace>` for the
 two variables.
 
-.. code-block:: python
+.. code-block:: python3
 
   V = FunctionSpace(mesh, "CG", 1)
   W = MixedFunctionSpace((V, V))
@@ -107,7 +107,7 @@ We construct a :class:`~.Function` to store the two variables at time
 level ``n``, and :attr:`~.Function.subfunctions` it so that we can
 interpolate the initial condition into the two components.
 
-.. code-block:: python
+.. code-block:: python3
 
   w0 = Function(W)
   m0, u0 = w0.subfunctions
@@ -120,7 +120,7 @@ Then we interpolate the initial condition,
 
 into u,
 
-.. code-block:: python
+.. code-block:: python3
 
   x, = SpatialCoordinate(mesh)
   u0.interpolate(0.2*2/(exp(x-403./15.) + exp(-x+403./15.))
@@ -130,7 +130,7 @@ before solving for the initial condition for ``m``. This is done by
 setting up the linear problem and solving it (here we use a direct
 solver since the problem is one dimensional).
 
-.. code-block:: python
+.. code-block:: python3
 
   p = TestFunction(V)
   m = TrialFunction(V)
@@ -148,7 +148,7 @@ Next we build the weak form of the timestepping algorithm. This is expressed
 as a mixed nonlinear problem, which must be written as a bilinear form
 that is a function of the output :class:`~.Function` ``w1``.
 
-.. code-block:: python
+.. code-block:: python3
 
   p, q = TestFunctions(W)
 
@@ -161,7 +161,7 @@ Note the use of :func:`split(w1) <ufl.split_functions.split>` here, which splits
 :class:`~.Function` so that it may be inserted into a UFL
 expression.
 
-.. code-block:: python
+.. code-block:: python3
 
   mh = 0.5*(m1 + m0)
   uh = 0.5*(u1 + u0)
@@ -175,7 +175,7 @@ Since we are in one dimension, we use a direct solver for the linear
 system within the Newton algorithm. To do this, we assemble a monolithic
 rather than blocked system.
 
-.. code-block:: python
+.. code-block:: python3
 
   uprob = NonlinearVariationalProblem(L, w1)
   usolver = NonlinearVariationalSolver(uprob, solver_parameters=
@@ -187,7 +187,7 @@ Next we use the other form of :attr:`~.Function.subfunctions`, ``w0.subfunctions
 which is the way to split up a Function in order to access its data
 e.g. for output.
 
-.. code-block:: python
+.. code-block:: python3
 
   m0, u0 = w0.subfunctions
   m1, u1 = w1.subfunctions
@@ -196,7 +196,7 @@ We choose a final time, and initialise a :class:`~.vtk_output.VTKFile`
 object for storing ``u``. as well as an array for storing the function
 to be visualised:
 
-.. code-block:: python
+.. code-block:: python3
 
   T = 100.0
   ufile = VTKFile('u.pvd')
@@ -206,21 +206,21 @@ to be visualised:
 
 We also initialise a dump counter so we only dump every 10 timesteps.
 
-.. code-block:: python
+.. code-block:: python3
 
   ndump = 10
   dumpn = 0
 
 Now we enter the timeloop.
 
-.. code-block:: python
+.. code-block:: python3
 
   while (t < T - 0.5*dt):
      t += dt
 
 The energy can be computed and checked.
 
-.. code-block:: python
+.. code-block:: python3
 
   #
      E = assemble((u0*u0 + alphasq*u0.dx(0)*u0.dx(0))*dx)
@@ -229,7 +229,7 @@ The energy can be computed and checked.
 To implement the timestepping algorithm, we just call the solver, and assign
 ``w1`` to ``w0``.
 
-.. code-block:: python
+.. code-block:: python3
 
   #
      usolver.solve()
@@ -238,7 +238,7 @@ To implement the timestepping algorithm, we just call the solver, and assign
 Finally, we check if it is time to dump the data. The function will be appended
 to the array of functions to be plotted later:
 
-.. code-block:: python
+.. code-block:: python3
 
   #
      dumpn += 1
@@ -254,7 +254,7 @@ momentum is transferred to the right peakon.
 At last, we call the function :func:`plot <firedrake.pyplot.plot>` on the final
 value to visualize it:
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
     from firedrake.pyplot import plot
@@ -265,7 +265,7 @@ value to visualize it:
 
 And finally show the figure:
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
     plt.show()

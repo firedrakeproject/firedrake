@@ -250,7 +250,7 @@ For example, we might create this extruded mesh:
 
 which results in the following mesh topology.
 
-.. code-block:: python
+.. code-block:: python3
 
                        x--------x
                        |        |

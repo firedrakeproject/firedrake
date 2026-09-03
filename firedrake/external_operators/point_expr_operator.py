@@ -118,7 +118,7 @@ def point_expr(point_expr, function_space):
     Example
     -------
 
-    .. code-block:: python
+    .. code-block:: python3
 
         # Stage 1: Partially initialise the operator.
         N = point_expr(lambda x, y: x - y, function_space=V)

@@ -72,7 +72,7 @@ gradients (which we will discuss later).
 Instantiating an ensemble requires a communicator (usually MPI_COMM_WORLD) plus the number of MPI
 processes to be used in each member of the ensemble (2, in this case):
 
-.. code-block:: python
+.. code-block:: python3
 
     from firedrake import *
     M = 2
@@ -94,20 +94,20 @@ functionals :math:`J_s` and their gradients for the distinct the wave sources.
 
 The number of sources is defined with ``my_ensemble.ensemble_comm.size`` (3 in this case):
 
-.. code-block:: python
+.. code-block:: python3
 
     num_sources = my_ensemble.ensemble_comm.size
 
 The source number is defined with the ``Ensemble.ensemble_comm`` rank:
 
-.. code-block:: python
+.. code-block:: python3
 
     source_number = my_ensemble.ensemble_comm.rank
 
 In this example, we consider a two-dimensional square domain with a side length of 1.0 km. The mesh is
 built over the ``my_ensemble.comm`` (spatial) communicator.
 
-.. code-block:: python
+.. code-block:: python3
 
     import os
     if os.getenv("FIREDRAKE_CI") == "1": 
@@ -126,7 +126,7 @@ built over the ``my_ensemble.comm`` (spatial) communicator.
 
 The frequency of the Ricker wavelet, the source and receiver locations are defined as follows:
 
-.. code-block:: python
+.. code-block:: python3
 
     import numpy as np
     frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet in Hz.
@@ -148,7 +148,7 @@ pressure wave velocity model. The synthetic pressure wave velocity model is refe
 true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true`` consisting of a
 circle in the centre of the domain, as shown in the following code cell:
 
-.. code-block:: python
+.. code-block:: python3
 
     V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
@@ -167,7 +167,7 @@ as:
 
 where :math:`r(t)` is the Ricker wavelet coded as follows:
 
-.. code-block:: python
+.. code-block:: python3
 
     def ricker_wavelet(t, fs, amp=1.0):
         ts = 1.5
@@ -178,26 +178,26 @@ where :math:`r(t)` is the Ricker wavelet coded as follows:
 To compute the cofunction :math:`q_s(\mathbf{x})\in V^{\ast}`, we first construct the source mesh over the
 source location :math:`\mathbf{x}_s`, for the source number ``source_number``:
 
-.. code-block:: python
+.. code-block:: python3
 
     source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
 
 Next, we define a function space :math:`V_s` accordingly:
 
-.. code-block:: python
+.. code-block:: python3
 
     V_s = FunctionSpace(source_mesh, "DG", 0)
 
 The point source value :math:`d_s(\mathbf{x}_s) = 1.0` is coded as:
 
-.. code-block:: python
+.. code-block:: python3
 
     d_s = Function(V_s)
     d_s.interpolate(1.0)
 
 We then interpolate a cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}` to then have :math:`q_s \in V^{\ast}`:
 
-.. code-block:: python
+.. code-block:: python3
 
     source_cofunction = assemble(d_s * TestFunction(V_s) * dx)
     q_s = Cofunction(V.dual()).interpolate(source_cofunction)
@@ -205,7 +205,7 @@ We then interpolate a cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}` to 
 
 The forward wave equation solver is written as follows:
 
-.. code-block:: python
+.. code-block:: python3
 
     import finat
     
@@ -234,7 +234,7 @@ You can find more details about the wave equation with mass lumping on this
 
 The receivers mesh and its function space :math:`V_r`:
 
-.. code-block:: python
+.. code-block:: python3
 
     receiver_mesh = VertexOnlyMesh(mesh, receiver_locations)
     V_r = FunctionSpace(receiver_mesh, "DG", 0)
@@ -243,7 +243,7 @@ The receiver mesh is required in order to interpolate the wave equation solution
 
 We are now able to proceed with the synthetic data computations and record them on the receivers:
 
-.. code-block:: python
+.. code-block:: python3
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
@@ -274,7 +274,7 @@ Next, the FWI problem is executed with the following steps:
 
 **Step 1**: The initial guess is set as a constant field with a value of 1.5 km/s:
 
-.. code-block:: python
+.. code-block:: python3
 
     c_guess = Function(V).interpolate(1.5)
 
@@ -287,7 +287,7 @@ Next, the FWI problem is executed with the following steps:
 
 To have the step 4, we need first to tape the forward problem. That is done by calling:
 
-.. code-block:: python
+.. code-block:: python3
 
     from firedrake.adjoint import *
     continue_annotation()
@@ -295,7 +295,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
 **Steps 2-3**: Solve the wave equation and compute the functional:
 
-.. code-block:: python
+.. code-block:: python3
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
@@ -312,7 +312,7 @@ To have the step 4, we need first to tape the forward problem. That is done by c
 
 We now instantiate :class:`~.EnsembleReducedFunctional`:
 
-.. code-block:: python
+.. code-block:: python3
 
     J_hat = EnsembleReducedFunctional(J_val,
                                       Control(c_guess, riesz_map="l2"),
@@ -329,7 +329,7 @@ uses ``scipy.minimize``, and wraps the ``ReducedFunctional`` in a ``ReducedFunct
 that handles transferring data between Firedrake and numpy data structures. However, because
 we have a custom ``ReducedFunctional``, we need to do this ourselves:
 
-.. code-block:: python
+.. code-block:: python3
 
     from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
     Jnumpy = ReducedFunctionalNumPy(J_hat)

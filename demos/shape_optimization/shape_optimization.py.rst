@@ -39,7 +39,7 @@ radius :math:`1.1` centered at :math:`(0.5,0.5)`.
 We can now proceed to set up the problem. We import firedrake and pyadjoint and
 choose an initial guess (in this case, a unit disc centred at the origin):
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   from firedrake.adjoint import *
@@ -47,7 +47,7 @@ choose an initial guess (in this case, a unit disc centred at the origin):
 
 Then, we :ref:`start annotating <adjoint-taping>` and turn the mesh coordinates into a control variable:
 
-.. code-block:: python
+.. code-block:: python3
 
   continue_annotation()
   Q = mesh.coordinates.function_space()
@@ -56,14 +56,14 @@ Then, we :ref:`start annotating <adjoint-taping>` and turn the mesh coordinates 
 
 We can now implement the target function:
 
-.. code-block:: python
+.. code-block:: python3
 
   x, y = SpatialCoordinate(mesh)
   u_t = Constant(1.21) - (x - Constant(0.5))**2 - (y - Constant(0.5))**2
 
 solve the weak form of the boundary value problem:
 
-.. code-block:: python
+.. code-block:: python3
 
   V = FunctionSpace(mesh, "CG", 1)
   u = Function(V, name='state')
@@ -74,7 +74,7 @@ solve the weak form of the boundary value problem:
 
 and evaluate the objective function:
 
-.. code-block:: python
+.. code-block:: python3
 
   J = assemble((u - u_t)**2*dx)
 
@@ -83,7 +83,7 @@ We now turn the objective function into a reduced function so that pyadjoint
 gradients, that is, directions of steepest ascent. We also set the relevant
 Riesz map for this problem:
 
-.. code-block:: python
+.. code-block:: python3
 
   Jred = ReducedFunctional(J, Control(dT, riesz_map="H1"))
   stop_annotating()
@@ -91,7 +91,7 @@ Riesz map for this problem:
 We now have all the ingredients to implement a basic steepest descent shape
 optimization algorithm with fixed step size.
 
-.. code-block:: python
+.. code-block:: python3
 
   File = VTKFile("shape_iterates.pvd")
   for ii in range(30):

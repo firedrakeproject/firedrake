@@ -12,7 +12,7 @@ exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the vertex star patches. This is set
 via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
 
@@ -25,7 +25,7 @@ We consider the Riesz map on H(curl), discretized with lowest order
 Nedelec elements.  We force the system with a random right-hand side and
 impose homogeneous Dirichlet boundary conditions:
 
-.. code-block:: python
+.. code-block:: python3
 
   def run_solve(mesh, params):
       V = FunctionSpace(mesh, "N1curl", 1)
@@ -48,7 +48,7 @@ Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos,
 here we simply opt for the former. Arnold, Falk, and Winther show that vertex
 patches yield a robust method.
 
-.. code-block:: python
+.. code-block:: python3
 
   def mg_params(relax, mat_type="aij"):
       return {
@@ -81,7 +81,7 @@ patches on the original Nedelec space and vertex patches on the gradient of a La
 preconditioner :class:`~.HiptmairPC` automatically sets up an additive two-level method
 using the auxiliary Lagrange space in a multigrid hierarchy. Therefore, the overall multigrid relaxation composes the edge patches with the auxiliary space relaxation. For the latter, the residual on each level is restricted from the dual of H(curl) into the dual of H1 via the adjoint of the gradient, where a vertex patch relaxation is applied to obtain a correction that is prolonged from H1 into H(curl) via the gradient.
 
-.. code-block:: python
+.. code-block:: python3
 
   def hiptmair_params():
       return {
@@ -99,7 +99,7 @@ Now, for each parameter choice, we report the iteration count for the Riesz map
 over a range of meshes.  We see that vertex patches approach give lower
 iteration counts than the Hiptmair approach, but they are more expensive.
 
-.. code-block:: python
+.. code-block:: python3
 
   names = {
       "Vertex Star": mg_params(asm_params(0)),

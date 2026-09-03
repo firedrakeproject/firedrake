@@ -56,7 +56,7 @@ This demo is adapted from this `Chebfun example`_.
 .. _Chebfun example: https://www.chebfun.org/examples/ode-nonlin/AllenCahn.html
 
 
-.. code-block:: python
+.. code-block:: python3
 
   import numpy as np
   from firedrake import *
@@ -65,7 +65,7 @@ Here we use a domain of length 10, a small diffusion coefficient of 0.003,
 and an initial guess that ramps from +1 at the left-hand boundary to -1 at
 the right.
 
-.. code-block:: python
+.. code-block:: python3
 
   nx = 128
   lx = 10.0
@@ -94,7 +94,7 @@ other line search methods (secant, backtracking, etc.) and find similar
 outcomes. If you pump the number of line search iterations way up, you can
 make Newton's method converge... to the wrong solution!
 
-.. code-block:: python
+.. code-block:: python3
 
   v = TestFunction(Q)
   F = (eps * inner(grad(u), grad(v)) + inner(u**3 - u, v)) * dx
@@ -189,7 +189,7 @@ sub-problem. The arguments that it takes are: the PETSc SNES object; the value
 :math:`u_k` of the solution at the previous iteration; the current value
 :math:`u` to be solved for; and a test function.
 
-.. code-block:: python
+.. code-block:: python3
 
   class AllenCahnAuxSNES(firedrake.AuxiliaryOperatorSNES):
       def form(self, snes, u_k, u, v):
@@ -212,7 +212,7 @@ the key ``"npc"``. Firstly we need to specify our python SNES type, and then
 in the ``"aux"`` key we specify the parameters to actually solve :math:`G` -
 here we use Newton iterations.
 
-.. code-block:: python
+.. code-block:: python3
 
   solver_parameters = {
       "snes_type": "nrichardson",
@@ -269,7 +269,7 @@ functional
 To close, let's evaluate the free energy at the starting guess and at the
 computed solution.
 
-.. code-block:: python
+.. code-block:: python3
 
   E = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
   E_initial = firedrake.assemble(firedrake.replace(E, {u: initial_guess}))

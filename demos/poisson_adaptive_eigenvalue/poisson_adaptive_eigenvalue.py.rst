@@ -23,14 +23,14 @@ We aim to compute the lowest eigenvalue. Since the domain has a re-entrant corne
 
 We start by importing the necessary libraries:
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   from netgen.occ import *
 
 We then define the L-shaped domain using Netgen's Open CASCADE technology (OCC) interface, and generate an initial mesh:
 
-.. code-block:: python
+.. code-block:: python3
 
   rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
   rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
@@ -49,7 +49,7 @@ where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by C
 
 To efficiently compute the smallest eigenvalue, we configure SLEPc using a solver parameters dictionary. We specify a Krylov-Schur eigensolver (``eps_type``) and a shift-and-invert spectral transformation (``st_type``) with a target of zero (``eps_target``). We also flag the generalized eigenvalue problem as Hermitian (``eps_gen_hermitian``) and request the smallest real eigenvalue (``eps_smallest_real``).
 
-.. code-block:: python
+.. code-block:: python3
 
   def solve_eigenproblem(mesh):
       h_symbolic = CellDiameter(mesh)
@@ -95,7 +95,7 @@ To efficiently compute the smallest eigenvalue, we configure SLEPc using a solve
 
 These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. Note that this assumes there is a single eigenfunction associated with the lowest eigenvalue; if the eigenvalue were of higher multiplicity the estimator would need to consider the entire eigenspace :cite:`Boffi:2014`.
 
-.. code-block:: python
+.. code-block:: python3
 
   def estimate_error(mesh, uh, lam):
       W = FunctionSpace(mesh, "DG", 0)
@@ -122,7 +122,7 @@ These bounds do not describe where the mesh should be refined so as to reduce th
 
 We define a function to adapt the mesh by refining elements with large error indicators, using the maximum Dörfler-like marking strategy with :math:`\theta = 0.5`:
 
-.. code-block:: python
+.. code-block:: python3
 
   def adapt(mesh, eta):
       W = FunctionSpace(mesh, "DG", 0)
@@ -139,7 +139,7 @@ We define a function to adapt the mesh by refining elements with large error ind
 
 Finally, we run the adaptive loop until the upper and lower bounds agree to within a tolerance.
 
-.. code-block:: python
+.. code-block:: python3
 
   max_iterations = 20
   error_estimators = []
@@ -164,7 +164,7 @@ Finally, we run the adaptive loop until the upper and lower bounds agree to with
 
 To demonstrate that adaptivity is necessary to achieve the optimal convergence rate, we can run the same script with :math:`\theta = 0`, which forces uniform refinement (all cells are marked for refinement at every step). We make this optional by guarding it behind the Boolean ``run_uniform``.
 
-.. code-block:: python
+.. code-block:: python3
 
   run_uniform = True
 
@@ -190,7 +190,7 @@ To demonstrate that adaptivity is necessary to achieve the optimal convergence r
 
 We can plot the convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}` against the number of degrees of freedom. With adaptivity, we achieve the optimal :math:`O(N^{-1})` convergence rate. For uniform refinement, the error is initially dominated by the smooth part of the solution (yielding a pre-asymptotic :math:`O(N^{-1})` rate), but as the mesh is refined, the singularity inevitably dominates and limits the asymptotic convergence to the suboptimal rate of :math:`O(N^{-2/3})`.
 
-.. code-block:: python
+.. code-block:: python3
 
   try:
       import matplotlib.pyplot as plt

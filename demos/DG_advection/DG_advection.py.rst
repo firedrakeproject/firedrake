@@ -111,7 +111,7 @@ only contribute in the correct places.
 As usual, we start by importing Firedrake.  We also import the math library to
 give us access to the value of pi.  We use a 40-by-40 mesh of squares.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   from firedrake.pyplot import FunctionPlotter, tripcolor
@@ -124,14 +124,14 @@ give us access to the value of pi.  We use a 40-by-40 mesh of squares.
 We set up a function space of discontinuous bilinear elements for :math:`q`, and
 a vector-valued continuous function space for our velocity field.
 
-.. code-block:: python
+.. code-block:: python3
 
   V = FunctionSpace(mesh, "DQ", 1)
   W = VectorFunctionSpace(mesh, "CG", 1)
 
 We set up the initial velocity field using a simple analytic expression.
 
-.. code-block:: python
+.. code-block:: python3
 
   x, y = SpatialCoordinate(mesh)
 
@@ -142,7 +142,7 @@ Now, we set up the cosine-bell--cone--slotted-cylinder initial condition. The
 first four lines declare various parameters relating to the positions of these
 objects, while the analytic expressions appear in the last three lines.
 
-.. code-block:: python
+.. code-block:: python3
 
   bell_r0 = 0.15; bell_x0 = 0.25; bell_y0 = 0.5
   cone_r0 = 0.15; cone_x0 = 0.5; cone_y0 = 0.25
@@ -161,7 +161,7 @@ rather than between 0 and 1.  This ensures that we can't get away with
 neglecting the inflow boundary condition.  We also save the initial state so
 that we can check the :math:`L^2`-norm error at the end.
 
-.. code-block:: python
+.. code-block:: python3
 
   q = Function(V).interpolate(1.0 + bell + cone + slot_cyl)
   q_init = Function(V).assign(q)
@@ -169,7 +169,7 @@ that we can check the :math:`L^2`-norm error at the end.
 Next we'll create a list to store the function values at every timestep so that
 we can make a movie of them later.
 
-.. code-block:: python
+.. code-block:: python3
 
   qs = []
 
@@ -180,7 +180,7 @@ if the user tries different timesteps.  Finally, we define the inflow boundary
 condition, :math:`q_\mathrm{in}`.  In general, this would be a ``Function``, but
 here we just use a ``Constant`` value.
 
-.. code-block:: python
+.. code-block:: python3
 
   T = 2*math.pi
   dt = T/600.0
@@ -191,7 +191,7 @@ Now we declare our variational forms.  Solving for :math:`\Delta q` at each
 stage, the explicit timestepping scheme means that the left hand side is just a
 mass matrix.
 
-.. code-block:: python
+.. code-block:: python3
 
   dq_trial = TrialFunction(V)
   phi = TestFunction(V)
@@ -203,7 +203,7 @@ exterior and interior facets.  We next define ``un`` to be an object which is
 equal to :math:`\vec{u}\cdot\vec{n}` if this is positive, and zero if this is
 negative.  This will be useful in the upwind terms.
 
-.. code-block:: python
+.. code-block:: python3
 
   n = FacetNormal(mesh)
   un = 0.5*(dot(u, n) + abs(dot(u, n)))
@@ -229,7 +229,7 @@ conditionals. Although it is not obvious at first sight, the expression given in
 code is equivalent to the desired expression, assuming
 :math:`\vec{n}_- = -\vec{n}_+`.
 
-.. code-block:: python
+.. code-block:: python3
 
   L1 = dtc*(q*div(phi*u)*dx
             - conditional(dot(u, n) < 0, phi*dot(u, n)*q_in, 0.0)*ds
@@ -241,14 +241,14 @@ In our Runge-Kutta scheme, the first step uses :math:`q^n` to obtain
 to obtain :math:`q^{(2)}`, and :math:`q^{(2)}` to obtain :math:`q^{n+1}`. We
 make use of UFL's ``replace`` feature to avoid writing out the form repeatedly.
 
-.. code-block:: python
+.. code-block:: python3
 
   q1 = Function(V); q2 = Function(V)
   L2 = replace(L1, {q: q1}); L3 = replace(L1, {q: q2})
 
 We now declare a variable to hold the temporary increments at each stage.
 
-.. code-block:: python
+.. code-block:: python3
 
   dq = Function(V)
 
@@ -262,7 +262,7 @@ systems. As a minor technical point, we in fact use an outer block Jacobi
 preconditioner. This allows the code to be executed in parallel without any
 further changes being necessary.
 
-.. code-block:: python
+.. code-block:: python3
 
   params = {'ksp_type': 'preonly', 'pc_type': 'bjacobi', 'sub_pc_type': 'ilu'}
   prob1 = LinearVariationalProblem(a, L1, dq)
@@ -276,7 +276,7 @@ We now run the time loop.  This consists of three Runge-Kutta stages, and every
 20 steps we write out the solution to file and print the current time to the
 terminal.
 
-.. code-block:: python
+.. code-block:: python3
 
   t = 0.0
   step = 0
@@ -301,7 +301,7 @@ terminal.
 To check our solution, we display the normalised :math:`L^2` error, by comparing
 to the initial condition.
 
-.. code-block:: python
+.. code-block:: python3
 
   L2_err = sqrt(assemble((q - q_init)*(q - q_init)*dx))
   L2_init = sqrt(assemble(q_init*q_init*dx))
@@ -312,14 +312,14 @@ the solution at many points in every frame of the animation, so we'll employ a
 helper class that pre-computes some relevant data in order to speed up the
 evaluation.
 
-.. code-block:: python
+.. code-block:: python3
 
   nsp = 16
   fn_plotter = FunctionPlotter(mesh, num_sample_points=nsp)
 
 We first set up a figure and axes and draw the first frame.
 
-.. code-block:: python
+.. code-block:: python3
 
   fig, axes = plt.subplots()
   axes.set_aspect('equal')
@@ -329,14 +329,14 @@ We first set up a figure and axes and draw the first frame.
 Now we'll create a function to call in each frame. This function will use the
 helper object we created before.
 
-.. code-block:: python
+.. code-block:: python3
 
   def animate(q):
       colors.set_array(fn_plotter(q))
 
 The last step is to make the animation and save it to a file.
 
-.. code-block:: python
+.. code-block:: python3
 
   interval = 1e3 * output_freq * dt
   animation = FuncAnimation(fig, animate, frames=qs, interval=interval)

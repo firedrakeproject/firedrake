@@ -42,7 +42,7 @@ scripts in your path.
    describing what this version was used for (this will appear online
    on Zenodo). For example:
 
-.. code-block:: python
+.. code-block::
 
      firedrake-zenodo -t "My paper title"
 
@@ -50,7 +50,7 @@ scripts in your path.
    (free-form) information that you want to appear in the uploaded
    Zenodo record:
 
-.. code-block:: python
+.. code-block::
 
      firedrake-zenodo -t "My paper title" --info-file README.txt
 
@@ -82,7 +82,7 @@ scripts in your path.
    the DOI) for the collated "meta"-record, which in turn links to all
    the individual components:
 
-.. code-block:: python
+.. code-block::
 
      firedrake-zenodo --bibtex Zenodo_YYYYMMDD.N
 
@@ -91,7 +91,7 @@ scripts in your path.
 You can explore the full set of options for ``firedrake-zenodo``
 with:
 
-.. code-block:: python
+.. code-block::
 
   firedrake-zenodo -h
 

@@ -10,7 +10,7 @@ We will set up the problem using Taylor-Hood elements for
 the Navier-Stokes part, and piecewise linear elements for the
 temperature.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
 
@@ -33,14 +33,14 @@ dissipation and heat conduction and the
 Prandtl number (Pr), which measures the ratio of viscosity to heat
 conduction.
 
-.. code-block:: python
+.. code-block:: python3
 
   Ra = Constant(200.0)
   Pr = Constant(6.8)
 
 Along with gravity, which points down.
 
-.. code-block:: python
+.. code-block:: python3
 
   g = Constant((0, -1))
 
@@ -64,7 +64,7 @@ Jacobian are a bit stronger.  Switching to the first case would be a
 simple change of bits of the boundary associated with the second and
 third boundary conditions below:
 
-.. code-block:: python
+.. code-block:: python3
 
   bcs = [
       DirichletBC(Z.sub(0), Constant((0, 0)), (1, 2, 3, 4)),
@@ -74,7 +74,7 @@ third boundary conditions below:
 
 Like Navier-Stokes, the pressure is only defined up to a constant.
 
-.. code-block:: python
+.. code-block:: python3
 
   nullspace = MixedVectorSpaceBasis(
       Z, [Z.sub(0), VectorSpaceBasis(constant=True), Z.sub(2)])
@@ -84,7 +84,7 @@ First off, we'll solve the full system using a direct solver.  As
 previously, we use MUMPS, so wrap the solve in ``try/except`` to avoid
 errors if it is not available.
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake.petsc import PETSc
 
@@ -108,7 +108,7 @@ has more options, so we'll use a parameters dictionary.  We use
 matrix-free actions for the coupled operator, and solve the linearised
 system with GMRES preconditioned with a multiplicative fieldsplit.
 
-.. code-block:: python
+.. code-block:: python3
 
   parameters = {"mat_type": "matfree",
                 "snes_monitor": None,
@@ -119,14 +119,14 @@ system with GMRES preconditioned with a multiplicative fieldsplit.
 We want to split the Navier-Stokes part off from the temperature
 variable.
 
-.. code-block:: python
+.. code-block:: python3
 
                 "pc_fieldsplit_0_fields": "0,1",
                 "pc_fieldsplit_1_fields": "2",
 
 We'll invert the Navier-Stokes block with MUMPS:
 
-.. code-block:: python
+.. code-block:: python3
 
                 "fieldsplit_0_ksp_type": "preonly",
                 "fieldsplit_0_pc_type": "python",
@@ -137,7 +137,7 @@ We'll invert the Navier-Stokes block with MUMPS:
 the temperature block will also be inverted directly, but with plain
 LU.
 
-.. code-block:: python
+.. code-block:: python3
 
                 "fieldsplit_1_ksp_type": "preonly",
                 "fieldsplit_1_pc_type": "python",
@@ -146,7 +146,7 @@ LU.
 
 Now for the solve.
 
-.. code-block:: python
+.. code-block:: python3
 
   upT.assign(0)
   try:
@@ -173,7 +173,7 @@ can be nested.  In the latter case, the value should be a dictionary,
 of options and the key is ``prepended`` to all keys in the dictionary
 before passing to the solver.
 
-.. code-block:: python
+.. code-block:: python3
 
   parameters = {"mat_type": "matfree",
                 "snes_monitor": None,
@@ -182,7 +182,7 @@ We'll use inexact GMRES solves to invert the Navier-Stokes block, so
 the preconditioner as a whole is not stationary, hence we need
 flexible GMRES.
 
-.. code-block:: python
+.. code-block:: python3
 
                "ksp_type": "fgmres",
                "ksp_gmres_modifiedgramschmidt": True,
@@ -191,14 +191,14 @@ flexible GMRES.
 
 Again we split off Navier-Stokes from the temperature block:
 
-.. code-block:: python
+.. code-block:: python3
 
                "pc_fieldsplit_0_fields": "0,1",
                "pc_fieldsplit_1_fields": "2",
 
 which we solve inexactly using preconditioned GMRES.
 
-.. code-block:: python
+.. code-block:: python3
 
                "fieldsplit_0": {
                    "ksp_type": "gmres",
@@ -211,7 +211,7 @@ which we solve inexactly using preconditioned GMRES.
 Invert the velocity block with a single V-cycle of algebraic
 multigrid:
 
-.. code-block:: python
+.. code-block:: python3
 
                    "fieldsplit_0": {
                        "ksp_type": "preonly",
@@ -222,7 +222,7 @@ multigrid:
 
 and approximate the Schur complement inverse with PCD.
 
-.. code-block:: python
+.. code-block:: python3
 
                    "fieldsplit_1": {
                         "ksp_type": "preonly",
@@ -233,7 +233,7 @@ We need to configure the pressure mass and Poisson solves, along with
 how to apply the convection-diffusion operator.  For the latter, we
 will use an assembled operator this time round.
 
-.. code-block:: python
+.. code-block:: python3
 
                         "pcd_Mp_ksp_type": "preonly",
                         "pcd_Mp_pc_type": "ilu",
@@ -246,7 +246,7 @@ will use an assembled operator this time round.
 Now for the temperature block, we use a moderately coarse tolerance
 for algebraic multigrid preconditioned GMRES.
 
-.. code-block:: python
+.. code-block:: python3
 
               "fieldsplit_1": {
                    "ksp_type": "gmres",
@@ -266,7 +266,7 @@ problem setup.  We haven't added the Rayleigh or Prandtl numbers to
 the dictionary since our known preconditioners don't actually require
 them, although doing so would be quite easy.
 
-.. code-block:: python
+.. code-block:: python3
 
   appctx = {"velocity_space": 0}
   upT.assign(0)
@@ -276,7 +276,7 @@ them, although doing so would be quite easy.
 
 Finally, we'll output the results for visualisation.
 
-.. code-block:: python
+.. code-block:: python3
 
   u, p, T = upT.subfunctions
   u.rename("Velocity")

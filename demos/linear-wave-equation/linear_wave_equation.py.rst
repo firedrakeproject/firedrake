@@ -49,7 +49,7 @@ This time we created the mesh with `Gmsh <http://gmsh.info/>`_:
 
 We can then start our Python script and load this mesh:
 
-.. code-block:: python
+.. code-block:: python3
 
   from firedrake import *
   mesh = Mesh("wave_tank.msh")
@@ -59,7 +59,7 @@ function space and functions. Setting the ``name`` parameter when
 constructing :class:`.Function` objects will set the name used in the
 output file:
 
-.. code-block:: python
+.. code-block:: python3
 
   V = FunctionSpace(mesh, 'Lagrange', 1)
   p = Function(V, name="p")
@@ -70,7 +70,7 @@ output file:
 
 Output the initial conditions:
 
-.. code-block:: python
+.. code-block:: python3
 
   outfile = VTKFile("out.pvd")
   outfile.write(phi)
@@ -79,14 +79,14 @@ We next establish a boundary condition object. Since we have time-dependent
 boundary conditions, we first create a :class:`.Constant` to hold the
 value and use that:
 
-.. code-block:: python
+.. code-block:: python3
 
   bcval = Constant(0.0)
   bc = DirichletBC(V, bcval, 1)
 
 Now we set the timestepping variables:
 
-.. code-block:: python
+.. code-block:: python3
 
   T = 10.
   dt = 0.001
@@ -96,26 +96,26 @@ Now we set the timestepping variables:
 Finally we set a flag indicating whether we wish to perform
 mass-lumping in the timestepping scheme:
 
-.. code-block:: python
+.. code-block:: python3
 
   lump_mass = True
 
 Now we are ready to start the timestepping loop:
 
-.. code-block:: python
+.. code-block:: python3
 
   while t <= T:
       step += 1
 
 Update the boundary condition value for this timestep:
 
-.. code-block:: python
+.. code-block:: python3
 
       bcval.assign(sin(2*pi*5*t))
 
 Step forward :math:`\phi` by half a timestep. Since this does not involve a matrix inversion, this is implemented as a pointwise operation:
 
-.. code-block:: python
+.. code-block:: python3
 
       phi -= dt / 2 * p
 
@@ -124,7 +124,7 @@ which only requires the inversion of a mass matrix.  We have two
 options at this point, we may either lump the mass, which reduces
 the inversion to a pointwise division:
 
-.. code-block:: python
+.. code-block:: python3
 
       if lump_mass:
           p.dat.data[:] += assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx).dat.data_ro / assemble(v*dx).dat.data_ro
@@ -132,13 +132,13 @@ the inversion to a pointwise division:
 In the mass lumped case, we must now ensure that the resulting
 solution for :math:`p` satisfies the boundary conditions:
 
-.. code-block:: python
+.. code-block:: python3
 
           bc.apply(p)
 
 Alternatively, we can invert the mass matrix using a linear solver:
 
-.. code-block:: python
+.. code-block:: python3
 
       else:
           solve(u * v * dx == v * p * dx + dt * inner(grad(v), grad(phi)) * dx,
@@ -149,7 +149,7 @@ Alternatively, we can invert the mass matrix using a linear solver:
 
 Step forward :math:`\phi` by the second half timestep:
 
-.. code-block:: python
+.. code-block:: python3
 
       phi -= dt / 2 * p
 
@@ -157,7 +157,7 @@ Advance time and output as appropriate, note how we pass the current
 timestep value into the :meth:`~.VTKFile.write` method, so that when
 visualising the results Paraview will use it:
 
-.. code-block:: python
+.. code-block:: python3
 
       t += dt
       if step % 10 == 0:
