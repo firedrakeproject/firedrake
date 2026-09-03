@@ -2026,16 +2026,16 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         Parameters
         ----------
-        swarm : PETSc.DMSwarm
-            `PETSc.DMSwarm` representing Particle In Cell (PIC) vertices
-            immersed within a `PETSc.DM` stored in the ``parentmesh``.
+        swarm : FiredrakeDMSwarm
+            DMSwarm representing particle-in-cell vertices immersed within a
+            PETSc DM stored in ``parentmesh``.
         parentmesh : AbstractMeshTopology
             Mesh topology within which the vertex-only mesh topology is immersed.
         name : str
             Name of the mesh topology.
         reorder : bool
             Whether to reorder the mesh entities.
-        input_ordering_swarm : PETSc.DMSwarm
+        input_ordering_swarm : FiredrakeDMSwarm
             The swarm from which the input-ordering vertex-only mesh is constructed.
         perm_is : PETSc.IS
             `PETSc.IS` that is used as ``_dm_renumbering``; only
@@ -2049,7 +2049,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         """
         if MPI.Comm.Compare(parentmesh.comm, swarm.comm.tompi4py()) not in {MPI.CONGRUENT, MPI.IDENT}:
-            ValueError("Parent mesh communicator and swarm communicator are not congruent")
+            raise ValueError("Parent mesh communicator and swarm communicator are not congruent")
         self._distribution_parameters = {"partition": False,
                                          "partitioner_type": None,
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
@@ -2105,9 +2105,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             pStart, _ = parent.getChart()
             parent_renum_inv = np.empty_like(parent_renum)
             parent_renum_inv[parent_renum - pStart] = np.arange(len(parent_renum))
-            with swarm.field(cell_id_name) as swarm_parent_cell_nums:
-                # Use kind = 'stable' to make the ordering deterministic.
-                perm = np.argsort(parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart], kind='stable').astype(IntType)
+            with (
+                swarm.field(cell_id_name) as swarm_parent_cell_nums,
+                swarm.field("globalindex") as swarm_global_indices,
+            ):
+                parent_order = parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart]
+                # sort by parent cell order, with ties broken by point global index
+                perm = np.lexsort((swarm_global_indices.ravel(), parent_order)).astype(IntType)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
             perm_is.setIndices(perm)
@@ -2487,8 +2491,9 @@ values from f.)"""
 
         Notes
         -----
-        After changing tolerance any requests for :attr:`rtree` will cause
-        the rtree to be rebuilt with the new tolerance which may take some time.
+        After changing tolerance any requests for :attr:`rtree` or
+        :attr:`partition_rtree` will cause the tree to be rebuilt with the
+        new tolerance which may take some time.
         """
         return self._tolerance
 
@@ -2629,14 +2634,101 @@ values from f.)"""
             coords_max = coords_max.reshape(-1, 1)
 
         tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
-        coords_mid = (coords_max + coords_min)/2
-        d = np.max(coords_max - coords_min, axis=1)[:, None]
-        coords_min = coords_mid - (tolerance + 0.5)*d
-        coords_max = coords_mid + (tolerance + 0.5)*d
-
+        if self.topological_dimension < self.geometric_dimension:
+            # Immersed manifold case: Change min and max to refer to an n-hypercube,
+            # where n is the geometric dimension of the mesh, centred on the midpoint of the
+            # bounding box. Its side length is the L1 diameter of the bounding box.
+            # This aids point evaluation where points may be just off the mesh but should be evaluated.
+            # We also push max and min out so we can find points on the boundary
+            # within the mesh tolerance.
+            coords_mid = (coords_max + coords_min) / 2
+            d = np.max(coords_max - coords_min, axis=1)[:, None]
+            coords_min = coords_mid - (tolerance + 0.5) * d
+            coords_max = coords_mid + (tolerance + 0.5) * d
+        else:
+            coords_extent = coords_max - coords_min
+            coords_min = coords_min - tolerance * coords_extent
+            coords_max = coords_max + tolerance * coords_extent
         with PETSc.Log.Event("rtree_build"):
-            self._rtree = rtree.build_from_aabb(coords_min, coords_max)
-        return self._rtree
+            return rtree.build_from_aabb(coords_min, coords_max)
+
+    def _bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
+        side_lengths = bounding_boxes[:, 1, :] - bounding_boxes[:, 0, :]
+        return np.prod(side_lengths, axis=1).sum()
+
+    @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
+    @PETSc.Log.EventDecorator()
+    def _box_ratio_heuristic(self):
+        """Return partition bounding boxes at some 'optimal' Rtree level.
+
+        Descends the local Rtree top-down breadth-first, stopping when the total
+        bounding box volume stops decreasing (ratio of next level to current
+        level >= 1).
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape `(n_boxes, 2, gdim)` containing bounding boxes
+        """
+        tree_depth = rtree.tree_depth(self.rtree)
+        if tree_depth == 0:
+            # This indicates an empty tree, which can happen if the mesh has no cells on this rank.
+            return np.empty((0, 2, self.geometric_dimension), dtype=utils.RealType)
+        gdim = self.geometric_dimension
+        prev_bboxes = rtree.bounding_boxes_at_level(self.rtree, 0, gdim)
+        prev_vol = self._bounding_boxes_total_volume(prev_bboxes)
+
+        for level in range(1, tree_depth):
+            next_bboxes = rtree.bounding_boxes_at_level(self.rtree, level, gdim)
+            next_vol = self._bounding_boxes_total_volume(next_bboxes)
+
+            if next_vol >= prev_vol:
+                break
+
+            prev_bboxes = next_bboxes
+            prev_vol = next_vol
+        return prev_bboxes
+
+    @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
+    @PETSc.Log.EventDecorator()
+    def partition_rtree(self):
+        """Build a global Rtree from all ranks' partition bounding boxes.
+
+        Each rank contributes bounding boxes chosen by `box_ratio_heuristic`.
+        The boxes are gathered from all ranks and a single Rtree is built
+        on every rank. The owning MPI rank is stored as the id of each leaf,
+        so querying the tree with a point will return a list of candidate ranks
+        who may have a cell containing that point.
+
+        Returns
+        -------
+        :class:`~firedrake.cython.rtree.RTree`
+            A global Rtree whose leaf ids are MPI rank numbers.
+        """
+        gdim = self.geometric_dimension
+        comm = self.comm
+
+        local_bboxes = self._box_ratio_heuristic  # (n_local, 2, gdim)
+        n_local = local_bboxes.shape[0]
+
+        # Allgather per-rank box counts
+        counts = np.empty(comm.size, dtype=IntType)
+        comm.Allgather(np.array([n_local], dtype=IntType), counts)
+        n_total = int(counts.sum())
+
+        # Allgatherv the bbox data
+        all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
+        comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
+
+        # Reshape to (n_total, 2, gdim) and split into lo/hi corner arrays.
+        all_bboxes = all_bboxes_flat.reshape(n_total, 2, gdim)
+        regions_lo = np.ascontiguousarray(all_bboxes[:, 0, :])  # (n_total, gdim)
+        regions_hi = np.ascontiguousarray(all_bboxes[:, 1, :])  # (n_total, gdim)
+
+        # Set the owning rank as the leaf id so queries return rank numbers.
+        ids = np.repeat(np.arange(comm.size, dtype=np.int64), counts)
+
+        return rtree.build_from_aabb(regions_lo, regions_hi, ids)
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -2714,6 +2806,39 @@ values from f.)"""
             the reference coordinates and distances are meaningless for these
             points.
         """
+        cells, ref_coords, ref_cell_dists_l1, _ = self._locate_cells_ref_coords_dists_and_owners(
+            xs, tolerance=tolerance, cells_ignore=cells_ignore
+        )
+        return cells, ref_coords, ref_cell_dists_l1
+
+    def _locate_cells_ref_coords_dists_and_owners(
+        self,
+        xs: np.ndarray,
+        tolerance: float | None = None,
+        cells_ignore: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Locate cells and their owner ranks for an array of points.
+
+        Parameters
+        ----------
+        xs : numpy.ndarray
+            Point coordinates with shape ``(npoints, gdim)``.
+        tolerance : float, optional
+            Reference-cell tolerance used to accept nearby cells.
+        cells_ignore : numpy.ndarray, optional
+            Cell numbers to exclude for each point.
+
+        Returns
+        -------
+        cells : numpy.ndarray
+            Located Firedrake cell numbers, or ``-1`` for missing points.
+        reference_coordinates : numpy.ndarray
+            Reference coordinates in the located cells.
+        distances : numpy.ndarray
+            L1 distances from the reference cells.
+        owner_ranks : numpy.ndarray
+            Owner rank of each located cell, or ``-1`` for missing points.
+        """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
         if tolerance is None:
@@ -2736,17 +2861,31 @@ values from f.)"""
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
         ref_cell_dists_l1 = np.empty(npoints, dtype=RealType)
         cells = np.empty(npoints, dtype=IntType)
+        owner_ranks = np.empty(npoints, dtype=IntType)
+        cell_owner_ranks = np.ascontiguousarray(self._visible_ranks, dtype=IntType)
         assert xs.size == npoints * self.geometric_dimension
         run_c = self._c_locator(tolerance=tolerance)
         cells_data = cells.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
+        owner_ranks_data = owner_ranks.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
         ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
         Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         with PETSc.Log.Event("c_locator_run"):
-            err = run_c(self.coordinates._ctypes, xs_data, Xs_data, ref_cells_dists, cells_data, npoints, cells_ignore.shape[1], cells_ignore)
+            err = run_c(
+                self.coordinates._ctypes,
+                xs_data,
+                Xs_data,
+                ref_cells_dists,
+                cells_data,
+                owner_ranks_data,
+                npoints,
+                cells_ignore.shape[1],
+                cells_ignore,
+                cell_owner_ranks,
+            )
         if err != 0:
             raise RuntimeError(f"C locator failed with error code {err}")
-        return cells, Xs, ref_cell_dists_l1
+        return cells, Xs, ref_cell_dists_l1, owner_ranks
 
     @PETSc.Log.EventDecorator()
     def _c_locator(self, tolerance=None):
@@ -2754,7 +2893,8 @@ values from f.)"""
 
         First, the rtree is queried to find candidate cells for each point. Then, for each point, we locate
         the single owning cell from the candidates. This owning cell is the one which is closest to the point
-        in the L1 norm in reference coordinates.
+        in the L1 norm in reference coordinates, breaking equal-distance ties in favour of the highest owner
+        rank.
         """
         from pyop2 import compilation
         import firedrake.function as function
@@ -2766,7 +2906,16 @@ values from f.)"""
         except KeyError:
             src = pq_utils.src_locate_cell(self, tolerance=tolerance)
             src += dedent(f"""
-                PetscErrorCode locator(struct Function *f, double *x, {RealType_c} *X, {RealType_c} *ref_cell_dists_l1, {IntType_c} *cells, size_t npoints, size_t ncells_ignore, {IntType_c}* cells_ignore)
+                PetscErrorCode locator(struct Function *f,
+                                       double *x,
+                                       {RealType_c} *X,
+                                       {RealType_c} *ref_cell_dists_l1,
+                                       {IntType_c} *cells,
+                                       {IntType_c} *owners,
+                                       size_t npoints,
+                                       size_t ncells_ignore,
+                                       {IntType_c} *cells_ignore,
+                                       const {IntType_c} *cell_owner_ranks)
                 {{
                     PetscErrorCode locate_err = PETSC_SUCCESS;
                     int64_t *candidate_ids = NULL;
@@ -2800,7 +2949,8 @@ values from f.)"""
                             f, &x[j], &to_reference_coords, &to_reference_coords_xtr,
                             &temp_reference_coords, &found_reference_coords,
                             &ref_cell_dists_l1[i], nids_i, ids_i,
-                            ncells_ignore, cells_ignore_i, &cells[i]);
+                            ncells_ignore, cells_ignore_i, cell_owner_ranks,
+                            &cells[i], &owners[i]);
 
                         if (locate_err != PETSC_SUCCESS) {{
                             break;
@@ -2839,8 +2989,10 @@ values from f.)"""
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(RealType)),
                                 ctypes.POINTER(as_ctypes(IntType)),
+                                ctypes.POINTER(as_ctypes(IntType)),
                                 ctypes.c_size_t,
                                 ctypes.c_size_t,
+                                np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS"),
                                 np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
@@ -3688,31 +3840,29 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         tolerance = mesh.tolerance
     else:
         mesh.tolerance = tolerance
+
     vertexcoords = np.asarray(vertexcoords, dtype=RealType)
+
     if reorder is None:
         reorder = parameters["reorder_meshes"]
+
     gdim = mesh.geometric_dimension
     _, pdim = vertexcoords.shape
+
     if not np.isclose(np.sum(abs(vertexcoords.imag)), 0):
         raise ValueError("Point coordinates must have zero imaginary part")
-    # Currently we take responsibility for locating the mesh cells in which the
-    # vertices lie.
-    #
-    # In the future we hope to update the coordinates field correctly so that
-    # the DMSwarm PIC can immerse itself in the DMPlex. We can also hopefully
-    # provide a callback for PETSc to use to find the parent cell id. We would
-    # add `DMLocatePoints` as an `op` to `DMShell` types and do
-    # `DMSwarmSetCellDM(yourdmshell)` which has `DMLocatePoints_Shell`
-    # implemented. Whether one or both of these is needed is unclear.
     if pdim != gdim:
         raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
+
     swarm, input_ordering_swarm, n_missing_points = _pic_swarm_in_mesh(
         mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=False
     )
+
     missing_points_behaviour = MissingPointsBehaviour(missing_points_behaviour)
     if missing_points_behaviour != MissingPointsBehaviour.IGNORE:
-        if n_missing_points:
-            error = VertexOnlyMeshMissingPointsError(n_missing_points)
+        n_missing_points_global = mesh.comm.allreduce(n_missing_points, op=MPI.SUM)
+        if n_missing_points_global:
+            error = VertexOnlyMeshMissingPointsError(n_missing_points_global)
             if missing_points_behaviour == MissingPointsBehaviour.ERROR:
                 raise error
             elif missing_points_behaviour == MissingPointsBehaviour.WARN:
@@ -3720,9 +3870,11 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
                 warn(str(error))
             else:
                 raise ValueError("missing_points_behaviour must be IGNORE, ERROR or WARN")
+
     name = name if name is not None else mesh.name + "_immersed_vom"
     swarm.setName(_generate_default_mesh_topology_name(name))
     input_ordering_swarm.setName(_generate_default_mesh_topology_name(name) + "_input_ordering")
+
     topology = VertexOnlyMeshTopology(
         swarm,
         mesh.topology,
@@ -3736,15 +3888,261 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
     return vmesh_out
 
 
-class FiredrakeDMSwarm(PETSc.DMSwarm):
-    """A DMSwarm with a saved list of added fields"""
+class VertexOnlyMeshSF:
+    """A PETSc.SF to use for VertexOnlyMesh. Provides convenience
+    methods of constructing and broadcasting/reducing using a star forest."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._fields = None
-        self._default_fields = None
-        self._default_extra_fields = None
-        self._other_fields = None
+    def __init__(self, sf: PETSc.SF) -> None:
+        if not isinstance(sf, PETSc.SF):
+            raise TypeError(f"`sf` must be a `PETSc.SF`, not a {type(sf).__name__}")
+
+        self.sf = sf
+
+    @cached_property
+    def graph(self) -> tuple[int, np.ndarray, np.ndarray]:
+        """The graph defining the star forest."""
+        nroots, ilocal, iremote = self.sf.getGraph()
+        ilocal.setflags(write=False)
+        iremote.setflags(write=False)
+        return nroots, ilocal, iremote
+
+    @property
+    def nroots(self) -> int:
+        """Number of root vertices on this rank."""
+        return self.graph[0]
+
+    @property
+    def leaf_indices(self) -> np.ndarray:
+        """Local indices into the leafdata buffer."""
+        return self.graph[1]
+
+    @property
+    def remote(self) -> np.ndarray:
+        """The remote array defining the connectivity of the star forest.
+        These are (rank, index) pairs determining the root associated with each leaf.
+        """
+        return self.graph[2]
+
+    @property
+    def nleaves(self) -> int:
+        """Number of leaves, equal to len(self.leaf_indices)."""
+        return len(self.leaf_indices)
+
+    @property
+    def input_ranks(self) -> np.ndarray:
+        """MPI ranks owning the corresponding roots."""
+        return self.remote[:, 0]
+
+    @property
+    def input_indices(self) -> np.ndarray:
+        """Indices of the input roots, local to `self.input_ranks`."""
+        return self.remote[:, 1]
+
+    @cached_property
+    def leaf_buffer_size(self) -> int:
+        """Length required for a buffer for broadcasting to leaves.
+        """
+        # implemented here since petsc4py doesn't expose `PetscSFGetLeafRange`.
+        return 0 if self.nleaves == 0 else int(self.leaf_indices.max()) + 1
+
+    @classmethod
+    @PETSc.Log.EventDecorator()
+    def candidate_sf(cls, parent_mesh: MeshGeometry, root_coordinates: np.ndarray) -> "VertexOnlyMeshSF":
+        """Return the candidate star forest used for embedding a VertexOnlyMesh.
+        This is star forest which maps input coordinates (the `root_coordinates`)
+        to candidate points on MPI ranks determined by the parent mesh's partition R-tree.
+
+        Parameters
+        ----------
+        parent_mesh : MeshGeometry
+            The parent mesh of the VertexOnlyMesh.
+        root_coordinates : np.ndarray
+            The coordinates of the input points.
+        """
+        root_coordinates = np.asarray(
+            root_coordinates.real,
+            dtype=np.float64,
+            order="C",
+        )
+        remote = rtree.discover_remote_roots(
+            parent_mesh.partition_rtree,
+            root_coordinates,
+            parent_mesh.comm,
+        )
+        sf = PETSc.SF().create(comm=parent_mesh.comm)
+        sf.setGraph(len(root_coordinates), None, remote)
+
+        return cls(sf)
+
+    @contextmanager
+    def _mpi_unit(self, values: np.ndarray):
+        item_count = np.prod(values.shape[1:])
+
+        try:
+            base_type = MPI._typedict[values.dtype.char]
+        except KeyError:
+            base_type = MPI.BYTE
+            item_count *= values.dtype.itemsize
+
+        if item_count == 1:
+            # No need to create contiguous unit
+            # freeing is handled automatically
+            yield base_type
+            return
+
+        unit = base_type.Create_contiguous(item_count)
+        unit.Commit()
+        try:
+            yield unit
+        finally:
+            unit.Free()
+
+    def _check_arrays(
+        self,
+        root_values: np.ndarray,
+        leaf_values: np.ndarray,
+    ) -> None:
+        # TODO: make these collective
+        if root_values.shape[0] != self.nroots:
+            raise ValueError("Number of root values does not match number of roots in the SF.")
+        if leaf_values.shape[0] < self.leaf_buffer_size:
+            raise ValueError("Leaf array is too small for the SF leaf indices.")
+        if leaf_values.shape[1:] != root_values.shape[1:]:
+            raise ValueError("`leaf_values` shape does not match `root_values`.")
+        if leaf_values.dtype != root_values.dtype:
+            raise TypeError("`leaf_values` dtype does not match `root_values`.")
+
+    def broadcast(
+        self,
+        root_values: np.ndarray,
+        leaf_values: np.ndarray | None = None,
+        op: MPI.Op = MPI.REPLACE,
+    ) -> np.ndarray:
+        if leaf_values is None:
+            leaf_shape = (self.leaf_buffer_size,) + root_values.shape[1:]
+            leaf_values = np.empty(leaf_shape, dtype=root_values.dtype)
+
+        self._check_arrays(root_values, leaf_values)
+
+        with self._mpi_unit(root_values) as unit:
+            self.sf.bcastBegin(unit, root_values, leaf_values, op)
+            self.sf.bcastEnd(unit, root_values, leaf_values, op)
+        return leaf_values
+
+    def reduce(
+        self,
+        leaf_values: np.ndarray,
+        root_values: np.ndarray,
+        op: MPI.Op = MPI.REPLACE,
+    ) -> np.ndarray:
+        self._check_arrays(root_values, leaf_values)
+
+        with self._mpi_unit(root_values) as unit:
+            self.sf.reduceBegin(unit, leaf_values, root_values, op)
+            self.sf.reduceEnd(unit, leaf_values, root_values, op)
+        return root_values
+
+    def create_embedded_leaf_sf(
+        self,
+        mask: np.ndarray,
+    ) -> "VertexOnlyMeshSF":
+        if mask.shape != (self.nleaves,):
+            raise ValueError("mask must contain one entry per leaf")
+        selected_leaf_indices = self.leaf_indices[mask]
+        return type(self)(self.sf.createEmbeddedLeafSF(selected_leaf_indices))
+
+
+class FiredrakeDMSwarm(PETSc.DMSwarm):
+    """A DMSwarm for use with :func:`VertexOnlyMesh`. This class provides
+    convenience methods for creating the swarm, and accessing fields defined
+    on the swarm.
+
+    Parameters
+    ----------
+    dm : PETSc.DMSwarm
+        The underlying PETSc DMSwarm.
+    extruded : bool
+        Whether the swarm is embedded in an extruded mesh.
+    """
+    @classmethod
+    def create_with_fields(
+        cls,
+        cell_dm: PETSc.DM,
+        tdim: int,
+        gdim: int,
+        extruded: bool,
+        extra_fields: Sequence[tuple] = (),
+    ) -> "FiredrakeDMSwarm":
+        """Create an empty Firedrake DMSwarm with VertexOnlyMesh fields registered.
+
+        Parameters
+        ----------
+        cell_dm : PETSc.DM
+            The PETSc DM containing the cells in which the swarm is embedded.
+        tdim : int
+            The topological dimension of the embedding mesh.
+        gdim : int
+            The geometric dimension of the embedding mesh.
+        extruded : bool
+            Whether the parent mesh is extruded.
+        extra_fields : sequence of tuple
+            Additional ``(name, block_size, dtype)`` fields to register.
+
+        Returns
+        -------
+        FiredrakeDMSwarm
+            The empty swarm with all fields registered.
+        """
+        swarm = cls()
+        PETSc.DMSwarm.create(swarm, comm=cell_dm.comm)
+
+        swarm.setDimension(gdim)
+        swarm.setCoordinateDim(gdim)
+        swarm.setCellDM(cell_dm)
+        if not isinstance(cell_dm, PETSc.DMSwarm):
+            swarm.setType(PETSc.DMSwarm.Type.PIC)
+
+        swarm.registerField("parentcellnum", 1, dtype=IntType)
+        swarm.registerField("refcoord", tdim, dtype=RealType)
+        swarm.registerField("globalindex", 1, dtype=IntType)
+        swarm.registerField("inputrank", 1, dtype=IntType)
+        swarm.registerField("inputindex", 1, dtype=IntType)
+        if extruded:
+            swarm.registerField("parentcellbasenum", 1, dtype=IntType)
+            swarm.registerField("parentcellextrusionheight", 1, dtype=IntType)
+
+        for name, size, dtype in extra_fields:
+            swarm.registerField(name, size, dtype=dtype)
+
+        swarm.finalizeFieldRegister()
+        return swarm
+
+    def set_halo_sf(
+        self,
+        n_owned: int,
+        owner_ranks: np.ndarray,
+        owner_indices: np.ndarray,
+    ) -> None:
+        """Set the point SF connecting halo points to their owners.
+
+        Parameters
+        ----------
+        n_owned : int
+            Number of owned points, which precede halo points in the swarm.
+        owner_ranks : numpy.ndarray
+            Owning MPI rank for each halo point.
+        owner_indices : numpy.ndarray
+            Local index on the owning rank for each halo point.
+        """
+        npoints = self.getLocalSize()
+        local = np.arange(n_owned, npoints, dtype=IntType)
+        remote = np.empty((len(owner_ranks), 2), dtype=IntType)
+        remote[:, 0] = owner_ranks
+        remote[:, 1] = owner_indices
+
+        sf = self.getPointSF()
+        sf.setGraph(npoints, local, remote)
+        self.setPointSF(sf)
 
     @contextmanager
     def field(self, name: str) -> Generator[np.ndarray]:
@@ -3768,163 +4166,63 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         finally:
             self.restoreField(name)
 
-    @property
-    def fields(self):
-        return self._fields
+    def set_field(self, name: str, values: np.ndarray) -> None:
+        """Set the values of a DMSwarm field.
 
-    @fields.setter
-    def fields(self, fields):
-        if self._fields:
-            raise ValueError("Fields have already been set")
-        self._fields = fields
-
-    @property
-    def default_fields(self):
-        return self._default_fields
-
-    @default_fields.setter
-    def default_fields(self, fields):
-        if self._default_fields:
-            raise ValueError("Default fields have already been set")
-        self._default_fields = fields
-
-    @property
-    def default_extra_fields(self):
-        return self._default_extra_fields
-
-    @default_extra_fields.setter
-    def default_extra_fields(self, fields):
-        if self._default_extra_fields:
-            raise ValueError("Default extra fields have already been set")
-        self._default_extra_fields = fields
-
-    @property
-    def other_fields(self):
-        return self._other_fields
-
-    @other_fields.setter
-    def other_fields(self, fields):
-        if self._other_fields:
-            raise ValueError("Other fields have already been set")
-        self._other_fields = fields
+        Parameters
+        ----------
+        name : str
+            Name of the field.
+        values : numpy.ndarray
+            Values to copy into the field.
+        """
+        with self.field(name) as field:
+            field[...] = np.asarray(values).reshape(field.shape)
 
 
 @PETSc.Log.EventDecorator()
 def _pic_swarm_in_mesh(
-    parent_mesh,
-    coords,
-    fields=None,
-    tolerance=None,
-    redundant=True,
-    exclude_halos=True,
-):
-    """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
+    parent_mesh: MeshGeometry,
+    coords: np.ndarray,
+    fields: Sequence[tuple] | None = None,
+    tolerance: float | None = None,
+    redundant: bool = True,
+    exclude_halos: bool = True,
+) -> tuple[FiredrakeDMSwarm, FiredrakeDMSwarm, int]:
+    """Create the immersed and input-ordering DMSwarms of the given `coords` in
+    the `parent_mesh`.
 
-    This should only by used for meshes with straight edges. If not, the
-    particles may be placed in the wrong cells.
+    Parameters
+    ----------
+    parent_mesh : MeshGeometry
+        The mesh in which to immerse the points.
+    coords : numpy.ndarray
+        Point coordinates with shape ``(npoints, gdim)``.
+    fields : sequence of tuple, optional
+        Additional ``(name, block_size, dtype)`` fields to register on the
+        distributed swarm.
+    tolerance : float, optional
+        Reference-cell tolerance used when locating points.
+    redundant : bool
+        If true, use only the coordinates supplied on MPI rank zero.
+    exclude_halos : bool
+        If true, exclude points in halo cells.
 
-    :arg parent_mesh: the :class:`Mesh` within with the DMSwarm should be
-        immersed.
-    :arg coords: an ``ndarray`` of (npoints, coordsdim) shape.
-    :kwarg fields: An optional list of named data which can be stored for each
-        point in the DMSwarm. The format should be::
+    Returns
+    -------
+    FiredrakeDMSwarm
+        The swarm distributed according to the parent mesh.
+    FiredrakeDMSwarm
+        A swarm preserving the input rank and point ordering, including
+        points not found in the parent mesh.
+    int
+        Number of input points not found in the parent mesh on this rank.
 
-        [(fieldname1, blocksize1, dtype1),
-          ...,
-         (fieldnameN, blocksizeN, dtypeN)]
-
-        For example, the swarm coordinates themselves are stored in a field
-        named ``DMSwarmPIC_coor`` which, were it not created automatically,
-        would be initialised with ``fields = [("DMSwarmPIC_coor", coordsdim,
-        RealType)]``. All fields must have the same number of points. For more
-        information see `the DMSWARM API reference
-        <https://petsc.org/release/manualpages/DMSwarm/DMSWARM/>_.
-    :kwarg tolerance: The relative tolerance (i.e. as defined on the reference
-        cell) for the distance a point can be from a cell and still be
-        considered to be in the cell. Note that this tolerance uses an L1
-        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
-        will scale with the dimension of the mesh. The default is the parent
-        mesh's ``tolerance`` property. Changing this from default will
-        cause the parent mesh's rtree to be rebuilt which can take some
-        time.
-    :kwarg redundant: If True, the DMSwarm will be created using only the
-        points specified on MPI rank 0.
-    :kwarg exclude_halos: If True, the DMSwarm will not contain any points in
-        the mesh halos. If False, it will but the global index of the points
-        in the halos will match a global index of a point which is not in the
-        halo.
-    :returns: (swarm, input_ordering_swarm, n_missing_points)
-        - swarm: the immersed DMSwarm
-        - input_ordering_swarm: a DMSwarm with points in the same order and with the
-            same rank decomposition as the supplied ``coords`` argument. This
-            includes any points which are not found in the parent mesh! Note
-            that if ``redundant=True``, all points in the generated DMSwarm
-            will be found on rank 0 since that was where they were taken from.
-        - n_missing_points: the number of points in the supplied ``coords``
-            argument which were not found in the parent mesh.
-
-    .. note::
-
-        The created DMSwarm uses the communicator of the input Mesh.
-
-    .. note::
-
-        In complex mode the "DMSwarmPIC_coor" field is still saved as a real
-        number unlike the coordinates of a DMPlex which become complex (though
-        usually with zeroed imaginary parts).
-
-    .. note::
-        When running in parallel with ``redundant = False``, ``coords``
-        will redistribute to the mesh partition where they are located. This
-        means that if rank A has ``coords`` {X} that are not found in the
-        mesh cells owned by rank A but are found in the mesh cells owned by
-        rank B, **and rank B has not been supplied with those**, then they will
-        be moved to rank B.
-
-    .. note::
-        If the same coordinates are supplied more than once, they are always
-        assumed to be a new vertex.
-
-    .. note::
-        Three DMSwarm fields are created automatically here:
-
-        #. ``parentcellnum`` which contains the firedrake cell number of the
-           immersed vertex and
-        #. ``refcoord`` which contains the reference coordinate of the immersed
-           vertex in the parent mesh cell.
-        #. ``globalindex`` which contains a unique ID for each DMSwarm point -
-           here this is the index into the ``coords`` array if ``redundant`` is
-           ``True``, otherwise it's an index in rank order, so if rank 0 has 10
-           points, rank 1 has 20 points, and rank 3 has 5 points, then rank 0's
-           points will be numbered 0-9, rank 1's points will be numbered 10-29,
-           and rank 3's points will be numbered 30-34. Note that this ought to
-           be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
-           cannot be set.
-        #. ``inputrank`` which contains the MPI rank at which the ``coords``
-           argument was specified. For ``redundant=True`` this is always 0.
-        #. ``inputindex`` which contains the index of the point in the
-           originally supplied ``coords`` array after it has been redistributed
-           to the correct rank. For ``redundant=True`` this is always the same
-           as ``globalindex`` since we only use the points on rank 0.
-
-        If the parent mesh is extruded, two more fields are created:
-
-        #. ``parentcellbasenum`` which contains the firedrake cell number of the
-            base cell of the immersed vertex and
-        #. ``parentcellextrusionheight`` which contains the extrusion height of
-            the immersed vertex in the parent mesh cell.
-
-        Another two are required for proper functioning of the DMSwarm:
-
-        #. ``DMSwarmPIC_coor`` which contains the coordinates of the point.
-        #. ``DMSwarm_rank``: the MPI rank which owns the DMSwarm point.
-
-    .. note::
-        All PIC DMSwarm have an associated "Cell DM", if one wishes to interact
-        directly with PETSc's DMSwarm API. For the ``swarm`` output, this is
-        the parent mesh's topology DM (in most cases a DMPlex). For the
-        ``input_ordering_swarm`` output, this is the ``swarm`` itself.
-
+    Notes
+    -----
+    The input-ordering swarm uses the distributed swarm's PETSc DM as its
+    CellDM. Its cell IDs are therefore local indices into the distributed
+    swarm rather than parent-mesh cell numbers.
     """
 
     if tolerance is None:
@@ -3932,332 +4230,126 @@ def _pic_swarm_in_mesh(
     else:
         parent_mesh.tolerance = tolerance
 
-    # Check coords
-    coords = np.asarray(coords, dtype=RealType)
+    if parent_mesh.extruded and parent_mesh.variable_layers:
+        raise NotImplementedError(
+            "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
+        )
 
-    plex = parent_mesh.topology.topology_dm
-    tdim = parent_mesh.topological_dimension
-    gdim = parent_mesh.geometric_dimension
+    # in the redundant=True case we discard all the points not on rank zero
+    # TODO: Here rank 0 queries the partition rtree while all other ranks wait.
+    # We should load balance this by scattering chunks from rank 0 to all other ranks.
+    # This would change the semantics of the input-ordering, however, so we would
+    # need a 'work-to-input' SF which we would compose with the candidate SF.
+    if redundant and parent_mesh.comm.rank != 0:
+        coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
 
     (
-        coords_local,
-        global_idxs_local,
-        reference_coords_local,
-        parent_cell_nums_local,
-        owned_ranks_local,
-        input_ranks_local,
-        input_coords_idxs_local,
-        missing_global_idxs,
+        embedded_sf,
+        winner_cells,
+        winner_ref_coords,
+        winner_ranks,
+        parent_cell_nums,
+        reference_coords,
+        owner_ranks,
+        physical_coords,
     ) = _parent_mesh_embedding(
         parent_mesh,
         coords,
         tolerance,
-        redundant,
-        exclude_halos,
-        remove_missing_points=False,
+        exclude_halos=exclude_halos,
     )
-    visible_idxs = parent_cell_nums_local != -1
+
+    nroots = len(winner_cells)
+    missing_roots = winner_ranks == -1
+    n_missing_points = int(np.count_nonzero(missing_roots))
+    input_owner_ranks = np.where(
+        missing_roots, parent_mesh.comm.size + 1, winner_ranks
+    )  # missing points receive an invalid rank
+
+    # assign global indices
+    start_idx = parent_mesh.comm.exscan(nroots) or 0
+    global_idxs = start_idx + np.arange(nroots, dtype=IntType)
+    global_idxs_leaves = embedded_sf.broadcast(global_idxs)[embedded_sf.leaf_indices]
+
+    # Define local swarm indices. Owned before halo.
+    owned_indices = np.flatnonzero(owner_ranks == parent_mesh.comm.rank)
+    halo_indices = np.flatnonzero(owner_ranks != parent_mesh.comm.rank)
+    n_owned = len(owned_indices)
+    swarm_indices = np.concatenate([owned_indices, halo_indices])
+    swarm_parent_cells = parent_cell_nums[swarm_indices]  # reorder into swarm order
     if parent_mesh.extruded:
-        # need to store the base parent cell number and the height to be able
-        # to map point coordinates back to the parent mesh
-        if parent_mesh.variable_layers:
-            raise NotImplementedError(
-                "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
-            )
-        base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
-            parent_cell_nums_local, parent_mesh.layers
+        swarm_base_cells, swarm_extrusion_heights = _parent_extrusion_numbering(
+            swarm_parent_cells, parent_mesh.layers
         )
-        # cell_closure[:, -1] maps Firedrake cell numbers to plex numbers.
-        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
-        plex_parent_cell_nums = np.full_like(base_parent_cell_nums, -1)
-        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
-            base_parent_cell_nums[visible_idxs], -1
-        ]
-        base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
-        extrusion_heights_visible = extrusion_heights[visible_idxs]
+        cell_numbers = swarm_base_cells
     else:
-        # Index only visible rows: -1 sentinels crash on empty-rank arrays.
-        plex_parent_cell_nums = np.full_like(parent_cell_nums_local, -1)
-        plex_parent_cell_nums[visible_idxs] = parent_mesh.topology.cell_closure[
-            parent_cell_nums_local[visible_idxs], -1
-        ]
-        base_parent_cell_nums_visible = None
-        extrusion_heights_visible = None
-    n_missing_points = len(missing_global_idxs)
+        cell_numbers = swarm_parent_cells
+    # convert firedrake local cell numbering into DMPlex numbering
+    cell_ids = parent_mesh.topology.cell_closure[cell_numbers, -1]
 
-    # Exclude the invisible points at this stage
-    swarm = _dmswarm_create(
-        fields,
-        parent_mesh.comm,
-        plex,
-        coords_local[visible_idxs],
-        plex_parent_cell_nums[visible_idxs],
-        global_idxs_local[visible_idxs],
-        reference_coords_local[visible_idxs],
-        parent_cell_nums_local[visible_idxs],
-        owned_ranks_local[visible_idxs],
-        input_ranks_local[visible_idxs],
-        input_coords_idxs_local[visible_idxs],
-        base_parent_cell_nums_visible,
-        extrusion_heights_visible,
+    # create and populate the immersed DMSwarm
+    swarm = FiredrakeDMSwarm.create_with_fields(
+        parent_mesh.topology.topology_dm,
+        parent_mesh.topological_dimension,
+        parent_mesh.geometric_dimension,
         parent_mesh.extruded,
-        tdim,
-        gdim,
+        extra_fields=() if fields is None else fields,
     )
-    # Note when getting original ordering for extruded meshes we recalculate
-    # the base_parent_cell_nums and extrusion_heights - note this could
-    # be an SF operation
-    if redundant and parent_mesh.comm.rank != 0:
-        original_ordering_swarm_coords = np.empty(shape=(0, coords.shape[1]))
-    else:
-        original_ordering_swarm_coords = coords
-    # Set pointSF
-    # In the below, n merely defines the local size of an array, local_points_reduced,
-    # that works as "broker". The set of indices of local_points_reduced is the target of
-    # inputindex; see _make_input_ordering_sf. All points in local_points are leaves.
-    # Then, local_points[halo_indices] = -1, local_points_reduced.fill(-1), and MPI.MAX ensure that local_points_reduced has
-    # the swarm local point numbers of the owning ranks after reduce. local_points_reduced[j] = -1
-    # if j corresponds to a missing point. Then, broadcast updates
-    # local_points[halo_indices] (it also updates local_points[~halo_indices]`, not changing any values there).
-    # If some index of local_points_reduced corresponds to a missing point, local_points_reduced[index] is not updated
-    # when we reduce and it does not update any leaf data, i.e., local_points, when we bcast.
-    with swarm.field("DMSwarm_rank") as owners:
-        owners = owners.ravel()
-        halo_indices, = np.where(owners != parent_mesh.comm.rank)
-        halo_indices = halo_indices.astype(IntType)
-        n = coords.shape[0]
-        m = owners.shape[0]
-        _swarm_input_ordering_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, n, None)  # sf: swarm local point <- (inputrank, inputindex)
-        local_points_reduced = np.empty(n, dtype=utils.IntType)
-        local_points_reduced.fill(-1)
-        local_points = np.arange(m, dtype=utils.IntType)  # swarm local point numbers
-        local_points[halo_indices] = -1
-        unit = MPI._typedict[np.dtype(utils.IntType).char]
-        _swarm_input_ordering_sf.reduceBegin(unit, local_points, local_points_reduced, MPI.MAX)
-        _swarm_input_ordering_sf.reduceEnd(unit, local_points, local_points_reduced, MPI.MAX)
-        _swarm_input_ordering_sf.bcastBegin(unit, local_points_reduced, local_points, MPI.REPLACE)
-        _swarm_input_ordering_sf.bcastEnd(unit, local_points_reduced, local_points, MPI.REPLACE)
-        if np.any(local_points < 0):
-            raise RuntimeError("Unable to make swarm pointSF due to inconsistent data")
-        # Interleave each rank and index into (rank, index) pairs for use as remote
-        # in the SF
-        remote_ranks_and_idxs = np.empty(2 * len(halo_indices), dtype=IntType)
-        remote_ranks_and_idxs[0::2] = owners[halo_indices]
-        remote_ranks_and_idxs[1::2] = local_points[halo_indices]
-    sf = swarm.getPointSF()
-    sf.setGraph(m, halo_indices, remote_ranks_and_idxs)
-    swarm.setPointSF(sf)
-    original_ordering_swarm = _swarm_original_ordering_preserve(
-        parent_mesh.comm,
+    swarm.setLocalSizes(len(swarm_indices), -1)
+    cell_id_name = swarm.getCellDMActive().getCellID()
+    swarm.set_field("DMSwarmPIC_coor", physical_coords[swarm_indices])
+    swarm.set_field(cell_id_name, cell_ids)
+    swarm.set_field("parentcellnum", swarm_parent_cells)  # store Firedrake parent-cell numbers
+    swarm.set_field("refcoord", reference_coords[swarm_indices])
+    swarm.set_field("globalindex", global_idxs_leaves[swarm_indices])
+    swarm.set_field("DMSwarm_rank", owner_ranks[swarm_indices])
+    swarm.set_field("inputrank", embedded_sf.input_ranks[swarm_indices].astype(IntType))
+    swarm.set_field("inputindex", embedded_sf.input_indices[swarm_indices].astype(IntType))
+    if parent_mesh.extruded:
+        swarm.set_field("parentcellbasenum", swarm_base_cells)
+        swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
+
+    # Build the owned-to-halo SF
+    owner_swarm_idx_buf = np.full(embedded_sf.leaf_buffer_size, -1, dtype=IntType)
+    owner_swarm_idx_buf[embedded_sf.leaf_indices[owned_indices]] = np.arange(n_owned, dtype=IntType)
+    owner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
+    # send owning swarm index from leaf to its root. MAX selects it over -1 IDs from halo leaves
+    embedded_sf.reduce(owner_swarm_idx_buf, owner_swarm_idx_roots, op=MPI.MAX)
+
+    owner_swarm_idxs = embedded_sf.broadcast(owner_swarm_idx_roots)[embedded_sf.leaf_indices]
+    swarm.set_halo_sf(
+        n_owned,
+        owner_ranks[halo_indices],
+        owner_swarm_idxs[halo_indices],
+    )
+
+    # Now we create the corresponding input-ordering swarm.
+    original_ordering_swarm = FiredrakeDMSwarm.create_with_fields(
         swarm,
-        original_ordering_swarm_coords,
-        plex_parent_cell_nums,
-        global_idxs_local,
-        reference_coords_local,
-        parent_cell_nums_local,
-        owned_ranks_local,
-        input_ranks_local,  # This is just an array of 0s for redundant, and comm.rank otherwise. But I need to pass it in to get the correct ordering
-        input_coords_idxs_local,
+        parent_mesh.topological_dimension,
+        parent_mesh.geometric_dimension,
         parent_mesh.extruded,
-        parent_mesh.layers,
     )
+    original_ordering_swarm.setLocalSizes(nroots, -1)
+    cell_id_name = original_ordering_swarm.getCellDMActive().getCellID()
+    original_ordering_swarm.set_field("DMSwarmPIC_coor", coords)
+    original_ordering_swarm.set_field(cell_id_name, owner_swarm_idx_roots.astype(IntType))
+    original_ordering_swarm.set_field("parentcellnum", winner_cells)
+    original_ordering_swarm.set_field("refcoord", winner_ref_coords)
+    original_ordering_swarm.set_field("globalindex", global_idxs)
+    original_ordering_swarm.set_field("DMSwarm_rank", input_owner_ranks)
+    original_ordering_swarm.set_field("inputrank", np.full(nroots, parent_mesh.comm.rank, dtype=IntType))
+    original_ordering_swarm.set_field("inputindex", np.arange(nroots, dtype=IntType))
+    if parent_mesh.extruded:
+        base_cells, extrusion_heights = _parent_extrusion_numbering(winner_cells, parent_mesh.layers)
+        original_ordering_swarm.set_field("parentcellbasenum", base_cells)
+        original_ordering_swarm.set_field("parentcellextrusionheight", extrusion_heights)
 
-    # no halos here
-    sf = original_ordering_swarm.getPointSF()
-    nroots = original_ordering_swarm.getLocalSize()
-    sf.setGraph(nroots, None, [])
-    original_ordering_swarm.setPointSF(sf)
+    # no halos in input-ordering swarm
+    empty = np.empty(0, dtype=IntType)
+    original_ordering_swarm.set_halo_sf(nroots, empty, empty)
 
     return swarm, original_ordering_swarm, n_missing_points
-
-
-@PETSc.Log.EventDecorator()
-def _dmswarm_create(
-    fields,
-    comm,
-    plex,
-    coords,
-    plex_parent_cell_nums,
-    coords_idxs,
-    reference_coords,
-    parent_cell_nums,
-    ranks,
-    input_ranks,
-    input_coords_idxs,
-    base_parent_cell_nums,
-    extrusion_heights,
-    extruded,
-    tdim,
-    gdim,
-):
-
-    """
-    Create a PIC DMSwarm (or DMSwarm that looks like it's a PIC DMSwarm) using
-    the given data.
-
-    Parameters
-    ----------
-
-    fields : list of tuples
-        List of tuples of the form (name, number of components, type) for any
-        additional fields to be added to the DMSwarm. The default fields are
-        automatically added and do not need to be specified here. Can be an
-        empty list if no additional fields are required.
-    comm : MPI communicator
-        The MPI communicator to use when creating the DMSwarm.
-    plex : PETSc DM
-        The DM to set as the "CellDM" of the DMSwarm - i.e. the DMPlex or
-        DMSwarm of the parent mesh.
-    coords : numpy array of RealType with shape (npoints, gdim)
-        The coordinates of the particles in the DMSwarm.
-    plex_parent_cell_nums : numpy array of IntType with shape (npoints,)
-        Array to be used as the "parentcellnum" field of the DMSwarm.
-    coords_idxs : numpy array of IntType with shape (npoints,)
-        Array to be used as the "globalindex" field of the DMSwarm.
-    reference_coords : numpy array of RealType with shape (npoints, tdim)
-        Array to be used as the "refcoord" field of the DMSwarm.
-    parent_cell_nums : numpy array of IntType with shape (npoints,)
-        Array to be used as the "parentcellnum" field of the DMSwarm.
-    ranks : numpy array of IntType with shape (npoints,)
-        Array to be used as the "DMSwarm_rank" field of the DMSwarm.
-    input_ranks : numpy array of IntType with shape (npoints,)
-        Array to be used as the "inputrank" field of the DMSwarm.
-    input_coords_idxs : numpy array of IntType with shape (npoints,)
-        Array to be used as the "inputindex" field of the DMSwarm.
-    base_parent_cell_nums : numpy array of IntType with shape (npoints,) (or None)
-        Optional array to be used as the "parentcellbasenum" field of the
-        DMSwarm. Must be provided if extruded=True.
-    extrusion_heights : numpy array of IntType with shape (npoints,) (or None)
-        Optional array to be used as the "parentcellextrusionheight" field of
-        the DMSwarm. Must be provided if extruded=True.
-    extruded : bool
-        Whether the parent mesh is extruded.
-    tdim : int
-        The topological dimension of the parent mesh.
-    gdim : int
-        The geometric dimension of the parent mesh.
-
-    Returns
-    -------
-    swarm : PETSc DMSwarm
-        The created DMSwarm.
-
-    Notes
-    -----
-    When the `plex` is a DMSwarm, the created DMSwarm isn't actually a PIC
-    DMSwarm, but it has all the associated fields of a PIC DMSwarm. This is
-    because PIC DMSwarms cannot have their "CellDM" set to a DMSwarm, so we
-    fake it!
-    """
-
-    # These are created by default for a PIC DMSwarm
-    default_fields = [
-        ("DMSwarmPIC_coor", gdim, RealType),
-        ("DMSwarm_rank", 1, IntType),
-    ]
-
-    default_extra_fields = [
-        ("parentcellnum", 1, IntType),
-        ("refcoord", tdim, RealType),
-        ("globalindex", 1, IntType),
-        ("inputrank", 1, IntType),
-        ("inputindex", 1, IntType),
-    ]
-
-    if extruded:
-        default_extra_fields += [
-            ("parentcellbasenum", 1, IntType),
-            ("parentcellextrusionheight", 1, IntType),
-        ]
-
-    other_fields = fields
-    if other_fields is None:
-        other_fields = []
-
-    _, coordsdim = coords.shape
-
-    # Create a DMSWARM
-    swarm = FiredrakeDMSwarm().create(comm=comm)
-
-    # save the fields on the swarm
-    swarm.fields = default_fields + default_extra_fields + other_fields
-    swarm.default_fields = default_fields
-    swarm.default_extra_fields = default_extra_fields
-    swarm.other_fields = other_fields
-
-    plexdim = plex.getDimension()
-    if plexdim != tdim or plexdim != gdim:
-        # This is a Firedrake extruded or immersed mesh, so we need to use the
-        # mesh geometric dimension when we create the swarm. In this
-        # case DMSwarmMigate() will not work.
-        swarmdim = gdim
-    else:
-        swarmdim = plexdim
-
-    # Set swarm DM dimension to match DMPlex dimension
-    # NB: Unlike a DMPlex, this does not correspond to the topological
-    #     dimension of a mesh (which would be 0). In all PETSc examples
-    #     the dimension of the DMSwarm is set to match that of the
-    #     DMPlex used with swarm.setCellDM. As noted above, for an
-    #     extruded mesh this will stop DMSwarmMigrate() from working.
-    swarm.setDimension(swarmdim)
-
-    # Set coordinates dimension
-    swarm.setCoordinateDim(coordsdim)
-
-    # Link to DMPlex cells information for when swarm.migrate() is used
-    swarm.setCellDM(plex)
-
-    # Set to Particle In Cell (PIC) type
-    if not isinstance(plex, PETSc.DMSwarm):
-        swarm.setType(PETSc.DMSwarm.Type.PIC)
-
-    # Register any fields
-    for name, size, dtype in swarm.default_extra_fields + swarm.other_fields:
-        swarm.registerField(name, size, dtype=dtype)
-    swarm.finalizeFieldRegister()
-    # Note that no new fields can now be associated with the DMSWARM.
-
-    num_vertices = len(coords)
-    swarm.setLocalSizes(num_vertices, -1)
-
-    # Add point coordinates. This amounts to our own implementation of
-    # DMSwarmSetPointCoordinates because Firedrake's mesh coordinate model
-    # doesn't always exactly coincide with that of DMPlex: in most cases the
-    # plex_parent_cell_nums and parent_cell_nums (parentcellnum field), the
-    # latter being the numbering used by firedrake, refer fundamentally to the
-    # same cells. For extruded meshes the DMPlex dimension is based on the
-    # topological dimension of the base mesh.
-
-    cell_id_name = swarm.getCellDMActive().getCellID()
-    with (
-        swarm.field("DMSwarmPIC_coor") as swarm_coords,
-        swarm.field(cell_id_name) as swarm_parent_cell_nums,
-        swarm.field("parentcellnum") as field_parent_cell_nums,
-        swarm.field("refcoord") as field_reference_coords,
-        swarm.field("globalindex") as field_global_index,
-        swarm.field("DMSwarm_rank") as field_rank,
-        swarm.field("inputrank") as field_input_rank,
-        swarm.field("inputindex") as field_input_index,
-    ):
-        swarm_coords[...] = coords
-        swarm_parent_cell_nums[:, 0] = plex_parent_cell_nums
-        field_parent_cell_nums[:, 0] = parent_cell_nums
-        field_reference_coords[...] = reference_coords
-        field_global_index[:, 0] = coords_idxs
-        field_rank[:, 0] = ranks
-        field_input_rank[:, 0] = input_ranks
-        field_input_index[:, 0] = input_coords_idxs
-
-    if extruded:
-        with (
-            swarm.field("parentcellbasenum") as field_base_parent_cell_nums,
-            swarm.field("parentcellextrusionheight") as field_extrusion_heights,
-        ):
-            field_base_parent_cell_nums[:, 0] = base_parent_cell_nums
-            field_extrusion_heights[:, 0] = extrusion_heights
-
-    return swarm
 
 
 def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
@@ -4308,461 +4400,129 @@ def _parent_extrusion_numbering(parent_cell_nums, parent_layers):
 
 @PETSc.Log.EventDecorator()
 def _parent_mesh_embedding(
-    parent_mesh, coords, tolerance, redundant, exclude_halos, remove_missing_points
+    parent_mesh,
+    coords,
+    tolerance,
+    exclude_halos=False,
 ):
     """Find the parent mesh cells containing the given coordinates.
 
+    Uses a distributed R-tree to identify candidate ranks for each point,
+    then assigns owning cells using sparse communication.
+
     Parameters
     ----------
-    parent_mesh : ``Mesh``
+    parent_mesh : Mesh
         The parent mesh to embed in.
-    coords : ``np.ndarray``
-        The coordinates to embed of (npoints, coordsdim) shape.
-    tolerance : ``float``
+    coords : np.ndarray
+        The coordinates to embed, of shape `(npoints, dim)`.
+    tolerance : float
         The relative tolerance (i.e. as defined on the reference cell) for the
         distance a point can be from a cell and still be considered to be in
         the cell. Note that this tolerance uses an L1
         distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
         will scale with the dimension of the mesh. The default is the parent
-        mesh's ``tolerance`` property. Changing this from default will
+        mesh's `tolerance` property. Changing this from default will
         cause the parent mesh's rtree to be rebuilt which can take some
         time.
-    redundant : ``bool``
-        If True, the embedding will be done using only the points specified on
-        MPI rank 0.
-    exclude_halos : ``bool``
-        If True, the embedding will be done using only the points specified on
-        the locally owned mesh partition.
-    remove_missing_points : ``bool``
-        If True, any points which are not found in the mesh will be removed
-        from the output arrays. If False, they will be kept on the MPI rank
-        which owns them but will be marked as not being not found in the mesh
-        by setting their associated cell numbers to -1 and their reference
-        coordinates to NaNs. This does not effect the behaviour of
-        ``missing_global_idxs``.
+    exclude_halos : bool
+        If True, the embedded SF excludes halo leaves and contains only
+        winning owned leaves.
 
     Returns
     -------
-    coords_embedded : ``np.ndarray``
-        The coordinates of the points that were embedded on this rank. If
-        ``remove_missing_points`` is False then this will include points that
-        were specified on this rank but not found in the mesh.
-    global_idxs : ``np.ndarray``
-        The global indices of the points on this rank.
-    reference_coords : ``np.ndarray``
-        The reference coordinates of the points that were embedded as given by
-        the local mesh partition. If ``remove_missing_points`` is False then
-        the missing point reference coordinates will be NaNs.
-    parent_cell_nums : ``np.ndarray``
-        The parent cell indices (as given by ``locate_cell``) of the global
-        coordinates that were embedded in the local mesh partition. If
-        ``remove_missing_points`` is False then the missing point numbers
-        will be -1.
-    owned_ranks : ``np.ndarray``
-        The MPI rank of the process that owns the parent cell of each point.
-        By "owns" we mean the mesh partition where the parent cell is not in
-        the halo. If a point is not found in the mesh then the rank is
-        ``parent_mesh.comm.size + 1``.
-    input_ranks : ``np.ndarray``
-        The MPI rank of the process that specified the input ``coords``.
-    input_coords_idx : ``np.ndarray``
-        The indices of the points in the input ``coords`` array that were
-        embedded. If ``remove_missing_points`` is False then this will include
-        points that were specified on this rank but not found in the mesh.
-    missing_global_idxs : ``np.ndarray``
-        The indices of the points in the input coords array that were not
-        embedded on any rank.
-
-    .. note::
-        Where we have ``exclude_halos == True`` and ``remove_missing_points ==
-        False``, and we run in parallel, the points are ordered such that the
-        halo points follow the owned points. Any missing points will be at the
-        end of the array. This is to ensure that dat views work as expected -
-        in general it is always assumed that halo points follow owned points.
-
+    embedded_sf : VertexOnlyMeshSF
+        The star forest connecting root points to the 'winning' leaf point(s).
+        Each root may be connected to multiple leaves if halos are included.
+    winner_cells : np.ndarray
+        An array of shape `(nroots,)` containing the Firedrake cell number on
+        the winner rank for each root point. -1 for missing points.
+    winner_ref_coords : np.ndarray
+        An array of shape `(nroots, ref_dim)`, containing the reference
+        coordinates inside the winner cell of each point. NaN for missing points.
+    winner_ranks : np.ndarray
+        An array of shape `(nroots,)` containing the MPI ranks that own the winning
+        cells for each point. -1 for missing points.
+    parent_cell_nums : np.ndarray
+        Firedrake parent cell numbers for the embedded leaves.
+    reference_coords : np.ndarray
+        Reference coordinates for the embedded leaves.
+    owner_ranks : np.ndarray
+        Parent cell owner ranks for the embedded leaves.
+    physical_coords : np.ndarray
+        Physical coordinates for the embedded leaves.
     """
-
     if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError(
             "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
         )
+    # `candidate_sf` is a star forest where each root is an input point,
+    # and its leaves are candidate points on ranks which may own the point
+    candidate_sf = VertexOnlyMeshSF.candidate_sf(parent_mesh, coords)
+    nroots = candidate_sf.nroots  # nroots == coords.shape[0]
 
-    with temp_internal_comm(parent_mesh.comm) as icomm:
-        # In parallel, we need to make sure we know which point is which and save
-        # it.
-        if redundant:
-            # rank 0 broadcasts coords to all ranks
-            coords_local = icomm.bcast(coords, root=0)
-            ncoords_local = coords_local.shape[0]
-            coords_global = coords_local
-            ncoords_global = coords_global.shape[0]
-            global_idxs_global = np.arange(coords_global.shape[0])
-            input_coords_idxs_local = np.arange(ncoords_local)
-            input_coords_idxs_global = input_coords_idxs_local
-            input_ranks_local = np.zeros(ncoords_local, dtype=int)
-            input_ranks_global = input_ranks_local
-        else:
-            # Here, we have to assume that all points we can see are unique.
-            # We therefore gather all points on all ranks in rank order: if rank 0
-            # has 10 points, rank 1 has 20 points, and rank 3 has 5 points, then
-            # rank 0's points have global numbering 0-9, rank 1's points have
-            # global numbering 10-29, and rank 3's points have global numbering
-            # 30-34.
-            coords_local = coords
-            ncoords_local = coords.shape[0]
-            ncoords_local_allranks = icomm.allgather(ncoords_local)
-            ncoords_global = sum(ncoords_local_allranks)
-            # The below code looks complicated but it's just an allgather of the
-            # (variable length) coords_local array such that they are concatenated.
-            coords_local_size = np.array(coords_local.size)
-            coords_local_sizes = np.empty(parent_mesh.comm.size, dtype=int)
-            icomm.Allgatherv(coords_local_size, coords_local_sizes)
-            coords_global = np.empty(
-                (ncoords_global, coords.shape[1]), dtype=coords_local.dtype
-            )
-            icomm.Allgatherv(coords_local, (coords_global, coords_local_sizes))
-            # # ncoords_local_allranks is in rank order so we can just sum up the
-            # # previous ranks to get the starting index for the global numbering.
-            # # For rank 0 we make use of the fact that sum([]) = 0.
-            # startidx = sum(ncoords_local_allranks[:parent_mesh.comm.rank])
-            # endidx = startidx + ncoords_local
-            # global_idxs_global = np.arange(startidx, endidx)
-            global_idxs_global = np.arange(coords_global.shape[0])
-            input_coords_idxs_local = np.arange(ncoords_local)
-            input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
-            icomm.Allgatherv(
-                input_coords_idxs_local, (input_coords_idxs_global, ncoords_local_allranks)
-            )
-            input_ranks_local = np.full(ncoords_local, icomm.rank, dtype=int)
-            input_ranks_global = np.empty(ncoords_global, dtype=int)
-            icomm.Allgatherv(
-                input_ranks_local, (input_ranks_global, ncoords_local_allranks)
-            )
-    (
-        parent_cell_nums,
-        reference_coords,
-        ref_cell_dists_l1,
-    ) = parent_mesh.locate_cells_ref_coords_and_dists(coords_global, tolerance)
-    assert len(parent_cell_nums) == ncoords_global
-    assert len(reference_coords) == ncoords_global
-    assert len(ref_cell_dists_l1) == ncoords_global
-
+    # send coords to the candidates, and locate each candidate point
+    coords = candidate_sf.broadcast(coords)
+    parent_cell_nums, ref_coords, ref_cell_dists, owning_ranks = (
+        parent_mesh._locate_cells_ref_coords_dists_and_owners(coords, tolerance)
+    )
+    # Immersed manifold case: the reference coords have an extra dimension we can safely drop
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-        # The reference coordinates contain an extra unnecessary dimension
-        # which we can safely delete
-        reference_coords = reference_coords[:, : parent_mesh.topological_dimension]
+        ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
 
-    # Get parent mesh rank ownership information.
-    visible_ranks = parent_mesh._visible_ranks
-    locally_visible = parent_cell_nums != -1
+    # `keep` is a mask of candidate points we want to keep
+    # keep only points which are visible on this rank (they were found in a cell)
+    keep = parent_cell_nums != -1
 
-    if parent_mesh.extruded:
-        # Halo exchange of visible_ranks is over the base mesh topology and cell numbering,
-        # so we need to map back to extruded cell numbering after indexing parent_cell_nums.
-        locally_visible_cell_nums = parent_cell_nums[locally_visible] // (parent_mesh.layers - 1)
-    else:
-        locally_visible_cell_nums = parent_cell_nums[locally_visible]
+    # TODO: try packing these next two reduction into (distance, -owner_rank) and reduce with MPI.MINLOC
+    # don't think PETSc has the fast pack/unpack operations in SF for this, so we'd
+    # have to create our own numpy dtype to do this...
 
-    # In parallel there will regularly be disagreements about which cell owns a
-    # point when those points are close to mesh partition boundaries.
-    # We first set the owning cell to be the one with the minimum L1 distance to the point.
-    # In the case of ties, we pick the highest rank number.
+    # keep points which attain the minimum L1 distance out of all candidates
+    root_distance_min = np.full(nroots, np.inf, dtype=RealType)
+    candidate_sf.reduce(
+        np.where(keep, ref_cell_dists, np.inf),
+        root_distance_min,
+        op=MPI.MIN,
+    )
+    keep &= ref_cell_dists == candidate_sf.broadcast(root_distance_min)
 
-    # Set non-visible L1 distance to np.inf so they don't interfere with the MPI.MIN reduction.
-    ref_cell_dists_l1[~locally_visible] = np.inf
-    owned_ref_cell_dists_l1 = np.empty_like(ref_cell_dists_l1)
-    # The owning cell is the one with the minimum L1 distance to the point.
-    parent_mesh.comm.Allreduce(ref_cell_dists_l1, owned_ref_cell_dists_l1, op=MPI.MIN)
+    # multiple ranks may claim the minimum L1 distance. Break ties
+    # by choosing the highest numbered rank.
+    root_owner_max = np.full(nroots, -1, dtype=IntType)
+    candidate_sf.reduce(
+        np.where(keep, owning_ranks, -1),
+        root_owner_max,
+        op=MPI.MAX,
+    )
+    keep &= owning_ranks == candidate_sf.broadcast(root_owner_max)
 
-    # Only ranks that achieved the global minimum distance are candidates for
-    # ownership. Among tied candidates (same minimum distance) we pick the
-    # highest rank number using MPI.MAX. Non-visible points are set to -np.inf
-    # so they don't interfere with the MAX reduction.
-    ranks = np.full(ncoords_global, -np.inf)
-    ranks[locally_visible] = visible_ranks[locally_visible_cell_nums]
-    rank_candidates = np.where(ref_cell_dists_l1 == owned_ref_cell_dists_l1, ranks, -np.inf)
-    owned_ranks = np.empty_like(rank_candidates)
-    parent_mesh.comm.Allreduce(rank_candidates, owned_ranks, op=MPI.MAX)
+    # Points in halo cells will be assigned to the rank owning that cell
+    not_in_halo = owning_ranks == parent_mesh.comm.rank
 
-    changed_ref_cell_dists_l1 = owned_ref_cell_dists_l1 != ref_cell_dists_l1
-    changed_ranks = owned_ranks != ranks
+    # this SF maps roots to their winning candidate leaf
+    winner_sf = candidate_sf.create_embedded_leaf_sf(keep & not_in_halo)
 
-    # If distance has changed the the point is not in local mesh partition
-    # since some other cell on another rank is closer.
-    locally_visible[changed_ref_cell_dists_l1] = False
-    parent_cell_nums[changed_ref_cell_dists_l1] = -1
-    # If the rank has changed but the distance hasn't then there was a tie
-    # break and we need to search for the point again, this time disallowing
-    # the previously identified cell: if we match the identified owned_rank AND
-    # the distance is the same then we have found the correct cell. If we
-    # cannot make a match to owned_rank and distance then we can't see the
-    # point.
-    changed_ranks_tied = changed_ranks & ~changed_ref_cell_dists_l1
-    if any(changed_ranks_tied):
-        cells_ignore_T = np.asarray([np.copy(parent_cell_nums)])
-        while any(changed_ranks_tied):
-            (
-                parent_cell_nums[changed_ranks_tied],
-                new_reference_coords,
-                ref_cell_dists_l1[changed_ranks_tied],
-            ) = parent_mesh.locate_cells_ref_coords_and_dists(
-                coords_global[changed_ranks_tied],
-                tolerance,
-                cells_ignore=cells_ignore_T.T[changed_ranks_tied, :],
-            )
-            # delete extra dimension if necessary
-            if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-                new_reference_coords = new_reference_coords[:, : parent_mesh.topological_dimension]
-            reference_coords[changed_ranks_tied, :] = new_reference_coords
-            # remove newly lost points
-            locally_visible[changed_ranks_tied] = (
-                parent_cell_nums[changed_ranks_tied] != -1
-            )
-            changed_ranks_tied &= locally_visible
-            # if new ref_cell_dists_l1 > owned_ref_cell_dists_l1 then we should
-            # disregard the point.
-            locally_visible[changed_ranks_tied] &= (
-                ref_cell_dists_l1[changed_ranks_tied]
-                <= owned_ref_cell_dists_l1[changed_ranks_tied]
-            )
-            changed_ranks_tied &= locally_visible
-            # update the identified rank
-            if parent_mesh.extruded:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied] // (parent_mesh.layers - 1)
-            else:
-                _retry_cell_nums = parent_cell_nums[changed_ranks_tied]
-            ranks[changed_ranks_tied] = visible_ranks[_retry_cell_nums]
-            # if the rank now matches then we have found the correct cell
-            locally_visible[changed_ranks_tied] &= (
-                owned_ranks[changed_ranks_tied] == ranks[changed_ranks_tied]
-            )
-            # remove these rank matches from changed_ranks_tied
-            changed_ranks_tied &= ~locally_visible
-            # add more cells to ignore
-            cells_ignore_T = np.vstack((
-                cells_ignore_T,
-                parent_cell_nums)
-            )
+    # Try packing these two reductions and do a single reduction
 
-    # Any ranks which are still -np.inf are not in the mesh
-    missing_global_idxs = np.where(owned_ranks == -np.inf)[0]
+    # send winning cell number and ref coords to roots
+    winner_cells = np.full(nroots, -1, dtype=IntType)
+    winner_sf.reduce(parent_cell_nums, winner_cells)
 
-    if not remove_missing_points:
-        missing_coords_idxs_on_rank = np.where(
-            (owned_ranks == -np.inf) & (input_ranks_global == parent_mesh.comm.rank)
-        )[0]
-        locally_visible[missing_coords_idxs_on_rank] = True
-        parent_cell_nums[missing_coords_idxs_on_rank] = -1
-        reference_coords[missing_coords_idxs_on_rank, :] = np.nan
-        owned_ranks[missing_coords_idxs_on_rank] = parent_mesh.comm.size + 1
+    winner_ref_coords = np.full((nroots, ref_coords.shape[1]), np.nan, dtype=RealType)
+    winner_sf.reduce(ref_coords, winner_ref_coords)
 
-    if exclude_halos and parent_mesh.comm.size > 1:
-        off_rank_coords_idxs = np.where(
-            (owned_ranks != parent_mesh.comm.rank)
-            & (owned_ranks != parent_mesh.comm.size + 1)
-        )[0]
-        locally_visible[off_rank_coords_idxs] = False
-
-    coords_embedded = np.compress(locally_visible, coords_global, axis=0)
-    global_idxs = np.compress(locally_visible, global_idxs_global, axis=0)
-    reference_coords = np.compress(locally_visible, reference_coords, axis=0)
-    parent_cell_nums = np.compress(locally_visible, parent_cell_nums, axis=0)
-    owned_ranks = np.compress(locally_visible, owned_ranks, axis=0).astype(int)
-    input_ranks = np.compress(locally_visible, input_ranks_global, axis=0)
-    input_coords_idxs = np.compress(locally_visible, input_coords_idxs_global, axis=0)
+    embedded_sf = winner_sf if exclude_halos else candidate_sf.create_embedded_leaf_sf(keep)
 
     return (
-        coords_embedded,
-        global_idxs,
-        reference_coords,
-        parent_cell_nums,
-        owned_ranks,
-        input_ranks,
-        input_coords_idxs,
-        missing_global_idxs,
-    )
-
-
-@PETSc.Log.EventDecorator()
-def _swarm_original_ordering_preserve(
-    comm,
-    swarm,
-    original_ordering_coords_local,
-    plex_parent_cell_nums_local,
-    global_idxs_local,
-    reference_coords_local,
-    parent_cell_nums_local,
-    ranks_local,
-    input_ranks_local,
-    input_idxs_local,
-    extruded,
-    layers,
-):
-    """
-    Create a DMSwarm with the original ordering of the coordinates in a vertex
-    only mesh embedded using ``_parent_mesh_embedding`` whilst preserving the
-    values of all other DMSwarm fields except any added fields.
-    """
-    ncoords_local = len(reference_coords_local)
-    gdim = original_ordering_coords_local.shape[1]
-    tdim = reference_coords_local.shape[1]
-
-    # Gather everything except original_ordering_coords_local from all mpi
-    # ranks
-    ncoords_local_allranks = comm.allgather(ncoords_local)
-    ncoords_global = sum(ncoords_local_allranks)
-
-    parent_cell_nums_global = np.empty(
-        ncoords_global, dtype=parent_cell_nums_local.dtype
-    )
-    comm.Allgatherv(
-        parent_cell_nums_local, (parent_cell_nums_global, ncoords_local_allranks)
-    )
-
-    plex_parent_cell_nums_global = np.empty(
-        ncoords_global, dtype=plex_parent_cell_nums_local.dtype
-    )
-    comm.Allgatherv(
-        plex_parent_cell_nums_local,
-        (plex_parent_cell_nums_global, ncoords_local_allranks),
-    )
-
-    reference_coords_local_size = np.array(reference_coords_local.size)
-    reference_coords_local_sizes = np.empty(comm.size, dtype=int)
-    comm.Allgatherv(reference_coords_local_size, reference_coords_local_sizes)
-    reference_coords_global = np.empty(
-        (ncoords_global, reference_coords_local.shape[1]),
-        dtype=reference_coords_local.dtype,
-    )
-    comm.Allgatherv(
-        reference_coords_local, (reference_coords_global, reference_coords_local_sizes)
-    )
-
-    global_idxs_global = np.empty(ncoords_global, dtype=global_idxs_local.dtype)
-    comm.Allgatherv(global_idxs_local, (global_idxs_global, ncoords_local_allranks))
-
-    ranks_global = np.empty(ncoords_global, dtype=ranks_local.dtype)
-    comm.Allgatherv(ranks_local, (ranks_global, ncoords_local_allranks))
-
-    input_ranks_global = np.empty(ncoords_global, dtype=input_ranks_local.dtype)
-    comm.Allgatherv(input_ranks_local, (input_ranks_global, ncoords_local_allranks))
-
-    input_idxs_global = np.empty(ncoords_global, dtype=input_idxs_local.dtype)
-    comm.Allgatherv(input_idxs_local, (input_idxs_global, ncoords_local_allranks))
-
-    # Sort by global index, which will be in rank order (they probably already
-    # are but we can't rely on that)
-    global_idxs_global_order = np.argsort(global_idxs_global)
-    sorted_parent_cell_nums_global = parent_cell_nums_global[global_idxs_global_order]
-    sorted_plex_parent_cell_nums_global = plex_parent_cell_nums_global[
-        global_idxs_global_order
-    ]
-    sorted_reference_coords_global = reference_coords_global[
-        global_idxs_global_order, :
-    ]
-    sorted_global_idxs_global = global_idxs_global[global_idxs_global_order]
-    sorted_ranks_global = ranks_global[global_idxs_global_order]
-    sorted_input_ranks_global = input_ranks_global[global_idxs_global_order]
-    sorted_input_idxs_global = input_idxs_global[global_idxs_global_order]
-    # Check order is correct - we can probably remove this eventually since it's
-    # quite expensive
-    if not np.all(sorted_input_ranks_global[1:] >= sorted_input_ranks_global[:-1]):
-        raise ValueError("Global indexing has not ordered the ranks as expected")
-
-    # get rid of any duplicated global indices (i.e. points in halos)
-    unique_global_idxs, unique_idxs = np.unique(
-        sorted_global_idxs_global, return_index=True
-    )
-    unique_parent_cell_nums_global = sorted_parent_cell_nums_global[unique_idxs]
-    unique_plex_parent_cell_nums_global = sorted_plex_parent_cell_nums_global[
-        unique_idxs
-    ]
-    unique_reference_coords_global = sorted_reference_coords_global[unique_idxs, :]
-    unique_ranks_global = sorted_ranks_global[unique_idxs]
-    unique_input_ranks_global = sorted_input_ranks_global[unique_idxs]
-    unique_input_idxs_global = sorted_input_idxs_global[unique_idxs]
-
-    # save the points on this rank which match the input rank ready for output
-    input_ranks_match = unique_input_ranks_global == comm.rank
-    output_global_idxs = unique_global_idxs[input_ranks_match]
-    output_parent_cell_nums = unique_parent_cell_nums_global[input_ranks_match]
-    output_plex_parent_cell_nums = unique_plex_parent_cell_nums_global[
-        input_ranks_match
-    ]
-    output_reference_coords = unique_reference_coords_global[input_ranks_match, :]
-    output_ranks = unique_ranks_global[input_ranks_match]
-    output_input_ranks = unique_input_ranks_global[input_ranks_match]
-    output_input_idxs = unique_input_idxs_global[input_ranks_match]
-    if extruded:
-        (
-            output_base_parent_cell_nums,
-            output_extrusion_heights,
-        ) = _parent_extrusion_numbering(output_parent_cell_nums, layers)
-    else:
-        output_base_parent_cell_nums = None
-        output_extrusion_heights = None
-
-    # check if the input indices are in order from zero - this can also probably
-    # be removed eventually because, again, it's expensive.
-    if not np.array_equal(output_input_idxs, np.arange(output_input_idxs.size)):
-        raise ValueError(
-            "Global indexing has not ordered the input indices as expected."
-        )
-    if len(output_global_idxs) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local global indices which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_parent_cell_nums) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_plex_parent_cell_nums) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local plex parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_reference_coords) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local reference coordinates which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_ranks) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input rank numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if len(output_input_idxs) != len(original_ordering_coords_local):
-        raise ValueError(
-            "The number of local input indices which will be used to make the swarm do not match the input number of original ordering coordinates."
-        )
-    if extruded:
-        if len(output_base_parent_cell_nums) != len(original_ordering_coords_local):
-            raise ValueError(
-                "The number of local base parent cell numbers which will be used to make the swarm do not match the input number of original ordering coordinates."
-            )
-        if len(output_extrusion_heights) != len(original_ordering_coords_local):
-            raise ValueError(
-                "The number of local extrusion heights which will be used to make the swarm do not match the input number of original ordering coordinates."
-            )
-
-    return _dmswarm_create(
-        [],
-        comm,
-        swarm,
-        original_ordering_coords_local,
-        output_plex_parent_cell_nums,
-        output_global_idxs,
-        output_reference_coords,
-        output_parent_cell_nums,
-        output_ranks,
-        output_input_ranks,
-        output_input_idxs,
-        output_base_parent_cell_nums,
-        output_extrusion_heights,
-        extruded,
-        tdim,
-        gdim,
+        embedded_sf,
+        winner_cells,
+        winner_ref_coords,
+        root_owner_max,
+        parent_cell_nums[embedded_sf.leaf_indices],
+        ref_coords[embedded_sf.leaf_indices],
+        owning_ranks[embedded_sf.leaf_indices],
+        coords[embedded_sf.leaf_indices],
     )
 
 
