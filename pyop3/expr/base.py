@@ -608,9 +608,13 @@ class AxisVar(TerminalExpression):
         return pyop3.collections.OrderedFrozenSet()
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        # Axis vars are just pointers to some outer loop. We don't
-        # need to recurse here, just make sure that the labels match.
-        return (type(self), visitor.renamer.add_type(type(self.axis), self.axis.label))
+        # Axis vars are just pointers to some outer loop. We don't need to
+        # recurse here if we've seen the axis before, just make sure that
+        # the labels match.
+        if self.axis.label in visitor.seen_axes:
+            return (type(self), visitor.renamer.add_type(type(self.axis), self.axis.label))
+        else:
+            return (type(self), visitor(self.axis))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -693,13 +697,17 @@ class LoopIndexVar(TerminalExpression):
     axis: Axis
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        # Loop index vars are just pointers to some outer loop. We don't
-        # need to recurse here, just make sure that the labels match.
-        return (
-            type(self),
-            visitor.renamer.add_type(type(self.loop_index), self.loop_index.label),
-            visitor.renamer.add_type(type(self.axis), self.axis.label),
-        )
+        # Loop index vars are just pointers to some outer loop. We don't need
+        # to recurse here if we've seen the loop index before, just make sure
+        # that the labels match.
+        if self.loop_index.label in visitor.seen_loop_indices:
+            return (
+                type(self),
+                visitor.renamer.add_type(type(self.loop_index), self.loop_index.label),
+                visitor.renamer.add_type(type(self.axis), self.axis.label),
+            )
+        else:
+            return (type(self), visitor(self.loop_index), visitor(self.axis))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 

@@ -136,16 +136,16 @@ class Loop(NonTerminalInstruction):
         return visitor(self.index).union(*(map(visitor, self.statements)))
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (type(self), visitor(self.index), tuple(map(visitor, self.statements)))
+        with visitor.active_loop_index(self.index.label):
+            stmts_key = tuple(map(visitor, self.statements))
+        return (type(self), visitor(self.index), stmts_key)
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         with visitor.identity_hash_buffers():
             index_key = visitor(self.index)
-        return (
-            type(self),
-            index_key,
-            tuple(map(visitor, self.statements)),
-        )
+        with visitor.active_loop_index(self.index.label):
+            stmts_key = tuple(map(visitor, self.statements))
+        return (type(self), index_key, stmts_key)
 
     def __new__(cls, *args, **kwargs):
         if args:

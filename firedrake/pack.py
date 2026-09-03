@@ -60,7 +60,7 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
         and iter_mesh.topology._base_mesh is mesh
     ):
-        composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index)
+        composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index, label="extr_cell_base_cell")
         target_integral_type = "cell"
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
         composed_map, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
@@ -474,7 +474,10 @@ def _flatten_entity_dofs(element) -> np.ndarray:
 
 def _static_node_perm_slice_hashkey(nodal_axis, space, depth):
     edofs_key = entity_dofs_key(space.finat_element.entity_dofs())
-    eperms_key = entity_permutations_key(space.finat_element.entity_permutations)
+    try:
+        eperms_key = entity_permutations_key(space.finat_element.entity_permutations)
+    except NotImplementedError:
+        eperms_key = None
     return (nodal_axis, edofs_key, eperms_key, depth)
 
 

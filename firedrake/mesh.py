@@ -2619,7 +2619,7 @@ class MeshTopology(AbstractMeshTopology):
                     op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label),
                 ],
             },
-            name=map_name,
+            # name=map_name,
         )
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
@@ -2735,7 +2735,7 @@ class MeshTopology(AbstractMeshTopology):
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)
         return op3.ScalarMap(
             connectivity,
-            name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point",
+            # name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point",
         )
 
     @cached_property
@@ -2750,7 +2750,7 @@ class MeshTopology(AbstractMeshTopology):
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)
         return op3.ScalarMap(
             connectivity,
-            name=f"{self.name}_parent_{self.submesh_parent.name}_child_map_point_point",
+            # name=f"{self.name}_parent_{self.submesh_parent.name}_child_map_point_point",
         )
 
     @cached_property
@@ -3235,7 +3235,6 @@ class ExtrudedMeshTopology(MeshTopology):
                     op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
                 ]]
             },
-            name="extr_cell_base_cell",
         )
 
     def make_dofs_per_plex_entity(self, entity_dofs):
@@ -3519,7 +3518,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                     op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
                 ]
             },
-            name="cell_parent_cell",
         )
 
     @cached_property  # TODO: Recalculate if mesh moves
