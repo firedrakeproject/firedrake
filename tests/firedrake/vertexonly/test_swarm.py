@@ -1,6 +1,6 @@
 from firedrake import *
 from firedrake.cython import rtree
-from firedrake.mesh import FiredrakeDMSwarm, _pic_swarm_in_mesh
+from firedrake.mesh import _pic_swarm_in_mesh
 from firedrake.utils import IntType
 import pytest
 import numpy as np
@@ -197,11 +197,6 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         input_rank = parentmesh.comm.rank
         input_local_coord_indices = np.arange(len(inputlocalpointcoords))
 
-    assert isinstance(swarm, FiredrakeDMSwarm)
-    assert isinstance(original_swarm, FiredrakeDMSwarm)
-    dm = swarm.dm
-    original_dm = original_swarm.dm
-
     have_halos = len(parentmesh.coordinates.dat.data_ro_with_halos) > len(parentmesh.coordinates.dat.data_ro)
     # collect from all ranks
     have_halos = MPI.COMM_WORLD.allreduce(have_halos, op=MPI.SUM)
@@ -221,7 +216,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     nptslocal = len(localpointcoords)
     nptsglobal = MPI.COMM_WORLD.allreduce(nptslocal, op=MPI.SUM)
     # Get parent PETSc cell indices on current MPI rank
-    cell_id = dm.getCellDMActive().getCellID()
+    cell_id = swarm.getCellDMActive().getCellID()
     with swarm.field(cell_id) as parent_cell_indices:
         localparentcellindices = parent_cell_indices.ravel().copy()
 
@@ -241,7 +236,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             assert values.size == size*nptslocal
             assert values.dtype == dtype
     # Check comm sizes match
-    assert plex.comm.size == dm.comm.size
+    assert plex.comm.size == swarm.comm.size
 
     # Check coordinate list and parent cell indices match
     assert len(localpointcoords) == len(localparentcellindices)
@@ -261,7 +256,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             # otherwise there should be none
             assert len(localpointcoords) == len(inputlocalpointcoords)
     # Check methods for checking number of points on current MPI rank
-    assert len(localpointcoords) == dm.getLocalSize()
+    assert len(localpointcoords) == swarm.getLocalSize()
     if not parentmesh.extruded:
         if exclude_halos:
             # Check there are as many local points as there are local cells
@@ -291,7 +286,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         else:
             # otherwise there should be none
             assert nptsglobal == len(inputpointcoords)
-    assert nptsglobal == dm.getSize()
+    assert nptsglobal == swarm.getSize()
 
     # Check the parent cell indexes match those in the parent mesh
     cell_indexes = parentmesh.cell_closure[:, -1]
@@ -357,9 +352,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         and not parentmesh.extruded
         and not parentmesh.coordinates.dat.dat_version > 0  # shifted mesh
     ):
-        dm.setPointCoordinates(localpointcoords, redundant=False,
-                               mode=PETSc.InsertMode.INSERT_VALUES)
-        cell_id = dm.getCellDMActive().getCellID()
+        swarm.setPointCoordinates(localpointcoords, redundant=False,
+                                  mode=PETSc.InsertMode.INSERT_VALUES)
+        cell_id = swarm.getCellDMActive().getCellID()
         with swarm.field(cell_id) as parent_cell_indices:
             petsclocalparentcellindices = parent_cell_indices.ravel().copy()
         if exclude_halos:
@@ -370,8 +365,8 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             assert np.all(np.isin(petsclocalparentcellindices, localparentcellindices))
 
     # The input-ordering swarm is composed with the distributed swarm's DM.
-    assert isinstance(original_dm.getCellDM(), PETSc.DMSwarm)
-    assert original_dm.getCellDM() == dm
+    assert isinstance(original_swarm.getCellDM(), PETSc.DMSwarm)
+    assert original_swarm.getCellDM() == swarm
 
 
 @pytest.mark.parallel
