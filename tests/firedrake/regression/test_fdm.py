@@ -151,7 +151,7 @@ def test_p_independence_hgrad(mesh, variant):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
-@pytest.mark.skipsingle  # FDM preconditioner loses numerical SPD in fp32, causing CG breakdown
+@pytest.mark.skipsingle  # fp32: FDM preconditioner loses numerical SPD, CG breaks down for degree > 3
 def test_p_independence_hcurl(mesh):
     family = "NCE" if mesh.topological_dimension == 3 else "RTCE"
     expected = [13, 10] if mesh.topological_dimension == 3 else [6, 6]
@@ -165,7 +165,7 @@ def test_p_independence_hcurl(mesh):
 
 @pytest.mark.skipmumps
 @pytest.mark.skipcomplex
-@pytest.mark.skipsingle  # FDM preconditioner loses numerical SPD in fp32, causing CG breakdown
+@pytest.mark.skipsingle  # fp32: FDM preconditioner loses numerical SPD, CG breaks down for degree > 3
 def test_p_independence_hdiv(mesh):
     family = "NCF" if mesh.topological_dimension == 3 else "RTCF"
     expected = [6, 6]
