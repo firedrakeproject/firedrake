@@ -171,7 +171,7 @@ def _solve_varproblem(*args, **kwargs):
         form_compiler_parameters = {}
     form_compiler_parameters['scalar_type'] = ScalarType
 
-    appctx = kwargs.get("appctx", {})
+    appctx = kwargs.get("appctx", None)
     if not isinstance(eq.lhs, ufl.BaseForm):
         raise TypeError(f"Equation LHS must be a ufl.BaseForm, not a {type(eq.lhs).__name__}")
 
