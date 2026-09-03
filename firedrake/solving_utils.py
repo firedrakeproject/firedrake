@@ -304,6 +304,9 @@ class _SNESContext:
 
     @property
     def appctx(self) -> dict:
+        # debugging
+        raise AssertionError("old api")
+
         # Raise a 'DeprecationWarning' here instead of a 'FutureWarning' because
         # this in an internal detail, not user facing
         warnings.warn(
@@ -358,6 +361,7 @@ class _SNESContext:
                 else:
                     raise KeyError
             else:
+                assert False, "old api"
                 warnings.warn(
                     "Passing Python objects to preconditioners via the 'appctx' kwarg "
                     "is now deprecated. Pass the objects into the PETSc options "
