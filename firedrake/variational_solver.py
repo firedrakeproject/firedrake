@@ -295,42 +295,52 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     Parameters
     ----------
-    :arg problem: A :class:`NonlinearVariationalProblem` to solve.
-    :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
-           :class:`.MixedVectorSpaceBasis`) spanning the null
-           space of the operator.
-    :kwarg transpose_nullspace: as for the nullspace, but used to
-           make the right hand side consistent.
-    :kwarg near_nullspace: as for the nullspace, but used to
-           specify the near nullspace (for multigrid solvers).
-    :kwarg solver_parameters: Solver parameters to pass to PETSc.
-           This should be a dict mapping PETSc options to values.
-    :kwarg appctx: (Deprecated) A dictionary containing application
-           context that is passed to the preconditioner if matrix-free.
-    :kwarg options_prefix: an optional prefix used to distinguish
-           PETSc options.  If not provided a unique prefix will be
-           created.  Use this option if you want to pass options
-           to the solver from the command line in addition to
-           through the ``solver_parameters`` dict.
-    :kwarg pre_jacobian_callback: A user-defined function that will
-           be called immediately before Jacobian assembly. This can
-           be used, for example, to update a coefficient function
-           that has a complicated dependence on the unknown solution.
-    :kwarg post_jacobian_callback: As above, but called after the
-           Jacobian has been assembled.
-    :kwarg pre_function_callback: As above, but called immediately
-           before residual assembly.
-    :kwarg post_function_callback: As above, but called immediately
-           after residual assembly.
-    :kwarg pre_apply_bcs: If True, the bcs are applied before the solve.
-           Otherwise, the problem is linearised around the initial guess
-           before imposing bcs, and the bcs are appended to the nonlinear system.
-    :kwarg marking_callback: An optional callable of the form
-           ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
-           The callback receives the `_SNESContext`
-           and the current Firedrake solution, and must return a DG0
-           :class:`.Function` or :class:`.Cofunction` with positive
-           values on cells to refine.
+    problem
+        A :class:`NonlinearVariationalProblem` to solve.
+    nullspace
+        an optional :class:`.VectorSpaceBasis` (or
+        :class:`.MixedVectorSpaceBasis`) spanning the null
+        space of the operator.
+    transpose_nullspace
+        as for the nullspace, but used to
+        make the right hand side consistent.
+    near_nullspace
+        as for the nullspace, but used to
+        specify the near nullspace (for multigrid solvers).
+    solver_parameters
+        Solver parameters to pass to PETSc.
+        This should be a dict mapping PETSc options to values.
+    appctx
+        (Deprecated) A dictionary containing application
+        context that is passed to the preconditioner if matrix-free.
+    options_prefix
+        an optional prefix used to distinguish
+        PETSc options.  If not provided a unique prefix will be
+        created.  Use this option if you want to pass options
+        to the solver from the command line in addition to
+        through the ``solver_parameters`` dict.
+    pre_jacobian_callback
+        A user-defined function that will
+        be called immediately before Jacobian assembly. This can
+        be used, for example, to update a coefficient function
+        that has a complicated dependence on the unknown solution.
+    post_jacobian_callback
+        As above, but called after the Jacobian has been assembled.
+    pre_function_callback
+        As above, but called immediately before residual assembly.
+    post_function_callback
+        As above, but called immediately after residual assembly.
+    pre_apply_bcs
+        If True, the bcs are applied before the solve.
+        Otherwise, the problem is linearised around the initial guess
+        before imposing bcs, and the bcs are appended to the nonlinear system.
+    marking_callback
+        An optional callable of the form
+        ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
+        The callback receives the `_SNESContext`
+        and the current Firedrake solution, and must return a DG0
+        :class:`.Function` or :class:`.Cofunction` with positive
+        values on cells to refine.
 
     Example usage of the ``solver_parameters`` option: to set the
     nonlinear solver type to just use a linear solver, use
@@ -388,7 +398,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  post_function_callback=None,
                  pre_apply_bcs=True,
                  marking_callback=None):
-
         assert isinstance(problem, NonlinearVariationalProblem)
 
         solver_parameters = flatten_parameters(solver_parameters or {})
