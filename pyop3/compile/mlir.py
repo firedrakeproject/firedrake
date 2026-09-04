@@ -282,6 +282,11 @@ class MLIRCodegenContext(CodegenContext):
 
         intent = assignment_type_as_intent(assignment_type)
 
+        buffer_view = assignee.buffer_view
+        # FIXME: Using this get_offset is ugly
+        self.add_buffer(buffer_view, intent=WRITE)
+        offset = self._get_offset(assignee, iname_maps, loop_indices, paths=paths)
+
         ssa_load = self.lower_expr(expression, iname_maps, loop_indices, paths=paths)
 
         match assignment_type:
@@ -297,10 +302,6 @@ class MLIRCodegenContext(CodegenContext):
             case _:
                 raise NotImplementedError
 
-        buffer_view = assignee.buffer_view
-        # FIXME: Using this get_offset is ugly
-        self.add_buffer(buffer_view, intent=WRITE)
-        offset = self._get_offset(assignee, iname_maps, loop_indices, paths=paths)
         sop = memref.StoreOp.get(ssa_load, self.symbol_table[buffer_view], [offset])
         return self.insert(sop) 
 
