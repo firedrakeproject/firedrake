@@ -441,18 +441,35 @@ class HDF5File:
         self._h5file.flush()
 
     @PETSc.Log.EventDecorator()
-    def write(self, function, path, timestamp=None):
+    def write(self, function, path: str, timestamp: float | None = None):
         r"""Store a function in the checkpoint file.
 
-        :arg function: The function to store.
-        :arg path: the path to store the function under.
-        :arg timestamp: timestamp associated with function, or None for
-                        stationary data
+        Parameters
+        ----------
+        function : firedrake.function.Function
+            The function to store.
+        path :
+            The path to store the function under.
+        timestamp :
+            Timestamp associated with function, or None for stationary data.
+
+        Raises
+        ------
+        IOError :
+            If checkpoint mode is FILE_READ.
+        TypeError :
+            If function is not a Function.
+        CommMismatchError :
+            If function` is not defined on the same MPI comm as this file.
         """
         if self._mode == 'r':
             raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
         if not isinstance(function, firedrake.Function):
-            raise ValueError("Can only store functions")
+            raise TypeError(f"Can only store functions not {type(function).__name__}")
+        if MPI.Comm.Compare(function.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise firedrake.CommMismatchError(
+                "Function communicator does not match HDF5File communicator."
+            )
 
         if timestamp is not None:
             suffix = "/%.15e" % timestamp
@@ -474,14 +491,31 @@ class HDF5File:
             self._set_timestamp(timestamp)
 
     @PETSc.Log.EventDecorator()
-    def read(self, function, path, timestamp=None):
-        r"""Store a function from the checkpoint file.
+    def read(self, function, path: str, timestamp: float | None = None):
+        r"""Load a function from the checkpoint file.
 
-        :arg function: The function to load values into.
-        :arg path: the path under which the function is stored.
+        Parameters
+        ----------
+        function : firedrake.function.Function
+            The function to load values into.
+        path :
+            The path under which the function is stored.
+        timestamp :
+            Timestamp associated with function, or None for stationary data.
+
+        Raises
+        ------
+        TypeError :
+            If function is not a Function.
+        CommMismatchError :
+            If function is not defined on the same MPI comm as this file.
         """
         if not isinstance(function, firedrake.Function):
-            raise ValueError("Can only load functions")
+            raise TypeError(f"Can only load functions not {type(function).__name__}")
+        if MPI.Comm.Compare(function.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+            raise firedrake.CommMismatchError(
+                "Function communicator does not match HDF5File communicator."
+            )
         if timestamp is not None:
             suffix = "/%.15e" % timestamp
             path = path + suffix
