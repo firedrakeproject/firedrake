@@ -71,6 +71,7 @@ class FDMPC(PCBase):
         Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
+        self.options_prefix = options_prefix
         options = PETSc.Options(options_prefix)
 
         use_amat = options.getBool("pc_use_amat", True)
@@ -83,9 +84,8 @@ class FDMPC(PCBase):
             allow_repeated = options.getBool("mat_is_allow_repeated", True)
         self.allow_repeated = allow_repeated
 
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters") or {}
-        self.appctx = appctx
+        ctx = dmhooks.get_appctx(pc.getDM())
+        fcp = ctx.fcp or {}
 
         # Get original Jacobian form and bcs
         J, bcs = self.form(pc)
@@ -93,7 +93,6 @@ class FDMPC(PCBase):
         if Pmat.getType() == "python":
             mat_type = "matfree"
         else:
-            ctx = dmhooks.get_appctx(pc.getDM())
             mat_type = ctx.mat_type
 
         # TODO assemble Schur complements specified by a SLATE Tensor
@@ -1930,7 +1929,8 @@ class PoissonFDMPC(FDMPC):
         axes_shifts, = shifts
 
         degree = max(e.degree() for e in line_elements)
-        eta = float(self.appctx.get("eta", degree*(degree+1)))
+        ctx = dmhooks.get_appctx(self.pc.getDM())
+        eta = float(ctx.get_python_option(self.options_prefix, "eta", degree*(degree+1)))
         is_dg = V.finat_element.is_dg()
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
@@ -2097,7 +2097,9 @@ class PoissonFDMPC(FDMPC):
                 raise NotImplementedError("Static condensation for SIPG not implemented")
             if tdim < V.mesh().geometric_dimension:
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
-            eta = float(self.appctx.get("eta"))
+
+            ctx = dmhooks.get_appctx(self.pc.getDM())
+            eta = float(ctx.get_python_option(self.options_prefix, "eta"))
 
             lgmap = self.lgmaps[V]
             index_facet, local_facet_data, nfacets = extrude_interior_facet_maps(V)

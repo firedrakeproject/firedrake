@@ -36,8 +36,8 @@ class TwoLevelPC(PCBase):
     def initialize(self, pc):
         from firedrake.assemble import get_assembler
         A, P = pc.getOperators()
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+        ctx = dmhooks.get_appctx(pc.getDM())
+        fcp = ctx.fcp
 
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
@@ -140,7 +140,7 @@ class HiptmairPC(TwoLevelPC):
 
     def coarsen(self, pc):
         petsctools.cite("Hiptmair1998")
-        appctx = self.get_appctx(pc)
+        ctx = dmhooks.get_appctx(pc.getDM())
 
         a, bcs = self.form(pc)
         V = a.arguments()[-1].function_space()
@@ -165,13 +165,13 @@ class HiptmairPC(TwoLevelPC):
         coarse_space_bcs = [bc.reconstruct(V=coarse_space, g=0) for bc in bcs]
 
         if element.sobolev_space == ufl.HDiv:
-            G_callback = appctx.get("get_curl", None)
+            G_callback = ctx.get_python_option(options_prefix, "get_curl", None)
             dminus = ufl.curl
             if V.shape:
                 dminus = lambda u: ufl.as_vector([ufl.curl(u[k, ...])
                                                   for k in range(u.ufl_shape[0])])
         else:
-            G_callback = appctx.get("get_gradient", None)
+            G_callback = ctx.get_python_option(options_prefix, "get_gradient", None)
             dminus = ufl.grad
 
         # Get only the zero-th order term of the form
@@ -194,7 +194,8 @@ class HiptmairPC(TwoLevelPC):
 
         cdegree = max(as_tuple(celement.degree()))
         if formdegree > 1 and cdegree > 1:
-            shift = appctx.get("hiptmair_shift", None)
+            # TODO: now things are prefixed the extra 'hiptmair_' is bad practice
+            shift = ctx.get_python_option(options_prefix, "hiptmair_shift", None)
             if shift is not None:
                 b = beta(test, shift * trial)
                 coarse_operator += ufl.Form(b.integrals_by_type("cell"))

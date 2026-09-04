@@ -115,22 +115,22 @@ finest_mesh = hierarchy[-1]
 # To make things easier to play with, we'll wrap everything up in a function that we can call to produce a solver.
 
 # %%
-def create_solver(parameters=None):
+def create_solver(parameters=None, mass_pc_prefix=None):
     coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
     hierarchy = MeshHierarchy(coarse_mesh, 3)
-    
+
     mesh = hierarchy[-1]
-    
+
     V = VectorFunctionSpace(mesh, "Lagrange", 2)
     Q = FunctionSpace(mesh, "Lagrange", 1)
     W = V*Q
-    
+
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
-    
+
     nu = Constant(1)
     x, y = SpatialCoordinate(mesh)
-    
+
     t = conditional(y < 0.5, y - 1/4, y - 3/4)
     gbar = conditional(Or(And(1/6 < y,
                               y < 1/3),
@@ -142,12 +142,17 @@ def create_solver(parameters=None):
     value = as_vector([gbar*(1 - (12*t)**2), 0])
     bcs = [DirichletBC(W.sub(0), value, (1, 2)),
            DirichletBC(W.sub(0), zero(2), (3, 4))]
-    
+
     a = (nu*inner(grad(u), grad(v)) - p*div(v) + q*div(u))*dx
     L = inner(Constant((0, 0)), v)*dx
+
+    # Pass nu to the preconditioner
+    if mass_pc_prefix is not None:
+        parameters[f"{mass_pc_prefix}nu"] = nu
+
     wh = Function(W)
     problem = LinearVariationalProblem(a, L, wh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=parameters, appctx={"nu": nu})
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
     return solver
 
 
@@ -184,10 +189,13 @@ fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02);
 # This direct method is not a scalable solution technique for large problems.  Similar to our earlier example involving the mixed Poisson problem, a Schur complement method can be more efficient.  We'll use geometric multigrid to invert the elliptic velocity block, and use a viscosity-weighted pressure mass matrix to precondition the Schur complement.  This gives good results as long as viscosity contrasts are not too strong. The Python preconditioner that we use to create the mass matrix is described in more detail in the composable solvers notebook.
 
 # %%
+import petsctools
+
 class MassMatrix(AuxiliaryOperatorPC):
     def form(self, pc, test, trial):
         # Grab the viscosity
-        nu = self.get_appctx(pc)["nu"]
+        prefix = pc.getOptionsPrefix() or ""
+        nu = petsctools.Options(prefix)["nu"]
         return (nu*test*trial*dx, None)
 
 
@@ -207,7 +215,7 @@ parameters = {
     "fieldsplit_1_aux_pc_type": "icc",
 }
 
-solver = create_solver(parameters)
+solver = create_solver(parameters, "fieldsplit_1_")
 solver.solve()
 
 # %% [markdown]
@@ -246,7 +254,7 @@ parameters = {
       "mg_levels_fieldsplit_1_aux_pc_type": "icc",
 }
 
-solver = create_solver(parameters)
+solver = create_solver(parameters, "mg_levels_fieldsplit_1_")
 solver.solve()
 
 
@@ -276,23 +284,23 @@ solver.solve()
 # For simplicity, the relevant setup is copied below to start with:
 
 # %%
-def create_solver(parameters=None):
+def create_solver(parameters=None, mass_pc_prefix=None):
     coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
     hierarchy = MeshHierarchy(coarse_mesh, 3)
-    
+
     mesh = hierarchy[-1]
-    
+
     V = VectorFunctionSpace(mesh, "Lagrange", 2)
     Q = FunctionSpace(mesh, "Lagrange", 1)
     W = V*Q
-    
+
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
-    
+
     # Change me to spatially varying.
     nu = Constant(1)
     x, y = SpatialCoordinate(mesh)
-    
+
     t = conditional(y < 0.5, y - 1/4, y - 3/4)
     gbar = conditional(Or(And(1/6 < y,
                               y < 1/3),
@@ -304,13 +312,17 @@ def create_solver(parameters=None):
     value = assemble(interpolate(as_vector([gbar*(1 - (12*t)**2), 0]), V))
     bcs = [DirichletBC(W.sub(0), value, (1, 2)),
            DirichletBC(W.sub(0), zero(2), (3, 4))]
-    
+
     a = (nu*inner(grad(u), grad(v)) - p*div(v) + q*div(u))*dx
     L = inner(Constant((0, 0)), v)*dx
-    
+
+    # Pass nu to the preconditioner
+    if mass_pc_prefix is not None:
+        parameters[f"{mass_pc_prefix}nu"] = nu
+
     wh = Function(W)
     problem = LinearVariationalProblem(a, L, wh, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=parameters, appctx={"nu": nu})
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
     return solver
 
 
@@ -330,7 +342,7 @@ parameters = {
     "fieldsplit_1_aux_pc_type": "icc",
 }
 
-solver = create_solver(parameters)
+solver = create_solver(parameters, "fieldsplit_1_")
 solver.solve()
 
 # %%

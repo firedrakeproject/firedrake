@@ -1,3 +1,4 @@
+import firedrake.dmhooks
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 
@@ -46,6 +47,8 @@ class PCDPC(PCBase):
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
         prefix = (pc.getOptionsPrefix() or "") + "pcd_"
+
+        snes_ctx = firedrake.dmhooks.get_appctx(pc.getDM())
 
         # we assume P has things stuffed inside of it
         _, P = pc.getOperators()
@@ -101,13 +104,10 @@ class PCDPC(PCBase):
         Kksp.setFromOptions()
         self.Kksp = Kksp
 
-        state = context.appctx["state"]
+        Re = snes_ctx.get_python_option(prefix, "Re", 1.0)
+        velid = int(snes_ctx.get_python_option(prefix, "velocity_space"))
 
-        Re = context.appctx.get("Re", 1.0)
-
-        velid = context.appctx["velocity_space"]
-
-        u0 = split(state)[velid]
+        u0 = split(snes_ctx.state)[velid]
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
         self.Re = Re

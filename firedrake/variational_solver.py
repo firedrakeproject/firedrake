@@ -342,6 +342,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         :class:`.Function` or :class:`.Cofunction` with positive
         values on cells to refine.
 
+    Examples
+    --------
+
     Example usage of the ``solver_parameters`` option: to set the
     nonlinear solver type to just use a linear solver, use
 
@@ -401,6 +404,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         assert isinstance(problem, NonlinearVariationalProblem)
 
         solver_parameters = flatten_parameters(solver_parameters or {})
+
+        # debugging
+        assert appctx is None, "old api"
 
         if isinstance(problem.J, MatrixBase):
             solver_parameters.setdefault("mat_type", problem.J.mat_type)
