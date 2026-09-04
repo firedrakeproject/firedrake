@@ -17,14 +17,16 @@ import numpy as np
 import pytools
 from immutabledict import immutabledict as idict
 
+import pyop3.collections
 import pyop3.config
 import pyop3.constants
 import pyop3.exceptions
-from pyop3.collections import StrictlyUniqueDict, unique
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import (
     UnhashableObjectException,
 )
+
+from pyop3.collections import unique  # noqa: F401
 
 ndarray_types = (np.ndarray,)
 try: 
@@ -125,7 +127,7 @@ def is_single_valued(iterable):
 
 
 def merge_dicts(dicts: Iterable[Mapping]) -> idict:
-    merged = StrictlyUniqueDict()
+    merged = pyop3.collections.StrictlyUniqueDict()
     for dict_ in dicts:
         merged.update(dict_)
     return idict(merged)
@@ -134,7 +136,7 @@ def merge_dicts(dicts: Iterable[Mapping]) -> idict:
 def has_unique_entries(iterable):
     # duplicate the iterator in case it can only be iterated over once (e.g. a generator)
     it1, it2 = itertools.tee(iterable, 2)
-    return len(unique(it1)) == len(list(it2))
+    return len(pyop3.collections.unique(it1)) == len(list(it2))
 
 
 def is_sorted(array: np.ndarray) -> np.bool:
@@ -428,6 +430,11 @@ def freeze(obj: Any) -> Hashable:
 @freeze.register
 def _(tuple_: tuple) -> tuple:
     return tuple(map(freeze, tuple_))
+
+
+@freeze.register
+def _(slice_: slice) -> pyop3.collections.HashableSlice:
+    return pyop3.collections.HashableSlice.from_slice(slice_)
 
 
 @freeze.register

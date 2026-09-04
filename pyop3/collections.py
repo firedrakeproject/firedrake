@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import collections
+import dataclasses
 import pprint
+from typing import Hashable, Self
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -190,3 +192,20 @@ def unique(iterable) -> tuple[Any]:
         if item not in unique_items:
             unique_items.append(item)
     return tuple(unique_items)
+
+
+@dataclasses.dataclass(frozen=True)
+class HashableSlice:
+    """A hashable slice.
+
+    This class is needed because in Python <3.12 slices are not hashable.
+
+    """
+
+    start: Hashable
+    stop: Hashable
+    step: Hashable
+
+    @classmethod
+    def from_slice(cls, slice_: slice) -> Self:
+        return cls(slice_.start, slice_.stop, slice_.step)

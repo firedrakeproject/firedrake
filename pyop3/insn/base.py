@@ -186,11 +186,11 @@ class Loop(NonTerminalInstruction):
     # }}}
 
     def __str__(self) -> str:
-        stmt_strs = [textwrap.indent(str(stmt), "    ") for stmt in self.statements]
+        stmt_str = "\n".join(textwrap.indent(str(stmt), "    ") for stmt in self.statements)
         return f"""loop(
   {self.index},
   [
-{'\n'.join(stmt_strs)}
+{stmt_str}
   ]
 )"""
 
