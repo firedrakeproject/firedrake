@@ -89,16 +89,16 @@ class PCDPC(PCBase):
         Mksp.incrementTabLevel(1, parent=pc)
         Mksp.setOptionsPrefix(prefix + "Mp_")
         Mksp.setOperators(Mp.petscmat)
-        Mksp.setUp()
         Mksp.setFromOptions()
+        Mksp.setUp()
         self.Mksp = Mksp
 
         Kksp = PETSc.KSP().create(comm=pc.comm)
         Kksp.incrementTabLevel(1, parent=pc)
         Kksp.setOptionsPrefix(prefix + "Kp_")
         Kksp.setOperators(Kp.petscmat)
-        Kksp.setUp()
         Kksp.setFromOptions()
+        Kksp.setUp()
         self.Kksp = Kksp
 
         state = context.appctx["state"]

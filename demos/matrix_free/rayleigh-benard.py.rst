@@ -11,6 +11,7 @@ the Navier-Stokes part, and piecewise linear elements for the
 temperature. ::
 
   from firedrake import *
+  from firedrake.utils import single_mode
 
   N = 128
 
@@ -200,7 +201,7 @@ how to apply the convection-diffusion operator.  For the latter, we
 will use an assembled operator this time round. ::
 
                         "pcd_Mp_ksp_type": "preonly",
-                        "pcd_Mp_pc_type": "ilu",
+                        "pcd_Mp_pc_type": "jacobi" if single_mode else "ilu",
                         "pcd_Kp_ksp_type": "preonly",
                         "pcd_Kp_pc_type": "hypre",
                         "pcd_Fp_mat_type": "aij"
