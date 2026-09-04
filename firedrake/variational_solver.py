@@ -342,6 +342,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         :class:`.Function` or :class:`.Cofunction` with positive
         values on cells to refine.
 
+    Examples
+    --------
+
     Example usage of the ``solver_parameters`` option: to set the
     nonlinear solver type to just use a linear solver, use
 
