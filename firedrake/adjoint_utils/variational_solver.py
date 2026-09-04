@@ -257,13 +257,6 @@ class NonlinearVariationalSolverMixin:
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters & constant_jacobian
-        # linear_parameters = {
-        #     k: v 
-        #     for k, v in self.parameters
-        #     if not k.startswith('snes')
-        # }
-        # self._ad_args_kwargs.tlm_kwargs.setdefault(
-        #     'solver_parameters', linear_parameters)
         lvp = LinearVariationalProblem(
             dFdu, dFdm, dudm,
             aP=nlvp.Jp,
@@ -350,9 +343,6 @@ class NonlinearVariationalSolverMixin:
             dFdu_adj, dJdu, adj_sol,
             aP=adjoint(nlvp.Jp) if nlvp.Jp else None,
             bcs=self._ad_forward_cache.bcs)
-        # self._ad_args_kwargs.adj_kwargs.setdefault(
-        #     'solver_parameters',
-        #     self._ad_args_kwargs.tlm_kwargs['solver_parameters'])
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.adj_args,
