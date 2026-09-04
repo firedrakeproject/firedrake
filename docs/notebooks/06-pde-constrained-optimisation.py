@@ -203,12 +203,13 @@ axes.set_title("Optimised boundary value");
 print("Jhat(g) = %.8g\nJhat(g_opt) = %.8g" % (Jhat(g), Jhat(g_opt)))
 
 # %% [markdown]
-# To see the optimised flow field, we solve the same problem again, only with the new (optimised) value for the boundary data on $\Gamma_\text{circ}$.  This time we're not interested in annotating the solve, so we tell `firedrake-adjoint` to ignore it by passing `annotate=False`.
+# To see the optimised flow field, we solve the same problem again, only with the new (optimised) value for the boundary data on $\Gamma_\text{circ}$.  This time we're not interested in annotating the solve, so we tell `firedrake-adjoint` to ignore it by running it in a `stop_annotating()` context.
 
 # %%
 g.assign(g_opt)
 w_opt = Function(W)
-solve(a == L, w_opt, bcs=bcs, annotate=False)
+with stop_annotating():
+    solve(a == L, w_opt, bcs=bcs)
 
 # %% tags=["nbval-ignore-output"]
 u_opt, p_opt = w_opt.subfunctions
