@@ -386,20 +386,20 @@ This problem can also be solved on non-conforming meshes. As an example, we run 
      - Error 2
      - Rate 2
    * - 0.50000
-     - 5.466399e-05
+     - 5.473713e-05
      - -
    * - 0.25000
-     - 4.577680e-06
-     - 3.5779
+     - 4.567806e-06
+     - 3.5829
    * - 0.12500
-     - 7.296559e-08
-     - 5.9713
+     - 7.274657e-08
+     - 5.9725
    * - 0.06250
-     - 1.571188e-07
-     - -1.1066
+     - 1.146013e-09
+     - 5.9882
    * - 0.03125
-     - 3.634664e-07
-     - -1.2100
+     - 1.790177e-11
+     - 6.0004
 
 Similar results to the conforming mesh case are observed, where the approximated solution decreases in error at a rate of :math:`O(h^{p+2})` until :math:`h = \frac{1}{n_1}` is reached.
 
