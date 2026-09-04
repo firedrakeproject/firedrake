@@ -1,9 +1,7 @@
 Cross-Mesh Coupled equations
-=================
+============================
 
-The demo was contributed by `Na Wang
-    <mailto:na.wang26@imperial.ac.uk>`__ and `Leo Collins
-    <mailto:l.collins24@imperial.ac.uk>`__.
+The demo was contributed by `Na Wang <mailto:na.wang26@imperial.ac.uk>`__ and `Leo Collins <mailto:l.collins24@imperial.ac.uk>`__.
 
 This demo provides a guide to solving cross-mesh coupled equations in Firedrake. As an example, we couple a Poisson and Helmholtz equation on meshes connected along one edge with Dirichlet and Neumann boundary conditions.
 
@@ -90,7 +88,9 @@ which satisfies the boundary conditions set on this problem.
 Implementation
 --------------
 
-We now implement this problem using Firedrake by first initialising the constants and variables required for solving and analysing the problem. ::
+We now implement this problem using Firedrake by first initialising the constants and variables required for solving and analysing the problem. 
+
+.. code-block:: python
 
   from firedrake import *
 
@@ -108,7 +108,9 @@ We now implement this problem using Firedrake by first initialising the constant
   errors_1 = []
   errors_2 = []
 
-For each index in ``n1_list`` and ``n2_list``, we define two meshes with ``n1 x n1`` and ``n2 x n2`` elements and a shared interface at :math:`x = 1`. ::
+For each index in ``n1_list`` and ``n2_list``, we define two meshes with ``n1 x n1`` and ``n2 x n2`` elements and a shared interface at :math:`x = 1`.
+
+.. code-block:: python
 
   for n1,n2 in zip(n1_list, n2_list):
     mesh1 = UnitSquareMesh(n1, n1, quadrilateral=True)
@@ -118,10 +120,9 @@ For each index in ``n1_list`` and ``n2_list``, we define two meshes with ``n1 x 
     mesh1_list.append(mesh1)
     mesh2_list.append(mesh2)
 
-The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem()``, which defines the coupled problem onto the meshes. In this function, we first define the exact solutions for this problem in order to calculate the source functions. 
+The pairs of meshes ``mesh1`` and ``mesh2`` are then passed into ``build_problem()``, which defines the coupled problem onto the meshes. In this function, we first define the exact solutions for this problem in order to calculate the source functions.
 
 .. code-block:: python
-  :dedent: 0
 
   def build_problem(mesh1, mesh2):
     p = 3
@@ -152,7 +153,7 @@ Measures are then defined where ``n1`` and ``n2`` are the unit normal vectors fo
 
 Function spaces ``V1`` and ``V2`` are combined to create a mixed function space ``W``, with test and trial functions defined on the subspaces of this mixed function space.
 
-.. code-block::
+.. code-block:: python
   :dedent: 0
   
     V1 = FunctionSpace(mesh1, "CG", p)
@@ -217,7 +218,9 @@ These terms are combined to form the variables ``A`` and ``L`` in the overall va
 
     return A, L, W, u1_exact_func, u2_exact_func
 
-The resulting solution can be plotted by calling ``plot()``. Matplotlib and Firedrake's `trisurf`_ are used to produce a three-dimensional surface plot. ::
+The resulting solution can be plotted by calling ``plot()``. Matplotlib and Firedrake's `trisurf`_ are used to produce a three-dimensional surface plot.
+
+.. code-block:: python
 
   import matplotlib.pyplot as plt
   import numpy as np
@@ -236,7 +239,9 @@ The resulting solution can be plotted by calling ``plot()``. Matplotlib and Fire
     plt.tight_layout()
     plt.savefig(filename)
 
-Utilising both methods above, the coupled problem can be solved for each specified mesh size and plotted on the three-dimensional surface plot. We additionally calculate the L2 error norm between the approximated and exact solutions, noting both the error norms and the distance between elements in each mesh ``h`` at each iteration for convergence analysis. ::
+Utilising both methods above, the coupled problem can be solved for each specified mesh size and plotted on the three-dimensional surface plot. We additionally calculate the L2 error norm between the approximated and exact solutions, noting both the error norms and the distance between elements in each mesh ``h`` at each iteration for convergence analysis.
+
+.. code-block:: python
 
   for n1, n2, mesh1, mesh2 in zip(n1_list, n2_list, mesh1_list, mesh2_list):
     A, L, W, u1_exact_func, u2_exact_func = build_problem(mesh1, mesh2)
@@ -282,7 +287,9 @@ Using the L2 error norms calculated above, we can approximate the rate of conver
   
   q = \frac{\ln \left( \frac{||u_{h_1} - \tilde{u}||_{L^2}}{||u_{h_2} - \tilde{u}||_{L^2}} \right)}{\ln \left( \frac{h_1}{h_2} \right)}
   
-where :math:`u_{h_1}` and :math:`u_{h_2}` are approximated solutions on meshes of differing sizes, :math:`\tilde{u}` is the exact solution, :math:`h_1` and :math:`h_2` are the element spacings in each mesh. It is expected for finite element problems to converge to the exact solution at rate :math:`O(h^{p+1})` where :math:`p` is the dimension of the domain. ::
+where :math:`u_{h_1}` and :math:`u_{h_2}` are approximated solutions on meshes of differing sizes, :math:`\tilde{u}` is the exact solution, :math:`h_1` and :math:`h_2` are the element spacings in each mesh. It is expected for finite element problems to converge to the exact solution at rate :math:`O(h^{p+1})` where :math:`p` is the dimension of the domain. 
+
+.. code-block:: python
 
   ratios_1 = []
   ratios_2 = []
@@ -297,7 +304,9 @@ where :math:`u_{h_1}` and :math:`u_{h_2}` are approximated solutions on meshes o
     ratios_1.append(q1)
     ratios_2.append(q2)
 
-If the ``VERBOSE`` flag is set to True, the following block runs and prints the convergence analysis results, presenting an error graph alongside. :: 
+If the ``VERBOSE`` flag is set to True, the following block runs and prints the convergence analysis results, presenting an error graph alongside.
+
+.. code-block:: python
 
   if VERBOSE:
     print(f"{'h':>10} {'Error 1':>15} {'Rate 1':>10}")
