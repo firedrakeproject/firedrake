@@ -85,6 +85,7 @@ class FDMPC(PCBase):
         self.allow_repeated = allow_repeated
 
         ctx = dmhooks.get_appctx(pc.getDM())
+        fcp = ctx.fcp or {}
 
         # Get original Jacobian form and bcs
         J, bcs = self.form(pc)
@@ -122,7 +123,7 @@ class FDMPC(PCBase):
 
             # Create a new _SNESContext in the variant space
             self._ctx_ref = self.new_snes_ctx(pc, J_fdm, bcs_fdm, mat_type,
-                                              fcp=ctx.fcp, options_prefix=options_prefix)
+                                              fcp=fcp, options_prefix=options_prefix)
 
             # Construct interpolation from variant to original spaces
             self.fdm_interp = prolongation_matrix_matfree(V_fdm, V, bcs_fdm, [])
@@ -130,7 +131,7 @@ class FDMPC(PCBase):
             self.work_vec_y = Amat.createVecRight()
             if use_amat:
                 from firedrake.assemble import get_assembler
-                form_assembler = get_assembler(J_fdm, bcs=bcs_fdm, form_compiler_parameters=ctx.fcp, mat_type=mat_type, options_prefix=options_prefix)
+                form_assembler = get_assembler(J_fdm, bcs=bcs_fdm, form_compiler_parameters=fcp, mat_type=mat_type, options_prefix=options_prefix)
                 self.A = form_assembler.allocate()
                 self._assemble_A = form_assembler.assemble
                 self._assemble_A(tensor=self.A)
@@ -155,7 +156,7 @@ class FDMPC(PCBase):
 
         # Assemble the FDM preconditioner with sparse local matrices
         self.V = V_fdm
-        Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, ctx.fcp,
+        Amat, Pmat, self.assembly_callables = self.allocate_matrix(Amat, V_fdm, J_fdm, bcs_fdm, fcp,
                                                                    pmat_type, use_static_condensation, use_amat)
         self.assembly_callables.append(partial(Pmat.viewFromOptions, "-pmat_view", fdmpc))
         self._assemble_P()

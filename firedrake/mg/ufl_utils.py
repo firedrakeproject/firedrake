@@ -380,16 +380,20 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
 
     # FIXME: this makes no sense for things in the options dictionary
     appctx = context._appctx
-    new_appctx = {}
-    for k in sorted(appctx.keys()):
-        v = appctx[k]
-        if k != "state":
-            # Constructor makes this one.
-            try:
-                new_appctx[k] = self(v, self, coefficient_mapping=coefficient_mapping)
-            except ReconstructionError:
-                # Assume not something that needs reconstruction (e.g. float)
-                new_appctx[k] = v
+    if appctx is not None:
+        raise NotImplementedError
+        new_appctx = {}
+        for k in sorted(appctx.keys()):
+            v = appctx[k]
+            if k != "state":
+                # Constructor makes this one.
+                try:
+                    new_appctx[k] = self(v, self, coefficient_mapping=coefficient_mapping)
+                except ReconstructionError:
+                    # Assume not something that needs reconstruction (e.g. float)
+                    new_appctx[k] = v
+    else:
+        new_appctx = None
 
     # Get options prefix for current level
     parent_context = context

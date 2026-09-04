@@ -326,7 +326,8 @@ def test_ipdg_direct_solver(fs):
         "fdm_pc_type": "cholesky",
         "fdm_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
         "fdm_pc_factor_mat_ordering_type": "nd",
-    }, appctx={"eta": eta, })
+        "fdm_eta": eta,
+    })
     solver.solve()
 
     assert solver.snes.ksp.getIterationNumber() == 1
