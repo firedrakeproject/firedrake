@@ -107,8 +107,8 @@ class ImplicitMatrixContext:
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self.fc_params = {} if fc_params is None else fc_params
-        self.appctx = {} if appctx is None else appctx
+        self.fc_params = fc_params
+        self.appctx = appctx
 
         # Collect all DirichletBC instances including
         # DirichletBCs applied to an EquationBC.
