@@ -59,6 +59,7 @@ we will study various ways to achieve this in Firedrake.
 As ever, we begin by importing the Firedrake module::
 
     from firedrake import *
+    from firedrake.utils import single_mode
 
 Building the problem
 --------------------
@@ -157,10 +158,10 @@ GMRES with a restart length of 100, ::
         "ksp_type": "gmres",
         "ksp_gmres_restart": 100,
 
-solve to a relative tolerance of 1e-8, ::
+solve to a relative tolerance of 1e-8 (or 1e-3 in single precision), ::
 
     #
-        "ksp_rtol": 1e-8,
+        "ksp_rtol": 1e-3 if single_mode else 1e-8,
 
 and precondition with ILU(0). ::
 
