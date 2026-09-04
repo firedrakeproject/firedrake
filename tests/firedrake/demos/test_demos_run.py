@@ -144,7 +144,7 @@ def test_serial_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
         pyadjoint.get_working_tape().clear_tape()
 
 
-@pytest.mark.parallel(2)
+@pytest.mark.parallel(6)
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("demo", PARALLEL_DEMOS, ids=["/".join(d.loc) for d in PARALLEL_DEMOS])
 def test_parallel_demo(demo, env, monkeypatch, tmpdir, skip_dependency):

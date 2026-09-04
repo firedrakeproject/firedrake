@@ -122,7 +122,7 @@ make Newton's method converge... to the wrong solution!
 The residual decreases at first but eventually diverges. Here's some of the PETSc
 log output:
 
-.. code-block:: console
+.. parsed-literal::
 
     $ python nonlinear_pc_allen_cahn.py
       0 SNES Function norm 2.439229081145e-01
@@ -234,7 +234,7 @@ suitable preconditioning they will usually have a wider basin of convergence tha
 Newton. From the log output, we can observe that the residual is decreasing by a
 factor of 2 or more at each iteration.
 
-.. code-block:: console
+.. parsed-literal::
 
       0 SNES Function norm 2.439229081145e-01
       1 SNES Function norm 2.405339859939e-01
@@ -277,7 +277,7 @@ computed solution.
   print(f"Initial free energy: {E_initial.real:0.04f}")
   print(f"Final:               {E_final.real:0.04f}")
 
-.. code-block:: console
+.. parsed-literal::
 
     Initial free energy: 1.3339
     Final:               0.0534
