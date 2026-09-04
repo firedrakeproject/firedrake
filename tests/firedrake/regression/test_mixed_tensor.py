@@ -22,6 +22,7 @@ def test_mass_mixed_tensor(W):
     a = (inner(u, v) + inner(p, q) + inner(s, t))*dx
 
     V, Q, T = W.subspaces
+    label0, label1, label2 = W._labels
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -38,11 +39,11 @@ def test_mass_mixed_tensor(W):
 
     A = assemble(a).M
 
-    assert np.allclose(A00, A[0, 0].values)
-    assert np.allclose(A11, A[1, 1].values)
-    assert np.allclose(A22, A[2, 2].values)
+    assert np.allclose(A00, A[label0, label0].values)
+    assert np.allclose(A11, A[label1, label1].values)
+    assert np.allclose(A22, A[label2, label2].values)
 
-    for i in range(3):
-        for j in range(3):
-            if i != j:
-                assert np.allclose(A[i, j].values, 0)
+    for label_i in W._labels:
+        for label_j in W._labels:
+            if label_i != label_j:
+                assert np.allclose(A[label_i, label_j].values, 0)

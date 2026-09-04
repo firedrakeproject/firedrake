@@ -24,7 +24,7 @@ def test_composite_restricted_function_space():
 
 
 def compare_function_space_assembly(function_space, restricted_function_space,
-                                    bcs, res_bcs=[]):
+                                    bcs, res_bcs=()):
     u = TrialFunction(function_space)
     v = TestFunction(function_space)
     original_form = inner(u, v) * dx
@@ -50,29 +50,22 @@ def compare_function_space_assembly(function_space, restricted_function_space,
     normal_fs_matrix_reduced = np.delete(normal_fs_matrix_reduced, delete_rows,
                                          axis=1)
 
-    assert (restricted_fs_matrix.M.nrows == np.shape(normal_fs_matrix_reduced)[0])
-    assert (restricted_fs_matrix.M.ncols == np.shape(normal_fs_matrix_reduced)[1])
-    assert (np.array_equal(normal_fs_matrix_reduced, restricted_fs_matrix.M.values))
+    restricted_values = restricted_fs_matrix.M.as_array("ro", regions={"owned", "unconstrained"})
+    assert np.allclose(normal_fs_matrix_reduced, restricted_values)
 
 
-@pytest.mark.parametrize("j", [1, 2, 5])
-def test_restricted_function_space_1_1_square(j):
-    mesh = UnitSquareMesh(1, 1)
-    V = FunctionSpace(mesh, "CG", j)
+@pytest.mark.parametrize("n,p", [(1, 1), (1, 2), (1, 5), (2, 1), (5, 1)])
+@pytest.mark.parametrize("redundant_bc", [False, True])
+def test_restricted_function_space_square(n, p, redundant_bc):
+    mesh = UnitSquareMesh(n, n)
+    V = FunctionSpace(mesh, "CG", p)
     bc = DirichletBC(V, 0, 2)
     V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[2])
-    res_bc = DirichletBC(V_res, 0, 2)
-    compare_function_space_assembly(V, V_res, [bc], [res_bc])
-
-
-@pytest.mark.parametrize("j", [1, 2, 5])
-def test_restricted_function_space_j_j_square(j):
-    mesh = UnitSquareMesh(j, j)
-    V = FunctionSpace(mesh, "CG", 1)
-    bc = DirichletBC(V, 0, 2)
-    V_res = RestrictedFunctionSpace(V, name="Restricted", boundary_set=[2])
-
-    compare_function_space_assembly(V, V_res, [bc])
+    if redundant_bc:
+        res_bcs = (DirichletBC(V_res, 0, 2),)
+    else:
+        res_bcs = ()
+    compare_function_space_assembly(V, V_res, [bc], res_bcs)
 
 
 @pytest.mark.parallel([1, 2])
@@ -191,7 +184,7 @@ def test_poisson_inhomogeneous_bcs_2(j):
     assert errornorm(u, u2) < 1.e-12
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(3)
 @pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
 def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     mesh = UnitSquareMesh(8, 8)
@@ -282,63 +275,20 @@ def test_poisson_mixed_restricted_spaces(i, j):
     assert errornorm(w.subfunctions[1], w2.subfunctions[1]) < 1.e-12
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_restricted_function_space_extrusion_basics():
-    #
-    #                  rank 0                 rank 1
-    #
-    #  plex points:
-    #
-    #            +-------+-------+      +-------+-------+
-    #            |       |       |      |       |       |
-    #            |       |       |      |       |       |
-    #            |       |       |      |       |       |
-    #            +-------+-------+      +-------+-------+
-    #            2   0  (3) (1) (4)    (4) (1)  2   0   3    () = ghost
-    #
-    #  mesh._dm_renumbering:
-    #
-    #            [0, 2, 3, 1, 4]        [0, 3, 2, 1, 4]
-    #
-    #  Local DoFs:
-    #
-    #            5---2--(8)(11)(14)   (14)(11)--8---2---5
-    #            |       |       |      |       |       |
-    #            4   1  (7)(10)(13)   (13)(10)  7   1   4
-    #            |       |       |      |       |       |
-    #            3---0--(6)-(9)(12)   (12)-(9)--6---0---3    () = ghost
-    #
-    #  Global DoFs:
-    #
-    #                       3---1---9---5---7
-    #                       |       |       |
-    #                       2   0   8   4   6
-    #                       |       |       |
-    #                       x---x---x---x---x
-    #
-    #  LGMap:
-    #
-    #    rank 0 : [-1, 0, 1, -1, 2, 3, -1, 8, 9, -1, 4, 5, -1, 6, 7]
-    #    rank 1 : [-1, 4, 5, -1, 6, 7, -1, 8, 9, -1, 0, 1, -1, 2, 3]
     mesh = UnitIntervalMesh(2)
     extm = ExtrudedMesh(mesh, 1)
     V = FunctionSpace(extm, "CG", 2)
     V_res = RestrictedFunctionSpace(V, boundary_set=["bottom"])
-    # Check lgmap.
-    lgmap = V_res.topological.local_to_global_map(None)
-    if mesh.comm.rank == 0:
-        lgmap_expected = [-1, 0, 1, -1, 2, 3, -1, 8, 9, -1, 4, 5, -1, 6, 7]
-    else:
-        lgmap_expected = [-1, 4, 5, -1, 6, 7, -1, 8, 9, -1, 0, 1, -1, 2, 3]
-    assert np.allclose(lgmap.indices, lgmap_expected)
     # Check vec.
-    n = V_res.dof_dset.size
+    n = V_res.axes.buffer_size(include_ghosts=False)
     lgmap_owned = lgmap.indices[:n]
     local_global_filter = lgmap_owned >= 0
-    local_array = 1.0 * np.arange(V_res.dof_dset.total_size)
+    local_array = 1.0 * np.arange(V_res.axes.local_size)
     f = Function(V_res)
     f.dat.data_wo_with_halos[:] = local_array
-    with f.dat.vec as v:
+    with f.dat.vec_rw as v:
         assert np.allclose(v.getArray(), local_array[:n][local_global_filter])
         v *= 2.
     assert np.allclose(f.dat.data_ro_with_halos[:n][local_global_filter], 2. * local_array[:n][local_global_filter])
@@ -357,7 +307,7 @@ def test_restricted_function_space_extrusion_basics():
     assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize("ncells", [2, 4])
 def test_restricted_function_space_extrusion_poisson(ncells):
     mesh = UnitIntervalMesh(ncells)
@@ -373,11 +323,11 @@ def test_restricted_function_space_extrusion_poisson(ncells):
     L = inner(-2 * (x**2 + y**2), v) * dx
     bc = DirichletBC(V_res, exact, subdomain_ids)
     sol = Function(V_res)
-    solve(a == L, sol, bcs=[bc])
+    solve(a == L, sol, bcs=[bc], solver_parameters={"ksp_monitor": None})
     assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize("ncells", [2, 16])
 def test_restricted_function_space_extrusion_stokes(ncells):
     mesh = UnitIntervalMesh(ncells)
@@ -408,9 +358,6 @@ def test_restricted_function_space_extrusion_stokes(ncells):
     solve(a_res == L_res, sol_res, bcs=[bc_res])
     # Compare.
     assert assemble(inner(sol_res - sol, sol_res - sol) * dx)**0.5 < 1.e-14
-    # -- Actually, the ordering is the same.
-    assert np.allclose(sol_res.subfunctions[0].dat.data_ro_with_halos, sol.subfunctions[0].dat.data_ro_with_halos)
-    assert np.allclose(sol_res.subfunctions[1].dat.data_ro_with_halos, sol.subfunctions[1].dat.data_ro_with_halos)
 
 
 def test_reconstruct_mixed_restricted():

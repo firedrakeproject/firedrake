@@ -380,7 +380,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     finalise_options = dict(mode.finalise_options, replace_delta=True)
     expressions = impero_utils.preprocess_gem(expressions, **finalise_options)
     index_ordering = get_index_ordering(quadrature_multiindex, return_variables)
-    impero_c = impero_utils.compile_gem(list(zip(return_variables, expressions)), index_ordering)
+    impero_c = impero_utils.compile_gem(list(zip(return_variables, expressions)), index_ordering, emit_return_accumulate=False)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements(expressions)
