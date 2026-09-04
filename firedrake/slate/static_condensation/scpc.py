@@ -100,7 +100,7 @@ class SCPC(SCBase):
         self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
-        form_assembler = get_assembler(S_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+        form_assembler = get_assembler(S_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=dmhooks.get_appctx(pc.getDM())._appctx)
         self.S = form_assembler.allocate()
         self._assemble_S = form_assembler.assemble
 
@@ -118,7 +118,7 @@ class SCPC(SCBase):
             self.S_pc_expr = S_pc_expr
 
             # Allocate and set the condensed operator
-            form_assembler = get_assembler(S_pc_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+            form_assembler = get_assembler(S_pc_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=dmhooks.get_appctx(pc.getDM())._appctx)
             self.S_pc = form_assembler.allocate()
             self._assemble_S_pc = form_assembler.assemble
 

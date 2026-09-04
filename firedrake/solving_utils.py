@@ -234,15 +234,12 @@ class _SNESContext:
         # Function to hold current guess
         self._x = problem.u_restrict
 
-        if appctx is None:
-            appctx = {}
         # A split context will already get the full state.
-        # TODO, a better way of doing this.
         # Now we don't have a temporary state inside the snes
         # context we could just require the user to pass in the
         # full state on the outside.
-        appctx.setdefault("state", self._x)
-        appctx.setdefault("form_compiler_parameters", self.fcp)
+        # appctx.setdefault("state", self._x)
+        # appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self._appctx = appctx
         self.matfree = matfree
@@ -314,7 +311,7 @@ class _SNESContext:
             "PETSc options directly.",
             DeprecationWarning,
         )
-        return self._appctx
+        return {} if self._appctx is None else self._appctx
 
     def get_python_option(
         self,
@@ -353,21 +350,27 @@ class _SNESContext:
             value = opts[option]
         except KeyError:
             # not in the options database - try the old, unprefixed approach
-            try:
-                value = self._appctx[option]
-            except KeyError:
+            if self._appctx is not None:
+                try:
+                    value = self._appctx[option]
+                except KeyError:
+                    if default is not _missing:
+                        value = default
+                    else:
+                        raise KeyError
+                else:
+                    assert False, "old api"
+                    warnings.warn(
+                        "Passing Python objects to preconditioners via the 'appctx' kwarg "
+                        "is now deprecated. Pass the objects into the PETSc options "
+                        "directly instead.",
+                        FutureWarning,
+                    )
+            else:
                 if default is not _missing:
                     value = default
                 else:
                     raise KeyError
-            else:
-                assert False, "old api"
-                warnings.warn(
-                    "Passing Python objects to preconditioners via the 'appctx' kwarg "
-                    "is now deprecated. Pass the objects into the PETSc options "
-                    "directly instead.",
-                    FutureWarning,
-                )
         return value
 
     def reconstruct(self,
