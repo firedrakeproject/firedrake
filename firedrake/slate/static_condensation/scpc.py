@@ -37,6 +37,8 @@ class SCPC(SCBase):
         from ufl import dx
 
         prefix = (pc.getOptionsPrefix() or "") + "condensed_field_"
+        snes_ctx = dmhooks.get_appctx(pc.getDM())
+
         A, P = pc.getOperators()
         self.cxt = A.getPythonContext()
         if not isinstance(self.cxt, ImplicitMatrixContext):
@@ -100,7 +102,7 @@ class SCPC(SCBase):
         self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params).assemble
 
         # Allocate and set the condensed operator
-        form_assembler = get_assembler(S_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=dmhooks.get_appctx(pc.getDM())._appctx)
+        form_assembler = get_assembler(S_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=snes_ctx._appctx)
         self.S = form_assembler.allocate()
         self._assemble_S = form_assembler.assemble
 
@@ -118,7 +120,7 @@ class SCPC(SCBase):
             self.S_pc_expr = S_pc_expr
 
             # Allocate and set the condensed operator
-            form_assembler = get_assembler(S_pc_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=dmhooks.get_appctx(pc.getDM())._appctx)
+            form_assembler = get_assembler(S_pc_expr, bcs=bcs, form_compiler_parameters=self.cxt.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=snes_ctx._appctx)
             self.S_pc = form_assembler.allocate()
             self._assemble_S_pc = form_assembler.assemble
 
@@ -132,7 +134,7 @@ class SCPC(SCBase):
         # Get nullspace for the condensed operator (if any).
         # This is provided as a user-specified callback which
         # returns the basis for the nullspace.
-        nullspace = self.cxt.appctx.get("condensed_field_nullspace", None)
+        nullspace = snes_ctx.get_python_option(prefix, "condensed_field_nullspace", None)
         if nullspace is not None:
             nsp = nullspace(Vc)
             Smat.setNullSpace(nsp.nullspace())
