@@ -31,22 +31,24 @@ class BDDCPC(PCBase):
 
     Internally, this PC creates a PETSc PCBDDC object that can be controlled by
     the options:
+
     - ``'bddc_cellwise'`` to set up a MatIS on cellwise subdomains if P.type == python,
     - ``'bddc_matfree'`` to set up a matrix-free MatIS if A.type == python,
     - ``'bddc_pc_bddc_neumann'`` to set sub-KSPs on subdomains excluding corners,
     - ``'bddc_pc_bddc_dirichlet'`` to set sub-KSPs on subdomain interiors,
     - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
     - ``'bddc_get_discrete_gradient'`` for 3D problems in H(curl), this is a callable that
-        provide the arguments (a Mat tabulating the gradient of the auxiliary H1 space) and
-        keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
+      provide the arguments (a Mat tabulating the gradient of the auxiliary H1 space) and
+      keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
     - ``'bddc_get_divergence_mat'`` for problems in H(div) (resp. 2D H(curl)), this is
-        provide the arguments (a Mat with the assembled bilinear form testing the divergence
-        (curl) against an L2 space) and keyword arguments supplied to ``PETSc.PC.setDivergenceMat``.
+      provide the arguments (a Mat with the assembled bilinear form testing the divergence
+      (curl) against an L2 space) and keyword arguments supplied to ``PETSc.PC.setDivergenceMat``.
     - ``'bddc_primal_markers'`` a Function marking degrees of freedom of the solution space to be included in the
-        coarse space. Any nonzero value is counted as a marked degree of freedom.
-        If a DG(0) Function is provided, then all degrees of freedom on the cell are marked.
-        Alternatively, ``'primal_markers'`` can be a list of the global degrees of freedom to
-        be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
+      coarse space. Any nonzero value is counted as a marked degree of freedom.
+      If a DG(0) Function is provided, then all degrees of freedom on the cell are marked.
+      Alternatively, ``'primal_markers'`` can be a list of the global degrees of freedom to
+      be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
+
     """
 
     _prefix = "bddc_"
