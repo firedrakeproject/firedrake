@@ -148,7 +148,7 @@ test_io_backward_compat_base_params = [
     ("tetrahedron", False, False, False, False, False, False),
     ("quadrilateral", False, False, False, False, False, False),
     ("hexahedron", False, False, False, False, False, False),
-    ("quadrilateral", False, True, False, False, False, False),  # extruded (constant layer)
+    ("quadrilateral", False, True, False, False, False, False),  # extruded
     ("triangle", True, False, False, False, False, False),  # periodic
     ("tetrahedron", True, False, False, False, False, False),  # periodic
     ("interval", False, True, True, False, False, False),  # extruded_periodic
