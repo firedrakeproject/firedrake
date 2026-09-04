@@ -14,6 +14,7 @@ and the analytical solution
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_test(r, parameters={}):
@@ -47,11 +48,15 @@ def run_convergence_test(parameters={}):
 
 @pytest.mark.parametrize('params', [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}])
 def test_l2_conv(params):
+    if single_mode:
+        pytest.skip("fp32 round-off floor collapses the CG2 order-3 convergence on the finest mesh")
     assert (run_convergence_test(parameters=params) > 2.8).all()
 
 
 @pytest.mark.parallel
 def test_l2_conv_parallel():
+    if single_mode:
+        pytest.skip("fp32 round-off floor collapses the CG2 order-3 convergence on the finest mesh")
     from mpi4py import MPI
     l2_conv = run_convergence_test()
     print('[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv)

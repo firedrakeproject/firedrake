@@ -6,6 +6,7 @@ from firedrake import (
     as_vector, TrialFunctions, solve
 )
 from firedrake.fml import subject, replace_subject, all_terms
+from firedrake.utils import single_mode
 
 
 def test_replace_perp():
@@ -45,4 +46,4 @@ def test_replace_perp():
     u3, _ = U3.subfunctions
     u3.interpolate(as_vector([-2, 1]))
 
-    assert errornorm(u2, u3) < 1e-14
+    assert errornorm(u2, u3) < (1e-4 if single_mode else 1e-14)

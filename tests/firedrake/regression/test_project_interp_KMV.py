@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 import finat
 
 
@@ -39,7 +40,11 @@ def run_interpolation(mesh, expr, p):
     return errornorm(expr, assemble(interpolate(expr, V)))
 
 
-def test_interpolation_KMV(mesh, max_degree, interpolation_expr):
+def test_interpolation_KMV(mesh, max_degree, interpolation_expr, mesh_type):
+    if single_mode and mesh_type == "square":
+        pytest.skip("fp32 round-off floors the high-degree (up to KMV6) "
+                    "interpolation error on the finest meshes, collapsing the "
+                    "convergence rate")
     for p in range(1, max_degree):
         errors = [
             run_interpolation(mesh(r), interpolation_expr, p) for r in range(3, 6)
@@ -70,4 +75,4 @@ def run_projection(mesh, expr, p):
 def test_projection_KMV(mesh, max_degree, interpolation_expr):
     for p in range(1, max_degree):
         error = run_projection(mesh(1), interpolation_expr, p)
-        assert np.abs(error) < 2e-14
+        assert np.abs(error) < (1e-4 if single_mode else 2e-14)

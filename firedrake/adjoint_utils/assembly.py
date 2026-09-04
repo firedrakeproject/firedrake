@@ -36,8 +36,10 @@ def annotate_assemble(assemble):
             if not annotate:
                 return output
 
-            if not isinstance(output, (float, Function, Cofunction)):
+            if not isinstance(output, (numbers.Real, Function, Cofunction)):
                 raise NotImplementedError("Taping for complex-valued 0-forms not yet done!")
+            if isinstance(output, numbers.Real) and not isinstance(output, float):
+                output = float(output)
             output = create_overloaded_object(output)
             block = AssembleBlock(form, ad_block_tag=ad_block_tag)
 

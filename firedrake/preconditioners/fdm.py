@@ -25,6 +25,7 @@ from pyop2.utils import as_tuple
 from pyop2 import op2
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
+from firedrake.utils import single_mode
 
 import firedrake.dmhooks as dmhooks
 import petsctools
@@ -1475,8 +1476,13 @@ def is_restricted(finat_element):
     return is_interior, is_facet
 
 
-def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
+def petsc_sparse(A_numpy, rtol=None, comm=None):
     """Convert dense numpy matrix into a sparse PETSc matrix"""
+    if rtol is None:
+        # fp32: reference-cell geometry feeding into A_numpy is only accurate to
+        # float32 round-off (~1e-7), even though A_numpy itself is float64, so
+        # entries that should be exactly zero can leak in above the fp64 tolerance.
+        rtol = 1E-5 if single_mode else 1E-10
     atol = rtol * abs(max(A_numpy.min(), A_numpy.max(), key=abs))
     sparsity = abs(A_numpy) > atol
     nnz = numpy.count_nonzero(sparsity, axis=1).astype(PETSc.IntType)
@@ -1484,7 +1490,9 @@ def petsc_sparse(A_numpy, rtol=1E-10, comm=None):
     rows, cols = numpy.nonzero(sparsity)
     rows = rows.astype(PETSc.IntType)
     cols = cols.astype(PETSc.IntType)
-    vals = A_numpy[sparsity]
+    # Values must be PetscScalar: the dense A_numpy is float64, which petsc4py
+    # refuses to cast to float32 in a single-precision build.
+    vals = A_numpy[sparsity].astype(PETSc.ScalarType)
     A.setValuesRCV(rows[:, None], cols[:, None], vals[:, None], PETSc.InsertMode.INSERT)
     A.assemble()
     return A
@@ -1720,8 +1728,8 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
 
         if any(is_restricted(ec)) or any(is_restricted(ef)):
             scalar_element = lambda e: e._sub_element if isinstance(e, (finat.ufl.TensorElement, finat.ufl.VectorElement)) else e
-            fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element()))))
-            cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element()))))
+            fdofs = restricted_dofs(ef, create_element(unrestrict_element(scalar_element(Vf.ufl_element())), dtype=PETSc.RealType))
+            cdofs = restricted_dofs(ec, create_element(unrestrict_element(scalar_element(Vc.ufl_element())), dtype=PETSc.RealType))
             temp = Dhat
             fises = PETSc.IS().createGeneral(fdofs, comm=temp.getComm())
             cises = PETSc.IS().createGeneral(cdofs, comm=temp.getComm())
@@ -2332,6 +2340,9 @@ def numpy_to_petsc(A_numpy, dense_indices, diag=True, block=False, comm=None):
     Create a SeqAIJ Mat from a dense matrix using the diagonal and a subset of rows and columns.
     If dense_indices is empty, then also include the off-diagonal corners of the matrix.
     """
+    # Values inserted into the Mat must be PetscScalar; the dense input is
+    # typically float64, which petsc4py will not cast to float32 in fp32 builds.
+    A_numpy = numpy.asarray(A_numpy, dtype=PETSc.ScalarType)
     n = A_numpy.shape[0]
     nbase = int(diag) if block else min(n, int(diag) + len(dense_indices))
     nnz = numpy.full((n,), nbase, dtype=PETSc.IntType)

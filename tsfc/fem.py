@@ -70,14 +70,14 @@ class ContextBase(ProxyKernelInterface):
 
     @cached_property
     def fiat_cell(self):
-        return as_fiat_cell(self.ufl_cell)
+        return as_fiat_cell(self.ufl_cell, dtype=numpy.finfo(self.scalar_type).dtype)
 
     @cached_property
     def integration_dim(self):
         integration_dims = set()
         for domain, integral_type in self.domain_integral_type_map.items():
             cell = domain.ufl_cell()
-            fiat_cell = as_fiat_cell(cell)
+            fiat_cell = as_fiat_cell(cell, dtype=numpy.finfo(self.scalar_type).dtype)
             integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
             integration_dims.add(integration_dim)
         integration_dim, = integration_dims
@@ -128,7 +128,7 @@ class ContextBase(ProxyKernelInterface):
             for d, it in self.domain_integral_type_map.items():
                 if it is None:
                     continue
-                c = as_fiat_cell(d.ufl_cell())
+                c = as_fiat_cell(d.ufl_cell(), dtype=numpy.finfo(self.scalar_type).dtype)
                 if isinstance(c, cell_type) and it in integral_types:
                     return True
             return False
@@ -539,7 +539,7 @@ def make_cell_facet_jacobian(cell, facet_dim, facet_i):
 @translate.register(ReferenceNormal)
 def translate_reference_normal(terminal, mt, ctx):
     domain = extract_unique_domain(terminal)
-    fiat_cell = as_fiat_cell(domain.ufl_cell())
+    fiat_cell = as_fiat_cell(domain.ufl_cell(), dtype=numpy.finfo(ctx.scalar_type).dtype)
 
     def callback(facet_i):
         n = fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
@@ -709,7 +709,7 @@ def fiat_to_ufl(fiat_dict, order):
 
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
-    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
+    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction, dtype=numpy.finfo(ctx.scalar_type).dtype)
 
     def callback(entity_id):
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
@@ -743,7 +743,7 @@ def translate_constant_value(terminal, mt, ctx):
 def translate_coefficient(terminal, mt, ctx):
     domain = extract_unique_domain(terminal)
     vec = ctx.coefficient(terminal, mt.restriction)
-    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
+    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction, dtype=numpy.finfo(ctx.scalar_type).dtype)
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)

@@ -3,6 +3,7 @@ of an extruded unit square. We then check against the actual solution
 of the equation.
 """
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
@@ -88,27 +89,27 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
 
 def test_extrusion_side_strong_bcs():
-    assert (run_test_3D(3, quadrilateral=False, test_mode=True) < 1.e-13)
+    assert (run_test_3D(3, quadrilateral=False, test_mode=True) < (1e-6 if single_mode else 1.e-13))
 
 
 def test_extrusion_side_strong_bcs_large():
-    assert (run_test_3D(6, quadrilateral=False, test_mode=True) < 1.3e-08)
+    assert (run_test_3D(6, quadrilateral=False, test_mode=True) < (1e-6 if single_mode else 1.3e-08))
 
 
 def test_extrusion_side_strong_bcs_quadrilateral():
-    assert (run_test_3D(3, quadrilateral=True, test_mode=True) < 1.e-13)
+    assert (run_test_3D(3, quadrilateral=True, test_mode=True) < (1e-6 if single_mode else 1.e-13))
 
 
 def test_extrusion_side_strong_bcs_quadrilateral_large():
-    assert (run_test_3D(6, quadrilateral=True, test_mode=True) < 1.3e-08)
+    assert (run_test_3D(6, quadrilateral=True, test_mode=True) < (1e-6 if single_mode else 1.3e-08))
 
 
 def test_extrusion_side_strong_bcs_2D():
-    assert (run_test_2D(2, test_mode=True) < 1.e-13)
+    assert (run_test_2D(2, test_mode=True) < (1e-6 if single_mode else 1.e-13))
 
 
 def test_extrusion_side_strong_bcs_2D_large():
-    assert (run_test_2D(4, test_mode=True) < 1.e-12)
+    assert (run_test_2D(4, test_mode=True) < (1e-6 if single_mode else 1.e-12))
 
 
 def test_get_all_bc_nodes():

@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def do_projection(n, degree):
@@ -33,7 +34,13 @@ def do_projection(n, degree):
 
     x, y = SpatialCoordinate(mesh)
     f = sin(x*pi)*sin(2*pi*y)
-    u = project(f, V, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    solver_parameters = {
+        'ksp_type': 'preonly',
+        'pc_type': 'lu',
+    }
+    if single_mode:
+        solver_parameters['pc_factor_zeropivot'] = 1e-6
+    u = project(f, V, solver_parameters=solver_parameters)
 
     # Compute solution
     return errornorm(f, u)

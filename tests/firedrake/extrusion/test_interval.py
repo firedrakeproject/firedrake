@@ -1,5 +1,6 @@
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def integrate_one(intervals):
@@ -17,7 +18,7 @@ def integrate_one(intervals):
 
 
 def test_unit_interval():
-    assert abs(integrate_one(5) - 1) < 1e-12
+    assert abs(integrate_one(5) - 1) < (1e-5 if single_mode else 1e-12)
 
 
 def test_interval_div_free():

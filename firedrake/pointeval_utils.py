@@ -45,7 +45,7 @@ def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):
     cell = domain.ufl_cell()
     point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
     point_set = UnknownPointSet(point_expr)
-    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
+    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell, dtype=utils.RealType))
 
     shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
     rt_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
@@ -106,7 +106,8 @@ def compile_element(expression, coordinates, parameters=None):
     cell = domain.ufl_cell()
     dim = cell.topological_dimension
     point = gem.Variable('X', (dim,))
-    point_arg = lp.GlobalArg("X", dtype=utils.ScalarType, shape=(dim,))
+    # Reference coordinates are always real even in complex builds.
+    point_arg = lp.GlobalArg("X", dtype=utils.RealType, shape=(dim,))
 
     config = dict(interface=builder,
                   ufl_cell=extract_unique_domain(coordinates).ufl_cell(),
@@ -171,7 +172,7 @@ def compile_element(expression, coordinates, parameters=None):
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(real_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 

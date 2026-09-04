@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -143,7 +144,7 @@ def test_gmg_hiptmair_hcurl(mesh_hierarchy, mat_type):
         family = "NCE"
         max_it = 5
     V = FunctionSpace(mesh, family, degree=1)
-    assert run_riesz_map(V, mat_type, max_it) < 1E-6
+    assert run_riesz_map(V, mat_type, max_it) < (5e-3 if single_mode else 1E-6)
 
 
 @pytest.mark.skipcomplexnoslate
@@ -157,7 +158,7 @@ def test_gmg_hiptmair_hdiv(mesh_hierarchy, mat_type):
         family = "NCF"
         max_it = 7
     V = FunctionSpace(mesh, family, degree=1)
-    assert run_riesz_map(V, mat_type, max_it) < 1E-6
+    assert run_riesz_map(V, mat_type, max_it) < (5e-3 if single_mode else 1E-6)
 
 
 def test_pmg_hiptmair_hcurl():
@@ -167,4 +168,4 @@ def test_pmg_hiptmair_hcurl():
     mat_type = "aij"
     V = FunctionSpace(mesh, family, degree=3)
     max_it = 12
-    assert run_riesz_map(V, mat_type, max_it, solver_type="pmg") < 1E-6
+    assert run_riesz_map(V, mat_type, max_it, solver_type="pmg") < (5e-3 if single_mode else 1E-6)

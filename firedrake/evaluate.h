@@ -64,6 +64,7 @@ extern PetscErrorCode locate_cell_from_candidates(struct Function *f,
 			   const PetscInt *cells_ignore,
 			   PetscInt *cell_out);
 
+/* x is physical coordinates: always double (libspatialindex requires float64). */
 extern int evaluate(struct Function *f,
 		    double *x,
 		    PetscScalar *result);

@@ -1,5 +1,6 @@
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 import finat.ufl
 
 
@@ -39,4 +40,4 @@ def integrate_rhs(family, degree):
 def test_firedrake_extrusion_rhs():
     family = "DG"
     degree = 0
-    assert integrate_rhs(family, degree) < 2.0e-12
+    assert integrate_rhs(family, degree) < (1e-4 if single_mode else 2.0e-12)

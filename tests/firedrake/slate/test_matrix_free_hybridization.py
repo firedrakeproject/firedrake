@@ -1,4 +1,7 @@
 from firedrake import *
+from firedrake.utils import single_mode
+
+# fp32: relaxed to the ~1e-5 residual floor (1e-7 is below single-precision eps).
 
 
 def test_matrix_free_hybridization():
@@ -32,7 +35,7 @@ def test_matrix_free_hybridization():
                       'pc_python_type': 'firedrake.HybridizationPC',
                       'hybridization': {'ksp_type': 'cg',
                                         'pc_type': 'none',
-                                        'ksp_rtol': 1e-8,
+                                        'ksp_rtol': 1e-5 if single_mode else 1e-8,
                                         'mat_type': 'matfree'}}
     solve(a == L, w, bcs=bcs, solver_parameters=matfree_params)
     sigma_h, u_h = w.subfunctions
@@ -44,7 +47,7 @@ def test_matrix_free_hybridization():
                   'pc_python_type': 'firedrake.HybridizationPC',
                   'hybridization': {'ksp_type': 'cg',
                                     'pc_type': 'none',
-                                    'ksp_rtol': 1e-8,
+                                    'ksp_rtol': 1e-5 if single_mode else 1e-8,
                                     'mat_type': 'aij'}}
     solve(a == L, w2, bcs=bcs, solver_parameters=aij_params)
     _sigma, _u = w2.subfunctions
@@ -53,5 +56,5 @@ def test_matrix_free_hybridization():
     sigma_err = errornorm(sigma_h, _sigma)
     u_err = errornorm(u_h, _u)
 
-    assert sigma_err < 1e-8
-    assert u_err < 1e-8
+    assert sigma_err < (5e-7 if single_mode else 1e-8)
+    assert u_err < (5e-7 if single_mode else 1e-8)

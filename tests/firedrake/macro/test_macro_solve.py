@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=("square", "cube"))
@@ -91,13 +92,13 @@ def test_riesz(mh, variant, mixed_element):
     if variant == "iso":
         h = mesh_sizes(mh)
         assert conv_rates(u_err, h)[-1] >= 1.9
-        assert np.allclose(p_err, 0, atol=1E-10)
+        assert np.allclose(p_err, 0, atol=1e-6 if single_mode else 1E-10)
     elif variant == "alfeld":
-        assert np.allclose(u_err, 0, atol=5E-9)
-        assert np.allclose(p_err, 0, atol=5E-7)
+        assert np.allclose(u_err, 0, atol=1e-5 if single_mode else 5E-9)
+        assert np.allclose(p_err, 0, atol=1e-5 if single_mode else 5E-7)
     elif variant == "th":
-        assert np.allclose(u_err, 0, atol=1E-10)
-        assert np.allclose(p_err, 0, atol=1E-8)
+        assert np.allclose(u_err, 0, atol=1e-6 if single_mode else 1E-10)
+        assert np.allclose(p_err, 0, atol=1e-6 if single_mode else 1E-8)
 
 
 def stokes_mms(Z, zexact):
@@ -168,13 +169,13 @@ def test_stokes(mh, variant, mixed_element):
         assert conv_rates(div_err, h)[-1] >= 0.9
     elif variant == "alfeld":
         if dim == 3:
-            assert np.allclose(u_err, 0, atol=1E-9)
-            assert np.allclose(p_err, 0, atol=1E-9)
+            assert np.allclose(u_err, 0, atol=1e-5 if single_mode else 1E-9)
+            assert np.allclose(p_err, 0, atol=1e-5 if single_mode else 1E-9)
         else:
             assert conv_rates(u_err, h)[-1] >= dim + 0.9
             assert conv_rates(p_err, h)[-1] >= dim-1 + 0.9
         # Test div-free
-        assert np.allclose(div_err, 0, atol=1E-10)
+        assert np.allclose(div_err, 0, atol=1e-5 if single_mode else 1E-10)
     elif variant == "th":
         assert conv_rates(u_err, h)[-1] >= 2.9
         assert (conv_rates(p_err, h)[-1] >= 1.9

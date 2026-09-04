@@ -1,3 +1,4 @@
+import numbers
 from functools import wraps
 from pyop2.mpi import temp_internal_comm
 import ufl
@@ -107,6 +108,8 @@ class FunctionMixin(FloatingType):
             annotate = annotate_tape(kwargs) and self != other
 
             if annotate:
+                if isinstance(other, numbers.Real) and not isinstance(other, float):
+                    other = float(other)
                 if not isinstance(other, ufl.core.operator.Operator):
                     other = create_overloaded_object(other)
                 block = FunctionAssignBlock(self, other, ad_block_tag=ad_block_tag)

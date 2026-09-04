@@ -145,6 +145,7 @@ As usual, to implement this problem, we start by importing the
 Firedrake namespace. ::
 
   from firedrake import *
+  from firedrake.utils import single_mode
 
 We build the mesh by constructing a 1D mesh, which will be extruded in
 the vertical. Here we will use periodic boundary conditions in the
@@ -248,7 +249,7 @@ the solver. ::
   params = {
      'ksp_type': 'gmres',
      'pc_type': 'lu',
-     'ksp_rtol': 1.0e-8,
+     'ksp_rtol': 1.0e-4 if single_mode else 1.0e-8,
      }
   phi_solver = LinearVariationalSolver(phi_problem,
                                        nullspace=nullspace,

@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import math
 
@@ -25,7 +26,7 @@ def test_poisson_boltzmann_energy(refine, pre_apply_bcs, pc_type):
     newtonls_params = {
         "snes_type": "newtonls",
         "snes_max_it": 50,
-        "snes_atol": 1E-8,
+        "snes_atol": 1E-4 if single_mode else 1E-8,
         "snes_rtol": 1E-8,
         "snes_norm_schedule": "always",
         "snes_converged_reason": None,
@@ -40,7 +41,7 @@ def test_poisson_boltzmann_energy(refine, pre_apply_bcs, pc_type):
     newtontr_params = {
         "snes_type": "newtontr",
         "snes_max_it": 50,
-        "snes_atol": 1E-8,
+        "snes_atol": 1E-4 if single_mode else 1E-8,
         "snes_rtol": 1E-8,
         "snes_norm_schedule": "always",
         "snes_converged_reason": None,
@@ -99,8 +100,9 @@ def test_poisson_boltzmann_energy(refine, pre_apply_bcs, pc_type):
     e2 = assemble(E)
     sol2.assign(u)
 
-    assert math.isclose(e1, e2)
-    assert math.isclose(errornorm(u_exact, sol1), errornorm(u_exact, sol2), rel_tol=1.e-2)
+    assert math.isclose(e1, e2, rel_tol=1e-6 if single_mode else 1e-9)
+    assert math.isclose(errornorm(u_exact, sol1), errornorm(u_exact, sol2),
+                        rel_tol=1.e-2, abs_tol=2e-6 if single_mode else 0.0)
 
 
 @pytest.mark.parametrize("pre_apply_bcs", (False, True, "restrict"))
@@ -137,7 +139,7 @@ def test_allen_cahn_energy(pre_apply_bcs, pc_type, sol_type):
     problem = NonlinearVariationalProblem(F, u, bcs, objective=E, restrict=restrict)
 
     newtonls_parameters = {
-        "snes_atol": 1E-8,
+        "snes_atol": 1E-4 if single_mode else 1E-8,
         "snes_rtol": 1E-8,
         "snes_type": "newtonls",
         "snes_ksp_ew": True,
@@ -152,7 +154,7 @@ def test_allen_cahn_energy(pre_apply_bcs, pc_type, sol_type):
         "pc_type": pc_type,
     }
     newtontr_parameters = {
-        "snes_atol": 1E-8,
+        "snes_atol": 1E-4 if single_mode else 1E-8,
         "snes_rtol": 1E-8,
         "snes_converged_reason": None,
         "snes_monitor": "::ascii_info_detail",

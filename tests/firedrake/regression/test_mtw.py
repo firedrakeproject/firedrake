@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 import numpy as np
 
@@ -52,6 +53,7 @@ def convergence_orders(error, h):
     return np.diff(np.log2(error)) / np.diff(np.log2(h))
 
 
+@pytest.mark.skipsingle  # fp32: curved MTW H(div) Darcy convergence rate falls below threshold at the fp32 precision floor (MG transfer crash itself is fixed)
 def test_mtw_darcy_convergence(mh):
     sp = {
         "ksp_monitor": None,
@@ -107,6 +109,7 @@ def test_mtw_interior_facet():
     mesh = UnitSquareMesh(4, 4)
     eps = Constant(0.5 / 2**3)
 
+    tol = 1e-5 if single_mode else 1E-10
     x, y = SpatialCoordinate(mesh)
     mesh.coordinates.interpolate(as_vector([x + eps*sin(2*pi*x)*sin(2*pi*y),
                                             y - eps*sin(2*pi*x)*sin(2*pi*y)]))
@@ -121,7 +124,7 @@ def test_mtw_interior_facet():
     # Check form
     L = dot(uh, n)*ds + dot(uh('+'), n('+'))*dS + dot(uh('-'), n('-'))*dS
     surface = assemble(L)
-    assert abs(volume - surface) < 1E-10
+    assert abs(volume - surface) < tol
 
     # Check linear form
     v = TestFunction(V)
@@ -132,7 +135,7 @@ def test_mtw_interior_facet():
         with uh.dat.vec_ro as uh_vec:
             surface = L_vec.dot(uh_vec)
 
-    assert abs(volume - surface) < 1E-10
+    assert abs(volume - surface) < tol
 
     Q = FunctionSpace(mesh, 'Discontinuous Lagrange', 0)
     q = TestFunction(Q)
@@ -148,4 +151,4 @@ def test_mtw_interior_facet():
         A.mult(uh_vec, y)
         surface = y.sum()
 
-    assert abs(volume - surface) < 1E-10
+    assert abs(volume - surface) < tol

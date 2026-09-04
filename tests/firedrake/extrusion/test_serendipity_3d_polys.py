@@ -1,6 +1,7 @@
 import pytest
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.mark.parametrize(('testcase'),
@@ -26,4 +27,4 @@ def test_scalar_convergence(testcase):
     solve(a == L, sol)
 
     l2err = sqrt(assemble((sol-uex)*(sol-uex)*dx))
-    assert l2err < 1e-6
+    assert l2err < (1e-4 if single_mode else 1e-6)

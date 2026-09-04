@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -129,7 +130,7 @@ def test_nested_fieldsplit_solve(W, A, b, expect, parameters):
     solver.solve(f, b)
 
     f -= expect
-    assert norm(f) < 1e-11
+    assert norm(f) < (1e-5 if single_mode else 1e-11)
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -149,7 +150,7 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     solver.solve(f, b)
 
     f -= expect
-    assert norm(f) < 1e-11
+    assert norm(f) < (1e-5 if single_mode else 1e-11)
 
 
 def test_matrix_types(W):

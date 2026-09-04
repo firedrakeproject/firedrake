@@ -1,5 +1,6 @@
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
+from firedrake.utils import single_mode
 import pytest
 import numpy
 
@@ -57,6 +58,8 @@ def error(N, problem, degree):
 
 
 def test_bdmc_riesz_map(problem, degree):
+    if single_mode and degree >= 2:
+        pytest.skip("fp32: L2 errors reach the single-precision floor (~1e-4) by N=20-40, so the high-order convergence rate collapses")
 
     errors = []
     for N in [10, 20, 40]:

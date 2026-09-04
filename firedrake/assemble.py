@@ -28,7 +28,7 @@ from firedrake.interpolation import get_interpolator
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
-from firedrake.utils import ScalarType, assert_empty, tuplify
+from firedrake.utils import RealType, ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
 from functools import cached_property
@@ -1769,7 +1769,7 @@ class _GlobalKernelBuilder:
             return (1,)
 
     def _make_dat_global_kernel_arg(self, V, index=None):
-        finat_element = create_element(V.ufl_element())
+        finat_element = create_element(V.ufl_element(), dtype=RealType)
         map_arg = V.topological.entity_node_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
@@ -1781,7 +1781,7 @@ class _GlobalKernelBuilder:
             return op2.DatKernelArg(dim, map_arg, index)
 
     def _make_mat_global_kernel_arg(self, Vrow, Vcol):
-        relem, celem = (create_element(V.ufl_element()) for V in [Vrow, Vcol])
+        relem, celem = (create_element(V.ufl_element(), dtype=RealType) for V in [Vrow, Vcol])
         if any(isinstance(e, finat.EnrichedElement) and e.is_mixed for e in {relem, celem}):
             subargs = tuple(self._make_mat_global_kernel_arg(Vrow_sub, Vcol_sub)
                             for Vrow_sub, Vcol_sub in product(Vrow, Vcol))

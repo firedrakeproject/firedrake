@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=["triangles", "quadrilaterals"], scope="module")
@@ -48,4 +49,7 @@ def test_projection_symmetric_tensor(mesh, degree, family, tdim):
     P = project(G, Q, solver_parameters=sp, form_compiler_parameters=fcp, use_slate_for_inverse=False)
     Ps = project(G, Qs, solver_parameters=sp, form_compiler_parameters=fcp, use_slate_for_inverse=False)
     X = np.delete(np.reshape(P.dat.data_ro, (-1, Q.value_size)), remove, 1)
-    assert np.isclose(Ps.dat.data_ro, X).all()
+    # In single precision the LU projection accumulates more round-off, so the
+    # symmetric and full projections only agree to fp32 accuracy.
+    rtol, atol = (1e-4, 1e-5) if single_mode else (1e-5, 1e-8)
+    assert np.isclose(Ps.dat.data_ro, X, rtol=rtol, atol=atol).all()

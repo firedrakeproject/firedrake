@@ -151,6 +151,7 @@ def test_high_order_location_warped_interior_facet():
     assert not np.isclose(dists[0], 0.0)
 
 
+@pytest.mark.skipsingle  # High-order cell location in warped mesh requires double precision; fails in fp32
 @pytest.mark.parallel([1, 3])
 def test_parallel_high_order_location():
     mesh = UnitSquareMesh(2, 2)

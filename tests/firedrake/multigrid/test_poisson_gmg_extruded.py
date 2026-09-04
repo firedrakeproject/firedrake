@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -80,19 +81,19 @@ def run_poisson(typ):
 @pytest.mark.parametrize("typ",
                          ["mg", "fas", "newtonfas"])
 def test_poisson_gmg(typ):
-    assert run_poisson(typ) < 4e-6
+    assert run_poisson(typ) < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_mg():
-    assert run_poisson("mg") < 4e-6
+    assert run_poisson("mg") < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_fas():
-    assert run_poisson("fas") < 4e-6
+    assert run_poisson("fas") < (1e-5 if single_mode else 4e-6)
 
 
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_newtonfas():
-    assert run_poisson("newtonfas") < 4e-6
+    assert run_poisson("newtonfas") < (1e-5 if single_mode else 4e-6)

@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 from pyadjoint.tape import get_working_tape, pause_annotation
 
 
@@ -10,8 +11,8 @@ try:
     import jax.numpy as jnp
     from jax.test_util import check_grads
 
-    # Enable 64-bit precision
-    jax.config.update("jax_enable_x64", True)
+    # Match JAX precision to Firedrake's: 64-bit for fp64, 32-bit for fp32.
+    jax.config.update("jax_enable_x64", not single_mode)
 
     key = jax.random.PRNGKey(0)
 
@@ -210,6 +211,9 @@ def test_firedrake_loss_backward(V):
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skipjax  # Skip if JAX is not installed
+# fp32: check_grads finite-differences (eps=1e-6) require double precision; the
+# single-precision FEM operator cannot meet its atol/rtol (Taylor test, deferred).
+@pytest.mark.skipsingle
 def test_taylor_fem_operator(firedrake_operator, V):
     """Taylor test for the jax operator"""
 

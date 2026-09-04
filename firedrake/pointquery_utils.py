@@ -9,7 +9,7 @@ from pyop2.parloop import generate_single_cell_wrapper
 
 from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType, RealType_c, REFERENCE_COORD_CONVERGENCE_EPS
 
 import ufl
 import finat.ufl
@@ -223,7 +223,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
 
     ufl_coordinate_element = mesh.ufl_coordinate_element()
     # Create FInAT element
-    element = finat.element_factory.create_element(ufl_coordinate_element)
+    element = finat.element_factory.create_element(ufl_coordinate_element, dtype=RealType)
 
     code = {
         "geometric_dimension": mesh.geometric_dimension,
@@ -232,7 +232,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
         "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
         "init_X": init_X(element.cell, parameters),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
-        "convergence_epsilon": 1e-12,
+        "convergence_epsilon": REFERENCE_COORD_CONVERGENCE_EPS,
         "dX_norm_square": dX_norm_square(mesh.topological_dimension),
         "X_isub_dX": X_isub_dX(mesh.topological_dimension),
         "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
@@ -246,7 +246,7 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
 
     evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
-    %(ScalarType)s X[%(geometric_dimension)d];
+    %(RealType)s X[%(geometric_dimension)d];
 };
 
 static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
@@ -261,12 +261,12 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealT
      * Mapping coordinates from physical to reference space
      */
 
-    %(ScalarType)s *X = result->X;
+    %(RealType)s *X = result->X;
     %(init_X)s
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
+        %(RealType)s dX[%(topological_dimension)d] = { 0.0 };
         to_reference_coords_newton_step(C, x0, X, dX);
 
         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {

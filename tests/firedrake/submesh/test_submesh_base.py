@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def _get_expr(m):
@@ -36,7 +37,7 @@ def _test_submesh_base_cell_integral_quad(family_degree, nelem):
     Vsub = FunctionSpace(msub, family, degree)
     fsub = Function(Vsub).interpolate(_get_expr(msub))
     result = assemble(fsub * dx)
-    assert abs(result - target) < 1e-12
+    assert abs(result - target) < (abs(target) * 1e-5 if single_mode else 1e-12)
 
 
 @pytest.mark.parametrize('family_degree', [("Q", 4), ])
@@ -81,12 +82,12 @@ def _test_submesh_base_facet_integral_quad(family_degree, nelem):
     for i in [1, 2, 3, 4]:
         target = assemble(cond * _get_expr(mesh) * ds(i))
         result = assemble(_get_expr(subm) * ds(i))
-        assert abs(result - target) < 2e-12
+        assert abs(result - target) < (abs(target) * 1e-5 if single_mode else 2e-12)
     # Check new boundary.
-    assert abs(assemble(Constant(1.) * ds(subdomain_id=5, domain=subm)) - 1.0) < 1e-12
+    assert abs(assemble(Constant(1.) * ds(subdomain_id=5, domain=subm)) - 1.0) < (1e-5 if single_mode else 1e-12)
     x, y = SpatialCoordinate(subm)
-    assert abs(assemble(x**4 * ds(5)) - (.5**5 / 5 + .5**4 * .5)) < 1e-12
-    assert abs(assemble(y**4 * ds(5)) - (.5**5 / 5 + .5**4 * .5)) < 1e-12
+    assert abs(assemble(x**4 * ds(5)) - (.5**5 / 5 + .5**4 * .5)) < (1e-5 if single_mode else 1e-12)
+    assert abs(assemble(y**4 * ds(5)) - (.5**5 / 5 + .5**4 * .5)) < (1e-5 if single_mode else 1e-12)
 
 
 @pytest.mark.parametrize('family_degree', [("Q", 3), ])
@@ -135,7 +136,7 @@ def _test_submesh_base_cell_integral_hex(family_degree, nelem):
     Vsub = FunctionSpace(msub, family, degree)
     fsub = Function(Vsub).interpolate(_get_expr(msub))
     result = assemble(fsub * dx)
-    assert abs(result - target) < 1e-12
+    assert abs(result - target) < (abs(target) * 1e-5 if single_mode else 1e-12)
 
 
 @pytest.mark.parametrize('family_degree', [("Q", 4), ])
@@ -174,13 +175,13 @@ def _test_submesh_base_facet_integral_hex(family_degree, nelem):
     for i in [1, 2, 3, 4, 5, 6]:
         target = assemble(cond * _get_expr(mesh) * ds(i))
         result = assemble(_get_expr(subm) * ds(i))
-        assert abs(result - target) < 2e-12
+        assert abs(result - target) < (abs(target) * 1e-5 if single_mode else 2e-12)
     # Check new boundary.
-    assert abs(assemble(Constant(1) * ds(subdomain_id=7, domain=subm)) - .75) < 1e-12
+    assert abs(assemble(Constant(1) * ds(subdomain_id=7, domain=subm)) - .75) < (1e-5 if single_mode else 1e-12)
     x, y, z = SpatialCoordinate(subm)
-    assert abs(assemble(x**4 * ds(7)) - (.5**5 / 5 * .5 * 2 + .5**4 * .5**2)) < 1e-12
-    assert abs(assemble(y**4 * ds(7)) - (.5**5 / 5 * .5 * 2 + .5**4 * .5**2)) < 1e-12
-    assert abs(assemble(z**4 * ds(7)) - (.5**5 / 5 * .5 * 2 + .5**4 * .5**2)) < 1e-12
+    assert abs(assemble(x**4 * ds(7)) - (.5**5 / 5 * .5 * 2 + .5**4 * .5**2)) < (1e-5 if single_mode else 1e-12)
+    assert abs(assemble(y**4 * ds(7)) - (.5**5 / 5 * .5 * 2 + .5**4 * .5**2)) < (1e-5 if single_mode else 1e-12)
+    assert abs(assemble(z**4 * ds(7)) - (.5**5 / 5 * .5 * 2 + .5**4 * .5**2)) < (1e-5 if single_mode else 1e-12)
 
 
 @pytest.mark.parametrize('family_degree', [("Q", 3), ])

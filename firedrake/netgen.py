@@ -69,7 +69,8 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
         plex_data = None
         for i in np.ndindex(V.shape):
             di = netgen_data[(..., *i)].flatten()
-            vec0[:len(di)] = di
+            # Cast Netgen's double data to the Vec's precision (no-op in fp64).
+            vec0[:len(di)] = di.astype(vec0.array.dtype, copy=False)
             _, vec = plex.distributeField(sf, section0, vec0)
             arr = vec.getArray()
             if plex_data is None:

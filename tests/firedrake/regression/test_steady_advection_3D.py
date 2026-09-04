@@ -6,6 +6,7 @@ facet integrals.
 
 import pytest
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(scope='module')
@@ -53,7 +54,7 @@ def run_near_to_far(mesh, DG0, W):
     out = Function(DG0)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-6
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-3 if single_mode else 1e-6)
 
 
 def test_3d_near_to_far(mesh, DG0, W):
@@ -90,7 +91,7 @@ def run_up_to_down(mesh, DG1, W):
     out = Function(DG1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1.3e-6
+    assert max(abs(out.dat.data - inflow.dat.data)) < (1e-5 if single_mode else 1.3e-6)
 
 
 def test_3d_up_to_down(mesh, DG1, W):

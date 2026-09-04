@@ -1,7 +1,12 @@
 import pytest
 import numpy
 from firedrake import *
-from firedrake.utils import complex_mode
+from firedrake.utils import complex_mode, single_mode
+
+# fp32: grid transfer only reproduces a degree-p polynomial to ~1e-6, so the default
+# allclose atol=1e-8 fails at near-zero nodes; per-rank divergence would deadlock MPI.
+_TRANSFER_RTOL = 1e-2 if single_mode else 1e-5
+_TRANSFER_ATOL = 1e-4 if single_mode else 1e-8
 
 
 @pytest.fixture(params=["interval", "triangle",
@@ -114,7 +119,8 @@ def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
             tmp = Function(V)
             inject(actual, tmp)
             actual = tmp
-            assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
+            assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro,
+                                  rtol=_TRANSFER_RTOL, atol=_TRANSFER_ATOL)
 
 
 def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal):
@@ -132,7 +138,8 @@ def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal):
             tmp = Function(V)
             prolong(actual, tmp)
             actual = tmp
-            assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
+            assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro,
+                                  rtol=_TRANSFER_RTOL, atol=_TRANSFER_ATOL)
 
 
 def run_restriction(hierarchy, shape, space, degrees):
@@ -161,7 +168,8 @@ def run_restriction(hierarchy, shape, space, degrees):
             coarse_functional = functional(coarse_primal, coarse_dual)
             fine_functional = functional(fine_primal, fine_dual)
 
-            assert numpy.allclose(fine_functional, coarse_functional)
+            assert numpy.allclose(fine_functional, coarse_functional,
+                                  rtol=_TRANSFER_RTOL, atol=_TRANSFER_ATOL)
 
 
 def run_transfer(mh, shp, family, deg, transfer_op):

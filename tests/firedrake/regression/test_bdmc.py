@@ -1,5 +1,6 @@
 import numpy as np
 from firedrake import *
+from firedrake.utils import single_mode
 import pytest
 
 
@@ -26,6 +27,8 @@ def project_bdmc(size, degree, family):
                           ((3, 6), 3.9, 3),
                           ((3, 6), 4.9, 4)])
 def test_bdmcf(testcase, convrate, degree):
+    if single_mode and degree == 4:
+        pytest.skip("fp32: degree-4 L2 error hits the single-precision floor (~1e-6), so order-5 convergence cannot be resolved")
     start, end = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:
@@ -39,6 +42,8 @@ def test_bdmcf(testcase, convrate, degree):
                           ((3, 6), 3.9, 3),
                           ((3, 6), 4.9, 4)])
 def test_bdmce(testcase, convrate, degree):
+    if single_mode and degree == 4:
+        pytest.skip("fp32: degree-4 L2 error hits the single-precision floor (~1e-6), so order-5 convergence cannot be resolved")
     start, end = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:

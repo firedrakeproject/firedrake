@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
 import numpy as np
 
 
@@ -138,7 +139,9 @@ def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
     r.interpolate(as_vector((20*x[0] - 10, -10*x[1] + 15)))
 
     for actual, expect in zip(g.dat.data, expected.dat.data):
-        assert np.allclose(actual, expect)
+        # In single precision the near-zero solved entries sit above the
+        # default absolute tolerance, so loosen atol.
+        assert np.allclose(actual, expect, atol=1e-4 if single_mode else 1e-8)
 
 
 def test_cant_integrate_subscripted_VFS(V):

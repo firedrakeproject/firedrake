@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import single_mode
 from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.classes import IntValue
 import numpy as np
@@ -10,15 +11,15 @@ def test_scalar_constant():
         c = Constant(1)
         # Check that the constant has the correct dimension.
         assert c._ad_dim() == 1
-        assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
+        assert abs(assemble(c*dx(domain=m)) - 1.0) < (1e-5 if single_mode else 1e-10)
 
 
 def test_scalar_constant_assign():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
         c = Constant(1)
-        assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
+        assert abs(assemble(c*dx(domain=m)) - 1.0) < (1e-5 if single_mode else 1e-10)
         c.assign(4)
-        assert abs(assemble(c*dx(domain=m)) - 4.0) < 1e-10
+        assert abs(assemble(c*dx(domain=m)) - 4.0) < (1e-5 if single_mode else 1e-10)
 
 
 @pytest.mark.parametrize(('init', 'new_vals'),

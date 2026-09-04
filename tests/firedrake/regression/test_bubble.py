@@ -1,6 +1,7 @@
 """Test bubble function space"""
 
 from firedrake import *
+from firedrake.utils import single_mode
 
 
 def test_simple():
@@ -23,7 +24,7 @@ def test_enrichment():
     exact = Function(W)
     exact.interpolate(27*x[0]*x[1]*(1-x[0]-x[1]))
     # make sure that these are the same
-    assert sqrt(assemble((u-exact)*(u-exact)*dx)) < 1e-14
+    assert sqrt(assemble((u-exact)*(u-exact)*dx)) < (1e-7 if single_mode else 1e-14)
 
 
 def test_BDFM():
@@ -43,6 +44,7 @@ def test_BDFM():
     # testing against known result where the interior DOFS of BDFM are excited
     a = out.dat.data
     a.sort()
-    assert (abs(a[1:7]) < 1e-12).all()
-    assert abs(a[7] + a[0]) < 1e-12
-    assert abs(a[8] + a[0]) < 1e-12
+    tol = 1e-6 if single_mode else 1e-12
+    assert (abs(a[1:7]) < tol).all()
+    assert abs(a[7] + a[0]) < tol
+    assert abs(a[8] + a[0]) < tol

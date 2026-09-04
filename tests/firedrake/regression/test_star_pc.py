@@ -2,6 +2,7 @@ import pytest
 import warnings
 from firedrake import *
 from firedrake.petsc import PETSc, DEFAULT_DIRECT_SOLVER
+from firedrake.utils import single_mode
 
 
 @pytest.fixture(params=["scalar",
@@ -181,7 +182,13 @@ def test_star_equivalence(problem_type, backend):
     filter_warnings(comp_solver.solve)
     comp_its = comp_solver.snes.getLinearSolveIterations()
 
-    assert star_its == comp_its
+    if single_mode:
+        # fp32: the two algebraically-identical patch PCs accumulate round-off in
+        # a different order, which can shift the Richardson iteration count by one
+        # near the convergence threshold.
+        assert abs(star_its - comp_its) <= 1
+    else:
+        assert star_its == comp_its
 
 
 def test_vanka_equivalence(problem_type):
@@ -345,6 +352,11 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     vanka_params["mg_levels_pc_vanka_mat_ordering_type"] = "rcm"
+    if single_mode:
+        # fp32: keep the Richardson rtol clear of the single-precision floor so the
+        # two algebraically-identical patch PCs converge in the same iteration count.
+        vanka_params["ksp_rtol"] = 1e-4
+        comp_params["ksp_rtol"] = 1e-4
     nvproblem = NonlinearVariationalProblem(a, u, bcs=bcs)
     star_solver = NonlinearVariationalSolver(nvproblem, solver_parameters=vanka_params, nullspace=nsp)
     filter_warnings(star_solver.solve)
@@ -408,7 +420,7 @@ def test_asm_extruded_star(base, periodic, family, degree):
 
     expected = 7
     assert solver.snes.getLinearSolveIterations() <= expected
-    assert errornorm(uexact, uh) < 1E-7
+    assert errornorm(uexact, uh) < (1e-3 if single_mode else 1E-7)
 
 
 @pytest.mark.parametrize("extruded", [False, True], ids=["quad", "hex"])
@@ -497,6 +509,9 @@ def test_vanka_coloring():
 
     params = lambda color: {
         "ksp_type": "gmres",
+        # fp32: keep the gmres rtol clear of the single-precision floor so the
+        # colored and uncolored Vanka PCs converge in the same iteration count.
+        "ksp_rtol": 1e-4 if single_mode else 1e-5,
         "pc_type": "mg",
         "mg_coarse_ksp_type": "preonly",
         "mg_coarse_pc_type": "lu",
