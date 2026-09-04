@@ -207,7 +207,11 @@ class NonlinearVariationalSolverMixin:
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters & constant_jacobian
         nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_fwd)
-        nlvs = NonlinearVariationalSolver(
+        nlvp.is_linear = problem.is_linear
+        nlvp._constant_jacobian = problem._constant_jacobian
+
+        # use type(self) in case we are a LinearVariationalSolver
+        nlvs = type(self)(
             nlvp,
             *self._ad_args_kwargs.forward_args,
             **self._ad_args_kwargs.forward_kwargs
@@ -260,7 +264,8 @@ class NonlinearVariationalSolverMixin:
         lvp = LinearVariationalProblem(
             dFdu, dFdm, dudm,
             aP=nlvp.Jp,
-            bcs=self._ad_forward_cache.bcs)
+            bcs=self._ad_forward_cache.bcs,
+            constant_jacobian=nlvp._constant_jacobian)
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.tlm_args,
@@ -342,7 +347,8 @@ class NonlinearVariationalSolverMixin:
         lvp = LinearVariationalProblem(
             dFdu_adj, dJdu, adj_sol,
             aP=adjoint(nlvp.Jp) if nlvp.Jp else None,
-            bcs=self._ad_forward_cache.bcs)
+            bcs=self._ad_forward_cache.bcs,
+            constant_jacobian=nlvp._constant_jacobian)
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.adj_args,
