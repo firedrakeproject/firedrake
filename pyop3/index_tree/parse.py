@@ -372,10 +372,7 @@ def _desugar_index_label(label, /, *, axes, path) -> Index:
     try:
         component = utils.just_one(c for c in axis.components if c.label == label)
     except pyop3.exceptions.EmptyIterableException as err:
-        try:
-            raise ValueError(f"Component label '{label}' does not exist in this axis") from err
-        except:
-            breakpoint()
+        raise ValueError(f"Component label '{label}' does not exist in this axis") from err
 
     if component.size == 1:
         return ScalarIndex(axis.label, component.label, 0)

@@ -73,45 +73,8 @@ def index_axes(
     # must map to a unique initial axis.
     target_axes = match_target_paths_to_axis_tree(index_tree, orig_axes)
 
-    # Unpack the target paths from
-    # 
-    #     {index1: [component1, component2], index2: [component3]}
-    #
-    # to
-    # 
-    #     ({index1: component1, index2: component3},
-    #      {index1: component2, index2: component3})
-    #
-    # (where each 'component' is also a tuple of *equivalent targets*).
-    # target_paths = expand_collection_of_iterables(target_paths_compressed)
-
-    # Resolve the symbolic targets into actual axes of the original tree
-    # axis_tree_targets = match_target_paths_to_axis_tree(index_tree, target_paths, orig_axes)
-    # axis_tree_targets = []
-    # for index_targets in target_paths:
-    #     # Of the many combinations of targets addressable by the provided index tree
-    #     # only one is expected to actually match the given axis tree.
-    #     axis_tree_target = matching_target(index_targets, orig_axes)
-    #     axis_tree_targets.append(axis_tree_target)
-
-    # Re-compress the result so it is easier to use in subsequent tree
-    # traversals. That is, convert something like
-    # 
-    #     ({index1: target1, index2: target3},
-    #      {index1: target2, index2: target3})
-    #
-    # to
-    # 
-    #     {index1: [target1, target2], index2: [target3]}
-    #
-    # (where each 'component' is also a tuple of *equivalent targets*).
-
-    # Now construct the new, indexed, axis tree. To make sure that we get unique
-    # labels we compute the 'index_count' (which is the number of times that the
-    # tree has been indexed from the original unindexed one). Currently we use
-    # the axis targets as a nasty proxy for this
-    index_count = max(map(len, orig_axes.targets.values()))
-    indexed_axes, indexed_targets = make_indexed_axis_tree(index_tree, target_axes, index_count=index_count)
+    # Now construct the new, indexed, axis tree
+    indexed_axes, indexed_targets = make_indexed_axis_tree(index_tree, target_axes)
 
     indexed_targets = pyop3.axis_tree.tree.complete_axis_targets(indexed_targets)
 
@@ -147,23 +110,21 @@ def index_axes(
     return retval
 
 
-def make_indexed_axis_tree(index_tree: IndexTree, target_axes, index_count: int):
+def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
     return _make_indexed_axis_tree_rec(
         index_tree,
         target_axes,
         index_path=idict(),
         expr_replace_map=idict(),
-        index_count=index_count,
     )
 
 
-def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map, index_count):
+def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map):
     index = index_tree.node_map[index_path]
 
     index_axis_tree, per_index_targets = _index_axes_per_index(
         index, target_axes,
         seen_target_exprs=expr_replace_map,
-        index_count=index_count,
     )
 
     targets: dict[ConcretePathT, tuple[AxisTarget, ...]] \
@@ -194,7 +155,6 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
             target_axes_,
             index_path=index_path_,
             expr_replace_map=expr_replace_map_,
-            index_count=index_count,
         )
 
         leaf_axis_key = leaf_path
@@ -723,7 +683,7 @@ def _(index: ScalarIndex, /, target_axes, **kwargs):
 
 
 @_index_axes_per_index.register
-def _(slice_: Slice, /, target_axes, *, seen_target_exprs, index_count: int):
+def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     from pyop3.expr import AxisVar
     from pyop3.expr.visitors import (
         collect_axis_vars,
@@ -898,6 +858,7 @@ def _(called_map: CalledMap, *args, **kwargs):
     return called_map.axes.materialize(), called_map.axes.targets
 
 
+# TODO: can this just be the same as CalledMap?
 @_index_axes_per_index.register
 def _(map_: UnitCalledMap, /, *args, **kwargs):
     import pyop3
@@ -940,24 +901,21 @@ def _(map_: UnitCalledMap, /, *args, **kwargs):
     return (pyop3.axis_tree.UNIT_AXIS_TREE, new_targets)
 
 
-def _make_leaf_axis_from_called_map_new(map_, output_spec, input_paths_and_exprs):
+def _make_leaf_axis_from_called_map_new(called_map, output_spec, input_targets):
+    import pyop3.expr
     from pyop3.expr.buffer import LinearDatBufferExpression
     from pyop3.expr.visitors import replace_terminals
 
     components = []
-    replace_map = utils.merge_dicts(
-        t.replace_map for t in input_paths_and_exprs
-    )
+    target_replace_map = utils.merge_dicts(t.replace_map for t in input_targets)
     for map_output in output_spec:
-        # NOTE: This should be done more eagerly.
         arity = map_output.arity
         if not isinstance(arity, numbers.Integral):
             assert isinstance(arity, LinearDatBufferExpression)
-            # arity = arity[map_.index]
-            arity = replace_terminals(map_output.arity, replace_map, assert_modified=True)
+            arity = replace_terminals(map_output.arity, target_replace_map, assert_modified=True)
         component = pyop3.axis_tree.AxisComponent(arity, label=map_output.label)
         components.append(component)
-    axis = pyop3.axis_tree.Axis(components, label=map_.label)
+    axis = pyop3.axis_tree.Axis(components, label=called_map.label)
 
     targets = {}
     for component, map_output in zip(components, output_spec, strict=True):
@@ -966,8 +924,27 @@ def _make_leaf_axis_from_called_map_new(map_, output_spec, input_paths_and_exprs
 
         target_axis = map_output.target_axis
         target_component = map_output.target_component
-        expr = replace_terminals(map_output.array, replace_map, assert_modified=True)
-        axis_target = pyop3.axis_tree.AxisTarget(target_axis, target_component, expr)
+
+        # If we have a tabulated map component we have to replace the axis vars
+        # in the array expression so they agree with the labels from the index
+        # tree. Tabulated maps can take in an arbitrary number of input indices
+        # but they always produce a single set of outputs (i.e. the arity). For
+        # example:
+        #
+        #     for i0
+        #       for i1
+        #         for i2 < arity  # special innermost axis
+        #           j = map[i0, i1, i2]  # i.e. J <- f(i0, i1)
+        #
+        # The input indices (i0 and i1) come from input_targets but we have to
+        # relabel the innermost axis to match the label of the map.
+        *_, inner_av = pyop3.expr.visitors.collect_axis_vars(map_output.array.layout)
+        target_replace_map_ = target_replace_map | {
+            inner_av.axis.label: pyop3.expr.AxisVar(axis.linearize(component.label))
+        }
+        array_expr = replace_terminals(map_output.array, target_replace_map_, assert_modified=True)
+
+        axis_target = pyop3.axis_tree.AxisTarget(target_axis, target_component, array_expr)
         targets[idict({axis.label: component.label})] = ((axis_target,),)
     targets = idict(targets)
 

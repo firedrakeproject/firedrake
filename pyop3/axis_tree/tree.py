@@ -853,20 +853,37 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def __getitem__(self, indices):
         return self.getitem(indices, strict=False)
 
-    # TODO: indices may not be hashable if it contains a slice (Py3.11)
-    # TODO: split cache here between if loop indices are in use or not (LRU if so, unbounded if not)
-    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def getitem(
         self,
         indices,
         *,
         strict=False,
     ) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
-        import pyop3.index_tree.parse
-        import pyop3.visitors
+        import pyop3.index_tree.tree
 
         if utils.is_ellipsis_type(indices):
             return self
+
+        # We have a different caching strategy depending on whether we are
+        # indexing using 'static' objects like integers and slices, or
+        # loop indices. The reasoning is because loop indices are unique, and
+        # hence repeated indexing with loop indices can blow up a cache with
+        # unbounded size. By contrast there are only so many ways one can index
+        # index using slices, strings etc and we get a big performance boost by
+        # caching these.
+        if pyop3.index_tree.tree.has_loop_indices(indices):
+            return self._getitem_with_loop_indices(indices, strict=strict)
+        else:
+            return self._getitem_without_loop_indices(indices, strict=strict)
+
+    @cached_method()
+    def _getitem_without_loop_indices(self, indices, *, strict):
+        return self._getitem_cached(self, indices, strict=strict)
+
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
+    def _getitem_with_loop_indices(self, indices, *, strict):
+        import pyop3.index_tree.parse
+        import pyop3.visitors
 
         relabeler = pyop3.visitors.Relabeler(
             self._canonical_relabel_map, allow_missing=True
@@ -885,6 +902,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
             relabeler.inverse_relabel_map, allow_missing=True
         )
         return unrelabeler(relabeled_indexed_tree)
+
 
     # TODO: indices may not be hashable if it contains a slice (Py3.11)
     @staticmethod
@@ -1933,8 +1951,18 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         """Return a new "unindexed" axis tree with the same shape."""
         return AxisTree(self.node_map, _validate=False)
 
-    # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
+    @staticmethod
+    def _buffer_indices_hashkey(self, *, include_ghosts: bool) -> Hashable:
+        return (self._canonical_cache_key, include_ghosts)
+
     @cached_method()
+    @pyop3.cache.memory_cache(
+        heavy=True,
+        hashkey=_buffer_indices_hashkey,
+        make_cache=lambda: pyop3.cache.LRUCache(10),
+        get_comm=lambda s, **kw: s.comm,
+    )
+    # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
     @on_host
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
         from pyop3 import Dat, loop

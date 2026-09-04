@@ -916,3 +916,55 @@ class LoopContextSensitive:
 
     def _shared_attr(self, attr: str):
         return single_valued(getattr(a, attr) for a in self.context_map.values())
+
+
+@functools.singledispatch
+def has_loop_indices(obj: Any) -> bool:
+    utils.raise_missing_dispatch_handler(obj)
+
+
+@has_loop_indices.register
+def _(itree: IndexTree, /) -> bool:
+    # explicit loop to allow for eager termination
+    for index in itree.nodes:
+        if has_loop_indices(index):
+            return True
+    else:
+        return False
+
+
+@has_loop_indices.register
+def _(idx: AbstractLoopIndex | AbstractCalledMap, /) -> bool:
+    return True
+
+
+@has_loop_indices.register
+def _(tuple_: tuple, /) -> bool:
+    # explicit loop to allow for eager termination
+    for item in tuple_:
+        if has_loop_indices(item):
+            return True
+    else:
+        return False
+
+
+@has_loop_indices.register
+def _(label: str | utils.Atom, /) -> bool:
+    # A string/atom is a component label
+    return False
+
+
+@has_loop_indices.register
+def _(list_: list, /) -> bool:
+    # A list is a collection of component labels
+    return False
+
+
+@has_loop_indices.register
+def _(scalar: numbers.Integral | ScalarIndex, /) -> bool:
+    return False
+
+
+@has_loop_indices.register
+def _(slice_: slice | Slice, /) -> bool:
+    return False
