@@ -103,7 +103,7 @@ from the start of the step :math:`p_0`. Mathematically, we find :math:`u_h \in W
 
   \int_{\Omega} w \cdot u_h \, dx = \int_{\Omega} w \cdot u_0 \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_0 \, dx \quad \forall w \in W
 
-.. code-block:: python
+.. code-block:: none
 
   a_1 = dot(w, u) * dx
   L_1 = dot(w, u_0) * dx + 0.5 * dt * div(w) * p_0 * dx
@@ -117,7 +117,7 @@ intermediate velocity :math:`u_h`. We find :math:`p_1 \in X` such that:
 
   \int_{\Omega} \phi \, p_1 \, dx = \int_{\Omega} \phi \, p_0 \, dx - \Delta t \int_{\Omega} \phi (\nabla \cdot u_h) \, dx \quad \forall \phi \in X
 
-.. code-block:: python
+.. code-block:: none
 
   a_2 = phi * p * dx
   L_2 = phi * p_0 * dx - dt * phi * div(u_h) * dx
@@ -131,7 +131,7 @@ the updated pressure :math:`p_1`. We find :math:`u_1 \in W` such that:
 
   \int_{\Omega} w \cdot u_1 \, dx = \int_{\Omega} w \cdot u_h \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_1 \, dx \quad \forall w \in W
 
-.. code-block:: python
+.. code-block:: none
 
   a_3 = dot(w, u) * dx
   L_3 = dot(w, u_h) * dx + 0.5 * dt * div(w) * p_1 * dx
@@ -144,7 +144,7 @@ Here follows the complete implementation of the time-stepping loop, including th
 as well as the projection of the pressure field for visualization at each time step. 
 We also print the current simulation time at each step for tracking progress.
 
-.. code-block:: python
+.. code-block:: none
 
   while t < T:
     u = TrialFunction(W)
