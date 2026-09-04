@@ -206,7 +206,8 @@ class _SNESContext:
                  marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 state=None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -238,7 +239,10 @@ class _SNESContext:
         # Now we don't have a temporary state inside the snes
         # context we could just require the user to pass in the
         # full state on the outside.
-        # appctx.setdefault("state", self._x)
+        if state is None:
+            self.state = self._x
+        else:
+            self.state = state
         # appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self._appctx = appctx
@@ -413,6 +417,7 @@ class _SNESContext:
             post_function_callback=self._post_function_callback,
             pre_apply_bcs=self.pre_apply_bcs,
             marking_callback=self._marking_callback,
+            state=self.state,
         )
         for k, v in default_options.items():
             if kwargs.get(k) is None:
