@@ -197,13 +197,20 @@ and approximate the Schur complement inverse with PCD. ::
 
 We need to configure the pressure mass and Poisson solves, along with
 how to apply the convection-diffusion operator.  For the latter, we
-will use an assembled operator this time round. ::
+will use an assembled operator this time round. Recall that the PCD
+preconditioner needs to know where the velocity space lives in the
+velocity-pressure block.  It also needs to know the
+Reynolds number, which defaults to 1.0, which happens to work for our
+problem setup.  We haven't added the Rayleigh or Prandtl numbers to
+the dictionary since our known preconditioners don't actually require
+them, although doing so would be quite easy.::
 
                         "pcd_Mp_ksp_type": "preonly",
                         "pcd_Mp_pc_type": "ilu",
                         "pcd_Kp_ksp_type": "preonly",
                         "pcd_Kp_pc_type": "hypre",
-                        "pcd_Fp_mat_type": "aij"
+                        "pcd_Fp_mat_type": "aij",
+                        "pcd_velocity_space": 0,
                    }
                },
 
@@ -219,20 +226,12 @@ for algebraic multigrid preconditioned GMRES. ::
               }
          }
 
-And we're done with all the options.  All that's left is to solve the
-problem.  Recall that the PCD preconditioner needs to know where the
-velocity space lives in the velocity-pressure block, which we provide
-through the application context argument.  It also needs to know the
-Reynolds number, which defaults to 1.0, which happens to work for our
-problem setup.  We haven't added the Rayleigh or Prandtl numbers to
-the dictionary since our known preconditioners don't actually require
-them, although doing so would be quite easy.::
+And we're done with all the options.  All that's left is to solve the problem. ::
 
-  appctx = {"velocity_space": 0}
   upT.assign(0)
 
   solve(F == 0, upT, bcs=bcs, nullspace=nullspace,
-        solver_parameters=parameters, appctx=appctx)
+        solver_parameters=parameters)
 
 Finally, we'll output the results for visualisation. ::
 

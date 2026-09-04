@@ -67,11 +67,11 @@ class FDMPC(PCBase):
     @PETSc.Log.EventDecorator("FDMInit")
     def initialize(self, pc):
         petsctools.cite(self._citation)
-        self.pc = pc
         self.comm = pc.comm
         Amat, Pmat = pc.getOperators()
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
+        self.options_prefix = options_prefix
         options = PETSc.Options(options_prefix)
 
         use_amat = options.getBool("pc_use_amat", True)
@@ -1929,9 +1929,8 @@ class PoissonFDMPC(FDMPC):
         axes_shifts, = shifts
 
         degree = max(e.degree() for e in line_elements)
-        prefix = (self.pc.getOptionsPrefix() or "") + self._prefix
         ctx = dmhooks.get_appctx(self.pc.getDM())
-        eta = float(ctx.get_python_option(prefix, "eta", degree*(degree+1)))
+        eta = float(ctx.get_python_option(self.options_prefix, "eta", degree*(degree+1)))
         is_dg = V.finat_element.is_dg()
         Afdm = []  # sparse interval mass and stiffness matrices for each direction
         Dfdm = []  # tabulation of normal derivatives at the boundary for each direction
@@ -2099,9 +2098,8 @@ class PoissonFDMPC(FDMPC):
             if tdim < V.mesh().geometric_dimension:
                 raise NotImplementedError("SIPG on immersed meshes is not implemented")
 
-            prefix = (self.pc.getOptionsPrefix() or "") + self._prefix
             ctx = dmhooks.get_appctx(self.pc.getDM())
-            eta = float(ctx.get_python_option(prefix, "eta", None))
+            eta = float(ctx.get_python_option(self.options_prefix, "eta"))
 
             lgmap = self.lgmaps[V]
             index_facet, local_facet_data, nfacets = extrude_interior_facet_maps(V)
