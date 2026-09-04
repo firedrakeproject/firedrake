@@ -888,7 +888,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     # TODO: indices may not be hashable if it contains a slice (Py3.11)
     @staticmethod
-    @pyop3.cache.memory_cache(heavy=True, get_comm=lambda t, *a, **kw: t.comm)
+    @pyop3.cache.memory_cache(heavy=True, get_comm=lambda t, *a, **kw: t.comm, make_cache=lambda: pyop3.cache.LRUCache(10))
     def _getitem_cached(
         axis_tree,
         indices,

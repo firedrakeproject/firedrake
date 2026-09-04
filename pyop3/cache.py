@@ -119,23 +119,30 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
-def get_method_cache(obj: Any, func, make_cache: Callable[[], Mapping]) -> None:
+def get_method_cache(obj: Any, func, cache_id, make_cache: Callable[[], Mapping]) -> None:
     cache_name = f"_pyop3_method_cache_{func.__name__}"
     if not hasattr(obj, cache_name):
         # Use object.__setattr__ to get around frozen dataclasses
-        object.__setattr__(obj, cache_name, make_cache())
+        cache = make_cache()
+        icache = _InstrumentedCache(cache_id, obj.comm, func, cache)
+        object.__setattr__(obj, cache_name, icache)
     return getattr(obj, cache_name)
 
 
 def cached_method(key=default_hashkey, make_cache: Callable[[], Mapping] = dict) -> Callable:
     """TODO"""
+    # Store a unique integer for each 'cached_method' decorator. This
+    # identifier is different between ranks but that is fine as it is only
+    # used locally.
+    cache_id = next(_CACHE_CIDX)
+
     # Since this is a cache for an instance we ignore the 'self' argument
     def method_cache_key(self, *args, **kwargs):
         return key(*args, **kwargs)
 
     def wrapper(func):
         return cachetools.cachedmethod(
-            lambda self: get_method_cache(self, func, make_cache), method_cache_key
+            lambda self: get_method_cache(self, func, cache_id, make_cache), method_cache_key
         )(func)
     return wrapper
 
@@ -304,6 +311,13 @@ def print_cache_stats(*args, **kwargs):
     """Print cache statistics."""
     data = defaultdict(lambda: defaultdict(dict))
     for entry in cache_filter(*args, **kwargs):
+        # entries are weakrefs, so they may be dead
+        # TODO: It would be nice to still have access to this information
+        try:
+            entry
+        except ReferenceError:
+            continue
+
         active = not isinstance(entry, _DeadInstrumentedCache)
         key1 = (entry.comm_name, active)
         key2 = (entry.cache_name, entry.cache_loc)

@@ -763,18 +763,19 @@ class CalledMap(AbstractCalledMap):
         object.__setattr__(self, "label", label)
 
     def __record_post_init(self) -> None:
-        # Each leaf of the index wrapped by this map must have at least one
-        # target that corresponds to a source for this map.
-        for equiv_target_paths in self.index.leaf_target_paths:
-            match_found = False
-            for equiv_target_path in equiv_target_paths:
-                if equiv_target_path in self.map.connectivity:
-                    match_found = True
-                    break
-            if not match_found:
-                raise pyop3.exceptions.InvalidMapTargetException(
-                    "Cannot find a suitable candidate from the targets of the map index"
-                )
+        if pyop3.config.debug_checks:
+            # Each leaf of the index wrapped by this map must have at least one
+            # target that corresponds to a source for this map.
+            for equiv_target_paths in self.index.leaf_target_paths:
+                match_found = False
+                for equiv_target_path in equiv_target_paths:
+                    if equiv_target_path in self.map.connectivity:
+                        match_found = True
+                        break
+                if not match_found:
+                    raise pyop3.exceptions.InvalidMapTargetException(
+                        "Cannot find a suitable candidate from the targets of the map index"
+                    )
 
     # }}}
 
