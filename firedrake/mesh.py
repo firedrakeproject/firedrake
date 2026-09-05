@@ -38,7 +38,7 @@ import firedrake.cython.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
-from firedrake.utils import IntType, IntType_c, RealType, RealType_c, as_ctypes, cached_property_until
+from firedrake.utils import IntType, IntType_c, RealType, RealType_c, as_ctypes, cached_property_until, complex_mode
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
