@@ -57,14 +57,14 @@ be used with both sparse matrices and Firedrake's :doc:`matrix-free
 operators <matrix-free>`, and can be applied either additively or
 multiplicatively within an MPI rank and additively between ranks.
 
-:class:`.PatchPC`
+:class:`PatchPC <firedrake.PatchPC>`
    Small-block overlapping Schwarz smoother with topological
    definition of patches. Does not support extruded meshes.
 :class:`.PatchSNES`
    Nonlinear overlapping Schwarz smoother with topological definition
    of patches. Does not support extruded meshes.
 :class:`.PlaneSmoother`
-   A Python construction class for :class:`.PatchPC` and
+   A Python construction class for :class:`PatchPC <firedrake.PatchPC>` and
    :class:`.PatchSNES` that approximately groups mesh
    entities into lines or planes (useful for advection-dominated
    problems).
@@ -132,7 +132,7 @@ with PETSc's ``"jacobi"`` preconditioner, since they can provide their
 diagonal cheaply. For more complicated things, one must assemble an
 operator instead.
 
-:class:`.AssembledPC`
+:class:`AssembledPC <firedrake.AssembledPC>`
    Assemble an operator as a sparse matrix and
    then apply an inner preconditioner. For example, this might be used
    to assemble a coarse grid in an (otherwise matrix-free) multigrid

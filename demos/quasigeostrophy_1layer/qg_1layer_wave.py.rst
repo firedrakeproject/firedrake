@@ -195,7 +195,7 @@ fill. ::
                                                         "sub_pc_type": "ilu"})
 
 To visualise the output of the simulation, we create a
-:class:`VTKFile <firedrake.output.VTKFile>` object.  To which we can store multiple
+:class:`~.output.VTKFile` object.  To which we can store multiple
 :class:`function <firedrake.Function>`\s.  So that we can distinguish between them we will
 give them descriptive names. ::
 

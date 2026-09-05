@@ -198,7 +198,7 @@ def from_jax(x: "jax.Array", V: Optional[WithGeometry] = None) -> Union[Function
     x
         JAX tensor to convert.
     V
-        Function space of the corresponding :class:`.Function` or None when `x` is to be mapped to a :class:`.Constant`.
+        Function space of the corresponding :class:`.Function` or None when `x` is to be mapped to a :class:`Constant <firedrake.Constant>`.
 
     Returns
     -------

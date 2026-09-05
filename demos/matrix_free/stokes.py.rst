@@ -87,7 +87,7 @@ the configured Krylov solver object.::
       "pc_fieldsplit_schur_fact_type": "diag",
 
 Next we configure the solvers for the blocks.  For the velocity block,
-we use an :class:`.AssembledPC` and approximate the inverse of the
+we use an :class:`AssembledPC <firedrake.AssembledPC>` and approximate the inverse of the
 vector laplacian using a single multigrid V-cycle.::
 
       "fieldsplit_0_ksp_type": "preonly",

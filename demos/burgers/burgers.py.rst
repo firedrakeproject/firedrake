@@ -93,12 +93,12 @@ We now create an object for output visualisation::
 
 Output only supports visualisation of linear fields (either P1, or
 P1DG).  In this example we project to a linear space by hand.  Another
-option is to let the :class:`VTKFile <firedrake.output.VTKFile>` object manage the
+option is to let the :class:`~.output.VTKFile` object manage the
 decimation.  It supports both interpolation to linears (the default) or
 projection (by passing ``project_output=True`` when creating the
-:class:`VTKFile <firedrake.output.VTKFile>`). Outputting data is carried out using
-the :meth:`write <firedrake.output.VTKFile.write>` method of
-:class:`VTKFile <firedrake.output.VTKFile>` objects::
+:class:`~.output.VTKFile`). Outputting data is carried out using
+the :meth:`~.output.VTKFile.write` method of
+:class:`~.output.VTKFile` objects::
 
   outfile.write(project(u, V_out, name="Velocity"))
 

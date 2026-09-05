@@ -82,7 +82,7 @@ Uniform extrusion adds another spatial dimension to the mesh. For example, a
 are computed on the assumption that the layers are evenly spaced (hence the
 word 'uniform').
 
-Let ``m`` be a standard :py:func:`~.UnitSquareMesh`. The following code
+Let ``m`` be a standard :py:func:`UnitSquareMesh <firedrake.UnitSquareMesh>`. The following code
 produces the extruded mesh, whose base mesh is ``m``, with 5 mesh layers and
 a layer thickness of 0.2:
 

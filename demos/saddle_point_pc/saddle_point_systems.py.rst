@@ -590,7 +590,7 @@ Let's see what the iteration count looks like now. ::
 Firedrake provides some facility to solve the :math:`H(\mathrm{div})`
 Riesz map in a scalable way. In particular either by employing a
 geometric multigrid method with overlapping Schwarz smoothers (using
-:class:`.PatchPC`), or using the algebraic approach of
+:class:`PatchPC <firedrake.PatchPC>`), or using the algebraic approach of
 :cite:`Hiptmair:2007` provided by `Hypre's
 <https://hypre.readthedocs.io/en/latest/>`__ "auxiliary space"
 preconditioners ``AMS`` and ``ADS``. See the separate manual page on

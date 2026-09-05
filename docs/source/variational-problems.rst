@@ -176,7 +176,7 @@ There are three main routes to obtaining a function space for a
 vector-valued variable such as velocity. Firstly, you can pass the
 :py:func:`function space <firedrake.FunctionSpace>` constructor a natively *vector-valued*
 family such as ``"Raviart-Thomas"``. Secondly, you may use the
-:py:func:`~.VectorFunctionSpace` constructor with a *scalar-valued*
+:py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` constructor with a *scalar-valued*
 family, which gives a vector-valued space where each component is
 identical to the appropriate scalar-valued
 :py:class:`FunctionSpace <firedrake.FunctionSpace>`.  Thirdly, you can create a
@@ -210,11 +210,11 @@ Advanced usage of ``VectorFunctionSpace``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 By default, the number of components of a
-:py:func:`~.VectorFunctionSpace` is the geometric dimension of the
+:py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` is the geometric dimension of the
 mesh (e.g. 3, if the mesh is 3D). However, sometimes we might want
 the number of components in the vector to differ from the geometric
 dimension of the mesh. We can do this by passing a value for the
-``dim`` argument to the :py:func:`~.VectorFunctionSpace` constructor.
+``dim`` argument to the :py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` constructor.
 For example, if we wanted a vector-valued function space on the surface
 of a unit sphere mesh with only 2 components, we might write:
 
@@ -641,7 +641,7 @@ setting boundary values, the latter also supports setting the value
 for all components.  In both cases, the syntax is the same.  When
 defining the :py:class:`DirichletBC <firedrake.DirichletBC>` we must index the function space
 used.  For example, to specify that the third component of a
-:py:func:`~.VectorFunctionSpace` should take the boundary value 0, we write:
+:py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` should take the boundary value 0, we write:
 
 .. code-block:: python3
 

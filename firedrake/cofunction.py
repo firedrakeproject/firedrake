@@ -131,7 +131,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         See also :attr:`subfunctions`.
 
         If the :class:`Cofunction` is defined on a
-        :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
+        :func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` or :func:`~.TensorFunctionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
         mixed = type(self.function_space().ufl_element()) is MixedElement

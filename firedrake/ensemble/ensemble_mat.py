@@ -6,7 +6,7 @@ from firedrake.ensemble.ensemble_functionspace import EnsembleFunctionSpaceBase
 
 class EnsembleMatCtxBase:
     """
-    Base class for python type Mats defined over an :class:`firedrake.Ensemble.Ensemble`.
+    Base class for python type Mats defined over an :class:`~.ensemble.Ensemble`.
 
     Parameters
     ----------
@@ -20,7 +20,7 @@ class EnsembleMatCtxBase:
     Notes
     -----
     The main use of this base class is to enable users to implement the matrix
-    action as acting on and resulting in an :class:`firedrake.Ensemble_function.EnsembleFunction`.
+    action as acting on and resulting in an :class:`~.ensemble_function.EnsembleFunction`.
     This is done by implementing the ``mult_impl`` method.
 
     See Also
@@ -107,7 +107,7 @@ class EnsembleMatCtxBase:
 class EnsembleBlockDiagonalMatCtx(EnsembleMatCtxBase):
     """
     A python Mat context for a block diagonal matrix defined over an :class:`.ensemble.Ensemble`.
-    Each block acts on a single subspace of an :class:`firedrake.Ensemble_functionspace.EnsembleFunctionSpace`.
+    Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
 
     Parameters
     ----------
@@ -221,8 +221,8 @@ def EnsembleBlockDiagonalMat(block_mats: Iterable,
                              row_space: EnsembleFunctionSpaceBase,
                              col_space: EnsembleFunctionSpaceBase):
     """
-    A Mat for a block diagonal matrix defined over an :class:`firedrake.Ensemble.Ensemble`.
-    Each block acts on a single subspace of an :class:`firedrake.Ensemble_functionspace.EnsembleFunctionSpace`.
+    A Mat for a block diagonal matrix defined over an :class:`~.ensemble.Ensemble`.
+    Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
     This is a convenience function to create a PETSc.Mat with a :class:`.EnsembleBlockDiagonalMatCtx` Python context.
 
     Parameters

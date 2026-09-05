@@ -13,7 +13,7 @@ operators, such as machine learning models, into PDE or PDE-constrained optimisa
 We refer to these operators as *external operators*, as their implementation is left to be specified by 
 the user, i.e "external" with respect to Firedrake.
 
-External operators are represented by the :class:`~.AbstractExternalOperator` base class, 
+External operators are represented by the :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>` base class, 
 which can be subclassed for defining specific operators. While the base class documentation 
 provides the syntax, this document introduces the external operator abstraction in more detail and 
 explains what you need to do if you want to define your own external operator. The external operator 
@@ -53,7 +53,7 @@ its *argument*, it can be nonlinear with respect to `u`, its *operand*. In Fired
 be a :class:`function <firedrake.Function>` object, and `v^{*}` a :class:`firedrake.Coargument` object.
 
 Arbitrary UFL expressions defined on arbitrary finite element spaces, i.e. other than `V`, can also 
-be passed as operands to the external operator using the symbolic :class:`~.Interpolate` operator. 
+be passed as operands to the external operator using the symbolic :class:`Interpolate <firedrake.Interpolate>` operator. 
 
 .. _differentiation:
 
@@ -149,7 +149,7 @@ In this DAG representation, external operators are considered as distinct nodes,
 implementation is, by definition, left to be specified by the user. Consequently, 
 in order to evaluate the expression of interest, we need a mechanism to map the assembly of the 
 external operator nodes in the DAG to the corresponding implementation specified by the user. This stage is 
-referred to as the *external operator assembly*. This is achieved by the :class:`~.AbstractExternalOperator` 
+referred to as the *external operator assembly*. This is achieved by the :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>` 
 base class, whose main role is to orchestrate the external operator assembly.
 
 Depending on the specific use case considered, one may need to specify one or more 
@@ -175,7 +175,7 @@ see :ref:`previous section <action_adjoint>`.
 Finally, the number of arguments of an external operator also determines the type of its output after 
 being assembled. For instance, given that an external operator with one argument is a 1-form, its assembly 
 would result in a :class:`function <firedrake.Function>` or a :class:`Cofunction <firedrake.Cofunction>`. Similarly, an external operator 
-with two arguments, i.e. a 2-form, would produce a :class:`~.MatrixBase` object. The following table 
+with two arguments, i.e. a 2-form, would produce a :class:`MatrixBase <firedrake.MatrixBase>` object. The following table 
 illustrates an external operator `N` with two operands, 
 `N \colon V \times V \times V^{*} \rightarrow \mathbb{R}`, along with the external operators 
 resulting from different symbolic operations on it, such as differentiation or action/adjoint. 
@@ -196,12 +196,12 @@ Build your own external operator
 --------------------------------
 
 External operators can be used to incorporate arbitrary operators within Firedrake. Some external 
-operators are already implemented, such as the :class:`~.MLOperator` for embedding machine learning 
+operators are already implemented, such as the :class:`MLOperator <firedrake.MLOperator>` for embedding machine learning 
 models within Firedrake, whose implementation is explained in more detail in :cite:`Bouziani2021` and :cite:`Bouziani2024`.
 However, you may want to build your own external operator for your specific problem. 
 In this section, we discuss how new external operators can be defined.
 
-To define a new external operator, one first needs to subclass the :class:`~.AbstractExternalOperator` 
+To define a new external operator, one first needs to subclass the :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>` 
 class. Then, the external operator subclass needs to be equipped with methods specifying how the 
 different types of external operator arising in the PDE system considered can be evaluated, such as the 
 Jacobian of the operator. Note that you only need to specify the evaluation methods required for your 
@@ -303,12 +303,12 @@ Note that building an external operator for the above operation is, in practice,
 can already be readily implemented using Firedrake's built-in functionalities. Also, because this 
 translation operation is fully defined in Firedrake, the evaluation methods of the external operator we will 
 build rely on Firedrake code. However, the external operator evaluation methods can contain any Python 
-code as long as they return compatible objects, e.g. :class:`function <firedrake.Function>` or :class:`~.MatrixBase` objects.
+code as long as they return compatible objects, e.g. :class:`function <firedrake.Function>` or :class:`MatrixBase <firedrake.MatrixBase>` objects.
 
 `N` takes in two operands `f, u \in V` and one argument `v^{*} \in V^{*}`. When assembled, 
 this external operator returns a :class:`function <firedrake.Function>` in `V` since the linear form `N` can also 
 be seen as an operator mapping to `V`, as :ref:`previously discussed <math_background>`. To construct `N`, 
-we need to subclass the :class:`~.AbstractExternalOperator` class and specify how `N` can be assembled. 
+we need to subclass the :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>` class and specify how `N` can be assembled. 
 Given that `N` has `(0,)` as derivative multi-index and that it only has one argument, 
 the translation operator subclass can be defined as:
 

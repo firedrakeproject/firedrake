@@ -103,7 +103,7 @@ class HierarchyBase(object):
         ----------
         mesh :
             The mesh to add, usually obtained by calling
-            :meth:`~firedrake.mesh.MeshGeometry.refine_marked_elements` on the
+            :meth:`~.mesh.MeshGeometry.refine_marked_elements` on the
             current finest mesh.
         coarse_to_fine_cells :
             Map from the cells of the current finest mesh to the cells of

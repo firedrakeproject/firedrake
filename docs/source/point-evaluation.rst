@@ -59,7 +59,7 @@ Vector and tensor valued function spaces
 
 When interpolating from vector or tensor valued function spaces, the P0DG
 function space on the vertex-only mesh must be a
-:py:func:`~.VectorFunctionSpace` or :py:func:`~.TensorFunctionSpace`
+:py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` or :py:func:`~.TensorFunctionSpace`
 respectively. For example:
 
 .. code-block:: python3

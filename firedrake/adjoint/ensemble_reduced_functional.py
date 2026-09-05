@@ -25,7 +25,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
         \\frac{dJ}{dm} = \\sum_{i=1}^{N} \\frac{dJ_i}{dm},
 
     The :class:`EnsembleReducedFunctional` allows simultaneous evaluation of :math:`J_i` and
-    :math:`\\dfrac{dJ_i}{dm}`. After that, the allreduce :class:`firedrake.Ensemble.Ensemble`
+    :math:`\\dfrac{dJ_i}{dm}`. After that, the allreduce :class:`~.ensemble.Ensemble`
     operation is employed to sum the functionals and their gradients over an ensemble
     communicator.
 
@@ -41,7 +41,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
     control : pyadjoint.Control or list of pyadjoint.Control
         A single or a list of Control instances, which you want to map to the functional.
     ensemble : Ensemble
-        An instance of the :class:`firedrake.Ensemble.Ensemble`. It is used to communicate the
+        An instance of the :class:`~.ensemble.Ensemble`. It is used to communicate the
         functionals and their derivatives between the ensemble members.
     scatter_control : bool
         Whether scattering a control (or a list of controls) over the ensemble communicator
@@ -78,7 +78,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
 
     See Also
     --------
-    :class:`firedrake.Ensemble.Ensemble`, :class:`pyadjoint.ReducedFunctional`.
+    :class:`~.ensemble.Ensemble`, :class:`pyadjoint.ReducedFunctional`.
 
     Notes
     -----

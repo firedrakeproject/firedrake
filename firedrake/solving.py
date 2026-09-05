@@ -50,7 +50,7 @@ def solve(*args, **kwargs):
     to apply and PDEs to solve on the boundaries.
     For the format of ``solver_parameters`` see below.
 
-    Optionally, an argument ``P`` of type :class:`~.MatrixBase` can be passed to
+    Optionally, an argument ``P`` of type :class:`MatrixBase <firedrake.MatrixBase>` can be passed to
     construct any preconditioner from; if none is supplied ``A`` is used to
     construct the preconditioner.
 
@@ -208,7 +208,7 @@ def _la_solve(A, x, b, **kwargs):
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
     :arg x: the :class:`.Function` to write the solution into.
     :arg b: the :class:`.Function` defining the right hand side values.
-    :kwarg P: an optional :class:`~.MatrixBase` to construct any
+    :kwarg P: an optional :class:`MatrixBase <firedrake.MatrixBase>` to construct any
          preconditioner from; if none is supplied ``A`` is
          used to construct the preconditioner.
     :kwarg solver_parameters: optional solver parameters.

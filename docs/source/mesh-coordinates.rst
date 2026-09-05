@@ -65,7 +65,7 @@ mesh object from a field `f`:
 coordinate values and coordinate function space are from `f`. The
 coordinate function space must be a rank-1
 :py:class:`FunctionSpace <firedrake.FunctionSpace>`, constructed either with
-:py:func:`~.VectorFunctionSpace`, or by providing a
+:py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>`, or by providing a
 :py:class:`~ufl.classes.VectorElement` to :py:func:`function space <firedrake.FunctionSpace>`.  For
 efficiency, the new mesh object shares data with `f`. That is,
 changing the values of `f` will change the coordinate values of the
@@ -91,7 +91,7 @@ a lower dimensional mesh in a higher dimension, for example to create a mesh of
 a two-dimensional manifold immersed in 3D.
 
 This is accomplished by setting the value dimension of the new
-:py:func:`~.VectorFunctionSpace` to that of the space in which it should be
+:py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` to that of the space in which it should be
 immersed. For example, a mesh of square bent into a sine wave using
 linear (flat) elements can be created with:
 
