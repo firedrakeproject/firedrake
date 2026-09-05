@@ -601,7 +601,7 @@ class Ensemble:
 
         For example:
 
-        .. code-block:: python3
+        .. code-block:: python
 
             with ensemble.sequential(index=0) as ctx:
                 print(ensemble.ensemble_rank, ctx.index)

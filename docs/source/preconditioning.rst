@@ -74,11 +74,15 @@ multiplicatively within an MPI rank and additively between ranks.
    mesh entities.  Crucially, the mesh must have an overlapping parallel domain
    decomposition that supports the patches. This is set via the
    `distribution_parameters` kwarg of the :func:`.Mesh` constructor.  For
-   instance, vertex-star patches require ::
+   instance, vertex-star patches require:
+
+.. code-block:: python
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 1)
 
-   while Vanka patches require ::
+   while Vanka patches require:
+
+.. code-block:: python
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 2)
 
@@ -268,7 +272,7 @@ returned by :meth:`.AuxiliaryOperatorSNES.form`.
 In this example, the inner solve uses a Newton method with a
 relative tolerance of 1e-4.
 
-.. code-block:: python3
+.. code-block:: python
 
     solver_parameters = {
         "snes_rtol": 1e-8,
@@ -285,7 +289,7 @@ The following parameters describe the same Richardson iteration
 as the parameters above, but explicitly specifying the auxiliary
 form as a nonlinear preconditioner using the ``npc_`` prefix.
 
-.. code-block:: python3
+.. code-block:: python
 
     solver_parameters = {
         "snes_rtol": 1e-8,

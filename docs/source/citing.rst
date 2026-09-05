@@ -8,7 +8,9 @@
 
 If you publish results using Firedrake, we would be grateful if you
 would cite the `Firedrake user manual
-<https://doi.org/10.25561/104839>`_::
+<https://doi.org/10.25561/104839>`_:
+
+.. code-block:: python
 
   @manual{FiredrakeUserManual,
     title        = {Firedrake User Manual},
@@ -23,7 +25,9 @@ would cite the `Firedrake user manual
 The simplest way to determine any additional relevant papers to cite is
 by asking Firedrake itself.  You can ask that a list of citations
 relevant to your computation be printed when exiting by calling
-:func:`~petsctools.citation.print_citations_at_exit` after importing Firedrake::
+:func:`~petsctools.citation.print_citations_at_exit` after importing Firedrake:
+
+.. code-block:: python
 
   import petsctools
 

@@ -49,7 +49,7 @@ For assembled bilinear forms, the PETSc object is a ``Mat``; for
 assembled linear forms, it is a ``Vec``.  The ways we access these are
 different.  For a bilinear form, the matrix is obtained with:
 
-.. code-block:: python3
+.. code-block:: python
 
    petsc_mat = assemble(bilinear_form).petscmat
 
@@ -57,14 +57,14 @@ For a linear form, we need to use a context manager.  There are two
 options available here, depending on whether we want read-only or
 read-write access to the PETSc object.  For read-only access, we use:
 
-.. code-block:: python3
+.. code-block:: python
 
    with assemble(linear_form).dat.vec_ro as v:
        petsc_vec_ro = v
 
 For write-only access, use ``.vec_wo``, and for read-write access, use:
 
-.. code-block:: python3
+.. code-block:: python
 
    with assemble(linear_form).dat.vec as v:
        petsc_vec = v
@@ -80,7 +80,7 @@ Given a PETSc matrix of type ``'seqaij'``, we may access
 its compressed sparse row format and convert to that used in
 SciPy in the following way:
 
-.. code-block:: python3
+.. code-block:: python
 
     import scipy.sparse as sp
 
@@ -90,7 +90,7 @@ SciPy in the following way:
 The sparsity pattern may then be straightforwardly plotted
 using matplotlib:
 
-.. code-block:: python3
+.. code-block:: python
 
     import matplotlib.pyplot as plt
 
@@ -104,7 +104,7 @@ To solve the linear system :math:`Bx = b` we need to define the
 operator :math:`B` such that PETSc can use it.  To do this, we build a
 Python class that provides a ``mult`` method:
 
-.. code-block:: python3
+.. code-block:: python
 
    class MatrixFreeB(object):
 
@@ -127,7 +127,7 @@ Python class that provides a ``mult`` method:
 Now we must build a PETSc ``Mat`` and indicate that it should use this
 newly defined class to compute the matrix action:
 
-.. code-block:: python3
+.. code-block:: python
 
    # Import petsc4py namespace
    from firedrake.petsc import PETSc
@@ -162,7 +162,7 @@ newly defined class to compute the matrix action:
 The next step is to build a linear solver object to solve the system.
 For this we need a PETSc ``KSP``:
 
-.. code-block:: python3
+.. code-block:: python
 
    ksp = PETSc.KSP().create()
 
@@ -173,7 +173,7 @@ For this we need a PETSc ``KSP``:
 
 Now we can solve a system using this ``ksp`` object:
 
-.. code-block:: python3
+.. code-block:: python
 
    solution = Function(V)
 
@@ -207,7 +207,7 @@ one of two ways.
    :math:`A`.  In this case, we merely have to call
    ``ksp.setOperators`` with two arguments:
 
-   .. code-block:: python3
+   .. code-block:: python
 
       ksp.setOperators(B, A)
 
@@ -251,7 +251,7 @@ operators we have provided to our solver, so for this class, we won't
 pass :math:`A`, :math:`u` and :math:`v` explicitly, but rather extract
 them from the operators in a ``setUp`` method:
 
-.. code-block:: python3
+.. code-block:: python
 
    class MatrixFreePC(object):
 
@@ -289,7 +289,7 @@ them from the operators in a ``setUp`` method:
 Now we extract the ``PC`` object from the ``KSP`` linear solver and
 indicate that it should use our matrix free preconditioner
 
-.. code-block:: python3
+.. code-block:: python
 
     ksp = PETSc.KSP().create()
     ksp.setOperators(B)
@@ -301,7 +301,7 @@ indicate that it should use our matrix free preconditioner
 
 before going on to solve the system as before:
 
-.. code-block:: python3
+.. code-block:: python
 
    solution = Function(V)
 
@@ -334,7 +334,7 @@ by others.
 The DMPlex associated with a given ``mesh`` may be accessed via
 its ``topology_dm`` attribute:
 
-.. code-block:: python3
+.. code-block:: python
 
     plex = mesh.topology_dm
 
@@ -373,7 +373,7 @@ the 2D triangular case, we require the following entities:
 
 Accordingly, set
 
-.. code-block:: python3
+.. code-block:: python
 
     dim = mesh.topological_dimension
     gdim = mesh.geometric_dimension
@@ -385,7 +385,7 @@ Accordingly, set
 We then use Firedrake's helper function for creating a PETSc
 section to establish the mapping:
 
-.. code-block:: python3
+.. code-block:: python
 
     coord_section = mesh.create_section(entity_dofs)
     plex = mesh.topology_dm
@@ -398,7 +398,7 @@ section to establish the mapping:
 We can then extract coordinates for node ``i`` belonging to
 entity ``d`` (according to the DMPlex numbering) by
 
-.. code-block:: python3
+.. code-block:: python
 
     dofs = coord_section.getDof(d)
     offset = coord_section.getOffset(d)//dim + i

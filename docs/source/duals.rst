@@ -50,7 +50,7 @@ Dual objects in UFL
 
 For an arbitrary :py:class:`~.ufl.FunctionSpace`, ``V``, the corresponding dual space :math:`V^*` can be obtained by calling the :py:meth:`~.ufl.FunctionSpace.dual` method:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
     mesh = UnitSquareMesh(10, 10)
@@ -60,7 +60,7 @@ For an arbitrary :py:class:`~.ufl.FunctionSpace`, ``V``, the corresponding dual 
 A :py:class:`~.ufl.Coefficient` defines a *known* function ``c`` in ``V``. A :py:class:`~.Function` is a subclass of :py:class:`~.ufl.Coefficient`.
 Consequently, 
 
-.. code-block:: python3
+.. code-block:: python
 
     c = Function(V)
     f_0 = c * dx
@@ -70,14 +70,14 @@ is a symbolic expression for the integral of ``c`` over the domain and represent
 
 Conversely, :py:class:`~.Argument` defines a placeholder symbol ``a`` for an *unknown* function in ``V``. :py:class:`~firedrake.ufl_expr.TestFunction` and :py:class:`~firedrake.ufl_expr.TrialFunction` are syntactic sugar for ``Argument(V, 0)`` and ``Argument(V, 1)`` respectively.
 
-.. code-block:: python3
+.. code-block:: python
 
     a = TrialFunction(V)
     f_1 = a * dx
 
 represents the integration of the unknown function ``a`` over the domain. It's therefore a linear 1-form, or a function in the dual space :math:`V^* = V \rightarrow K`. ``f_1`` is also a Python object of type :py:class:`~.ufl.Form`. When assembled, it is an object of type :py:class:`~.ufl.Cofunction`:
 
-.. code-block:: python3
+.. code-block:: python
 
     cf = assemble(f_1) # type Cofunction
 

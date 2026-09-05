@@ -56,7 +56,9 @@ convergence.  By this we mean that the number of iterations of the
 linear solver does not grow when the mesh is refined.  In this demo,
 we will study various ways to achieve this in Firedrake.
 
-As ever, we begin by importing the Firedrake module::
+As ever, we begin by importing the Firedrake module:
+
+.. code-block:: python
 
     from firedrake import *
 
@@ -71,7 +73,9 @@ of the mesh, the solver parameters we wish to apply, an optional
 parameter specifying a "preconditioning" operator to apply, and a
 final optional argument specifying whether the block system should be
 assembled as a single "monolithic" matrix or a :math:`2 \times 2`
-block of smaller matrices. ::
+block of smaller matrices.
+
+.. code-block:: python
 
     def build_problem(mesh_size, parameters, aP=None, block_matrix=False):
         mesh = UnitSquareMesh(2 ** mesh_size, 2 ** mesh_size)
@@ -81,14 +85,18 @@ block of smaller matrices. ::
         W = Sigma * V
 
 Having built the function spaces, we can now proceed to defining the
-problem.  We will need some trial and test functions for the spaces::
+problem.  We will need some trial and test functions for the spaces:
+
+.. code-block:: python
 
     #
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
 
 along with a random function to hold the forcing term, living in the
-discontinuous space. ::
+discontinuous space.
+
+.. code-block:: python
 
     #
         rg = RandomGenerator()
@@ -98,7 +106,9 @@ Note that the homogeneous Dirichlet conditions in the primal
 formulation turn into homogeneous Neumann conditions on the dual
 variable and we therefore drop the surface integral terms in the
 variational formulation (they are identically zero).  As a result, the
-specification of the variational problem is particularly simple::
+specification of the variational problem is particularly simple:
+
+.. code-block:: python
 
     #
         a = dot(sigma, tau)*dx + div(tau)*u*dx + div(sigma)*v*dx
@@ -111,7 +121,9 @@ problem to be solved.  We will use this functionality in a number of
 cases later.  The ``aP`` function will take one argument, the
 :class:`~.FunctionSpace` defining the space, and return a bilinear
 form suitable for assembling as an operator.  Obviously we only do so
-if ``aP`` is provided. ::
+if ``aP`` is provided.
+
+.. code-block:: python
 
     #
         if aP is not None:
@@ -120,7 +132,9 @@ if ``aP`` is provided. ::
 Now we have all the pieces to build our linear system.  We will return a
 :class:`~.LinearVariationalSolver` object from this function.  It is here that
 we must specify whether we want a monolithic matrix or not, by setting the
-preconditioner matrix type in the solver parameters.  ::
+preconditioner matrix type in the solver parameters.
+
+.. code-block:: python
 
     #
         parameters['pmat_type'] = 'nest' if block_matrix else 'aij'
@@ -129,7 +143,9 @@ preconditioner matrix type in the solver parameters.  ::
         vpb = LinearVariationalProblem(a, L, w, aP=aP)
         solver =  LinearVariationalSolver(vpb, solver_parameters=parameters)
 
-Finally, we return solver and solution function as a tuple. ::
+Finally, we return solver and solution function as a tuple.
+
+.. code-block:: python
 
     #
         return solver, w
@@ -151,25 +167,33 @@ carried out by providing appropriate parameters when constructing the
 keyword argument which should be a :class:`dict` of parameters.  These
 parameters are passed directly to PETSc_, and their form is described
 in more detail in :doc:`/solving-interface`.  For this problem, we use
-GMRES with a restart length of 100, ::
+GMRES with a restart length of 100,
+
+.. code-block:: python
 
     parameters = {
         "ksp_type": "gmres",
         "ksp_gmres_restart": 100,
 
-solve to a relative tolerance of 1e-8, ::
+solve to a relative tolerance of 1e-8,
+
+.. code-block:: python
 
     #
         "ksp_rtol": 1e-8,
 
-and precondition with ILU(0). ::
+and precondition with ILU(0).
+
+.. code-block:: python
 
     #
         "pc_type": "ilu",
         }
 
 We now loop over a range of mesh sizes, assembling the system and
-solving it ::
+solving it:
+
+.. code-block:: python
 
     print("Naive preconditioning")
     for n in range(8):
@@ -177,7 +201,9 @@ solving it ::
         solver.solve()
 
 Finally, at each mesh size, we print out the number of cells in the
-mesh and the number of iterations the solver took to converge ::
+mesh and the number of iterations the solver took to converge:
+
+.. code-block:: python
 
     #
         print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
@@ -248,13 +274,17 @@ and :math:`S^{-1}` using Krylov methods.  We therefore need to use
 *flexible* GMRES as our outer solver, since the use of inner Krylov
 methods in our preconditioner makes the application of the
 preconditioner nonlinear.  This time we use the default restart length
-of 30, but solve to a relative tolerance of 1e-8::
+of 30, but solve to a relative tolerance of 1e-8:
+
+.. code-block:: python
 
     parameters = {
         "ksp_type": "fgmres",
         "ksp_rtol": 1e-8,
 
-this time we want a ``fieldsplit`` preconditioner. ::
+this time we want a ``fieldsplit`` preconditioner.
+
+.. code-block:: python
 
     #
         "pc_type": "fieldsplit",
@@ -265,7 +295,9 @@ If we use this preconditioner and invert all the blocks exactly, then
 the preconditioned operator will have at most three distinct
 eigenvalues :cite:`Murphy:2000` and hence GMRES should converge in at
 most three iterations.  To try this, we start out by exactly
-inverting :math:`A` and :math:`S` to check the convergence. ::
+inverting :math:`A` and :math:`S` to check the convergence.
+
+.. code-block:: python
 
         "fieldsplit_0_ksp_type": "cg",
         "fieldsplit_0_pc_type": "ilu",
@@ -276,7 +308,9 @@ inverting :math:`A` and :math:`S` to check the convergence. ::
     }
 
 Let's go ahead and run this.  Note that for this problem, we're
-applying the action of blocks, so we can use a block matrix format. ::
+applying the action of blocks, so we can use a block matrix format.
+
+.. code-block:: python
 
     print("Exact full Schur complement")
     for n in range(8):
@@ -333,7 +367,9 @@ approximation to :math:`A^{-1}`.  Under these circumstances :math:`S_p
 = -C \mathrm{diag}(A)^{-1} B` is spectrally close to :math:`S`, but
 sparse, and can be used to precondition the solver inverting
 :math:`S`.  To do this, we need some additional parameters.  First we
-repeat those that remain unchanged ::
+repeat those that remain unchanged:
+
+.. code-block:: python
 
     parameters = {
         "ksp_type": "fgmres",
@@ -349,7 +385,9 @@ repeat those that remain unchanged ::
 
 Now we tell PETSc to construct :math:`S_p` using the diagonal of
 :math:`A`, and to precondition the resulting linear system using
-algebraic multigrid from the hypre suite. ::
+algebraic multigrid from the hypre suite.
+
+.. code-block:: python
 
         "pc_fieldsplit_schur_precondition": "selfp",
         "fieldsplit_1_pc_type": "hypre"
@@ -361,7 +399,9 @@ algebraic multigrid from the hypre suite. ::
    PETSc_ with support for hypre_ (for example, by specifying
    ``--download-hypre`` when configuring).
 
-Let's see what happens. ::
+Let's see what happens.
+
+.. code-block:: python
 
     print("Schur complement with S_p")
     for n in range(8):
@@ -400,7 +440,9 @@ and it pays to experiment.
 For example, we might wish to try a full factorisation, but
 approximate :math:`A^{-1}` by a single application of ILU(0) and
 :math:`S^{-1}` by a single multigrid V-cycle on :math:`S_p`.  To do
-this, we use the following set of parameters. ::
+this, we use the following set of parameters.
+
+.. code-block:: python
 
     parameters = {
         "ksp_type": "gmres",
@@ -416,7 +458,9 @@ this, we use the following set of parameters. ::
     }
 
 Note how we can switch back to GMRES here, our inner solves are linear
-and so we no longer need a flexible Krylov method. ::
+and so we no longer need a flexible Krylov method.
+
+.. code-block:: python
 
     print("Schur complement with S_p and inexact inner inverses")
     for n in range(8):
@@ -449,7 +493,9 @@ we then use to solve the problem, we can provide one ourselves.
 Recall that :math:`S` is spectrally a Laplacian only in a
 discontinuous space.  A natural choice is therefore to use an interior
 penalty DG formulation for the Laplacian term on the block of the scalar
-variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python preconditioner. Note that the ```form``` method in ```AuxiliaryOperatorPC``` takes the test functions as the first argument and the trial functions as the second argument, which is the reverse of the usual convention. ::
+variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python preconditioner. Note that the ```form``` method in ```AuxiliaryOperatorPC``` takes the test functions as the first argument and the trial functions as the second argument, which is the reverse of the usual convention.
+
+.. code-block:: python
 
     class DGLaplacian(AuxiliaryOperatorPC):
         def form(self, pc, v, u):
@@ -521,7 +567,9 @@ and as such, the appropriate Riesz map is just :math:`H(\text{div})`
 inner product in :math:`\Sigma` and the :math:`L^2` inner product in
 :math:`V`.  As was the case for the DG Laplacian, we do this by
 providing a function that constructs this operator to our
-``build_problem`` function. ::
+``build_problem`` function.
+
+.. code-block:: python
 
     def riesz(W):
         sigma, u = TrialFunctions(W)
@@ -531,7 +579,9 @@ providing a function that constructs this operator to our
 
 Now we set up the solver parameters.  We will still use a
 ``fieldsplit`` preconditioner, but this time it will be additive,
-rather than a Schur complement. ::
+rather than a Schur complement.
+
+.. code-block:: python
 
     parameters = {
         "ksp_type": "gmres",
@@ -541,7 +591,9 @@ rather than a Schur complement. ::
 
 Now we choose how to invert the two blocks.  The second block is easy,
 it is just a mass matrix in a discontinuous space and is therefore
-inverted exactly using a single application of zero-fill ILU. ::
+inverted exactly using a single application of zero-fill ILU.
+
+.. code-block:: python
 
     #
         "fieldsplit_1_ksp_type": "preonly",
@@ -549,7 +601,9 @@ inverted exactly using a single application of zero-fill ILU. ::
 
 The :math:`H(\text{div})` inner product is the tricky part. For a
 first attempt, we will invert it with a direct solver.  This is a reasonable
-option up to a few tens of thousands of degrees of freedom. ::
+option up to a few tens of thousands of degrees of freedom.
+
+.. code-block:: python
 
     #
         "fieldsplit_0_ksp_type": "preonly",
@@ -565,7 +619,9 @@ option up to a few tens of thousands of degrees of freedom. ::
    To use MUMPS_ you will need to have configured PETSc_ appropriately
    (using at the very least ``--download-mumps``).
 
-Let's see what the iteration count looks like now. ::
+Let's see what the iteration count looks like now.
+
+.. code-block:: python
 
     print("Riesz-map preconditioner")
     for n in range(8):

@@ -120,7 +120,7 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
     name = splitext(basename(rst_file))[0]
     py_file = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call(["pylit", rst_file, py_file])
+    subprocess.check_call(["pylit", "--code-block-marker", ".. code-block:: python", rst_file, py_file])
     return Path(py_file)
 
 
@@ -144,7 +144,7 @@ def test_serial_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
         pyadjoint.get_working_tape().clear_tape()
 
 
-@pytest.mark.parallel(2)
+@pytest.mark.parallel(6)
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("demo", PARALLEL_DEMOS, ids=["/".join(d.loc) for d in PARALLEL_DEMOS])
 def test_parallel_demo(demo, env, monkeypatch, tmpdir, skip_dependency):

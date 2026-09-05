@@ -142,39 +142,51 @@ and then use it to compute :math:`\vec{u}`, in order to compute
 :math:`\partial f/\partial t`.
    
 As usual, to implement this problem, we start by importing the
-Firedrake namespace. ::
+Firedrake namespace.
+
+.. code-block:: python
 
   from firedrake import *
 
 We build the mesh by constructing a 1D mesh, which will be extruded in
 the vertical. Here we will use periodic boundary conditions in the
-:math:`x_1` direction, ::
-  
+:math:`x_1` direction,
+
+.. code-block:: python
+
   ncells = 50
   L = 8*pi
   base_mesh = PeriodicIntervalMesh(ncells, L)
 
-The mesh is then extruded upwards in the "velocity" direction. ::
-  
+The mesh is then extruded upwards in the "velocity" direction.
+
+.. code-block:: python
+
   H = 10.0
   nlayers = 50
   mesh = ExtrudedMesh(base_mesh, layers=nlayers, layer_height=H/nlayers)
 
 We want to have :math:`v=0` in the middle of the domain, so that we
 can have negative and positive velocities. This requires to edit the
-coordinate field. ::
-		      
+coordinate field.
+
+.. code-block:: python
+
   x, v = SpatialCoordinate(mesh)
   mesh.coordinates.interpolate(as_vector([x, v-H/2]))
 
-Now we build a discontinuous finite element space for the density, ::
-  
+Now we build a discontinuous finite element space for the density,
+
+.. code-block:: python
+
   V = FunctionSpace(mesh, 'DQ', 1)
 
 and a continuous finite element space for the electostatic potential.
 The space is continuous in the horizontal and constant in the vertical,
-specified through the ``vfamily``. ::
-  
+specified through the ``vfamily``.
+
+.. code-block:: python
+
   Wbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
 
 We create a :class:`~.Function` to store the solution at the current
@@ -185,20 +197,24 @@ time, and then set its initial condition,
    f(x,v,0) = \frac{1}{\sqrt{2\pi}}v^2\exp(-v^2/2)(1+ A\cos(kx)),
    \quad A=0.05, \quad k=0.5.
 
-::
-  
+.. code-block:: python
+
   fn = Function(V, name="density")
   A = Constant(0.05)
   k = Constant(0.5)
   fn.interpolate(v**2*exp(-v**2/2)*(1 + A*cos(k*x))/(2*pi)**0.5)
 
 We will need the (conserved) average :math:`\bar{f}` for the Poisson
-equation. ::
+equation.
+
+.. code-block:: python
 
   One = Function(V).assign(1.0)
   fbar = assemble(fn*dx)/assemble(One*dx)
 
-We create a :class:`~.Function` to store the electrostatic potential. ::
+We create a :class:`~.Function` to store the electrostatic potential.
+
+.. code-block:: python
 
   phi = Function(Wbar, name="potential")
 
@@ -208,12 +224,16 @@ will be called every timestep.
 We create a :class:`~.Function` to store the intermediate densities at each
 Runge-Kutta stage. The right hand side of the Poisson equation will be
 evaluated using this :class:`~.Function` to obtain the potential at each
-stage. Defining this beforehand will enable us to reuse the solver. ::
+stage. Defining this beforehand will enable us to reuse the solver.
+
+.. code-block:: python
 
   fstar = Function(V)
 
-Now we express the Poisson equation in UFL. ::
-  
+Now we express the Poisson equation in UFL.
+
+.. code-block:: python
+
   psi = TestFunction(Wbar)
   dphi = TrialFunction(Wbar)
   phi_eqn = dphi.dx(0)*psi.dx(0)*dx - H*(fstar-fbar)*psi*dx
@@ -222,7 +242,9 @@ To deal mathematically with the null space of the potential, we expressed the
 problem in :math:`\mathring{\bar{W}}`. Programmatically we will express the
 problem in :math:`\bar{W}` and deal with the null space by defining a basis
 for the space of globally constant functions, which we will later pass to PETSc
-so the solver can remove it from the solution. ::
+so the solver can remove it from the solution.
+
+.. code-block:: python
 
   nullspace = VectorSpaceBasis(constant=True, comm=COMM_WORLD)
 
@@ -231,20 +253,26 @@ Poisson problem will be singular, which will prevent us from using a
 direct solver. To deal with this, we will precondition the Poisson problem
 with a version shifted by :math:`\int_{\Omega}\phi\psi\mathrm{d}x`. The
 shifted problem is well-posed on :math:`\bar{W}`, so the assembled matrix
-will be non-singular and so solvable with direct methods. ::
-  
+will be non-singular and so solvable with direct methods.
+
+.. code-block:: python
+
   shift_eqn = dphi.dx(0)*psi.dx(0)*dx + dphi*psi*dx
 
-We use these to define a :class:`~.LinearVariationalProblem`. ::
-  
+We use these to define a :class:`~.LinearVariationalProblem`.
+
+.. code-block:: python
+
   phi_problem = LinearVariationalProblem(lhs(phi_eqn), rhs(phi_eqn),
                                          phi, aP=shift_eqn)
 
 Now we build the :class:`~.LinearVariationalSolver`. The problem
 is preconditioned by the shifted operator which is solved using a direct
 solver, and we pass the nullspace of globally constant functions to
-the solver. ::
-					 
+the solver.
+
+.. code-block:: python
+
   params = {
      'ksp_type': 'gmres',
      'pc_type': 'lu',
@@ -255,18 +283,24 @@ the solver. ::
 				       solver_parameters=params)
 
 Now we move onto the solver to compute :math:`\partial f/\partial t`. We
-define a symbolic :math:`\Delta t` which we will update later. ::
-  
+define a symbolic :math:`\Delta t` which we will update later.
+
+.. code-block:: python
+
   dtc = Constant(0)
 
 At each stage, the solver will take in the intermediate solution ``fstar`` and
-return the stage increment :math:`\Delta t\partial f/\partial t` in ``df_out``. ::
+return the stage increment :math:`\Delta t\partial f/\partial t` in ``df_out``.
+
+.. code-block:: python
 
   df_out = Function(V)
 
 Now we express the equation in UFL, starting with the left hand side
-bilinear form ::
-  
+bilinear form:
+
+.. code-block:: python
+
   q = TestFunction(V)
   u = as_vector([v, -phi.dx(0)])
   n = FacetNormal(mesh)
@@ -275,27 +309,35 @@ bilinear form ::
   df_a = q*df*dx
 
 The problem is defined on an extruded mesh, so the interior facets are
-separated into horizontal and vertical ones. ::
+separated into horizontal and vertical ones.
+
+.. code-block:: python
 
   dS = dS_h + dS_v
 
 Now we build the right hand side linear form. A conditional operator
 is used to deal with the inflow and outflow parts of the exterior
-boundary. Due to the periodic boundary conditions in :math:`x_1`, the only exterior boundary is at the top and bottom of the domain, with measure `ds_tb`. ::
-  
+boundary. Due to the periodic boundary conditions in :math:`x_1`, the only exterior boundary is at the top and bottom of the domain, with measure `ds_tb`.
+
+.. code-block:: python
+
   df_L = dtc*(div(u*q)*fstar*dx
      - (q('+') - q('-'))*(un('+')*fstar('+') - un('-')*fstar('-'))*dS
      - conditional(dot(u, n) > 0, q*dot(u, n)*fstar, 0.)*ds_tb
       )
 
-We then use this to build a solver. ::
+We then use this to build a solver.
+
+.. code-block:: python
 
   df_problem = LinearVariationalProblem(df_a, df_L, df_out)
   df_solver = LinearVariationalSolver(df_problem)
 
 We are getting close to the time loop. We set up some timestepping
-parameters. ::
-  
+parameters.
+
+.. code-block:: python
+
   T = 50.0 # maximum timestep
   t = 0. # model time
   ndump = 100 # frequency of file dumps
@@ -304,18 +346,24 @@ parameters. ::
   dt = T/nsteps
   dtc.assign(dt)
 
-We set up some :class:`~.Function`\s to store Runge-Kutta stage variables. ::
-  
+We set up some :class:`~.Function`\s to store Runge-Kutta stage variables.
+
+.. code-block:: python
+
   f1 = Function(V)
   f2 = Function(V)
 
 We set up a ``VTKFile`` object to write output every ``ndump``
-timesteps. ::
+timesteps.
+
+.. code-block:: python
 
   outfile = VTKFile("vlasov.pvd")
 
 We want to output the initial condition, so need to solve for the electrostatic
-potential that corresponds to the initial density. ::
+potential that corresponds to the initial density.
+
+.. code-block:: python
 
   fstar.assign(fn)
   phi_solver.solve()
@@ -323,12 +371,16 @@ potential that corresponds to the initial density. ::
   phi.assign(.0)
 
 Now we start the timeloop using a lovely progress bar. Note that
-we have 5000 timesteps so this may take a few minutes to run::
+we have 5000 timesteps so this may take a few minutes to run:
+
+.. code-block:: python
 
   for step in ProgressBar("Timestep").iter(range(nsteps)):
 
 Each Runge-Kutta stage involves solving for :math:`\phi` before solving
-for :math:`\partial f/\partial t`. Here is the first stage. ::
+for :math:`\partial f/\partial t`. Here is the first stage.
+
+.. code-block:: python
 
   #
       fstar.assign(fn)
@@ -336,7 +388,9 @@ for :math:`\partial f/\partial t`. Here is the first stage. ::
       df_solver.solve()
       f1.assign(fn + df_out)
 
-The second stage. ::
+The second stage.
+
+.. code-block:: python
 
   #
       fstar.assign(f1)
@@ -344,7 +398,9 @@ The second stage. ::
       df_solver.solve()
       f2.assign(3*fn/4 + (f1 + df_out)/4)
 
-The third stage. ::
+The third stage.
+
+.. code-block:: python
 
   #
       fstar.assign(f2)
@@ -353,7 +409,9 @@ The third stage. ::
       fn.assign(fn/3 + 2*(f2 + df_out)/3)
       t += dt
 
-Finally we output to the VTK file if it is time to do that. ::
+Finally we output to the VTK file if it is time to do that.
+
+.. code-block:: python
 
   #
       dumpn += 1

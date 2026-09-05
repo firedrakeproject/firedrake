@@ -69,7 +69,7 @@ the supplied communicator, rather than ``MPI_COMM_WORLD``.  For
 example, to split the global communicator into two and perform two
 different simulations on the two halves we would write.
 
-.. code-block:: python3
+.. code-block:: python
 
    from firedrake import *
 
