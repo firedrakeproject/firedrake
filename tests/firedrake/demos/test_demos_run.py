@@ -120,7 +120,7 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
     name = splitext(basename(rst_file))[0]
     py_file = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call(["pylit", "--code-block-marker", ".. code-block::", rst_file, py_file])
+    subprocess.check_call(["pylit", "--code-block-marker", ".. code-block:: python", rst_file, py_file])
     return Path(py_file)
 
 
