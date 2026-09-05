@@ -1,5 +1,5 @@
 import loopy as lp
-from firedrake.utils import IntType, as_cstr, complex_mode
+from firedrake.utils import IntType, as_cstr
 
 from finat.element_factory import as_fiat_cell
 from finat.point_set import UnknownPointSet

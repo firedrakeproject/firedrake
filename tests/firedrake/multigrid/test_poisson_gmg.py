@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake import function
 import numpy
 import pytest
 import warnings

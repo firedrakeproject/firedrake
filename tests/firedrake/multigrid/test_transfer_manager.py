@@ -2,6 +2,7 @@ import pytest
 import numpy
 import warnings
 from firedrake import *
+from firedrake import dmhooks
 from firedrake.mg.ufl_utils import coarsen
 from firedrake.utils import complex_mode
 
