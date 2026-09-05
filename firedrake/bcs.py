@@ -25,7 +25,7 @@ from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 
-__all__ = ['DirichletBC', 'homogenize', 'EquationBC']
+__all__ = ['homogenize', 'EquationBC']
 
 
 class BCBase(object):
@@ -270,7 +270,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
         ``V``, or a UFL expression that can be interpolated into
-        ``V``, for example, a :class:`.Constant` , an iterable of
+        ``V``, for example, a :class:`Constant <firedrake.Constant>` , an iterable of
         literal constants (converted to a UFL expression), or a
         literal constant which can be pointwise evaluated at the nodes
         of ``V``.

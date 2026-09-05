@@ -5,7 +5,7 @@
 Point evaluation
 ================
 
-Firedrake can evaluate :py:class:`~.Function`\s at arbitrary physical
+Firedrake can evaluate :py:class:`function <firedrake.Function>`\s at arbitrary physical
 points.  This feature can be useful for the evaluation of the result
 of a simulation, or for creating expressions which contain point evaluations.
 Two APIs for this are offered: a Firedrake-specific one, and one from UFL.
@@ -16,14 +16,14 @@ Primary API: Interpolation onto a vertex-only mesh
 --------------------------------------------------
 
 Firedrake's principal API for evaluating functions at arbitrary points,
-interpolation onto a :func:`~.VertexOnlyMesh`, is designed for evaluating a
+interpolation onto a :func:`firedrake.VertexOnlyMesh`, is designed for evaluating a
 function at many points, or repeatedly, and for creating expressions which
 contain point evaluations. It is parallel-safe. Whilst :meth:`~.Function.at`
 produces a list of values, cross-mesh interpolation onto
-:func:`~.VertexOnlyMesh` gives Firedrake :py:class:`~.Function`\s.
+:func:`firedrake.VertexOnlyMesh` gives Firedrake :py:class:`function <firedrake.Function>`\s.
 
 This is discussed in detail in :cite:`nixonhill2023consistent` but, briefly,
-the idea is that the :func:`~.VertexOnlyMesh` is a mesh that represents a
+the idea is that the :func:`firedrake.VertexOnlyMesh` is a mesh that represents a
 point cloud domain. Each cell of the mesh is a vertex at a chosen location in
 space. As usual for a mesh, we represent values by creating functions in
 function spaces on it. The only function space that makes sense for a mesh
@@ -33,7 +33,7 @@ known as the Polynomial degree 0 Discontinuous Galerkin (P0DG) space.
 Our vertex-only meshes are immersed in some 'parent' mesh. We perform point
 evaluation of a function :math:`f` defined in a function space
 :math:`V` on the parent mesh by interpolating into the P0DG space on the
-:func:`~.VertexOnlyMesh`. For example:
+:func:`firedrake.VertexOnlyMesh`. For example:
 
 .. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
@@ -46,10 +46,10 @@ will print ``[0.02, 0.08, 0.18]`` when running in serial, the values of
 :math:`(0.3, 0.3)`. For details on viewing the outputs in parallel, see the
 :ref:`section on the input ordering property. <input_ordering>`
 
-Note that ``f_at_points`` is a :py:class:`~.Function` which takes
+Note that ``f_at_points`` is a :py:class:`function <firedrake.Function>` which takes
 on *all* the values of ``f`` evaluated at ``points``. The cell ordering of a
-:func:`~.VertexOnlyMesh` follows the ordering of the list of points it is given
-at construction. In general :func:`~.VertexOnlyMesh` accepts any numpy array of
+:func:`firedrake.VertexOnlyMesh` follows the ordering of the list of points it is given
+at construction. In general :func:`firedrake.VertexOnlyMesh` accepts any numpy array of
 shape ``(num_points, point_dim)`` (or equivalent list) as the set of points to
 create disconnected vertices at.
 
@@ -59,7 +59,7 @@ Vector and tensor valued function spaces
 
 When interpolating from vector or tensor valued function spaces, the P0DG
 function space on the vertex-only mesh must be a
-:py:func:`~.VectorFunctionSpace` or :py:func:`~.TensorFunctionSpace`
+:py:func:`VectorFunctionSpace <firedrake.VectorFunctionSpace>` or :py:func:`~.TensorFunctionSpace`
 respectively. For example:
 
 .. code-block:: python3
@@ -85,7 +85,7 @@ for successful interpolation.
 Parallel behaviour
 ~~~~~~~~~~~~~~~~~~
 
-In parallel the ``points`` given to :func:`~.VertexOnlyMesh` are assumed to be
+In parallel the ``points`` given to :func:`firedrake.VertexOnlyMesh` are assumed to be
 the same on each MPI process and are taken from rank 0. To let different ranks
 provide different points to the vertex-only mesh set the keyword argument
 ``redundant = False``
@@ -154,7 +154,7 @@ parent mesh and the points to evaluate at:
    point_evaluator = PointEvaluator(mesh, points)
 
 Internally, this creates a vertex-only mesh at the given points, immersed in the given mesh.
-To evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
+To evaluate a :py:class:`function <firedrake.Function>` defined on the parent mesh at the given points,
 we use :meth:`~.PointEvaluator.evaluate`:
 
 .. code-block:: python3
@@ -176,7 +176,7 @@ on different ranks, for example when using external point data.
 
 The parameters ``missing_points_behaviour`` and ``tolerance`` (discussed :ref:`here <missing_points>` 
 and :ref:`here <tolerance>` respectively) can be set when creating the :py:class:`~.PointEvaluator` 
-and will be passed to the :func:`~.VertexOnlyMesh` it creates internally.
+and will be passed to the :func:`firedrake.VertexOnlyMesh` it creates internally.
 
 If the :ref:`coordinates <changing_coordinate_fs>` or the :ref:`tolerance <tolerance>` of the parent mesh
 are changed after creating the :py:class:`~.PointEvaluator`, then the vertex-only mesh
@@ -204,7 +204,7 @@ These equivalent expressions for point evaluation
 where :math:`N` is the number of points, :math:`x_i` is the :math:`i`\th point,
 :math:`\Omega` is a 'parent' mesh, :math:`f` is a function on that mesh,
 :math:`\delta` is a Dirac delta distribution can therefore be written in
-Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
+Firedrake using :func:`firedrake.VertexOnlyMesh` and :func:`~.interpolate` as
 
 .. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
@@ -223,8 +223,8 @@ Using the input ordering property
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Any set of points with associated data in our domain can be expressed as a
-P0DG function on a :func:`~.VertexOnlyMesh`. The recommended way to import data
-from an external source is via the :py:attr:`~.VertexOnlyMeshTopology.input_ordering`
+P0DG function on a :func:`firedrake.VertexOnlyMesh`. The recommended way to import data
+from an external source is via the :py:attr:`firedrake.VertexOnlyMeshTopology.input_ordering`
 property: this produces another vertex-only mesh which has points in the order
 and MPI rank that they were specified when first creating the original
 vertex-only mesh. For example:
@@ -237,7 +237,7 @@ vertex-only mesh. For example:
 
 This is entirely parallel safe.
 
-Similarly, we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` to get data out
+Similarly, we can use :py:attr:`firedrake.VertexOnlyMeshTopology.input_ordering` to get data out
 of a vertex-only mesh in a parallel-safe way. If we return to our example from
 :ref:`the section where we introduced vertex only meshes <primary-api>`, we
 had
@@ -251,7 +251,7 @@ had
 In parallel, this will print the values of ``f`` at the given ``points`` list
 **after the points have been distributed over the parent mesh**. If we want the
 values of ``f`` at the ``points`` list **before the points have been
-distributed** we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` as follows:
+distributed** we can use :py:attr:`firedrake.VertexOnlyMeshTopology.input_ordering` as follows:
 
 .. literalinclude:: ../../tests/firedrake/vertexonly/test_vertex_only_manual.py
    :language: python3
@@ -262,8 +262,8 @@ distributed** we can use :py:attr:`~.VertexOnlyMeshTopology.input_ordering` as f
 .. note::
 
    When a vertex-only mesh is created with ``redundant = True`` (which is the
-   default when creating a :func:`~.VertexOnlyMesh`) the
-   :py:attr:`~.VertexOnlyMeshTopology.input_ordering` method will return a vertex-only
+   default when creating a :func:`firedrake.VertexOnlyMesh`) the
+   :py:attr:`firedrake.VertexOnlyMeshTopology.input_ordering` method will return a vertex-only
    mesh with all points on rank 0.
 
 If we ran the example in parallel, the above code would print
@@ -287,7 +287,7 @@ a good idea to set the values to ``nan`` before the interpolation:
 More ways to interact with external data
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Aside from :py:attr:`~.VertexOnlyMeshTopology.input_ordering`, we can use
+Aside from :py:attr:`firedrake.VertexOnlyMeshTopology.input_ordering`, we can use
 :func:`~.interpolate` to interact with external data to, for example,
 compare a PDE solution with the point data. The :math:`l_2` error norm
 (euclidean norm) of a function :math:`f` (which may be a PDE solution)
@@ -307,7 +307,7 @@ We can express this in Firedrake as
    # or equivalently
    error = errornorm(interpolate(f, P0DG), y_pts)
 
-We can then use the :py:attr:`~.VertexOnlyMeshTopology.input_ordering` vertex-only mesh
+We can then use the :py:attr:`firedrake.VertexOnlyMeshTopology.input_ordering` vertex-only mesh
 to safely check the values of ``error`` at the points
 :math:`\{x_i\}_{i=0}^{N-1}`.
 

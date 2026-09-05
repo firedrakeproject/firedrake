@@ -1,5 +1,5 @@
 r"""
-This module provides the implementations of :class:`~.FunctionSpace`
+This module provides the implementations of :class:`FunctionSpace <firedrake.FunctionSpace>`
 and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
@@ -79,7 +79,7 @@ def check_element(element, top=True):
 
 
 class WithGeometryBase:
-    r"""Attach geometric information to a :class:`~.FunctionSpace`.
+    r"""Attach geometric information to a :class:`FunctionSpace <firedrake.FunctionSpace>`.
 
     Function spaces on meshes with different geometry but the same
     topology can share data, except for their UFL cell.  This class
@@ -227,9 +227,9 @@ class WithGeometryBase:
         set_max_work_functions(self, val)
 
     def get_work_function(self, zero=True):
-        r"""Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
+        r"""Get a temporary work :class:`function <firedrake.Function>` on this :class:`FunctionSpace`.
 
-        :arg zero: Should the :class:`~.Function` be guaranteed zero?
+        :arg zero: Should the :class:`function <firedrake.Function>` be guaranteed zero?
             If ``zero`` is ``False`` the returned function may or may
             not be zeroed, and the user is responsible for appropriate
             zeroing.
@@ -241,7 +241,7 @@ class WithGeometryBase:
 
             This method is intended to be used for short-lived work
             functions, if you actually need a function for general
-            usage use the :class:`~.Function` constructor.
+            usage use the :class:`function <firedrake.Function>` constructor.
 
             When you are finished with the work function, you should
             restore it to the pool of available functions with
@@ -343,7 +343,7 @@ class WithGeometryBase:
         :returns: A numpy array of the unique function space nodes on
            the selected portion of the boundary.
 
-        See also :class:`~.DirichletBC` for details of the arguments.
+        See also :class:`DirichletBC <firedrake.DirichletBC>` for details of the arguments.
         """
         # Have to replicate the definition from FunctionSpace because
         # we want to access the DM on the WithGeometry object.
@@ -504,7 +504,7 @@ class FunctionSpace:
     topological mesh entities.  The degree of freedom mapping is
     determined from the provided element.
 
-    :arg mesh: The :func:`~.Mesh` to build the function space on.
+    :arg mesh: The :func:`firedrake.Mesh` to build the function space on.
     :arg element: The :class:`finat.ufl.finiteelementbase.FiniteElementBase` describing the
         degrees of freedom.
     :kwarg name: An optional name for this :class:`FunctionSpace`,
@@ -524,7 +524,7 @@ class FunctionSpace:
     .. warning::
 
        Users should not build a :class:`FunctionSpace` directly, instead
-       they should use the utility :func:`~.FunctionSpace` function,
+       they should use the utility :func:`function space <firedrake.FunctionSpace>` function,
        which provides extra error checking and argument sanitising.
 
     """
@@ -840,13 +840,13 @@ class FunctionSpace:
                              self.offset_quotient)
 
     def boundary_nodes(self, sub_domain):
-        r"""Return the boundary nodes for this :class:`~.FunctionSpace`.
+        r"""Return the boundary nodes for this :class:`FunctionSpace <firedrake.FunctionSpace>`.
 
         :arg sub_domain: the mesh marker selecting which subset of facets to consider.
         :returns: A numpy array of the unique function space nodes on
            the selected portion of the boundary.
 
-        See also :class:`~.DirichletBC` for details of the arguments.
+        See also :class:`DirichletBC <firedrake.DirichletBC>` for details of the arguments.
         """
         return self._shared_data.boundary_nodes(self, sub_domain)
 

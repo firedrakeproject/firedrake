@@ -5,7 +5,7 @@ Adaptive Multigrid Methods
 Contributed by Anurag Rao.
 
 The purpose of this demo is to show how to use Firedrake's multigrid solver on a hierarchy of adaptively refined Netgen meshes.
-A :func:`~.MeshHierarchy` is not restricted to uniform refinement: the same object records the parent child relations between adaptively refined meshes, and grows a level at a time as the solution is resolved.
+A :func:`MeshHierarchy <firedrake.MeshHierarchy>` is not restricted to uniform refinement: the same object records the parent child relations between adaptively refined meshes, and grows a level at a time as the solution is resolved.
 We will first have a look at how to construct such a hierarchy from Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain, and finally we will use the hierarchy to construct a scalable solver.
 We begin by importing the necessary libraries ::
 
@@ -27,13 +27,13 @@ We begin with the L-shaped domain, which we build as the union of two rectangles
    ngmsh = geo.GenerateMesh(maxh=0.5)
    mesh = Mesh(ngmsh)
 
-It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the :func:`~.MeshHierarchy`. To call the constructor to the hierarchy, we must pass the initial mesh. Our initial mesh looks like this:
+It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the :func:`MeshHierarchy <firedrake.MeshHierarchy>`. To call the constructor to the hierarchy, we must pass the initial mesh. Our initial mesh looks like this:
 
 .. figure:: initial_mesh.png
    :align: center
    :alt: Initial mesh.
 
-We initialize the :func:`~.MeshHierarchy` here. The default of zero uniform refinement levels gives a hierarchy holding just the initial mesh, which we will grow adaptively below; passing a positive number instead would start us off with that many uniformly refined levels, and the adaptive levels would stack on top of them just the same: ::
+We initialize the :func:`MeshHierarchy <firedrake.MeshHierarchy>` here. The default of zero uniform refinement levels gives a hierarchy holding just the initial mesh, which we will grow adaptively below; passing a positive number instead would start us off with that many uniformly refined levels, and the adaptive levels would stack on top of them just the same: ::
   
    mh = MeshHierarchy(mesh)
 
@@ -45,7 +45,7 @@ Now we can define a simple Poisson problem
 
    - \nabla^2 u = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
-Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`~.DirichletBC` object and apply it to the entire boundary: ::
+Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`DirichletBC <firedrake.DirichletBC>` object and apply it to the entire boundary: ::
 
    def solve_poisson(mesh, params):
       V = FunctionSpace(mesh, "CG", 1)
@@ -173,14 +173,14 @@ With these helper functions complete, we can solve the system iteratively. In th
       if level != refinements - 1:
          mh.adapt(eta, theta)
 
-To perform Dörfler marking, refine the current mesh, and add the mesh to the hierarchy, we use the :meth:`~.HierarchyBase.adapt` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy.
-To mark cells by some other criterion, refine the finest mesh yourself and add the result, which is all that :meth:`~.HierarchyBase.adapt` does once it has marked:
+To perform Dörfler marking, refine the current mesh, and add the mesh to the hierarchy, we use the :meth:`HierarchyBase.adapt <firedrake.HierarchyBase.adapt>` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy.
+To mark cells by some other criterion, refine the finest mesh yourself and add the result, which is all that :meth:`HierarchyBase.adapt <firedrake.HierarchyBase.adapt>` does once it has marked:
 
 .. code-block:: python
 
    mh.add_mesh(mh[-1].refine_marked_elements(markers))
 
-Here ``markers`` is a DG0 function whose value on each cell is the number of times to refine it. If the mesh was instead produced by some procedure Firedrake cannot trace the parent child relations through, pass those cell maps to :meth:`~.HierarchyBase.add_mesh` explicitly.
+Here ``markers`` is a DG0 function whose value on each cell is the number of times to refine it. If the mesh was instead produced by some procedure Firedrake cannot trace the parent child relations through, pass those cell maps to :meth:`HierarchyBase.add_mesh <firedrake.HierarchyBase.add_mesh>` explicitly.
 The meshes now refine according to the error estimator. The error estimators at levels 3,5, and 15 are shown below. Zooming into the vertex of the L-shape at level 15 shows the error indicator remains strongest there. Further refinements will focus on that area.
 
 +-------------------------------+-------------------------------+-------------------------------+

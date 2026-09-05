@@ -17,8 +17,6 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with DOLFIN. If not, see <http://www.gnu.org/licenses/>.
 
-__all__ = ["solve"]
-
 import ufl
 
 import firedrake.linear_solver as ls
@@ -52,7 +50,7 @@ def solve(*args, **kwargs):
     to apply and PDEs to solve on the boundaries.
     For the format of ``solver_parameters`` see below.
 
-    Optionally, an argument ``P`` of type :class:`~.MatrixBase` can be passed to
+    Optionally, an argument ``P`` of type :class:`MatrixBase <firedrake.MatrixBase>` can be passed to
     construct any preconditioner from; if none is supplied ``A`` is used to
     construct the preconditioner.
 
@@ -100,7 +98,7 @@ def solve(*args, **kwargs):
 
     The nonlinear solver uses a PETSc SNES object under the hood. To
     pass options to it, use the same options names as you would for
-    pure PETSc code.  See :class:`~.NonlinearVariationalSolver` for more
+    pure PETSc code.  See :class:`NonlinearVariationalSolver <firedrake.NonlinearVariationalSolver>` for more
     details.
 
     .. code-block:: python3
@@ -139,7 +137,7 @@ def solve(*args, **kwargs):
     -------
     firedrake.function.Function or None
         For a variational problem (cases 2 and 3 above), the (possibly
-        adapted) solution :class:`~.Function`. This may differ from the
+        adapted) solution :class:`function <firedrake.Function>`. This may differ from the
         ``u`` that was passed in if the solver performed mesh adaptation
         during the solve. `None` is returned when solving a pre-assembled
         linear system (case 1 above).
@@ -210,7 +208,7 @@ def _la_solve(A, x, b, **kwargs):
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
     :arg x: the :class:`.Function` to write the solution into.
     :arg b: the :class:`.Function` defining the right hand side values.
-    :kwarg P: an optional :class:`~.MatrixBase` to construct any
+    :kwarg P: an optional :class:`MatrixBase <firedrake.MatrixBase>` to construct any
          preconditioner from; if none is supplied ``A`` is
          used to construct the preconditioner.
     :kwarg solver_parameters: optional solver parameters.

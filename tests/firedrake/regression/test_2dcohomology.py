@@ -13,6 +13,7 @@ from os.path import abspath, dirname, join
 import numpy.linalg as linalg
 import numpy
 from firedrake import *
+from firedrake import utils
 import pytest
 
 cwd = abspath(dirname(__file__))

@@ -36,9 +36,6 @@ from functools import cached_property
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 
 
-__all__ = "assemble",
-
-
 _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 """Entry used in form cache to try and reuse assemblers where possible."""
 

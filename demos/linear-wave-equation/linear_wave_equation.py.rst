@@ -70,7 +70,7 @@ Output the initial conditions::
   outfile.write(phi)
 
 We next establish a boundary condition object. Since we have time-dependent
-boundary conditions, we first create a :class:`.Constant` to hold the
+boundary conditions, we first create a :class:`Constant <firedrake.Constant>` to hold the
 value and use that::
 
   bcval = Constant(0.0)
@@ -128,7 +128,7 @@ Step forward :math:`\phi` by the second half timestep::
       phi -= dt / 2 * p
 
 Advance time and output as appropriate, note how we pass the current
-timestep value into the :meth:`~.VTKFile.write` method, so that when
+timestep value into the :meth:`write <firedrake.VTKFile.write>` method, so that when
 visualising the results Paraview will use it::
 
       t += dt

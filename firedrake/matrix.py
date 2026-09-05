@@ -11,7 +11,7 @@ from firedrake.bcs import DirichletBC
 from firedrake.matrix_free import ImplicitMatrixContext
 from firedrake.slate import slate
 
-__all__ = ("MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix")
+__all__ = ("MatrixBase", "ImplicitMatrix", "AssembledMatrix")
 
 
 class DummyOP2Mat:

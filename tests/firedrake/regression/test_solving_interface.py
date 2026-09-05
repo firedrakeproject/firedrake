@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
+from firedrake.utils import complex_mode
 from numpy.linalg import norm as np_norm
 import gc
 
@@ -317,7 +318,7 @@ def test_solve_sub_mat_type(mesh, sub_mat_type):
         P.getNestSubMatrix(i, j).getType() == sub_mat_type
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
+@pytest.mark.skipif(complex_mode, reason="Differentiation of energy not defined in Complex.")
 @pytest.mark.parametrize("mixed", (False, True), ids=("primal", "mixed"))
 def test_solve_pre_apply_bcs(mesh, mixed):
     """Solve a 1D hyperelasticity problem with linear exact solution.

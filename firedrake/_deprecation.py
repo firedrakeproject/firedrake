@@ -45,6 +45,25 @@ class _fake_module:
         return __call__
 
 
+class _spiked_module:
+    """ Replacement for modules removed from Firedrake's wildcard export.
+
+    Parameters
+    ----------
+    module:
+        Name of the module no longer exported by 'from firedrake import *'
+    """
+
+    def __init__(self, module):
+        self.module = module
+
+    def __getattr__(self, key):
+        raise ImportError(
+            f"'{self.module}.{key}' is no longer exported by `from firedrake import *`."
+            f" Please import it directly (e.g. 'import firedrake.{self.module})."
+        )
+
+
 # Deprecate plotting in the global namespace
 plot = _fake_module(
     "firedrake.pyplot",
@@ -53,3 +72,6 @@ plot = _fake_module(
         "tripcolor", "quiver", "streamplot", "FunctionPlotter", "pgfplot"
     ]
 )
+
+# Deprecate utils in the global namespace
+utils = _spiked_module("utils")

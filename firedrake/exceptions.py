@@ -25,7 +25,7 @@ class DofTypeError(FiredrakeException):
 
 class VertexOnlyMeshMissingPointsError(FiredrakeException):
     """Exception raised when 1 or more points are not found by a
-    :func:`~.VertexOnlyMesh` in its parent mesh.
+    :func:`firedrake.VertexOnlyMesh` in its parent mesh.
 
     Attributes
     ----------

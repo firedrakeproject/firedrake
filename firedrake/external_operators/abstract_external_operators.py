@@ -14,14 +14,14 @@ from firedrake import functionspaceimpl
 class AssemblyRegisterMetaClass(UFLType):
     """Metaclass registering assembly methods specified by external operator subclasses.
 
-    This metaclass is used to register assembly methods specified by subclasses of :class:`~.AbstractExternalOperator`.
+    This metaclass is used to register assembly methods specified by subclasses of :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>`.
     For any new external operator subclass, :class:`AssemblyRegisterMetaClass` will collect all assembly methods specified by the
     subclass and construct a registry to map from assembly identifiers, specified via the `assemble_method` decorator
     to the corresponding assembly methods, and attach that registry to the subclass.
 
     Notes
     -----
-    This metaclass subclasses `UFLType` to avoid metaclass conflict for :class:`~.AbstractExternalOperator`.
+    This metaclass subclasses `UFLType` to avoid metaclass conflict for :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>`.
     """
     def __init__(cls, name, bases, attrs):
         cls._assembly_registry = {}
@@ -40,9 +40,9 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
     def __init__(self, *operands, function_space, derivatives=None, argument_slots=(), operator_data=None):
         """External operator base class providing the interface to build new external operators.
 
-        The :class:`~.AbstractExternalOperator` encapsulates the external operator abstraction and is compatible
+        The :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>` encapsulates the external operator abstraction and is compatible
         with UFL symbolic operations, the Firedrake assembly, and the AD capabilities provided by `~.firedrake.adjoint`.
-        The :class:`~.AbstractExternalOperator` class orchestrates the external operator assembly by linking the
+        The :class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>` class orchestrates the external operator assembly by linking the
         finite element assembly to the assembly implementations specified by the external operator subclasses.
 
         Parameters

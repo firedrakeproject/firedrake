@@ -87,7 +87,7 @@ the configured Krylov solver object.::
       "pc_fieldsplit_schur_fact_type": "diag",
 
 Next we configure the solvers for the blocks.  For the velocity block,
-we use an :class:`.AssembledPC` and approximate the inverse of the
+we use an :class:`AssembledPC <firedrake.AssembledPC>` and approximate the inverse of the
 vector laplacian using a single multigrid V-cycle.::
 
       "fieldsplit_0_ksp_type": "preonly",
@@ -132,7 +132,7 @@ file.::
 
   VTKFile("stokes.pvd").write(u, p)
 
-By default, the mass matrix is assembled in the :class:`~.MassInvPC`
+By default, the mass matrix is assembled in the :class:`MassInvPC <firedrake.MassInvPC>`
 preconditioner, however, this can be controlled using a ``mat_type``
 argument.  To do this, we must specify the ``mat_type`` inside the
 preconditioner.  We can use the previous set of parameters and just

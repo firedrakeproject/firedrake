@@ -45,44 +45,90 @@ if _is_logging:
     del atexit
 del petsc
 
-from ufl import *  # noqa: F401
-from finat.ufl import *  # noqa: F401
+import ufl as _ufl  # Required for ufl.__all__ to be picked up by the compiler
+from ufl import *
+__all__ = list(_ufl.__all__)
+del _ufl
 
-from pyop2 import op2                        # noqa: F401
-from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
+import finat.ufl as _finat_ufl
+from finat.ufl import *
+__all__ += list(_finat_ufl.__all__)
+del _finat_ufl
+
+from pyop2 import op2
+__all__ += ["op2"]
+
+from pyop2.mpi import COMM_WORLD, COMM_SELF
+__all__ += ["COMM_WORLD", "COMM_SELF"]
 
 # Register possible citations
 import firedrake.citations  # noqa: F401
+__all__ += ["citations"]
+
 petsctools.cite("FiredrakeUserManual")
 del petsctools
 
-from firedrake.petsc import PETSc  # noqa: F401
-from firedrake.assemble import assemble  # noqa: F401
-from firedrake.bcs import DirichletBC, homogenize, EquationBC  # noqa: F401
-from firedrake.checkpointing import (  # noqa: F401
+from firedrake.petsc import PETSc
+__all__ += ["PETSc"]
+
+from firedrake.assemble import assemble
+__all__ += ["assemble"]
+
+from firedrake.bcs import DirichletBC, homogenize, EquationBC
+__all__ += ["DirichletBC", "homogenize", "EquationBC"]
+
+from firedrake.checkpointing import (
     DumbCheckpoint, HDF5File, FILE_READ, FILE_CREATE,
     FILE_UPDATE, CheckpointFile
 )
-from firedrake.cofunction import Cofunction, RieszMap  # noqa: F401
-from firedrake.constant import Constant  # noqa: F401
-from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
-from firedrake.exceptions import (  # noqa: F401
+__all__ += [
+    "DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE",
+    "FILE_UPDATE", "CheckpointFile",
+]
+
+from firedrake.cofunction import Cofunction, RieszMap
+__all__ += ["Cofunction", "RieszMap"]
+
+from firedrake.constant import Constant
+__all__ += ["Constant"]
+
+from firedrake.deflation import DeflatedSNES, Deflation
+__all__ += ["DeflatedSNES", "Deflation"]
+
+from firedrake.exceptions import (
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
     SerialExecutionOnlyError, PointNotInDomainError,
 )
-from firedrake.function import (  # noqa: F401
+__all__ += [
+    "FiredrakeException", "ConvergenceError", "MismatchingDomainError",
+    "VertexOnlyMeshMissingPointsError", "DofNotDefinedError", "DofTypeError",
+    "SerialExecutionOnlyError", "PointNotInDomainError",
+]
+
+from firedrake.function import (
     Function, CoordinatelessFunction, PointEvaluator
 )
-from firedrake.functionspace import (  # noqa: F401
+__all__ += ["Function", "CoordinatelessFunction", "PointEvaluator"]
+
+from firedrake.functionspace import (
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
     TensorFunctionSpace, RestrictedFunctionSpace
 )
-from firedrake.interpolation import (  # noqa: F401
+__all__ += [
+    "MixedFunctionSpace", "FunctionSpace", "VectorFunctionSpace",
+    "TensorFunctionSpace", "RestrictedFunctionSpace",
+]
+
+from firedrake.interpolation import (
     interpolate, Interpolate, get_interpolator
 )
-from firedrake.linear_solver import LinearSolver  # noqa: F401
-from firedrake.preconditioners import (  # noqa: F401
+__all__ += ["interpolate", "Interpolate", "get_interpolator"]
+
+from firedrake.linear_solver import LinearSolver
+__all__ += ["LinearSolver"]
+
+from firedrake.preconditioners import (
     PCBase, SNESBase, PCSNESBase, ASMPatchPC, ASMStarPC, ASMVankaPC,
     ASMLinesmoothPC, ASMExtrudedStarPC, AssembledPC, AuxiliaryOperatorPC,
     MassInvPC, PCDPC, PatchPC, PlaneSmoother, PatchSNES, P1PC, P1SNES,
@@ -90,48 +136,98 @@ from firedrake.preconditioners import (  # noqa: F401
     PoissonFDMPC, TwoLevelPC, HiptmairPC, FacetSplitPC, BDDCPC,
     CovariancePC, OffloadPC, AuxiliaryOperatorSNES
 )
-from firedrake.mesh import (  # noqa: F401
+__all__ += [
+    "PCBase", "SNESBase", "PCSNESBase", "ASMPatchPC", "ASMStarPC", "ASMVankaPC",
+    "ASMLinesmoothPC", "ASMExtrudedStarPC", "AssembledPC", "AuxiliaryOperatorPC",
+    "MassInvPC", "PCDPC", "PatchPC", "PlaneSmoother", "PatchSNES", "P1PC", "P1SNES",
+    "LORPC", "GTMGPC", "PMGPC", "PMGSNES", "HypreAMS", "HypreADS", "FDMPC",
+    "PoissonFDMPC", "TwoLevelPC", "HiptmairPC", "FacetSplitPC", "BDDCPC",
+    "CovariancePC", "OffloadPC", "AuxiliaryOperatorSNES",
+]
+
+from firedrake.mesh import (
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
     SubDomainData, UNMARKED, DistributedMeshOverlapType,
     DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
     AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
     VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
 )
-from firedrake.mg import (  # noqa: F401
+__all__ += [
+    "Mesh", "ExtrudedMesh", "VertexOnlyMesh", "RelabeledMesh",
+    "SubDomainData", "UNMARKED", "DistributedMeshOverlapType",
+    "DEFAULT_MESH_NAME", "MeshGeometry", "MeshTopology",
+    "AbstractMeshTopology", "ExtrudedMeshTopology", "Submesh",
+    "VertexOnlyMeshTopology", "MeshSequenceGeometry", "MeshSequenceTopology",
+]
+
+from firedrake.mg import (
     HierarchyBase, MeshHierarchy, ExtrudedMeshHierarchy,
     NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy, SubmeshHierarchy,
     prolong, restrict, inject, TransferManager,
     OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
     AdaptiveTransferManager
 )
-from firedrake.norms import errornorm, norm  # noqa: F401
-from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
-from firedrake.output import VTKFile  # noqa: F401
-from firedrake.parameters import (  # noqa: F401
+__all__ += [
+    "HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy",
+    "NonNestedHierarchy", "SemiCoarsenedExtrudedHierarchy",
+    "SubmeshHierarchy", "prolong", "restrict", "inject",
+    "TransferManager", "OpenCascadeMeshHierarchy",
+    "AdaptiveMeshHierarchy", "AdaptiveTransferManager",
+]
+
+from firedrake.norms import errornorm, norm
+__all__ += ["errornorm", "norm"]
+
+from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
+__all__ += ["VectorSpaceBasis", "MixedVectorSpaceBasis"]
+
+from firedrake.output import VTKFile
+__all__ += ["VTKFile"]
+
+from firedrake.parameters import (
     Parameters, parameters, disable_performance_optimisations
 )
-from firedrake.parloops import (  # noqa: F401
+__all__ += ["Parameters", "parameters", "disable_performance_optimisations"]
+
+from firedrake.parloops import (
     par_loop, direct, READ, WRITE, RW, INC, MIN, MAX
 )
-from firedrake.projection import (  # noqa: F401
+__all__ += ["par_loop", "direct", "READ", "WRITE", "RW", "INC", "MIN", "MAX"]
+
+from firedrake.projection import (
     project, Projector
 )
-from firedrake.slate import (  # noqa: F401
+__all__ += ["project", "Projector"]
+
+from firedrake.slate import (
     AssembledVector, Block, Factorization, Tensor, Inverse,
     Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
     DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder,
     SCPC, TensorOp
 )
-from firedrake.slope_limiter import (  # noqa: F401
+__all__ += ["AssembledVector", "Block", "Factorization", "Tensor", "Inverse",
+            "Transpose", "Negative", "Add", "Mul", "Solve", "BlockAssembledVector",
+            "DiagonalTensor", "Reciprocal", "HybridizationPC", "SchurComplementBuilder",
+            "SCPC", "TensorOp"]
+
+from firedrake.slope_limiter import (
     Limiter, VertexBasedLimiter
 )
-from firedrake.solving import solve  # noqa: F401
-from firedrake.ufl_expr import (  # noqa: F401
+__all__ += ["Limiter", "VertexBasedLimiter"]
+
+from firedrake.solving import solve
+__all__ += ["solve"]
+
+from firedrake.ufl_expr import (
     Argument, Coargument, TestFunction, TrialFunction,
     TestFunctions, TrialFunctions, derivative, adjoint,
     action, CellSize, FacetNormal
 )
-from firedrake.utility_meshes import (  # noqa: F401
+__all__ += ["Argument", "Coargument", "TestFunction", "TrialFunction",
+            "TestFunctions", "TrialFunctions", "derivative", "adjoint",
+            "action", "CellSize", "FacetNormal"]
+
+from firedrake.utility_meshes import (
     IntervalMesh, UnitIntervalMesh, PeriodicIntervalMesh,
     PeriodicUnitIntervalMesh, UnitTriangleMesh, RectangleMesh,
     TensorRectangleMesh, SquareMesh, UnitSquareMesh, PeriodicRectangleMesh,
@@ -142,45 +238,85 @@ from firedrake.utility_meshes import (  # noqa: F401
     UnitOctahedralSphereMesh, CubedSphereMesh, UnitCubedSphereMesh,
     TorusMesh, AnnulusMesh, SolidTorusMesh, CylinderMesh
 )
-from firedrake.variational_solver import (  # noqa: F401
+__all__ += ["IntervalMesh", "UnitIntervalMesh", "PeriodicIntervalMesh",
+            "PeriodicUnitIntervalMesh", "UnitTriangleMesh", "RectangleMesh",
+            "TensorRectangleMesh", "SquareMesh", "UnitSquareMesh", "PeriodicRectangleMesh",
+            "PeriodicSquareMesh", "PeriodicUnitSquareMesh", "CircleManifoldMesh",
+            "UnitDiskMesh", "UnitBallMesh", "UnitTetrahedronMesh", "TensorBoxMesh",
+            "BoxMesh", "CubeMesh", "UnitCubeMesh", "PeriodicBoxMesh", "PeriodicUnitCubeMesh",
+            "IcosahedralSphereMesh", "UnitIcosahedralSphereMesh", "OctahedralSphereMesh",
+            "UnitOctahedralSphereMesh", "CubedSphereMesh", "UnitCubedSphereMesh",
+            "TorusMesh", "AnnulusMesh", "SolidTorusMesh", "CylinderMesh"]
+
+from firedrake.variational_solver import (
     LinearVariationalProblem, LinearVariationalSolver,
     NonlinearVariationalProblem, NonlinearVariationalSolver
 )
-from firedrake.eigensolver import (  # noqa: F401
+__all__ += ["LinearVariationalProblem", "LinearVariationalSolver",
+            "NonlinearVariationalProblem", "NonlinearVariationalSolver"]
+
+from firedrake.eigensolver import (
     LinearEigenproblem, LinearEigensolver
 )
-from firedrake.ensemble import (  # noqa: F401
+__all__ += ["LinearEigenproblem", "LinearEigensolver"]
+
+from firedrake.ensemble import (
     Ensemble, EnsembleFunction, EnsembleCofunction,
     EnsembleFunctionSpace, EnsembleDualSpace, EnsembleBJacobiPC,
     EnsembleBlockDiagonalMat
 )
-from firedrake.randomfunctiongen import *  # noqa: F401
-from firedrake.external_operators import (  # noqa: F401
+__all__ += [
+    "Ensemble", "EnsembleFunction", "EnsembleCofunction",
+    "EnsembleFunctionSpace", "EnsembleDualSpace",
+    "EnsembleBJacobiPC", "EnsembleBlockDiagonalMat",
+]
+
+# randomfunctiongen generates __all__ dynamically, so we cannot enumerate
+# things here
+import firedrake.randomfunctiongen as _randomfunctiongen
+from firedrake.randomfunctiongen import *
+__all__ += list(_randomfunctiongen.__all__)
+del _randomfunctiongen
+
+from firedrake.external_operators import (
     AbstractExternalOperator, assemble_method,
     PointexprOperator, point_expr, MLOperator
 )
-from firedrake.progress_bar import ProgressBar  # noqa: F401
+__all__ += ["AbstractExternalOperator", "assemble_method",
+            "PointexprOperator", "point_expr", "MLOperator"]
 
-from firedrake.logging import (  # noqa: F401
+from firedrake.progress_bar import ProgressBar
+__all__ += ["ProgressBar"]
+
+from firedrake.logging import (
     set_level, set_log_handlers, set_log_level, DEBUG, INFO,
     WARNING, ERROR, CRITICAL, log, debug, info, warning, error,
     critical, info_red, info_green, info_blue, RED, GREEN, BLUE
 )
-from firedrake.matrix import (  # noqa: F401
+__all__ += ["set_level", "set_log_handlers", "set_log_level", "DEBUG", "INFO",
+            "WARNING", "ERROR", "CRITICAL", "log", "debug", "info", "warning", "error",
+            "critical", "info_red", "info_green", "info_blue", "RED", "GREEN", "BLUE"]
+
+from firedrake.matrix import (
     MatrixBase, Matrix, ImplicitMatrix, AssembledMatrix
 )
+__all__ += ["MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix"]
 
 # Set default log level
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
 
 # Moved functionality
-from firedrake._deprecation import plot  # noqa: F401
+from firedrake._deprecation import plot as _plot
 import sys
-sys.modules["firedrake.plot"] = plot
-from firedrake.plot import *  # noqa: F401
-
+sys.modules["firedrake.plot"] = _plot
+from firedrake.plot import *
+__all__ += list(_plot.__all__)
 del sys
+del _plot
+
+from firedrake._deprecation import utils
+__all__ += ["utils"]
 
 
 def set_blas_num_threads():

@@ -1,8 +1,6 @@
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
 
-__all__ = ("PCDPC", )
-
 
 class PCDPC(PCBase):
 

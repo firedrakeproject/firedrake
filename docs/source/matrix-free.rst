@@ -58,7 +58,7 @@ As well as providing symbolic field splitting, the
 preconditioners.  Since it contains a complete UFL
 description of the bilinear form, preconditioners can query or
 manipulate it as desired.  As a particularly simple example, the class
-:class:`.AssembledPC` simply passes the UFL into :func:`.assemble`
+:class:`AssembledPC <firedrake.AssembledPC>` simply passes the UFL into :func:`.assemble`
 to produce an explicit matrix during set up.  It also sets up a new
 PETSc PC context acting on this assembled matrix so that the user can
 configure it at run-time via the options database.  This allows the
@@ -74,7 +74,7 @@ in :class:`.ImplicitMatrixContext`.  For example, it is not possible
 to extract physical parameters such as the Reynolds number from a UFL
 bilinear form.  In this case, the solver accepts a dictionary
 ``"appctx"`` as an optional keyword argument, the same argument may
-also be passed to :func:`~.assemble` in the case of preassembled
+also be passed to :func:`~firedrake.assemble.assemble` in the case of preassembled
 solves.  Firedrake passes that down into the
 :class:`.ImplicitMatrixContext` so that it is accessible to
 preconditioners.

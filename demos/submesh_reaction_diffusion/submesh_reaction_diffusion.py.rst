@@ -5,7 +5,7 @@ Coupled volume-surface reaction-diffusion on a torus with submesh
 
     Many problems couple PDEs posed in the volume with other PDEs on the
     surface. This demo illustrates how such problems may be solved with
-    the :func:`~.Submesh` functionality in Firedrake.
+    the :func:`Submesh <firedrake.Submesh>` functionality in Firedrake.
 
     The demo was contributed by `Patrick Farrell
     <mailto:patrick.farrell@maths.ox.ac.uk>`__.
@@ -115,12 +115,12 @@ Mesh hierarchy and submesh hierarchy
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The submesh for the surface can be built from
-either the :func:`~.Submesh` or :func:`~.SubmeshHierarchy` constructors,
+either the :func:`Submesh <firedrake.Submesh>` or :func:`SubmeshHierarchy <firedrake.SubmeshHierarchy>` constructors,
 but only the latter enables us to use a multigrid solver. 
 Geometric multigrid requires a hierarchy of uniformly refined meshes.  We
 build the volume and surface hierarchies together.
 
-Like :class:`~.DirichletBC`, :func:`~.Submesh`
+Like :class:`DirichletBC <firedrake.DirichletBC>`, :func:`Submesh <firedrake.Submesh>`
 takes in a subdomain id to indicate which part of the mesh should be
 extracted. In this case we want the entire exterior facet mesh, which we
 can specify directly. ::
@@ -135,7 +135,7 @@ Function spaces
 ~~~~~~~~~~~~~~~
 
 We use continuous piecewise-linear elements on both the volume and the surface,
-collected into a :func:`~.MixedFunctionSpace`. ::
+collected into a :func:`MixedFunctionSpace <firedrake.MixedFunctionSpace>`. ::
 
   V_v = FunctionSpace(mesh_v, "CG", 1)
   V_s = FunctionSpace(mesh_s, "CG", 1)

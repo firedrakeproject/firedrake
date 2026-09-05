@@ -10,9 +10,6 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 import firedrake.dmhooks as dmhooks
 
 
-__all__ = ['GTMGPC']
-
-
 class GTMGPC(PCBase):
     """Non-nested multigrid preconditioner
 

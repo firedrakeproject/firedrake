@@ -57,7 +57,7 @@ For an arbitrary :py:class:`~.ufl.FunctionSpace`, ``V``, the corresponding dual 
     V = FunctionSpace(mesh, "CG", 1)
     V_star = V.dual()
 
-A :py:class:`~.ufl.Coefficient` defines a *known* function ``c`` in ``V``. A :py:class:`~.Function` is a subclass of :py:class:`~.ufl.Coefficient`.
+A :py:class:`~.ufl.Coefficient` defines a *known* function ``c`` in ``V``. A :py:class:`function <firedrake.Function>` is a subclass of :py:class:`~.ufl.Coefficient`.
 Consequently, 
 
 .. code-block:: python3
@@ -68,7 +68,7 @@ Consequently,
 is a symbolic expression for the integral of ``c`` over the domain and represents a scalar value. ``f_0`` is a Python object of type :py:class:`~.ufl.Form`, once assembled, it is a scalar object.
 
 
-Conversely, :py:class:`~.Argument` defines a placeholder symbol ``a`` for an *unknown* function in ``V``. :py:class:`~firedrake.ufl_expr.TestFunction` and :py:class:`~firedrake.ufl_expr.TrialFunction` are syntactic sugar for ``Argument(V, 0)`` and ``Argument(V, 1)`` respectively.
+Conversely, :py:class:`firedrake.Argument` defines a placeholder symbol ``a`` for an *unknown* function in ``V``. :py:class:`~firedrake.ufl_expr.TestFunction` and :py:class:`~firedrake.ufl_expr.TrialFunction` are syntactic sugar for ``Argument(V, 0)`` and ``Argument(V, 1)`` respectively.
 
 .. code-block:: python3
 
@@ -100,7 +100,7 @@ Furthermore, we will want to express unknown objects in the dual space. For exam
 
 Using the reflexivity of the function space :math:`U`. This form therefore has two arguments, one in the primal space :math:`V` and one in the dual space :math:`U^*`. Therefore, we need to represent *arguments* in the dual space - we will call these *coarguments*. The details of interpolation will be discussed in :ref:`its own section <firedrake_interpolation>`.
 
-A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl.Argument` on a dual space object or calling :py:class:`~.Coargument` on a dual space.
+A :py:class:`firedrake.Coargument` can be constructed by either calling :py:class:`~.ufl.Argument` on a dual space object or calling :py:class:`firedrake.Coargument` on a dual space.
 
 .. code-block::
 
@@ -109,7 +109,7 @@ A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl
     w = Coargument(V.dual(), 3) # type Coargument
 
 
-There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofunction`, we have represented an assembled 1-form. However, commonly we also assemble 2-forms. :py:class:`~.Matrix` allows an analogous use, and assembled 2-forms can be naturally combined with 2-forms that have not yet been assembled:
+There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofunction`, we have represented an assembled 1-form. However, commonly we also assemble 2-forms. :py:class:`Matrix <firedrake.Matrix>` allows an analogous use, and assembled 2-forms can be naturally combined with 2-forms that have not yet been assembled:
 
 .. code-block::
 
@@ -158,5 +158,5 @@ In summary, this table describes the dual types corresponding to primal finite e
      - :py:class:`~.ufl.classes.DualSpace`
    * - :py:class:`~.ufl.Coefficient`
      - :py:class:`~.ufl.Cofunction`
-   * - :py:class:`~.Argument`
-     - :py:class:`~.Coargument`
+   * - :py:class:`firedrake.Argument`
+     - :py:class:`firedrake.Coargument`

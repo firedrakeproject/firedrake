@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 import ufl
 from firedrake import *
+from firedrake.utils import complex_mode
 from ufl.algorithms.comparison_checker import ComplexComparisonError
 
 
@@ -32,7 +33,7 @@ def test_conditional(ncell):
         A = assemble(derivative(Fc, u, du)).M.values
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Differentiation of conditional unlikely to work in complex.")
+@pytest.mark.skipif(complex_mode, reason="Differentiation of conditional unlikely to work in complex.")
 def test_conditional_nan():
     # Test case courtesy of Marco Morandini:
     # https://github.com/firedrakeproject/tsfc/issues/183

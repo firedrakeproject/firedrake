@@ -64,7 +64,7 @@ in a ``try/except`` block. ::
       else:
           raise e
 
-Now we'll show an example using the :class:`~.PCDPC` preconditioner
+Now we'll show an example using the :class:`PCDPC <firedrake.PCDPC>` preconditioner
 that implements the pressure convection-diffusion approximation to the
 pressure Schur complement.  We'll need more solver parameters this
 time, so again we'll set those up in a dictionary. ::

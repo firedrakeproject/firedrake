@@ -1192,7 +1192,7 @@ def entity_orientations(mesh,
                         np.ndarray cell_closure):
     """Compute entity orientations.
 
-    :arg mesh: The :class:`~.MeshTopology` object encapsulating the mesh topology
+    :arg mesh: The :class:`firedrake.MeshTopology` object encapsulating the mesh topology
     :arg cell_closure: The two-dimensional array, each row of which contains
         the closure of the associated cell
     :returns: A 2D array of the same shape as cell_closure, each row of which

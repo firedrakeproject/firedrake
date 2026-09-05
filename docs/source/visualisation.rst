@@ -16,7 +16,7 @@ Creating output files
 ~~~~~~~~~~~~~~~~~~~~~
 
 Output for visualisation purposes is managed with a
-:class:`~.vtk_output.VTKFile` object. To create one, first import the
+:class:`~.output.VTKFile` object. To create one, first import the
 class from `firedrake.output`, then we just need to pass the name of the
 output file on disk. The file Firedrake creates is in PVD and
 therefore the requested file name must end in ``.pvd``.
@@ -27,8 +27,8 @@ therefore the requested file name must end in ``.pvd``.
    # The following raises an error
    badfile = VTKFile("output.vtu")
 
-To save functions to the :class:`~.vtk_output.VTKFile` we use the
-:meth:`~.vtk_output.VTKFile.write` method.
+To save functions to the :class:`~.output.VTKFile` we use the
+:meth:`~.output.VTKFile.write` method.
 
 .. code-block:: python3
 
@@ -53,8 +53,8 @@ Saving time-dependent data
 
 Often, we have a time-dependent simulation and would like to save the
 same function at multiple timesteps.  This is straightforward, we must
-create the output :class:`~.vtk_output.VTKFile` outside the time loop
-and call :meth:`~.vtk_output.VTKFile.write` inside.
+create the output :class:`~.output.VTKFile` outside the time loop
+and call :meth:`~.output.VTKFile.write` inside.
 
 .. code-block:: python3
 
@@ -69,9 +69,9 @@ and call :meth:`~.vtk_output.VTKFile.write` inside.
 
 The PVD data format supports specifying the timestep value for
 time-dependent data.  We do not have to provide it to
-:meth:`~.vtk_output.VTKFile.write`, by default an integer counter is
+:meth:`~.output.VTKFile.write`, by default an integer counter is
 used that is incremented by 1 each time
-:meth:`~.vtk_output.VTKFile.write` is called.  It is possible to
+:meth:`~.output.VTKFile.write` is called.  It is possible to
 override this by passing the keyword argument ``time``.
 
 .. code-block:: python3
@@ -99,7 +99,7 @@ the data to this format first. One option is to do so by hand before
 outputting. Either by :doc:`interpolating <interpolation>` or else
 :func:`projecting <firedrake.projection.project>` the :doc:`mesh
 coordinates <mesh-coordinates>` and then the field. Since this is such
-a common operation, the :class:`~.vtk_output.VTKFile` object is set up
+a common operation, the :class:`~.output.VTKFile` object is set up
 to manage these operations automatically, we just need to choose
 whether we want data to be interpolated or projected. The default is to
 use interpolation.  For example, assume we wish to output a
@@ -127,7 +127,7 @@ If instead we want projection, we use
    use an older version of Paraview, you must manually interpolate mesh
    coordinates and field coordinates to a piecewise linear function
    space, represented with either a Lagrange (H1) or discontinuous
-   Lagrange (L2) basis. The :class:`~.vtk_output.VTKFile` is also setup
+   Lagrange (L2) basis. The :class:`~.output.VTKFile` is also setup
    to manage this issue. For instance, we can force the output to be
    discontinuous piecewise linears via
 
@@ -197,7 +197,7 @@ pressure in a fluids models.  This is possible either by having a
 separate output file for each field, or by saving multiple fields to
 the same output file.  The latter may be more convenient for
 subsequent analysis.  To do this, we just need to pass multiple
-:class:`~.Function`\s to :meth:`~.vtk_output.VTKFile.write`.
+:class:`function <firedrake.Function>`\s to :meth:`~.output.VTKFile.write`.
 
 .. code-block:: python3
 
@@ -332,11 +332,11 @@ Visualising a vertex-only mesh
 Plotting vertex-only mesh data with matplotlib
 ++++++++++++++++++++++++++++++++++++++++++++++
 
-Firedrake supports the visualisation of point data, represented as a :func:`~.VertexOnlyMesh`, in much the same way as its other plotting routines.
+Firedrake supports the visualisation of point data, represented as a :func:`firedrake.VertexOnlyMesh`, in much the same way as its other plotting routines.
 In particular, :func:`scatter <firedrake.pyplot.scatter>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
 Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjuction with :func:`triplot <firedrake.pyplot.triplot>`
 which makes apparent the embedding of the vertex-only mesh inside its parent mesh. As the below code demonstrates, :func:`scatter <firedrake.pyplot.scatter>` gives the user the freedom to pass 
-either a :func:`~.VertexOnlyMesh` object or a scalar :class:`~.Function` defined on it, in which case, the values of the function will be used to colour the points. 
+either a :func:`firedrake.VertexOnlyMesh` object or a scalar :class:`function <firedrake.Function>` defined on it, in which case, the values of the function will be used to colour the points. 
 
 .. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
    :language: python3
@@ -376,8 +376,8 @@ Last but not least, vector fields defined on a vertex-only mesh can be visualise
 Writing vertex-only mesh data to VTK
 ++++++++++++++++++++++++++++++++++++
 
-Vertex-only mesh data can be written to VTK output enabling point data visualisations in third-party software such as ParaView. A :class:`~.vtk_output.VTKFile` accepts :class:`~.Function`\s
-defined on a :func:`~.VertexOnlyMesh` in the same way as functions defined on ordinary meshes. The output includes the point coordinates, the values of any supplied function(s), 
+Vertex-only mesh data can be written to VTK output enabling point data visualisations in third-party software such as ParaView. A :class:`~.output.VTKFile` accepts :class:`function <firedrake.Function>`\s
+defined on a :func:`firedrake.VertexOnlyMesh` in the same way as functions defined on ordinary meshes. The output includes the point coordinates, the values of any supplied function(s), 
 and a persistent particle ID field. In ParaView, for instance, this ID field can be used to colour particles by identity.
 
 .. literalinclude:: ../../tests/firedrake/output/test_pvd_output.py

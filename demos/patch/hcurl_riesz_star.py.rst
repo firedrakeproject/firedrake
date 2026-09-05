@@ -7,10 +7,10 @@ and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 Multigrid in H(div) and H(curl) also requires relaxation based on topological patches.
 Here, we demonstrate how to do this in the latter case.
 
-We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+We start by importing firedrake and setting up a :func:`MeshHierarchy <firedrake.MeshHierarchy>` and the
 exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the vertex star patches. This is set
-via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
+via the ``distribution_parameters`` kwarg of the :func:`Mesh <firedrake.Mesh>` constructor. ::
 
   from firedrake import *
 
@@ -41,7 +41,7 @@ impose homogeneous Dirichlet boundary conditions::
 
       return solver.snes.getLinearSolveIterations()
 
-Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos,
+Having done both :class:`ASMStarPC <firedrake.ASMStarPC>` and :class:`PatchPC <firedrake.PatchPC>` in other demos,
 here we simply opt for the former. Arnold, Falk, and Winther show that vertex
 patches yield a robust method. ::
 
@@ -74,7 +74,7 @@ patches yield a robust method. ::
 
 Hiptmair proposed a finer space decomposition for Nedelec elements using edge
 patches on the original Nedelec space and vertex patches on the gradient of a Lagrange space. The python type
-preconditioner :class:`~.HiptmairPC` automatically sets up an additive two-level method
+preconditioner :class:`HiptmairPC <firedrake.HiptmairPC>` automatically sets up an additive two-level method
 using the auxiliary Lagrange space in a multigrid hierarchy. Therefore, the overall multigrid relaxation composes the edge patches with the auxiliary space relaxation. For the latter, the residual on each level is restricted from the dual of H(curl) into the dual of H1 via the adjoint of the gradient, where a vertex patch relaxation is applied to obtain a correction that is prolonged from H1 into H(curl) via the gradient. ::
 
 
