@@ -1582,7 +1582,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if not any(bc.function_space(parent=True) == fs for fs in spaces):
+            if not any(bc.parent_function_space == fs for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
             if spaces[0] != spaces[1]:
                 # Not on a diagonal block, we cannot set diagonal entries
@@ -2185,7 +2185,7 @@ class ParloopBuilder:
         test_space = _primal_space(self.test_function_space)
         bcrow = tuple(
             bc for bc in self._bcs
-            if bc.function_space(parent=True) == test_space
+            if bc.parent_function_space == test_space
             and (len(test_space) == 1 or block_index(bc) == row)
         )
 
@@ -2193,7 +2193,7 @@ class ParloopBuilder:
         bccol = tuple(
             bc for bc in self._bcs
             if isinstance(bc, DirichletBC)
-            and bc.function_space(parent=True) == trial_space
+            and bc.parent_function_space == trial_space
             and (len(trial_space) == 1 or block_index(bc) == col)
         )
         return bcrow, bccol
