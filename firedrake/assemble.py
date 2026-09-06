@@ -1411,20 +1411,7 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
 
 
 def _primal_space(V):
-    """Return the primal space of a form argument's function space.
-
-    Parameters
-    ----------
-    V : firedrake.functionspaceimpl.WithGeometry
-        The function space of a form argument, primal or dual.
-
-    Returns
-    -------
-    firedrake.functionspaceimpl.WithGeometry
-        The primal space.  An `~ufl.Interpolate` takes its test function from
-        the dual space, which compares unequal to the space a boundary
-        condition names.
-    """
+    """Return the primal space of a form argument's function space."""
     return V.dual() if ufl.duals.is_dual(V) else V
 
 
