@@ -16,7 +16,7 @@ from ufl.core.interpolate import Interpolate as UFLInterpolate
 from pyop2 import op2
 from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 
-from firedrake.utils import IntType, ScalarType
+from firedrake.utils import IntType
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
@@ -762,66 +762,18 @@ class SameMeshInterpolator(Interpolator):
         ):
             dual.pointwiseMult(dual, weight)
 
-    def _get_tensor(self, mat_type: Literal["aij", "baij"]) -> op2.Mat | Function | Cofunction:
-        """Return a suitable tensor to interpolate into.
-
-        Parameters
-        ----------
-        mat_type
-            The PETSc matrix type to use when assembling a rank 2 interpolation.
-            Only ``"aij"`` and ``"baij"`` are currently allowed.
-
-        Returns
-        -------
-        op2.Mat | Function | Cofunction
-            The tensor to interpolate into.
-        """
-        if self.rank == 0:
-            R = FunctionSpace(self.target_mesh.unique(), "Real", 0)
-            f = Function(R, dtype=ScalarType)
-        elif self.rank == 1:
-            f = Function(self.ufl_interpolate.function_space())
-            if self.access in {op2.MIN, op2.MAX}:
-                finfo = numpy.finfo(f.dat.dtype)
-                if self.access == op2.MIN:
-                    val = Constant(finfo.max)
-                else:
-                    val = Constant(finfo.min)
-                f.assign(val)
-        elif self.rank == 2:
-            sparsity = self._get_monolithic_sparsity(mat_type)
-            f = op2.Mat(sparsity)
-        else:
-            raise ValueError(f"Cannot interpolate an expression with {self.rank} arguments")
+    def _get_tensor(self) -> Function:
+        """Return a rank-1 `Function` to interpolate into."""
+        assert self.rank == 1
+        f = Function(self.ufl_interpolate.function_space())
+        if self.access in {op2.MIN, op2.MAX}:
+            finfo = numpy.finfo(f.dat.dtype)
+            if self.access == op2.MIN:
+                val = Constant(finfo.max)
+            else:
+                val = Constant(finfo.min)
+            f.assign(val)
         return f
-
-    def _get_monolithic_sparsity(self, mat_type: Literal["aij", "baij"]) -> op2.Sparsity:
-        """Returns op2.Sparsity for the interpolation matrix. Only mat_type 'aij' and 'baij'
-        are currently supported.
-
-        Parameters
-        ----------
-        mat_type
-            The PETSc matrix type to use when assembling a rank 2 interpolation.
-            Only ``"aij"`` and ``"baij"`` are currently allowed.
-
-        Returns
-        -------
-        op2.Sparsity
-            The sparsity pattern for the interpolation matrix.
-        """
-        Vrow = self.interpolate_args[0].function_space()
-        Vcol = self.interpolate_args[1].function_space()
-        if len(Vrow) > 1 or len(Vcol) > 1:
-            raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
-        Vrow_map = get_interp_node_map(self.source_mesh.unique(), self.target_mesh.unique(), Vrow)
-        Vcol_map = get_interp_node_map(self.source_mesh.unique(), self.target_mesh.unique(), Vcol)
-        sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                                [(Vrow_map, Vcol_map, None)],  # non-mixed
-                                name=f"{Vrow.name}_{Vcol.name}_sparsity",
-                                nest=False,
-                                block_sparse=(mat_type == "baij"))
-        return sparsity
 
     def _get_form_assembler(self, bcs=None, mat_type=None, sub_mat_type=None):
         """Return the form assembler matching `self.rank`."""
@@ -829,18 +781,20 @@ class SameMeshInterpolator(Interpolator):
         # needed here and can recurse forever on some composed expressions.
         from firedrake.assemble import (
             OneFormAssembler, TwoFormAssembler, ZeroFormAssembler,
+            get_form_assembler_class,
         )
 
-        if self.rank == 0:
+        assembler_cls = get_form_assembler_class(self._assembler_form)
+        if assembler_cls is ZeroFormAssembler:
             return ZeroFormAssembler(self._assembler_form)
-        elif self.rank == 1:
+        elif assembler_cls is OneFormAssembler:
             return OneFormAssembler(
                 self._assembler_form,
                 bcs=bcs,
                 needs_zeroing=self.access is op2.INC,
                 access=self.access,
             )
-        elif self.rank == 2:
+        else:
             return TwoFormAssembler(
                 self._assembler_form,
                 bcs=bcs,
@@ -848,10 +802,6 @@ class SameMeshInterpolator(Interpolator):
                 sub_mat_type=sub_mat_type,
                 needs_zeroing=True,
                 access=self.access,
-            )
-        else:
-            raise ValueError(
-                f"Cannot interpolate an expression with {self.rank} arguments"
             )
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
@@ -926,7 +876,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         mat_type = mat_type or "matfree"
 
         if self.rank == 1:
-            f = tensor or self._get_tensor(mat_type)
+            f = tensor or self._get_tensor()
             self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
