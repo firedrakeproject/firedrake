@@ -1,4 +1,5 @@
 from functools import partial
+from mpi4py import MPI
 from ufl import H1, replace
 from finat.ufl import FiniteElement, NodalEnrichedElement, TensorElement
 
@@ -198,7 +199,7 @@ class RobustTransferManager(TransferManager):
         if state is None:
             state = new_state
         form._cache[key] = new_state
-        return state != new_state
+        return form.ufl_domain().comm.allreduce(state != new_state, op=MPI.LOR)
 
     def update(self, form, Vc, Vf):
         for c in self.get_transfer_callables(form, Vc, Vf):
