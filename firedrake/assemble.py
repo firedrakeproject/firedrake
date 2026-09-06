@@ -5,6 +5,7 @@ import functools
 import itertools
 from itertools import product
 import numbers
+from typing import Callable
 
 import cachetools
 import finat
@@ -162,6 +163,21 @@ def _integrand_is_compilable(integral):
     )
 
 
+def get_form_assembler_class(
+    form: ufl.form.Form | slate.TensorBase, diagonal: bool = False
+) -> Callable:
+    """Return `ZeroFormAssembler`, `OneFormAssembler`, or `TwoFormAssembler` for the rank of ``form``."""
+    nargs = len(form.arguments())
+    if nargs == 0:
+        return ZeroFormAssembler
+    elif nargs == 1 or diagonal:
+        return OneFormAssembler
+    elif nargs == 2:
+        return TwoFormAssembler
+    else:
+        raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
+
+
 def get_assembler(form, *args, **kwargs):
     """Create an assembler.
 
@@ -188,9 +204,10 @@ def get_assembler(form, *args, **kwargs):
 
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and can_compile:
         diagonal = kwargs.pop('diagonal', False)
-        if len(form.arguments()) == 0:
+        assembler_cls = get_form_assembler_class(form, diagonal=diagonal)
+        if assembler_cls is ZeroFormAssembler:
             return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
-        elif len(form.arguments()) == 1 or diagonal:
+        elif assembler_cls is OneFormAssembler:
             return OneFormAssembler(form, *args,
                                     bcs=kwargs.get("bcs", None),
                                     form_compiler_parameters=fc_params,
@@ -198,10 +215,8 @@ def get_assembler(form, *args, **kwargs):
                                     zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
                                     diagonal=diagonal,
                                     weight=kwargs.get("weight", 1.0))
-        elif len(form.arguments()) == 2:
-            return TwoFormAssembler(form, *args, **kwargs)
         else:
-            raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
+            return TwoFormAssembler(form, *args, **kwargs)
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
         return ExprAssembler(form)
