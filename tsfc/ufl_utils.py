@@ -106,18 +106,7 @@ class InterpolateMapper(DAGTraverser):
 
 
 def lower_form_interpolations(form: ufl.Form) -> ufl.Form:
-    """Represent interpolation nodes in a form in reference space.
-
-    Parameters
-    ----------
-    form : ufl.Form
-        Form containing interpolation nodes.
-
-    Returns
-    -------
-    ufl.Form
-        Form with target-element mappings made explicit.
-    """
+    """Represent a form's interpolation nodes in the target element's reference frame."""
     return map_integrands(InterpolateMapper(), form)
 
 
