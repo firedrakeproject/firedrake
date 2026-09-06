@@ -16,7 +16,7 @@ from firedrake import function
 from firedrake.adjoint_utils import annotate_project
 
 
-__all__ = ['project', 'Projector']
+#__all__ = ['project', 'Projector']
 
 
 def sanitise_input(v, V):

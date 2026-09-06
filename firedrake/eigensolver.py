@@ -11,8 +11,8 @@ try:
     from slepc4py import SLEPc
 except ImportError:
     SLEPc = None
-__all__ = ["LinearEigenproblem",
-           "LinearEigensolver"]
+#__all__ = ["LinearEigenproblem",
+#           "LinearEigensolver"]
 
 
 class LinearEigenproblem:

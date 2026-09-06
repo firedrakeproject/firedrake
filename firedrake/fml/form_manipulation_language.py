@@ -7,8 +7,8 @@ from firedrake import Constant, Function
 from typing import Any, Callable, Mapping, Optional, Sequence, Tuple, Union
 
 
-__all__ = ["Label", "Term", "LabelledForm", "identity", "drop", "all_terms",
-           "keep", "subject", "name_label"]
+# __all__ = ["Label", "Term", "LabelledForm", "identity", "drop", "all_terms",
+#            "keep", "subject", "name_label"]
 
 # ---------------------------------------------------------------------------- #
 # Core routines for filtering terms

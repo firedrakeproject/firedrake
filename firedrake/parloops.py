@@ -20,7 +20,7 @@ from cachetools import LRUCache
 kernel_cache = LRUCache(maxsize=128)
 
 
-__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
+#__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
 
 
 class _DirectLoop(object):

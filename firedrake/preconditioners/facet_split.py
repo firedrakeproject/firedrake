@@ -10,7 +10,7 @@ import numpy
 
 from pyop2.mpi import temp_internal_comm
 
-__all__ = ['FacetSplitPC']
+#__all__ = ['FacetSplitPC']
 
 
 class FacetSplitPC(PCBase):

@@ -9,7 +9,7 @@ from . import utils
 from . import kernels
 
 
-__all__ = ["prolong", "restrict", "inject"]
+#__all__ = ["prolong", "restrict", "inject"]
 
 
 def check_arguments(coarse, fine, needs_dual=False):

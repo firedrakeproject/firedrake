@@ -3,7 +3,7 @@ from firedrake.cofunction import Cofunction
 from firedrake.petsc import PETSc
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
 
-__all__ = ["LinearSolver"]
+#__all__ = ["LinearSolver"]
 
 
 class LinearSolver(LinearVariationalSolver):

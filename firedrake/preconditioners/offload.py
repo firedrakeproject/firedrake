@@ -4,7 +4,7 @@ from firedrake.utils import device_matrix_type, get_device_type
 
 import firedrake.dmhooks as dmhooks
 
-__all__ = ("OffloadPC",)
+#__all__ = ("OffloadPC",)
 
 
 _device_vector_impls = {

@@ -14,9 +14,9 @@ _checkpoint_init_data = False
 disk_checkpointing_callback["firedrake"] = "Please call enable_disk_checkpointing() "\
     "before checkpointing on the disk."
 
-__all__ = ["enable_disk_checkpointing", "disk_checkpointing",
-           "pause_disk_checkpointing", "continue_disk_checkpointing",
-           "stop_disk_checkpointing", "checkpointable_mesh"]
+# __all__ = ["enable_disk_checkpointing", "disk_checkpointing",
+#            "pause_disk_checkpointing", "continue_disk_checkpointing",
+#            "stop_disk_checkpointing", "checkpointable_mesh"]
 
 
 def current_checkpoint_file(init=None):

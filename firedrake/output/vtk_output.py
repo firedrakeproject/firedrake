@@ -13,7 +13,7 @@ from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from .paraview_reordering import *
 
-__all__ = ("VTKFile",)
+#__all__ = ("VTKFile",)
 
 
 VTK_VERTEX = 1

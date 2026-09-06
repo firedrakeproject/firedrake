@@ -5,7 +5,7 @@ from firedrake import function
 from firedrake.logging import warning
 from firedrake.petsc import PETSc
 
-__all__ = ['errornorm', 'norm']
+#__all__ = ['errornorm', 'norm']
 
 
 @PETSc.Log.EventDecorator()

@@ -18,7 +18,7 @@ from ufl import as_ufl, replace, Form
 from functools import cached_property
 from collections.abc import Callable
 
-__all__ = ["LinearVariationalProblem"]
+#__all__ = ["LinearVariationalProblem"]
 
 
 def check_pde_args(F, J, Jp, E=None):

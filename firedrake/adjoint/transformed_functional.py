@@ -14,11 +14,11 @@ from pyadjoint.enlisting import Enlist
 from pyadjoint.reduced_functional import AbstractReducedFunctional
 import ufl
 
-__all__ = \
-    [
-        "L2RieszMap",
-        "L2TransformedFunctional"
-    ]
+# __all__ = \
+#     [
+#         "L2RieszMap",
+#         "L2TransformedFunctional"
+#     ]
 
 
 @contextmanager

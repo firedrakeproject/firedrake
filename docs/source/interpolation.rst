@@ -78,7 +78,7 @@ including:
   :py:class:`~ufl.SpatialCoordinate`, and in reference space as
   :py:class:`ufl.geometry.CellCoordinate`.
 * Firedrake :py:class:`function <firedrake.Function>`\s, derivatives of
-  :py:class:`function <firedrake.Function>`\s, and :py:class:`constant <firedrake.Constant>`\s.
+  :py:class:`function <firedrake.Function>`\s, and :py:class:`Constant <firedrake.Constant>`\s.
 * Literal numbers, basic arithmetic operations, and also mathematical
   functions such as ``sin``, ``cos``, ``sqrt``, ``abs``, etc.
 * Conditional expressions using UFL :py:mod:`~ufl.conditional`.

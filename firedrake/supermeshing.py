@@ -25,7 +25,7 @@ from collections import defaultdict
 from loopy import generate_code_v2
 
 
-__all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
+#__all__ = ["assemble_mixed_mass_matrix", "intersection_finder"]
 
 
 # TODO replace with KAIJ (we require petsc4py wrappers)

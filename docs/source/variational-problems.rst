@@ -524,13 +524,13 @@ but may vary in time.  For example, a time-varying diffusivity, or a
 time-dependent forcing function.  Although you can create a new form
 for each new value of this constant, this will not be efficient, since
 Firedrake must generate new code each time the value changes.  A
-better option is to use a :py:class:`constant <firedrake.Constant>` coefficient.  This
+better option is to use a :py:class:`Constant <firedrake.Constant>` coefficient.  This
 object behaves exactly like a :py:class:`function <firedrake.Function>`, except that it
 has a single value over the whole mesh.  One may assign a new value to
-the :py:class:`constant <firedrake.Constant>` using the :py:meth:`~.Constant.assign`
+the :py:class:`Constant <firedrake.Constant>` using the :py:meth:`Constant.assign <firedrake.Constant.assign>`
 method.  As an example, let us consider a form which contains a time
 varying constant which we wish to assemble in a time loop.  We can use
-a :py:class:`constant <firedrake.Constant>` to do this:
+a :py:class:`Constant <firedrake.Constant>` to do this:
 
 .. code-block:: python3
 
@@ -550,7 +550,7 @@ a :py:class:`constant <firedrake.Constant>` to do this:
 .. warning::
 
    Although UFL supports computing the derivative of a form with
-   respect to a :py:class:`constant <firedrake.Constant>`, the resulting form will have
+   respect to a :py:class:`Constant <firedrake.Constant>`, the resulting form will have
    an unknown in the reals, which is currently unsupported by
    Firedrake.
 
@@ -582,7 +582,7 @@ described in their respective constructor documentation.  For
 externally generated meshes, Firedrake just uses whichever ids the
 mesh generator provided.  The ``value`` may be either a scalar, or
 more generally a UFL expression, for example a :class:`function <firedrake.Function>` or
-:py:class:`constant <firedrake.Constant>`, of the appropriate shape.  You may also supply
+:py:class:`Constant <firedrake.Constant>`, of the appropriate shape.  You may also supply
 an iterable of literal constants:
 
 .. code-block:: python3
@@ -687,7 +687,7 @@ object.  Note that if you use a literal value to initialise the
 boundary condition object within the timestepping loop, this will
 necessitate a recompilation of code every time the boundary condition
 changes.  For this reason we either recommend using a
-:py:class:`constant <firedrake.Constant>` if the boundary condition is spatially uniform,
+:py:class:`Constant <firedrake.Constant>` if the boundary condition is spatially uniform,
 or a UFL expression if it has both space and
 time-dependence.  For example, a purely time-varying boundary
 condition might be implemented as:

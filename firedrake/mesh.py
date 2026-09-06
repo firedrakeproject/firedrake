@@ -60,12 +60,12 @@ if typing.TYPE_CHECKING:
     from firedrake import CoordinatelessFunction, Function
 
 
-__all__ = [
-    'RelabeledMesh', 'SubDomainData', 'UNMARKED',
-    'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'VertexOnlyMeshTopology',
-    'MeshSequenceGeometry', 'MeshSequenceTopology',
-    'Submesh'
-]
+# __all__ = [
+#     'RelabeledMesh', 'SubDomainData', 'UNMARKED',
+#     'DistributedMeshOverlapType', 'DEFAULT_MESH_NAME', 'VertexOnlyMeshTopology',
+#     'MeshSequenceGeometry', 'MeshSequenceTopology',
+#     'Submesh'
+# ]
 
 
 _cells = {

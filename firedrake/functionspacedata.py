@@ -34,7 +34,7 @@ from firedrake import extrusion_utils as eutils
 from firedrake.petsc import PETSc
 
 
-__all__ = ("get_shared_data", )
+#__all__ = ("get_shared_data", )
 
 
 @PETSc.Log.EventDecorator("FunctionSpaceData: CreateElement")

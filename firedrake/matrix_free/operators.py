@@ -17,7 +17,7 @@ from firedrake.function import Function
 from ufl.form import ZeroBaseForm
 
 
-__all__ = ("ImplicitMatrixContext", )
+#__all__ = ("ImplicitMatrixContext", )
 
 
 @PETSc.Log.EventDecorator()
