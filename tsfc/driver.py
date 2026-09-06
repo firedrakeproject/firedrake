@@ -7,7 +7,7 @@ import numpy
 import ufl
 from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
-from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter, build_coefficient_split
 from ufl.classes import Form, GeometricQuantity
 from ufl.domain import MeshSequence, extract_unique_domain, extract_domains
 
@@ -166,19 +166,9 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
     expression = ufl.Interpolate(operand, dual_arg)
 
     coefficients = expression.coefficients()
-    coefficient_split = {}
-    for coefficient in coefficients:
-        element = coefficient.ufl_element()
-        if type(element) is finat.ufl.MixedElement:
-            domain = extract_unique_domain(
-                coefficient, expand_mesh_sequence=False
-            )
-            coefficient_split[coefficient] = [
-                ufl.Coefficient(ufl.FunctionSpace(mesh, subelement))
-                for mesh, subelement in zip(
-                    domain.iterable_like(element), element.sub_elements
-                )
-            ]
+    coefficient_split = build_coefficient_split(
+        c for c in coefficients if type(c.ufl_element()) is finat.ufl.MixedElement
+    )
 
     form_data = TSFCInterpolationFormData(
         original_form=original_expression,
