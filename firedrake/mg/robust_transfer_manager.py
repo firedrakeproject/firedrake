@@ -92,7 +92,7 @@ class RobustTransferManager(TransferManager):
     def get_patch_solver(self, form, V):
         """Cache the patch solver."""
         cache = form._cache
-        key = (type(self).__name__, "patch_solver")
+        key = (type(self), "patch_solver", V)
         try:
             return cache[key]
         except KeyError:
@@ -108,11 +108,10 @@ class RobustTransferManager(TransferManager):
         R = self.restrict_callable(form, rf, rc)
         return P, R
 
-    def get_transfer_callables(self, Vc, Vf):
+    def get_transfer_callables(self, form, Vc, Vf):
         """Cache the prolongation and restriction TransferCallables."""
-        form = self.form(Vf)
         cache = form._cache
-        key = (type(self).__name__, "transfer_callables")
+        key = (type(self), "transfer_callables", Vc, Vf)
         try:
             return cache[key]
         except KeyError:
@@ -188,7 +187,8 @@ class RobustTransferManager(TransferManager):
 
     def needs_update(self, form):
         from tsfc.ufl_utils import extract_firedrake_constants
-        state = form._cache.get("dat_versions", None)
+        key = (type(self), "dat_versions")
+        state = form._cache.get(key, None)
         new_state = []
         for c in form.coefficients():
             new_state.append(c.dat.dat_version)
@@ -197,36 +197,34 @@ class RobustTransferManager(TransferManager):
         new_state = tuple(new_state)
         if state is None:
             state = new_state
-        form._cache["dat_versions"] = new_state
+        form._cache[key] = new_state
         return state != new_state
 
-    def update(self, Vc, Vf):
-        for c in self.get_transfer_callables(Vc, Vf):
+    def update(self, form, Vc, Vf):
+        for c in self.get_transfer_callables(form, Vc, Vf):
             c.update()
 
     def prolong(self, uc, uf):
         Vc = uc.function_space()
         Vf = uf.function_space()
         form = self.form(Vf)
-        if form is not None:
-            if self.needs_update(form):
-                self.update(Vc, Vf)
-            P, R = self.get_transfer_callables(Vc, Vf)
-            return P(uc, uf)
-        else:
+        if form is None:
             return super().prolong(uc, uf)
+        if self.needs_update(form):
+            self.update(form, Vc, Vf)
+        P, R = self.get_transfer_callables(form, Vc, Vf)
+        return P(uc, uf)
 
     def restrict(self, rf, rc):
         Vc = rc.function_space().dual()
         Vf = rf.function_space().dual()
         form = self.form(Vf)
-        if form is not None:
-            if self.needs_update(form):
-                self.update(Vc, Vf)
-            P, R = self.get_transfer_callables(Vc, Vf)
-            return R(rf, rc)
-        else:
+        if form is None:
             return super().restrict(rf, rc)
+        if self.needs_update(form):
+            self.update(form, Vc, Vf)
+        P, R = self.get_transfer_callables(form, Vc, Vf)
+        return R(rf, rc)
 
 
 class CoarsePatchTransferManager(RobustTransferManager):
@@ -341,7 +339,7 @@ class FinePatchTransferManager(RobustTransferManager):
         tdim = V.mesh().topological_dimension
         if any(len(V_.finat_element.entity_dofs()[tdim][0]) == 0 for V_ in V):
             # The element has no interior DOFs
-            return (None, lambda : None, None, None)
+            return (None, lambda: None, None, None)
 
         # Reconstruct the space on the interior with standard quadrature
         element = V.ufl_element()
