@@ -609,7 +609,7 @@ class Ensemble:
 
         Would print:
 
-        .. code-block::
+        .. code-block:: text
 
             0 0
             1 2

@@ -43,7 +43,7 @@ and :math:`\phi` by a half timestep.
 
 This time we created the mesh with `Gmsh <http://gmsh.info/>`_:
 
-.. code-block:: shell
+.. code-block:: console
 
    gmsh -2 wave_tank.geo
 

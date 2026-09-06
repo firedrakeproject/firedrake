@@ -13,7 +13,7 @@ the MPI job launcher available on your system.  Often this program is
 called ``mpiexec``.  For example, to run a simulation in a file named
 ``simulation.py`` on 16 processes we might use.
 
-.. code-block:: shell
+.. code-block:: console
 
    mpiexec -n 16 python simulation.py
 

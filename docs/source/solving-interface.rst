@@ -231,13 +231,13 @@ For example, suppose we have a file ``pde.py`` that contains
 
 If we run this code as:
 
-.. code-block:: sh
+.. code-block:: console
 
    python pde.py
 
 Then the KSP solver will be GMRES.  Conversely, when running
 
-.. code-block:: sh
+.. code-block:: console
 
    python pde.py -pde_ksp_type cg
 

@@ -83,7 +83,7 @@ represents the integration of the unknown function ``a`` over the domain. It's t
 
 ``cf`` is a known object in the dual space, and the dual equivalent of :py:class:`~.ufl.Coefficient`. The more consistent name ``Cocoefficient`` was rejected as confusing and risible. :py:class:`~.ufl.Cofunction` objects can be combined with symbolic :py:class:`~.ufl.Form` objects:
 
-.. code-block::
+.. code-block:: python
 
     v = TestFunction(V) 
     a = v * dx
@@ -102,7 +102,7 @@ Using the reflexivity of the function space :math:`U`. This form therefore has t
 
 A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl.Argument` on a dual space object or calling :py:class:`~.Coargument` on a dual space.
 
-.. code-block::
+.. code-block:: python
 
     v = Argument(V, 1) # type Argument
     u = Argument(V.dual(), 2) # type Coargument
@@ -111,7 +111,7 @@ A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl
 
 There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofunction`, we have represented an assembled 1-form. However, commonly we also assemble 2-forms. :py:class:`~.Matrix` allows an analogous use, and assembled 2-forms can be naturally combined with 2-forms that have not yet been assembled:
 
-.. code-block::
+.. code-block:: python
 
     mesh = UnitSquareMesh(10,10)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -124,7 +124,7 @@ There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofu
 
 Operations supported symbolically, such as the adjoint and action, are also supported on the dual space equivalent. 
 
-.. code-block::
+.. code-block:: python
 
     mesh = UnitSquareMesh(10,10)
     V = FunctionSpace(mesh, "Lagrange", 1)
