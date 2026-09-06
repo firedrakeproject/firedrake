@@ -50,13 +50,13 @@ from mpi4py import MPI
 
 from pyadjoint.tape import no_annotations
 
-# __all__ = (
-#     "interpolate",
-#     "Interpolate",
-#     "get_interpolator",
-#     "InterpolateOptions",
-#     "Interpolator"
-# )
+__all__ = (
+    "interpolate",
+    "Interpolate",
+    "get_interpolator",
+    "InterpolateOptions",
+    "Interpolator"
+)
 
 
 @dataclass(kw_only=True)

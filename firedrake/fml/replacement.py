@@ -7,7 +7,7 @@ from .form_manipulation_language import Term, subject
 from firedrake import split, MixedElement, Function, Argument
 from typing import Callable, Optional, Union
 
-#__all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
+__all__ = ["replace_test_function", "replace_trial_function", "replace_subject"]
 
 
 # ---------------------------------------------------------------------------- #

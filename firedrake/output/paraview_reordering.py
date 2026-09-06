@@ -17,14 +17,14 @@ from vtkmodules.vtkCommonDataModel import (
 )
 
 
-# __all__ = (
-#     "vtk_lagrange_tet_reorder",
-#     "vtk_lagrange_hex_reorder",
-#     "vtk_lagrange_interval_reorder",
-#     "vtk_lagrange_triangle_reorder",
-#     "vtk_lagrange_quad_reorder",
-#     "vtk_lagrange_wedge_reorder",
-# )
+__all__ = (
+    "vtk_lagrange_tet_reorder",
+    "vtk_lagrange_hex_reorder",
+    "vtk_lagrange_interval_reorder",
+    "vtk_lagrange_triangle_reorder",
+    "vtk_lagrange_quad_reorder",
+    "vtk_lagrange_wedge_reorder",
+)
 
 
 def firedrake_local_to_cart(element):

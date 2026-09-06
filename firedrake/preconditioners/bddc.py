@@ -21,7 +21,7 @@ from pyop2.mpi import COMM_SELF
 from pyop2.utils import as_tuple
 import numpy
 
-#__all__ = ("BDDCPC",)
+__all__ = ("BDDCPC",)
 
 
 class BDDCPC(PCBase):

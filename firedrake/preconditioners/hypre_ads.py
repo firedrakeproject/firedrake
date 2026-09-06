@@ -10,7 +10,7 @@ from finat.ufl import FiniteElement, TensorElement, VectorElement
 from ufl import grad, curl, SpatialCoordinate
 from pyop2.utils import as_tuple
 
-#__all__ = ("HypreADS",)
+__all__ = ("HypreADS",)
 
 
 class HypreADS(PCBase):

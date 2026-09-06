@@ -15,8 +15,8 @@ from firedrake.cython import mgimpl as impl
 import firedrake.cython.dmcommon as dmcommon
 from .utils import set_level
 
-# __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
-#            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
+__all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
+           "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
 
 
 def make_unoverlapped_dm(dm):

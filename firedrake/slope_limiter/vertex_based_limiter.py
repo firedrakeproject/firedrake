@@ -7,7 +7,7 @@ from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
 from firedrake import utils
 from ufl import inner
-#__all__ = ("VertexBasedLimiter",)
+__all__ = ("VertexBasedLimiter",)
 
 
 class VertexBasedLimiter(Limiter):

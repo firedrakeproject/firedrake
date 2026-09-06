@@ -36,7 +36,7 @@ import numpy
 import ctypes
 
 
-#__all__ = ("PoissonFDMPC")
+__all__ = ("PoissonFDMPC")
 
 
 class FDMPC(PCBase):

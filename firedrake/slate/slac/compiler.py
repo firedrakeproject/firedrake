@@ -40,7 +40,7 @@ import copy
 
 from petsc4py import PETSc
 
-#__all__ = ['compile_expression']
+__all__ = ['compile_expression']
 
 GREEN = "\033[1;37;32m%s\033[0m"
 

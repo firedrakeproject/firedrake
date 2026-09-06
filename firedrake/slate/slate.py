@@ -41,10 +41,10 @@ import hashlib
 from tsfc.ufl_utils import extract_firedrake_constants
 
 
-# __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
-#            'Inverse', 'Transpose', 'Negative',
-#            'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
-#            'Reciprocal']
+__all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
+           'Inverse', 'Transpose', 'Negative',
+           'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
+           'Reciprocal']
 
 # BlockFunction description type
 BlockFunction = namedtuple('BlockFunction', ['split_function', 'indices', 'orig_function'])

@@ -17,7 +17,7 @@ import finat.ufl
 from functools import cached_property
 
 
-#__all__ = ("TwoLevelPC", "HiptmairPC")
+__all__ = ("TwoLevelPC", "HiptmairPC")
 
 
 class TwoLevelPC(PCBase):

@@ -6,7 +6,7 @@ from firedrake.utils import ScalarType, ScalarType_c
 
 max_float = sys.float_info[0]
 
-#__all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
+__all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
 class Parameters(dict):

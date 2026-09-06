@@ -10,7 +10,7 @@ from petsc4py import PETSc
 from pyop2 import mpi
 
 
-#__all__ = ("PETSc",)
+__all__ = ("PETSc",)
 
 
 class FiredrakePETScError(Exception):

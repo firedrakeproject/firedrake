@@ -12,10 +12,10 @@ from firedrake.petsc import PETSc
 from functools import cached_property
 
 
-# __all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
-#            'TestFunctions', 'TrialFunctions',
-#            'derivative', 'adjoint',
-#            'action', 'CellSize', 'FacetNormal']
+__all__ = ['Argument', 'Coargument', 'TestFunction', 'TrialFunction',
+           'TestFunctions', 'TrialFunctions',
+           'derivative', 'adjoint',
+           'action', 'CellSize', 'FacetNormal']
 
 
 class Argument(ufl.argument.Argument):
