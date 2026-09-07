@@ -167,7 +167,13 @@ def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
     if nargs == 0:
         return ZeroFormAssembler(form, form_compiler_parameters=kwargs.get("form_compiler_parameters"))
     elif nargs == 1 or diagonal:
-        return OneFormAssembler(form, *args, diagonal=diagonal, **kwargs)
+        return OneFormAssembler(form, *args,
+                                bcs=kwargs.get("bcs", None),
+                                form_compiler_parameters=kwargs.get("form_compiler_parameters"),
+                                needs_zeroing=kwargs.get("needs_zeroing", True),
+                                zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
+                                diagonal=diagonal,
+                                weight=kwargs.get("weight", 1.0))
     elif nargs == 2:
         return TwoFormAssembler(form, *args, **kwargs)
     else:
