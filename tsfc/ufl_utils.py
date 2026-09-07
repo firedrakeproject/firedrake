@@ -77,6 +77,24 @@ def runtime_quadrature_element(domain, ufl_element, rt_var_name=RUNTIME_VARIABLE
     return rt_element
 
 
+def preprocess_interpolate(expression, element, domain, complex_mode=False):
+    """Map an interpolation's operand into the target element's reference frame.
+
+    :arg expression: the :class:`ufl.Interpolate` to preprocess.
+    :arg element: the UFL element of the interpolation target.
+    :arg domain: the domain the operand is evaluated on.
+    :arg complex_mode: is the scalar type complex?
+    :returns: the interpolation with its operand in ``element``'s reference frame.
+    """
+    dual_arg, operand = expression.argument_slots()
+    operand = apply_mapping(operand, element, domain)
+    operand = preprocess_expression(operand, complex_mode=complex_mode)
+    operand = simplify_abs(operand, complex_mode)
+    # Build the UFL node directly: the operand is now in the reference frame,
+    # so it no longer matches the physical shape a Firedrake Interpolate checks.
+    return ufl.Interpolate(operand, dual_arg)
+
+
 class InterpolateMapper(DAGTraverser):
     """Represent interpolation in the target element's reference frame."""
 
@@ -101,7 +119,10 @@ class InterpolateMapper(DAGTraverser):
         )
         element = o.ufl_element()
         operand = apply_mapping(operand, element, domain)
-        expr = o._ufl_expr_reconstruct_(operand, v=dual_arg)
+        # Build the UFL node directly: the operand is now in the reference
+        # frame, so it no longer matches the physical shape a Firedrake
+        # Interpolate checks.
+        expr = ufl.Interpolate(operand, dual_arg)
         return element.pullback.apply(ReferenceValue(expr), domain)
 
 

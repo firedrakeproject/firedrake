@@ -162,42 +162,32 @@ class KernelBuilderMixin(object):
 
         See :meth:`create_context` for typical calling sequence.
         """
-        expression = CoefficientSplitter(self.coefficient_split)(
-            expression
-        )
-        target_element = self.create_element(target_element)
+        expression = CoefficientSplitter(self.coefficient_split)(expression)
+        try:
+            target_element = self.create_element(target_element)
+        except KeyError:
+            # FInAT only elements
+            raise NotImplementedError(f"Don't know how to create FIAT element for {target_element}")
         config = self.fem_config()
-        config.update(
-            argument_multiindices=self.argument_multiindices,
-            index_cache=ctx["index_cache"],
-        )
-        evaluation, quadrature_multiindex, basis_indices = fem.dual_evaluate(
-            expression, target_element, config
-        )
+        config.update(argument_multiindices=self.argument_multiindices,
+                      index_cache=ctx["index_cache"])
+        evaluation, quadrature_multiindex, basis_indices = fem.dual_evaluate(expression, target_element, config)
         dual_arg, _ = expression.argument_slots()
         if not isinstance(dual_arg, Cofunction):
-            arguments = expression.arguments()
-            argument_number = arguments.index(dual_arg)
-            output_indices = self.argument_multiindices[argument_number]
-            if basis_indices != output_indices:
-                if tuple(i.extent for i in basis_indices) != tuple(
-                    i.extent for i in output_indices
-                ):
-                    raise ValueError("Interpolation output index shape mismatch")
-                mapper = gem.node.MemoizerArg(
-                    gem.optimise.filtered_replace_indices
-                )
-                evaluation = mapper(
-                    evaluation, tuple(zip(basis_indices, output_indices))
-                )
+            # A dual Argument indexes the return value, so the dual basis must
+            # tabulate onto the indices the output tensor was built with.
+            output_indices = self.argument_multiindices[expression.arguments().index(dual_arg)]
+            if tuple(i.extent for i in basis_indices) != tuple(i.extent for i in output_indices):
+                raise ValueError("Interpolation output index shape mismatch")
+            evaluation, = gem.optimise.remove_componenttensors(
+                [evaluation], tuple(zip(basis_indices, output_indices))
+            )
 
         mode = pick_mode(params["mode"])
         ctx["quadrature_indices"].extend(quadrature_multiindex)
         # Argument factorisation does not cancel every Delta here, so lower them.
         ctx["finalise_options"]["replace_delta"] = True
-        return mode.Integrals(
-            [evaluation], quadrature_multiindex, self.argument_multiindices, params
-        )
+        return mode.Integrals([evaluation], quadrature_multiindex, self.argument_multiindices, params)
 
     def compile_integrand(self, integrand, params, ctx):
         """Compile UFL integrand.
