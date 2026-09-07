@@ -285,6 +285,8 @@ def test_generate_cell_midpoints(parentmesh, redundant):
             _ = len(vm.coordinates.dat.data_ro)
 
     # Have correct pyop2 labels as implied by cell set sizes
+    # `cell_set.sizes` returns `(core, owned, total)`. The VOM does not include halos,
+    # so we only check that the core and owned counts match the parent mesh.
     if parentmesh.extruded:
         layers = parentmesh.layers
         if parentmesh.variable_layers:
@@ -292,9 +294,12 @@ def test_generate_cell_midpoints(parentmesh, redundant):
             expected = tuple(size*(layer-1) for size, layer in zip(parentmesh.cell_set.sizes, layers))
             assert vm.cell_set.sizes == expected
         else:
-            assert vm.cell_set.sizes == tuple(size*(layers-1) for size in parentmesh.cell_set.sizes)
+            assert vm.cell_set.sizes[:2] == tuple(size*(layers-1) for size in parentmesh.cell_set.sizes[:2])
+
     else:
-        assert vm.cell_set.sizes == parentmesh.cell_set.sizes
+        assert vm.cell_set.sizes[:2] == parentmesh.cell_set.sizes[:2]
+    # Check that the vom has no halos
+    assert vm.cell_set.total_size == vm.cell_set.size
 
 
 @pytest.mark.parallel
