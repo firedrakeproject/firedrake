@@ -9,7 +9,7 @@
 In addition to supporting computation with the workhorse of sparse
 linear algebra, an assembled sparse matrix, Firedrake also supports
 computing "matrix-free".  In this case, the matrix returned from
-:func:`.assemble` implements matrix-vector multiplication by the
+:func:`assemble <firedrake.assemble>` implements matrix-vector multiplication by the
 assembly of a 1-form subject to boundary conditions rather than direct
 construction of a sparse matrix ("aij" format) followed by traditional
 CSR algorithms.  This functionality is documented in more detail in
@@ -17,10 +17,10 @@ CSR algorithms.  This functionality is documented in more detail in
 
 There are two ways of accessing this functionality.  One can either
 request a matrix-free operator by passing ``mat_type="matfree"`` to
-:func:`.assemble`.  In this case, the returned object is an
-:class:`.ImplicitMatrix`.  This object can be used in the normal way
-with a :class:`.LinearSolver`.  Alternately, when solving a
-variational problem, an :class:`.ImplicitMatrix` is requested through
+:func:`assemble <firedrake.assemble>`.  In this case, the returned object is an
+:class:`ImplicitMatrix <firedrake.ImplicitMatrix>`.  This object can be used in the normal way
+with a :class:`LinearSolver <firedrake.LinearSolver>`.  Alternately, when solving a
+variational problem, an :class:`ImplicitMatrix <firedrake.ImplicitMatrix>` is requested through
 the ``solver_parameters`` dict, by setting the option ``mat_type`` to
 ``matfree``.  The type of the preconditioning matrix can be controlled
 separately by setting ``pmat_type``.
@@ -58,7 +58,7 @@ As well as providing symbolic field splitting, the
 preconditioners.  Since it contains a complete UFL
 description of the bilinear form, preconditioners can query or
 manipulate it as desired.  As a particularly simple example, the class
-:class:`AssembledPC <firedrake.AssembledPC>` simply passes the UFL into :func:`.assemble`
+:class:`AssembledPC <firedrake.AssembledPC>` simply passes the UFL into :func:`assemble <firedrake.assemble>`
 to produce an explicit matrix during set up.  It also sets up a new
 PETSc PC context acting on this assembled matrix so that the user can
 configure it at run-time via the options database.  This allows the

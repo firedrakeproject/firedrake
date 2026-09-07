@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake import function
 import numpy as np
 
 

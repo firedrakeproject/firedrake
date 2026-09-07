@@ -271,11 +271,10 @@ __all__ += [
     "EnsembleBJacobiPC", "EnsembleBlockDiagonalMat",
 ]
 
-# randomfunctiongen generates __all__ dynamically, so we cannot enumerate
-# things here
 import firedrake.randomfunctiongen as _randomfunctiongen
-from firedrake.randomfunctiongen import *
-__all__ += list(_randomfunctiongen.__all__)
+__all__ += _randomfunctiongen.__all__
+globals().update({name: getattr(_randomfunctiongen, name)
+                  for name in _randomfunctiongen.__all__})
 del _randomfunctiongen
 
 from firedrake.external_operators import (
