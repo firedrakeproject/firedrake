@@ -139,22 +139,11 @@ def redundant(request):
         return False
 
 
-@pytest.fixture(params=["exclude_halos", "include_halos"])
-def exclude_halos(request):
-    if request.param == "exclude_halos":
-        return True
-    else:
-        return False
-
-
 # pic swarm tests
 
-def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
+def test_pic_swarm_in_mesh(parentmesh, redundant):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
-
-    if not exclude_halos and parentmesh.comm.size == 1:
-        pytest.skip("Testing halo behaviour in serial isn't worth the time")
 
     # Setup
 
@@ -172,9 +161,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         # global cell midpoints only on rank 0. Note that this is the default
         # behaviour so it needn't be specified explicitly.
         if MPI.COMM_WORLD.rank == 0:
-            swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields, exclude_halos=exclude_halos)
+            swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields)
         else:
-            swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields, exclude_halos=exclude_halos)
+            swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields)
         input_rank = 0
         # inputcoordindices is the correct set of input indices for
         # redundant==True but I need to work out where they will be after
@@ -193,17 +182,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
-        swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant, exclude_halos=exclude_halos)
+        swarm, original_swarm, n_missing_coords = _pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant)
         input_rank = parentmesh.comm.rank
         input_local_coord_indices = np.arange(len(inputlocalpointcoords))
-
-    have_halos = len(parentmesh.coordinates.dat.data_ro_with_halos) > len(parentmesh.coordinates.dat.data_ro)
-    # collect from all ranks
-    have_halos = MPI.COMM_WORLD.allreduce(have_halos, op=MPI.SUM)
-    if not have_halos and not exclude_halos:
-        # We can treat this as though we set exclude_halos=True. This should
-        # happen in parallel with a mesh with 1 cell.
-        exclude_halos = True
 
     # Get point coords on current MPI rank
     with swarm.field("DMSwarmPIC_coor") as coordinates:
@@ -243,49 +224,22 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     # check local points are found in list of input points
     for p in localpointcoords:
         assert np.any(np.isclose(p, inputpointcoords))
-    if exclude_halos:
-        # check local points are correct local points given mesh
-        # partitioning (but don't require ordering to be maintained)
-        assert np.allclose(np.sort(inputlocalpointcoords, axis=0),
-                           np.sort(localpointcoords, axis=0))
-    elif parentmesh.comm.size > 1:
-        # If we have any points, there should be more than the input points
-        if len(localpointcoords):
-            assert len(localpointcoords) > len(inputlocalpointcoords)
-        else:
-            # otherwise there should be none
-            assert len(localpointcoords) == len(inputlocalpointcoords)
+    # Check local points are correct local points given mesh partitioning
+    # (but don't require ordering to be maintained).
+    assert np.allclose(np.sort(inputlocalpointcoords, axis=0),
+                       np.sort(localpointcoords, axis=0))
     # Check methods for checking number of points on current MPI rank
     assert len(localpointcoords) == swarm.getLocalSize()
     if not parentmesh.extruded:
-        if exclude_halos:
-            # Check there are as many local points as there are local cells
-            # (excluding ghost cells in the halo). This won't be true for extruded
-            # meshes as the cell_set.size is the number of base mesh cells.
-            assert len(localpointcoords) == parentmesh.cell_set.size
-        elif parentmesh.comm.size > 1:
-            # parentmesh.cell_set.total_size is the sum of owned and halo
-            # points. We have a point in each cell, hence the below.
-            assert len(localpointcoords) == parentmesh.cell_set.total_size
+        # This won't be true for extruded meshes as cell_set.size is the
+        # number of base mesh cells.
+        assert len(localpointcoords) == parentmesh.cell_set.size
     else:
         if parentmesh.variable_layers:
             pytest.skip("Don't know how to calculate number of cells for variable layers")
-        elif exclude_halos:
-            ncells = parentmesh.cell_set.size * (parentmesh.layers - 1)
-        else:
-            ncells = parentmesh.cell_set.total_size * (parentmesh.layers - 1)
+        ncells = parentmesh.cell_set.size * (parentmesh.layers - 1)
         assert len(localpointcoords) == ncells
-    if exclude_halos:
-        # Check total number of points on all MPI ranks is correct
-        # (excluding ghost cells in the halo)
-        assert nptsglobal == len(inputpointcoords)
-    elif parentmesh.comm.size > 1:
-        # If there are any points, there should be more than the input points
-        if nptsglobal:
-            assert nptsglobal > len(inputpointcoords)
-        else:
-            # otherwise there should be none
-            assert nptsglobal == len(inputpointcoords)
+    assert nptsglobal == len(inputpointcoords)
     assert nptsglobal == swarm.getSize()
 
     # Check the parent cell indexes match those in the parent mesh
@@ -296,48 +250,28 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     # since we know all points are in the mesh, we can check that the global
     # indices are correct (i.e. they should be in rank order)
     allglobalindices = np.concatenate(parentmesh.comm.allgather(globalindices))
-    if exclude_halos:
-        assert np.array_equal(inputcoordindices, allglobalindices)
-        _, idxs = np.unique(allglobalindices, return_index=True)
-        assert len(idxs) == len(allglobalindices)
-    else:
-        assert np.array_equal(inputcoordindices, np.unique(allglobalindices))
+    assert np.array_equal(inputcoordindices, allglobalindices)
+    _, idxs = np.unique(allglobalindices, return_index=True)
+    assert len(idxs) == len(allglobalindices)
 
     # Check that the rank numbering is correct. Since we know all points are at
     # the midpoints of cells, there should be no disagreement about cell
     # ownership and the voting algorithm should have no effect.
     with swarm.field("DMSwarm_rank") as ranks:
         owned_ranks = ranks.ravel().copy()
-    if exclude_halos:
-        assert np.array_equal(owned_ranks, inputlocalpointcoordranks)
-    elif parentmesh.comm.size > 1:
-        # The input ranks should be a subset of the owned ranks on the swarm
-        assert np.all(np.isin(inputlocalpointcoordranks, owned_ranks))
+    assert np.array_equal(owned_ranks, inputlocalpointcoordranks)
 
     # check that the input rank is correct
     with swarm.field("inputrank") as ranks:
         input_ranks = ranks.ravel().copy()
-    if exclude_halos:
-        assert np.all(input_ranks == input_rank)
-    elif parentmesh.comm.size > 1:
-        # The input rank should be a within the input ranks array on the swarm
-        # and we shouldn't have ranks which are greater than the comm size
-        if len(input_ranks):
-            assert np.isin(input_rank, input_ranks)
-        assert np.all(input_ranks < parentmesh.comm.size)
+    assert np.all(input_ranks == input_rank)
 
     # check that the input index is correct
     with swarm.field("inputindex") as indices:
         input_indices = indices.ravel().copy()
-    if exclude_halos:
-        assert np.array_equal(input_indices, input_local_coord_indices)
-        if redundant:
-            assert np.array_equal(input_indices, globalindices)
-    elif parentmesh.comm.size > 1:
-        # The input indices should be a subset of the indices on the swarm
-        assert np.all(np.isin(input_local_coord_indices, input_indices))
-        if redundant:
-            assert np.array_equal(np.unique(input_indices), np.sort(globalindices))
+    assert np.array_equal(input_indices, input_local_coord_indices)
+    if redundant:
+        assert np.array_equal(input_indices, globalindices)
 
     # check we have unique parent cell numbers, which we should since we have
     # points at cell midpoints
@@ -357,36 +291,27 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         cell_id = swarm.getCellDMActive().getCellID()
         with swarm.field(cell_id) as parent_cell_indices:
             petsclocalparentcellindices = parent_cell_indices.ravel().copy()
-        if exclude_halos:
-            assert np.all(petsclocalparentcellindices == localparentcellindices)
-        elif parentmesh.comm.size > 1:
-            # setPointCoordinates doesn't let us have points in halos so we
-            # have to check for a subset
-            assert np.all(np.isin(petsclocalparentcellindices, localparentcellindices))
+        assert np.all(petsclocalparentcellindices == localparentcellindices)
 
     assert isinstance(original_swarm.getCellDM(), PETSc.DMSwarm)
     assert original_swarm.getCellDM() == swarm
 
 
 @pytest.mark.parallel
-def test_pic_swarm_in_mesh_parallel(parentmesh, redundant, exclude_halos):
-    test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos)
+def test_pic_swarm_in_mesh_parallel(parentmesh, redundant):
+    test_pic_swarm_in_mesh(parentmesh, redundant)
 
 
 @pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
 def test_pic_swarm_in_mesh_2d_2procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=True)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=True)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=True)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=True)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True)
 
 
 @pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
 def test_pic_swarm_in_mesh_2d_3procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=True)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=True)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False, exclude_halos=False)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True, exclude_halos=False)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
+    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True)
 
 
 @pytest.mark.parallel(nprocs=3)
