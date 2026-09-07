@@ -606,6 +606,30 @@ def test_mixed_matrix(mode, mat_type):
         assert np.allclose(x.dat.data, y.dat.data)
 
 
+def test_mixed_matrix_direct_sum():
+    mesh = UnitSquareMesh(3, 3, quadrilateral=True)
+    V1 = VectorFunctionSpace(mesh, "CG", 2)
+    V2 = FunctionSpace(mesh, "CG", 1)
+    # RTCF is a direct sum, so it tabulates into a Concatenate that only its
+    # own block of the dual argument can split.
+    V3 = FunctionSpace(mesh, "RTCF", 1)
+    V4 = FunctionSpace(mesh, "DG", 0)
+
+    Z = V1 * V2
+    W = V3 * V4
+
+    a = assemble(Interpolate(TestFunction(Z), TrialFunction(W.dual())))
+
+    u = Function(W.dual())
+    u.subfunctions[0].assign(1)
+    u.subfunctions[1].assign(2)
+
+    result_explicit = assemble(action(a, u))
+    result_matfree = assemble(Interpolate(TestFunction(Z), u))
+    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
+        assert np.allclose(x.dat.data, y.dat.data)
+
+
 @pytest.mark.parallel(2)
 @pytest.mark.parametrize("mode", ["forward", "adjoint"])
 @pytest.mark.parametrize("family,degree", [("CG", 1), ("DG", 0)])
