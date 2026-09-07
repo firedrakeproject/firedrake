@@ -4235,7 +4235,7 @@ def _pic_swarm_in_mesh(
         swarm.set_field("parentcellbasenum", swarm_base_cells)
         swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
 
-    # Send each winner's local swarm index to its input root. 
+    # Send each winner's local swarm index to its input root.
     # The input-ordering swarm uses these as cell IDs into the distributed swarm.
     winner_swarm_idx_buf = np.full(winner_sf.leaf_buffer_size, -1, dtype=IntType)
     winner_swarm_idx_buf[winner_sf.leaf_indices] = np.arange(n_owned, dtype=IntType)
@@ -4395,7 +4395,7 @@ def _parent_mesh_embedding(
     )
     keep &= ref_cell_dists == candidate_sf.broadcast(root_distance_min)
 
-    # Multiple ranks may own cells at the minimum distance. 
+    # Multiple ranks may own cells at the minimum distance.
     # Break ties by choosing the highest rank.
     winner_ranks = np.full(nroots, -1, dtype=IntType)
     candidate_sf.reduce(
