@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.exceptions import CommMismatchError
 from pyop2.mpi import MPI, internal_comm
 
 
@@ -116,16 +117,16 @@ class Ensemble:
 
         Raises
         ------
-        ValueError
+        CommMismatchError
             If ``Function`` communicators mismatch each other or the ensemble
             spatial communicator, or is the functions are in different spaces
         """
         if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-            raise ValueError("Function communicator does not match space communicator")
+            raise CommMismatchError("Function communicator does not match space communicator")
 
         if g is not None:
             if MPI.Comm.Compare(f.comm, g.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-                raise ValueError("Mismatching communicators for functions")
+                raise CommMismatchError("Mismatching communicators for functions")
             if f.function_space() != g.function_space():
                 raise ValueError("Mismatching function spaces for functions")
 
