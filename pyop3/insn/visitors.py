@@ -22,7 +22,7 @@ from pyop3.buffer import (
     ConcreteBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, READ, RW, WRITE, MAX_RW
+from pyop3.constants import INC, READ, RW, WRITE, MAX_RW, MIN_RW
 from pyop3.expr import (
     Dat,
     LinearDatBufferExpression,
@@ -222,6 +222,9 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             elif intent == MAX_RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "max"))
+            elif intent == MIN_RW:
+                arg_pack_insns.append(local_tensor.assign(func_arg))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "min"))
             else:
                 raise NotImplementedError(f"Intent {intent} not handled")
 
