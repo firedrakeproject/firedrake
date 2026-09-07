@@ -1511,14 +1511,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
-                    rmap_ = _get_entity_node_map(
-                        mesh, test.function_space()[i],
-                        integral_type, subdomain_id, all_subdomain_ids,
-                    )
-                    cmap_ = _get_entity_node_map(
-                        mesh, trial.function_space()[j],
-                        integral_type, subdomain_id, all_subdomain_ids,
-                    )
+                    rmap_ = _get_entity_node_map(mesh, test.function_space()[i], integral_type, subdomain_id, all_subdomain_ids)
+                    cmap_ = _get_entity_node_map(mesh, trial.function_space()[j], integral_type, subdomain_id, all_subdomain_ids)
                     region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
@@ -1537,12 +1531,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, Vrow in enumerate(test.function_space()):
                 for j, Vcol in enumerate(trial.function_space()):
                     mesh = Vrow.mesh()
-                    rmap_ = _get_entity_node_map(
-                        mesh, Vrow, integral_type, None, None
-                    )
-                    cmap_ = _get_entity_node_map(
-                        mesh, Vcol, integral_type, None, None
-                    )
+                    rmap_ = _get_entity_node_map(mesh, Vrow, integral_type, None, None)
+                    cmap_ = _get_entity_node_map(mesh, Vcol, integral_type, None, None)
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
@@ -1738,16 +1728,12 @@ def _make_global_kernel(*args, **kwargs):
     return _GlobalKernelBuilder(*args, **kwargs).build()
 
 
-def _get_entity_node_map(
-    mesh, function_space, integral_type, subdomain_id,
-    all_integer_subdomain_ids,
-):
+def _get_entity_node_map(mesh, function_space, integral_type, subdomain_id, all_integer_subdomain_ids):
+    """Return the map from subdomain entities to function space nodes."""
     if isinstance(mesh.topology, VertexOnlyMeshTopology):
         return get_interp_node_map(function_space.mesh(), mesh, function_space)
-    return function_space.topological.entity_node_map(
-        mesh.topology, integral_type, subdomain_id,
-        all_integer_subdomain_ids,
-    )
+    else:
+        return function_space.topological.entity_node_map(mesh.topology, integral_type, subdomain_id, all_integer_subdomain_ids)
 
 
 class _GlobalKernelBuilder:
