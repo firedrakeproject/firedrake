@@ -779,30 +779,16 @@ class SameMeshInterpolator(Interpolator):
         """Return the form assembler matching `self.rank`."""
         # Not routed through get_assembler: its BaseForm preprocessing is not
         # needed here and can recurse forever on some composed expressions.
-        from firedrake.assemble import (
-            OneFormAssembler, TwoFormAssembler, ZeroFormAssembler,
-            get_form_assembler_class,
-        )
+        from firedrake.assemble import get_form_assembler
 
-        assembler_cls = get_form_assembler_class(self._assembler_form)
-        if assembler_cls is ZeroFormAssembler:
-            return ZeroFormAssembler(self._assembler_form)
-        elif assembler_cls is OneFormAssembler:
-            return OneFormAssembler(
-                self._assembler_form,
-                bcs=bcs,
-                needs_zeroing=self.access is op2.INC,
-                access=self.access,
-            )
-        else:
-            return TwoFormAssembler(
-                self._assembler_form,
-                bcs=bcs,
-                mat_type=mat_type,
-                sub_mat_type=sub_mat_type,
-                needs_zeroing=True,
-                access=self.access,
-            )
+        return get_form_assembler(
+            self._assembler_form,
+            bcs=bcs,
+            mat_type=mat_type,
+            sub_mat_type=sub_mat_type,
+            needs_zeroing=self.rank == 2 or self.access is op2.INC,
+            access=self.access,
+        )
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import ParloopFormAssembler
