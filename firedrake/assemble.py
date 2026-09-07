@@ -172,6 +172,7 @@ def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
                                 form_compiler_parameters=kwargs.get("form_compiler_parameters"),
                                 needs_zeroing=kwargs.get("needs_zeroing", True),
                                 zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
+                                access=kwargs.get("access", op2.INC),
                                 diagonal=diagonal,
                                 weight=kwargs.get("weight", 1.0))
     elif nargs == 2:
@@ -1547,7 +1548,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if isinstance(bc, DirichletBC):
             if not any(bc.parent_function_space.topological == fs.topological for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
-            if spaces[0] != spaces[1]:
+            if spaces[0].topological != spaces[1].topological:
                 # Not on a diagonal block, we cannot set diagonal entries
                 return
 
