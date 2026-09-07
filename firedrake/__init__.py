@@ -70,7 +70,7 @@ from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
     SerialExecutionOnlyError, PointNotInDomainError,
-    FunctionSpaceMismatchError,
+    MismatchingFunctionSpaceError,
 )
 from firedrake.function import (  # noqa: F401
     Function, CoordinatelessFunction, PointEvaluator
