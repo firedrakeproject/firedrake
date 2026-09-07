@@ -195,7 +195,7 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
             f, x, &to_reference_coords, &to_reference_coords_xtr,
             &temp_reference_coords, &found_reference_coords,
             &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore,
-            NULL, &cell, NULL);
+            f->n_cols * f->n_layers, &cell);
     rtree_free_ids(ids, nids);
     if (locate_err != PETSC_SUCCESS) {
         return locate_err;
