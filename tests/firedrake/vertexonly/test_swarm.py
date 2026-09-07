@@ -343,3 +343,32 @@ def test_discover_remote_roots():
 
     remote = rtree.discover_remote_roots(tree, np.array([[-1.0]], dtype=np.float64), comm)
     assert remote.shape == (0, 2)
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize(
+    "overlap",
+    [
+        (DistributedMeshOverlapType.NONE, 0),
+        (DistributedMeshOverlapType.FACET, 1),
+    ],
+)
+def test_point_on_partition_boundary(overlap):
+    comm = MPI.COMM_WORLD
+    parent_mesh = UnitIntervalMesh(
+        2,
+        distribution_parameters={"overlap_type": overlap},
+    )
+    coords = np.array([[0.5]]) if comm.rank == 0 else np.empty((0, 1))
+
+    swarm, original_swarm, n_missing = _pic_swarm_in_mesh(
+        parent_mesh, coords, redundant=False
+    )
+
+    assert n_missing == 0
+    assert swarm.getSize() == 1
+    assert swarm.getLocalSize() == (comm.rank == 1)
+    with swarm.field("DMSwarm_rank") as ranks:
+        assert np.all(ranks == comm.rank)
+    with original_swarm.field("DMSwarm_rank") as ranks:
+        assert np.all(ranks == 1)
