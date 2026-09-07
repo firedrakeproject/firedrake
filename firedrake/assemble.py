@@ -21,7 +21,7 @@ from firedrake import (extrusion_utils as eutils, parameters, solving,
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
-from firedrake.exceptions import FunctionSpaceMismatchError
+from firedrake.exceptions import MismatchingFunctionSpaceError
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.mesh import VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
@@ -1559,7 +1559,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
             if not any(bc.parent_function_space.topological == fs.topological for fs in spaces):
-                raise FunctionSpaceMismatchError(
+                raise MismatchingFunctionSpaceError(
                     "bc space does not match the test or trial function space")
             if spaces[0].topological != spaces[1].topological:
                 # Not on a diagonal block, we cannot set diagonal entries
