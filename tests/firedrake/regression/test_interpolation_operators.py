@@ -221,6 +221,6 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
     for resi, exi in zip(res.subfunctions, exact.subfunctions):
         assert np.allclose(resi.dat.data, exi.dat.data)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="BAIJ matrix type makes no sense"):
         # A mixed space has no block structure to give BAIJ, as for a Form.
         assemble(interp, mat_type="baij")
