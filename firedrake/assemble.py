@@ -1389,6 +1389,7 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
         raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij', or 'is')")
     return mat_type, sub_mat_type
 
+
 class ExplicitMatrixAssembler(ParloopFormAssembler):
     """Class for assembling a matrix.
 
@@ -2116,12 +2117,12 @@ class ParloopBuilder:
         assert len(self._form.arguments()) == 2 and not self._diagonal
         bcrow = tuple(bc for bc in self._bcs
                       if bc.parent_function_space.topological == self.test_function_space.topological
-                      and (len(test_space) == 1 or bc.function_space_index() == row))
+                      and (len(self.test_function_space) == 1 or bc.function_space_index() == row))
 
         bccol = tuple(bc for bc in self._bcs
                       if isinstance(bc, DirichletBC)
                       and bc.parent_function_space.topological == self.trial_function_space.topological
-                      and (len(trial_space) == 1 or bc.function_space_index() == col))
+                      and (len(self.trial_function_space) == 1 or bc.function_space_index() == col))
         return bcrow, bccol
 
     def needs_unrolling(self):
