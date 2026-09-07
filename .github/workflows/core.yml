@@ -230,7 +230,8 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/NDF-Poli-USP/spyro.git spyro-repo
+          : # UNDO ME
+          git clone --depth 1 https://github.com/connorjward/spyro.git spyro-repo --branch connorjward/pyop3
           pip install --verbose ./spyro-repo
           mpiexec -n 6 python -m pytest spyro-repo/test_integration/ -m parallel[6]
         timeout-minutes: 5

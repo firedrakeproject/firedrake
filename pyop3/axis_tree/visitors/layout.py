@@ -7,6 +7,7 @@ import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+import pyop3.expr
 import pyop3.sf
 from pyop3 import utils
 from pyop3.axis_tree import (
@@ -240,6 +241,13 @@ def _compute_layouts_cached(axis_tree: AxisTree) -> idict[ConcretePathT, Express
             # as this will inform the stride size.
             step_size = axis_tree.linearize(offset_axes.leaf_path, partial=True).with_region_labels(regions, allow_missing=True).size or 1
 
+            # We have to make sure that step_size is a unique buffer, as it can
+            # crop up in the layout expressions of offset_dat, causing chaos.
+            if isinstance(step_size, pyop3.expr.ScalarBufferExpression):
+                new_buffer = step_size.buffer_view.buffer.copy()
+                new_buffer_view = step_size.buffer_view.record_new(buffer=new_buffer)
+                step_size = step_size.record_new(buffer_view=new_buffer_view)
+
             # Add to the starting offset for all arrays apart from the current one
             for j, _ in enumerate(starts):
                 if i != j:
@@ -261,7 +269,6 @@ def _compute_layouts_cached(axis_tree: AxisTree) -> idict[ConcretePathT, Express
 
             new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
             offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
-
         sf = pyop3.sf.StarForest.merge(offset_sfs)
     else:
         sf = pyop3.sf.NullStarForest(axis_tree.local_size)

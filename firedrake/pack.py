@@ -60,6 +60,10 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
         and iter_mesh.topology._base_mesh is mesh
     ):
+        if loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}:
+            loop_index = iter_mesh.support(loop_index)
+        else:
+            assert loop_index.integral_type == "cell"
         composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index, label="extr_cell_base_cell")
         target_integral_type = "cell"
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):

@@ -1,8 +1,23 @@
+import gc
+
 import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
 from firedrake.utils import complex_mode
+
+
+# pyop3 changes made the garbage collection dmhooks issue
+# from https://github.com/firedrakeproject/firedrake/issues/5421
+# happen frequently. Work around this by disabling the garbage collector
+# for all tests in this module.
+@pytest.fixture(autouse=True)
+def disable_gc(request):
+    was_enabled = gc.isenabled()
+    gc.disable()
+    yield
+    if was_enabled:
+        gc.enable()
 
 
 def corner_adaptive_hierarchy(base, nlevels):

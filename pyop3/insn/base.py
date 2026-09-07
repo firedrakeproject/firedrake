@@ -404,7 +404,7 @@ class Function(pyop3.obj.Object):
                 case Intent.WRITE:
                     is_input = True  # is this needed?
                     is_output = True
-                case Intent.INC:
+                case Intent.RW | Intent.INC | Intent.MAX_RW | Intent.MIN_RW:
                     is_input = True
                     is_output = True
                 case _:

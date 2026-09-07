@@ -263,6 +263,8 @@ class Dat(Tensor):
         sf: StarForest | None = None,
         comm: MPI.Comm = MPI.COMM_SELF,
         buffer_kwargs=None,
+        constant: bool = False,
+        rank_equal: bool = False,
         **kwargs,
     ) -> Dat:
         from pyop3 import Scalar
@@ -271,8 +273,8 @@ class Dat(Tensor):
             raise pyop3.exceptions.CommMismatchException
 
         # If no SF is provided then we assume no overlap
-        if sf is None:
-            sf = pyop3.sf.local_sf(array.size, comm=comm)
+        # if sf is None:
+        #     sf = pyop3.sf.local_sf(array.size, comm=comm)
 
         buffer_kwargs = buffer_kwargs or {}
 
@@ -283,8 +285,16 @@ class Dat(Tensor):
         if "name" not in buffer_kwargs:
             buffer_kwargs["name"] = f"{name}_buffer"
 
-        # NOTE: Should this size *always* be a Scalar? maybe not if rank_constant is True...
-        axes = pyop3.axis_tree.Axis(pyop3.axis_tree.AxisComponent(Scalar(array.size), sf=sf))
+        if constant:
+            buffer_kwargs["constant"] = True
+
+        if rank_equal:
+            buffer_kwargs["rank_equal"] = True
+            size = array.size
+        else:
+            size = Scalar(array.size)
+
+        axes = pyop3.axis_tree.Axis(pyop3.axis_tree.AxisComponent(size, sf=sf))
         buffer = ArrayBuffer(array, sf=sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
