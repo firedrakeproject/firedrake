@@ -390,50 +390,32 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
     else:
         gem_duals = ()
 
-    if len(gem_duals) > 1:
-        assert to_element.is_mixed
-        assert len(to_element.elements) == len(gem_duals)
-        # The summands do not share their points, so each one contracts on its own.
-        evaluations = []
-        for element, gem_dual in zip(to_element.elements, gem_duals):
-            evaluation, point_indices, basis_indices = element.dual_evaluation(
-                fn, coordinate_mapping
-            )
-            if is_complex(kernel_cfg["scalar_type"]):
-                evaluation = gem.MathFunction("conj", evaluation)
-            evaluations.append(gem.IndexSum(
-                evaluation * gem_dual[basis_indices],
-                tuple(point_indices) + basis_indices
-            ))
-        evaluation = gem.optimise.make_sum(evaluations)
-        quadrature_multiindex = ()
-        basis_indices = ()
-    else:
+    if not gem_duals:
         evaluation, point_indices, basis_indices = to_element.dual_evaluation(
             fn, coordinate_mapping
         )
-        quadrature_multiindex = tuple(point_indices)
-        if gem_duals:
-            if is_complex(kernel_cfg["scalar_type"]):
-                evaluation = gem.MathFunction("conj", evaluation)
-            # The dual argument contracts over the nodes, so the basis indices
-            # are reduction indices like the points, not return value indices.
-            # A direct sum tabulates into a Concatenate that splits only
-            # along the dual argument, so reduce each summand here.
-            dual, = gem.optimise.remove_componenttensors(
-                [gem_duals[0][basis_indices]]
-            )
-            summands = []
-            for var, expr in unconcatenate([(dual, evaluation)],
-                                           kernel_cfg["index_cache"]):
-                product = gem.Product(expr, var)
-                indices = tuple(i for i in var.index_ordering()
-                                if i in product.free_indices)
-                summands.append(gem.IndexSum(product, indices))
-            evaluation = gem.optimise.make_sum(summands)
-            basis_indices = ()
+        return evaluation, tuple(point_indices), basis_indices
 
-    return evaluation, quadrature_multiindex, basis_indices
+    # A mixed dual argument has one component per sub-element.
+    elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
+    summands = []
+    for element, gem_dual in zip(elements, gem_duals, strict=True):
+        evaluation, point_indices, basis_indices = element.dual_evaluation(
+            fn, coordinate_mapping
+        )
+        if is_complex(kernel_cfg["scalar_type"]):
+            evaluation = gem.MathFunction("conj", evaluation)
+        # The dual argument contracts over the nodes, so the basis indices
+        # reduce here instead of indexing the return value.  A direct sum
+        # tabulates into a Concatenate that only its own component can split.
+        dual, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
+        for var, expr in unconcatenate([(dual, evaluation)], kernel_cfg["index_cache"]):
+            product = gem.Product(expr, var)
+            indices = tuple(point_indices) + var.index_ordering()
+            summands.append(gem.IndexSum(
+                product, tuple(i for i in indices if i in product.free_indices)
+            ))
+    return gem.optimise.make_sum(summands), (), ()
 
 
 class DualEvaluationCallable:
