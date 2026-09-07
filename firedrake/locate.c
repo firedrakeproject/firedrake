@@ -30,6 +30,9 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
 
+    /* NOTE: `cell_owner_ranks` and `owner_out` may be NULL. In this case, every
+       candidate is treated as having owner rank 0. This is for backwards compatibility
+       with the `Function.at` code path which is being deprecated soon. */
     *cell_out = -1;
     if (owner_out) {
         *owner_out = -1;
