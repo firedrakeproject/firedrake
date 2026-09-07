@@ -275,8 +275,7 @@ def _real_mangle(form):
     """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
 
     a = form.arguments()
-    # A Coargument names the space the result lands in rather than something to
-    # integrate against, so TSFC dual-evaluates it instead.
+    # Real Coarguments are not integrated against, they are only contracted in Interpolate.
     reals = [x.ufl_element().family() == "Real" and not isinstance(x, ufl.Coargument) for x in a]
     if not any(reals):
         return form
