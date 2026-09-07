@@ -154,6 +154,7 @@ runs:
           EXTRA_PIP_FLAGS='--no-build-isolation'
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           EXTRA_PIP_FLAGS=''
+          export PIP_BUILD_CONSTRAINT=constraints.txt
         else
           echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
           exit 1
