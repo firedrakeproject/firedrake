@@ -699,12 +699,6 @@ class SameMeshInterpolator(Interpolator):
             # Default access for forward 1-form or 2-form (forward and adjoint)
             self.access = op2.WRITE
 
-    @cached_property
-    def _interpolate_with_options(self):
-        options = asdict(self.ufl_interpolate.options)
-        options.update(subset=self.subset, access=self.access)
-        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=self.dual_arg, **options)
-
     @property
     def _needs_adjoint_weighting(self):
         return (isinstance(self.dual_arg, Cofunction)
@@ -741,9 +735,15 @@ class SameMeshInterpolator(Interpolator):
 
     @cached_property
     def _interpolate_to_assemble(self):
-        if self._needs_adjoint_weighting:
-            return self._interpolate_with_options._ufl_expr_reconstruct_(self.operand, v=self._weighted_dual_arg)
-        return self._interpolate_with_options
+        """The interpolation that is handed to the assembler.
+
+        This is the user's `Interpolate` carrying the assembly options, and the
+        weighted copy of the dual argument when the adjoint needs one.
+        """
+        options = asdict(self.ufl_interpolate.options)
+        options.update(subset=self.subset, access=self.access)
+        dual_arg = self._weighted_dual_arg if self._needs_adjoint_weighting else self.dual_arg
+        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg, **options)
 
     def _update_weighted_dual_arg(self):
         self.dual_arg.dat.copy(self._weighted_dual_arg.dat)

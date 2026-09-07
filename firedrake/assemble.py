@@ -21,6 +21,7 @@ from firedrake import (extrusion_utils as eutils, parameters, solving,
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.exceptions import FunctionSpaceMismatchError
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.mesh import VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
@@ -160,6 +161,22 @@ def _integrand_is_compilable(integral):
                for op in ufl.algorithms.extract_base_form_operators(integral.integrand()))
 
 
+def _is_compilable(form):
+    """Can ``form`` be assembled by a single compiled kernel?
+
+    An `ufl.Interpolate` on a domain its integral already visits is fused into
+    that integral's kernel, so a form holding only those still compiles.  Every
+    other base form operator has to be assembled on its own by
+    `BaseFormAssembler`.
+    """
+    if isinstance(form, ufl.form.Form):
+        return all(map(_integrand_is_compilable, form.integrals()))
+    elif isinstance(form, slate.TensorBase):
+        return not BaseFormAssembler.base_form_operands(form)
+    else:
+        return False
+
+
 def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs) -> "ParloopFormAssembler":
     """Construct the assembler for the rank of ``form``, forwarding the relevant options."""
     diagonal = kwargs.pop("diagonal", False)
@@ -200,14 +217,7 @@ def get_assembler(form, *args, **kwargs):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-    if isinstance(form, ufl.form.Form):
-        can_compile = all(map(_integrand_is_compilable, form.integrals()))
-    elif isinstance(form, slate.TensorBase):
-        can_compile = len(BaseFormAssembler.base_form_operands(form)) == 0
-    else:
-        can_compile = False
-
-    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and can_compile:
+    if _is_compilable(form):
         return get_form_assembler(form, *args, **kwargs)
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
@@ -1079,12 +1089,20 @@ class ParloopFormAssembler(FormAssembler):
         return self.result(tensor)
 
     def compile(self):
-        """Compile the local kernels now, rather than lazily inside `assemble`."""
+        """Compile the local kernels now, rather than lazily inside `assemble`.
+
+        `DirichletBC` calls this to learn whether its value can be interpolated
+        before it commits to interpolating rather than projecting.
+        """
         self.local_kernels
 
     @cached_property
     def input_dats(self):
-        """The `pyop2.types.Dat` read by this assembler's parloops."""
+        """The `pyop2.types.Dat` read by this assembler's parloops.
+
+        Callers only test membership, to spot an output tensor that is also an
+        input, so this set is never iterated over.
+        """
         dats = set()
         for local_kernel, _ in self.local_kernels:
             for coeff in _FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo):
@@ -1547,7 +1565,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
             if not any(bc.parent_function_space.topological == fs.topological for fs in spaces):
-                raise TypeError("bc space does not match the test or trial function space")
+                raise FunctionSpaceMismatchError(
+                    "bc space does not match the test or trial function space")
             if spaces[0].topological != spaces[1].topological:
                 # Not on a diagonal block, we cannot set diagonal entries
                 return
@@ -1871,11 +1890,6 @@ class _GlobalKernelBuilder:
 _RUNTIME_TABULATION_ARG_NAME = RUNTIME_VARIABLE_PREFIX + "X"
 
 
-def _check_runtime_tabulation_arg(arg, mesh):
-    if arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME or not isinstance(mesh.topology, VertexOnlyMeshTopology):
-        raise NotImplementedError("Unknown runtime tabulation argument")
-
-
 @functools.singledispatch
 def _as_global_kernel_arg(tsfc_arg, self):
     raise NotImplementedError
@@ -1957,7 +1971,10 @@ def _as_global_kernel_arg_constant(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.TabulationKernelArg)
 def _as_global_kernel_arg_tabulation(arg, self):
-    _check_runtime_tabulation_arg(arg, self._mesh)
+    if arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME:
+        raise ValueError(f"Expecting the runtime tabulation argument {_RUNTIME_TABULATION_ARG_NAME}: got {arg.loopy_arg.name}")
+    if not isinstance(self._mesh.topology, VertexOnlyMeshTopology):
+        raise ValueError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(self._mesh.topology).__name__}")
     return self._make_dat_global_kernel_arg(self._mesh.reference_coordinates.function_space())
 
 
@@ -2309,7 +2326,10 @@ def _as_parloop_arg_constant(arg, self):
 
 @_as_parloop_arg.register(kernel_args.TabulationKernelArg)
 def _as_parloop_arg_tabulation(arg, self):
-    _check_runtime_tabulation_arg(arg, self._mesh)
+    if arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME:
+        raise ValueError(f"Expecting the runtime tabulation argument {_RUNTIME_TABULATION_ARG_NAME}: got {arg.loopy_arg.name}")
+    if not isinstance(self._mesh.topology, VertexOnlyMeshTopology):
+        raise ValueError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(self._mesh.topology).__name__}")
     reference_coordinates = self._mesh.reference_coordinates
     map_ = self._get_map(reference_coordinates.function_space())
     return op2.DatParloopArg(reference_coordinates.dat, map_)

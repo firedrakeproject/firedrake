@@ -78,13 +78,29 @@ def runtime_quadrature_element(domain, ufl_element, rt_var_name=RUNTIME_VARIABLE
 
 
 def preprocess_interpolate(expression, element, domain, complex_mode=False):
-    """Map an interpolation's operand into the target element's reference frame.
+    """Prepare a standalone interpolation for TSFC.
 
-    :arg expression: the :class:`ufl.Interpolate` to preprocess.
-    :arg element: the UFL element of the interpolation target.
-    :arg domain: the domain the operand is evaluated on.
-    :arg complex_mode: is the scalar type complex?
-    :returns: the interpolation with its operand in ``element``'s reference frame.
+    Parameters
+    ----------
+    expression : ufl.Interpolate
+        The interpolation to preprocess.
+    element : finat.ufl.finiteelement.FiniteElement
+        The UFL element of the interpolation target.
+    domain : ufl.AbstractDomain
+        The domain the operand is evaluated on.
+    complex_mode : bool
+        Is the scalar type complex?
+
+    Returns
+    -------
+    ufl.Interpolate
+        The interpolation with its operand in ``element``'s reference frame.
+
+    Notes
+    -----
+    A standalone interpolation never reaches `compute_form_data`, so the operand
+    gets the scalar preprocessing here.  Interpolations inside a form keep their
+    physical value shape and are handled by `InterpolatePullbackApplier`.
     """
     dual_arg, operand = expression.argument_slots()
     operand = apply_mapping(operand, element, domain)
@@ -95,8 +111,15 @@ def preprocess_interpolate(expression, element, domain, complex_mode=False):
     return ufl.Interpolate(operand, dual_arg)
 
 
-class InterpolateMapper(DAGTraverser):
-    """Represent interpolation in the target element's reference frame."""
+class InterpolatePullbackApplier(DAGTraverser):
+    """Map the interpolations in an integrand into the reference frame.
+
+    Notes
+    -----
+    Unlike `preprocess_interpolate`, this runs before `compute_form_data`, which
+    preprocesses the whole form afterwards, and it pulls the interpolation back
+    to physical space so that the rest of the integrand still matches its shape.
+    """
 
     @singledispatchmethod
     def process(self, o: Expr) -> Expr:
@@ -125,7 +148,7 @@ class InterpolateMapper(DAGTraverser):
 
 def lower_form_interpolations(form: ufl.Form) -> ufl.Form:
     """Represent a form's interpolation nodes in the target element's reference frame."""
-    return map_integrands(InterpolateMapper(), form)
+    return map_integrands(InterpolatePullbackApplier(), form)
 
 
 def compute_form_data(form,

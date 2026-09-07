@@ -88,6 +88,8 @@ class ExtractSubBlock(MultiFunction):
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
+        # An outermost Interpolate splits into a smaller Interpolate, while one
+        # inside an integrand must keep the value shape its neighbours expect.
         self._splitting_interpolate = isinstance(form, Interpolate)
         if len(args) == 0:
             # Functional can't be split
@@ -294,6 +296,8 @@ class ExtractSubBlock(MultiFunction):
         if self._splitting_interpolate:
             return interpolation
 
+        # Inside an integrand the block is one part of a wider expression, so
+        # pad it back out to V's value shape with zeros.
         interpolation_components = ((interpolation[j] for j in numpy.ndindex(interpolation.ufl_shape))
                                     if interpolation.ufl_shape else iter((interpolation,)))
         components = self._embed_components(V, indices, interpolation_components)
