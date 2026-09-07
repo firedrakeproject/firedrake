@@ -700,7 +700,7 @@ class SameMeshInterpolator(Interpolator):
             self.access = op2.WRITE
 
     @cached_property
-    def _form_interpolate(self):
+    def _interpolate_with_options(self):
         options = asdict(self.ufl_interpolate.options)
         options.update(subset=self.subset, access=self.access)
         return self.ufl_interpolate._ufl_expr_reconstruct_(
@@ -747,12 +747,12 @@ class SameMeshInterpolator(Interpolator):
         return weight
 
     @cached_property
-    def _assembler_form(self):
+    def _interpolate_to_assemble(self):
         if self._needs_adjoint_weighting:
-            return self._form_interpolate._ufl_expr_reconstruct_(
+            return self._interpolate_with_options._ufl_expr_reconstruct_(
                 self.operand, v=self._weighted_dual_arg
             )
-        return self._form_interpolate
+        return self._interpolate_with_options
 
     def _update_weighted_dual_arg(self):
         self.dual_arg.dat.copy(self._weighted_dual_arg.dat)
@@ -775,14 +775,14 @@ class SameMeshInterpolator(Interpolator):
             f.assign(val)
         return f
 
-    def _get_form_assembler(self, bcs=None, mat_type=None, sub_mat_type=None):
-        """Return the form assembler matching `self.rank`."""
+    def _make_assembler(self, bcs=None, mat_type=None, sub_mat_type=None):
+        """Return the assembler matching `self.rank`."""
         # Not routed through get_assembler: its BaseForm preprocessing is not
         # needed here and can recurse forever on some composed expressions.
         from firedrake.assemble import get_form_assembler
 
         return get_form_assembler(
-            self._assembler_form,
+            self._interpolate_to_assemble,
             bcs=bcs,
             mat_type=mat_type,
             sub_mat_type=sub_mat_type,
@@ -793,7 +793,7 @@ class SameMeshInterpolator(Interpolator):
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import ParloopFormAssembler
 
-        assembler = self._get_form_assembler(
+        assembler = self._make_assembler(
             bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
         )
         # DirichletBC needs to know now whether it can interpolate its value,
@@ -1441,8 +1441,8 @@ class MixedInterpolator(Interpolator):
 
         # Get sub-interpolators and sub-bcs for each block
         Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]] = {}
-        for indices, form in split_form(self.ufl_interpolate):
-            if isinstance(form, ZeroBaseForm):
+        for indices, block in split_form(self.ufl_interpolate):
+            if isinstance(block, ZeroBaseForm):
                 # Ensure block sparsity
                 continue
             sub_bcs = []
@@ -1451,8 +1451,8 @@ class MixedInterpolator(Interpolator):
                 sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             if needs_action:
                 # Take the action of each sub-cofunction against each block
-                form = action(form, dual_split[indices[-1:]])
-            Isub[indices] = (get_interpolator(form), sub_bcs)
+                block = action(block, dual_split[indices[-1:]])
+            Isub[indices] = (get_interpolator(block), sub_bcs)
 
         return Isub
 
