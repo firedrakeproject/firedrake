@@ -79,7 +79,16 @@ class BCBase(object):
     def function_space(self):
         '''The :class:`.FunctionSpace` on which this boundary condition should
         be applied.'''
+
         return self._function_space
+
+    def function_space_index(self):
+        fs = self._function_space
+        if fs.component is not None:
+            fs = fs.parent
+        if fs.index is None:
+            raise RuntimeError("This function should only be called when function space is indexed")
+        return fs.index
 
     @property
     def parent_function_space(self):
