@@ -152,8 +152,7 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(),
-                          diagonal=False, access=op2.INC):
+def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op2.INC):
     return (
         form.signature(),
         name,
@@ -172,8 +171,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, dont_split=(),
-                 diagonal=False, access=op2.INC):
+def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op2.INC):
     """Compile a form using TSFC.
 
     Parameters
@@ -279,8 +277,7 @@ def _real_mangle(form):
     a = form.arguments()
     # A Coargument names the space the result lands in rather than something to
     # integrate against, so TSFC dual-evaluates it instead.
-    reals = [x.ufl_element().family() == "Real" and not isinstance(x, ufl.Coargument)
-             for x in a]
+    reals = [x.ufl_element().family() == "Real" and not isinstance(x, ufl.Coargument) for x in a]
     if not any(reals):
         return form
     replacements = {}

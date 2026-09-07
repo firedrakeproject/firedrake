@@ -446,13 +446,8 @@ def test_assemble_interp_mixed_vector_matrix():
     actual = assemble(action(operator, f))
     expected = assemble(interpolate(f, W))
 
-    for actual_subfunction, expected_subfunction in zip(
-        actual.subfunctions, expected.subfunctions
-    ):
-        assert np.allclose(
-            actual_subfunction.dat.data_ro,
-            expected_subfunction.dat.data_ro,
-        )
+    for actual_subfunction, expected_subfunction in zip(actual.subfunctions, expected.subfunctions):
+        assert np.allclose(actual_subfunction.dat.data_ro, expected_subfunction.dat.data_ro)
 
 
 def test_interpolate_mixed_vector_in_bilinear_form():
@@ -478,13 +473,8 @@ def test_interpolate_mixed_vector_in_bilinear_form():
     interpolated = assemble(interpolate(f, W))
     expected = assemble(inner(interpolated, v) * dx)
 
-    for actual_subfunction, expected_subfunction in zip(
-        actual.subfunctions, expected.subfunctions
-    ):
-        assert np.allclose(
-            actual_subfunction.dat.data_ro,
-            expected_subfunction.dat.data_ro,
-        )
+    for actual_subfunction, expected_subfunction in zip(actual.subfunctions, expected.subfunctions):
+        assert np.allclose(actual_subfunction.dat.data_ro, expected_subfunction.dat.data_ro)
 
 
 @pytest.mark.parallel(2)

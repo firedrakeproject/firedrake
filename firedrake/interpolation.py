@@ -703,16 +703,12 @@ class SameMeshInterpolator(Interpolator):
     def _interpolate_with_options(self):
         options = asdict(self.ufl_interpolate.options)
         options.update(subset=self.subset, access=self.access)
-        return self.ufl_interpolate._ufl_expr_reconstruct_(
-            self.operand, v=self.dual_arg, **options
-        )
+        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=self.dual_arg, **options)
 
     @property
     def _needs_adjoint_weighting(self):
-        return (
-            isinstance(self.dual_arg, Cofunction)
-            and any(not V.finat_element.is_dg() for V in self.target_space)
-        )
+        return (isinstance(self.dual_arg, Cofunction)
+                and any(not V.finat_element.is_dg() for V in self.target_space))
 
     @cached_property
     def _weighted_dual_arg(self):
@@ -738,10 +734,7 @@ class SameMeshInterpolator(Interpolator):
                 for (PetscInt i=0; i<{size}; i++) w[i] += 1;
             }}"""
             kernel = op2.Kernel(kernel_code, f"multiplicity_{i}")
-            op2.par_loop(
-                kernel, iterset,
-                component_weight(op2.INC, node_map),
-            )
+            op2.par_loop(kernel, iterset, component_weight(op2.INC, node_map))
         with weight.vec as weight_vec:
             weight_vec.reciprocal()
         return weight
@@ -749,17 +742,12 @@ class SameMeshInterpolator(Interpolator):
     @cached_property
     def _interpolate_to_assemble(self):
         if self._needs_adjoint_weighting:
-            return self._interpolate_with_options._ufl_expr_reconstruct_(
-                self.operand, v=self._weighted_dual_arg
-            )
+            return self._interpolate_with_options._ufl_expr_reconstruct_(self.operand, v=self._weighted_dual_arg)
         return self._interpolate_with_options
 
     def _update_weighted_dual_arg(self):
         self.dual_arg.dat.copy(self._weighted_dual_arg.dat)
-        with (
-            self._adjoint_weight.vec_ro as weight,
-            self._weighted_dual_arg.dat.vec as dual,
-        ):
+        with self._adjoint_weight.vec_ro as weight, self._weighted_dual_arg.dat.vec as dual:
             dual.pointwiseMult(dual, weight)
 
     def _get_tensor(self) -> Function:
@@ -781,21 +769,15 @@ class SameMeshInterpolator(Interpolator):
         # needed here and can recurse forever on some composed expressions.
         from firedrake.assemble import get_form_assembler
 
-        return get_form_assembler(
-            self._interpolate_to_assemble,
-            bcs=bcs,
-            mat_type=mat_type,
-            sub_mat_type=sub_mat_type,
-            needs_zeroing=self.rank == 2 or self.access is op2.INC,
-            access=self.access,
-        )
+        return get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
+                                  mat_type=mat_type, sub_mat_type=sub_mat_type,
+                                  needs_zeroing=self.rank == 2 or self.access is op2.INC,
+                                  access=self.access)
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import ParloopFormAssembler
 
-        assembler = self._make_assembler(
-            bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
-        )
+        assembler = self._make_assembler(bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)
         # DirichletBC needs to know now whether it can interpolate its value,
         # so it can project instead when it can't.
         if isinstance(assembler, ParloopFormAssembler):
@@ -806,10 +788,7 @@ class SameMeshInterpolator(Interpolator):
         inputs = assembler.input_dats if isinstance(assembler, ParloopFormAssembler) else set()
         if isinstance(self.dual_arg, Cofunction):
             inputs = inputs | set(self.dual_arg.dat)
-        if (
-            isinstance(tensor, Function | Cofunction)
-            and set(tensor.dat) & inputs
-        ):
+        if isinstance(tensor, Function | Cofunction) and set(tensor.dat) & inputs:
             output = tensor
             tensor = assembler.allocate()
             copyout = (partial(tensor.dat.copy, output.dat),)

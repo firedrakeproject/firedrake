@@ -113,10 +113,7 @@ class InterpolateMapper(DAGTraverser):
     def _(self, o: ufl.Interpolate, operand: Expr) -> Expr:
         """Represent an Interpolate node in the target element's reference frame."""
         dual_arg, _ = o.argument_slots()
-        domain = (
-            extract_unique_domain(operand)
-            or dual_arg.ufl_function_space().ufl_domain()
-        )
+        domain = extract_unique_domain(operand) or dual_arg.ufl_function_space().ufl_domain()
         element = o.ufl_element()
         operand = apply_mapping(operand, element, domain)
         # Build the UFL node directly: the operand is now in the reference
@@ -498,13 +495,9 @@ def apply_mapping(expression, element, domain):
             size = int(numpy.prod(physical_shape, dtype=int))
             piece = as_tensor(numpy.asarray(flat[offset:offset + size]).reshape(physical_shape))
             mapped = apply_mapping(piece, subelement, subdomain)
-            reference_components.extend(
-                mapped[index] for index in numpy.ndindex(mapped.ufl_shape)
-            )
+            reference_components.extend(mapped[index] for index in numpy.ndindex(mapped.ufl_shape))
             offset += size
-        rexpression = as_tensor(
-            numpy.asarray(reference_components).reshape(element.reference_value_shape)
-        )
+        rexpression = as_tensor(numpy.asarray(reference_components).reshape(element.reference_value_shape))
     elif mapping == "covariant piola":
         J = Jacobian(mesh)
         *k, i, j = indices(len(expression.ufl_shape) + 1)

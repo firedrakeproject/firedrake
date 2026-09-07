@@ -156,19 +156,15 @@ def _integrand_is_compilable(integral):
     """Can TSFC compile every base form operator in this integrand?"""
     valid_domains = set(integral.extra_domain_integral_type_map())
     valid_domains.add(integral.ufl_domain())
-    return all(
-        isinstance(op, ufl.Interpolate) and set(extract_domains(op)) <= valid_domains
-        for op in ufl.algorithms.extract_base_form_operators(integral.integrand())
-    )
+    return all(isinstance(op, ufl.Interpolate) and set(extract_domains(op)) <= valid_domains
+               for op in ufl.algorithms.extract_base_form_operators(integral.integrand()))
 
 
 _ONE_FORM_OPTIONS = frozenset({"bcs", "form_compiler_parameters", "needs_zeroing",
                                "zero_bc_nodes", "weight", "access"})
 
 
-def get_form_assembler(
-    form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs
-) -> "ParloopFormAssembler":
+def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs) -> "ParloopFormAssembler":
     """Construct the assembler for the rank of ``form``, forwarding the relevant options."""
     diagonal = kwargs.pop("diagonal", False)
     nargs = len(form.arguments())
@@ -1036,8 +1032,7 @@ class ParloopFormAssembler(FormAssembler):
         Should ``tensor`` be zeroed before assembling?
 
     """
-    def __init__(self, form, bcs=None, form_compiler_parameters=None,
-                 needs_zeroing=True, access=op2.INC):
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, access=op2.INC):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
         self._access = access
@@ -1157,8 +1152,7 @@ class ParloopFormAssembler(FormAssembler):
         if isinstance(self._form, (ufl.Form, ufl.Interpolate)):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
-                parameters=self._form_compiler_params,
-                access=self._access,
+                parameters=self._form_compiler_params, access=self._access
             )
         elif isinstance(self._form, slate.TensorBase):
             kernels = slac.compile_expression(
@@ -1261,19 +1255,13 @@ class OneFormAssembler(ParloopFormAssembler):
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                    zero_bc_nodes=True, diagonal=False, weight=1.0, access=op2.INC):
         bcs = solving._extract_bcs(bcs)
-        return (tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing,
-                zero_bc_nodes, diagonal, weight, access)
+        return tuple(bcs), tuplify(form_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight, access
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  zero_bc_nodes=True, diagonal=False, weight=1.0, access=op2.INC):
-        super().__init__(
-            form,
-            bcs=bcs,
-            form_compiler_parameters=form_compiler_parameters,
-            needs_zeroing=needs_zeroing,
-            access=access,
-        )
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+                         needs_zeroing=needs_zeroing, access=access)
         self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
@@ -1432,13 +1420,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
                  allocation_integral_types=None, access=op2.INC):
-        super().__init__(
-            form,
-            bcs=bcs,
-            form_compiler_parameters=form_compiler_parameters,
-            needs_zeroing=needs_zeroing,
-            access=access,
-        )
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+                         needs_zeroing=needs_zeroing, access=access)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
         self._options_prefix = options_prefix
@@ -1843,11 +1826,7 @@ class _GlobalKernelBuilder:
 
     def _make_dat_global_kernel_arg(self, V, index=None):
         finat_element = create_element(V.ufl_element())
-        map_ = _get_entity_node_map(
-            self._mesh, V, self._integral_type,
-            self._subdomain_id, self._all_integer_subdomain_ids,
-        )
-        map_arg = map_._global_kernel_arg
+        map_arg = _get_entity_node_map(self._mesh, V, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
             subargs = tuple(self._make_dat_global_kernel_arg(Vsub, index=index)
@@ -1865,14 +1844,7 @@ class _GlobalKernelBuilder:
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
-            rmap, cmap = (
-                _get_entity_node_map(
-                    self._mesh, V, self._integral_type,
-                    self._subdomain_id, self._all_integer_subdomain_ids,
-                )
-                for V in (Vrow, Vcol)
-            )
-            rmap_arg, cmap_arg = rmap._global_kernel_arg, cmap._global_kernel_arg
+            rmap_arg, cmap_arg = (_get_entity_node_map(self._mesh, V, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
@@ -1901,10 +1873,7 @@ _RUNTIME_TABULATION_ARG_NAME = RUNTIME_VARIABLE_PREFIX + "X"
 
 
 def _check_runtime_tabulation_arg(arg, mesh):
-    if (
-        arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME
-        or not isinstance(mesh.topology, VertexOnlyMeshTopology)
-    ):
+    if arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME or not isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Unknown runtime tabulation argument")
 
 
@@ -1990,9 +1959,7 @@ def _as_global_kernel_arg_constant(_, self):
 @_as_global_kernel_arg.register(kernel_args.TabulationKernelArg)
 def _as_global_kernel_arg_tabulation(arg, self):
     _check_runtime_tabulation_arg(arg, self._mesh)
-    return self._make_dat_global_kernel_arg(
-        self._mesh.reference_coordinates.function_space()
-    )
+    return self._make_dat_global_kernel_arg(self._mesh.reference_coordinates.function_space())
 
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -2154,19 +2121,15 @@ class ParloopBuilder:
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
         test_space = _primal_space(self.test_function_space)
-        bcrow = tuple(
-            bc for bc in self._bcs
-            if bc.parent_function_space == test_space
-            and (len(test_space) == 1 or bc.function_space_index() == row)
-        )
+        bcrow = tuple(bc for bc in self._bcs
+                      if bc.parent_function_space == test_space
+                      and (len(test_space) == 1 or bc.function_space_index() == row))
 
         trial_space = _primal_space(self.trial_function_space)
-        bccol = tuple(
-            bc for bc in self._bcs
-            if isinstance(bc, DirichletBC)
-            and bc.parent_function_space == trial_space
-            and (len(trial_space) == 1 or bc.function_space_index() == col)
-        )
+        bccol = tuple(bc for bc in self._bcs
+                      if isinstance(bc, DirichletBC)
+                      and bc.parent_function_space == trial_space
+                      and (len(trial_space) == 1 or bc.function_space_index() == col))
         return bcrow, bccol
 
     def needs_unrolling(self):
@@ -2267,10 +2230,7 @@ class ParloopBuilder:
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-        return _get_entity_node_map(
-            self._mesh, V, self._integral_type,
-            self._subdomain_id, self._all_integer_subdomain_ids,
-        )
+        return _get_entity_node_map(self._mesh, V, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
 
     def _as_parloop_arg(self, tsfc_arg):
         """Return a :class:`op2.ParloopArg` corresponding to the provided

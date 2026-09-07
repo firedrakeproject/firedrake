@@ -68,13 +68,8 @@ class KernelBuilderBase(KernelInterface):
 
     def coefficient_components(self, ufl_coefficient, restriction):
         """Return GEM expressions for a coefficient's stored components."""
-        coefficients = self.coefficient_split.get(
-            ufl_coefficient, (ufl_coefficient,)
-        )
-        return tuple(
-            self.coefficient(coefficient, restriction)
-            for coefficient in coefficients
-        )
+        coefficients = self.coefficient_split.get(ufl_coefficient, (ufl_coefficient,))
+        return tuple(self.coefficient(coefficient, restriction) for coefficient in coefficients)
 
     def constant(self, const):
         return self.constant_map[const]
@@ -179,9 +174,7 @@ class KernelBuilderMixin(object):
             output_indices = self.argument_multiindices[expression.arguments().index(dual_arg)]
             if tuple(i.extent for i in basis_indices) != tuple(i.extent for i in output_indices):
                 raise ValueError("Interpolation output index shape mismatch")
-            evaluation, = gem.optimise.remove_componenttensors(
-                [evaluation], tuple(zip(basis_indices, output_indices))
-            )
+            evaluation, = gem.optimise.remove_componenttensors([evaluation], tuple(zip(basis_indices, output_indices)))
 
         mode = pick_mode(params["mode"])
         ctx["quadrature_indices"].extend(quadrature_multiindex)
