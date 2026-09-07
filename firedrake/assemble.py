@@ -1533,7 +1533,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def _apply_bc(self, tensor, bc, u=None):
         assert u is None
         op2tensor = tensor.M
-        spaces = tuple(_primal_space(a.function_space()) for a in tensor.a.arguments())
+        spaces = tuple(a.function_space() for a in tensor.a.arguments())
         V = bc.function_space()
         component = V.component
         if component is not None:
