@@ -9,7 +9,7 @@ from ufl.algorithms import extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter, build_coefficient_split
 from ufl.classes import Form, GeometricQuantity
-from ufl.domain import MeshSequence, extract_unique_domain, extract_domains
+from ufl.domain import extract_unique_domain, extract_domains, join_domains
 
 import gem
 import gem.impero_utils as impero_utils
@@ -136,13 +136,12 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
     original_coefficients = expression.coefficients()
     dual_arg, operand = expression.argument_slots()
     target_domain = dual_arg.ufl_function_space().ufl_domain()
-    if isinstance(target_domain, MeshSequence):
-        target_domains = set(target_domain.meshes)
-        if len(target_domains) != 1:
-            raise NotImplementedError(
-                "Interpolation onto multiple distinct meshes is not supported"
-            )
-        target_domain, = target_domains
+    target_domains = join_domains([target_domain])
+    if len(target_domains) != 1:
+        raise NotImplementedError(
+            "Interpolation onto multiple distinct meshes is not supported"
+        )
+    target_domain, = target_domains
     source_domain = (
         extract_unique_domain(operand)
         or target_domain
