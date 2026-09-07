@@ -160,8 +160,8 @@ We'll only use stationary preconditioners in the Schur complement, so
 we can get away with GMRES applied to the whole mixed system:
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      "ksp_type": "gmres",
 
 We set up a Schur preconditioner, which is of type "fieldsplit". We also
@@ -169,8 +169,8 @@ need to tell the preconditioner that we want to eliminate :math:`\sigma`,
 which is field "1", to get an equation for :math:`u`, which is field "0".
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      "pc_type": "fieldsplit",
      "pc_fieldsplit_type": "schur",
      "pc_fieldsplit_0_fields": "1",
@@ -179,23 +179,23 @@ which is field "1", to get an equation for :math:`u`, which is field "0".
 The "selfp" option selects a diagonal approximation of the A00 block.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      "pc_fieldsplit_schur_precondition": "selfp",
 
 We just use ILU to approximate the inverse of A00, without a KSP solver,
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      "fieldsplit_0_pc_type": "ilu",
      "fieldsplit_0_ksp_type": "preonly",
 
 and use GAMG to approximate the inverse of the Schur complement matrix.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      "fieldsplit_1_ksp_type": "preonly",
      "fieldsplit_1_pc_type": "gamg",
      "fieldsplit_1_mg_levels_pc_type": "sor",
@@ -203,9 +203,9 @@ and use GAMG to approximate the inverse of the Schur complement matrix.
 Finally, we'd like to see some output to check things are working, and
 to limit the KSP solver to 20 iterations.
 
-.. code-block:: python
+.. code-block:: python 
+  :dedent: 0
 
-  #
      "ksp_monitor": None,
      "ksp_max_it": 20,
      "snes_monitor": None

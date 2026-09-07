@@ -88,8 +88,8 @@ Having built the function spaces, we can now proceed to defining the
 problem.  We will need some trial and test functions for the spaces:
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         sigma, u = TrialFunctions(W)
         tau, v = TestFunctions(W)
 
@@ -97,8 +97,8 @@ along with a random function to hold the forcing term, living in the
 discontinuous space.
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         rg = RandomGenerator()
         f = rg.uniform(V)
 
@@ -109,8 +109,8 @@ variational formulation (they are identically zero).  As a result, the
 specification of the variational problem is particularly simple:
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         a = dot(sigma, tau)*dx + div(tau)*u*dx + div(sigma)*v*dx
         L = -f*v*dx
 
@@ -124,8 +124,8 @@ form suitable for assembling as an operator.  Obviously we only do so
 if ``aP`` is provided.
 
 .. code-block:: python
-
-    #
+    :dedent: 0
+    
         if aP is not None:
             aP = aP(W)
 
@@ -135,8 +135,8 @@ we must specify whether we want a monolithic matrix or not, by setting the
 preconditioner matrix type in the solver parameters.
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         parameters['pmat_type'] = 'nest' if block_matrix else 'aij'
 
         w = Function(W)
@@ -146,8 +146,8 @@ preconditioner matrix type in the solver parameters.
 Finally, we return solver and solution function as a tuple.
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         return solver, w
 
 With these preliminaries out of the way, we can now move on to
@@ -178,15 +178,15 @@ GMRES with a restart length of 100,
 solve to a relative tolerance of 1e-8,
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         "ksp_rtol": 1e-8,
 
 and precondition with ILU(0).
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         "pc_type": "ilu",
         }
 
@@ -204,8 +204,8 @@ Finally, at each mesh size, we print out the number of cells in the
 mesh and the number of iterations the solver took to converge:
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
 
 The resulting convergence is unimpressive:
@@ -285,8 +285,8 @@ of 30, but solve to a relative tolerance of 1e-8:
 this time we want a ``fieldsplit`` preconditioner.
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "schur",
         "pc_fieldsplit_schur_fact_type": "full",
@@ -594,8 +594,8 @@ it is just a mass matrix in a discontinuous space and is therefore
 inverted exactly using a single application of zero-fill ILU.
 
 .. code-block:: python
+    :dedent: 0
 
-    #
         "fieldsplit_1_ksp_type": "preonly",
         "fieldsplit_1_pc_type": "ilu",
 
@@ -604,8 +604,8 @@ first attempt, we will invert it with a direct solver.  This is a reasonable
 option up to a few tens of thousands of degrees of freedom.
 
 .. code-block:: python
-
-    #
+    :dedent: 0
+    
         "fieldsplit_0_ksp_type": "preonly",
         "fieldsplit_0_pc_type": "lu",
     }

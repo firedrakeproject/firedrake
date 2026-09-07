@@ -221,8 +221,8 @@ Now we enter the timeloop.
 The energy can be computed and checked.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      E = assemble((u0*u0 + alphasq*u0.dx(0)*u0.dx(0))*dx)
      print("t = ", t, "E = ", E)
 
@@ -230,8 +230,8 @@ To implement the timestepping algorithm, we just call the solver, and assign
 ``w1`` to ``w0``.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      usolver.solve()
      w0.assign(w1)
 
@@ -239,8 +239,8 @@ Finally, we check if it is time to dump the data. The function will be appended
 to the array of functions to be plotted later:
 
 .. code-block:: python
+  :dedent: 0
 
-  #
      dumpn += 1
      if dumpn == ndump:
         dumpn -= ndump

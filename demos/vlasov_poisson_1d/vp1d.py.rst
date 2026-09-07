@@ -381,8 +381,8 @@ Each Runge-Kutta stage involves solving for :math:`\phi` before solving
 for :math:`\partial f/\partial t`. Here is the first stage.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
       fstar.assign(fn)
       phi_solver.solve()
       df_solver.solve()
@@ -391,8 +391,8 @@ for :math:`\partial f/\partial t`. Here is the first stage.
 The second stage.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
       fstar.assign(f1)
       phi_solver.solve()
       df_solver.solve()
@@ -401,8 +401,8 @@ The second stage.
 The third stage.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
       fstar.assign(f2)
       phi_solver.solve()
       df_solver.solve()
@@ -412,8 +412,8 @@ The third stage.
 Finally we output to the VTK file if it is time to do that.
 
 .. code-block:: python
+  :dedent: 0
 
-  #
       dumpn += 1
       if dumpn % ndump == 0:
           dumpn = 0
