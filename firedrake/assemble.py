@@ -162,13 +162,7 @@ def _integrand_is_compilable(integral):
 
 
 def _is_compilable(form):
-    """Can ``form`` be assembled by a single compiled kernel?
-
-    An `ufl.Interpolate` on a domain its integral already visits is fused into
-    that integral's kernel, so a form holding only those still compiles.  Every
-    other base form operator has to be assembled on its own by
-    `BaseFormAssembler`.
-    """
+    """Can ``form`` be assembled by a single compiled kernel?"""
     if isinstance(form, ufl.form.Form):
         return all(map(_integrand_is_compilable, form.integrals()))
     elif isinstance(form, slate.TensorBase):
