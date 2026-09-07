@@ -193,9 +193,7 @@ class CellVolumeKernelInterface(CellKernelInterface):
 
     def coefficient_components(self, ufl_coefficient, r):
         assert r is None
-        return self._wrapee.coefficient_components(
-            ufl_coefficient, self.restriction
-        )
+        return self._wrapee.coefficient_components(ufl_coefficient, self.restriction)
 
 
 class CoordinateMapping(PhysicalGeometry):
@@ -384,25 +382,19 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
     else:
         coordinate_mapping = None
     if isinstance(dual_arg, ufl.Cofunction):
-        gem_duals = kernel_cfg["interface"].coefficient_components(
-            dual_arg, None
-        )
+        gem_duals = kernel_cfg["interface"].coefficient_components(dual_arg, None)
     else:
         gem_duals = ()
 
     if not gem_duals:
-        evaluation, point_indices, basis_indices = to_element.dual_evaluation(
-            fn, coordinate_mapping
-        )
+        evaluation, point_indices, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
         return evaluation, tuple(point_indices), basis_indices
 
     # A mixed dual argument has one component per sub-element.
     elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
     summands = []
     for element, gem_dual in zip(elements, gem_duals, strict=True):
-        evaluation, point_indices, basis_indices = element.dual_evaluation(
-            fn, coordinate_mapping
-        )
+        evaluation, point_indices, basis_indices = element.dual_evaluation(fn, coordinate_mapping)
         if is_complex(kernel_cfg["scalar_type"]):
             evaluation = gem.MathFunction("conj", evaluation)
         # The dual argument contracts over the nodes, so the basis indices
@@ -412,9 +404,7 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
         for var, expr in unconcatenate([(dual, evaluation)], kernel_cfg["index_cache"]):
             product = gem.Product(expr, var)
             indices = tuple(point_indices) + var.index_ordering()
-            summands.append(gem.IndexSum(
-                product, tuple(i for i in indices if i in product.free_indices)
-            ))
+            summands.append(gem.IndexSum(product, tuple(i for i in indices if i in product.free_indices)))
     return gem.optimise.make_sum(summands), (), ()
 
 
@@ -440,9 +430,7 @@ class DualEvaluationCallable:
             translation_context = PointSetContext(**kernel_cfg)
 
         gem_expr, = compile_ufl(self.expression, translation_context, point_sum=False)
-        assert set(gem_expr.free_indices) <= set(
-            chain(point_set.indices, *kernel_cfg["argument_multiindices"])
-        )
+        assert set(gem_expr.free_indices) <= set(chain(point_set.indices, *kernel_cfg["argument_multiindices"]))
         return gem_expr
 
 
@@ -861,10 +849,7 @@ def translate_constant_value(terminal, mt, ctx):
 @translate.register(ufl.Interpolate)
 def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: ContextBase) -> gem.Node:
     dual_arg, operand = terminal.argument_slots()
-    domain = (
-        extract_unique_domain(operand)
-        or dual_arg.ufl_function_space().ufl_domain()
-    )
+    domain = extract_unique_domain(operand) or dual_arg.ufl_function_space().ufl_domain()
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
     kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
     evaluation, quadrature_multiindex, basis_indices = dual_evaluate(terminal, element, kernel_cfg)
@@ -932,10 +917,8 @@ def translate_element(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: C
         unsummed_indices.update(ctx.unsummed_coefficient_indices)
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
             product = gem.Product(expr, var)
-            indices = tuple(
-                i for i in dict.fromkeys(chain(var.index_ordering(), beta))
-                if i not in unsummed_indices and i in product.free_indices
-            )
+            indices = tuple(i for i in dict.fromkeys(chain(var.index_ordering(), beta))
+                            if i not in unsummed_indices and i in product.free_indices)
             value = gem.IndexSum(product, indices)
             summands.append(gem.optimise.contraction(value))
         optimised_value = gem.optimise.make_sum(summands)
@@ -945,11 +928,7 @@ def translate_element(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: C
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
     allowed_indices = set(chain(ctx.point_indices, *ctx.argument_multiindices))
-    unexpected_indices = (
-        set(result.free_indices)
-        - ctx.unsummed_coefficient_indices
-        - allowed_indices
-    )
+    unexpected_indices = set(result.free_indices) - ctx.unsummed_coefficient_indices - allowed_indices
     assert not unexpected_indices, unexpected_indices
 
     # Detect Jacobian of affine cells

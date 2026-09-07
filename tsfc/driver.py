@@ -151,9 +151,7 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
         domain_integral_type_map={mesh: "cell" for mesh in all_meshes},
         arguments=expression.arguments(),
         coefficients=coefficients,
-        coefficient_split=build_coefficient_split(
-            c for c in coefficients if type(c.ufl_element()) is finat.ufl.MixedElement
-        ),
+        coefficient_split=build_coefficient_split(c for c in coefficients if type(c.ufl_element()) is finat.ufl.MixedElement),
         coefficient_numbers=tuple(map(original_coefficients.index, coefficients)),
     )
     builder = make_kernel_builder(integral_data_info, extract_firedrake_constants(expression), parameters)
@@ -165,9 +163,7 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
 
 def make_kernel_builder(integral_data_info, constants, parameters, diagonal=False):
     """Create a kernel builder holding every mesh quantity its integral may read."""
-    builder = firedrake_interface_loopy.KernelBuilder(
-        integral_data_info, parameters["scalar_type"], diagonal=diagonal,
-    )
+    builder = firedrake_interface_loopy.KernelBuilder(integral_data_info, parameters["scalar_type"], diagonal=diagonal)
     domains = tuple(integral_data_info.domain_integral_type_map)
     builder.set_entity_numbers(domains)
     builder.set_entity_orientations(domains)

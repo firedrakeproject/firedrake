@@ -294,9 +294,8 @@ class ExtractSubBlock(MultiFunction):
         if self._splitting_interpolate:
             return interpolation
 
-        interpolation_components = (
-            interpolation[j] for j in numpy.ndindex(interpolation.ufl_shape)
-        ) if interpolation.ufl_shape else iter((interpolation,))
+        interpolation_components = ((interpolation[j] for j in numpy.ndindex(interpolation.ufl_shape))
+                                    if interpolation.ufl_shape else iter((interpolation,)))
         components = self._embed_components(V, indices, interpolation_components)
         return as_tensor(numpy.reshape(components, V.value_shape))
 

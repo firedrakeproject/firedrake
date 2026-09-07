@@ -71,24 +71,14 @@ def test_submesh_interpolate_compile_form():
     expected = Function(W).interpolate(xs + 2*ys)
 
     actual = assemble(interpolate(f, W))
-    assert np.allclose(
-        actual.dat.data_ro_with_halos,
-        expected.dat.data_ro_with_halos,
-    )
+    assert np.allclose(actual.dat.data_ro_with_halos, expected.dat.data_ro_with_halos)
 
     operator = assemble(interpolate(TrialFunction(V), W))
     actual = assemble(action(operator, f))
-    assert np.allclose(
-        actual.dat.data_ro_with_halos,
-        expected.dat.data_ro_with_halos,
-    )
+    assert np.allclose(actual.dat.data_ro_with_halos, expected.dat.data_ro_with_halos)
 
     v = TestFunction(W)
-    subdx = Measure(
-        "dx",
-        submesh,
-        intersect_measures=(Measure("dx", mesh),),
-    )
+    subdx = Measure("dx", submesh, intersect_measures=(Measure("dx", mesh),))
     form = inner(interpolate(f, W), v) * subdx
     assembler = get_assembler(form)
     assert isinstance(assembler, OneFormAssembler)
