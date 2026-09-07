@@ -230,6 +230,7 @@ def discover_remote_roots(
 
         # Post non-blocking synchronous sends. 'Synchronous' means that the send is not
         # considered as complete by MPI_Test until the destination starts the matching receive.
+        # This is so that a rank cannot hit the barrier while any of its outgoing messages remain unmatched.
         for k in range(nranks_to):
             count = send_offsets[k + 1] - send_offsets[k]
             CHKERRMPI(MPI_Issend(
