@@ -45,6 +45,7 @@ from pyop3.insn.base import (
 )
 
 from pyop3.compile.loopy import LoopyCodegenContext
+from pyop3.compile.mlir import MLIRCodegenContext
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, pyop3.config)
@@ -76,7 +77,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     if compiler_parameters.backend == "loopy": 
         make_context = LoopyCodegenContext
     elif compiler_parameters.backend == "mlir": 
-        raise NotImplementedError("MLIR code generation is still being implemented.") 
+        make_context = MLIRCodegenContext
 
     context = make_context(
         propagate_negatives=compiler_parameters.propagate_negatives,
@@ -101,6 +102,9 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         )
 
     translation_unit = context.finalize_kernel(function_name, compiler_parameters)
+
+    if compiler_parameters.backend == "mlir":
+        raise NotImplementedError("MLIR code compilation is still being implemented.") 
 
     # Extra information needed by the code executor
     kernel_name_to_buffer_info = utils.invert_mapping(context.kernel_names)
@@ -436,7 +440,7 @@ def _(exscan, loop_indices, codegen_context):
     codegen_context.add_assignment(lexpr, rexpr)
 
 # NOTE: Make this overloaded function into class?
-@functools.singledispatch
+@functools.singledispatch   
 def _collect_temporary_shapes(expr):
     raise TypeError(f"No handler defined for {type(expr).__name__}")
 

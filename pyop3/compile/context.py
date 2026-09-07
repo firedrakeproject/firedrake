@@ -51,6 +51,7 @@ class CodegenContext(ABC):
         self._arguments = []
         self._subkernels = []
         self._last_insn_id = None # determine dependence
+        self._within_inames = frozenset()
 
         self._name_generator = utils.UniqueNameGenerator()
 
@@ -161,6 +162,10 @@ class CodegenContext(ABC):
 
     @abstractmethod
     def register_extent(self, obj: Any, inames, loop_indices):
+        pass
+
+    @abstractmethod
+    def within_inames(self, inames) -> None:
         pass
 
     # }}}
