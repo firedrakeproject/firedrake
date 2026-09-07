@@ -359,9 +359,10 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         # evaluation.  Each block then sums over its own basis indices, rather
         # than over the concatenated index, which nothing can be split along.
         var, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
-        summands = [gem.IndexSum(gem.Product(expr, v), v.index_ordering())
-                    for v, expr in unconcatenate([(var, evaluation)],
-                                                 kernel_cfg["index_cache"])]
+        summands = []
+        for v, expr in unconcatenate([(var, evaluation)], kernel_cfg["index_cache"]):
+            quadrature_multiindex += v.index_ordering()
+            summands.append(gem.IndexSum(gem.Product(expr, v), v.index_ordering()))
         evaluation = gem.optimise.make_sum(summands)
         basis_indices = ()
     else:

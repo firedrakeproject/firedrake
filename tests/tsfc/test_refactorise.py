@@ -51,9 +51,7 @@ def test_refactorise():
                                      gem.Literal(-1)))),
         Monomial((),
                  (v, v),
-                 gem.Product(gem.Literal(5),
-                             gem.IndexSum(gem.Product(f_i, gem.Literal(-1)),
-                                          (i,)))),
+                 gem.Product(gem.Literal(-5), gem.IndexSum(f_i, (i,)))),
     ]
 
     actual, = collect_monomials([expr], classifier)

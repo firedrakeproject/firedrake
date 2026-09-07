@@ -76,26 +76,11 @@ class BCBase(object):
         yield self
         yield from itertools.chain(*self.bcs)
 
-    def function_space(self, parent=False):
+    def function_space(self):
         '''The :class:`.FunctionSpace` on which this boundary condition should
-        be applied.
+        be applied.'''
 
-        Parameters
-        ----------
-        parent : bool
-            If ``True``, walk up through any indexed or component subspaces
-            and return the top-level function space instead.
-
-        Returns
-        -------
-        firedrake.functionspaceimpl.WithGeometry
-            The function space.
-        '''
-        V = self._function_space
-        if parent:
-            while V.parent is not None:
-                V = V.parent
-        return V
+        return self._function_space
 
     def function_space_index(self):
         fs = self._function_space
@@ -104,6 +89,14 @@ class BCBase(object):
         if fs.index is None:
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
+
+    @property
+    def parent_function_space(self):
+        """The top-level function space, walking up through indexed or component subspaces."""
+        V = self._function_space
+        while V.parent is not None:
+            V = V.parent
+        return V
 
     @cached_property
     def domain_args(self):
