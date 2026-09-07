@@ -2153,18 +2153,11 @@ class ParloopBuilder:
 
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
-
-        def block_index(bc):
-            fs = bc.function_space()
-            if fs.component is not None:
-                fs = fs.parent
-            return fs.index
-
         test_space = _primal_space(self.test_function_space)
         bcrow = tuple(
             bc for bc in self._bcs
             if bc.parent_function_space == test_space
-            and (len(test_space) == 1 or block_index(bc) == row)
+            and (len(test_space) == 1 or bc.function_space_index() == row)
         )
 
         trial_space = _primal_space(self.trial_function_space)
@@ -2172,7 +2165,7 @@ class ParloopBuilder:
             bc for bc in self._bcs
             if isinstance(bc, DirichletBC)
             and bc.parent_function_space == trial_space
-            and (len(trial_space) == 1 or block_index(bc) == col)
+            and (len(trial_space) == 1 or bc.function_space_index() == col)
         )
         return bcrow, bccol
 
