@@ -65,7 +65,7 @@ def find_sub_block(iset, ises, comm):
     return found
 
 
-class ImplicitMatrixContext(object):
+class ImplicitMatrixContext:
     @PETSc.Log.EventDecorator()
     def __init__(
         self,
