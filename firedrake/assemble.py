@@ -195,8 +195,10 @@ def get_assembler(form, *args, **kwargs):
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
     if isinstance(form, ufl.form.Form):
         can_compile = all(map(_integrand_is_compilable, form.integrals()))
+    elif isinstance(form, slate.TensorBase):
+        can_compile = len(BaseFormAssembler.base_form_operands(form)) == 0
     else:
-        can_compile = not BaseFormAssembler.base_form_operands(form)
+        can_compile = False
 
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and can_compile:
         return get_form_assembler(form, *args, **kwargs)
@@ -209,7 +211,7 @@ def get_assembler(form, *args, **kwargs):
         raise ValueError(f'Expecting a BaseForm, slate.TensorBase, or Expr object: got {form}')
 
 
-class ExprAssembler(object):
+class ExprAssembler:
     """Expression assembler.
 
     Parameters
