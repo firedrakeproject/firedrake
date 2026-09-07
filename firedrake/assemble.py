@@ -160,10 +160,6 @@ def _integrand_is_compilable(integral):
                for op in ufl.algorithms.extract_base_form_operators(integral.integrand()))
 
 
-_ONE_FORM_OPTIONS = frozenset({"bcs", "form_compiler_parameters", "needs_zeroing",
-                               "zero_bc_nodes", "weight", "access"})
-
-
 def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs) -> "ParloopFormAssembler":
     """Construct the assembler for the rank of ``form``, forwarding the relevant options."""
     diagonal = kwargs.pop("diagonal", False)
@@ -171,8 +167,7 @@ def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
     if nargs == 0:
         return ZeroFormAssembler(form, form_compiler_parameters=kwargs.get("form_compiler_parameters"))
     elif nargs == 1 or diagonal:
-        one_form_kwargs = {k: v for k, v in kwargs.items() if k in _ONE_FORM_OPTIONS}
-        return OneFormAssembler(form, *args, diagonal=diagonal, **one_form_kwargs)
+        return OneFormAssembler(form, *args, diagonal=diagonal, **kwargs)
     elif nargs == 2:
         return TwoFormAssembler(form, *args, **kwargs)
     else:
