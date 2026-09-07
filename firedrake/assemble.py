@@ -1389,12 +1389,6 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
         raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij', or 'is')")
     return mat_type, sub_mat_type
 
-
-def _primal_space(V):
-    """Return the primal space of a form argument's function space."""
-    return V.dual() if ufl.duals.is_dual(V) else V
-
-
 class ExplicitMatrixAssembler(ParloopFormAssembler):
     """Class for assembling a matrix.
 
@@ -1547,7 +1541,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         index = 0 if V.index is None else V.index
         space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
-            if not any(bc.parent_function_space == fs for fs in spaces):
+            if not any(bc.parent_function_space.topological == fs.topological for fs in spaces):
                 raise TypeError("bc space does not match the test or trial function space")
             if spaces[0] != spaces[1]:
                 # Not on a diagonal block, we cannot set diagonal entries
@@ -2120,15 +2114,13 @@ class ParloopBuilder:
 
     def _filter_bcs(self, row, col):
         assert len(self._form.arguments()) == 2 and not self._diagonal
-        test_space = _primal_space(self.test_function_space)
         bcrow = tuple(bc for bc in self._bcs
-                      if bc.parent_function_space == test_space
+                      if bc.parent_function_space.topological == self.test_function_space.topological
                       and (len(test_space) == 1 or bc.function_space_index() == row))
 
-        trial_space = _primal_space(self.trial_function_space)
         bccol = tuple(bc for bc in self._bcs
                       if isinstance(bc, DirichletBC)
-                      and bc.parent_function_space == trial_space
+                      and bc.parent_function_space.topological == self.trial_function_space.topological
                       and (len(trial_space) == 1 or bc.function_space_index() == col))
         return bcrow, bccol
 
