@@ -11,6 +11,7 @@ import contextlib
 import functools
 import gc
 import hashlib
+import itertools
 import os
 import pickle
 import re
@@ -18,8 +19,6 @@ import sys
 import weakref
 from collections import defaultdict
 from collections.abc import Callable, Hashable, Mapping, MutableMapping
-from functools import wraps
-from itertools import count
 from pathlib import Path
 from tempfile import mkstemp
 from typing import Any
@@ -39,7 +38,7 @@ from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 from cachetools import LRUCache  # noqa: F401
 
 
-_CACHE_CIDX = count()
+_CACHE_CIDX = itertools.count()
 _KNOWN_CACHES = []
 
 
@@ -552,7 +551,7 @@ def parallel_cache(
 
     def decorator(func):
         @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
-        @wraps(func)
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
 
             if heavy and len(_heavy_caches) == 0:
@@ -587,7 +586,7 @@ def parallel_cache(
                         if cache_id not in comm_caches:
                             # This must be a weak key dictionary, where the keys are the
                             # lifetime objects, to ensure that it does not explode
-                            comm_caches[cache_id] = weakref.WeakKeyDictionary()
+                            comm_caches[cache_id] = WeakHeavyObjectCacheStore()
 
                         caches = []
                         cache_type = None
@@ -774,8 +773,16 @@ class heavy_caches:
 
     """
 
+    counter = itertools.count()
+
     def __init__(self, objs: Any) -> None:
         objs = pyop3.collections.as_tuple(objs)
+
+        for obj in objs:
+            if not hasattr(obj, "_pyop3_heavy_cache_id"):
+                object.__setattr__(
+                    obj, "_pyop3_heavy_cache_id", next(self.counter)
+                )
 
         for obj in objs:
             _alive_heavy_caches.add(obj)
@@ -811,3 +818,40 @@ def with_heavy_caches(get_obj: Callable) -> Callable:
 
 with_self_heavy_cache = with_heavy_caches(lambda self, *a, **kw: (self,))
 """Method decorator that sets ``self`` as a heavy cache."""
+
+
+class WeakHeavyObjectCacheStore:
+    """
+    Keys are heavy cache objects, values are caches. If the heavy object dies
+    then the cache must die too.
+
+    WeakKeyDictionary doesn't work because of hashing
+
+    obj1 = myfunc()
+    obj2 = myfunc()
+    obj1 == obj2  # True
+    hash(obj1) == hash(obj2)  # True
+    obj1 is obj2  # False
+
+    weakref.ref(obj1) == weakref.ref(obj2)  # True
+    hash(weakref.ref(obj1)) == hash(weakref.ref(obj2))  # True!!!
+
+    We need a cache that truly works on identity hashing.
+
+    """
+    def __init__(self):
+        self._data = {}
+
+    def __getitem__(self, obj):
+        assert hasattr(obj, "_pyop3_heavy_cache_id")
+        obj_id = obj._pyop3_heavy_cache_id
+        return self._data[obj_id]
+
+    def __setitem__(self, obj, value):
+        assert hasattr(obj, "_pyop3_heavy_cache_id")
+        obj_id = obj._pyop3_heavy_cache_id
+
+        self._data[obj_id] = value
+
+        # When obj dies remove the corresponding cache entry
+        weakref.finalize(obj, lambda: self._data.pop(obj_id, None))
