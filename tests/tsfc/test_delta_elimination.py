@@ -1,6 +1,6 @@
 import pytest
 
-from gem.gem import Delta, Identity, Index, Indexed, one
+from gem.gem import Delta, Identity, Index, Indexed, Variable, one
 from gem.optimise import delta_elimination, remove_componenttensors
 
 
@@ -18,6 +18,22 @@ def test_delta_elimination():
 
     assert sum_indices == []
     assert factors == [one, one, Indexed(I, (k, k))]
+
+
+def test_delta_elimination_protected():
+    i = Index()
+    k = Index()
+    A = Variable("A", (3,))
+    factors = [Delta(i, k), Indexed(A, (i,))]
+
+    # Cancelling the Delta gathers A along the protected index instead.
+    cancelled, _ = delta_elimination((i,), factors)
+    assert cancelled == []
+
+    # Protecting it keeps the Delta, so A is still gathered along i.
+    cancelled, kept = delta_elimination((i,), factors, protected={k})
+    assert cancelled == [i]
+    assert kept == factors
 
 
 if __name__ == "__main__":

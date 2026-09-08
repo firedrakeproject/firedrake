@@ -37,9 +37,16 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
 
+    argument_indices = tuple(chain.from_iterable(argument_multiindices))
+
     # Cancel the Deltas that select a basis transformation's columns, so that
     # monomial collection sees the resulting gather rather than the Delta.
-    expressions = [cancel_nested_deltas(e) for e in expressions]
+    # A Delta that ties an argument axis to the axis a coefficient is gathered
+    # along stays put: substituting it makes the gather itself depend on the
+    # argument, and monomial collection then has to expand the contraction the
+    # coefficient sits in, one monomial per basis function.
+    expressions = [cancel_nested_deltas(e, protected=frozenset(argument_indices))
+                   for e in expressions]
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -49,7 +56,6 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
         expressions = unroll_indexsum(expressions, predicate=predicate)
 
     expressions = [index_sum(e, quadrature_multiindex) for e in expressions]
-    argument_indices = tuple(chain.from_iterable(argument_multiindices))
     return [Integral(e, quadrature_multiindex, argument_indices) for e in expressions]
 
 
