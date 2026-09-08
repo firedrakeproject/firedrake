@@ -536,7 +536,7 @@ jobs:
       - name: Setup flake8 annotations
         uses: rbialon/flake8-annotations@v1
       - name: Install linting packages
-        run: pip install flake8 pylint
+        run: pip install flake8 pylint cython-lint
       - name: Lint codebase
         run: make lint GITHUB_ACTIONS_FORMATTING=1
 

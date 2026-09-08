@@ -37,8 +37,8 @@ Organising committee
 --------------------
 
 * `David Ham <https://www.imperial.ac.uk/people/david.ham>`__, Imperial College London
-* `Daiane I. Dolci <https://www.imperial.ac.uk/people/d.dolci>`__, Imperial College London
-* `Koki Sagiyama <https://www.imperial.ac.uk/people/k.sagiyama>`__, Imperial College London
+* Daiane I. Dolci, Imperial College London
+* Koki Sagiyama, Imperial College London
 
 Further details
 ---------------

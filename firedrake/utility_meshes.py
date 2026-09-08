@@ -2500,13 +2500,13 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     Npoints = panel_numbering.max() + 1
     coords = np.zeros((Npoints, 3), dtype=np.double)
     lX, lY = np.meshgrid(x, x)
-    lX.shape = (Nx**2,)
-    lY.shape = (Nx**2,)
+    lX = lX.reshape((Nx**2,))
+    lY = lY.reshape((Nx**2,))
     r = (a**2 + lX**2 + lY**2) ** 0.5
 
     # Now we need to compute the gnonomic transformation
     # for each of the panels
-    panel_numbering.shape = (6, Nx**2)
+    panel_numbering = panel_numbering.reshape((6, Nx**2))
 
     def coordinates_on_panel(panel_num, X, Y, Z):
         I = panel_numbering[panel_num, :]

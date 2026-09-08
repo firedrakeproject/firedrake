@@ -239,6 +239,12 @@ install Firedrake. To do this perform the following steps:
       so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
       for more information.
 
+#. Set ``PIP_CONSTRAINT`` to work around
+   `an issue with Cython <https://gitlab.com/petsc/petsc/-/work_items/1929>`__::
+
+      $ echo 'Cython<3.3.0' > constraints.txt
+      $ export PIP_CONSTRAINT=$PWD/constraints.txt
+
 #. Install Firedrake::
 
       $ pip install --no-binary h5py 'firedrake[check]'
@@ -508,6 +514,13 @@ to customise the options that are passed to PETSc ``configure``. You can either:
    $ python3 ../firedrake-configure --show-petsc-configure-options > my_configure_options.txt
    <edit my_configure_options.txt>
    $ cat my_configure_options.txt | xargs -L1 ./configure
+
+* Append options directly to ``firedrake-configure`` by listing them after a
+  literal ``--``. They are added to the end of the generated options and, since
+  PETSc applies last-one-wins, override any generated option. For example, to
+  set a portable CPU target instead of the default ``-march=native``::
+
+   $ python3 ../firedrake-configure --show-petsc-configure-options -- --COPTFLAGS='-O3 -march=x86-64-v2 -mtune=generic'
 
 .. note::
    If additional options are passed to ``configure`` then care must be taken when

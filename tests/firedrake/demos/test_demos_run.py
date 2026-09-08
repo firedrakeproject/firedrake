@@ -44,6 +44,7 @@ SERIAL_DEMOS = [
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("poisson_adaptive_eigenvalue", "poisson_adaptive_eigenvalue"), ["netgen", "slepc", "vtk"]),
     Demo(("patch", "poisson_mg_patches"), []),
     Demo(("patch", "stokes_vanka_patches"), []),
     Demo(("patch", "hcurl_riesz_star"), []),

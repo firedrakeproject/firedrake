@@ -1,6 +1,7 @@
 import firedrake
 import ufl
 import finat.ufl
+import warnings
 import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
@@ -9,7 +10,7 @@ from .interface import assemble_prolongation_aij
 from finat.element_factory import create_element
 from .utils import get_level
 
-__all__ = ("TransferManager", )
+__all__ = ("TransferManager",)
 
 
 class Op(IntEnum):
@@ -441,3 +442,11 @@ class TransferManager(object):
         P = self._prolongation_matrix(Vc, Vf)
         with rf.dat.vec_ro as x, rc.dat.vec_wo as y:
             P.petscmat.multTranspose(x, y)
+
+def AdaptiveTransferManager(*args, **kwargs):
+    """Deprecated alias for `TransferManager`."""
+    warnings.warn(
+        "The ``AdaptiveTransferManager`` class is deprecated and will be removed in a future release. "
+        "Please use the ``TransferManager`` class instead.", FutureWarning
+    )
+    return TransferManager(*args, **kwargs)
