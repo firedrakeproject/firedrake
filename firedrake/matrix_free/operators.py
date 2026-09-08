@@ -102,8 +102,6 @@ class ImplicitMatrixContext:
         """
         from firedrake.assemble import get_assembler
 
-        assert appctx is None, "old API"
-
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
