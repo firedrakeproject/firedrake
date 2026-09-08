@@ -7,25 +7,15 @@ import ctypes
 import cython
 from libc.stddef cimport size_t
 from libc.stdint cimport uintptr_t, uint32_t, int64_t
-from libc.stdlib cimport free, malloc
+from libc.stdlib cimport calloc, free
 
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport (
-    MPI_ANY_SOURCE,
-    MPI_REQUEST_NULL,
-    MPI_STATUS_IGNORE,
-    MPI_STATUSES_IGNORE,
+    MPI_Alltoall,
+    MPI_Alltoallv,
+    MPI_INT,
     MPI_TYPECLASS_INTEGER,
     MPI_Datatype,
-    MPI_Get_count,
-    MPI_Ibarrier,
-    MPI_Iprobe,
-    MPI_Issend,
-    MPI_Recv,
-    MPI_Request,
-    MPI_Status,
-    MPI_Test,
-    MPI_Testall,
     MPI_Type_match_size,
 )
 
@@ -167,12 +157,6 @@ def discover_remote_roots(
         MPI.Comm comm):
     """Build the remote array for a candidate star forest. Collective.
 
-    This implements the non-blocking consensus algorithm from Hoefler et al.
-    'Scalable communication protocols for dynamic sparse data exchange'.
-
-    This routine duplicates the given comm since we send tag-0 messages
-    and listen with MPI_IProbe(MPI_ANY_SOURCE).
-
     Parameters
     ----------
     rtree : RTree
@@ -190,14 +174,14 @@ def discover_remote_roots(
         remote root point.
     """
     cdef:
-        MPI.Comm dup_comm = comm.Dup()
-        MPI.MPI_Comm mpi_comm = dup_comm.ob_mpi
-        MPI_Request *send_requests = NULL
-        MPI_Request barrier_request = MPI_REQUEST_NULL
-        MPI_Status status
+        MPI.MPI_Comm mpi_comm = comm.ob_mpi
         MPI_Datatype point_index_type
-        int count, source_rank, message_ready, sends_complete = 0
-        int barrier_complete = 0
+        int count, rank, source_rank
+        int nranks = comm.size
+        int *send_counts = NULL
+        int *send_displacements = NULL
+        int *recv_counts = NULL
+        int *recv_displacements = NULL
         Py_ssize_t nleaves = 0, recv_offset = 0
         int64_t *send_ranks = NULL
         size_t *point_indices = NULL
@@ -205,7 +189,6 @@ def discover_remote_roots(
         size_t n_points = points.shape[0], nranks_to = 0
         np.ndarray[np.uintp_t, ndim=1, mode="c"] received
         np.ndarray[PetscInt, ndim=2, mode="c"] remote
-        list recv_messages = []
 
     try:
         # MPI does not have a builtin type for size_t
@@ -222,78 +205,55 @@ def discover_remote_roots(
         ) != Success:
             raise RuntimeError("rtree_locate_points_grouped_by_id_unique failed")
 
-        # Each rank knows where to send to, but not where it is going to receive from.
-        # The following algorithm is the 'non-blocking consensus' algorithm (Hoefler et al.)
-        # which is a sparse alternative to MPI_Alltoallv
-        if nranks_to != 0:
-            send_requests = <MPI_Request *>malloc(nranks_to * sizeof(MPI_Request))
+        send_counts = <int *>calloc(nranks, sizeof(int))
+        send_displacements = <int *>calloc(nranks, sizeof(int))
+        recv_counts = <int *>calloc(nranks, sizeof(int))
+        recv_displacements = <int *>calloc(nranks, sizeof(int))
 
-        # Post non-blocking synchronous sends. 'Synchronous' means that the send is not
-        # considered as complete by MPI_Test until the destination starts the matching receive.
-        # This is so that a rank cannot hit the barrier while any of its outgoing messages remain unmatched.
         for k in range(nranks_to):
+            rank = send_ranks[k]
             count = send_offsets[k + 1] - send_offsets[k]
-            CHKERRMPI(MPI_Issend(
-                <const void *>&point_indices[send_offsets[k]],
-                count, point_index_type,
-                <int>send_ranks[k],
-                0,
-                mpi_comm,
-                &send_requests[k],
-            ))
+            send_counts[rank] = count
+            send_displacements[rank] = send_offsets[k]
 
-        # MPI_Ibarrier is a non-blocking barrier. It posts into `barrier_request`. This request is
-        # not considered complete until all ranks on the comm post the barrier request.
-        # This is used to know when a rank has sent all of its messages.
-        # In the case we are sending no messages, we do this now.
-        if nranks_to == 0:
-            CHKERRMPI(MPI_Ibarrier(mpi_comm, &barrier_request))
+        CHKERRMPI(MPI_Alltoall(
+            <const void *>send_counts, 1, MPI_INT,
+            <void *>recv_counts, 1, MPI_INT,
+            mpi_comm,
+        ))
 
-        # Enter a loop where we continuously probe for incoming messages.
-        # `barrier_complete` is true when all ranks have hit the barrier.
-        while not barrier_complete:
-            # We don't know where we are going to receive from, so we use MPI_ANY_SOURCE. If we're
-            # about to receive a message, then `message_ready` is true.
-            CHKERRMPI(MPI_Iprobe(MPI_ANY_SOURCE, 0, mpi_comm, &message_ready, &status))
+        for rank in range(nranks):
+            recv_displacements[rank] = nleaves
+            nleaves += recv_counts[rank]
 
-            # We're receiving a message: determine the number of entries, and do the blocking receive.
-            if message_ready:
-                CHKERRMPI(MPI_Get_count(&status, point_index_type, &count))
-                source_rank = status.MPI_SOURCE
-                received = np.empty(count, dtype=np.uintp)
-                CHKERRMPI(MPI_Recv(<void *>received.data, count, point_index_type, source_rank, 0, mpi_comm, MPI_STATUS_IGNORE))
-                recv_messages.append((source_rank, received))
-                nleaves += count
+        received = np.empty(nleaves, dtype=np.uintp)
+        CHKERRMPI(MPI_Alltoallv(
+            <const void *>point_indices,
+            send_counts, send_displacements, point_index_type,
+            <void *>received.data,
+            recv_counts, recv_displacements, point_index_type,
+            mpi_comm,
+        ))
 
-            if barrier_request == MPI_REQUEST_NULL:
-                # This rank has not hit the barrier. Test if all the sends have been complete. If they
-                # have, then this ranks hits the barrier to mark that its sends have completed.
-                CHKERRMPI(MPI_Testall(nranks_to, send_requests, &sends_complete, MPI_STATUSES_IGNORE))
-                if sends_complete:
-                    CHKERRMPI(MPI_Ibarrier(mpi_comm, &barrier_request))
-            else:
-                # This rank has hit the barrier and has posted `barrier_request`. This request completes
-                # when _all_ other ranks send barrier_request. Then MPI_Test will set `barrier_complete`
-                # to true which ends the loop.
-                CHKERRMPI(MPI_Test(&barrier_request, &barrier_complete, MPI_STATUS_IGNORE))
+        remote = np.empty((nleaves, 2), dtype=IntType)
+        for source_rank in range(nranks):
+            count = recv_counts[source_rank]
+            remote[recv_offset:recv_offset + count, 0] = source_rank
+            remote[recv_offset:recv_offset + count, 1] = received[
+                recv_offset:recv_offset + count
+            ]
+            recv_offset += count
     finally:
-        dup_comm.Free()
-        if send_requests != NULL:
-            free(send_requests)
+        free(send_counts)
+        free(send_displacements)
+        free(recv_counts)
+        free(recv_displacements)
         if rtree_free_ids(send_ranks, nranks_to) != Success:
             raise RuntimeError("rtree_free_ids failed")
         if rtree_free_point_indices(point_indices, send_offsets[nranks_to]) != Success:
             raise RuntimeError("rtree_free_point_indices failed")
         if rtree_free_offsets(send_offsets, nranks_to + 1) != Success:
             raise RuntimeError("rtree_free_offsets failed")
-
-    # create remote array for candidate star forest
-    remote = np.empty((nleaves, 2), dtype=IntType)
-    for source_rank, received in recv_messages:
-        count = received.shape[0]
-        remote[recv_offset:recv_offset + count, 0] = source_rank
-        remote[recv_offset:recv_offset + count, 1] = received
-        recv_offset += count
 
     return remote
 
