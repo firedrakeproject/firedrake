@@ -574,6 +574,12 @@ def solve_init_params(self, args, kwargs, varform):
                 raise NotImplementedError(
                     "Annotation of adaptive solves not implemented."
                 )
+            # adj_kwargs feeds the assembled-matrix adjoint solve
+            # ``firedrake.solve(A, x, b, ...)``, whose kwarg validation
+            # rejects a top-level ``appctx`` (on that path appctx is read
+            # from ``solver_parameters`` instead). Drop it here; for solves
+            # driven through the variational solver mixin it is reinstated,
+            # suitably cloned, on the adjoint LinearVariationalSolver.
             self.adj_kwargs.pop("appctx", None)
 
     solver_params = kwargs.get("solver_parameters", None)
