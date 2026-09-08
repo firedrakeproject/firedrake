@@ -9,13 +9,16 @@ from ufl.utils.sequences import max_degree
 from ufl.domain import extract_unique_domain
 
 import gem
+import gem.gem
 import gem.impero_utils as impero_utils
 import petsctools
 import numpy
 from FIAT.reference_element import TensorProductCell
 from finat.cell_tools import max_complex
+from finat.duffy import DuffyElement
 from finat.quadrature import AbstractQuadratureRule
 from gem.node import traversal
+from gem.driver import unflatten_returns
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
 from numpy import asarray
@@ -210,6 +213,8 @@ class KernelBuilderMixin(object):
             assignments.extend(mode.flatten(var_reps.items(), ctx['index_cache']))
 
         if assignments:
+            # Rewrite flat FlattenedTensor scatters as jagged lattice loops
+            assignments = unflatten_returns(assignments)
             return_variables, expressions = zip(*assignments)
         else:
             return_variables = []
@@ -231,11 +236,18 @@ class KernelBuilderMixin(object):
         active_variables = gem.extract_type(expressions, gem.Variable)
         # Construct ImperoC
         assignments = list(zip(return_variables, expressions))
-        index_ordering = get_index_ordering(ctx['quadrature_indices'], return_variables)
-        try:
-            impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
-        except impero_utils.NoopError:
+        candidates = []
+        for index_ordering in index_orderings(
+                ctx['quadrature_indices'], return_variables, assignments):
+            try:
+                candidates.append(impero_utils.compile_gem(
+                    assignments, index_ordering, remove_zeros=True))
+            except impero_utils.NoopError:
+                candidates.append(None)
+        if any(candidate is None for candidate in candidates):
             impero_c = None
+        else:
+            impero_c = min(candidates, key=_storage_cost)
         return impero_c, oriented, needs_cell_sizes, tabulations, active_variables
 
     def fem_config(self):
@@ -344,6 +356,11 @@ def set_quad_rule(params, cell, integral_type, functions):
         scheme = quad_rule
         fiat_cell = as_fiat_cell(cell)
         finat_elements = set(create_element(e) for e in elements if e.family() != "Real")
+        if (scheme == "default" and integral_type == "cell"
+                and any(isinstance(finat_el, DuffyElement)
+                        for finat_el in finat_elements)):
+            # Duffy tabulation requires a collapsed-coordinate point set.
+            scheme = "collapsed"
         fiat_cells = [fiat_cell] + [finat_el.complex for finat_el in finat_elements]
         if any(c.is_macrocell() for c in fiat_cells):
             if len(set(c.get_spatial_dimension() for c in fiat_cells)) > 1:
@@ -360,10 +377,73 @@ def set_quad_rule(params, cell, integral_type, functions):
                          type(quad_rule))
 
 
-def get_index_ordering(quadrature_indices, return_variables):
+def _spans_output(node, output_indices):
+    """Check whether a node reduces a summand that spans the whole output."""
+    return (isinstance(node, gem.IndexSum)
+            and set(node.free_indices) == output_indices)
+
+
+def _terminal_reductions(assignments):
+    """Quadrature indices whose reduction cannot shrink what it accumulates.
+
+    Such a reduction has no tensor smaller than the output to accumulate
+    into, so running its loop outside the argument loops costs an
+    output-shaped temporary.  Placing it innermost instead makes the
+    accumulator a scalar, at the cost of giving every stage that feeds it
+    a quadrature axis, so neither placement dominates and both are costed.
+    """
+    terminal = set()
+    for variable, expression in assignments:
+        output_indices = set(variable.free_indices)
+        if _spans_output(expression, output_indices):
+            # A root reduction accumulates straight into the output, so
+            # the outer placement costs nothing extra.
+            continue
+        for node in traversal((expression,)):
+            if _spans_output(node, output_indices):
+                terminal.update(node.multiindex)
+    return terminal
+
+
+def get_index_ordering(quadrature_indices, return_variables, assignments=()):
+    """Return the single best-guess outermost loop ordering.
+
+    For callers that compile one ordering rather than costing several.
+    """
+    return index_orderings(quadrature_indices, return_variables,
+                           assignments)[0]
+
+
+def index_orderings(quadrature_indices, return_variables, assignments=()):
+    """Return the candidate outermost loop orderings, best guess first.
+
+    Quadrature loops run outside the argument loops, which keeps every
+    intermediate contraction stage free of a quadrature axis.  When an
+    output-shaped reduction cannot accumulate into the output itself,
+    that placement also forces an output-shaped temporary, so the
+    ordering that runs it innermost is offered as an alternative.
+    """
     split_argument_indices = tuple(chain(*(var.index_ordering()
                                            for var in return_variables)))
-    return tuple(quadrature_indices) + split_argument_indices
+    quadrature_indices = tuple(quadrature_indices)
+    default = quadrature_indices + split_argument_indices
+    terminal = _terminal_reductions(assignments)
+    if not terminal:
+        return (default,)
+    head = tuple(i for i in quadrature_indices if i not in terminal)
+    tail = tuple(i for i in quadrature_indices if i in terminal)
+    return (default, head + split_argument_indices + tail)
+
+
+def _storage_cost(impero_c):
+    """Total declared size of an Impero program's temporaries."""
+    total = 0
+    for temporary in impero_c.temporaries:
+        if isinstance(temporary, gem.gem.Constant):
+            continue
+        shape, _ = gem.compact_index_layout(tuple(impero_c.indices[temporary]))
+        total += numpy.prod(shape + temporary.shape, dtype=int)
+    return total
 
 
 def get_index_names(quadrature_indices, argument_multiindices, index_cache):

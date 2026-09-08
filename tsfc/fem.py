@@ -16,6 +16,7 @@ from finat.physically_mapped import (NeedsCoordinateMappingElement,
 from finat.point_set import PointSet, PointSingleton
 from finat.quadrature import make_quadrature
 from finat.element_factory import as_fiat_cell, create_element
+from gem.driver import contraction
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import unconcatenate
@@ -781,7 +782,7 @@ def translate_coefficient(terminal, mt, ctx):
         for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
             indices = tuple(i for i in var.index_ordering() if i not in ctx.unsummed_coefficient_indices)
             value = gem.IndexSum(gem.Product(expr, var), indices)
-            summands.append(gem.optimise.contraction(value))
+            summands.append(contraction(value))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
