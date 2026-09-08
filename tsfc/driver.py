@@ -75,7 +75,6 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     assert isinstance(form, Form)
 
     GREEN = "\033[1;37;32m%s\033[0m"
-    form = ufl_utils.lower_form_interpolations(form)
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
