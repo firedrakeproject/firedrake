@@ -59,7 +59,7 @@ livehtml:
 serve: html
 	cd $(BUILDDIR)/html; python3 -m SimpleHTTPServer $(PORT)
 
-.PHONY: copy_demos copy_notebooks
+.PHONY: copy_demos copy_notebooks notebook_assets
 
 source/demos: copy_demos
 
@@ -68,32 +68,38 @@ copy_demos:
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
 	for file in source/demos/*.py.rst; do pylit $$file; done
 
+NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
+EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))
+
 # Convert the py:percent tutorial notebooks to .ipynb, copy across the data
 # files they reference at runtime, and execute them. nbsphinx then renders the
-# stored output (nbsphinx_execute='never'). This is a real (directory) target
-# depending on the notebook sources, so the notebooks are executed once per
-# build (only when a source changes) rather than once per Sphinx builder.
+# stored output (nbsphinx_execute='never'). Each notebook is its own target, so
+# editing one re-executes only that one, and `make -j` executes them in
+# parallel.
 # Cells carrying the ``skip-execution`` and ``raises-exception`` tags (the same
 # tags nbval honours) are skipped / allowed to raise by nbconvert automatically.
-# The matplotlib display settings (inline backend, SVG figures, figure size)
-# come from ipython_kernel_config.py via a throwaway IPython profile under the
-# (gitignored) build directory, so the notebooks need no display preamble.
-source/notebooks: $(wildcard notebooks/*.py) ipython_kernel_config.py
-	rm -rf source/notebooks
-	install -d source/notebooks
+source/notebooks: $(EXECUTED_NOTEBOOKS)
+	touch $@
+
+# The data files the notebooks read at runtime, and the throwaway IPython
+# profile they execute under, which carries the matplotlib display settings
+# (inline backend, SVG figures, figure size) so the notebooks need no display
+# preamble. An order-only prerequisite, so refreshing these does not re-execute
+# the notebooks.
+notebook_assets:
+	install -d source/notebooks $(BUILDDIR)/ipython/profile_default
 	cp -r notebooks/image source/notebooks/
 	cp notebooks/*.geo notebooks/*.msh source/notebooks/
-	for file in notebooks/*.py; do \
-		jupytext --to ipynb --output source/notebooks/`basename $${file%.py}`.ipynb $$file; \
-	done
-	install -d $(BUILDDIR)/ipython/profile_default
 	cp ipython_kernel_config.py $(BUILDDIR)/ipython/profile_default/
+
+source/notebooks/%.ipynb: notebooks/%.py ipython_kernel_config.py | notebook_assets
+	jupytext --to ipynb --output $@ $<
 	env IPYTHONDIR=$(CURDIR)/$(BUILDDIR)/ipython OMP_NUM_THREADS=1 jupyter nbconvert \
 		--execute \
 		--to notebook \
 		--inplace \
 		--ExecutePreprocessor.timeout=600 \
-		source/notebooks/*.ipynb
+		$@
 
 # Convenience target to force regeneration of the executed notebooks.
 copy_notebooks:

@@ -78,7 +78,10 @@ docs = [
   "jupytext",  # convert the .py tutorial notebooks to .ipynb
   "matplotlib",  # needed to resolve API
   "nbsphinx",  # execute and render the tutorial notebooks
+  "networkx",  # draw the pyadjoint tape in the adjoint tutorial notebook
   "numpydoc",
+  "pdf2image",  # render the drawn tape (needs poppler)
+  "pygraphviz",  # networkx's graphviz layout (needs the graphviz headers)
   "pylit",
   "sphinx",
   "sphinx-autobuild",
