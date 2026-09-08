@@ -191,11 +191,12 @@ def classify(argument_indices, expression, delta_inside):
         # ties two argument axes together survives cancellation until
         # delta_elimination narrows the output variable onto its diagonal.
         return ATOMIC
-    elif n == 1:
-        if isinstance(expression, (FlexiblyIndexed, Indexed)) and not delta_inside(expression):
-            return ATOMIC
-        else:
-            return COMPOUND
+    elif isinstance(expression, (FlexiblyIndexed, Indexed)) and not delta_inside(expression):
+        # A gather is a terminal too, so expansion cannot break one up either.
+        # This holds however many argument axes index it: an element that ties
+        # its axes together, such as a tensor element, gathers along both at
+        # once.
+        return ATOMIC
     else:
         return COMPOUND
 
