@@ -153,11 +153,22 @@ def assemble(expr, *args, **kwargs):
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
+def _interpolate_is_compilable(op, valid_domains):
+    """Can TSFC fuse ``op`` into the kernel of the integral that holds it?"""
+    if not isinstance(op, ufl.Interpolate):
+        return False
+    # A non-terminal dual argument names a form that has to be assembled on its
+    # own beforehand, so it cannot share a kernel with the integral.
+    dual_arg, _ = op.argument_slots()
+    return (isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction))
+            and set(extract_domains(op)) <= valid_domains)
+
+
 def _integrand_is_compilable(integral):
     """Can TSFC compile every base form operator in this integrand?"""
     valid_domains = set(integral.extra_domain_integral_type_map())
     valid_domains.add(integral.ufl_domain())
-    return all(isinstance(op, ufl.Interpolate) and set(extract_domains(op)) <= valid_domains
+    return all(_interpolate_is_compilable(op, valid_domains)
                for op in ufl.algorithms.extract_base_form_operators(integral.integrand()))
 
 
@@ -719,6 +730,10 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
             return expr.ufl_operands
         if isinstance(expr, ufl.Form):
+            if _is_compilable(expr):
+                # The form is a leaf: its interpolations share its kernels, and
+                # descending would assemble each of them on its own instead.
+                return []
             # Use reversed to treat base form operators
             # in the order in which they have been made.
             return list(reversed(expr.base_form_operators()))
