@@ -37,9 +37,13 @@ fieldsplit preconditioning, without having to set everything up in
 advance.
 """
 
+import dataclasses
 import weakref
-import numpy
+from collections.abc import Callable
 from functools import partial
+from typing import Any
+
+import numpy
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -569,3 +573,32 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     # a non-mixed space)
     dm.setCreateFieldDecomposition(create_field_decomposition)
     dm.setCreateSubDM(create_subdm)
+
+
+@dataclasses.dataclass(frozen=True)
+class Hooked:
+    """Class wrapping an object that can be passed through a solver stack.
+
+    Parameters
+    ----------
+    obj
+        The wrapped object (e.g. a `firedrake.Function`).
+    refine_callback
+        Callback to refine the object.
+    coarsen_callback
+        Callback to coarsen the object.
+
+    """
+    obj: Any
+    refine_callback: Callable | None = None
+    coarsen_callback: Callable | None = None
+
+    def refine(self):
+        if self.refine_callback is None:
+            raise NotImplementedError("No implementation for 'refine_callback' found")
+        return dataclasses.replace(self, obj=self.refine_callback(self.obj))
+
+    def coarsen(self):
+        if self.coarsen_callback is None:
+            raise NotImplementedError("No implementation for 'coarsen_callback' found")
+        return dataclasses.replace(self, obj=self.coarsen_callback(self.obj))

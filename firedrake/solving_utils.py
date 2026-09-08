@@ -1,7 +1,7 @@
 import typing
 import warnings
 from itertools import chain
-from typing import Any
+from typing import Any, Literal
 
 import numpy
 import petsctools
@@ -243,7 +243,6 @@ class _SNESContext:
             self.state = self._x
         else:
             self.state = state
-        # appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self._appctx = appctx
         self.matfree = matfree
@@ -363,13 +362,15 @@ class _SNESContext:
                     else:
                         raise KeyError
                 else:
-                    assert False, "old api"
-                    warnings.warn(
-                        "Passing Python objects to preconditioners via the 'appctx' kwarg "
-                        "is now deprecated. Pass the objects into the PETSc options "
-                        "directly instead.",
-                        FutureWarning,
-                    )
+                    if not isinstance(value, dmhooks.Hooked):
+                        warnings.warn(
+                            "Passing arbitrary Python objects to preconditioners via the 'appctx' kwarg "
+                            "is now deprecated. Either pass the objects into the PETSc options "
+                            "directly or specify hooks instead.",
+                            FutureWarning,
+                        )
+                    else:
+                        value = value.obj
             else:
                 if default is not _missing:
                     value = default
@@ -765,3 +766,36 @@ class _SNESContext:
     @cached_property
     def _F(self):
         return Cofunction(self.F.arguments()[0].function_space().dual())
+
+
+def _refine_function(function) -> Function:
+    return _transfer_function(function, "refine")
+
+
+def _coarsen_function(function) -> Function:
+    return _transfer_function(function, "coarsen")
+
+
+def _transfer_function(
+    function: Function,
+    mode: Literal["refine", "coarsen"],
+) -> Function:
+    from firedrake.mg.ufl_utils import refine, coarsen
+
+    V = function.function_space()
+    Vnew = refine(V, refine) if mode == "refine" else coarsen(V, coarsen)
+
+    name = function.name()
+    if name is not None:
+        try:
+            name, prev_level = name.split("_level_")
+        except ValueError:
+            prev_level = 0
+        level_inc = 1 if mode == "refine" else -1
+        level = int(prev_level) + level_inc
+        name = f"{name}_level_{level}"
+
+    new_func = Function(Vnew, name=name)
+    manager = dmhooks.get_transfer_manager(V.dm)
+    manager.transfer(function, new_func)
+    return new_func

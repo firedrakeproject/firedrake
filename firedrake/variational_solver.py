@@ -11,7 +11,7 @@ from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETE
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction
+from firedrake.ufl_expr import TrialFunction, TestFunction, extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import as_ufl, replace, Form
@@ -405,8 +405,31 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         solver_parameters = flatten_parameters(solver_parameters or {})
 
-        # debugging
-        assert appctx is None, "old api"
+        if appctx is None:
+            appctx = {}
+
+        # The appctx is propagated throughout the full solver stack with entries
+        # getting coarsened, split etc along the way. We know how to do some basic
+        # things like refining a function on the same mesh, but anything more
+        # complex needs to be provided by users with the callbacks in place.
+        for key, value in appctx.items():
+            if isinstance(value, dmhooks.Hooked):
+                continue
+            elif isinstance(value, Function):
+                # If we hit a compatible function then we can add the hooks here
+                hooks = {}
+                if extract_domains(value) == extract_domains(problem.u):
+                    hooks["refine_callback"] = solving_utils._refine_function
+                    hooks["coarsen_callback"] = solving_utils._coarsen_function
+                appctx[key] = dmhooks.Hooked(value, **hooks)
+            else:
+                # Leave unchanged for the moment, this will eventually become an error
+                warnings.warn(
+                    f"Object with type {type(value).__name__} found in the "
+                    "appctx. Please either provide the necessary hooks yourself "
+                    "or consider passing the data via the solver parameters instead.",
+                    FutureWarning,
+                )
 
         if isinstance(problem.J, MatrixBase):
             solver_parameters.setdefault("mat_type", problem.J.mat_type)
