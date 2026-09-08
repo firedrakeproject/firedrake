@@ -37,8 +37,6 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
 
-    argument_indices = tuple(chain.from_iterable(argument_multiindices))
-
     # Cancel the indirect Deltas that select a basis transformation's columns.
     # No later pass can: monomial collection only cancels Deltas that surface
     # as factors of a monomial, and one buried in a preserved linear map never
@@ -53,6 +51,7 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
         expressions = unroll_indexsum(expressions, predicate=predicate)
 
     expressions = [index_sum(e, quadrature_multiindex) for e in expressions]
+    argument_indices = tuple(chain.from_iterable(argument_multiindices))
     return [Integral(e, quadrature_multiindex, argument_indices) for e in expressions]
 
 
