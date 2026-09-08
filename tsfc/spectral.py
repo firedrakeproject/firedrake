@@ -37,8 +37,10 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
 
-    # Cancel the Deltas that select a basis transformation's columns, so that
-    # monomial collection sees the resulting gather rather than the Delta.
+    # Cancel the indirect Deltas that select a basis transformation's columns.
+    # No later pass can: monomial collection only cancels Deltas that surface
+    # as factors of a monomial, and one buried in a preserved linear map never
+    # does, so it would reach code generation.
     expressions = [cancel_nested_deltas(e) for e in expressions]
 
     # Unroll
