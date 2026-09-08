@@ -2063,6 +2063,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             assert isinstance(self._parent_mesh, VertexOnlyMeshTopology)
             dmcommon.mark_entity_classes(self.topology_dm)
 
+    @PETSc.Log.EventDecorator()
     def _init_particle_ids(self):
         from firedrake.functionspace import FunctionSpace
         from firedrake.function import CoordinatelessFunction
@@ -2084,6 +2085,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         cell = self._ufl_cell
         return ufl.Mesh(finat.ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension))
 
+    @PETSc.Log.EventDecorator()
     def _renumber_entities(self, reorder):
         if reorder:
             swarm = self.topology_dm
@@ -2113,6 +2115,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return (PETSc.DM.PolytopeType.POINT,)
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -2190,11 +2193,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return self.num_vertices()
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "Cells", comm=self.comm)
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
@@ -2212,6 +2217,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                        self.cell_parent_cell_list, "cell_parent_cell")
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def cell_parent_base_cell_list(self):
         """Return a list of parent mesh base cells numbers in vertex only
         mesh cell order.
@@ -2233,6 +2239,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                        self.cell_parent_base_cell_list, "cell_parent_base_cell")
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def cell_parent_extrusion_height_list(self):
         """Return a list of parent mesh extrusion heights in vertex only
         mesh cell order.
@@ -2257,6 +2264,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def cell_global_index(self):
         """Return a list of unique cell IDs in vertex only mesh cell order."""
         with self.topology_dm.field("globalindex") as globalindex_field:
@@ -2264,6 +2272,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return cell_global_index
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
@@ -2290,6 +2299,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             )
 
     @staticmethod
+    @PETSc.Log.EventDecorator()
     def _make_input_ordering_sf(swarm, nroots, ilocal):
         # ilocal = None -> leaves are swarm points [0, 1, 2, ...).
         # ilocal can also be Firedrake cell numbers.
@@ -2310,6 +2320,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return sf
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def input_ordering_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
@@ -2327,6 +2338,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return VertexOnlyMeshTopology._make_input_ordering_sf(self.topology_dm, nroots, ilocal)
 
     @cached_property  # TODO: Recalculate if mesh moves
+    @PETSc.Log.EventDecorator()
     def input_ordering_without_halos_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
@@ -2360,6 +2372,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
     """A representation of mesh topology and geometry."""
 
     @MeshGeometryMixin._ad_annotate_init
+    @PETSc.Log.EventDecorator("CreateMeshGeometry")
     def __init__(self, coordinates):
         """Initialise a mesh geometry from coordinates.
 
@@ -2658,16 +2671,19 @@ values from f.)"""
         numpy.ndarray
             Array of shape `(n_boxes, 2, gdim)` containing bounding boxes
         """
-        tree_depth = rtree.tree_depth(self.rtree)
+        with PETSc.Log.Event("Mesh: rtree depth"):
+            tree_depth = rtree.tree_depth(self.rtree)
         if tree_depth == 0:
             # This indicates an empty tree, which can happen if the mesh has no cells on this rank.
             return np.empty((0, 2, self.geometric_dimension), dtype=utils.RealType)
         gdim = self.geometric_dimension
-        prev_bboxes = rtree.bounding_boxes_at_level(self.rtree, 0, gdim)
+        with PETSc.Log.Event("Mesh: rtree bounding boxes"):
+            prev_bboxes = rtree.bounding_boxes_at_level(self.rtree, 0, gdim)
         prev_vol = self._bounding_boxes_total_volume(prev_bboxes)
 
         for level in range(1, tree_depth):
-            next_bboxes = rtree.bounding_boxes_at_level(self.rtree, level, gdim)
+            with PETSc.Log.Event("Mesh: rtree bounding boxes"):
+                next_bboxes = rtree.bounding_boxes_at_level(self.rtree, level, gdim)
             next_vol = self._bounding_boxes_total_volume(next_bboxes)
 
             if next_vol >= prev_vol:
@@ -2701,12 +2717,14 @@ values from f.)"""
 
         # Allgather per-rank box counts
         counts = np.empty(comm.size, dtype=IntType)
-        comm.Allgather(np.array([n_local], dtype=IntType), counts)
+        with PETSc.Log.Event("Mesh: partition rtree counts"):
+            comm.Allgather(np.array([n_local], dtype=IntType), counts)
         n_total = int(counts.sum())
 
         # Allgatherv the bbox data
         all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
-        comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
+        with PETSc.Log.Event("Mesh: partition rtree bounding boxes"):
+            comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
 
         # Reshape to (n_total, 2, gdim) and split into lo/hi corner arrays.
         all_bboxes = all_bboxes_flat.reshape(n_total, 2, gdim)
@@ -2716,7 +2734,8 @@ values from f.)"""
         # Set the owning rank as the leaf id so queries return rank numbers.
         ids = np.repeat(np.arange(comm.size, dtype=np.int64), counts)
 
-        return rtree.build_from_aabb(regions_lo, regions_hi, ids)
+        with PETSc.Log.Event("Mesh: partition rtree build"):
+            return rtree.build_from_aabb(regions_lo, regions_hi, ids)
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -2733,6 +2752,7 @@ values from f.)"""
         """
         return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance, cell_ignore=cell_ignore)[0]
 
+    @PETSc.Log.EventDecorator()
     def locate_reference_coordinate(self, x, tolerance=None, cell_ignore=None):
         """Get reference coordinates of a given point in its cell. Which
         cell the point is in can be queried with the locate_cell method.
@@ -2748,6 +2768,7 @@ values from f.)"""
         """
         return self.locate_cell_and_reference_coordinate(x, tolerance=tolerance, cell_ignore=cell_ignore)[1]
 
+    @PETSc.Log.EventDecorator()
     def locate_cell_and_reference_coordinate(self, x, tolerance=None, cell_ignore=None):
         """Locate cell containing a given point and the reference
         coordinates of the point within the cell.
@@ -2902,22 +2923,23 @@ values from f.)"""
                 }}
             """)
 
-            dll = compilation.load(
-                src, "c",
-                cppargs=[
-                    f"-I{os.path.dirname(__file__)}",
-                    f"-I{sys.prefix}/include",
-                    f"-I{firedrake_rtree.get_include()}",
-                    *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-                ],
-                ldargs=[
-                    f"-L{sys.prefix}/lib",
-                    firedrake_rtree.get_lib_filename(),
-                    f"-Wl,-rpath,{sys.prefix}/lib",
-                    f"-Wl,-rpath,{firedrake_rtree.get_lib()}"
-                ],
-                comm=self.comm
-            )
+            with PETSc.Log.Event("Mesh: c locator compile"):
+                dll = compilation.load(
+                    src, "c",
+                    cppargs=[
+                        f"-I{os.path.dirname(__file__)}",
+                        f"-I{sys.prefix}/include",
+                        f"-I{firedrake_rtree.get_include()}",
+                        *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+                    ],
+                    ldargs=[
+                        f"-L{sys.prefix}/lib",
+                        firedrake_rtree.get_lib_filename(),
+                        f"-Wl,-rpath,{sys.prefix}/lib",
+                        f"-Wl,-rpath,{firedrake_rtree.get_lib()}"
+                    ],
+                    comm=self.comm
+                )
             locator = getattr(dll, "locator")
             locator.argtypes = [ctypes.POINTER(function._CFunction),
                                 ctypes.POINTER(ctypes.c_double),
@@ -3826,6 +3848,7 @@ class VertexOnlyMeshSF:
     """A PETSc.SF to use for VertexOnlyMesh. Provides convenience
     methods of constructing and broadcasting/reducing using a star forest."""
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, sf: PETSc.SF) -> None:
         if not isinstance(sf, PETSc.SF):
             raise TypeError(f"`sf` must be a `PETSc.SF`, not a {type(sf).__name__}")
@@ -3833,6 +3856,7 @@ class VertexOnlyMeshSF:
         self.sf = sf
 
     @cached_property
+    @PETSc.Log.EventDecorator()
     def graph(self) -> tuple[int, np.ndarray, np.ndarray]:
         """The graph defining the star forest."""
         nroots, ilocal, iremote = self.sf.getGraph()
@@ -3873,6 +3897,7 @@ class VertexOnlyMeshSF:
         return self.remote[:, 1]
 
     @cached_property
+    @PETSc.Log.EventDecorator()
     def leaf_buffer_size(self) -> int:
         """Length required for a buffer for broadcasting to leaves.
         """
@@ -3898,13 +3923,15 @@ class VertexOnlyMeshSF:
             dtype=np.float64,
             order="C",
         )
-        remote = rtree.discover_remote_roots(
-            parent_mesh.partition_rtree,
-            root_coordinates,
-            parent_mesh.comm,
-        )
+        with PETSc.Log.Event("VertexOnlyMeshSF: discover candidate roots"):
+            remote = rtree.discover_remote_roots(
+                parent_mesh.partition_rtree,
+                root_coordinates,
+                parent_mesh.comm,
+            )
         sf = PETSc.SF().create(comm=parent_mesh.comm)
-        sf.setGraph(len(root_coordinates), None, remote)
+        with PETSc.Log.Event("VertexOnlyMeshSF: set candidate graph"):
+            sf.setGraph(len(root_coordinates), None, remote)
 
         return cls(sf)
 
@@ -3924,12 +3951,14 @@ class VertexOnlyMeshSF:
             yield base_type
             return
 
-        unit = base_type.Create_contiguous(item_count)
-        unit.Commit()
+        with PETSc.Log.Event("VertexOnlyMeshSF: create MPI datatype"):
+            unit = base_type.Create_contiguous(item_count)
+            unit.Commit()
         try:
             yield unit
         finally:
-            unit.Free()
+            with PETSc.Log.Event("VertexOnlyMeshSF: free MPI datatype"):
+                unit.Free()
 
     def _check_arrays(
         self,
@@ -3946,6 +3975,7 @@ class VertexOnlyMeshSF:
         if leaf_values.dtype != root_values.dtype:
             raise TypeError("`leaf_values` dtype does not match `root_values`.")
 
+    @PETSc.Log.EventDecorator()
     def broadcast(
         self,
         root_values: np.ndarray,
@@ -3959,10 +3989,12 @@ class VertexOnlyMeshSF:
         self._check_arrays(root_values, leaf_values)
 
         with self._mpi_unit(root_values) as unit:
-            self.sf.bcastBegin(unit, root_values, leaf_values, op)
-            self.sf.bcastEnd(unit, root_values, leaf_values, op)
+            with PETSc.Log.Event("VertexOnlyMeshSF: broadcast"):
+                self.sf.bcastBegin(unit, root_values, leaf_values, op)
+                self.sf.bcastEnd(unit, root_values, leaf_values, op)
         return leaf_values
 
+    @PETSc.Log.EventDecorator()
     def reduce(
         self,
         leaf_values: np.ndarray,
@@ -3972,10 +4004,12 @@ class VertexOnlyMeshSF:
         self._check_arrays(root_values, leaf_values)
 
         with self._mpi_unit(root_values) as unit:
-            self.sf.reduceBegin(unit, leaf_values, root_values, op)
-            self.sf.reduceEnd(unit, leaf_values, root_values, op)
+            with PETSc.Log.Event("VertexOnlyMeshSF: reduce"):
+                self.sf.reduceBegin(unit, leaf_values, root_values, op)
+                self.sf.reduceEnd(unit, leaf_values, root_values, op)
         return root_values
 
+    @PETSc.Log.EventDecorator()
     def create_embedded_leaf_sf(
         self,
         mask: np.ndarray,
@@ -3983,7 +4017,9 @@ class VertexOnlyMeshSF:
         if mask.shape != (self.nleaves,):
             raise ValueError("mask must contain one entry per leaf")
         selected_leaf_indices = self.leaf_indices[mask]
-        return type(self)(self.sf.createEmbeddedLeafSF(selected_leaf_indices))
+        with PETSc.Log.Event("VertexOnlyMeshSF: create embedded leaf SF"):
+            sf = self.sf.createEmbeddedLeafSF(selected_leaf_indices)
+        return type(self)(sf)
 
 
 class FiredrakeDMSwarm(PETSc.DMSwarm):
@@ -3999,6 +4035,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         Whether the swarm is embedded in an extruded mesh.
     """
     @classmethod
+    @PETSc.Log.EventDecorator()
     def create_with_fields(
         cls,
         cell_dm: PETSc.DM,
@@ -4027,8 +4064,9 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         FiredrakeDMSwarm
             The empty swarm with all fields registered.
         """
-        swarm = cls()
-        PETSc.DMSwarm.create(swarm, comm=cell_dm.comm)
+        with PETSc.Log.Event("VertexOnlyMesh: create DMSwarm"):
+            swarm = cls()
+            PETSc.DMSwarm.create(swarm, comm=cell_dm.comm)
 
         swarm.setDimension(gdim)
         swarm.setCoordinateDim(gdim)
@@ -4036,21 +4074,23 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         if not isinstance(cell_dm, PETSc.DMSwarm):
             swarm.setType(PETSc.DMSwarm.Type.PIC)
 
-        swarm.registerField("parentcellnum", 1, dtype=IntType)
-        swarm.registerField("refcoord", tdim, dtype=RealType)
-        swarm.registerField("globalindex", 1, dtype=IntType)
-        swarm.registerField("inputrank", 1, dtype=IntType)
-        swarm.registerField("inputindex", 1, dtype=IntType)
-        if extruded:
-            swarm.registerField("parentcellbasenum", 1, dtype=IntType)
-            swarm.registerField("parentcellextrusionheight", 1, dtype=IntType)
+        with PETSc.Log.Event("VertexOnlyMesh: register DMSwarm fields"):
+            swarm.registerField("parentcellnum", 1, dtype=IntType)
+            swarm.registerField("refcoord", tdim, dtype=RealType)
+            swarm.registerField("globalindex", 1, dtype=IntType)
+            swarm.registerField("inputrank", 1, dtype=IntType)
+            swarm.registerField("inputindex", 1, dtype=IntType)
+            if extruded:
+                swarm.registerField("parentcellbasenum", 1, dtype=IntType)
+                swarm.registerField("parentcellextrusionheight", 1, dtype=IntType)
 
-        for name, size, dtype in extra_fields:
-            swarm.registerField(name, size, dtype=dtype)
+            for name, size, dtype in extra_fields:
+                swarm.registerField(name, size, dtype=dtype)
 
-        swarm.finalizeFieldRegister()
+            swarm.finalizeFieldRegister()
         return swarm
 
+    @PETSc.Log.EventDecorator()
     def set_halo_sf(
         self,
         n_owned: int,
@@ -4074,9 +4114,10 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         remote[:, 0] = owner_ranks
         remote[:, 1] = owner_indices
 
-        sf = self.getPointSF()
-        sf.setGraph(npoints, local, remote)
-        self.setPointSF(sf)
+        with PETSc.Log.Event("VertexOnlyMesh: set DMSwarm halo SF"):
+            sf = self.getPointSF()
+            sf.setGraph(npoints, local, remote)
+            self.setPointSF(sf)
 
     @contextmanager
     def field(self, name: str) -> Generator[np.ndarray]:
@@ -4094,12 +4135,15 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
             must not be used after leaving the context.
         """
         # petsc4py will error if you try to access an active field without first restoring it.
-        values = self.getField(name)
+        with PETSc.Log.Event("VertexOnlyMesh: get DMSwarm field"):
+            values = self.getField(name)
         try:
             yield values
         finally:
-            self.restoreField(name)
+            with PETSc.Log.Event("VertexOnlyMesh: restore DMSwarm field"):
+                self.restoreField(name)
 
+    @PETSc.Log.EventDecorator()
     def set_field(self, name: str, values: np.ndarray) -> None:
         """Set the values of a DMSwarm field.
 
@@ -4174,19 +4218,20 @@ def _pic_swarm_in_mesh(
     if redundant and parent_mesh.comm.rank != 0:
         coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
 
-    (
-        winner_sf,
-        winner_cells,
-        winner_ref_coords,
-        winner_ranks,
-        parent_cell_nums,
-        reference_coords,
-        physical_coords,
-    ) = _parent_mesh_embedding(
-        parent_mesh,
-        coords,
-        tolerance,
-    )
+    with PETSc.Log.Event("VertexOnlyMesh: embed points in parent mesh"):
+        (
+            winner_sf,
+            winner_cells,
+            winner_ref_coords,
+            winner_ranks,
+            parent_cell_nums,
+            reference_coords,
+            physical_coords,
+        ) = _parent_mesh_embedding(
+            parent_mesh,
+            coords,
+            tolerance,
+        )
 
     nroots = len(winner_cells)
     missing_roots = winner_ranks == -1
@@ -4196,9 +4241,10 @@ def _pic_swarm_in_mesh(
     )  # missing points receive an invalid rank
 
     # assign global indices
-    start_idx = parent_mesh.comm.exscan(nroots) or 0
-    global_idxs = start_idx + np.arange(nroots, dtype=IntType)
-    global_idxs_leaves = winner_sf.broadcast(global_idxs)[winner_sf.leaf_indices]
+    with PETSc.Log.Event("VertexOnlyMesh: number embedded points"):
+        start_idx = parent_mesh.comm.exscan(nroots) or 0
+        global_idxs = start_idx + np.arange(nroots, dtype=IntType)
+        global_idxs_leaves = winner_sf.broadcast(global_idxs)[winner_sf.leaf_indices]
 
     n_owned = winner_sf.nleaves
     if parent_mesh.extruded:
@@ -4212,59 +4258,61 @@ def _pic_swarm_in_mesh(
     cell_ids = parent_mesh.topology.cell_closure[cell_numbers, -1]
 
     # create and populate the immersed DMSwarm
-    swarm = FiredrakeDMSwarm.create_with_fields(
-        parent_mesh.topology.topology_dm,
-        parent_mesh.topological_dimension,
-        parent_mesh.geometric_dimension,
-        parent_mesh.extruded,
-        extra_fields=() if fields is None else fields,
-    )
-    swarm.setLocalSizes(n_owned, -1)
-    cell_id_name = swarm.getCellDMActive().getCellID()
-    swarm.set_field("DMSwarmPIC_coor", physical_coords)
-    swarm.set_field(cell_id_name, cell_ids)
-    swarm.set_field("parentcellnum", parent_cell_nums)  # store Firedrake parent-cell numbers
-    swarm.set_field("refcoord", reference_coords)
-    swarm.set_field("globalindex", global_idxs_leaves)
-    swarm.set_field("DMSwarm_rank", np.full(n_owned, parent_mesh.comm.rank, dtype=IntType))
-    swarm.set_field("inputrank", winner_sf.input_ranks.astype(IntType))
-    swarm.set_field("inputindex", winner_sf.input_indices.astype(IntType))
-    if parent_mesh.extruded:
-        swarm.set_field("parentcellbasenum", swarm_base_cells)
-        swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
+    with PETSc.Log.Event("VertexOnlyMesh: populate distributed DMSwarm"):
+        swarm = FiredrakeDMSwarm.create_with_fields(
+            parent_mesh.topology.topology_dm,
+            parent_mesh.topological_dimension,
+            parent_mesh.geometric_dimension,
+            parent_mesh.extruded,
+            extra_fields=() if fields is None else fields,
+        )
+        swarm.setLocalSizes(n_owned, -1)
+        cell_id_name = swarm.getCellDMActive().getCellID()
+        swarm.set_field("DMSwarmPIC_coor", physical_coords)
+        swarm.set_field(cell_id_name, cell_ids)
+        swarm.set_field("parentcellnum", parent_cell_nums)  # store Firedrake parent-cell numbers
+        swarm.set_field("refcoord", reference_coords)
+        swarm.set_field("globalindex", global_idxs_leaves)
+        swarm.set_field("DMSwarm_rank", np.full(n_owned, parent_mesh.comm.rank, dtype=IntType))
+        swarm.set_field("inputrank", winner_sf.input_ranks.astype(IntType))
+        swarm.set_field("inputindex", winner_sf.input_indices.astype(IntType))
+        if parent_mesh.extruded:
+            swarm.set_field("parentcellbasenum", swarm_base_cells)
+            swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
 
     # The distributed swarm contains owned points only.
     empty = np.empty(0, dtype=IntType)
     swarm.set_halo_sf(n_owned, empty, empty)
 
     # Now we create the corresponding input-ordering swarm.
-    original_ordering_swarm = FiredrakeDMSwarm.create_with_fields(
-        swarm,
-        parent_mesh.topological_dimension,
-        parent_mesh.geometric_dimension,
-        parent_mesh.extruded,
-    )
-    # Send each winner's local swarm index to its input root.
-    # The input-ordering swarm uses these as cell IDs into the distributed swarm.
-    winner_swarm_idx_buf = np.full(winner_sf.leaf_buffer_size, -1, dtype=IntType)
-    winner_swarm_idx_buf[winner_sf.leaf_indices] = np.arange(n_owned, dtype=IntType)
-    winner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
-    winner_sf.reduce(winner_swarm_idx_buf, winner_swarm_idx_roots, op=MPI.MAX)
+    with PETSc.Log.Event("VertexOnlyMesh: populate input-ordering DMSwarm"):
+        original_ordering_swarm = FiredrakeDMSwarm.create_with_fields(
+            swarm,
+            parent_mesh.topological_dimension,
+            parent_mesh.geometric_dimension,
+            parent_mesh.extruded,
+        )
+        # Send each winner's local swarm index to its input root.
+        # The input-ordering swarm uses these as cell IDs into the distributed swarm.
+        winner_swarm_idx_buf = np.full(winner_sf.leaf_buffer_size, -1, dtype=IntType)
+        winner_swarm_idx_buf[winner_sf.leaf_indices] = np.arange(n_owned, dtype=IntType)
+        winner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
+        winner_sf.reduce(winner_swarm_idx_buf, winner_swarm_idx_roots, op=MPI.MAX)
 
-    original_ordering_swarm.setLocalSizes(nroots, -1)
-    cell_id_name = original_ordering_swarm.getCellDMActive().getCellID()
-    original_ordering_swarm.set_field("DMSwarmPIC_coor", coords)
-    original_ordering_swarm.set_field(cell_id_name, winner_swarm_idx_roots)
-    original_ordering_swarm.set_field("parentcellnum", winner_cells)
-    original_ordering_swarm.set_field("refcoord", winner_ref_coords)
-    original_ordering_swarm.set_field("globalindex", global_idxs)
-    original_ordering_swarm.set_field("DMSwarm_rank", input_owner_ranks)
-    original_ordering_swarm.set_field("inputrank", np.full(nroots, parent_mesh.comm.rank, dtype=IntType))
-    original_ordering_swarm.set_field("inputindex", np.arange(nroots, dtype=IntType))
-    if parent_mesh.extruded:
-        base_cells, extrusion_heights = _parent_extrusion_numbering(winner_cells, parent_mesh.layers)
-        original_ordering_swarm.set_field("parentcellbasenum", base_cells)
-        original_ordering_swarm.set_field("parentcellextrusionheight", extrusion_heights)
+        original_ordering_swarm.setLocalSizes(nroots, -1)
+        cell_id_name = original_ordering_swarm.getCellDMActive().getCellID()
+        original_ordering_swarm.set_field("DMSwarmPIC_coor", coords)
+        original_ordering_swarm.set_field(cell_id_name, winner_swarm_idx_roots)
+        original_ordering_swarm.set_field("parentcellnum", winner_cells)
+        original_ordering_swarm.set_field("refcoord", winner_ref_coords)
+        original_ordering_swarm.set_field("globalindex", global_idxs)
+        original_ordering_swarm.set_field("DMSwarm_rank", input_owner_ranks)
+        original_ordering_swarm.set_field("inputrank", np.full(nroots, parent_mesh.comm.rank, dtype=IntType))
+        original_ordering_swarm.set_field("inputindex", np.arange(nroots, dtype=IntType))
+        if parent_mesh.extruded:
+            base_cells, extrusion_heights = _parent_extrusion_numbering(winner_cells, parent_mesh.layers)
+            original_ordering_swarm.set_field("parentcellbasenum", base_cells)
+            original_ordering_swarm.set_field("parentcellextrusionheight", extrusion_heights)
     original_ordering_swarm.set_halo_sf(nroots, empty, empty)
     return swarm, original_ordering_swarm, n_missing_points
 
@@ -4369,50 +4417,64 @@ def _parent_mesh_embedding(
         )
     # `candidate_sf` is a star forest where each root is an input point,
     # and its leaves are candidate points on ranks which may own the point
-    candidate_sf = VertexOnlyMeshSF.candidate_sf(parent_mesh, coords)
+    with PETSc.Log.Event("VertexOnlyMesh: build candidate SF"):
+        candidate_sf = VertexOnlyMeshSF.candidate_sf(parent_mesh, coords)
     nroots = candidate_sf.nroots  # nroots == coords.shape[0]
 
     # send coords to the candidates, and locate each candidate point
-    coords = candidate_sf.broadcast(coords)
-    parent_cell_nums, ref_coords, ref_cell_dists = (
-        parent_mesh.locate_cells_ref_coords_and_dists(coords, tolerance, owned_only=True)
-    )
+    with PETSc.Log.Event("VertexOnlyMesh: broadcast candidate coordinates"):
+        coords = candidate_sf.broadcast(coords)
+    with PETSc.Log.Event("VertexOnlyMesh: locate candidate coordinates"):
+        parent_cell_nums, ref_coords, ref_cell_dists = (
+            parent_mesh.locate_cells_ref_coords_and_dists(coords, tolerance, owned_only=True)
+        )
     # Immersed manifold case: the reference coords have an extra dimension we can safely drop
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
         ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
 
     # Keep candidates which are found in a cell locally.
     keep = parent_cell_nums != -1
-    # Keep candidates which attain the minimum L1 distance.
-    # TODO: try packing these next two reductions into (distance, -owner_rank) and reduce with MPI.MINLOC
-    root_distance_min = np.full(nroots, np.inf, dtype=RealType)
-    candidate_sf.reduce(
-        np.where(keep, ref_cell_dists, np.inf),
-        root_distance_min,
-        op=MPI.MIN,
-    )
-    keep &= ref_cell_dists == candidate_sf.broadcast(root_distance_min)
+    with PETSc.Log.Event("VertexOnlyMesh: select embedding winners"):
+        # Keep candidates which attain the minimum L1 distance.
+        # TODO: try packing these next two reductions into (distance, -owner_rank) and reduce with MPI.MINLOC
+        root_distance_min = np.full(nroots, np.inf, dtype=RealType)
+        with PETSc.Log.Event("VertexOnlyMesh: minimum distance reduction"):
+            candidate_sf.reduce(
+                np.where(keep, ref_cell_dists, np.inf),
+                root_distance_min,
+                op=MPI.MIN,
+            )
+        with PETSc.Log.Event("VertexOnlyMesh: minimum distance broadcast"):
+            root_distance_min_leaves = candidate_sf.broadcast(root_distance_min)
+        keep &= ref_cell_dists == root_distance_min_leaves
 
-    # Multiple ranks may own cells at the minimum distance.
-    # Break ties by choosing the highest rank.
-    winner_ranks = np.full(nroots, -1, dtype=IntType)
-    candidate_sf.reduce(
-        np.where(keep, parent_mesh.comm.rank, -1).astype(IntType),
-        winner_ranks,
-        op=MPI.MAX,
-    )
-    keep &= parent_mesh.comm.rank == candidate_sf.broadcast(winner_ranks)
+        # Multiple ranks may own cells at the minimum distance.
+        # Break ties by choosing the highest rank.
+        winner_ranks = np.full(nroots, -1, dtype=IntType)
+        with PETSc.Log.Event("VertexOnlyMesh: owner rank reduction"):
+            candidate_sf.reduce(
+                np.where(keep, parent_mesh.comm.rank, -1).astype(IntType),
+                winner_ranks,
+                op=MPI.MAX,
+            )
+        with PETSc.Log.Event("VertexOnlyMesh: owner rank broadcast"):
+            winner_rank_leaves = candidate_sf.broadcast(winner_ranks)
+        keep &= parent_mesh.comm.rank == winner_rank_leaves
 
     # This SF maps every located root to its unique winning owned leaf.
-    winner_sf = candidate_sf.create_embedded_leaf_sf(keep)
+    with PETSc.Log.Event("VertexOnlyMesh: build winning SF"):
+        winner_sf = candidate_sf.create_embedded_leaf_sf(keep)
 
     # send winning cell number and ref coords to roots
     # TODO: Fuse these into a single reduction.
-    winner_cells = np.full(nroots, -1, dtype=IntType)
-    winner_sf.reduce(parent_cell_nums, winner_cells)
+    with PETSc.Log.Event("VertexOnlyMesh: gather winning cell data"):
+        winner_cells = np.full(nroots, -1, dtype=IntType)
+        with PETSc.Log.Event("VertexOnlyMesh: winning cell reduction"):
+            winner_sf.reduce(parent_cell_nums, winner_cells)
 
-    winner_ref_coords = np.full((nroots, ref_coords.shape[1]), np.nan, dtype=RealType)
-    winner_sf.reduce(ref_coords, winner_ref_coords)
+        winner_ref_coords = np.full((nroots, ref_coords.shape[1]), np.nan, dtype=RealType)
+        with PETSc.Log.Event("VertexOnlyMesh: reference coordinate reduction"):
+            winner_sf.reduce(ref_coords, winner_ref_coords)
 
     return (
         winner_sf,
