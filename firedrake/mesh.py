@@ -4226,21 +4226,12 @@ def _pic_swarm_in_mesh(
     swarm.set_field("parentcellnum", parent_cell_nums)  # store Firedrake parent-cell numbers
     swarm.set_field("refcoord", reference_coords)
     swarm.set_field("globalindex", global_idxs_leaves)
-    swarm.set_field(
-        "DMSwarm_rank", np.full(n_owned, parent_mesh.comm.rank, dtype=IntType)
-    )
+    swarm.set_field("DMSwarm_rank", np.full(n_owned, parent_mesh.comm.rank, dtype=IntType))
     swarm.set_field("inputrank", winner_sf.input_ranks.astype(IntType))
     swarm.set_field("inputindex", winner_sf.input_indices.astype(IntType))
     if parent_mesh.extruded:
         swarm.set_field("parentcellbasenum", swarm_base_cells)
         swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
-
-    # Send each winner's local swarm index to its input root.
-    # The input-ordering swarm uses these as cell IDs into the distributed swarm.
-    winner_swarm_idx_buf = np.full(winner_sf.leaf_buffer_size, -1, dtype=IntType)
-    winner_swarm_idx_buf[winner_sf.leaf_indices] = np.arange(n_owned, dtype=IntType)
-    winner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
-    winner_sf.reduce(winner_swarm_idx_buf, winner_swarm_idx_roots, op=MPI.MAX)
 
     # The distributed swarm contains owned points only.
     empty = np.empty(0, dtype=IntType)
@@ -4253,6 +4244,13 @@ def _pic_swarm_in_mesh(
         parent_mesh.geometric_dimension,
         parent_mesh.extruded,
     )
+    # Send each winner's local swarm index to its input root.
+    # The input-ordering swarm uses these as cell IDs into the distributed swarm.
+    winner_swarm_idx_buf = np.full(winner_sf.leaf_buffer_size, -1, dtype=IntType)
+    winner_swarm_idx_buf[winner_sf.leaf_indices] = np.arange(n_owned, dtype=IntType)
+    winner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
+    winner_sf.reduce(winner_swarm_idx_buf, winner_swarm_idx_roots, op=MPI.MAX)
+
     original_ordering_swarm.setLocalSizes(nroots, -1)
     cell_id_name = original_ordering_swarm.getCellDMActive().getCellID()
     original_ordering_swarm.set_field("DMSwarmPIC_coor", coords)
