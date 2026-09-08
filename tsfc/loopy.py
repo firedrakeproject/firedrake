@@ -123,6 +123,7 @@ class LoopyContext(object):
         self.indices = {}  # indices for declarations and referencing values, from ImperoC
         self.active_indices = {}  # gem index -> pymbolic variable
         self.index_extent = OrderedDict()  # pymbolic variable for indices -> extent
+        self.tabulated = (None, ())  # axes and inames of the preceding tabulation
         self.gem_to_pymbolic = {}  # gem node -> pymbolic variable
         self.name_gen = UniqueNameGenerator()
         self.target = target
@@ -304,10 +305,27 @@ def statement(tree, ctx):
     raise AssertionError("cannot generate loopy from %s" % type(tree))
 
 
+def tabulated_axes(tree):
+    """The axes a statement binds, if it tabulates a tensor over its own."""
+    if isinstance(tree, imp.Evaluate) \
+            and isinstance(tree.expression, gem.ComponentTensor):
+        return tree.expression.multiindex
+    return None
+
+
 @statement.register(imp.Block)
 def statement_block(tree, ctx):
-    from itertools import chain
-    return list(chain(*(statement(child, ctx) for child in tree.children)))
+    # Tabulations of the same axes share a loop while they stay adjacent.
+    # Anything between them is a statement the schedule placed outside that
+    # loop, so the loop has to close before it and reopen after.
+    instructions = []
+    ctx.tabulated = (None, ())
+    for child in tree.children:
+        instructions.extend(statement(child, ctx))
+        if tabulated_axes(child) is None:
+            ctx.tabulated = (None, ())
+    ctx.tabulated = (None, ())
+    return instructions
 
 
 @statement.register(imp.For)
@@ -360,7 +378,10 @@ def statement_evaluate(leaf, ctx):
     elif isinstance(expr, gem.Constant):
         return []
     elif isinstance(expr, gem.ComponentTensor):
-        idx = ctx.gem_to_pym_multiindex(expr.multiindex)
+        axes, idx = ctx.tabulated
+        if axes != expr.multiindex:
+            idx = ctx.gem_to_pym_multiindex(expr.multiindex)
+            ctx.tabulated = (expr.multiindex, idx)
         var, sub_idx = ctx.pymbolic_variable_and_destruct(expr)
         lhs = p.Subscript(var, sub_idx + idx)
         with active_indices(dict(zip(expr.multiindex, idx)), ctx) as ctx_active:
@@ -547,7 +568,18 @@ def _expression_variable(expr, ctx):
 @_expression.register(gem.Indexed)
 def _expression_indexed(expr, ctx):
     rank = ctx.fetch_multiindex(expr.multiindex)
-    var = expression(expr.children[0], ctx)
+    aggregate, = expr.children
+    if (isinstance(aggregate, gem.ComponentTensor)
+            and aggregate not in ctx.gem_to_pymbolic):
+        body, = aggregate.children
+        if body in ctx.gem_to_pymbolic:
+            replacements = dict(zip(aggregate.multiindex, expr.multiindex))
+            multiindex = tuple(replacements.get(index, index)
+                               for index in ctx.indices[body])
+            rank = ctx.fetch_multiindex(multiindex)
+            return p.Subscript(ctx._gem_to_pym_var(body), rank)
+
+    var = expression(aggregate, ctx)
     if isinstance(var, p.Subscript):
         rank = var.index + rank
         var = var.aggregate
