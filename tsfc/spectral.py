@@ -39,14 +39,11 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
 
     argument_indices = tuple(chain.from_iterable(argument_multiindices))
 
-    # Cancel the Deltas that select a basis transformation's columns, so that
-    # monomial collection sees the resulting gather rather than the Delta.
-    # A Delta that ties an argument axis to the axis a coefficient is gathered
-    # along stays put: substituting it makes the gather itself depend on the
-    # argument, and monomial collection then has to expand the contraction the
-    # coefficient sits in, one monomial per basis function.
-    expressions = [cancel_nested_deltas(e, protected=frozenset(argument_indices))
-                   for e in expressions]
+    # Cancel the indirect Deltas that select a basis transformation's columns.
+    # No later pass can: monomial collection only cancels Deltas that surface
+    # as factors of a monomial, and one buried in a preserved linear map never
+    # does, so it would reach code generation.
+    expressions = [cancel_nested_deltas(e) for e in expressions]
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -197,12 +194,11 @@ def classify(argument_indices, expression, delta_inside):
         # ties two argument axes together survives cancellation until
         # delta_elimination narrows the output variable onto its diagonal.
         return ATOMIC
-    elif isinstance(expression, (FlexiblyIndexed, Indexed)) and not delta_inside(expression):
-        # A gather is a terminal too, so expansion cannot break one up either.
-        # This holds however many argument axes index it: an element that ties
-        # its axes together, such as a tensor element, gathers along both at
-        # once.
-        return ATOMIC
+    elif n == 1:
+        if isinstance(expression, (FlexiblyIndexed, Indexed)) and not delta_inside(expression):
+            return ATOMIC
+        else:
+            return COMPOUND
     else:
         return COMPOUND
 

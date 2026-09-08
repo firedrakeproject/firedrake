@@ -1,6 +1,8 @@
+import numpy
 import pytest
 
-from gem.gem import Delta, Identity, Index, Indexed, Variable, one
+from gem.gem import (Delta, Identity, Index, Indexed, Literal, Variable,
+                     VariableIndex, one, uint_type)
 from gem.optimise import delta_elimination, remove_componenttensors
 
 
@@ -20,20 +22,26 @@ def test_delta_elimination():
     assert factors == [one, one, Indexed(I, (k, k))]
 
 
-def test_delta_elimination_protected():
+def test_delta_elimination_indirect_only():
     i = Index()
     k = Index()
     A = Variable("A", (3,))
-    factors = [Delta(i, k), Indexed(A, (i,))]
+    columns = Literal(numpy.array([2, 0, 1]), dtype=uint_type)
+    indirect = VariableIndex(Indexed(columns, (k,)))
 
-    # Cancelling the Delta gathers A along the protected index instead.
-    cancelled, _ = delta_elimination((i,), factors)
+    # An indirect Delta cancels either way round: no later pass can lower one.
+    factors = [Delta(indirect, i), Indexed(A, (i,))]
+    cancelled, gathered = delta_elimination((i,), factors, indirect_only=True)
     assert cancelled == []
+    assert remove_componenttensors(gathered) == [one, Indexed(A, (indirect,))]
 
-    # Protecting it keeps the Delta, so A is still gathered along i.
-    cancelled, kept = delta_elimination((i,), factors, protected={k})
+    # A Delta between two plain indices is left to monomial collection.
+    factors = [Delta(i, k), Indexed(A, (i,))]
+    cancelled, kept = delta_elimination((i,), factors, indirect_only=True)
     assert cancelled == [i]
     assert kept == factors
+
+    assert delta_elimination((i,), factors)[0] == []
 
 
 if __name__ == "__main__":
