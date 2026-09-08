@@ -443,6 +443,7 @@ class TransferManager(object):
         with rf.dat.vec_ro as x, rc.dat.vec_wo as y:
             P.petscmat.multTranspose(x, y)
 
+
 def AdaptiveTransferManager(*args, **kwargs):
     """Deprecated alias for `TransferManager`."""
     warnings.warn(
