@@ -27,7 +27,7 @@ def stokes_solver(mesh, mu):
          - inner(f, v))*dx
 
     # The pressure is fixed by the natural boundary condition on side 4.
-    bcs = [DirichletBC(Z.sub(0), zero(), (1, 2, 3))]
+    bcs = [DirichletBC(Z.sub(0), 0, (1, 2, 3))]
 
     parameters = {
         "mat_type": "aij",
