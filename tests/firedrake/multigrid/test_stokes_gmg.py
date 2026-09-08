@@ -57,7 +57,9 @@ def stokes_solver(mesh, mu):
                                       appctx=appctx)
 
 
-def run_stokes_appctx_coarsening():
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 3])
+def test_stokes_appctx_coarsening():
     base = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(base, 2)
     mesh = mh[-1]
@@ -89,14 +91,3 @@ def run_stokes_appctx_coarsening():
         transfer.inject(fine_mu, expected)
         assert numpy.allclose(coarse_mu.dat.data_ro, expected.dat.data_ro)
         fine_mu = coarse_mu
-
-
-@pytest.mark.skipcomplex
-def test_stokes_appctx_coarsening():
-    run_stokes_appctx_coarsening()
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parallel(nprocs=3)
-def test_stokes_appctx_coarsening_parallel():
-    run_stokes_appctx_coarsening()
