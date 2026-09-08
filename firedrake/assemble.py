@@ -2097,18 +2097,16 @@ class ParloopBuilder:
                 row_bcs, col_bcs = self._filter_bcs(i, j)
                 # the tensor is already indexed
                 rlgmap, clgmap = self._tensor.local_to_global_maps
-                mat_type = self._tensor.handle.getType()
-                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
-                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
+                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
+                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
                 return ((rlgmap, clgmap),)
             else:
                 lgmaps = []
                 for i, j in self.get_indicess():
                     row_bcs, col_bcs = self._filter_bcs(i, j)
                     rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
-                    mat_type = self._tensor[i, j].handle.getType()
-                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
-                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
+                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
+                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
                     lgmaps.append((rlgmap, clgmap))
                 return tuple(lgmaps)
         else:
