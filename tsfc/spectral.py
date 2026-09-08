@@ -5,7 +5,8 @@ from itertools import chain, zip_longest
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
 from gem.cost import estimate_cost
-from gem.optimise import filtered_replace_indices, has_linear_maps
+from gem.optimise import (cancel_nested_deltas, filtered_replace_indices,
+                          has_linear_maps)
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
@@ -34,6 +35,12 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     """
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
+
+    # Cancel the indirect Deltas that select a basis transformation's columns.
+    # No later pass can: monomial collection only cancels Deltas that surface
+    # as factors of a monomial, and one buried in a preserved linear map never
+    # does, so it would reach code generation.
+    expressions = [cancel_nested_deltas(e) for e in expressions]
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
