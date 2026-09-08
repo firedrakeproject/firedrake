@@ -223,13 +223,14 @@ def discover_remote_roots(
             raise RuntimeError("rtree_locate_points_grouped_by_id_unique failed")
 
         # Each rank knows where to send to, but not where it is going to receive from.
-        # The following algorithm is the 'non-blocking consenus' algorithm (Hoefler et al.)
+        # The following algorithm is the 'non-blocking consensus' algorithm (Hoefler et al.)
         # which is a sparse alternative to MPI_Alltoallv
         if nranks_to != 0:
             send_requests = <MPI_Request *>malloc(nranks_to * sizeof(MPI_Request))
 
         # Post non-blocking synchronous sends. 'Synchronous' means that the send is not
         # considered as complete by MPI_Test until the destination starts the matching receive.
+        # This is so that a rank cannot hit the barrier while any of its outgoing messages remain unmatched.
         for k in range(nranks_to):
             count = send_offsets[k + 1] - send_offsets[k]
             CHKERRMPI(MPI_Issend(
