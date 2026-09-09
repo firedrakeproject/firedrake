@@ -25,7 +25,8 @@ dependencies = [
   # TODO RELEASE
   "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
   "h5py>3.12.1",
-  "firedrake-rtree>=2026.2.0",
+  # TODO RELEASE
+  "firedrake-rtree @ git+https://github.com/firedrakeproject/firedrake-rtree@main",
   "immutabledict",
   # TODO RELEASE
   "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
@@ -160,7 +161,8 @@ docker = [  # Used in firedrake-vanilla container
 [build-system]
 requires = [
   "Cython>=3.0",
-  "firedrake-rtree>=2026.2.0",
+  # TODO RELEASE
+  "firedrake-rtree @ git+https://github.com/firedrakeproject/firedrake-rtree@main",
   # TODO RELEASE
   "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
   "mpi4py>3; python_version >= '3.13'",
