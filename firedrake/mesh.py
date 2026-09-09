@@ -2098,7 +2098,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                 swarm.field("globalindex") as swarm_global_indices,
             ):
                 parent_order = parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart]
-                # sort by parent cell order, with ties broken by point global index
+                # points are ordered according to the order the MPI messages arrive in `discover_remote_roots`
+                # This is not very deterministic, so we order by parent cell ID with ties broken by global point ID
                 perm = np.lexsort((swarm_global_indices.ravel(), parent_order)).astype(IntType)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
@@ -4165,6 +4166,7 @@ def _pic_swarm_in_mesh(
         raise NotImplementedError(
             "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
         )
+    coords = np.asarray(coords, dtype=RealType)
 
     # in the redundant=True case we discard all the points not on rank zero
     # TODO: Here rank 0 queries the partition rtree while all other ranks wait.
@@ -4379,7 +4381,7 @@ def _parent_mesh_embedding(
     )
     # Immersed manifold case: the reference coords have an extra dimension we can safely drop
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-        ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
+        ref_coords = np.ascontiguousarray(ref_coords[:, :parent_mesh.topological_dimension])
 
     # Keep candidates which are found in a cell locally.
     keep = parent_cell_nums != -1
@@ -4534,7 +4536,7 @@ def SubDomainData(geometric_expr):
     The result can be attached as the subdomain_data field of a
     :class:`ufl.Measure`. For example:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         x = mesh.coordinates
         sd = SubDomainData(x[0] < 0.5)
