@@ -1,4 +1,5 @@
 import typing
+import weakref
 from itertools import chain
 
 import numpy
@@ -180,6 +181,9 @@ class _SNESContext(object):
     pre_apply_bcs
         If `False`, the problem is linearised around the initial guess before
         imposing the boundary conditions.
+    snes
+        The SNES associated with this context. Only a weak reference is
+        retained.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -199,7 +203,8 @@ class _SNESContext(object):
                  marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 snes: PETSc.SNES | None = None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -222,6 +227,7 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
+        self._snes = None if snes is None else weakref.ref(snes)
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -294,6 +300,17 @@ class _SNESContext(object):
         self._near_nullspace = None
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
+
+    @property
+    def snes(self) -> PETSc.SNES | None:
+        """Return the SNES associated with this context.
+
+        Returns
+        -------
+        PETSc.SNES or None
+            The associated SNES, if one was supplied at construction.
+        """
+        return None if self._snes is None else self._snes()
 
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
