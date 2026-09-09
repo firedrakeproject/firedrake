@@ -725,6 +725,29 @@ solving with.
    # Use the approximate inverse of Jp to precondition solves
    solve(a == L, ..., Jp=Jp)
 
+Providing an objective functional
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+An objective functional, usually the energy,
+can be provided to PETSc's `SNES`_ linesearch and trust-region methods.
+For example, the code block below minimizes the Dirichlet energy functional
+using a trust-region method with the Steihaugh-Toint method for the
+trust-region subproblem and an initial trust region size of ``1e-4``.
+The solver monitor will report residual norm, norm of the update, and
+value of the objective functional.
+
+.. code-block:: python3
+
+   E = 0.5 * inner(grad(u), grad(u))*dx + kappa**2 * cosh(u)*dx - inner(f, u)*dx
+   F = derivative(E, u)
+   # Solve an optimisation problem
+   sp = {'snes_type': 'newtontr',
+         'snes_tr_delta0': 1e-4,
+         "snes_monitor": "::ascii_info_detail",
+         'ksp_type': 'cg',
+         'pc_type': 'hypre'}
+   solve(F == 0, u, ..., objective=E, solver_parameters=sp, pre_apply_bcs=False)
+
 Default solver options
 ~~~~~~~~~~~~~~~~~~~~~~
 

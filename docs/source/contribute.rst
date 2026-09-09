@@ -22,6 +22,11 @@ number of steps, which we explain below.
    assisted by AI tools but they are subject to some additional
    requirements. These are detailed in our
    `AI policy <https://github.com/firedrakeproject/firedrake/wiki/AI-contribution-policy>`_.
+   The repository also has an `AGENTS.md
+   <https://github.com/firedrakeproject/firedrake/blob/release/AGENTS.md>`_
+   file at its root, giving AI coding agents (and human contributors)
+   a self-contained summary of Firedrake's architecture, coding
+   conventions, and testing/PR expectations.
 
 Deciding what to contribute
 ---------------------------

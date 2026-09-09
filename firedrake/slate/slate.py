@@ -669,7 +669,8 @@ class Block(TensorBase):
         """Constructor for the Block class."""
         super(Block, self).__init__()
         self.operands = (tensor,)
-        self._blocks = dict(enumerate(map(as_tuple, indices)))
+        indices = tuple(map(as_tuple, indices))
+        self._blocks = dict(enumerate(indices))
         self._indices = indices
 
     @cached_property

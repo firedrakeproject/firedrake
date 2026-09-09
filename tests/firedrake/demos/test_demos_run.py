@@ -44,6 +44,7 @@ SERIAL_DEMOS = [
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("poisson_adaptive_eigenvalue", "poisson_adaptive_eigenvalue"), ["netgen", "slepc", "vtk"]),
     Demo(("patch", "poisson_mg_patches"), []),
     Demo(("patch", "stokes_vanka_patches"), []),
     Demo(("patch", "hcurl_riesz_star"), []),
@@ -55,6 +56,7 @@ SERIAL_DEMOS = [
     Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"]),
     Demo(('submesh_reaction_diffusion', 'submesh_reaction_diffusion'), ["netgen", "vtk"]),
     Demo(('nonlinear_pc', 'nonlinear_pc_allen_cahn'), []),
+    Demo(('reynolds_robust_navier_stokes_hdiv', 'reynolds_robust_navier_stokes_hdiv'), ["vtk"]),
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
