@@ -153,33 +153,53 @@ def assemble(expr, *args, **kwargs):
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
-def _interpolate_is_compilable(op, valid_domains):
-    """Can TSFC fuse ``op`` into the kernel of the integral that holds it?"""
-    if not isinstance(op, ufl.Interpolate):
-        return False
-    # A non-terminal dual argument names a form that has to be assembled on its
+@functools.singledispatch
+def _is_compilable(expr, valid_domains=frozenset()) -> bool:
+    """Can ``expr`` be assembled in a single fused kernel?
+
+    Parameters
+    ----------
+    expr :
+        A form, a Slate tensor, or a base form operator nested in an integrand.
+    valid_domains :
+        The domains that the enclosing integral's measure covers. A nested
+        base form operator must be defined on them to share the kernel of
+        that integral.
+
+    Returns
+    -------
+    bool
+        Whether ``expr`` can be assembled in a single fused kernel.
+
+    """
+    return False
+
+
+@_is_compilable.register(ufl.Interpolate)
+def _is_compilable_interpolate(expr, valid_domains=frozenset()):
+    # A non-terminal dual argument needs to be assembled on its
     # own beforehand, so it cannot share a kernel with the integral.
-    dual_arg, _ = op.argument_slots()
+    dual_arg, _ = expr.argument_slots()
     return (isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction))
-            and set(extract_domains(op)) <= valid_domains)
+            and set(extract_domains(expr)) <= valid_domains)
 
 
-def _integrand_is_compilable(integral):
-    """Can TSFC compile every base form operator in this integrand?"""
-    valid_domains = set(integral.extra_domain_integral_type_map())
-    valid_domains.add(integral.ufl_domain())
-    return all(_interpolate_is_compilable(op, valid_domains)
-               for op in ufl.algorithms.extract_base_form_operators(integral.integrand()))
+@_is_compilable.register(ufl.form.Form)
+def _is_compilable_form(expr, valid_domains=frozenset()):
+    for integral in expr.integrals():
+        domains = set(integral.extra_domain_integral_type_map())
+        domains.add(integral.ufl_domain())
+        operators = ufl.algorithms.extract_base_form_operators(integral.integrand())
+        if not all(_is_compilable(op, domains) for op in operators):
+            return False
+    return True
 
 
-def _is_compilable(form):
-    """Can ``form`` be assembled by a single compiled kernel?"""
-    if isinstance(form, ufl.form.Form):
-        return all(map(_integrand_is_compilable, form.integrals()))
-    elif isinstance(form, slate.TensorBase):
-        return not BaseFormAssembler.base_form_operands(form)
-    else:
-        return False
+@_is_compilable.register(slate.TensorBase)
+def _is_compilable_tensor(expr, valid_domains=frozenset()):
+    # TSFC compiles every form that Slate wraps, so it can fuse the
+    # interpolations in them.
+    return True
 
 
 def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs) -> "ParloopFormAssembler":
