@@ -153,60 +153,6 @@ def assemble(expr, *args, **kwargs):
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
-@functools.singledispatch
-def _is_compilable(expr, valid_domains=frozenset()) -> bool:
-    """Can ``expr`` be assembled in a single fused kernel?
-
-    Parameters
-    ----------
-    expr :
-        A form, a Slate tensor, or a base form operator nested in an integrand.
-    valid_domains :
-        The domains that the enclosing integral's measure covers. A nested
-        base form operator must be defined on them to share the kernel of
-        that integral.
-
-    Returns
-    -------
-    bool
-        Whether ``expr`` can be assembled in a single fused kernel.
-
-    """
-    return False
-
-
-@_is_compilable.register(ufl.Interpolate)
-def _is_compilable_interpolate(expr, valid_domains=frozenset()):
-    # A non-terminal dual argument needs to be assembled on its
-    # own beforehand, so it cannot share a kernel with the integral.
-    dual_arg, _ = expr.argument_slots()
-    return (isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction))
-            and set(extract_domains(expr)) <= valid_domains)
-
-
-@_is_compilable.register(ufl.form.Form)
-def _is_compilable_form(expr, valid_domains=frozenset()):
-    for integral in expr.integrals():
-        domains = set(integral.extra_domain_integral_type_map())
-        domains.add(integral.ufl_domain())
-        operators = ufl.algorithms.extract_base_form_operators(integral.integrand())
-        if not all(_is_compilable(op, domains) for op in operators):
-            return False
-    return True
-
-
-@_is_compilable.register(slate.TensorBase)
-def _is_compilable_tensor(expr, valid_domains=frozenset()):
-    return all(map(_is_compilable, expr.operands))
-
-
-@_is_compilable.register(slate.Tensor)
-def _is_compilable_terminal_tensor(expr, valid_domains=frozenset()):
-    # TSFC compiles the form that the Tensor wraps, so it must fuse the
-    # interpolations in that form. A zero tensor holds no integrals.
-    return expr == 0 or _is_compilable(expr.form)
-
-
 def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs) -> "ParloopFormAssembler":
     """Construct the assembler for the rank of ``form``, forwarding the relevant options."""
     diagonal = kwargs.pop("diagonal", False)
@@ -247,7 +193,7 @@ def get_assembler(form, *args, **kwargs):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-    if _is_compilable(form):
+    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         return get_form_assembler(form, *args, **kwargs)
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
@@ -383,6 +329,35 @@ class AbstractFormAssembler(abc.ABC):
             Result of assembly: `float` for 0-forms, `firedrake.cofunction.Cofunction` or `firedrake.function.Function` for 1-forms, and `matrix.MatrixBase` for 2-forms.
 
         """
+
+
+def _is_fusable(operator, valid_domains) -> bool:
+    """Can ``operator`` share the kernel of the expression that holds it?
+
+    Parameters
+    ----------
+    operator :
+        A base form operator nested in an integrand or in an interpolation.
+    valid_domains :
+        The domains that the enclosing integral's measure covers, or the
+        domains that the enclosing interpolation targets.
+
+    Returns
+    -------
+    bool
+        Whether TSFC can assemble ``operator`` in the kernel of the expression
+        that holds it.
+
+    """
+    if not isinstance(operator, ufl.Interpolate):
+        return False
+    # A non-terminal dual argument needs to be assembled on its own
+    # beforehand, so it cannot share a kernel with the expression.
+    dual_arg, expression = operator.argument_slots()
+    return (isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction))
+            and set(extract_domains(operator)) <= valid_domains
+            and all(_is_fusable(op, valid_domains)
+                    for op in ufl.algorithms.extract_base_form_operators(expression)))
 
 
 class BaseFormAssembler(AbstractFormAssembler):
@@ -757,18 +732,33 @@ class BaseFormAssembler(AbstractFormAssembler):
     def base_form_operands(expr):
         if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
             return expr.ufl_operands
+        if isinstance(expr, slate.TensorBase):
+            # TSFC compiles the forms wrapped by the terminal tensors, so a
+            # Slate expression has the operands of the forms at its leaves.
+            # A zero tensor wraps no integrals to compile.
+            children = expr.operands or (expr.form,)
+            operands = [BaseFormAssembler.base_form_operands(child) for child in children
+                        if not isinstance(child, ufl.ZeroBaseForm)]
+            return list(dict.fromkeys(itertools.chain.from_iterable(operands)))
         if isinstance(expr, ufl.Form):
-            if _is_compilable(expr):
-                # The form is a leaf: its interpolations share its kernels, and
-                # descending would assemble each of them on its own instead.
-                return []
+            # An interpolation that shares the kernels of its integral is not a
+            # child: descending would assemble it on its own instead.
+            children = set()
+            for integral in expr.integrals():
+                domains = set(integral.extra_domain_integral_type_map())
+                domains.add(integral.ufl_domain())
+                children.update(op for op in ufl.algorithms.extract_base_form_operators(integral.integrand())
+                                if not _is_fusable(op, domains))
             # Use reversed to treat base form operators
             # in the order in which they have been made.
-            return list(reversed(expr.base_form_operators()))
+            return [op for op in reversed(expr.base_form_operators()) if op in children]
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
+            # An interpolation shares the kernel of the interpolation that
+            # targets its domains. Any other operator assembles its operands.
+            domains = set(extract_domains(expr.argument_slots()[0])) if isinstance(expr, ufl.Interpolate) else set()
             # Conserve order
             children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
-                                     if isinstance(e, ufl.form.BaseForm))
+                                     if isinstance(e, ufl.form.BaseForm) and not _is_fusable(e, domains))
             return list(children)
         return []
 
