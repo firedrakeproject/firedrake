@@ -289,11 +289,6 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
         for c, mapped in cmapping.items():
             manager.transfer(c, mapped)
 
-        # Apply bcs
-        if cctx.pre_apply_bcs:
-            for bc in cctx._problem.dirichlet_bcs():
-                bc.apply(cctx._x)
-
     def coarsen_callback(fine, coarse):
         if not coarse.getAttr("_coarsen_hook"):
             coarse.addCoarsenHook(coarsen_callback, transfer_callback)

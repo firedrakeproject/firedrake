@@ -177,9 +177,6 @@ class _SNESContext(object):
     transfer_manager
         Object that can transfer functions between levels,
         typically a :class:`~.TransferManager`.
-    pre_apply_bcs
-        If `False`, the problem is linearised around the initial guess before
-        imposing the boundary conditions.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -198,8 +195,7 @@ class _SNESContext(object):
                  post_jacobian_callback=None, post_function_callback=None,
                  marking_callback=None,
                  options_prefix: str | None = None,
-                 transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 transfer_manager=None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -211,7 +207,6 @@ class _SNESContext(object):
         self.sub_mat_type = sub_mat_type
         self.sub_pmat_type = sub_pmat_type
         self.options_prefix = options_prefix
-        self.pre_apply_bcs = pre_apply_bcs
 
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
@@ -263,15 +258,22 @@ class _SNESContext(object):
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
 
         self._bc_residual = None
-        if not pre_apply_bcs and next(problem.dirichlet_bcs(), None) is not None:
+        if not problem.restrict and next(problem.dirichlet_bcs(), None) is not None:
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
-            if problem.is_linear:
-                # Drop existing lifting term from the residual
-                assert isinstance(self.F, ufl.BaseForm)
-                self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
-
-            self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
+            if problem.is_linear and hasattr(problem, "L"):
+                # So far, F = L - action(J, u), but we need F = L - action(J, u - g).
+                # We could simply subtract action(J, g) as we do for the nonlinear case,
+                # but this doubles the number of integrals to be compiled.
+                # We cannot replace u -> u - g at this point because J or L might depend on u.
+                # The most efficient solution is to reconstruct the lifted residual from scratch.
+                # However, compute_bc_lifting(J, u - g, L) will complain about action not taking
+                # a pure Coefficient/Argument, so we supply a TrialFunction and replace it with u-g afterwards.
+                test, trial = self.J.arguments()
+                Ftrial = problem.compute_bc_lifting(self.J, trial, L=problem.L)
+                self.F = ufl.replace(Ftrial, {trial: self._x - self._bc_residual})
+            else:
+                self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
         self._assemble_objective = lambda *args, **kwargs: args
         if self.E:
@@ -281,7 +283,7 @@ class _SNESContext(object):
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=pre_apply_bcs,
+                                                zero_bc_nodes=self._problem.restrict,
                                                 ).assemble
 
         self._jacobian_assembled = False
@@ -333,7 +335,6 @@ class _SNESContext(object):
             pre_function_callback=self._pre_function_callback,
             post_jacobian_callback=self._post_jacobian_callback,
             post_function_callback=self._post_function_callback,
-            pre_apply_bcs=self.pre_apply_bcs,
             marking_callback=self._marking_callback,
         )
         for k, v in default_options.items():
@@ -541,7 +542,7 @@ class _SNESContext(object):
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
 
-        if not ctx.pre_apply_bcs:
+        if not ctx._problem.restrict:
             # Compute DirichletBC residual
             for bc in ctx._problem.dirichlet_bcs():
                 bc.apply(ctx._bc_residual, u=ctx._x)
