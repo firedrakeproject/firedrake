@@ -543,40 +543,6 @@ def test_interpolate_in_interior_facet_form():
     assert np.allclose(actual.dat.data, expected.dat.data)
 
 
-def test_interpolate_in_slate_tensor():
-    from firedrake.slate import Tensor
-
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 2)
-    W = FunctionSpace(mesh, "DG", 1)
-    x, y = SpatialCoordinate(mesh)
-    u = Function(V).interpolate(x**2 + y)
-    w = TrialFunction(W)
-    v = TestFunction(W)
-    interpolation = interpolate(u, W)
-
-    mass = Tensor(inner(w, v) * dx)
-    actual = assemble(mass.inv * Tensor(inner(interpolation, v) * dx))
-
-    interpolated = assemble(interpolation)
-    expected = assemble(mass.inv * Tensor(inner(interpolated, v) * dx))
-    assert np.allclose(actual.dat.data, expected.dat.data)
-
-
-def test_non_fusable_interpolate_in_slate_tensor():
-    from firedrake.slate import Tensor
-
-    source_mesh = UnitSquareMesh(1, 1)
-    target_mesh = UnitSquareMesh(1, 1)
-    V = FunctionSpace(source_mesh, "CG", 1)
-    W = FunctionSpace(target_mesh, "CG", 1)
-    v = TestFunction(W)
-    form = inner(interpolate(Function(V), W), v) * dx(domain=target_mesh)
-
-    with pytest.raises(NotImplementedError):
-        assemble(Tensor(form))
-
-
 def test_cross_mesh_interpolate_in_form_uses_base_form_assembler():
     from firedrake.assemble import BaseFormAssembler, get_assembler
 

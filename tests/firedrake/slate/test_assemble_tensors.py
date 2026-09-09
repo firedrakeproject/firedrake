@@ -367,3 +367,33 @@ def test_nested_block(mesh, degree):
     result = assemble(Block(Jp, (0, 0))).petscmat
 
     assert np.allclose(result[:, :], expect[:, :])
+
+
+def test_interpolate_in_slate_tensor():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "DG", 1)
+    x, y = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(x**2 + y)
+    w = TrialFunction(W)
+    v = TestFunction(W)
+    interpolation = interpolate(u, W)
+
+    mass = Tensor(inner(w, v) * dx)
+    actual = assemble(mass.inv * Tensor(inner(interpolation, v) * dx))
+
+    interpolated = assemble(interpolation)
+    expected = assemble(mass.inv * Tensor(inner(interpolated, v) * dx))
+    assert np.allclose(actual.dat.data, expected.dat.data)
+
+
+def test_non_fusable_interpolate_in_slate_tensor():
+    source_mesh = UnitSquareMesh(1, 1)
+    target_mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(source_mesh, "CG", 1)
+    W = FunctionSpace(target_mesh, "CG", 1)
+    v = TestFunction(W)
+    form = inner(interpolate(Function(V), W), v) * dx(domain=target_mesh)
+
+    with pytest.raises(NotImplementedError):
+        assemble(Tensor(form))
