@@ -197,9 +197,14 @@ def _is_compilable_form(expr, valid_domains=frozenset()):
 
 @_is_compilable.register(slate.TensorBase)
 def _is_compilable_tensor(expr, valid_domains=frozenset()):
-    # TSFC compiles every form that Slate wraps, so it can fuse the
-    # interpolations in them.
-    return True
+    return all(map(_is_compilable, expr.operands))
+
+
+@_is_compilable.register(slate.Tensor)
+def _is_compilable_terminal_tensor(expr, valid_domains=frozenset()):
+    # TSFC compiles the form that the Tensor wraps, so it must fuse the
+    # interpolations in that form. A zero tensor holds no integrals.
+    return expr == 0 or _is_compilable(expr.form)
 
 
 def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs) -> "ParloopFormAssembler":
@@ -249,6 +254,9 @@ def get_assembler(form, *args, **kwargs):
         return ExprAssembler(form)
     elif isinstance(form, ufl.form.BaseForm):
         return BaseFormAssembler(form, *args, **kwargs)
+    elif isinstance(form, slate.TensorBase):
+        raise NotImplementedError("Assemble the interpolation in this Slate tensor first: "
+                                  "TSFC cannot fuse it into the kernels of the form that holds it.")
     else:
         raise ValueError(f'Expecting a BaseForm, slate.TensorBase, or Expr object: got {form}')
 
