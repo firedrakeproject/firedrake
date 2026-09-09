@@ -285,6 +285,8 @@ def test_generate_cell_midpoints(parentmesh, redundant):
             _ = len(vm.coordinates.dat.data_ro)
 
     # Have correct pyop2 labels as implied by cell set sizes
+    # `cell_set.sizes` returns `(core, owned, total)`. The VOM does not include halos,
+    # so we only check that the core and owned counts match the parent mesh.
     if parentmesh.extruded:
         layers = parentmesh.layers
         if parentmesh.variable_layers:
@@ -292,9 +294,12 @@ def test_generate_cell_midpoints(parentmesh, redundant):
             expected = tuple(size*(layer-1) for size, layer in zip(parentmesh.cell_set.sizes, layers))
             assert vm.cell_set.sizes == expected
         else:
-            assert vm.cell_set.sizes == tuple(size*(layers-1) for size in parentmesh.cell_set.sizes)
+            assert vm.cell_set.sizes[:2] == tuple(size*(layers-1) for size in parentmesh.cell_set.sizes[:2])
+
     else:
-        assert vm.cell_set.sizes == parentmesh.cell_set.sizes
+        assert vm.cell_set.sizes[:2] == parentmesh.cell_set.sizes[:2]
+    # Check that the vom has no halos
+    assert vm.cell_set.total_size == vm.cell_set.size
 
 
 @pytest.mark.parallel
@@ -474,19 +479,18 @@ def test_inside_boundary_behaviour(parentmesh):
 @pytest.mark.parallel(nprocs=2)
 def test_pyop2_labelling():
     m = UnitIntervalMesh(4)
-    # We inherit pyop2 labelling (owned, core and ghost) from the parent mesh
-    # cell. Here we have one point per cell so can check directly
+    # The vom inherits owned and core labelling from the parent mesh, but voms
+    # have no halo points
     points = np.asarray([[0.125], [0.375], [0.625], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    assert vm.cell_set.sizes == m.cell_set.sizes
-    assert vm.cell_set.total_size == m.cell_set.total_size
+    expected_sizes = m.cell_set.sizes[:2] + (m.cell_set.size,)
+    assert vm.cell_set.sizes == expected_sizes
     points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    assert vm.cell_set.total_size == 2*m.cell_set.total_size
+    assert vm.cell_set.sizes == tuple(2 * size for size in expected_sizes)
     points = np.asarray([[-5.0]])
     vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
-    assert vm.cell_set.total_size == 0
-
+    assert vm.cell_set.sizes == (0, 0, 0)
 
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("redundant", [True, False], ids=["redundant", "nonredundant"])
