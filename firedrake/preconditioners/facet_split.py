@@ -53,8 +53,8 @@ class FacetSplitPC(PCBase):
         domains = domains.split(",")
 
         a, bcs = self.form(pc)
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
+        ctx = dmhooks.get_appctx(pc.getDM())
+        fcp = ctx.fcp
         V = a.arguments()[-1].function_space()
         if len(V) != 1:
             raise ValueError("Decomposition of mixed elements is not supported")

@@ -59,11 +59,11 @@ class DeflatedSNES(SNESBase):
 
         self.inner.setUp()
 
-        # Get the deflation object from the appctx
-        appctx = ctx.appctx
-        deflation = appctx.get("deflation")
-        if deflation is None:
-            raise ValueError("To use DeflatedSNES you need to pass a Deflation object in the appctx.")
+        # Get the deflation object
+        try:
+            deflation = ctx.get_python_option(f"{prefix}deflated_snes_", "deflation")
+        except KeyError:
+            raise ValueError("To use DeflatedSNES you need to pass a Deflation object.")
         self.deflation = deflation
 
         # Hijack the KSP of the SNES we just created.
@@ -82,8 +82,8 @@ class DeflatedSNES(SNESBase):
         viewer.printfASCII("Firedrake deflated SNES\n")
 
         ctx = get_appctx(snes.getDM())
-        appctx = ctx.appctx
-        deflation = appctx.get("deflation")
+        prefix = snes.getOptionsPrefix() or ""
+        deflation = ctx.get_python_option(f"{prefix}deflated_snes_", "deflation")
         viewer.printfASCII(f"Deflating {len(deflation.roots)} solutions\n")
 
         self.inner.view(viewer)

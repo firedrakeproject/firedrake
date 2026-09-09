@@ -254,21 +254,10 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        V = expr.function_space()
-        Vnew = self(V, self)
-        name = expr.name()
-        if name is not None:
-            try:
-                name, prev_level = name.split("_level_")
-            except ValueError:
-                prev_level = 0
-            level_inc = 1 if self is refine else -1
-            level = int(prev_level) + level_inc
-            name = f"{name}_level_{level}"
-
-        new = firedrake.Function(Vnew, name=name)
-        manager = get_transfer_manager(V.dm)
-        manager.transfer(expr, new)
+        if self is refine:
+            new = firedrake.solving_utils._refine_function(expr)
+        else:
+            new = firedrake.solving_utils._coarsen_function(expr)
         coefficient_mapping[expr] = new
     return new
 
@@ -377,17 +366,11 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
         return new_context
 
     problem = self(context._problem, self, coefficient_mapping=coefficient_mapping)
-    appctx = context.appctx
+
+    appctx = context._appctx
     new_appctx = {}
-    for k in sorted(appctx.keys()):
-        v = appctx[k]
-        if k != "state":
-            # Constructor makes this one.
-            try:
-                new_appctx[k] = self(v, self, coefficient_mapping=coefficient_mapping)
-            except ReconstructionError:
-                # Assume not something that needs reconstruction (e.g. float)
-                new_appctx[k] = v
+    for k, v in appctx.items():
+        new_appctx[k] = v.refine() if self is refine else v.coarsen()
 
     # Get options prefix for current level
     parent_context = context

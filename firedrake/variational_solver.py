@@ -11,7 +11,7 @@ from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETE
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction
+from firedrake.ufl_expr import TrialFunction, TestFunction, extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import as_ufl, replace, Form
@@ -291,7 +291,90 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
-    r"""Solves a :class:`NonlinearVariationalProblem`."""
+    """Class that solves a :class:`NonlinearVariationalProblem`.
+
+    Parameters
+    ----------
+    problem
+        A :class:`NonlinearVariationalProblem` to solve.
+    nullspace
+        an optional :class:`.VectorSpaceBasis` (or
+        :class:`.MixedVectorSpaceBasis`) spanning the null
+        space of the operator.
+    transpose_nullspace
+        as for the nullspace, but used to
+        make the right hand side consistent.
+    near_nullspace
+        as for the nullspace, but used to
+        specify the near nullspace (for multigrid solvers).
+    solver_parameters
+        Solver parameters to pass to PETSc.
+        This should be a dict mapping PETSc options to values.
+    appctx
+        (Deprecated) A dictionary containing application
+        context that is passed to the preconditioner if matrix-free.
+    options_prefix
+        an optional prefix used to distinguish
+        PETSc options.  If not provided a unique prefix will be
+        created.  Use this option if you want to pass options
+        to the solver from the command line in addition to
+        through the ``solver_parameters`` dict.
+    pre_jacobian_callback
+        A user-defined function that will
+        be called immediately before Jacobian assembly. This can
+        be used, for example, to update a coefficient function
+        that has a complicated dependence on the unknown solution.
+    post_jacobian_callback
+        As above, but called after the Jacobian has been assembled.
+    pre_function_callback
+        As above, but called immediately before residual assembly.
+    post_function_callback
+        As above, but called immediately after residual assembly.
+    pre_apply_bcs
+        If True, the bcs are applied before the solve.
+        Otherwise, the problem is linearised around the initial guess
+        before imposing bcs, and the bcs are appended to the nonlinear system.
+    marking_callback
+        An optional callable of the form
+        ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
+        The callback receives the `_SNESContext`
+        and the current Firedrake solution, and must return a DG0
+        :class:`.Function` or :class:`.Cofunction` with positive
+        values on cells to refine.
+
+    Examples
+    --------
+
+    Example usage of the ``solver_parameters`` option: to set the
+    nonlinear solver type to just use a linear solver, use
+
+    .. code-block:: python3
+
+        {'snes_type': 'ksponly'}
+
+    PETSc flag options (where the presence of the option means something) should
+    be specified with ``None``.
+    For example:
+
+    .. code-block:: python3
+
+        {'snes_monitor': None}
+
+    To use the ``pre_jacobian_callback`` or ``pre_function_callback``
+    functionality, the user-defined function must accept the current
+    solution as a petsc4py Vec. Example usage is given below:
+
+    .. code-block:: python3
+
+        def update_diffusivity(current_solution):
+            with cursol.dat.vec_wo as v:
+                current_solution.copy(v)
+            solve(trial*test*dx == dot(grad(cursol), grad(test))*dx, diffusivity)
+
+        solver = NonlinearVariationalSolver(problem,
+                                            pre_jacobian_callback=update_diffusivity)
+
+    """
 
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
@@ -318,77 +401,35 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                  post_function_callback=None,
                  pre_apply_bcs=True,
                  marking_callback=None):
-        r"""
-        :arg problem: A :class:`NonlinearVariationalProblem` to solve.
-        :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
-               :class:`.MixedVectorSpaceBasis`) spanning the null
-               space of the operator.
-        :kwarg transpose_nullspace: as for the nullspace, but used to
-               make the right hand side consistent.
-        :kwarg near_nullspace: as for the nullspace, but used to
-               specify the near nullspace (for multigrid solvers).
-        :kwarg solver_parameters: Solver parameters to pass to PETSc.
-               This should be a dict mapping PETSc options to values.
-        :kwarg appctx: A dictionary containing application context that
-               is passed to the preconditioner if matrix-free.
-        :kwarg options_prefix: an optional prefix used to distinguish
-               PETSc options.  If not provided a unique prefix will be
-               created.  Use this option if you want to pass options
-               to the solver from the command line in addition to
-               through the ``solver_parameters`` dict.
-        :kwarg pre_jacobian_callback: A user-defined function that will
-               be called immediately before Jacobian assembly. This can
-               be used, for example, to update a coefficient function
-               that has a complicated dependence on the unknown solution.
-        :kwarg post_jacobian_callback: As above, but called after the
-               Jacobian has been assembled.
-        :kwarg pre_function_callback: As above, but called immediately
-               before residual assembly.
-        :kwarg post_function_callback: As above, but called immediately
-               after residual assembly.
-        :kwarg pre_apply_bcs: If True, the bcs are applied before the solve.
-               Otherwise, the problem is linearised around the initial guess
-               before imposing bcs, and the bcs are appended to the nonlinear system.
-        :kwarg marking_callback: An optional callable of the form
-               ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
-               The callback receives the `_SNESContext`
-               and the current Firedrake solution, and must return a DG0
-               :class:`.Function` or :class:`.Cofunction` with positive
-               values on cells to refine.
-
-        Example usage of the ``solver_parameters`` option: to set the
-        nonlinear solver type to just use a linear solver, use
-
-        .. code-block:: python3
-
-            {'snes_type': 'ksponly'}
-
-        PETSc flag options (where the presence of the option means something) should
-        be specified with ``None``.
-        For example:
-
-        .. code-block:: python3
-
-            {'snes_monitor': None}
-
-        To use the ``pre_jacobian_callback`` or ``pre_function_callback``
-        functionality, the user-defined function must accept the current
-        solution as a petsc4py Vec. Example usage is given below:
-
-        .. code-block:: python3
-
-            def update_diffusivity(current_solution):
-                with cursol.dat.vec_wo as v:
-                    current_solution.copy(v)
-                solve(trial*test*dx == dot(grad(cursol), grad(test))*dx, diffusivity)
-
-            solver = NonlinearVariationalSolver(problem,
-                                                pre_jacobian_callback=update_diffusivity)
-
-        """
         assert isinstance(problem, NonlinearVariationalProblem)
 
         solver_parameters = flatten_parameters(solver_parameters or {})
+
+        if appctx is None:
+            appctx = {}
+
+        # The appctx is propagated throughout the full solver stack with entries
+        # getting coarsened, split etc along the way. We know how to do some basic
+        # things like refining a function on the same mesh, but anything more
+        # complex needs to be provided by users with the callbacks in place.
+        for key, value in appctx.items():
+            if isinstance(value, dmhooks.Hooked):
+                continue
+            elif isinstance(value, Function):
+                # If we hit a compatible function then we can add the hooks here
+                hooks = {}
+                if extract_domains(value) == extract_domains(problem.u):
+                    hooks["refine_callback"] = solving_utils._refine_function
+                    hooks["coarsen_callback"] = solving_utils._coarsen_function
+                appctx[key] = dmhooks.Hooked(value, **hooks)
+            else:
+                # Leave unchanged for the moment, this will eventually become an error
+                warnings.warn(
+                    f"Object with type {type(value).__name__} found in the "
+                    "appctx. Please either provide the necessary hooks yourself "
+                    "or consider passing the data via the solver parameters instead.",
+                    FutureWarning,
+                )
 
         if isinstance(problem.J, MatrixBase):
             solver_parameters.setdefault("mat_type", problem.J.mat_type)

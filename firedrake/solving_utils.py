@@ -1,7 +1,10 @@
 import typing
+import warnings
 from itertools import chain
+from typing import Any, Literal
 
 import numpy
+import petsctools
 import ufl
 
 from pyop2 import op2
@@ -135,7 +138,11 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
-class _SNESContext(object):
+_missing = object()
+"""Sentinel value used as a default for when 'None' is potentially meaningful."""
+
+
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -157,7 +164,7 @@ class _SNESContext(object):
         Indicates the matrix type for the sparse blocks in the preconditioner
         if pmat_type='nest', ignored otherwise.
     appctx
-        Any extra information used in the assembler.  For the
+        (Deprecated) Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in ``"state"``.
     pre_jacobian_callback
         User-defined function called immediately before Jacobian assembly.
@@ -199,7 +206,8 @@ class _SNESContext(object):
                  marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 state=None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -227,17 +235,16 @@ class _SNESContext(object):
         # Function to hold current guess
         self._x = problem.u_restrict
 
-        if appctx is None:
-            appctx = {}
         # A split context will already get the full state.
-        # TODO, a better way of doing this.
         # Now we don't have a temporary state inside the snes
         # context we could just require the user to pass in the
         # full state on the outside.
-        appctx.setdefault("state", self._x)
-        appctx.setdefault("form_compiler_parameters", self.fcp)
+        if state is None:
+            self.state = self._x
+        else:
+            self.state = state
 
-        self.appctx = appctx
+        self._appctx = appctx
         self.matfree = matfree
         self.pmatfree = pmatfree
         self.F = problem.F
@@ -295,6 +302,82 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
+    @property
+    def appctx(self) -> dict:
+        # debugging
+        raise AssertionError("old api")
+
+        # Raise a 'DeprecationWarning' here instead of a 'FutureWarning' because
+        # this in an internal detail, not user facing
+        warnings.warn(
+            "'appctx' is now deprecated. Pass Python objects into the "
+            "PETSc options directly.",
+            DeprecationWarning,
+        )
+        return {} if self._appctx is None else self._appctx
+
+    def get_python_option(
+        self,
+        prefix: str,
+        option: str,
+        default: Any = _missing,
+    ) -> Any:
+        """Return a Python object from either the options database or appctx.
+
+        This is a temporary method to facilitate the deprecation process for
+        the appctx.
+
+        Parameters
+        ----------
+        prefix
+            The options prefix.
+        option
+            The option name.
+        default
+            Default value if option is not found. If unspecified then a
+            `KeyError` is raised.
+
+        Returns
+        -------
+        Any
+            The object referred to by ``option``.
+
+        Raises
+        ------
+        KeyError
+            If ``option`` is not found and ``default`` is unspecified.
+
+        """
+        opts = petsctools.Options(prefix)
+        try:
+            value = opts[option]
+        except KeyError:
+            # not in the options database - try the old, unprefixed approach
+            if self._appctx is not None:
+                try:
+                    value = self._appctx[option]
+                except KeyError:
+                    if default is not _missing:
+                        value = default
+                    else:
+                        raise KeyError
+                else:
+                    if not isinstance(value, dmhooks.Hooked):
+                        warnings.warn(
+                            "Passing arbitrary Python objects to preconditioners via the 'appctx' kwarg "
+                            "is now deprecated. Either pass the objects into the PETSc options "
+                            "directly or specify hooks instead.",
+                            FutureWarning,
+                        )
+                    else:
+                        value = value.obj
+            else:
+                if default is not _missing:
+                    value = default
+                else:
+                    raise KeyError
+        return value
+
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
                     mat_type: str | None = None,
@@ -326,7 +409,7 @@ class _SNESContext(object):
         default_options = dict(
             sub_mat_type=self.sub_mat_type,
             sub_pmat_type=self.sub_pmat_type,
-            appctx=self.appctx,
+            appctx=self._appctx,
             options_prefix=self.options_prefix,
             transfer_manager=self.transfer_manager,
             pre_jacobian_callback=self._pre_jacobian_callback,
@@ -335,6 +418,7 @@ class _SNESContext(object):
             post_function_callback=self._post_function_callback,
             pre_apply_bcs=self.pre_apply_bcs,
             marking_callback=self._marking_callback,
+            state=self.state,
         )
         for k, v in default_options.items():
             if kwargs.get(k) is None:
@@ -644,7 +728,7 @@ class _SNESContext(object):
         from firedrake.assemble import get_assembler
         return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp,
                              mat_type=self.mat_type, sub_mat_type=self.sub_mat_type,
-                             options_prefix=self.options_prefix, appctx=self.appctx)
+                             options_prefix=self.options_prefix, appctx=self._appctx)
 
     @cached_property
     def _jac(self):
@@ -664,7 +748,7 @@ class _SNESContext(object):
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
             return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp,
                                  mat_type=self.pmat_type, sub_mat_type=self.sub_pmat_type,
-                                 options_prefix=self.options_prefix, appctx=self.appctx)
+                                 options_prefix=self.options_prefix, appctx=self._appctx)
         else:
             return self._assembler_jac
 
@@ -682,3 +766,36 @@ class _SNESContext(object):
     @cached_property
     def _F(self):
         return Cofunction(self.F.arguments()[0].function_space().dual())
+
+
+def _refine_function(function) -> Function:
+    return _transfer_function(function, "refine")
+
+
+def _coarsen_function(function) -> Function:
+    return _transfer_function(function, "coarsen")
+
+
+def _transfer_function(
+    function: Function,
+    mode: Literal["refine", "coarsen"],
+) -> Function:
+    from firedrake.mg.ufl_utils import refine, coarsen
+
+    V = function.function_space()
+    Vnew = refine(V, refine) if mode == "refine" else coarsen(V, coarsen)
+
+    name = function.name()
+    if name is not None:
+        try:
+            name, prev_level = name.split("_level_")
+        except ValueError:
+            prev_level = 0
+        level_inc = 1 if mode == "refine" else -1
+        level = int(prev_level) + level_inc
+        name = f"{name}_level_{level}"
+
+    new_func = Function(Vnew, name=name)
+    manager = dmhooks.get_transfer_manager(V.dm)
+    manager.transfer(function, new_func)
+    return new_func

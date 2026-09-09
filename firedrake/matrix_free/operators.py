@@ -65,7 +65,7 @@ def find_sub_block(iset, ises, comm):
     return found
 
 
-class ImplicitMatrixContext(object):
+class ImplicitMatrixContext:
     # By default, these matrices will represent diagonal blocks (the
     # (0,0) block of a 1x1 block matrix is on the diagonal).
     on_diag = True
@@ -102,11 +102,13 @@ class ImplicitMatrixContext(object):
         """
         from firedrake.assemble import get_assembler
 
+        assert appctx is None, "old API"
+
         self.a = a
         self.aT = adjoint(a)
         self.comm = a.arguments()[0].function_space().comm
-        self.fc_params = {} if fc_params is None else fc_params
-        self.appctx = {} if appctx is None else appctx
+        self.fc_params = fc_params
+        self.appctx = appctx
 
         # Collect all DirichletBC instances including
         # DirichletBCs applied to an EquationBC.
