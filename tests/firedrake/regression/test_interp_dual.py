@@ -588,3 +588,72 @@ def test_cross_mesh_interpolate_in_form_uses_base_form_assembler():
     form = inner(interpolate(Function(V), W), v) * dx(domain=target_mesh)
 
     assert isinstance(get_assembler(form), BaseFormAssembler)
+
+
+def test_partially_fusable_interpolate_in_form():
+    from firedrake.assemble import BaseFormAssembler
+
+    source_mesh = UnitSquareMesh(1, 1)
+    target_mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(source_mesh, "CG", 1)
+    W = FunctionSpace(target_mesh, "CG", 1)
+    Q = FunctionSpace(target_mesh, "DG", 0)
+    v = TestFunction(Q)
+
+    xs, ys = SpatialCoordinate(source_mesh)
+    u = Function(V).interpolate(xs + ys)
+    xt, yt = SpatialCoordinate(target_mesh)
+    w = Function(W).interpolate(xt * yt)
+    cross_mesh = interpolate(u, W)
+    same_mesh = interpolate(w, Q)
+    form = (inner(same_mesh, v) + inner(cross_mesh, v)) * dx(domain=target_mesh)
+
+    # Only the cross-mesh interpolation is assembled on its own.
+    assert BaseFormAssembler.base_form_operands(form) == [cross_mesh]
+
+    actual = assemble(form)
+    expected = assemble((inner(assemble(same_mesh), v)
+                         + inner(assemble(cross_mesh), v)) * dx(domain=target_mesh))
+    assert np.allclose(actual.dat.data, expected.dat.data)
+
+
+def test_nested_interpolate_shares_one_kernel():
+    from firedrake.assemble import BaseFormAssembler
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "DG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(Q).interpolate(x*x + y)
+    v = TestFunction(W)
+
+    interpolation = interpolate(f, V)
+    nested = interpolate(interpolation, W)
+    assert interpolation not in BaseFormAssembler.base_form_operands(nested)
+
+    expected = assemble(interpolate(assemble(interpolation), W))
+    assert np.allclose(assemble(nested).dat.data, expected.dat.data)
+
+    actual = assemble(inner(nested, v) * dx)
+    assert np.allclose(actual.dat.data, assemble(inner(expected, v) * dx).dat.data)
+
+
+def test_nested_cross_mesh_interpolate_assembles_its_operand():
+    from firedrake.assemble import BaseFormAssembler
+
+    source_mesh = UnitSquareMesh(3, 3)
+    target_mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(source_mesh, "CG", 2)
+    W = FunctionSpace(source_mesh, "CG", 1)
+    Q = FunctionSpace(target_mesh, "CG", 1)
+    u = Function(V).interpolate(SpatialCoordinate(source_mesh)[0])
+
+    # The operand is interpolated on the source mesh, so it cannot share the
+    # kernel of an interpolation that targets the other mesh.
+    interpolation = interpolate(u, W)
+    nested = interpolate(interpolation, Q)
+    assert interpolation in BaseFormAssembler.base_form_operands(nested)
+
+    expected = assemble(interpolate(assemble(interpolation), Q))
+    assert np.allclose(assemble(nested).dat.data, expected.dat.data)
