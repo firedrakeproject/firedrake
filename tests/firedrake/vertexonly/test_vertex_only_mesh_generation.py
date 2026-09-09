@@ -479,19 +479,18 @@ def test_inside_boundary_behaviour(parentmesh):
 @pytest.mark.parallel(nprocs=2)
 def test_pyop2_labelling():
     m = UnitIntervalMesh(4)
-    # We inherit pyop2 labelling (owned, core and ghost) from the parent mesh
-    # cell. Here we have one point per cell so can check directly
+    # The vom inherits owned and core labelling from the parent mesh, but voms
+    # have no halo points
     points = np.asarray([[0.125], [0.375], [0.625], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    assert vm.cell_set.sizes == m.cell_set.sizes
-    assert vm.cell_set.total_size == m.cell_set.total_size
+    expected_sizes = m.cell_set.sizes[:2] + (m.cell_set.size,)
+    assert vm.cell_set.sizes == expected_sizes
     points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    assert vm.cell_set.total_size == 2*m.cell_set.total_size
+    assert vm.cell_set.sizes == tuple(2 * size for size in expected_sizes)
     points = np.asarray([[-5.0]])
     vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
-    assert vm.cell_set.total_size == 0
-
+    assert vm.cell_set.sizes == (0, 0, 0)
 
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("redundant", [True, False], ids=["redundant", "nonredundant"])
