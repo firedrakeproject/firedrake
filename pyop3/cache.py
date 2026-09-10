@@ -306,6 +306,7 @@ class _DeadInstrumentedCache(_AbstractInstrumentedCache):
         return self._maxsize
 
 
+@gc_disabled()
 def print_cache_stats(*args, **kwargs):
     """Print cache statistics."""
     data = defaultdict(lambda: defaultdict(dict))
@@ -313,7 +314,7 @@ def print_cache_stats(*args, **kwargs):
         # entries are weakrefs, so they may be dead
         # TODO: It would be nice to still have access to this information
         try:
-            entry
+            entry.cidx
         except ReferenceError:
             continue
 
@@ -322,11 +323,12 @@ def print_cache_stats(*args, **kwargs):
         key2 = (entry.cache_name, entry.cache_loc)
         key3 = (entry.cidx, entry.func_module, entry.func_name)
 
+        # TODO: for heavy caches this is obscure as it aggregates things
         if key3 in data[key1][key2]:
             value = list(data[key1][key2][key3])
             value[0] += entry.hit
             value[1] += entry.miss
-            value[2] += entry.size
+            assert value[2] == entry.size
             assert value[3] == entry.maxsize
             data[key1][key2][key3] = value
         else:
@@ -509,6 +511,9 @@ class DEFAULT_CACHE(dict):
 # if configuration["print_cache_info"]:
 
 
+execs = weakref.WeakSet()
+
+
 # TODO: One day should use the compilation comm to do the bcast
 def parallel_cache(
     hashkey=default_parallel_hashkey,
@@ -640,10 +645,7 @@ def parallel_cache(
                             raise ValueError("Inconsistent cache hit behaviour")
 
                     if value is CACHE_MISS:
-                        try:
-                            value = func(*args, **kwargs)
-                        except BaseException as err:
-                            value = err
+                        value = func(*args, **kwargs)
 
                     # Insert the result into all of the caches
                     for i, cache in enumerate(caches):
@@ -691,10 +693,7 @@ def parallel_cache(
 
                         else:
                             if value is CACHE_MISS:
-                                try:
-                                    value = func(*args, **kwargs)
-                                except BaseException as err:
-                                    value = err
+                                value = func(*args, **kwargs)
                                 cache[key] = value
 
                     else:
@@ -706,16 +705,10 @@ def parallel_cache(
                                 raise ValueError("Inconsistent cache hit behaviour")
 
                         if value is CACHE_MISS:
-                            try:
-                                value = func(*args, **kwargs)
-                            except BaseException as err:
-                                value = err
+                            value = func(*args, **kwargs)
                             cache[key] = value
 
-                if isinstance(value, BaseException):
-                    raise value
-                else:
-                    return value
+                return value
         return wrapper
     return decorator
 
@@ -854,4 +847,7 @@ class WeakHeavyObjectCacheStore:
         self._data[obj_id] = value
 
         # When obj dies remove the corresponding cache entry
-        weakref.finalize(obj, lambda: self._data.pop(obj_id, None))
+        weakref.finalize(obj, self._drop, obj_id)
+
+    def _drop(self, obj_id):
+        self._data.pop(obj_id, None)

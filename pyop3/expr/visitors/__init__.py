@@ -736,11 +736,6 @@ def min_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Num
 
 class ArgumentCollector(NodeCollector):
 
-    @classmethod
-    # @memory_cache(heavy=True)
-    def maybe_singleton(cls, comm) -> Self:
-        return cls()
-
     @functools.singledispatchmethod
     def process(self, obj: Any) -> OrderedFrozenSet:
         return super().process(obj)
@@ -781,11 +776,6 @@ class BufferCollector(NodeCollector):
         self._lazy_tree_collector = tree_collector
         self.shallow = shallow
         super().__init__()
-
-    @classmethod
-    # @memory_cache(heavy=True)
-    def maybe_singleton(cls, comm) -> Self:
-        return cls()
 
     @functools.singledispatchmethod
     def process(self, obj: Any) -> OrderedFrozenSet:

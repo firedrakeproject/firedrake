@@ -137,6 +137,7 @@ def _load_check_save_functions(filename, func_name, comm, method, mesh_name):
     with CheckpointFile(filename, "r", comm=comm) as afile:
         meshB = afile.load_mesh(mesh_name)
         fB = afile.load_function(meshB, func_name)
+
     VB = fB.function_space()
     fBe = Function(VB)
     _initialise_function(fBe, _get_expr(VB), method)

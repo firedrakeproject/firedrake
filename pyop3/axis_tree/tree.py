@@ -1955,6 +1955,8 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     def _buffer_indices_hashkey(self, *, include_ghosts: bool) -> Hashable:
         return (self._canonical_cache_key, include_ghosts)
 
+    # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
+    @on_host
     @cached_method()
     @pyop3.cache.memory_cache(
         heavy=True,
@@ -1962,8 +1964,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         make_cache=lambda: pyop3.cache.LRUCache(10),
         get_comm=lambda s, **kw: s.comm,
     )
-    # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
-    @on_host
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
         from pyop3 import Dat, loop
 
@@ -2371,6 +2371,9 @@ class AxisForest(LoopContextFreeAxisTreeLike):
                 indexed_tree = tree.getitem(indices, strict=strict)
                 indexed_trees.append(indexed_tree)
             except (pyop3.exceptions.InvalidIndexTargetException, pyop3.exceptions.IncompatibleAxisTargetException):
+                # FIXME: This is a performance bottleneck in some cases because we cannot
+                # cache exceptions (leads to reference leaks). The solution is to stash the
+                # boolean 'can_index' or similar.
                 pass
 
         if not indexed_trees:

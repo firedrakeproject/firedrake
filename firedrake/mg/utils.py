@@ -93,7 +93,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # repeated valid entry is just redundantly (harmlessly) considered.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
-        if not nonempty[:Vc.axes.buffer_size(include_ghosts=False)].all():
+        if not nonempty[:Vc.axes.buffer_size(include_ghosts=False)//Vc.block_size].all():
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
         replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                   dtype=coarse_to_fine_nodes.dtype)

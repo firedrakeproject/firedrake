@@ -849,8 +849,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ PETSc interop
 
-    @cached_method()
     @on_host  # for now
+    @cached_method()
     def _work_vec(self, block_shape: tuple[numbers.Integral, ...]) -> PETSc.Vec:
         size = self.sf.num_owned
         block_size = np.prod(block_shape, dtype=int)

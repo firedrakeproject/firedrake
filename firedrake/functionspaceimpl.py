@@ -1788,8 +1788,8 @@ class FunctionSpace(AbstractFunctionSpace):
         return self.template_vec.getSize()
 
     # TODO: `on_host` decorator only exists while `compile` strategy does not work on device
-    @_with_mesh_heavy_cache
     @on_host
+    @_with_mesh_heavy_cache
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a new Dat storing DoFs for the function space."""
         if val is not None:
