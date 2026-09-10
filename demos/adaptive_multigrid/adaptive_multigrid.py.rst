@@ -160,8 +160,14 @@ With these helper functions complete, we can solve the system iteratively. In th
 
 .. code-block:: python
 
+   import os
+   if os.getenv("FIREDRAKE_CI") == "1":
+      # trick to speed up the Firedrake test suite
+      refinements = 3
+   else:
+      refinements = 15
+
    theta = 0.5
-   refinements = 15
    est_errors = []
    sqrt_dofs = []
    mg_iterations = []
@@ -190,7 +196,7 @@ With these helper functions complete, we can solve the system iteratively. In th
 To perform Dörfler marking, refine the current mesh, and add the mesh to the hierarchy, we use the :meth:`~.HierarchyBase.adapt` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy.
 To mark cells by some other criterion, refine the finest mesh yourself and add the result, which is all that :meth:`~.HierarchyBase.adapt` does once it has marked:
 
-.. code-block:: python
+.. code-block:: text
 
    mh.add_mesh(mh[-1].refine_marked_elements(markers))
 

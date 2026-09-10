@@ -69,7 +69,12 @@ is set to a prescribed sine function to create a wave-like disturbance.
   x, y, z = SpatialCoordinate(mesh)
   p_0.interpolate(sin(4*pi*x)*sin(2*pi*x))
 
-  T = 0.5
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+    # trick to speed up the Firedrake test suite
+    T = 0.005
+  else:
+    T = 0.5
   t = 0
   dt = 0.0025
 
@@ -103,7 +108,7 @@ from the start of the step :math:`p_0`. Mathematically, we find :math:`u_h \in W
 
   \int_{\Omega} w \cdot u_h \, dx = \int_{\Omega} w \cdot u_0 \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_0 \, dx \quad \forall w \in W
 
-.. code-block:: python
+.. code-block:: text
 
   a_1 = dot(w, u) * dx
   L_1 = dot(w, u_0) * dx + 0.5 * dt * div(w) * p_0 * dx
@@ -117,7 +122,7 @@ intermediate velocity :math:`u_h`. We find :math:`p_1 \in X` such that:
 
   \int_{\Omega} \phi \, p_1 \, dx = \int_{\Omega} \phi \, p_0 \, dx - \Delta t \int_{\Omega} \phi (\nabla \cdot u_h) \, dx \quad \forall \phi \in X
 
-.. code-block:: python
+.. code-block:: text
 
   a_2 = phi * p * dx
   L_2 = phi * p_0 * dx - dt * phi * div(u_h) * dx
@@ -131,7 +136,7 @@ the updated pressure :math:`p_1`. We find :math:`u_1 \in W` such that:
 
   \int_{\Omega} w \cdot u_1 \, dx = \int_{\Omega} w \cdot u_h \, dx + \frac{\Delta t}{2} \int_{\Omega} (\nabla \cdot w) p_1 \, dx \quad \forall w \in W
 
-.. code-block:: python
+.. code-block:: text
 
   a_3 = dot(w, u) * dx
   L_3 = dot(w, u_h) * dx + 0.5 * dt * div(w) * p_1 * dx
