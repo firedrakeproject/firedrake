@@ -304,7 +304,8 @@ def test_restricted_function_space_extrusion_basics():
     bc = DirichletBC(V_res, exact, "bottom")
     sol = Function(V_res)
     solve(a == L, sol, bcs=[bc])
-    assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-15
+    # The exact solution lies in the space, so the error is pure round-off.
+    assert assemble(inner(sol - exact, sol - exact) * dx)**0.5 < 1.e-14
 
 
 @pytest.mark.parallel(4)

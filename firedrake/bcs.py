@@ -98,6 +98,14 @@ class BCBase:
             fs = fs.parent
         return fs.index
 
+    @property
+    def parent_function_space(self):
+        """The top-level function space, walking up through indexed or component subspaces."""
+        V = self._function_space
+        while V.parent is not None:
+            V = V.parent
+        return V
+
     @cached_property
     def _indices(self):
         # If this BC is defined on a subspace (IndexedFunctionSpace or
