@@ -72,7 +72,7 @@ check = [
   "pytest",
 ]
 docs = [
-  "bibtexparser",
+  "bibtexparser>=2",
   "ipykernel",  # kernel for executing the tutorial notebooks
   "ipympl",  # %matplotlib widget backend used by the tutorial notebooks
   "jupytext",  # convert the .py tutorial notebooks to .ipynb
