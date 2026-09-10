@@ -65,12 +65,12 @@ def mesh(request, overlap):
     return mesh
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_overlap(mesh, num_cells):
     assert mesh.num_cells() == num_cells
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_override_distribution_parameters(overlap):
     if COMM_WORLD.rank == 0:
         # Zero overlap distribution

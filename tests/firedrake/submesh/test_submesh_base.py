@@ -189,21 +189,21 @@ def test_submesh_base_facet_integral_hex_1_process(family_degree, nelem):
     _test_submesh_base_facet_integral_hex(family_degree, nelem)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize('family_degree', [("Q", 3), ])
 @pytest.mark.parametrize('nelem', [2, 4, 8])
 def test_submesh_base_facet_integral_hex_2_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_hex(family_degree, nelem)
 
 
-@pytest.mark.parallel(nprocs=4)
+@pytest.mark.parallel(4)
 @pytest.mark.parametrize('family_degree', [("Q", 3), ])
 @pytest.mark.parametrize('nelem', [2, 4, 8])
 def test_submesh_base_facet_integral_hex_4_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_hex(family_degree, nelem)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_submesh_base_entity_maps():
 
     #  3---9--(5)-(12)(7)    (7)-(13)-3---9---5
@@ -232,20 +232,16 @@ def test_submesh_base_entity_maps():
     submesh = Submesh(mesh, dim, label_value)
     submesh.topology_dm.viewFromOptions("-dm_view")
     subdm = submesh.topology.topology_dm
+    raise NotImplementedError("interior_facets.facets etc")
     if rank == 0:
-        assert subdm.getLabel("pyop2_core").getStratumSize(1) == 0
-        assert subdm.getLabel("pyop2_owned").getStratumSize(1) == 9
-        assert subdm.getLabel("pyop2_ghost").getStratumSize(1) == 0
-        assert (subdm.getLabel("pyop2_owned").getStratumIS(1).getIndices() == np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])).all()
+        assert subdm.getLabel("firedrake_is_ghost").getStratumSize(1) == 0
         assert (mesh.interior_facets.facets == np.array([11])).all
         assert (mesh.exterior_facets.facets == np.array([8, 9, 10, 12, 13, 14])).all
         assert (submesh.interior_facets.facets == np.array([])).all
         assert (submesh.exterior_facets.facets == np.array([5, 8, 6, 7])).all()
     else:
-        assert subdm.getLabel("pyop2_core").getStratumSize(1) == 0
-        assert subdm.getLabel("pyop2_owned").getStratumSize(1) == 0
-        assert subdm.getLabel("pyop2_ghost").getStratumSize(1) == 9
-        assert (subdm.getLabel("pyop2_ghost").getStratumIS(1).getIndices() == np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])).all()
+        assert subdm.getLabel("firedrake_is_ghost").getStratumSize(1) == 9
+        assert (subdm.getLabel("firedrake_is_ghost").getStratumIS(1).getIndices() == np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])).all()
         assert (mesh.interior_facets.facets == np.array([8])).all
         assert (mesh.exterior_facets.facets == np.array([9, 10, 11, 12, 13, 14])).all
         assert (submesh.interior_facets.facets == np.array([])).all

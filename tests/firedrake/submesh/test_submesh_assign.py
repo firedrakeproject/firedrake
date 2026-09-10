@@ -1,14 +1,18 @@
-import pytest
-import numpy as np
-from firedrake import *
-import finat
 from os.path import abspath, dirname, join
+
+import numpy as np
+import pytest
+
+import finat
+import pyop3 as op3
+
+from firedrake import *
 
 
 cwd = abspath(dirname(__file__))
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_submesh_assign_function_3_quads_2_processes():
     # mesh
     # rank 0:
@@ -68,7 +72,7 @@ def test_submesh_assign_function_3_quads_2_processes():
     assert abs(e) < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_submesh_assign_function_2_quads_2_processes_no_overlap():
     # mesh
     # rank 0:
@@ -113,7 +117,7 @@ def test_submesh_assign_function_2_quads_2_processes_no_overlap():
     assert abs(e) < 1.e-15
 
 
-@pytest.mark.parallel(nprocs=8)
+@pytest.mark.parallel(8)
 @pytest.mark.parametrize('simplex', [True, False])
 @pytest.mark.parametrize('distribution_parameters', [None, {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}])
 def test_submesh_assign_function_unstructured_8_processes(simplex, distribution_parameters):
@@ -180,7 +184,7 @@ def test_submesh_assign_function_unstructured_8_processes(simplex, distribution_
     assert abs(e) / A_m < 1.e-14
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_submesh_assign_function_subset_3_quads_2_processes():
     left = 111
     right = 222
@@ -209,8 +213,8 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     f_r = Function(V_r).interpolate(SpatialCoordinate(mesh_r))
     # Test assign on the left two cells.
     # -- mesh_l -> mesh
-    subset_indices = np.where(f.dat.data_ro_with_halos[:, 0] < 1.001)
-    subset = op2.Subset(f.node_set, subset_indices)
+    subset_indices = np.flatnonzero(f.dat.data_ro_with_halos[:, 0] < 1.001)
+    subset = op3.Slice("nodes", {None: subset_indices})
     x = SpatialCoordinate(mesh)
     f_ = Function(V).interpolate(2 * x)
     f_.assign(f_l, subset=subset)
@@ -219,8 +223,8 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(leftleft)))
     assert abs(e) < 1.e-14
     # -- mesh -> mesh_l
-    subset_indices = np.where(f_l.dat.data_ro_with_halos[:, 0] < 1.001)
-    subset = op2.Subset(f_l.node_set, subset_indices)
+    subset_indices = np.flatnonzero(f_l.dat.data_ro_with_halos[:, 0] < 1.001)
+    subset = op3.Slice("nodes", {None: subset_indices})
     x = SpatialCoordinate(mesh_l)
     f_ = Function(V_l).interpolate(2 * x)
     f_.assign(f, subset=subset)
@@ -228,8 +232,8 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     assert abs(e) < 1.e-14
     # Test assign on the right two cells.
     # -- mesh_r -> mesh
-    subset_indices = np.where(f.dat.data_ro_with_halos[:, 0] > 1.999)
-    subset = op2.Subset(f.node_set, subset_indices)
+    subset_indices = np.flatnonzero(f.dat.data_ro_with_halos[:, 0] > 1.999)
+    subset = op3.Slice("nodes", {None: subset_indices})
     x = SpatialCoordinate(mesh)
     f_ = Function(V).interpolate(2 * x)
     f_.assign(f_r, subset=subset)
@@ -238,8 +242,8 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     e = sqrt(assemble(inner(f_ - x, f_ - x) * dx(rightright)))
     assert abs(e) < 1.e-14
     # -- mesh -> mesh_r
-    subset_indices = np.where(f_r.dat.data_ro_with_halos[:, 0] > 1.999)
-    subset = op2.Subset(f_r.node_set, subset_indices)
+    subset_indices = np.flatnonzero(f_r.dat.data_ro_with_halos[:, 0] > 1.999)
+    subset = op3.Slice("nodes", {None: subset_indices})
     x = SpatialCoordinate(mesh_r)
     f_ = Function(V_r).interpolate(2 * x)
     f_.assign(f, subset=subset)
@@ -247,7 +251,7 @@ def test_submesh_assign_function_subset_3_quads_2_processes():
     assert abs(e) < 1.e-14
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_submesh_assign_cofunction_3_quads_2_processes():
     # mesh
     # rank 0:

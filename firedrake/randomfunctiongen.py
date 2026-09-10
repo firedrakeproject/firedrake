@@ -105,7 +105,7 @@ import numpy as np
 import numpy.random as randomgen
 
 from firedrake.function import Function
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from ufl.functionspace import BaseFunctionSpace
 
 _deprecated_attributes = ['RandomGenerator', ]

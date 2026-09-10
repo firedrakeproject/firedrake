@@ -136,9 +136,9 @@ def project_mesh_to_cad_3d(mesh, cad):
     from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf, GeomAPI_ProjectPointOnCurve
 
     coorddata = mesh.coordinates.dat.data
-    ids = mesh.exterior_facets.unique_markers
+    ids = mesh.facet_markers
 
-    filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.dof_dset.size)[0]]
+    filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.function_space().axes.local_size)[0]]
     boundary_nodes = {id: filt(mesh.coordinates.function_space().boundary_nodes(int(id))) for id in ids}
 
     for (id, face) in zip(ids, cad.faces()):
@@ -211,9 +211,9 @@ def project_mesh_to_cad_2d(mesh, cad):
     from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve
 
     coorddata = mesh.coordinates.dat.data
-    ids = mesh.exterior_facets.unique_markers
+    ids = mesh.facet_markers
 
-    filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.dof_dset.size)[0]]
+    filt = lambda arr: arr[numpy.where(arr < mesh.coordinates.function_space().axes.owned.local_size)[0]]
     boundary_nodes = {id: filt(mesh.coordinates.function_space().boundary_nodes(int(id))) for id in ids}
 
     for (id, edge) in zip(ids, cad.edges()):

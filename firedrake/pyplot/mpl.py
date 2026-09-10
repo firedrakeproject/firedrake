@@ -23,6 +23,7 @@ from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
+from firedrake.cython import dmcommon
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
@@ -371,7 +372,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
                        + np.arange(num_layers)).reshape(-1)
         return exterior_faces[indices, :]
 
-    markers = list(exterior_facets.unique_markers) + horizontal_markers
+    markers = list(mesh.facet_markers) + horizontal_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
@@ -1169,9 +1170,7 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        # TODO: What do we do with variable layers?
-        num_layers = 1 if mesh.layers is None else mesh.layers - 1
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
@@ -1201,12 +1200,10 @@ class FunctionPlotter:
             cell_node_list = _extrude(cell_node_list, Q.cell_node_map().offset,
                                       mesh.layers - 1)
         data = function.dat.data_ro_with_halos[cell_node_list]
-        if function.ufl_shape == ():
-            vec_length = 1
-        else:
-            vec_length = function.ufl_shape[0]
 
-        if vec_length == 1:
+        # Match the indices of the einsum
+        if len(data.shape) == 2:
             data = np.reshape(data, data.shape + (1,))
+        assert len(data.shape) == 3
 
         return np.einsum("ijk, jl->ilk", data, elem).reshape(-1)

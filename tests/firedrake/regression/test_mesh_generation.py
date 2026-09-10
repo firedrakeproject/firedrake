@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 
+
 from firedrake import *
 # Must come after firedrake import (that loads MPI)
 try:
@@ -228,7 +229,7 @@ def test_tensor_box_parallel():
 def assert_num_exterior_facets_equals_zero(m):
     # Need to initialise the mesh so that exterior facets have been
     # built.
-    assert m.exterior_facets.set.total_size == 0
+    assert m.exterior_facets.local_size == 0
 
 
 def run_icosahedral_sphere_mesh_num_exterior_facets():
@@ -388,12 +389,12 @@ def test_bendy_cube_unit(degree):
     return run_bendy_cube_unit(degree)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_bendy_cube_parallel(degree):
     return run_bendy_cube(degree)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_bendy_cube_unit_parallel(degree):
     return run_bendy_cube_unit(degree)
 
@@ -401,7 +402,6 @@ def test_bendy_cube_unit_parallel(degree):
 def test_mesh_reordering_defaults_on():
     assert parameters["reorder_meshes"]
     m = UnitSquareMesh(1, 1)
-
     assert m._did_reordering
 
 

@@ -6,7 +6,7 @@ from mpi4py import MPI
 import numpy
 import ufl
 
-from pyop2.mpi import temp_internal_comm
+from pyop3.mpi import temp_internal_comm
 from firedrake.ufl_expr import adjoint, action
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.bcs import DirichletBC, EquationBCSplit
@@ -134,8 +134,8 @@ class ImplicitMatrixContext:
             self._ybc = Function(test_space.dual())
 
         # Get size information from template vecs on test and trial spaces
-        trial_vec = trial_space.dof_dset.layout_vec
-        test_vec = test_space.dof_dset.layout_vec
+        trial_vec = trial_space.template_vec
+        test_vec = test_space.template_vec
         self.col_sizes = trial_vec.getSizes()
         self.row_sizes = test_vec.getSizes()
 
@@ -383,8 +383,8 @@ class ImplicitMatrixContext:
 
         # These are the sets of ISes of which the the row and column
         # space consist.
-        row_ises = self._y.function_space().dof_dset.field_ises
-        col_ises = self._x.function_space().dof_dset.field_ises
+        row_ises = self._y.function_space().field_ises
+        col_ises = self._x.function_space().field_ises
 
         try:
             row_inds = find_sub_block(row_is, row_ises, comm=self.comm)

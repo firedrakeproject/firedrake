@@ -148,17 +148,19 @@ def _pgfplot_create_patches(f, coords, complex_component):
     fdata = f.dat.data_ro.real if complex_component == 'real' else f.dat.data_ro.imag
     map_facet_dofs, patch_type = _pgfplot_make_perms(fiat_cell, degree)
     if isinstance(fiat_cell, UFCTriangle):
-        cells = np.arange(mesh.cell_set.size)
+        cells = np.arange(mesh.cells.owned.local_size)
         perms = map_facet_dofs
     elif isinstance(fiat_cell, UFCTetrahedron):
+        raise NotImplementedError
         _facets = mesh.exterior_facets
         nfacets = _facets.classes[1]
         cells = _facets.facet_cell[:nfacets, 0]
         perms = map_facet_dofs[_facets.local_facet_dat.data_ro[:nfacets]]
     elif isinstance(fiat_cell, UFCQuadrilateral):
-        cells = np.arange(mesh.cell_set.size)
+        cells = np.arange(mesh.cells.owned.local_size)
         perms = map_facet_dofs
     elif isinstance(fiat_cell, UFCHexahedron):
+        raise NotImplementedError
         _facets = mesh.exterior_facets
         nfacets = _facets.classes[1]
         cells = _facets.facet_cell[:nfacets, 0]

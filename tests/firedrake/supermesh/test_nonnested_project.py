@@ -65,7 +65,7 @@ def test_project(hierarchy, coarse, fine):
     assert numpy.allclose(expect, actual)
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_project_parallel(hierarchy, coarse, fine):
     cmesh, fmesh = hierarchy
 

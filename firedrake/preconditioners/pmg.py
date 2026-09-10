@@ -1,11 +1,13 @@
+import textwrap
 from functools import partial
+
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,
                                add_hook, get_parent, push_parent, pop_parent,
                                get_function_space, set_function_space)
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.solving_utils import _SNESContext
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 import firedrake
 import finat
@@ -125,7 +127,7 @@ class PMGBase(PCSNESBase):
             elements.append(ele)
 
         sf = odm.getPointSF()
-        section = odm.getDefaultSection()
+        section = odm.getLocalSection()
         attach_hooks(pdm, level=len(elements)-1, sf=sf, section=section)
         # Now overwrite some routines on the DM
         pdm.setRefine(None)
@@ -289,9 +291,9 @@ class PMGBase(PCSNESBase):
         cctx._nullspace = _coarsen_nullspace(fctx._nullspace)
         cctx._nullspace_T = _coarsen_nullspace(fctx._nullspace_T)
         cctx._near_nullspace = _coarsen_nullspace(fctx._near_nullspace)
-        cctx.set_nullspace(cctx._nullspace, cV._ises, transpose=False, near=False)
-        cctx.set_nullspace(cctx._nullspace_T, cV._ises, transpose=True, near=False)
-        cctx.set_nullspace(cctx._near_nullspace, cV._ises, transpose=False, near=True)
+        cctx.set_nullspace(cctx._nullspace, cV.field_ises, transpose=False, near=False)
+        cctx.set_nullspace(cctx._nullspace_T, cV.field_ises, transpose=True, near=False)
+        cctx.set_nullspace(cctx._near_nullspace, cV.field_ises, transpose=False, near=True)
         return cdm
 
     @staticmethod
@@ -376,7 +378,7 @@ class PMGPC(PCBase, PMGBase):
         return ppc
 
     def apply(self, pc, x, y):
-        return self.ppc.apply(x, y)
+        self.ppc.apply(x, y)
 
     def applyTranspose(self, pc, x, y):
         return self.ppc.applyTranspose(x, y)

@@ -24,18 +24,19 @@ def Q(mesh):
 def test_partially_mixed_mat(V, Q, mat_type, scalar):
 
     W = V*Q
+    label0, label1 = W._labels
 
     u, p = TrialFunctions(W)
     if scalar:
         v = TestFunction(V)
         a = inner(u, v)*dx
-        idx = 0, 0
-        other = 0, 1
+        idx = slice(None), label0
+        other = slice(None), label1
     else:
         q = TestFunction(Q)
         a = inner(p, q)*dx
-        idx = 0, 1
-        other = 0, 0
+        idx = slice(None), label1
+        other = slice(None), label0
 
     A = assemble(a, mat_type=mat_type).M
 

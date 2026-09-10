@@ -35,6 +35,8 @@ def mesh(request):
     elif dim == 3:
         mesh = UnitCubeMesh(nx, nx, nx, hexahedral=True)
     if extruded:
+        if dim == 3:
+            pytest.skip(reason="PETSc does not support 4D meshes yet")
         mesh = ExtrudedMesh(mesh, nx)
     return mesh
 

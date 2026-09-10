@@ -68,10 +68,10 @@ def test_randomfunc(brng, meth_args):
         f = getattr(rg_wrap, meth)(V, *args)
         with f.dat.vec_ro as v:
             if meth in ('rand', 'randn'):
-                assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array[:])
+                assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array_r[:])
             else:
                 kwargs = {'size': (v.local_size, )}
-                assert np.allclose(getattr(rg_base, meth)(*args, **kwargs), v.array[:])
+                assert np.allclose(getattr(rg_base, meth)(*args, **kwargs), v.array_r[:])
 
 
 @pytest.mark.parallel
@@ -97,7 +97,7 @@ def test_randomfunc_parallel_pcg64():
     for i in range(1, 10):
         f = rg_wrap.beta(V, 0.3, 0.5)
         with f.dat.vec_ro as v:
-            assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
+            assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array_r[:])
 
 
 @pytest.mark.parallel
@@ -117,7 +117,7 @@ def test_randomfunc_parallel_philox():
     for i in range(1, 10):
         f = rg_wrap.beta(V, 0.3, 0.5)
         with f.dat.vec_ro as v:
-            assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array[:])
+            assert np.allclose(rg_base.beta(0.3, 0.5, size=(v.local_size,)), v.array_r[:])
 
 
 @pytest.mark.skip(reason="Require numpy>=1.25.0")
@@ -161,7 +161,7 @@ def test_random_cofunction(brng, meth_args):
         f = getattr(rg_wrap, meth)(V, *args)
         with f.dat.vec_ro as v:
             if meth in ('rand', 'randn'):
-                assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array[:])
+                assert np.allclose(getattr(rg_base, meth)(v.local_size), v.array_r[:])
             else:
                 kwargs = {'size': (v.local_size, )}
-                assert np.allclose(getattr(rg_base, meth)(*args, **kwargs), v.array[:])
+                assert np.allclose(getattr(rg_base, meth)(*args, **kwargs), v.array_r[:])

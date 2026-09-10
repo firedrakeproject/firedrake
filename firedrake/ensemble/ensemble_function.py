@@ -1,12 +1,15 @@
 from functools import cached_property
 from contextlib import contextmanager
 
-from pyop2 import MixedDat
+import pyop3 as op3
+
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
 from firedrake.adjoint_utils import EnsembleFunctionMixin
 from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometry, FiredrakeDualSpace, MixedFunctionSpace
+from firedrake.mesh import MeshSequenceGeometry
 from firedrake.norms import norm
 
 
@@ -73,31 +76,31 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         The (co)functions on the local ensemble member.
         """
         def local_function(i):
-            V = self._fs.local_spaces[i]
-            usubs = self._subcomponents(i)
-            if len(usubs) == 1:
-                dat = usubs[0].dat
+            subspaces = []
+            labels = []
+            for j in range(*self._fs._component_indices(i)):
+                subspaces.append(self._fs._full_local_space._orig_spaces[j])
+                labels.append(self._fs._full_local_space._labels[j])
+
+            # Here we have to do a bit of a dance to create a new non-topological
+            # function space
+            if len(subspaces) == 1:
+                mesh = self._fs.mesh().unique()
+                tV = subspaces[0]
+                subdat = self._full_local_function.dat[labels[0]]
             else:
-                dat = MixedDat((u.dat for u in usubs))
-            return Function(V, val=dat)
+                mesh = MeshSequenceGeometry([self._fs.mesh().unique()] * len(subspaces))
+                tV = MixedFunctionSpace(subspaces, mesh.topological, _labels=labels)
+                subdat = self._full_local_function.dat[labels]
+            if isinstance(self, EnsembleFunction):
+                V = WithGeometry(tV, mesh)
+            else:
+                assert isinstance(self, EnsembleCofunction)
+                V = FiredrakeDualSpace(tV, mesh)
+            return Function(V, val=subdat)
 
         return tuple(local_function(i)
                      for i in range(self._fs.nlocal_spaces))
-
-    def _subcomponents(self, i):
-        """
-        Return the subfunctions of the local mixed function storage
-        corresponding to the i-th local function.
-
-        Firedrake doesn't support nested ``MixedFunctionSpace``, so internally
-        :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace` flattens all the
-        local :class:`~firedrake.functionspaceimpl.FunctionSpace` into a
-        single ``MixedFunctionSpace``. This method retrieves the components of
-        the flattened MixedFunction corresponding to the i-th local
-        :class:`~firedrake.function.Function`.
-        """
-        return tuple(self._full_local_function.subfunctions[j]
-                     for j in self._fs._component_indices(i))
 
     @PETSc.Log.EventDecorator()
     def riesz_representation(self, **kwargs):
