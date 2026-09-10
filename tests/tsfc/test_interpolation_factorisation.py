@@ -73,7 +73,7 @@ def test_sum_factorisation_mixed_q_rtce():
 
     numpy.testing.assert_equal(mixed_flops, component_flops)
     rates = numpy.diff(numpy.log(mixed_flops)) / numpy.diff(numpy.log(degrees))
-    assert (rates < 2 * quadrilateral.topological_dimension).all()
+    assert (rates < quadrilateral.topological_dimension + 1).all()
 
 
 def test_sum_factorisation_dual_mixed_q_rtce():
