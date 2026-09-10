@@ -224,14 +224,14 @@ arguments are added to the linear form as a result of differentiation. Hence, th
 is *(1, 0)* as we differentiated with respect to the first operand, i.e. `u`. Therefore, the 
 decorator for the evaluation of the Jacobian would be:
 
-.. code-block:: python3
+.. code-block:: python
 
   @assemble_method((1, 0), (0, 1))
 
 If we now take the adjoint of that Jacobian, i.e. its Hermitian transpose, we would still have the same 
 derivative multi-index, but the arguments would be swapped. Hence, the specified decorator should be:
 
-.. code-block:: python3
+.. code-block:: python
 
   @assemble_method((1, 0), (1, 0))
 
@@ -240,7 +240,7 @@ Likewise, if we take the action of the Hermitian transpose of the Jacobian matri
 the highest number in the second tuple of the decorator will be replaced by *None* as cofunctions are 
 not :class:`~.Argument` or :class:`~.Coargument`, which results in:
 
-.. code-block:: python3
+.. code-block:: python
 
   @assemble_method((1, 0), (None, 0))
 
@@ -248,7 +248,7 @@ not :class:`~.Argument` or :class:`~.Coargument`, which results in:
 The following example illustrates how to define a new external operator, named *MyExternalOperator*, 
 and sketch out a few evaluation methods:
 
-.. code-block:: python3
+.. code-block:: python
 
   class MyExternalOperator(AbstractExternalOperator):
     def __init__(self, *args, **kwargs):
@@ -312,7 +312,7 @@ we need to subclass the :class:`~.AbstractExternalOperator` class and specify ho
 Given that `N` has `(0,)` as derivative multi-index and that it only has one argument, 
 the translation operator subclass can be defined as:
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -338,7 +338,7 @@ operator `N`, which is an external operator, will also have access to the conten
 
 Now that we have specified the implementation for evaluating `N`, we can assemble it:
 
-.. code-block:: python3
+.. code-block:: python
 
   assembled_N = assemble(N)
   assert np.allclose(assembled_N.dat.data_ro, u.dat.data_ro[:] - f.dat.data_ro[:])
@@ -368,7 +368,7 @@ case is the identity matrix. Hence, we now need to add an implementation specify
 of `N` can be assembled:
 
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -399,7 +399,7 @@ Note that the above implementation first constructs the Jacobian matrix `J` befo
 This can be achieved using the *_matrix_builder* external operator's helper function. The variational 
 problem can now be solved
 
-.. code-block:: python3
+.. code-block:: python
 
   u = Function(V)
   v = TestFunction(V)
@@ -421,7 +421,7 @@ the action of the Jacobian of `N` on a given :class:`~.Function` `w` can be asse
 compute `\frac{\partial N(u, f; w, v^{*})}{\partial u}`. In this case, this implementation should simply 
 return `w` as the Jacobian is the identity matrix.
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -447,7 +447,7 @@ all the arguments of the external operator, independently of whether they are
 the unknown arguments, for example to determine the arity of the external operator, 
 you can instead use *.arguments()*. We can now solve the variational problem using any matrix-free method:
 
-.. code-block:: python3
+.. code-block:: python
 
   u = Function(V)
   N = TranslationOperator(u, f, function_space=V)
@@ -501,7 +501,7 @@ We now need to add the method for `\frac{\partial \mathcal{R}(f, f_{0}; y, \hat{
 this case is trivial as the Jacobian is the identity matrix
 
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -535,7 +535,7 @@ We can now solve the PDE-constrained optimisation problem using the *firedrake.a
 For this, we employ the *BFGS* algorithm:
 
 
-.. code-block:: python3
+.. code-block:: python
 
   R = partial(TranslationOperator, function_space=V)
 

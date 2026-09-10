@@ -229,7 +229,7 @@ class SNESBase(PCSNESBase):
 
     The required function signatures for each method are shown below:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         def solve(self, snes, b, x):
             '''Solve the nonlinear problem using the Vec x as the initial guess and

@@ -313,7 +313,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
         For example, consider the rank-2 tensor described by:
 
-        .. code-block:: python3
+        .. code-block:: python
 
            V = FunctionSpace(m, "CG", 1)
            W = V * V * V
@@ -324,14 +324,14 @@ class TensorBase(object, metaclass=ABCMeta):
         The tensor `A` has 3x3 block structure. The block defined
         by the form `u*w*dx` could be extracted with:
 
-        .. code-block:: python3
+        .. code-block:: python
 
            A.blocks[0, 0]
 
         While the block coupling `p`, `r`, `q`, and `s` could be
         extracted with:
 
-        .. code-block:: python3
+        .. code-block:: python
 
            A.block[1:, 1:]
 
@@ -612,7 +612,7 @@ class Block(TensorBase):
 
     For example, consider the mixed tensor defined by:
 
-    .. code-block:: python3
+    .. code-block:: python
 
        n = FacetNormal(m)
        U = FunctionSpace(m, "DRT", 1)
