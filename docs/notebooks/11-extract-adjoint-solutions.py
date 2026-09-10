@@ -286,10 +286,10 @@ pause_annotation()
 # %% tags=["skip-execution", "nbval-skip"]
 # !pip install networkx pygraphviz pdf2image
 
-# %% tags=["skip-execution", "nbval-skip"]
+# %%
 tape.visualise("tape.pdf")
 
-# %% tags=["skip-execution", "nbval-skip"]
+# %%
 from pdf2image import convert_from_path
 
 images = convert_from_path("tape.pdf")
