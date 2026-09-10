@@ -142,7 +142,7 @@ class KernelBuilderBase(KernelInterface):
         return self._domain_integral_type_map
 
 
-class KernelBuilderMixin(object):
+class KernelBuilderMixin:
     """Mixin for KernelBuilder classes."""
 
     def compile_interpolate(self, expression, target_element, params, ctx):
