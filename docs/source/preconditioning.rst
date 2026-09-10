@@ -73,16 +73,16 @@ multiplicatively within an MPI rank and additively between ranks.
    The additive Schwarz preconditioners listed here construct patches around
    mesh entities.  Crucially, the mesh must have an overlapping parallel domain
    decomposition that supports the patches. This is set via the
-   `distribution_parameters` kwarg of the :func:`.Mesh` constructor.  For
+   ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.  For
    instance, vertex-star patches require:
 
-.. code-block:: python
+   .. code-block:: python
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 1)
 
    while Vanka patches require:
 
-.. code-block:: python
+   .. code-block:: python
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 2)
 

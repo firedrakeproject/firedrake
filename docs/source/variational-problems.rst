@@ -130,7 +130,7 @@ is used by Firedrake to ensure that the cell normal on,
 say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
-``~.Mesh.init_cell_orientations``, which
+:py:meth:`~firedrake.mesh.MeshGeometry.init_cell_orientations`, which
 takes a UFL expression used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
@@ -616,7 +616,7 @@ Special subdomain ids
 As well as integer subdomain ids that come from marked portions of the
 mesh, Firedrake also supports the magic string ``"on_boundary"`` to
 apply a boundary condition to all exterior facets of the mesh.
-Further, on :doc`:extruded meshes <extruded-meshes>` the special
+Further, on :doc:`extruded meshes <extruded-meshes>` the special
 strings ``"top"`` and ``"bottom"`` can be used to apply a boundary
 condition on respectively the top and bottom of the extruded domain.
 
