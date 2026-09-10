@@ -392,7 +392,7 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
 
     # A mixed dual argument has one component per sub-element.
     elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
-    summands = []
+    component_summands = []
     for element, gem_dual in zip(elements, gem_duals, strict=True):
         evaluation, point_indices, basis_indices = element.dual_evaluation(fn, coordinate_mapping)
         if is_complex(kernel_cfg["scalar_type"]):
@@ -402,10 +402,21 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
         # tabulates into a Concatenate that only its own component can split.
         dual, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
         for var, expr in unconcatenate([(dual, evaluation)], kernel_cfg["index_cache"]):
-            product = gem.Product(expr, var)
-            indices = tuple(point_indices) + var.index_ordering()
-            summands.append(gem.IndexSum(product, tuple(i for i in indices if i in product.free_indices)))
-    return gem.optimise.make_sum(summands), (), ()
+            component_summands.append((tuple(point_indices), var, expr))
+
+    shared_point_indices = tuple(
+        index for index in component_summands[0][0]
+        if all(index in point_indices for point_indices, _, _ in component_summands)
+    )
+    quadrature_multiindex = list(shared_point_indices)
+    summands = []
+    for point_indices, var, expr in component_summands:
+        product = gem.Product(expr, var)
+        quadrature_multiindex.extend(var.index_ordering())
+        indices = tuple(index for index in point_indices if index not in shared_point_indices)
+        indices += var.index_ordering()
+        summands.append(gem.IndexSum(product, tuple(i for i in indices if i in product.free_indices)))
+    return gem.optimise.make_sum(summands), tuple(quadrature_multiindex), ()
 
 
 class DualEvaluationCallable:
