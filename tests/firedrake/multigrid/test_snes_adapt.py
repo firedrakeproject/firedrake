@@ -19,7 +19,7 @@ def test_marking_callback_configures_refine_adaptor():
 
     assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
-    assert solver._ctx.snes is solver.snes
+    assert solver._ctx.snes == solver.snes
 
 
 @pytest.mark.skipnetgen

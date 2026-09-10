@@ -417,7 +417,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         pmat_type = self.parameters.get("pmat_type")
         sub_mat_type = self.parameters.get("sub_mat_type")
         sub_pmat_type = self.parameters.get("sub_pmat_type")
-        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
@@ -430,8 +429,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          post_function_callback=post_function_callback,
                                          marking_callback=marking_callback,
                                          options_prefix=self.options_prefix,
-                                         pre_apply_bcs=pre_apply_bcs,
-                                         snes=self.snes)
+                                         pre_apply_bcs=pre_apply_bcs)
+
+        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+        ctx.set_snes(self.snes)
 
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
