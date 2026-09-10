@@ -606,6 +606,33 @@ def test_mixed_matrix(mode, mat_type):
         assert np.allclose(x.dat.data, y.dat.data)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+def test_mixed_matrix_q_rtce(mode):
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    source = FunctionSpace(mesh, "Q", 1) * FunctionSpace(mesh, "RTCE", 1)
+    target = FunctionSpace(mesh, "Q", 2) * FunctionSpace(mesh, "RTCE", 2)
+
+    if mode == "forward":
+        I = Interpolate(TrialFunction(source), TestFunction(target.dual()))
+        a = assemble(I)
+        u = Function(source)
+        u.subfunctions[0].assign(1)
+        u.subfunctions[1].assign(2)
+        result_matfree = assemble(Interpolate(u, TestFunction(target.dual())))
+    else:
+        I = Interpolate(TestFunction(source), TrialFunction(target.dual()))
+        a = assemble(I)
+        u = Cofunction(target.dual())
+        u.subfunctions[0].assign(1)
+        u.subfunctions[1].assign(2)
+        result_matfree = assemble(Interpolate(TestFunction(source), u))
+
+    result_explicit = assemble(action(a, u))
+    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
+        assert np.allclose(x.dat.data, y.dat.data)
+
+
 def test_mixed_matrix_direct_sum():
     mesh = UnitSquareMesh(3, 3, quadrilateral=True)
     V1 = VectorFunctionSpace(mesh, "CG", 2)
