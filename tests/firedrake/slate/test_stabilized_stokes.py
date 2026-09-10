@@ -82,5 +82,8 @@ def run_stabilized_stokes(r, degree, quads):
 def test_stabilized_stokes(degree, quads, rate):
     diff = np.array([run_stabilized_stokes(r, degree, quads) for r in range(3, 6)])
     conv = np.log2(diff[:-1] / diff[1:])
-    tol = 1E-10
-    assert (c > rate or d < tol for d, c in zip(diff[1:], conv))
+    # The exact solution is Poiseuille flow, which degree 2 represents exactly,
+    # so its error saturates at ksp_rtol instead of converging. Keep tol above
+    # that floor, where the observed rate is noise.
+    tol = 1E-8
+    assert all(c > rate or d < tol for d, c in zip(diff[1:], conv))

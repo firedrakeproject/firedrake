@@ -16,6 +16,7 @@ functions to be executed within the Firedrake architecture.
 """
 from abc import abstractproperty, abstractmethod
 import functools
+import operator
 from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Constant
@@ -36,7 +37,7 @@ from ufl.algorithms.replace import replace
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
 from ufl.domain import join_domains, sort_domains
-from ufl.form import BaseForm, Form, ZeroBaseForm
+from ufl.form import BaseForm, Form, FormSum, ZeroBaseForm
 import hashlib
 
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -671,7 +672,7 @@ class Block(TensorBase):
         # any existing Block rather than nesting.
         if isinstance(tensor, Block):
             wrapped, = tensor.operands
-            composed = tuple(tuple(i for i in own if i in req)
+            composed = tuple(tuple(own[i] for i in req)
                              for req, own in zip(indices, tensor._indices))
             return Block(wrapped, composed)
 
@@ -1568,6 +1569,17 @@ def as_slate(F):
         return Tensor(F)
     elif isinstance(F, (Function, Cofunction)):
         return AssembledVector(F)
+    elif isinstance(F, FormSum):
+        # UFL builds a FormSum whenever a Slate tensor is combined with a
+        # BaseForm from the left, since TensorBase cannot claim the reflected
+        # operator. Recover the equivalent Slate expression. Slate has no
+        # scalar multiplication, so only unit weights convert.
+        if any(abs(w) != 1 for w in F.weights()):
+            raise TypeError("Cannot convert a weighted FormSum into a slate.Tensor")
+        return functools.reduce(
+            operator.add,
+            (as_slate(c) if w == 1 else -as_slate(c)
+             for c, w in zip(F.components(), F.weights())))
     else:
         raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
 

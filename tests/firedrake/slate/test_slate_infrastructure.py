@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.slate.slate import as_slate
 import math
 
 
@@ -316,16 +317,18 @@ def test_implicit_casting_add_sub():
     r = Tensor(f)
     assert b + f == b + r
     assert b - f == b - r
-    assert f + b == r + b
-    assert f - b == r - b
+    # A TensorBase is a BaseForm, so UFL claims the reflected operator and
+    # returns a FormSum; as_slate recovers the equivalent Slate expression.
+    assert as_slate(f + b) == r + b
+    assert as_slate(f - b) == r - b
 
     # combine slate Tensor and Cofunction
     c = Cofunction(V.dual())
     s = AssembledVector(c)
     assert b + c == b + s
     assert b - c == b - s
-    assert c + b == s + b
-    assert c - b == s - b
+    assert as_slate(c + b) == s + b
+    assert as_slate(c - b) == s - b
 
 
 def test_implicit_casting_action():

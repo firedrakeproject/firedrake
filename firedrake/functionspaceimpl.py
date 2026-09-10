@@ -1313,13 +1313,12 @@ class ProxyFunctionSpace(FunctionSpace):
 
         Notes
         -----
-        The proxy metadata (:attr:`index`, :attr:`component`, :attr:`parent`)
-        is what collapsing discards, and it is reported by :meth:`__repr__`.
-        Since UFL hashes terminals by their ``repr`` while
-        :meth:`FunctionSpace.__eq__` ignores that metadata, returning a proxy
-        here would yield a space that compares equal to the plain space but
-        hashes differently, silently breaking lookups keyed on
-        :class:`~ufl.argument.Argument`\\s.
+        The proxy metadata (``index``, ``component``, ``parent``) is what
+        collapsing discards, and it is reported by ``__repr__``. Since UFL
+        hashes terminals by their ``repr`` while ``FunctionSpace.__eq__``
+        ignores that metadata, returning a proxy here would yield a space
+        that compares equal to the plain space but hashes differently,
+        silently breaking lookups keyed on ``Argument``.
         """
         return FunctionSpace(self.mesh(), self.ufl_element(), name=self.name)
 
