@@ -20,7 +20,7 @@ The fast diagonalisation method produces a basis of discrete eigenfunctions.
 These are polynomials, and can be efficiently computed on tensor
 product-elements by solving an eigenproblem on the interval. Therefore, we will
 require quadrilateral or hexahedral meshes.  Currently, the solver only supports
-extruded hexahedral meshes, so we must create an :func:`~.ExtrudedMesh`. ::
+extruded hexahedral meshes, so we must create an :func:`ExtrudedMesh <firedrake.ExtrudedMesh>`. ::
 
   from firedrake import *
 
@@ -33,14 +33,14 @@ Defining the problem: the Poisson equation
 
 Having defined the mesh we now need to set up our problem.  The crucial step
 for fast diagonalisation is a special choice of basis functions. We obtain them
-by passing ``variant="fdm"`` to the :func:`~.FunctionSpace` constructor.  The
+by passing ``variant="fdm"`` to the :func:`function space <firedrake.FunctionSpace>` constructor.  The
 solvers in this demo work also with other element variants, but each iteration
 would involve an additional a basis transformation.  To stress-test the solver,
-we prescribe a random :class:`~.Cofunction` as right-hand side.
+we prescribe a random :class:`Cofunction <firedrake.Cofunction>` as right-hand side.
 
 We'll demonstrate a few different sets of solver parameters, so let's define a
 function that takes in set of parameters and uses them on a
-:class:`~.LinearVariationalSolver`. ::
+:class:`linear variational solver <firedrake.LinearVariationalSolver>`. ::
 
 
   def run_solve(degree, parameters):
@@ -65,8 +65,8 @@ Specifying the solver
 The solver avoids the assembly of a matrix with dense element submatrices, and
 instead applies a matrix-free conjugate gradient method with a preconditioner
 obtained by assembling a sparse matrix.  This is done through the python type
-preconditioner :class:`~.FDMPC`.  We define a function that enables us to
-compose :class:`~.FDMPC` with an inner relaxation. ::
+preconditioner :class:`FDMPC <firedrake.FDMPC>`.  We define a function that enables us to
+compose :class:`FDMPC <firedrake.FDMPC>` with an inner relaxation. ::
 
 
   def fdm_params(relax):
@@ -93,16 +93,16 @@ using a sparse direct LU factorization. ::
 
 
 .. note::
-    On this Cartesian mesh, the sparse operator constructed by :class:`~.FDMPC`
+    On this Cartesian mesh, the sparse operator constructed by :class:`FDMPC <firedrake.FDMPC>`
     corresponds to the original operator. This is no longer the case with non-Cartesian
     meshes or more general PDEs, as the FDM basis only diagonalises very specific
-    problems.  For such cases, :class:`~.FDMPC` will produce a sparse
+    problems.  For such cases, :class:`FDMPC <firedrake.FDMPC>` will produce a sparse
     approximation of the original operator.
 
 Moving on to a more complicated solver, we'll employ a two-level solver with
-the lowest-order coarse space via :class:`~.P1PC`.  As the fine level
+the lowest-order coarse space via :class:`P1PC <firedrake.P1PC>`.  As the fine level
 relaxation we define an additive Schwarz method on vertex-star patches
-implemented via :class:`~.ASMExtrudedStarPC` as we have an extruded mesh.
+implemented via :class:`ASMExtrudedStarPC <firedrake.ASMExtrudedStarPC>` as we have an extruded mesh.
 In addition we specify `"use_coloring"` to group non-overlapping subsets of
 patches into sparse block-diagonal matrices via a mesh coloring, which reduces
 the overhead of calling many KSP solves for each patch.::
@@ -143,17 +143,17 @@ We observe degree-independent iteration counts:
 Static condensation
 -------------------
 
-Finally, we construct :class:`~.FDMPC` solver parameters using static
+Finally, we construct :class:`FDMPC <firedrake.FDMPC>` solver parameters using static
 condensation.  The fast diagonalisation basis diagonalises the operator on cell
 interiors. So we define a solver that splits the interior and facet degrees of
-freedom via :class:`~.FacetSplitPC` and fieldsplit options.  We set the option
-``fdm_static_condensation`` to tell :class:`~.FDMPC` to assemble a 2-by-2 block
+freedom via :class:`FacetSplitPC <firedrake.FacetSplitPC>` and fieldsplit options.  We set the option
+``fdm_static_condensation`` to tell :class:`FDMPC <firedrake.FDMPC>` to assemble a 2-by-2 block
 preconditioner where the lower-right block is replaced by the Schur complement
 resulting from eliminating the interior degrees of freedom.  The Krylov
 solver is posed on the full set of degrees of freedom, and the preconditioner
 applies a symmetrized multiplicative sweep on the interior and the facet
 degrees of freedom. In general, we are not able to fully eliminate the
-interior, as the sparse operator constructed by :class:`~.FDMPC` is only an
+interior, as the sparse operator constructed by :class:`FDMPC <firedrake.FDMPC>` is only an
 approximation on non-Cartesian meshes.  We apply point-Jacobi on the interior
 block, and the two-level additive Schwarz method on the facets. ::
 

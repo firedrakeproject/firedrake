@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake import function
 from firedrake.adjoint import *
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest

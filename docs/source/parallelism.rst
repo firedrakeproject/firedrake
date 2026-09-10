@@ -62,7 +62,7 @@ want to perform a simulation in which different subsets of processes
 perform different computations (perhaps solving the same PDE for
 multiple different initial conditions), this can be achieved by using
 sub-communicators.  The mechanism to do so is to provide a
-communicator when building the :func:`~.mesh.Mesh` you will perform the
+communicator when building the :func:`~.Mesh` you will perform the
 simulation on, using the optional ``comm`` keyword argument.  All
 subsequent operations using that mesh are then only collective over
 the supplied communicator, rather than ``MPI_COMM_WORLD``.  For
@@ -87,10 +87,10 @@ different simulations on the two halves we would write.
 .. note::
 
    If you need to create Firedrake meshes on different communicators,
-   then usually the best approach is to use the :class:`~.Ensemble`,
+   then usually the best approach is to use the :class:`Ensemble <firedrake.Ensemble>`,
    which manages splitting MPI communicators and communicating
-   :class:`~.Function` objects between the split communicators.  More
-   information on using the :class:`~.Ensemble` can be found
+   :class:`function <firedrake.Function>` objects between the split communicators.  More
+   information on using the :class:`Ensemble <firedrake.Ensemble>` can be found
    :doc:`here <ensemble_parallelism>`.
 
 To access the communicator a mesh was created on, we can use the

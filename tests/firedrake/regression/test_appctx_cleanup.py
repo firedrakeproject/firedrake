@@ -1,5 +1,6 @@
 import numpy
 from firedrake import *
+from firedrake import dmhooks
 
 
 class NonePC(PCBase):

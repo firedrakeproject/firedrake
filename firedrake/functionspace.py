@@ -16,10 +16,6 @@ from firedrake.petsc import PETSc
 import numbers
 
 
-__all__ = ("MixedFunctionSpace", "FunctionSpace",
-           "VectorFunctionSpace", "TensorFunctionSpace", "RestrictedFunctionSpace")
-
-
 @PETSc.Log.EventDecorator()
 def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme):
     """Build a scalar :class:`finat.ufl.finiteelement.FiniteElement`.

@@ -1,10 +1,11 @@
 from firedrake import *
 from scipy.special import jn
+from firedrake.utils import complex_mode
 import numpy as np
 import pytest
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="Complex bessel functions are not implemented.")
+@pytest.mark.skipif(complex_mode, reason="Complex bessel functions are not implemented.")
 def test_bessel_functions():
 
     mesh = UnitDiskMesh(3)

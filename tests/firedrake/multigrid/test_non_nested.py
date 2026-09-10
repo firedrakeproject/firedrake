@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake import dmhooks
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
 from functools import singledispatch

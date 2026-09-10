@@ -37,7 +37,7 @@ import os
 import tempfile
 
 
-__all__ = ("FDMPC", "PoissonFDMPC")
+__all__ = ("PoissonFDMPC")
 
 
 class FDMPC(PCBase):

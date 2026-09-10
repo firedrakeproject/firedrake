@@ -46,7 +46,7 @@ unassembled operator using the ``"mat_type"`` solver parameter.::
                                                 "pc_type": "none",
                                                 "ksp_monitor": None})
 
-Finally, we demonstrate the use of a :class:`.AssembledPC`
+Finally, we demonstrate the use of a :class:`AssembledPC <firedrake.AssembledPC>`
 preconditioner.  This uses matrix-free actions but preconditions the
 Krylov iterations with an incomplete LU factorisation of the assembled
 operator.::

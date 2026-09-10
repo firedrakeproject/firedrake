@@ -8,7 +8,7 @@ multilevel information (for geometric multigrid)
 
 The way Firedrake interacts with these DMs is, broadly, as follows:
 
-A DM is tied to a :class:`~.FunctionSpace` and remembers what function
+A DM is tied to a :class:`FunctionSpace <firedrake.FunctionSpace>` and remembers what function
 space that is.  To avoid reference cycles defeating the garbage
 collector, the DM holds a weakref to the FunctionSpace (which holds a
 strong reference to the DM).  Use :func:`get_function_space` to get
@@ -48,7 +48,7 @@ from firedrake.mesh import MeshSequenceGeometry
 
 @PETSc.Log.EventDecorator()
 def get_function_space(dm):
-    """Get the :class:`~.FunctionSpace` attached to this DM.
+    """Get the :class:`FunctionSpace <firedrake.FunctionSpace>` attached to this DM.
 
     :arg dm: The DM to get the function space from.
     :raises RuntimeError: if no function space was found.
@@ -74,7 +74,7 @@ def get_function_space(dm):
 
 @PETSc.Log.EventDecorator()
 def set_function_space(dm, V):
-    """Set the :class:`~.FunctionSpace` on this DM.
+    """Set the :class:`FunctionSpace <firedrake.FunctionSpace>` on this DM.
 
     :arg dm: The DM
     :arg V: The function space.

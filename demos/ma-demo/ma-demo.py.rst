@@ -91,7 +91,7 @@ We then combine them together in a mixed function space. ::
   W = V*Sigma
 
 Next, we set up the source function, which must integrate to the area
-of the domain.  Note how in the integration of the :class:`~.Constant`
+of the domain.  Note how in the integration of the :class:`constant <firedrake.Constant>`
 one, we must explicitly specify the domain we wish to integrate over. ::
 
   x, y = SpatialCoordinate(mesh)

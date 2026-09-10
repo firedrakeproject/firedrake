@@ -12,8 +12,6 @@ import finat
 import ufl
 import finat.ufl
 
-__all__ = ("PMGPC", "PMGSNES")
-
 
 class PMGBase(PCSNESBase):
     """A class for implementing p-multigrid.

@@ -139,7 +139,7 @@ Now for the solve. ::
 Finally, we'll demonstrate recursive fieldsplitting.  We'll use the
 same multiplicative fieldsplit preconditioner for the
 velocity-pressure and temperature blocks, but we'll precondition the
-Navier-Stokes part with :class:`~.PCDPC` using a lower Schur
+Navier-Stokes part with :class:`PCDPC <firedrake.PCDPC>` using a lower Schur
 complement factorisation, and approximately invert the temperature
 block using algebraic multigrid.  There are lots of parameters here,
 so let's run through them.  Since there are many options here, in

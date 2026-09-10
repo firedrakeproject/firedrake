@@ -38,7 +38,7 @@ native_elements_for_checkpointing = {"Lagrange", "Discontinuous Lagrange", "Q", 
 
 
 def get_embedding_element_for_checkpointing(element, value_shape):
-    """Convert the given UFL element to an element that :class:`~.CheckpointFile` can handle."""
+    """Convert the given UFL element to an element that :class:`firedrake.CheckpointFile` can handle."""
     if element.family() in native_elements_for_checkpointing:
         return element
     else:

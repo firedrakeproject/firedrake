@@ -11,9 +11,6 @@ from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 
 
-__all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
-
-
 class VectorSpaceBasis(object):
     r"""Build a basis for a vector space.
 
@@ -106,7 +103,7 @@ class VectorSpaceBasis(object):
         Parameters
         ----------
         function_space
-            the new :class:`~.FunctionSpace`.
+            the new :class:`FunctionSpace <firedrake.FunctionSpace>`.
 
         Returns
         -------
@@ -179,7 +176,7 @@ class VectorSpaceBasis(object):
     def _apply(self, matrix, transpose=False, near=False):
         r"""Set this VectorSpaceBasis as a nullspace for a matrix
 
-        :arg matrix: a :class:`~.MatrixBase` whose nullspace should
+        :arg matrix: a :class:`MatrixBase <firedrake.MatrixBase>` whose nullspace should
              be set.
         :kwarg transpose: Should this be set as the transpose
              nullspace instead?  Used to orthogonalize the right hand
@@ -266,7 +263,7 @@ class MixedVectorSpaceBasis(object):
         Parameters
         ----------
         function_space
-            the new :class:`~.FunctionSpace`.
+            the new :class:`FunctionSpace <firedrake.FunctionSpace>`.
 
         Returns
         -------
@@ -321,7 +318,7 @@ class MixedVectorSpaceBasis(object):
         r"""Set this class:`MixedVectorSpaceBasis` as a nullspace for a
         matrix.
 
-        :arg matrix: a :class:`~.MatrixBase` whose nullspace should
+        :arg matrix: a :class:`MatrixBase <firedrake.MatrixBase>` whose nullspace should
              be set.
 
         :kwarg transpose: Should this be set as the transpose
@@ -350,7 +347,7 @@ class MixedVectorSpaceBasis(object):
     def _apply(self, matrix_or_ises, transpose=False, near=False):
         r"""Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
-        :arg matrix_or_ises: either a :class:`~.MatrixBase` to set a
+        :arg matrix_or_ises: either a :class:`MatrixBase <firedrake.MatrixBase>` to set a
              nullspace on, or else a list of PETSc ISes to compose a
              nullspace with.
         :kwarg transpose: Should this be set as the transpose

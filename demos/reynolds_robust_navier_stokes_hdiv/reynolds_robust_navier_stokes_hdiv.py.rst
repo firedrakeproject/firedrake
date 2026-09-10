@@ -323,7 +323,7 @@ The velocity block applies a full-cycle geometric
 multigrid preconditioner to the augmented Lagrangian.
 At each multigrid level, five steps of GMRES
 are applied, preconditioned by the additive Schwarz method with
-vertex-star patches (:class:`~.ASMStarPC`).  A star patch around a
+vertex-star patches (:class:`ASMStarPC <firedrake.ASMStarPC>`).  A star patch around a
 vertex consists of all cells sharing that vertex; these patches together
 stably partition the divergence-free subspace, ensuring that the
 smoother captures the kernel of :math:`\nabla \cdot` as required by

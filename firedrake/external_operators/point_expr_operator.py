@@ -34,7 +34,7 @@ class PointexprOperator(AbstractExternalOperator):
 
         Notes
         -----
-        The :class:`~.PointexprOperator` class mimics the :class:`~.Interpolate` class and is mostly design
+        The :class:`~.PointexprOperator` class mimics the :class:`Interpolate <firedrake.Interpolate>` class and is mostly design
         for debugging purposes.
         """
         AbstractExternalOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,

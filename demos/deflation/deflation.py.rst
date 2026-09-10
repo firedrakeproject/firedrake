@@ -44,7 +44,7 @@ We implement the usual weak formulation of the equation in Firedrake as standard
     bcs = DirichletBC(V, 0, "on_boundary")
     problem = NonlinearVariationalProblem(F, u, bcs)
 
-Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonlinear solver, and a :class:`~.Deflation` object. The :class:`~.Deflation` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product: ::
+Applying deflation requires two ingredients: the :class:`DeflatedSNES <firedrake.deflation.DeflatedSNES>` nonlinear solver, and a :class:`Deflation <firedrake.deflation.Deflation>` object. The :class:`Deflation <firedrake.deflation.Deflation>` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product: ::
 
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",

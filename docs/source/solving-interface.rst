@@ -21,7 +21,7 @@ consider a weak variational problem
 we will call the bilinear and linear parts of this form ``a`` and
 ``L`` respectively.  The strongly imposed boundary condition, :math:`u
 = u_0 \;\mathrm{on}\:\partial\Omega` will be represented by a variable
-of type :py:class:`~.DirichletBC`, ``bc``.
+of type :py:class:`DirichletBC <firedrake.DirichletBC>`, ``bc``.
 
 Now that we have all the pieces of our variational problem, we can
 move forward to solving it.
@@ -44,7 +44,7 @@ Linear variational problems
 If the problem is linear, that is ``a`` is linear in both the test and
 trial functions and ``L`` is linear in the test function, we can use
 the linear variational problem interface to ``solve``.  To start, we
-need a :py:class:`~.Function` to hold the value of
+need a :py:class:`function <firedrake.Function>` to hold the value of
 the solution:
 
 .. code-block:: python3
@@ -58,7 +58,7 @@ We can then solve the problem, placing the solution in ``s`` with:
    solve(a == L, s)
 
 To apply boundary conditions, one passes a list of
-:py:class:`~.DirichletBC` objects using the ``bcs``
+:py:class:`DirichletBC <firedrake.DirichletBC>` objects using the ``bcs``
 keyword argument.  For example, if there are two boundary conditions,
 in ``bc1`` and ``bc2``, we write:
 
@@ -80,7 +80,7 @@ solve a problem:
 
 where the *residual* :math:`F(u; v)` is linear in the test function
 :math:`v` but possibly non-linear in the unknown
-:py:class:`~.Function` :math:`u`.  To solve such a
+:py:class:`function <firedrake.Function>` :math:`u`.  To solve such a
 problem we write, if ``F`` is the residual form:
 
 .. code-block:: python3
@@ -144,8 +144,8 @@ pass in.  In the pre-assembled case, we are solving a linear system:
 Where :math:`A` is a known matrix, :math:`\vec{b}` is a known right
 hand side vector and :math:`\vec{x}` is the unknown solution vector.
 In Firedrake, :math:`A` is represented as a
-:py:class:`~.Matrix`, while :math:`\vec{x}` is a :py:class:`~.Function`, and
-:math:`\vec{b}` a :py:class:`~.Cofunction`.
+:py:class:`Matrix <firedrake.Matrix>`, while :math:`\vec{x}` is a :py:class:`function <firedrake.Function>`, and
+:math:`\vec{b}` a :py:class:`Cofunction <firedrake.Cofunction>`.
 We build these values by calling ``assemble`` on the UFL forms that
 define our problem, which, as before are denoted ``a`` and ``L``.
 Similarly to the linear variational case, we first need a function in
@@ -155,7 +155,7 @@ which to place our solution:
 
    x = Function(V)
 
-We then :py:func:`~.assemble` the left hand side
+We then :py:func:`~firedrake.assemble.assemble` the left hand side
 matrix ``A`` and known right hand side ``b`` from the bilinear and
 linear forms respectively:
 
@@ -172,7 +172,7 @@ Finally, we can solve the problem placing the solution in ``x``:
 
 to apply boundary conditions to the problem, we can assemble the
 linear operator ``A`` with boundary conditions using the ``bcs``
-keyword argument to :py:func:`~.assemble` (and then
+keyword argument to :py:func:`~firedrake.assemble.assemble` (and then
 not supply them in solve call):
 
 .. code-block:: python3
@@ -185,7 +185,7 @@ not supply them in solve call):
 
    It is no longer possible to apply or change boundary
    conditions after assembling the matrix ``A``; pass any
-   necessary boundary conditions to :py:func:`~.assemble`.
+   necessary boundary conditions to :py:func:`~firedrake.assemble.assemble`.
 
 Specifying solution methods
 ---------------------------
@@ -474,7 +474,7 @@ computing :math:`S^{-1}`).
 .. note::
 
    If you have given your
-   :py:class:`~.FunctionSpace`\s names, then
+   :py:class:`FunctionSpace <firedrake.FunctionSpace>`\s names, then
    instead of 0 and 1, you should use the name of the function space
    in these options.
 
@@ -506,7 +506,7 @@ is assembled as a nested matrix, there is a choice as to the type of
 the blocks (they may be "aij" or "baij").  The default choice can be
 controlled with ``parameters["default_sub_matrix_type"]``.  For
 finer-grained control over the matrix type, one can provide it when
-calling :func:`~.assemble` through the ``mat_type`` and
+calling :func:`~firedrake.assemble.assemble` through the ``mat_type`` and
 ``sub_mat_type`` keyword arguments.  When using variational solvers,
 the matrix type is controlled through use of the ``solver_parameters``
 dictionary by specifying the ``"mat_type"`` entry.
@@ -565,7 +565,7 @@ as follows:
                  # ILU on the schur complement block
                  "fieldsplit_1_pc_type": "ilu"}
 
-In this example, none of the :class:`~.FunctionSpace`\s used had
+In this example, none of the :class:`FunctionSpace <firedrake.FunctionSpace>`\s used had
 names, and hence we referred to the fields by number.  If the
 function spaces are named, then any time a single field appears as a
 split, its options prefix is referred to by the space's *name* (rather
@@ -801,7 +801,7 @@ in Firedrake, we first must define the null space, and then inform the
 solver of its existance.  We use a
 :class:`~firedrake.nullspace.VectorSpaceBasis` to hold the vectors
 which span the null space.  We must provide a list of
-:class:`~.Function`\s spanning the space.  Additionally,
+:class:`function <firedrake.Function>`\s spanning the space.  Additionally,
 since removing a constant null space is such a common operation, we
 can pass ``constant=True`` to the constructor (rather than
 constructing the constant vector by hand).  Note that the vectors we
@@ -850,7 +850,7 @@ conditions.  Sometimes this is not possible.  In this case, you can
 ask Firedrake to remove the component of the right hand side that is
 in the transpose nullspace by providing a
 :class:`~firedrake.nullspace.VectorSpaceBasis` with the
-``transpose_nullspace`` keyword argument to :func:`~.solve`.
+``transpose_nullspace`` keyword argument to :func:`~firedrake.solving.solve`.
 
 Singular operators in mixed spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -987,7 +987,7 @@ Checking the provided Jacobian
 It is possible to verify that the provided Jacobian is consistent with
 the residual we are trying to minimise by comparing it with a finite
 differenced Jacobian computed by PETSc.  This is possible using only a
-few extra options to the call to :func:`~.solve`.  We just need to
+few extra options to the call to :func:`~firedrake.solving.solve`.  We just need to
 specify that the nonlinear solver we want PETSc to employ should be of
 type ``test``.  PETSc will then go away, compute an approximate
 Jacobian by finite differencing the residual and compare it to our

@@ -6,8 +6,6 @@ from firedrake.petsc import PETSc
 from ufl import replace
 from firedrake.dmhooks import get_function_space, get_appctx as get_dm_appctx
 
-__all__ = ("AuxiliaryOperatorSNES",)
-
 
 class AuxiliaryOperatorSNES(SNESBase):
     """
@@ -162,7 +160,7 @@ class AuxiliaryOperatorSNES(SNESBase):
         Defaults to returning a copy of :math:`F(u)`, i.e.
         :math:`G(u_{k+1}; u_k)=F(u_{k+1})`.
         This means that ``AuxiliaryOperatorSNES`` can be used similarly
-        to :class:`.AssembledPC`, in that it can be used to specify
+        to :class:`AssembledPC <firedrake.AssembledPC>`, in that it can be used to specify
         an alternative ``snes_type`` for solving the same residual form
         as the outer ``SNES``.
 

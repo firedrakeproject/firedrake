@@ -302,7 +302,7 @@ def action(form, coefficient, derivatives_expanded=None):
     """Compute the action of a form on a coefficient.
 
     :arg form: A UFL form, or a Slate tensor.
-    :arg coefficient: The :class:`~.Function` to act on.
+    :arg coefficient: The :class:`function <firedrake.Function>` to act on.
     :returns: a symbolic expression for the action.
     """
     if isinstance(form, firedrake.slate.TensorBase):

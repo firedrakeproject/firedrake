@@ -142,14 +142,14 @@ and the (strongly enforced) Dirichlet boundary conditions on :math:`u` are enfor
 
     bc_u = DirichletBC(Z.sub(0), 0, "on_boundary")
 
-At this point we could form and solve a :class:`~.NonlinearVariationalProblem`
+At this point we could form and solve a :class:`NonlinearVariationalProblem <firedrake.NonlinearVariationalProblem>`
 using :code:`F` and :code:`bc_u`. However, the resultant problem has a nullspace of
 dimension 2, corresponding to (i) shifting :math:`p` by a constant :math:`C_1`
 and (ii) shifting :math:`l` by a constant :math:`C_2` while simultaneuosly shifting
 :math:`T_{\textrm{aux}}` by :math:`-C_2`.
 
 One way of dealing with nullspaces in Firedrake is to pass a :code:`nullspace` and
-:code:`transpose_nullspace` to :class:`~.NonlinearVariationalSolver`. However, sometimes 
+:code:`transpose_nullspace` to :class:`NonlinearVariationalSolver <firedrake.NonlinearVariationalSolver>`. However, sometimes 
 this approach may not be practical. First, for nonlinear problems with Jacobians that 
 are not symmetric, it may not obvious what the :code:`transpose_nullspace` is. A second 
 reason is that, when using customised PETSc linear solvers, it may be desirable

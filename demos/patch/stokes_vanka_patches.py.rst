@@ -14,14 +14,14 @@ of the patch but not pressures.
    :align: center
 
 In practice, we arrive at mesh-independent multigrid convergence using these relaxation.
-We can construct Vanka patches either through :class:`~.PatchPC`, in which the bilinear form
-is assembled on each vertex patch, or through :class:`~.ASMVankaPC`, in which the patch
+We can construct Vanka patches either through :class:`PatchPC <firedrake.PatchPC>`, in which the bilinear form
+is assembled on each vertex patch, or through :class:`ASMVankaPC <firedrake.ASMVankaPC>`, in which the patch
 operators are extracted from the globally assembled stiffness matrix.
 
-We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+We start by importing firedrake and setting up a :func:`MeshHierarchy <firedrake.MeshHierarchy>` and the
 exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the Vanka patches. This is set
-via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
+via the ``distribution_parameters`` kwarg of the :func:`Mesh <firedrake.Mesh>` constructor. ::
 
   from firedrake import *
 
@@ -82,8 +82,8 @@ solver. ::
       }
 
 
-These options specify an additive Schwarz relaxation through :class:`~.PatchPC`.
-:class:`~.PatchPC` builds the patch operators by assembling the bilineary form over
+These options specify an additive Schwarz relaxation through :class:`PatchPC <firedrake.PatchPC>`.
+:class:`PatchPC <firedrake.PatchPC>` builds the patch operators by assembling the bilineary form over
 each subdomain.  Hence, it does not require the global stiffness
 matrix to be assembled.  These are quite similar to the options used in
 <poisson_mg_patches.py>::
@@ -103,7 +103,7 @@ matrix to be assembled.  These are quite similar to the options used in
            "pc_patch_precompute_element_tensors": None}},
       mat_type="matfree")
 
-:class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
+:class:`ASMStarPC <firedrake.ASMStarPC>`, on the other hand, does no re-discretization, but extracts the
 patch operators for each patch from the already-assembled global stiffness matrix. ::
 
   asm_relax = mg_params(
@@ -121,7 +121,7 @@ direct or Krylov method on each one.
 
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
-in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
+in iteration count, while both :class:`PatchPC <firedrake.PatchPC>` and :class:`ASMStarPC <firedrake.ASMStarPC>` do not.  Mathematically, the two
 latter options do the same operations, just via different code paths. ::
 
   names = {"ASM Vanka": asm_relax,

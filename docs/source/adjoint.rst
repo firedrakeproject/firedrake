@@ -307,7 +307,7 @@ The numbered blocks in the tape visualisation are as follows:
 6.  The result of step 5 is added to step 3 resulting in the functional value.
 
 The oval variables with labels of the form `w_n` are of type Firedrake
-:class:`~.function.Function` while the variables labelled with numbers
+:class:`Function <firedrake.function.Function>` while the variables labelled with numbers
 are annotated scalars of type :class:`~pyadjoint.AdjFloat`.
 
 Visualising the tape makes it possible to verify that the computational
@@ -415,7 +415,7 @@ Overloaded types
 Data types that are recorded on the tape, and hence that can be used as
 functional values or controls, are those that inherit from
 :class:`pyadjoint.OverloadedType`. In firedrake, the key such types are
-:class:`~.function.Function`, :class:`~.cofunction.Cofunction` and the annotated float type
+:class:`Function <firedrake.function.Function>`, :class:`Cofunction <firedrake.cofunction.Cofunction>` and the annotated float type
 :class:`pyadjoint.AdjFloat`. Firedrake users do not usually need to concern
 themselves with this since annotated operations will return overloaded types.
 

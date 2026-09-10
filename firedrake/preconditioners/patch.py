@@ -37,9 +37,6 @@ if typing.TYPE_CHECKING:
     from firedrake import Function
 
 
-__all__ = ("PatchPC", "PlaneSmoother", "PatchSNES")
-
-
 class PatchCallable:
     """Class representing the evaluation of a patch operator or residual.
 

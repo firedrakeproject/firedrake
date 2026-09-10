@@ -8,8 +8,6 @@ from firedrake import inner, dx
 
 import weakref
 
-__all__ = ['DeflatedSNES', 'Deflation']
-
 
 class DeflatedSNES(SNESBase):
     """

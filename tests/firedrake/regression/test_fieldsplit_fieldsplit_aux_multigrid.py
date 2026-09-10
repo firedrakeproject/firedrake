@@ -11,6 +11,7 @@ a fieldsplit within another fieldsplit.
 import pytest
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
+from firedrake.utils import complex_mode
 
 
 def BoundaryConditions(mesh):
@@ -39,7 +40,7 @@ class SchurApprox(AuxiliaryOperatorPC):
         return (K, bcs)
 
 
-@pytest.mark.skipif(utils.complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
+@pytest.mark.skipif(complex_mode, reason="inner(grad(u), grad(u)) not complex Gateaux differentiable.")
 def test_fieldsplit_fieldsplit_aux_multigrid():
     # Setup
     mesh = UnitSquareMesh(10, 10)

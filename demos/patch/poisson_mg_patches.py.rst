@@ -20,10 +20,10 @@ degree-independent iteration counts.  Here, all the degrees of freedom in the ce
 For many problems, point Jacobi is even worse, and patches are required even to
 get a convergent method.  We refer the reader to other demos.
 
-We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+We start by importing firedrake and setting up a :func:`MeshHierarchy <firedrake.MeshHierarchy>` and the
 exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the vertex star patches. This is set
-via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
+via the ``distribution_parameters`` kwarg of the :func:`Mesh <firedrake.Mesh>` constructor. ::
 
   from firedrake import *
 
@@ -88,8 +88,8 @@ degree increases. ::
 
   jacobi_relax = mg_params({"pc_type": "jacobi"}, mat_type="matfree")
 
-These options specify an additive Schwarz relaxation through :class:`~.PatchPC`.
-:class:`~.PatchPC` builds the patch operators by assembling the bilinear form over
+These options specify an additive Schwarz relaxation through :class:`PatchPC <firedrake.PatchPC>`.
+:class:`PatchPC <firedrake.PatchPC>` builds the patch operators by assembling the bilinear form over
 each subdomain.  Hence, it does not require the global stiffness
 matrix to be assembled.
 These options tell the patch mechanism to use vertex star patches, storing
@@ -113,7 +113,7 @@ in dense format. ::
           "sub_pc_type": "lu"}},
       mat_type="matfree")
 
-:class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
+:class:`ASMStarPC <firedrake.ASMStarPC>`, on the other hand, does no re-discretization, but extracts the
 submatrices for each patch from the already-assembled global stiffness matrix.
 
 The `"tinyasm"` backend uses LAPACK to invert all the patch operators, which is ideal
@@ -140,7 +140,7 @@ overhead costs of calling the sparse factorization library many times. ::
 
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
-in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
+in iteration count, while both :class:`PatchPC <firedrake.PatchPC>` and :class:`ASMStarPC <firedrake.ASMStarPC>` do not.  Mathematically, the two
 latter options do the same operations, just via different code paths. ::
 
   names = {"Jacobi": jacobi_relax,
@@ -170,7 +170,7 @@ For Jacobi, we expect output such as
    7         19
 ======== ================
 
-While for either :class:`~.PatchPC` or :class:`~.ASMStarPC` (with dense inversion or with coloring + sparse factorization), we expect
+While for either :class:`PatchPC <firedrake.PatchPC>` or :class:`ASMStarPC <firedrake.ASMStarPC>` (with dense inversion or with coloring + sparse factorization), we expect
 
 ======== ================
  Degree    Iterations

@@ -180,7 +180,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     **Argument definitions**
 
     Each item in the `args` dictionary maps a string to a tuple
-    containing a :class:`.Function` or :class:`.Constant` and an
+    containing a :class:`.Function` or :class:`Constant <firedrake.Constant>` and an
     argument intent. The string is the c language variable name by
     which this function will be accessed in the kernel. The argument
     intent indicates how the kernel will access this variable:
@@ -202,7 +202,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
 
     .. note::
 
-       Only `READ` intents are valid for :class:`.Constant`
+       Only `READ` intents are valid for :class:`Constant <firedrake.Constant>`
        coefficients, and an error will be raised in other cases.
 
     **The measure**
@@ -250,7 +250,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     In a direct :func:`par_loop`, the variables will all be of type
     `double*` with the single index being the vector component.
 
-    :class:`.Constant`\s are always of type `double*`, both for
+    :class:`Constant <firedrake.Constant>`\s are always of type `double*`, both for
     indirect and direct :func:`par_loop` calls.
 
     """

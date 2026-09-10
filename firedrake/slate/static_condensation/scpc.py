@@ -7,9 +7,6 @@ from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
 
 
-__all__ = ['SCPC']
-
-
 class SCPC(SCBase):
 
     needs_python_pmat = True

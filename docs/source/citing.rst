@@ -41,10 +41,10 @@ For Firedrake itself, please cite :cite:`FiredrakeUserManual`.  If you use
 the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 :cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
 please cite :cite:`Homolya2016` and :cite:`McRae2016`. If you use
-:py:func:`~.VertexOnlyMesh`, please cite :cite:`nixonhill2023consistent`.
+:py:func:`firedrake.VertexOnlyMesh`, please cite :cite:`nixonhill2023consistent`.
 
 If you use the interfaces to couple Firedrake and machine learning frameworks such as PyTorch or JAX,
-please cite :cite:`Bouziani2024`. If you use the :py:class:`~.AbstractExternalOperator`
+please cite :cite:`Bouziani2024`. If you use the :py:class:`AbstractExternalOperator <firedrake.AbstractExternalOperator>`
 interface, please cite :cite:`Bouziani2024` and :cite:`Bouziani2021`.
 
 The form compiler, TSFC, is documented in :cite:`Homolya2018` and

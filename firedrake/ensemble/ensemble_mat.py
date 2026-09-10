@@ -106,7 +106,7 @@ class EnsembleMatCtxBase:
 
 class EnsembleBlockDiagonalMatCtx(EnsembleMatCtxBase):
     """
-    A python Mat context for a block diagonal matrix defined over an :class:`~.ensemble.Ensemble`.
+    A python Mat context for a block diagonal matrix defined over an :class:`.ensemble.Ensemble`.
     Each block acts on a single subspace of an :class:`~.ensemble_functionspace.EnsembleFunctionSpace`.
 
     Parameters

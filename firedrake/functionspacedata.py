@@ -1,8 +1,8 @@
 """This module provides an object that encapsulates data that can be
-shared between different :class:`~.FunctionSpace` objects.
+shared between different :class:`FunctionSpace <firedrake.FunctionSpace>` objects.
 
 The sharing is based on the idea of compatibility of function space
-node layout.  The shared data is stored on the :func:`~.Mesh` the
+node layout.  The shared data is stored on the :func:`firedrake.Mesh` the
 function space is created on, since the created objects are
 mesh-specific.  The sharing is done on an individual key basis.  So,
 for example, Sets can be shared between all function spaces with the

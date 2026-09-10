@@ -435,7 +435,7 @@ class TensorBase(object, metaclass=ABCMeta):
 
 class AssembledVector(TensorBase):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a :class:`~.Function`.
+    vector of data contained in a :class:`function <firedrake.Function>`.
 
     :arg function: A firedrake function.
     """
@@ -524,7 +524,7 @@ class AssembledVector(TensorBase):
 
 class BlockAssembledVector(AssembledVector):
     """This class is a symbolic representation of an assembled
-    vector of data contained in a set of :class:`~.Function` s
+    vector of data contained in a set of :class:`function <firedrake.Function>` s
     defined on pieces of a split mixed function space.
 
     :arg functions: A tuple of firedrake functions.

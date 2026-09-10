@@ -35,12 +35,9 @@ from pyadjoint.tape import no_annotations
 
 
 __all__ = [
-    "IntervalMesh",
     "UnitIntervalMesh",
-    "PeriodicIntervalMesh",
     "PeriodicUnitIntervalMesh",
     "UnitTriangleMesh",
-    "RectangleMesh",
     "TensorRectangleMesh",
     "SquareMesh",
     "UnitSquareMesh",
@@ -52,7 +49,6 @@ __all__ = [
     "UnitBallMesh",
     "UnitTetrahedronMesh",
     "TensorBoxMesh",
-    "BoxMesh",
     "CubeMesh",
     "UnitCubeMesh",
     "PeriodicBoxMesh",
@@ -120,7 +116,7 @@ def IntervalMesh(
          boundary point (in which case ``length_or_left`` should
          be the left boundary point).
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
@@ -182,7 +178,7 @@ def UnitIntervalMesh(
 
     :arg ncells: The number of the cells over the interval.
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
@@ -224,7 +220,7 @@ def PeriodicIntervalMesh(
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval.
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
@@ -272,7 +268,7 @@ def PeriodicUnitIntervalMesh(
 
     :arg ncells: The number of cells in the interval.
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
@@ -314,7 +310,7 @@ def OneElementThickMesh(
     :arg Lx: The width of the domain in the x-direction.
     :arg Ly: The width of the domain in the y-direction.
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -494,7 +490,7 @@ def UnitTriangleMesh(
 
     :kwarg refinement_level: Number of uniform refinements to perform
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -572,7 +568,7 @@ def RectangleMesh(
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg diagonal: For triangular meshes, should the diagonal got
         from bottom left to top right (``"right"``), or top left to
@@ -642,7 +638,7 @@ def TensorRectangleMesh(
     :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg diagonal: For triangular meshes, should the diagonal got
         from bottom left to top right (``"right"``), or top left to
@@ -754,7 +750,7 @@ def SquareMesh(
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
     distribution_parameters
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        Options controlling mesh distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     comm
         Optional communicator to build the mesh on.
     name
@@ -827,7 +823,7 @@ def UnitSquareMesh(
     quadrilateral
         Flag indicating whether to create a quadrilateral mesh.
     distribution_parameters
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        Options controlling mesh distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     comm
         Optional communicator to build the mesh on.
     name
@@ -905,7 +901,7 @@ def PeriodicRectangleMesh(
     reorder
         Flag indicating whether to reorder the mesh.
     distribution_parameters
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        Options controlling mesh distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
@@ -1013,7 +1009,7 @@ def PeriodicSquareMesh(
     reorder
         Flag indicating whether to reorder the mesh.
     distribution_parameters
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        Options controlling mesh distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
@@ -1092,7 +1088,7 @@ def PeriodicUnitSquareMesh(
     reorder
         Flag indicating whether to reorder the mesh.
     distribution_parameters
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        Options controlling mesh distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     diagonal
         The refinement strategy used for non-quadrilateral meshes. Must be
         one of ``"crossed"``, ``"left"``, ``"right"``.
@@ -1161,7 +1157,7 @@ def CircleManifoldMesh(
     :kwarg degree: polynomial degree of coordinate space (e.g.,
            cells are straight line segments if degree=1).
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
@@ -1235,7 +1231,7 @@ def UnitDiskMesh(
     :kwarg refinement_level: optional number of refinements (0 is a diamond)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -1315,7 +1311,7 @@ def UnitBallMesh(
     :kwarg refinement_level: optional number of refinements (0 is an octahedron)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional MPI communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -1439,7 +1435,7 @@ def TensorBoxMesh(
     :arg ycoords: Location of nodes in the y direction
     :arg zcoords: Location of nodes in the z direction
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg diagonal: Two ways of cutting hexadra, should be cut into 6
         tetrahedra (``"default"``), or 5 tetrahedra thus less biased
         (``"crossed"``)
@@ -1595,7 +1591,7 @@ def BoxMesh(
     :arg Lz: The extent in the z direction
     :kwarg hexahedral: (optional), creates hexahedral mesh.
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg diagonal: Two ways of cutting hexadra, should be cut into 6
         tetrahedra (``"default"``), or 5 tetrahedra thus less biased
         (``"crossed"``)
@@ -1675,7 +1671,7 @@ def CubeMesh(
     :kwarg hexahedral: (optional), creates hexahedral mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -1732,7 +1728,7 @@ def UnitCubeMesh(
     :kwarg hexahedral: (optional), creates hexahedral mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -1806,7 +1802,7 @@ def PeriodicBoxMesh(
     reorder : bool or None
         Whether to reorder the mesh.
     distribution_parameters : dict or None
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        Options controlling mesh distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     comm :
         Communicator to build the mesh on.
     name : str
@@ -1972,7 +1968,7 @@ def PeriodicUnitCubeMesh(
     reorder : bool or None
         Should the mesh be reordered?
     distribution_parameters : dict or None
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        Options controlling mesh distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     comm :
         Communicator to build the mesh on.
     name : str
@@ -2051,7 +2047,7 @@ def IcosahedralSphereMesh(
            flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2170,7 +2166,7 @@ def UnitIcosahedralSphereMesh(
            flat triangles if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2224,7 +2220,7 @@ def OctahedralSphereMesh(
         are just pushed out radially from the equivalent P1 mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2376,7 +2372,7 @@ def UnitOctahedralSphereMesh(
         are just pushed out radially from the equivalent P1 mesh.
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2555,7 +2551,7 @@ def CubedSphereMesh(
            bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2622,7 +2618,7 @@ def UnitCubedSphereMesh(
            bilinear quads if degree=1).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2667,7 +2663,7 @@ def TorusMesh(
     :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2756,7 +2752,7 @@ def AnnulusMesh(
     :kwarg nr: (optional), number of cells in the radial direction
     :kwarg nt: (optional), number of cells in the circumferential direction (min 3)
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2808,7 +2804,7 @@ def SolidTorusMesh(
     :kwarg refinement_level: (optional), number of times the base disk mesh is refined.
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg comm: Optional communicator to build the mesh on.
     :kwarg name: Optional name of the mesh.
     :kwarg distribution_name: the name of parallel distribution used
@@ -2870,7 +2866,7 @@ def CylinderMesh(
          longitudinal axis of the cylinder.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on.
@@ -3037,7 +3033,7 @@ def PartiallyPeriodicRectangleMesh(
     :kwarg quadrilateral: (optional), creates quadrilateral mesh.
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg distribution_parameters: options controlling mesh
-           distribution, see :func:`.Mesh` for details.
+           distribution, see :func:`Mesh <firedrake.Mesh>` for details.
     :kwarg diagonal: (optional), one of ``"crossed"``, ``"left"``, ``"right"``.
         Not valid for quad meshes.
     :kwarg comm: Optional communicator to build the mesh on.

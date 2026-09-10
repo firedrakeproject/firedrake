@@ -9,8 +9,6 @@ from firedrake.embedding import get_embedding_dg_element
 from finat.element_factory import create_element
 from .utils import get_level
 
-__all__ = ("TransferManager",)
-
 
 class Op(IntEnum):
     PROLONG = 0
