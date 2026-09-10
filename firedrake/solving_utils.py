@@ -306,10 +306,12 @@ class _SNESContext(object):
         Parameters
         ----------
         snes
-            The SNES to associate with this context, or ``None`` to clear the
-            association.
+            The SNES, or a ``weakref.proxy`` to one, to associate with this
+            context. Pass ``None`` to clear the association.
         """
-        self.snes = None if snes is None else weakref.proxy(snes)
+        self.snes = (None if snes is None
+                     else snes if isinstance(snes, weakref.ProxyTypes)
+                     else weakref.proxy(snes))
 
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
