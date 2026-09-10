@@ -138,8 +138,11 @@ class AssembleBlock(Block):
                 # as `action`.
                 dform += firedrake.derivative(form, X, tlm_value)
             else:
-                dform += firedrake.action(firedrake.derivative(form, c_rep),
-                                          tlm_value)
+                dFdc = firedrake.derivative(form, c_rep)
+                if isinstance(c_rep, firedrake.Cofunction):
+                    dform += firedrake.Action(dFdc, tlm_value)
+                else:
+                    dform += firedrake.action(dFdc, tlm_value)
         if not isinstance(dform, float):
             dform = ufl.algorithms.expand_derivatives(dform)
             dform = firedrake.assemble(dform)
