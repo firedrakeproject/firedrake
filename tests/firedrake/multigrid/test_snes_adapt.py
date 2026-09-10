@@ -24,7 +24,7 @@ def test_marking_callback_configures_refine_adaptor():
 
     assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
-    assert solver._ctx.snes is solver.snes
+    assert solver._ctx.snes == solver.snes
 
 
 def test_solve_accepts_marking_callback():
@@ -197,6 +197,7 @@ def test_dwr_marking_callback_builds_poisson_markers(adapt_option, criterion):
 
     assert result.function_space().mesh() is not mesh
     assert result.function_space().dim() > old_dim
+    assert solver._ctx.snes == solver.snes
     hierarchy, level = get_level(result.function_space().mesh())
     assert level == 1
     assert hierarchy[0] is mesh

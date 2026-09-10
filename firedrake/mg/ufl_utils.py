@@ -369,7 +369,7 @@ def reconstruct_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
 
 
 @_reconstruct.register(_SNESContext)
-def reconstruct_snescontext(context, self, coefficient_mapping=None, snes=None):
+def reconstruct_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
@@ -433,7 +433,6 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None, snes=None):
                                       appctx=new_appctx,
                                       options_prefix=options_prefix,
                                       marking_callback=marking_callback,
-                                      snes=snes,
                                       )
     new_context._coefficient_mapping = coefficient_mapping
     attach_relative(self, new_context, context, reverse=True)
@@ -462,13 +461,6 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None, snes=None):
     new_context._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
     new_context.set_nullspace(new_context._near_nullspace, ises, transpose=False, near=True)
     return new_context
-
-
-@refine.register(_SNESContext)
-def refine_snescontext(context, self, coefficient_mapping=None):
-    return reconstruct_snescontext(context, self,
-                                   coefficient_mapping=coefficient_mapping,
-                                   snes=context.snes)
 
 
 @_reconstruct.register(DWRMarkingCallback)

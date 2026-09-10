@@ -251,15 +251,16 @@ class _SNESContext(object):
 
     Notes
     -----
-    The `snes` property gives the route back from a context to the SNES that
+    The `snes` attribute gives the route back from a context to the SNES that
     solves it. The reference is weak. The SNES owns its DM, and that DM owns
     this context while a solve runs, so a strong reference here would close a
     cycle that the garbage collector cannot break.
 
-    Only the context that a solver builds knows its SNES. The contexts that
-    `reconstruct` makes for field splits and coarse multigrid levels do not
-    inherit it, because the Jacobian of the outer SNES describes a different
-    problem from the one that they hold.
+    The context that a solver builds and the context that adaptive refinement
+    reconstructs retain the solver's SNES. The contexts that `reconstruct`
+    makes for field splits and coarse multigrid levels do not inherit it,
+    because the Jacobian of the outer SNES describes a different problem from
+    the one that they hold.
 
     """
     @PETSc.Log.EventDecorator()
@@ -296,7 +297,7 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
-        self._snes = None if snes is None else weakref.ref(snes)
+        self.snes = None
         # True once the marking callback declines to mark anything. This mesh
         # then needs no more adaptation.
         self._adapt_converged = False

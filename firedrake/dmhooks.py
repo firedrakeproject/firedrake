@@ -521,6 +521,7 @@ def _refine_adaptive(dm):
 
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    refined_ctx.set_snes(ctx.snes)
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
     # Get all DMs from the refined problem
