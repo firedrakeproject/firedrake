@@ -278,6 +278,7 @@ class BasicProjector(ProjectorBase, NonlinearVariationalSolverMixin):
 
     @NonlinearVariationalSolverMixin._ad_annotate_init
     def _init_as_solver(self, problem, **kwargs):
+        self._is_project = True
         return
 
     @NonlinearVariationalSolverMixin._ad_annotate_solve
