@@ -10,7 +10,7 @@ If you publish results using Firedrake, we would be grateful if you
 would cite the `Firedrake user manual
 <https://doi.org/10.25561/104839>`_:
 
-.. code-block:: python
+.. code-block:: text
 
   @manual{FiredrakeUserManual,
     title        = {Firedrake User Manual},

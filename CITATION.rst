@@ -10,7 +10,7 @@ Citing Firedrake
 
 If you publish results using Firedrake, we would be grateful if you would cite the Firedrake user manual:
 
-.. code-block:: python
+.. code-block:: text
 
   @manual{FiredrakeUserManual,
     title        = {Firedrake User Manual},
