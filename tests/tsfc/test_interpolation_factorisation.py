@@ -54,29 +54,8 @@ def q_rtce_elements(degree):
             FiniteElement("RTCE", quadrilateral, degree))
 
 
-def test_sum_factorisation_mixed_q_rtce():
-    mesh = Mesh(VectorElement("Q", quadrilateral, 1))
-    mixed_mesh = MeshSequence([mesh, mesh])
-    degrees = numpy.asarray([4, 8, 16])
-    mixed_flops = []
-    component_flops = []
-    for degree in degrees:
-        source = q_rtce_elements(int(degree - 1))
-        target = q_rtce_elements(int(degree))
-        mixed_source = MixedElement(*source)
-        mixed_target = MixedElement(*target)
-        mixed_flops.append(interpolate_flop_count(mixed_mesh, mixed_source, mixed_target))
-        component_flops.append(sum(
-            interpolate_flop_count(mesh, source_element, target_element)
-            for source_element, target_element in zip(source, target, strict=True)
-        ))
-
-    numpy.testing.assert_equal(mixed_flops, component_flops)
-    rates = numpy.diff(numpy.log(mixed_flops)) / numpy.diff(numpy.log(degrees))
-    assert (rates < quadrilateral.topological_dimension + 1).all()
-
-
-def test_sum_factorisation_dual_mixed_q_rtce():
+@pytest.mark.parametrize("dual", (False, True), ids=("primal", "dual"))
+def test_sum_factorisation_mixed_q_rtce(dual):
     mesh = Mesh(VectorElement("Q", quadrilateral, 1))
     mixed_mesh = MeshSequence([mesh, mesh])
     degrees = numpy.asarray([4, 8, 16])
@@ -86,18 +65,16 @@ def test_sum_factorisation_dual_mixed_q_rtce():
         source = q_rtce_elements(int(degree - 1))
         target = q_rtce_elements(int(degree))
         mixed_flops.append(interpolate_flop_count(
-            mixed_mesh, MixedElement(*source), MixedElement(*target), dual=True
+            mixed_mesh, MixedElement(*source), MixedElement(*target), dual=dual
         ))
         component_flops.append(sum(
-            interpolate_flop_count(mesh, source_element, target_element, dual=True)
+            interpolate_flop_count(mesh, source_element, target_element, dual=dual)
             for source_element, target_element in zip(source, target, strict=True)
         ))
 
     numpy.testing.assert_equal(mixed_flops, component_flops)
     rates = numpy.diff(numpy.log(mixed_flops)) / numpy.diff(numpy.log(degrees))
     assert (rates < quadrilateral.topological_dimension + 1).all()
-
-
 def test_sum_factorisation(mesh, element):
     # Interpolation between sum factorisable elements should cost
     # O(p^{d+1})
