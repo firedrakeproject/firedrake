@@ -250,7 +250,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return self
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,
-                             solver_options=None,
+                             solver_options=None, options_prefix=None,
                              form_compiler_parameters=None):
         """Return the Riesz representation of this :class:`Cofunction`.
 
@@ -268,6 +268,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             Boundary conditions to apply to the Riesz map.
         solver_options: dict
             A dictionary of PETSc options to be passed to the solver.
+        options_prefix: str
+            A PETSc options prefix to pass to the solver.
         form_compiler_parameters: dict
             A dictionary of form compiler parameters to be passed to the
             variational problem that solves for the Riesz map.
@@ -282,7 +284,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             riesz_map = RieszMap(
                 self.function_space(), riesz_map, bcs=bcs,
                 solver_parameters=solver_options,
-                form_compiler_parameters=form_compiler_parameters
+                form_compiler_parameters=form_compiler_parameters,
+                options_prefix=options_prefix,
             )
 
         return riesz_map(self)
@@ -428,6 +431,8 @@ class RieszMap:
         Boundary conditions to apply to the Riesz map.
     solver_parameters: dict
         A dictionary of PETSc options to be passed to the solver.
+    options_prefix: str
+        A PETSc options prefix to be passed to the solver.
     form_compiler_parameters: dict
         A dictionary of form compiler parameters to be passed to the
         variational problem that solves for the Riesz map.
@@ -440,7 +445,7 @@ class RieszMap:
     def __init__(self, function_space_or_inner_product=None,
                  sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
                  form_compiler_parameters=None, restrict=True,
-                 constant_jacobian=False):
+                 constant_jacobian=False, options_prefix=None):
         if isinstance(function_space_or_inner_product, ufl.Form):
             args = ufl.algorithms.extract_arguments(
                 function_space_or_inner_product
@@ -474,6 +479,7 @@ class RieszMap:
         self._form_compiler_parameters = form_compiler_parameters or {}
         self._restrict = restrict
         self._constant_jacobian = constant_jacobian
+        self._options_prefix = options_prefix
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
@@ -500,7 +506,8 @@ class RieszMap:
             constant_jacobian=self._constant_jacobian,
             form_compiler_parameters=self._form_compiler_parameters)
         solver = LinearVariationalSolver(
-            lvp, solver_parameters=self._solver_parameters
+            lvp, solver_parameters=self._solver_parameters,
+            options_prefix=self._options_prefix,
         )
         return solver.solve, rhs, soln
 
