@@ -309,8 +309,7 @@ class _SNESContext(object):
             The SNES, or a ``weakref.proxy`` to one, to associate with this
             context. Pass ``None`` to clear the association.
         """
-        self.snes = (None if snes is None
-                     else snes if isinstance(snes, weakref.ProxyTypes)
+        self.snes = (snes if snes is None or isinstance(snes, weakref.ProxyTypes)
                      else weakref.proxy(snes))
 
     def reconstruct(self,
