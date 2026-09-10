@@ -41,6 +41,7 @@ class KernelBuilderBase(KernelInterface):
 
         # Coordinates
         self.domain_coordinate = {}
+        self.needs_external_coords = False
 
         # Coefficients
         self.coefficient_map = collections.OrderedDict()
