@@ -58,13 +58,16 @@ class Relabeler(IdentityVisitor):
             inv_map[type_] = utils.invert_mapping(label_map_per_type)
         return inv_map
 
-    def _get_label(self, type_: type, key: Hashable) -> str:
-        return self._renamer.add_type(type_, key)
+    def _get_loop_index_label(self, key: Hashable) -> str:
+        return self._renamer.add_type(pyop3.index_tree.LoopIndex, key)
+
+    def _get_axis_label(self, key: Hashable) -> str:
+        return self._renamer.add_type(pyop3.axis_tree.Axis, key)
 
     def visit_path(self, path):
         new_path = {}
         for axis, component in path.items():
-            new_axis = self._get_label(pyop3.axis_tree.Axis, axis)
+            new_axis = self._get_axis_label(axis)
             new_path[new_axis] = component
         return idict(new_path)
 
@@ -89,7 +92,7 @@ class Relabeler(IdentityVisitor):
         new_components = tuple(map(self, axis.components))
         return axis.record_new(
             components=new_components,
-            label=self._get_label(type(axis), axis.label),
+            label=self._get_axis_label(axis.label),
         )
 
     @process.register
@@ -123,9 +126,23 @@ class Relabeler(IdentityVisitor):
     @process.register
     def _(self, axis_target: pyop3.axis_tree.AxisTarget, /):
         return axis_target.record_new(
-            axis=self._get_label(pyop3.axis_tree.Axis, axis_target.axis),
+            axis=self._get_axis_label(axis_target.axis),
             expr=self(axis_target.expr),
         )
+
+    @process.register
+    def _(self, cs_tree: pyop3.axis_tree.LoopContextSensitiveAxisTreeLike, /, **kwargs):
+        new_trees = {}
+        for ctx, tree in cs_tree.trees.items():
+            new_ctx = {}
+            for loop_id, path in ctx.items():
+                new_loop_id = self._get_loop_index_label(loop_id)
+                new_path = self.visit_path(path)
+                new_ctx[new_loop_id] = new_path
+            new_ctx = idict(new_ctx)
+            new_trees[new_ctx] = self(tree, **kwargs)
+        return cs_tree.record_new(trees=idict(new_trees))
+
 
     # }}}
 
@@ -135,27 +152,27 @@ class Relabeler(IdentityVisitor):
     def _(self, loop_index: pyop3.index_tree.AbstractLoopIndex, /):
         return loop_index.record_new(
             iterset=self(loop_index.iterset),
-            label=self._get_label(type(loop_index), loop_index.label),
+            label=self._get_loop_index_label(loop_index.label),
         )
 
     @process.register
     def _(self, slice_: pyop3.index_tree.Slice, /):
-        new_axis = self._get_label(pyop3.axis_tree.Axis, slice_.axis)
-        new_label = self._get_label(pyop3.axis_tree.Axis, slice_.label)
+        new_axis = self._get_axis_label(slice_.axis)
+        new_label = self._get_axis_label(slice_.label)
         return slice_.record_new(axis=new_axis, label=new_label)
 
     @process.register
     def _(self, scalar_index: pyop3.index_tree.ScalarIndex, /):
-        new_axis = self._get_label(pyop3.axis_tree.Axis, scalar_index.axis)
+        new_axis = self._get_axis_label(scalar_index.axis)
         new_value = self(scalar_index.value)
-        new_label = self._get_label(pyop3.axis_tree.Axis, scalar_index.label)
+        new_label = self._get_axis_label(scalar_index.label)
         return scalar_index.record_new(axis=new_axis, value=new_value, label=new_label)
 
     @process.register
     def _(self, called_map: pyop3.index_tree.AbstractCalledMap, /):
         new_map = self(called_map.map)
         new_index = self(called_map.index)
-        new_label = self._get_label(pyop3.axis_tree.Axis, called_map.label)
+        new_label = self._get_axis_label(called_map.label)
         return called_map.record_new(map=new_map, index=new_index, label=new_label)
 
     @process.register
@@ -176,7 +193,7 @@ class Relabeler(IdentityVisitor):
 
     @process.register
     def _(self, map_component: pyop3.index_tree.TabulatedMapComponent, /):
-        new_target_axis = self._get_label(pyop3.axis_tree.Axis, map_component.target_axis)
+        new_target_axis = self._get_axis_label(map_component.target_axis)
         new_array = self(map_component.array)
         return map_component.record_new(target_axis=new_target_axis, array=new_array)
 

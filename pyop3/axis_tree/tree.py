@@ -1956,8 +1956,8 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         return (self._canonical_cache_key, include_ghosts)
 
     # TODO: on_host decorator only required while `compile` strategy does not work for device offloading
-    @on_host
     @cached_method()
+    @on_host
     @pyop3.cache.memory_cache(
         heavy=True,
         hashkey=_buffer_indices_hashkey,

@@ -1,12 +1,14 @@
 import os
 import pytest
+
+import pyop3 as op3
 from firedrake import *
 from firedrake.configuration import setup_cache_dirs
 
 
 def test_pyop3_cache_dir_set_correctly():
     assert "PYOP3_CACHE_DIR" in os.environ
-    assert op2.configuration["cache_dir"] == os.environ["PYOP3_CACHE_DIR"]
+    assert op3.config.cache_dir == os.environ["PYOP3_CACHE_DIR"]
 
 
 CACHE_ENV_VARS = (

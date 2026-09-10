@@ -920,7 +920,13 @@ class LoopContextSensitive:
 
 @functools.singledispatch
 def has_loop_indices(obj: Any) -> bool:
-    utils.raise_missing_dispatch_handler(obj)
+    import pyop3
+
+    if isinstance(obj, pyop3.Dat):
+        return bool(pyop3.expr.visitors.collect_loop_index_vars(obj))
+
+    else:
+        utils.raise_missing_dispatch_handler(obj)
 
 
 @has_loop_indices.register

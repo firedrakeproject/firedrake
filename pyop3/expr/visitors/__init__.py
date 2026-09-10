@@ -220,12 +220,11 @@ def _(op: pyop3.expr.BinaryOperator):
 def _(dat: pyop3.expr.Dat, /) -> OrderedSet:
     loop_indices = OrderedSet()
 
-    if dat.parent:
-        loop_indices |= collect_loop_index_vars(dat.parent)
+    if dat.transform:
+        loop_indices |= collect_loop_index_vars(dat.transform.prev)
 
-    for leaf in dat.axes.leaves:
-        path = dat.axes.path(leaf)
-        loop_indices |= collect_loop_index_vars(dat.axes.layouts2[path])
+    for leaf_layout in dat.axes.leaf_subst_layouts.values():
+        loop_indices |= collect_loop_index_vars(leaf_layout)
     return loop_indices
 
 

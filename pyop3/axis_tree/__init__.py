@@ -22,3 +22,4 @@ from .tree import (  # noqa: F401
     trim_axis_targets,
     OWNED_REGION_LABEL, GHOST_REGION_LABEL,
 )
+from .context_sensitive import LoopContextSensitiveAxisTreeLike  # noqa: F401
