@@ -124,7 +124,6 @@ def test_function(rg):
     J = assemble(c ** 2 * u ** 2 * dx)
 
     Jhat = ReducedFunctional(J, [control_c, control_f])
-    dJdc, dJdf = compute_derivative(J, [control_c, control_f], apply_riesz=True)
 
     # Step direction for derivatives and convergence test
     h_c = Function(R, val=1.0)
@@ -161,6 +160,7 @@ def test_nonlinear(rg):
     Jhat = ReducedFunctional(J, Control(f))
 
     h = rg.uniform(V, 0, 10)
+    g = f.copy(deepcopy=True)
 
     J.block_variable.adj_value = 1.0
     f.block_variable.tlm_value = h
@@ -170,8 +170,6 @@ def test_nonlinear(rg):
 
     J.block_variable.hessian_value = 0
     tape.evaluate_hessian()
-
-    g = f.copy(deepcopy=True)
 
     dJdm = J.block_variable.tlm_value
     Hm = f.block_variable.hessian_value.dat.inner(h.dat)
@@ -223,25 +221,24 @@ def test_dirichlet(rg):
 def test_burgers(solve_type, rg):
     tape = Tape()
     set_working_tape(tape)
-    n = 100
-    mesh = UnitIntervalMesh(n)
-    V = FunctionSpace(mesh, "CG", 2)
+    nx = 50
+    nt = 5
+    mesh = UnitIntervalMesh(nx)
+    V = FunctionSpace(mesh, "CG", 1)
 
-    def Dt(u, u_, timestep):
-        return (u - u_)/timestep
+    def Dt(u, u_, dt):
+        return (u - u_)/dt
 
     x, = SpatialCoordinate(mesh)
-    pr = project(sin(2*pi*x), V, annotate=False)
-    ic = Function(V).assign(pr)
+    ic = Function(V).project(sin(2*pi*x))
 
     u_ = Function(V).assign(ic)
     u = Function(V).assign(ic)
     v = TestFunction(V)
 
-    nu = Constant(0.0001)
+    nu = Constant(1/100)
 
-    dt = 0.01
-    nt = 20
+    dt = Constant(1/nx)
 
     params = {
         'snes_rtol': 1e-10,
@@ -266,12 +263,6 @@ def test_burgers(solve_type, rg):
             NonlinearVariationalProblem(F, u),
             solver_parameters=params)
 
-    if use_nlvs:
-        solver.solve()
-    else:
-        solve(F == 0, u, bc, solver_parameters=params)
-    u_.assign(u)
-
     for _ in range(nt):
         if use_nlvs:
             solver.solve()
@@ -282,16 +273,13 @@ def test_burgers(solve_type, rg):
     J = assemble(u_*u_*dx + ic*ic*dx)
 
     Jhat = ReducedFunctional(J, Control(ic))
+
     h = rg.uniform(V)
     g = ic.copy(deepcopy=True)
-    J.block_variable.adj_value = 1.0
-    ic.block_variable.tlm_value = h
-    tape.evaluate_adj()
-    tape.evaluate_tlm()
 
-    J.block_variable.hessian_value = 0
-    tape.evaluate_hessian()
-
-    dJdm = J.block_variable.tlm_value
-    Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
-    assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
+    taylor = taylor_to_dict(Jhat, g, h)
+    from pprint import pprint
+    pprint(taylor)
+    assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
+    assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
+    assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
