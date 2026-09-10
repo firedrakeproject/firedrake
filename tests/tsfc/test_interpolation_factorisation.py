@@ -26,9 +26,9 @@ def element(request, mesh):
     return partial(request.param, family, mesh.ufl_cell())
 
 
-def interpolate_expression(domain, source, target, dual):
-    Vsource = FunctionSpace(domain, source)
-    Vtarget = FunctionSpace(domain, target)
+def interpolate_expression(source_domain, target_domain, source, target, dual):
+    Vsource = FunctionSpace(source_domain, source)
+    Vtarget = FunctionSpace(target_domain, target)
     if dual:
         return ufl.Interpolate(
             ufl.Argument(Vsource, 0), ufl.Cofunction(Vtarget.dual())
@@ -38,9 +38,9 @@ def interpolate_expression(domain, source, target, dual):
     )
 
 
-def interpolate_flop_count(domain, source, target, dual):
+def interpolate_flop_count(source_domain, target_domain, source, target, dual):
     kernel, = compile_form(
-        interpolate_expression(domain, source, target, dual),
+        interpolate_expression(source_domain, target_domain, source, target, dual),
         parameters={"mode": "spectral"},
     )
     return kernel.flop_count
@@ -54,7 +54,7 @@ def test_sum_factorisation(mesh, element, dual):
     flops = []
     for lo, hi in zip(degrees - 1, degrees):
         flops.append(interpolate_flop_count(
-            mesh, element(int(lo)), element(int(hi)), dual
+            mesh, mesh, element(int(lo)), element(int(hi)), dual
         ))
     flops = numpy.asarray(flops)
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
@@ -68,15 +68,23 @@ def test_sum_factorisation_scalar_tensor(mesh, element, dual):
     degree = 16
     source = element(degree - 1)
     target = element(degree)
-    tensor_flops = interpolate_flop_count(mesh, source, target, dual)
+    tensor_flops = interpolate_flop_count(mesh, mesh, source, target, dual)
     expect = FunctionSpace(mesh, target).value_size
     if isinstance(target, FiniteElement):
         scalar_flops = tensor_flops
     else:
         target = target.sub_elements[0]
         source = source.sub_elements[0]
-        scalar_flops = interpolate_flop_count(mesh, source, target, dual)
+        scalar_flops = interpolate_flop_count(mesh, mesh, source, target, dual)
     assert numpy.allclose(tensor_flops / scalar_flops, expect, rtol=1e-2)
+
+
+@pytest.mark.parametrize("dual", (False, True), ids=("primal", "dual"))
+def test_cross_mesh_interpolation(dual):
+    source_mesh = Mesh(VectorElement("Q", quadrilateral, 1))
+    target_mesh = Mesh(VectorElement("Q", quadrilateral, 1))
+    element = FiniteElement("Q", quadrilateral, 1)
+    assert interpolate_flop_count(source_mesh, target_mesh, element, element, dual) > 0
 
 
 def q_rtce_elements(degree):
@@ -95,10 +103,10 @@ def test_sum_factorisation_mixed_q_rtce(dual):
         source = q_rtce_elements(int(degree - 1))
         target = q_rtce_elements(int(degree))
         mixed_flops.append(interpolate_flop_count(
-            mixed_mesh, MixedElement(*source), MixedElement(*target), dual
+            mixed_mesh, mixed_mesh, MixedElement(*source), MixedElement(*target), dual
         ))
         component_flops.append(sum(
-            interpolate_flop_count(mesh, source_element, target_element, dual)
+            interpolate_flop_count(mesh, mesh, source_element, target_element, dual)
             for source_element, target_element in zip(source, target, strict=True)
         ))
 
