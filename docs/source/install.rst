@@ -263,15 +263,7 @@ install Firedrake. To do this perform the following steps:
       so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
       for more information.
 
-#. Set ``PIP_CONSTRAINT`` to work around
-   `an issue with Cython <https://gitlab.com/petsc/petsc/-/work_items/1929>`__:
-
-   .. code-block:: console
-
-      $ echo 'Cython<3.3.0' > constraints.txt
-      $ export PIP_CONSTRAINT=$PWD/constraints.txt
-
-#. Install Firedrake:
+#. Install Firedrake::
 
    .. code-block:: console
 
