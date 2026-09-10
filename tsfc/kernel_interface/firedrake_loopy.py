@@ -198,7 +198,7 @@ class KernelBuilderBase(_KernelBuilderBase):
 class ExpressionKernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Builds expression kernels for UFL interpolation in Firedrake."""
 
-    def __init__(self, scalar_type, integral_data_info):
+    def __init__(self, integral_data_info, scalar_type, diagonal=False):
         super().__init__(scalar_type=scalar_type)
         self.fem_scalar_type = scalar_type
         self.integral_data_info = integral_data_info
@@ -223,12 +223,9 @@ class ExpressionKernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         expression = gem.Indexed(gem.reshape(self.return_variable, shape), indices)
         self.return_variables = prune([expression])
 
-    def set_coefficients(self, coefficients):
-        """Prepare the coefficients of the expression.
-
-        :arg coefficients: UFL coefficients from Firedrake
-        """
-        for i, coefficient in enumerate(coefficients):
+    def set_coefficients(self):
+        """Prepare the coefficients of the expression."""
+        for i, coefficient in enumerate(self.integral_data_info.coefficients):
             if type(coefficient.ufl_element()) == ufl_MixedElement:
                 subcoeffs = coefficient.subfunctions  # Firedrake-specific
                 self.coefficient_split[coefficient] = subcoeffs
@@ -247,13 +244,11 @@ class ExpressionKernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, ctx, needs_external_coords, log=False):
+    def construct_kernel(self, name, ctx, log=False):
         """Constructs an :class:`ExpressionKernel`.
 
         :arg name: kernel name
         :arg ctx: kernel builder context to get impero_c from
-        :arg needs_external_coords: If ``True``, the first argument to
-            the kernel is an externally provided coordinate field.
         :arg log: bool if the Kernel should be profiled with Log events
 
         :returns: :class:`ExpressionKernel` object
@@ -292,7 +287,7 @@ class ExpressionKernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
                                              name, index_names, log=log)
         return ExpressionKernel(loopy_kernel, oriented, needs_cell_sizes,
-                                self.coefficient_numbers, needs_external_coords,
+                                self.coefficient_numbers, self.needs_external_coords,
                                 tabulations, name, args, count_flops(impero_c), event)
 
 
@@ -311,6 +306,9 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.coefficient_split = integral_data_info.coefficient_split
         self._domain_integral_type_map = integral_data_info.domain_integral_type_map  # For consistency with ExpressionKernelBuilder.
         self.set_arguments()
+        domains = tuple(integral_data_info.domain_integral_type_map)
+        self.set_entity_numbers(domains)
+        self.set_entity_orientations(domains)
 
     def set_arguments(self):
         """Process arguments."""

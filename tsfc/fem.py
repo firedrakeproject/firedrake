@@ -859,11 +859,13 @@ def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: 
     domain = extract_unique_domain(operand) or dual_arg.ufl_function_space().ufl_domain()
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
     kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
-    evaluation, quadrature_multiindex, basis_indices = dual_evaluate(terminal, element, kernel_cfg)
     # The interpolation points are internal to the local solve, so contract
     # them here: only the form's own quadrature points stay free.
-    evaluation = gem.IndexSum(evaluation, quadrature_multiindex)
-    vec = gem.ComponentTensor(evaluation, basis_indices)
+    vec = gem.Sum(*(
+        gem.ComponentTensor(gem.IndexSum(evaluation, quadrature_multiindex), basis_indices)
+        for evaluation, quadrature_multiindex, basis_indices
+        in dual_evaluate(terminal, element, kernel_cfg)
+    ))
     return translate_element(terminal, mt, ctx, vec, element, beta=element.get_indices())
 
 

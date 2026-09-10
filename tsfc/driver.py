@@ -105,13 +105,14 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     return kernels
 
 
-def make_kernel_builder(integral_data_info, constants, parameters, diagonal=False):
+def make_kernel_builder(interface, integral_data_info, constants, parameters,
+                        diagonal=False, needs_external_coords=True):
     """Create a kernel builder holding every mesh quantity its integral may read."""
-    builder = firedrake_interface_loopy.KernelBuilder(integral_data_info, parameters["scalar_type"], diagonal=diagonal)
+    builder = interface(integral_data_info, parameters["scalar_type"], diagonal=diagonal)
+    builder.needs_external_coords = needs_external_coords
     domains = tuple(integral_data_info.domain_integral_type_map)
-    builder.set_entity_numbers(domains)
-    builder.set_entity_orientations(domains)
-    builder.set_coordinates(domains)
+    if needs_external_coords:
+        builder.set_coordinates(domains)
     builder.set_cell_orientations(domains)
     builder.set_cell_sizes(domains)
     builder.set_coefficients()
@@ -166,7 +167,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         coefficient_split=coefficient_split,
         coefficient_numbers=coefficient_numbers,
     )
-    builder = make_kernel_builder(integral_data_info, form_data.constants, parameters, diagonal=diagonal)
+    builder = make_kernel_builder(
+        firedrake_interface_loopy.KernelBuilder, integral_data_info,
+        form_data.constants, parameters, diagonal=diagonal,
+    )
     ctx = builder.create_context()
     for integral in integral_data.integrals:
         params = parameters.copy()
@@ -174,7 +178,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
-    return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
+    return builder.construct_kernel(kernel_name, ctx, log=parameters["add_petsc_events"])
 
 
 def validate_domains(form):
@@ -217,46 +221,6 @@ def preprocess_parameters(parameters):
     return parameters
 
 
-def _preprocess_interpolate(expression, target_element, parameters, *, domain=None):
-    """Preprocess an interpolation and construct its kernel data."""
-    dual_arg, operand = expression.argument_slots()
-    target_domains = join_domains([dual_arg.ufl_function_space().ufl_domain()])
-    if len(target_domains) != 1:
-        raise NotImplementedError("Interpolation onto multiple distinct meshes is not supported")
-    target_domain, = target_domains
-    source_domain = domain or extract_unique_domain(operand) or target_domain
-    if target_domain.topological_dimension == 0 and source_domain.topological_dimension > 0:
-        target_element = ufl_utils.runtime_quadrature_element(source_domain, target_element)
-
-    original_coefficients = extract_coefficients(expression)
-    expression = ufl_utils.preprocess_interpolate(
-        expression, target_element, source_domain, is_complex(parameters["scalar_type"])
-    )
-    coefficients = extract_coefficients(expression)
-    integral_data_info = TSFCIntegralDataInfo(
-        domain=source_domain,
-        integral_type="cell",
-        subdomain_id=("everywhere",),
-        domain_number=expression.ufl_domains().index(target_domain),
-        domain_integral_type_map={domain: "cell" for domain in expression.ufl_domains()},
-        arguments=expression.arguments(),
-        coefficients=coefficients,
-        coefficient_split=build_coefficient_split(
-            c for c in coefficients if type(c.ufl_element()) is finat.ufl.MixedElement
-        ),
-        coefficient_numbers=tuple(map(original_coefficients.index, coefficients)),
-    )
-    return expression, target_element, integral_data_info
-
-
-def _lower_interpolate(builder, expression, target_element, parameters):
-    """Lower an interpolation through a kernel builder."""
-    ctx = builder.create_context()
-    reps = builder.compile_interpolate(expression, target_element, parameters, ctx)
-    builder.stash_integrals(reps, parameters, ctx)
-    return ctx
-
-
 def compile_expression_dual_evaluation(expression, ufl_element, *,
                                        domain=None, interface=None,
                                        parameters=None, name=None):
@@ -275,33 +239,50 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     if not isinstance(expression, ufl.Interpolate):
         V = ufl.FunctionSpace(extract_unique_domain(expression) or domain, ufl_element)
         expression = ufl.Interpolate(expression, V)
-    expression, ufl_element, integral_data_info = _preprocess_interpolate(
-        expression, ufl_element, parameters, domain=domain
+    domains = expression.ufl_domains()
+    dual_arg, operand = expression.argument_slots()
+    target_domains = join_domains([dual_arg.ufl_function_space().ufl_domain()])
+    if len(target_domains) != 1:
+        raise NotImplementedError("Interpolation onto multiple distinct meshes is not supported")
+    target_domain, = target_domains
+    source_domain = domain or extract_unique_domain(operand) or target_domain
+    if target_domain.topological_dimension == 0 and source_domain.topological_dimension > 0:
+        ufl_element = ufl_utils.runtime_quadrature_element(source_domain, ufl_element)
+
+    original_coefficients = extract_coefficients(expression)
+    expression = ufl_utils.preprocess_interpolate(
+        expression, ufl_element, source_domain, is_complex(parameters["scalar_type"])
     )
-    domain = integral_data_info.domain
+    coefficients = extract_coefficients(expression)
+    integral_data_info = TSFCIntegralDataInfo(
+        domain=source_domain,
+        integral_type="cell",
+        subdomain_id=("everywhere",),
+        domain_number=domains.index(target_domain),
+        domain_integral_type_map={domain: "cell" for domain in domains},
+        arguments=expression.arguments(),
+        coefficients=coefficients,
+        coefficient_split=build_coefficient_split(
+            c for c in coefficients if type(c.ufl_element()) is finat.ufl.MixedElement
+        ),
+        coefficient_numbers=tuple(map(original_coefficients.index, coefficients)),
+    )
 
     if interface is None:
-        # Delayed import, loopy is a runtime dependency
-        from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
+        interface = firedrake_interface_loopy.ExpressionKernelBuilder
 
-    coefficients = integral_data_info.coefficients
-    builder = interface(parameters["scalar_type"], integral_data_info)
-
-    elements = [f.ufl_element() for f in (*coefficients, *integral_data_info.arguments)]
+    elements = [f.ufl_element() for f in (*integral_data_info.coefficients,
+                                          *integral_data_info.arguments)]
     needs_external_coords = bool(has_type(expression, GeometricQuantity)
                                  or any(map(fem.needs_coordinate_mapping, elements)))
-    if needs_external_coords:
-        # Create a fake coordinate coefficient for a domain.
-        coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
-        builder.domain_coordinate[domain] = coords_coefficient
-        builder.set_cell_orientations((domain, ))
-        builder.set_cell_sizes((domain, ))
-        coefficients = [coords_coefficient, *coefficients]
-    builder.set_coefficients(coefficients)
-    builder.set_constants(extract_firedrake_constants(expression))
-
-    ctx = _lower_interpolate(builder, expression, ufl_element, parameters)
-    return builder.construct_kernel(name, ctx, needs_external_coords, parameters["add_petsc_events"])
+    builder = make_kernel_builder(
+        interface, integral_data_info, extract_firedrake_constants(expression),
+        parameters, needs_external_coords=needs_external_coords,
+    )
+    ctx = builder.create_context()
+    reps = builder.compile_interpolate(expression, ufl_element, parameters, ctx)
+    builder.stash_integrals(reps, parameters, ctx)
+    return builder.construct_kernel(name, ctx, log=parameters["add_petsc_events"])
 
 
 def compile_interpolate(expression, prefix="interpolate", parameters=None):
@@ -322,11 +303,9 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
         A single-element list holding the kernel.
 
     """
-    parameters = preprocess_parameters(parameters)
-    target_element = expression.ufl_element()
-    expression, target_element, integral_data_info = _preprocess_interpolate(
-        expression, target_element, parameters,
+    kernel = compile_expression_dual_evaluation(
+        expression, expression.ufl_element(),
+        interface=firedrake_interface_loopy.KernelBuilder,
+        parameters=parameters, name=f"{prefix}_cell_integral",
     )
-    builder = make_kernel_builder(integral_data_info, extract_firedrake_constants(expression), parameters)
-    ctx = _lower_interpolate(builder, expression, target_element, parameters)
-    return [builder.construct_kernel(f"{prefix}_cell_integral", ctx, parameters["add_petsc_events"])]
+    return [kernel]
