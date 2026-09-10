@@ -58,6 +58,8 @@ Ed Bueler
 
 Henrik Buesing
 
+Anastasia Chanbour
+
 Justin Chang
 
 Cyrus Cheng
@@ -70,7 +72,7 @@ Colin J. Cotter...............<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
 
-Daiane I. Dolci...............<https://www.imperial.ac.uk/people/d.dolci>
+Daiane I. Dolci
 
 Patrick E. Farrell............<https://pefarrell.org>
 
@@ -130,7 +132,7 @@ Lawrence Mitchell.............<https://www.wence.uk/>
 
 Eike H. Mueller
 
-Reuben W. Nixon-Hill..........<https://www.imperial.ac.uk/people/reuben.nixon-hill10>
+Reuben W. Nixon-Hill
 
 Alberto Paganini..............<https://le.ac.uk/people/alberto-paganini>
 
@@ -146,7 +148,7 @@ Thomas Roy
 
 Francis P. Russell
 
-Koki Sagiyama.................<https://www.imperial.ac.uk/people/k.sagiyama>
+Koki Sagiyama
 
 Tomasz J. Salwa
 
@@ -162,9 +164,9 @@ Jemma Shipton
 
 Tianjiao Sun
 
-Sophia Vorderwuelbecke........<https://www.imperial.ac.uk/people/s.vorderwuelbecke18>
+Sophia Vorderwuelbecke
 
-Joseph G. Wallwork............<https://www.imperial.ac.uk/people/j.wallwork16>
+Joseph G. Wallwork
 
 Connor J. Ward................<https://www.imperial.ac.uk/people/c.ward20>
 
