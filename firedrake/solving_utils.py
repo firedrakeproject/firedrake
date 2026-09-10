@@ -181,9 +181,6 @@ class _SNESContext(object):
     pre_apply_bcs
         If `False`, the problem is linearised around the initial guess before
         imposing the boundary conditions.
-    snes
-        The SNES associated with this context, or ``None`` before
-        :meth:`set_snes` is called. Only a ``weakref.proxy`` is retained.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
