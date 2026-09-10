@@ -432,6 +432,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+        ctx.set_snes(self.snes)
 
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
