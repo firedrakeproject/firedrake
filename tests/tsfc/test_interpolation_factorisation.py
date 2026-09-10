@@ -1,12 +1,13 @@
 from functools import partial
 import numpy
 import pytest
+import ufl
 
-from ufl import (Mesh, FunctionSpace, Coefficient,
+from ufl import (Mesh, MeshSequence, FunctionSpace, Coefficient,
                  interval, quadrilateral, hexahedron)
-from finat.ufl import FiniteElement, VectorElement, TensorElement
+from finat.ufl import FiniteElement, VectorElement, TensorElement, MixedElement
 
-from tsfc import compile_expression_dual_evaluation
+from tsfc import compile_expression_dual_evaluation, compile_form
 
 
 @pytest.fixture(params=[interval, quadrilateral, hexahedron],
@@ -31,6 +32,70 @@ def flop_count(mesh, source, target):
     expr = Coefficient(Vsource)
     kernel = compile_expression_dual_evaluation(expr, Vtarget.ufl_element())
     return kernel.flop_count
+
+
+def interpolate_flop_count(domain, source, target, dual=False):
+    Vsource = FunctionSpace(domain, source)
+    Vtarget = FunctionSpace(domain, target)
+    if dual:
+        expression = ufl.Interpolate(
+            ufl.Argument(Vsource, 0), ufl.Cofunction(Vtarget.dual())
+        )
+    else:
+        expression = ufl.Interpolate(
+            ufl.Coefficient(Vsource), ufl.Coargument(Vtarget.dual(), 0)
+        )
+    kernel, = compile_form(expression, parameters={"mode": "spectral"})
+    return kernel.flop_count
+
+
+def q_rtce_elements(degree):
+    return (FiniteElement("Q", quadrilateral, degree),
+            FiniteElement("RTCE", quadrilateral, degree))
+
+
+def test_sum_factorisation_mixed_q_rtce():
+    mesh = Mesh(VectorElement("Q", quadrilateral, 1))
+    mixed_mesh = MeshSequence([mesh, mesh])
+    degrees = numpy.asarray([4, 8, 16])
+    mixed_flops = []
+    component_flops = []
+    for degree in degrees:
+        source = q_rtce_elements(int(degree - 1))
+        target = q_rtce_elements(int(degree))
+        mixed_source = MixedElement(*source)
+        mixed_target = MixedElement(*target)
+        mixed_flops.append(interpolate_flop_count(mixed_mesh, mixed_source, mixed_target))
+        component_flops.append(sum(
+            interpolate_flop_count(mesh, source_element, target_element)
+            for source_element, target_element in zip(source, target, strict=True)
+        ))
+
+    numpy.testing.assert_equal(mixed_flops, component_flops)
+    rates = numpy.diff(numpy.log(mixed_flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < 2 * quadrilateral.topological_dimension).all()
+
+
+def test_sum_factorisation_dual_mixed_q_rtce():
+    mesh = Mesh(VectorElement("Q", quadrilateral, 1))
+    mixed_mesh = MeshSequence([mesh, mesh])
+    degrees = numpy.asarray([4, 8, 16])
+    mixed_flops = []
+    component_flops = []
+    for degree in degrees:
+        source = q_rtce_elements(int(degree - 1))
+        target = q_rtce_elements(int(degree))
+        mixed_flops.append(interpolate_flop_count(
+            mixed_mesh, MixedElement(*source), MixedElement(*target), dual=True
+        ))
+        component_flops.append(sum(
+            interpolate_flop_count(mesh, source_element, target_element, dual=True)
+            for source_element, target_element in zip(source, target, strict=True)
+        ))
+
+    numpy.testing.assert_equal(mixed_flops, component_flops)
+    rates = numpy.diff(numpy.log(mixed_flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < quadrilateral.topological_dimension + 1).all()
 
 
 def test_sum_factorisation(mesh, element):

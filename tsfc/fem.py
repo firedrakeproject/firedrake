@@ -351,7 +351,7 @@ def needs_coordinate_mapping(element):
         return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
-def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, kernel_cfg: dict) -> tuple:
+def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, kernel_cfg: dict) -> list[tuple]:
     """Translate an interpolation operand and evaluate its target dual basis.
 
     Parameters
@@ -365,9 +365,9 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
 
     Returns
     -------
-    tuple
-        The GEM expression for the local interpolated values, the multiindex
-        to contract it on, and the basis indices of the return value.
+    list[tuple]
+        The GEM expressions for the local interpolated values, each with the
+        multiindex that contracts it and the basis indices of its return value.
     """
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg = dict(kernel_cfg, quadrature_rule=to_element._rule)
@@ -388,7 +388,7 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
 
     if not gem_duals:
         evaluation, point_indices, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
-        return evaluation, tuple(point_indices), basis_indices
+        return [(evaluation, tuple(point_indices), basis_indices)]
 
     # A mixed dual argument has one component per sub-element.
     elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
@@ -404,19 +404,15 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
         for var, expr in unconcatenate([(dual, evaluation)], kernel_cfg["index_cache"]):
             component_summands.append((tuple(point_indices), var, expr))
 
-    shared_point_indices = tuple(
-        index for index in component_summands[0][0]
-        if all(index in point_indices for point_indices, _, _ in component_summands)
-    )
-    quadrature_multiindex = list(shared_point_indices)
-    summands = []
+    evaluations = []
     for point_indices, var, expr in component_summands:
         product = gem.Product(expr, var)
-        quadrature_multiindex.extend(var.index_ordering())
-        indices = tuple(index for index in point_indices if index not in shared_point_indices)
-        indices += var.index_ordering()
-        summands.append(gem.IndexSum(product, tuple(i for i in indices if i in product.free_indices)))
-    return gem.optimise.make_sum(summands), tuple(quadrature_multiindex), ()
+        quadrature_multiindex = tuple(
+            index for index in chain(point_indices, var.index_ordering())
+            if index in product.free_indices
+        )
+        evaluations.append((product, quadrature_multiindex, ()))
+    return evaluations
 
 
 class DualEvaluationCallable:
