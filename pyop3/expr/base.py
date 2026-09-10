@@ -8,8 +8,10 @@ from typing import NoReturn
 import numpy as np
 from mpi4py import MPI
 
+import pyop3.axis_tree
 import pyop3.collections
 import pyop3.exceptions
+import pyop3.index_tree
 import pyop3.record
 from pyop3 import utils
 from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
@@ -639,10 +641,10 @@ class AxisVar(TerminalExpression):
         # Axis vars are just pointers to some outer loop. We don't need to
         # recurse here if we've seen the axis before, just make sure that
         # the labels match.
-        if self.axis.label in visitor.seen_axes:
-            return (type(self), visitor.renamer.add_type(type(self.axis), self.axis.label))
-        else:
+        if visitor.recurse_vars and self.axis.label not in visitor.seen_axes:
             return (type(self), visitor(self.axis))
+        else:
+            return (type(self), visitor.renamer.add_type(pyop3.axis_tree.Axis, self.axis.label))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
@@ -736,14 +738,14 @@ class LoopIndexVar(TerminalExpression):
         # Loop index vars are just pointers to some outer loop. We don't need
         # to recurse here if we've seen the loop index before, just make sure
         # that the labels match.
-        if self.loop_index.label in visitor.seen_loop_indices:
+        if visitor.recurse_vars and self.loop_index.label not in visitor.seen_loop_indices:
+            return (type(self), visitor(self.loop_index), visitor(self.axis))
+        else:
             return (
                 type(self),
-                visitor.renamer.add_type(type(self.loop_index), self.loop_index.label),
-                visitor.renamer.add_type(type(self.axis), self.axis.label),
+                visitor.renamer.add_type(pyop3.index_tree.LoopIndex, self.loop_index.label),
+                visitor.renamer.add_type(pyop3.axis_tree.Axis, self.axis.label),
             )
-        else:
-            return (type(self), visitor(self.loop_index), visitor(self.axis))
 
     get_instruction_executor_cache_key = get_disk_cache_key
 

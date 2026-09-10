@@ -41,6 +41,10 @@ class Renamer:
         self._counter_by_obj_type = collections.defaultdict(itertools.count)
 
     def add_type(self, type_: type, key: Hashable) -> str:
+        import pyop3
+        if type_ not in {pyop3.LoopIndex, pyop3.Axis}:
+            assert False, "old API"
+
         try:
             return self.type_store[type_][key]
         except KeyError as err:

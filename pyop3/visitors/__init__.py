@@ -59,7 +59,8 @@ def collect_buffers(obj) -> OrderedFrozenSet:
 
 class CacheKeyGetter(pyop3.node.NodeVisitor):
 
-    def __init__(self) -> None:
+    def __init__(self, recurse_vars: bool = True) -> None:
+        self.recurse_vars = recurse_vars
         self.renamer = pyop3.visitors.base.Renamer()
         self.seen_loop_indices = []
         self.seen_axes = []
@@ -88,6 +89,9 @@ class CacheKeyGetter(pyop3.node.NodeVisitor):
 
 class DiskCacheKeyGetter(CacheKeyGetter):
 
+    def __init__(self):
+        super().__init__(recurse_vars=False)
+
     @functools.singledispatchmethod
     def process(self, obj: Any) -> Hashable:
         return super().process(obj)
@@ -112,9 +116,9 @@ def get_disk_cache_key(obj: pyop3.obj.Object) -> Hashable:
 
 class MemoryCacheKeyGetter(CacheKeyGetter):
 
-    def __init__(self, *, identity_hash_outer_buffers: bool = True) -> None:
+    def __init__(self, *, identity_hash_outer_buffers: bool = True, **kwargs) -> None:
         self._identity_hash_buffers = identity_hash_outer_buffers
-        super().__init__()
+        super().__init__(**kwargs)
 
     @contextlib.contextmanager
     def identity_hash_buffers(self):
@@ -156,4 +160,4 @@ def get_instruction_executor_cache_key(obj: pyop3.obj.Object) -> Hashable:
     as dat3/dat4. We can reuse the indirection maps and preprocessing optimisations etc and just change
     the buffers at the top-level.
     """
-    return MemoryCacheKeyGetter(identity_hash_outer_buffers=False)(obj)
+    return MemoryCacheKeyGetter(identity_hash_outer_buffers=False, recurse_vars=False)(obj)

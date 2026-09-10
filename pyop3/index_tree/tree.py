@@ -356,7 +356,7 @@ class LoopIndex(AbstractLoopIndex):
         return (
             type(self),
             visitor(self.iterset),
-            visitor.renamer.add_type(type(self), self.label),
+            visitor.renamer.add_type(LoopIndex, self.label),
         )
 
     def __init__(self, iterset, label=None):
@@ -394,7 +394,7 @@ class LoopContextFreeLoopIndex(AbstractLoopIndex, UnitIndex):
         return (
             type(self),
             visitor(self.iterset),
-            visitor.renamer.add_type(type(self), self.label),
+            visitor.renamer.add_type(LoopIndex, self.label),
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
