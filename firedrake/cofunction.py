@@ -210,11 +210,14 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         """
         expr = ufl.as_ufl(expr)
-        if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
-            with stop_annotating(modifies=(self,)):
-                self.dat.zero(subset=subset)
-            return self
-        elif (isinstance(expr, Cofunction)
+        # TODO: NO TAPE BLOCK CREATED!!!
+        #       If called on ReducedFunctional.functional, causes
+        #       adjoint re-evaluation to always return zero!
+        # if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
+        #     with stop_annotating(modifies=(self,)):
+        #         self.dat.zero(subset=subset)
+        #     return self
+        if (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:

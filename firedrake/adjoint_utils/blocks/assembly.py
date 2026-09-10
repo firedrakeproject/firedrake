@@ -63,8 +63,12 @@ class AssembleBlock(Block):
             # -> Workaround: Apply action/adjoint numerically (using PETSc).
             if not isinstance(c_rep, firedrake.SpatialCoordinate):
                 # Symbolically compute: (dform/dc_rep)^* * adj_input
-                adj_output = firedrake.action(firedrake.adjoint(dform),
-                                              adj_input)
+                dform_adj = firedrake.adjoint(dform)
+                if isinstance(c_rep, firedrake.Cofunction):
+                    adj_output = firedrake.Action(dform_adj, adj_input)
+                else:
+                    adj_output = firedrake.action(dform_adj, adj_input)
+
                 adj_output = firedrake.assemble(adj_output)
             else:
                 adj_output = firedrake.Cofunction(space.dual())
@@ -134,8 +138,11 @@ class AssembleBlock(Block):
                 # as `action`.
                 dform += firedrake.derivative(form, X, tlm_value)
             else:
-                dform += firedrake.action(firedrake.derivative(form, c_rep),
-                                          tlm_value)
+                dFdc = firedrake.derivative(form, c_rep)
+                if isinstance(c_rep, firedrake.Cofunction):
+                    dform += firedrake.Action(dFdc, tlm_value)
+                else:
+                    dform += firedrake.action(dFdc, tlm_value)
         if not isinstance(dform, float):
             dform = ufl.algorithms.expand_derivatives(dform)
             dform = firedrake.assemble(dform)

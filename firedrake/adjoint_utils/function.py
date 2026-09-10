@@ -223,9 +223,9 @@ class FunctionMixin(FloatingType):
         return value.riesz_representation(riesz_map=riesz_map or "L2")
 
     def _ad_init_zero(self, dual=False):
-        from firedrake import Function, Cofunction
+        from firedrake import Function
         if dual:
-            return Cofunction(self.function_space().dual())
+            return Function(self.function_space().dual())
         else:
             return Function(self.function_space())
 
@@ -311,7 +311,7 @@ class FunctionMixin(FloatingType):
         self += other
         return self
 
-    def _ad_function_space(self, mesh):
+    def _ad_function_space(self, mesh=None):
         return self.ufl_function_space()
 
     def _reduce(self, r, r0):
