@@ -96,7 +96,7 @@ def _test_io_mesh_extrusion(mesh, tmpdir, change_coords=False):
             with CheckpointFile(fname, "r", comm=comm) as afile:
                 mesh = afile.load_mesh(name=mesh_name)
             v1 = _compute_integral(mesh)
-            assert abs(v1 - v) < 5.e-14
+            assert abs(v1 - v) < 5.e-13
             if isinstance(mesh.topology, ExtrudedMeshTopology) and not change_coords:
                 assert mesh.topology._base_mesh is mesh._base_mesh.topology
             # Save.

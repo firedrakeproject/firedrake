@@ -68,7 +68,6 @@ def _get_refcounts(lifetime_objs):
     return [sys.getrefcount(obj) for obj in lifetime_objs]
 
 
-# TODO: remove the unsafe refcounts bit
 def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False):
     """
     Parameters

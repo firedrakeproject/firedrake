@@ -880,7 +880,8 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def _getitem_without_loop_indices(self, indices, *, strict):
         return self._getitem_cached(self, indices, strict=strict)
 
-    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
+    # SOMETIMES SLOW, SOMETIMES NOT
+    # @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def _getitem_with_loop_indices(self, indices, *, strict):
         import pyop3.index_tree.parse
         import pyop3.visitors
