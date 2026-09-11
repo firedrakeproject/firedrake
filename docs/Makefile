@@ -68,32 +68,44 @@ copy_demos:
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
 	for file in source/demos/*.py.rst; do pylit $$file; done
 
+NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
+EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))
+NOTEBOOK_ASSETS = $(patsubst notebooks/%,source/notebooks/%,\
+	$(wildcard notebooks/*.geo notebooks/*.msh notebooks/image/*))
+NOTEBOOK_PROFILE = $(BUILDDIR)/ipython/profile_default/ipython_kernel_config.py
+
 # Convert the py:percent tutorial notebooks to .ipynb, copy across the data
 # files they reference at runtime, and execute them. nbsphinx then renders the
-# stored output (nbsphinx_execute='never'). This is a real (directory) target
-# depending on the notebook sources, so the notebooks are executed once per
-# build (only when a source changes) rather than once per Sphinx builder.
+# stored output (nbsphinx_execute='never'). Each notebook is its own target, so
+# editing one re-executes only that one, and `make -j` executes them in
+# parallel.
 # Cells carrying the ``skip-execution`` and ``raises-exception`` tags (the same
 # tags nbval honours) are skipped / allowed to raise by nbconvert automatically.
-# The matplotlib display settings (inline backend, SVG figures, figure size)
-# come from ipython_kernel_config.py via a throwaway IPython profile under the
-# (gitignored) build directory, so the notebooks need no display preamble.
-source/notebooks: $(wildcard notebooks/*.py) ipython_kernel_config.py
-	rm -rf source/notebooks
-	install -d source/notebooks
-	cp -r notebooks/image source/notebooks/
-	cp notebooks/*.geo notebooks/*.msh source/notebooks/
-	for file in notebooks/*.py; do \
-		jupytext --to ipynb --output source/notebooks/`basename $${file%.py}`.ipynb $$file; \
-	done
-	install -d $(BUILDDIR)/ipython/profile_default
-	cp ipython_kernel_config.py $(BUILDDIR)/ipython/profile_default/
+source/notebooks: $(EXECUTED_NOTEBOOKS)
+
+# Copy each runtime input as its own target, so Make can track the files that
+# notebooks read without hiding them behind a phony aggregate target.
+$(NOTEBOOK_ASSETS): source/notebooks/%: notebooks/%
+	mkdir -p $(dir $@)
+	cp $< $@
+
+# Keep the IPython profile separate from the notebook outputs. The profile
+# controls how notebooks execute, but it is not part of their stored content.
+$(NOTEBOOK_PROFILE): ipython_kernel_config.py
+	mkdir -p $(dir $@)
+	cp $< $@
+
+# The `|` separates order-only prerequisites: Make builds the runtime inputs
+# before executing a notebook, but refreshing those inputs does not re-execute it.
+source/notebooks/%.ipynb: notebooks/%.py | $(NOTEBOOK_ASSETS) $(NOTEBOOK_PROFILE)
+	mkdir -p $(dir $@)
+	jupytext --to ipynb --output $@ $<
 	env IPYTHONDIR=$(CURDIR)/$(BUILDDIR)/ipython OMP_NUM_THREADS=1 jupyter nbconvert \
 		--execute \
 		--to notebook \
 		--inplace \
 		--ExecutePreprocessor.timeout=600 \
-		source/notebooks/*.ipynb
+		$@
 
 # Convenience target to force regeneration of the executed notebooks.
 copy_notebooks:

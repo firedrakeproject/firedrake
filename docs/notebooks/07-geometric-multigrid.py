@@ -162,6 +162,7 @@ solver.solve()
 # When we create the colorbar, we also need to tell matplotlib which axis to draw it on.
 # Finally, we're adjusting the size and spacing of the colorbar to make the result look nicer.
 # Steps like this often require some trial and error, but they're essential for making publication-quality figures.
+# We also rasterize the streamlines and the coloured triangles, because drawing one vector path per element of this refined mesh makes for an enormous figure. The axes, labels and titles stay vector.
 
 # %% tags=["nbval-ignore-output"]
 from firedrake.pyplot import streamplot, tripcolor
@@ -170,11 +171,13 @@ w = solver._problem.u
 u, p = w.subfunctions
 fig, axes = plt.subplots(ncols=2, sharex=True, sharey=True)
 streamlines = streamplot(u, resolution=1/30, seed=4, axes=axes[0])
+streamlines.set_rasterized(True)
 axes[0].set_aspect("equal")
 axes[0].set_title("Velocity")
 fig.colorbar(streamlines, ax=axes[0], fraction=0.032, pad=0.02)
 
 triangles = tripcolor(p, axes=axes[1], cmap='coolwarm')
+triangles.set_rasterized(True)
 axes[1].set_aspect("equal")
 axes[1].set_title("Pressure")
 fig.colorbar(triangles, ax=axes[1], fraction=0.032, pad=0.02);
