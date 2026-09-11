@@ -132,6 +132,8 @@ class TensorBase(BaseForm):
 
         Mirrors :class:`~ufl.form.Form`.
         """
+        BaseForm.__init__(self)
+        self._hash = None
         self._cache = {}
 
     @cached_property
@@ -694,18 +696,14 @@ class Block(TensorBase):
                 A, = tensor.operands
                 return Block(A, indices[::-1]).T
             if isinstance(tensor, ScalarMul):
-                scalar, A = tensor.operands
-                return ScalarMul(scalar, Block(A, indices))
+                A, = tensor.operands
+                return ScalarMul(tensor.scalar, Block(A, indices))
             if isinstance(tensor, Mul) and len(indices) == 2 and tensor.operands[0].rank == 2 and tensor.operands[1].rank == 2:
                 A, B = tensor.operands
                 row, col = indices
                 full_col_A = tuple(range(len(A.arguments()[1].function_space())))
                 full_row_B = tuple(range(len(B.arguments()[0].function_space())))
                 return Block(A, (row, full_col_A)) * Block(B, (full_row_B, col))
-            else:
-                raise NotImplementedError(
-                    "Cannot extract a block from a %s tensor." % type(tensor).__name__
-                )
 
         return super().__new__(cls)
 
@@ -1282,41 +1280,6 @@ class Transpose(UnaryOp):
         return "(%s).T" % tensor
 
 
-class Negative(UnaryOp):
-    """Abstract Slate class representing the negation of a tensor object."""
-    def __new__(cls, A):
-        if A == 0:
-            return A
-        return BinaryOp.__new__(cls)
-
-    @cached_property
-    def arg_function_spaces(self):
-        """Returns a tuple of function spaces that the tensor
-        is defined on.
-        """
-        tensor, = self.operands
-        return tensor.arg_function_spaces
-
-    def arguments(self):
-        """Returns the expected arguments of the resulting tensor of
-        performing a specific unary operation on a tensor.
-        """
-        tensor, = self.operands
-        return tensor.arguments()
-
-    def _output_string(self, prec=None):
-        """String representation of a resulting tensor after a unary
-        operation is performed.
-        """
-        if prec is None or self.prec >= prec:
-            par = lambda x: x
-        else:
-            par = lambda x: "(%s)" % x
-
-        tensor, = self.operands
-        return par("-%s" % tensor._output_string(prec=self.prec))
-
-
 class BinaryOp(TensorOp):
     """An abstract Slate class representing binary operations on tensors.
     Such operations take two operands and returns a tensor-valued expression.
@@ -1361,7 +1324,7 @@ class BinaryOp(TensorOp):
         return "%s(%r, %r)" % (type(self).__name__, A, B)
 
 
-class ScalarMul(BinaryOp):
+class ScalarMul(UnaryOp):
     """Represent multiplication of a Slate tensor by a scalar.
 
     Parameters
@@ -1380,16 +1343,17 @@ class ScalarMul(BinaryOp):
             return Tensor(ZeroBaseForm(tensor.arguments()))
         elif scalar == 1:
             return tensor
-        elif scalar == -1:
+        elif scalar == -1 and cls is ScalarMul:
             return Negative(tensor)
-        return BinaryOp.__new__(cls)
+        return UnaryOp.__new__(cls)
 
     def __init__(self, scalar, tensor):
         """Initialise the scalar multiplication node."""
         if self._initialised:
             return
         scalar = self._scalar_value(scalar)
-        super(ScalarMul, self).__init__(scalar, tensor)
+        super(ScalarMul, self).__init__(tensor)
+        self.scalar = scalar
 
     @staticmethod
     def _scalar_value(scalar):
@@ -1399,62 +1363,50 @@ class ScalarMul(BinaryOp):
             raise TypeError("The scalar factor must be numeric.")
         return scalar
 
-    @property
-    def scalar(self):
-        """Return the scalar factor."""
-        return self.operands[0]
-
-    @property
-    def children(self):
-        """Return the Slate operand for DAG traversal."""
-        return (self.operands[1],)
-
-    @property
-    def ufl_operands(self):
-        """Return the Slate operand for UFL DAG traversal."""
-        return self.children
-
-    def reconstruct(self, *, A=None, B=None):
+    def reconstruct(self, A=None):
         """Reconstruct this scalar multiplication with replacement operands."""
-        old_A, old_B = self.operands
-        A = old_A if A is None else A
-        B = old_B if B is None else B
-        return type(self)(A, B)
-
-    def _ufl_expr_reconstruct_(self, *operands):
-        if len(operands) == 0:
-            return self
-        return self.reconstruct(B=operands[0])
+        A = self.operands[0] if A is None else A
+        return ScalarMul(self.scalar, A)
 
     @cached_property
     def arg_function_spaces(self):
         """Return the function spaces on which the tensor is defined."""
-        return self.operands[1].arg_function_spaces
+        return self.operands[0].arg_function_spaces
 
     def arguments(self):
         """Return the arguments associated with the tensor."""
-        return self.operands[1].arguments()
+        return self.operands[0].arguments()
 
     def coefficients(self):
         """Return the coefficients associated with the tensor."""
-        return self.operands[1].coefficients()
+        return self.operands[0].coefficients()
 
     def constants(self):
         """Return the constants associated with the tensor."""
-        return self.operands[1].constants()
+        return self.operands[0].constants()
 
     def slate_coefficients(self):
         """Return the Slate coefficients associated with the tensor."""
-        return self.operands[1].slate_coefficients()
+        return self.operands[0].slate_coefficients()
 
     @TensorBase._expand_mixed_meshes
     def ufl_domains(self):
         """Return the integration domains associated with the tensor."""
-        return self.operands[1].ufl_domains()
+        return self.operands[0].ufl_domains()
 
     def subdomain_data(self):
         """Return the subdomain data associated with the tensor."""
-        return self.operands[1].subdomain_data()
+        return self.operands[0].subdomain_data()
+
+    @cached_property
+    def _key(self):
+        """Return a key for hash and equality."""
+        return (type(self), self.scalar, self.operands)
+
+    def __repr__(self):
+        """Return the Slate representation of the scalar multiplication."""
+        tensor, = self.operands
+        return "%s(%r, %r)" % (type(self).__name__, self.scalar, tensor)
 
     def _output_string(self, prec=None):
         """Create a string representation of the scalar multiplication."""
@@ -1462,9 +1414,32 @@ class ScalarMul(BinaryOp):
             par = lambda x: x
         else:
             par = lambda x: "(%s)" % x
-        tensor = self.operands[1]
-        result = "%s * %s" % (self.operands[0], tensor._output_string(prec=self.prec))
+        tensor, = self.operands
+        result = "%s * %s" % (self.scalar, tensor._output_string(prec=self.prec))
         return par(result)
+
+
+class Negative(ScalarMul):
+    """Abstract Slate class representing the negation of a tensor object."""
+
+    def __new__(cls, tensor):
+        if tensor == 0:
+            return tensor
+        return UnaryOp.__new__(cls)
+
+    def __init__(self, tensor, _tensor=None):
+        """Initialise the negation node."""
+        super(Negative, self).__init__(-1, tensor if _tensor is None else _tensor)
+
+    def _output_string(self, prec=None):
+        """Create a string representation of the negation."""
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+
+        tensor, = self.operands
+        return par("-%s" % tensor._output_string(prec=self.prec))
 
 
 class Add(BinaryOp):
@@ -1709,7 +1684,7 @@ def as_slate(F):
     elif isinstance(F, FormSum):
         return functools.reduce(
             operator.add,
-            (ScalarMul(w, as_slate(c))
+            (w * as_slate(c)
              for c, w in zip(F.components(), F.weights())))
     else:
         raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
@@ -1719,7 +1694,7 @@ def as_slate(F):
 precedences = [
     [AssembledVector, Block, Factorization, Tensor, DiagonalTensor, Reciprocal],
     [Add],
-    [Mul, ScalarMul],
+    [Mul],
     [Solve],
     [UnaryOp],
 ]

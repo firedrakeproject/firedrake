@@ -1,7 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.slate.slate import ScalarMul, as_slate
+from firedrake.slate.slate import Negative, ScalarMul, UnaryOp, as_slate
 from ufl.form import FormSum
 import math
 
@@ -341,6 +341,9 @@ def test_scalar_multiplication():
     assert isinstance(ScalarMul(0, b), Tensor)
     assert ScalarMul(1, b) is b
     assert ScalarMul(-1, b) == -b
+    assert isinstance(ScalarMul(2, b), UnaryOp)
+    assert isinstance(-b, Negative)
+    assert issubclass(Negative, ScalarMul)
     assert 2 * b == ScalarMul(2, b)
     assert b * 0.5 == ScalarMul(0.5, b)
 
