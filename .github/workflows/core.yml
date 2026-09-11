@@ -565,6 +565,9 @@ jobs:
         id: install
         run: |
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
+          : # DROP BEFORE MERGE: Install the FIAT branch under test.
+          pip install -v --ignore-installed --no-deps \
+            git+https://github.com/firedrakeproject/fiat.git@pbrubeck/zany-auto
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
           firedrake-clean

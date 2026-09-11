@@ -155,6 +155,10 @@ runs:
           exit 1
         fi
 
+        : # DROP BEFORE MERGE: Install the FIAT branch under test.
+        pip install -v --ignore-installed --no-deps \
+          git+https://github.com/firedrakeproject/fiat.git@pbrubeck/zany-auto
+
         pip install --verbose $EXTRA_PIP_FLAGS \
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
