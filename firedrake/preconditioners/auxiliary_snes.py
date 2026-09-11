@@ -36,7 +36,7 @@ class AuxiliaryOperatorSNES(SNESBase):
     :meth:`~.AuxiliaryOperatorSNES.form` method. In this example, the
     inner solve uses a Newton method with a relative tolerance of 1e-4.
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solver_parameters = {
             "snes_rtol": 1e-8,

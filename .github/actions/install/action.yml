@@ -135,10 +135,6 @@ runs:
         : # Empty the pip cache to ensure that everything is compiled from scratch
         pip cache purge
 
-        # Fix for petsc4py build to be removed after #5372 is resolved.
-        echo 'Cython<3.3.0' > constraints.txt
-        export PIP_CONSTRAINT=constraints.txt
-
         if [ ${{ inputs.base_ref }} = 'main' ]; then
           : # Install build dependencies
           pip install "$PETSC_DIR"/src/binding/petsc4py
@@ -154,7 +150,6 @@ runs:
           EXTRA_PIP_FLAGS='--no-build-isolation'
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           EXTRA_PIP_FLAGS=''
-          export PIP_BUILD_CONSTRAINT=constraints.txt
         else
           echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
           exit 1
