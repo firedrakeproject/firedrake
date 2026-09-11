@@ -19,7 +19,9 @@ We consider a steady, isothermal, nonreacting mixture of benzene and cyclohexane
 a two-dimensional microfluidic container :math:`\Omega \subset \mathbb{R}^2`.
 Pure benzene and cyclohexane flow in through opposing inlets on the left side of the container. 
 The chemicals then mix in the center of the container and exit through an outlet on the right.
-We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3`::
+We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3`:
+
+.. code-block:: python
 
     from firedrake import *
     import netgen.occ as ngocc
@@ -91,7 +93,9 @@ We shall discretise the following unknowns:
     * :math:`\rho^{-1} \in \textrm{CG}_{k-1}` - density reciprocal (i.e. specific volume).
     
 The equations governing these unknowns are presented below.
-We first define the finite element spaces and trial/test functions::
+We first define the finite element spaces and trial/test functions:
+
+.. code-block:: python
 
     # The finite element spaces
     J_h = FunctionSpace(mesh, "BDM", k)                 # Species mass-flux space
@@ -150,7 +154,9 @@ Hence we introduce a reference velocity :math:`v^{\textrm{ref}}` whose value
 will be specified later on when we introduce boundary conditions.
 We also choose a reference length of :math:`L^{\textrm{ref}} = 2 \cdot 10^{-3}` m.
 It is then natural to define the reference pressure as
-:math:`p^{\textrm{ref}} = \eta \cdot v^{\textrm{ref}} / L^{\textrm{ref}}`. ::
+:math:`p^{\textrm{ref}} = \eta \cdot v^{\textrm{ref}} / L^{\textrm{ref}}`.
+
+.. code-block:: python
 
     # The (dimensional) Stokes viscosities
     eta = Constant(6e-4)            # Shear viscosity, Pa s
@@ -164,7 +170,9 @@ It is then natural to define the reference pressure as
     L_ref = Constant(2e-3)          # Reference length, m
     p_ref = eta * v_ref / L_ref     # Reference pressure, Pa
 
-The non-dimensionalised variational formulation of :ref:`eq. 1 <eq:stokes>` is then::
+The non-dimensionalised variational formulation of :ref:`eq. 1 <eq:stokes>` is then:
+
+.. code-block:: python
 
     # The Stokes viscous terms
     stokes_terms = 2.0 * inner(sym(grad(v)), sym(grad(u))) * dx
@@ -193,7 +201,9 @@ As we are considering steady flow, the continuity equations simplify to
     \nabla \cdot J_i = 0
     \quad \textrm{in}\ \Omega \quad \forall i \in \{1 : n \},
 
-which are discretised as follows::
+which are discretised as follows:
+
+.. code-block:: python
 
     continuity_terms = (inner(div(J_1), w_1) + inner(div(J_2), w_2)) * dx
 
@@ -218,7 +228,9 @@ and ambient pressure :math:`10^5` Pa (note that we allow the pressure :math:`p` 
 in this model but we assume that these variations do not alter :math:`c_j^{\textrm{pure}}`).
 We will also make use of the total density of the mixture which is given by :math:`\rho = \sum_{j=1}^n M_j c_j`.
 To non-dimensionalise the concentrations and total density, we employ as reference values for these quantities
-their values when the mixture is equimolar::
+their values when the mixture is equimolar:
+
+.. code-block:: python
 
     # Constants for the pure species (at the ambient temperature and pressure)
     M_1 = Constant(0.078)               # Molar mass of benzene, kg / mol
@@ -244,7 +256,9 @@ their values when the mixture is equimolar::
     M_2_ND = M_2 / M_ref
 
 Our implementation of the non-dimensionalised volumetric equation of state
-:ref:`eq. 3 <eq:eos>` is therefore::
+:ref:`eq. 3 <eq:eos>` is therefore:
+
+.. code-block:: python
 
     # Volumetric equation of state, assuming constant partial molar volumes
     def conc_relation(x_1, x_2):
@@ -264,7 +278,9 @@ Our implementation of the non-dimensionalised volumetric equation of state
     c_tot, c_1, c_2 = conc_relation(x_1, x_2)
 
 Moreover, to express that :math:`1 / \rho^{-1} = \rho = \sum_{j=1}^n M_j c_j`, we simply take the
-:math:`L^2`-projection of this expression (in non-dimensionalised form)::
+:math:`L^2`-projection of this expression (in non-dimensionalised form):
+
+.. code-block:: python
 
     rho_inv_terms = inner(1.0 / rho_inv, r) * dx
     rho_inv_terms -= inner((M_1_ND * c_1) + (M_2_ND * c_2), r) * dx
@@ -289,7 +305,9 @@ It is natural to non-dimensionalise the chemical potentials using a reference va
 :math:`\mu^{\textrm{ref}} = RT` where :math:`R` the is ideal gas constant
 and :math:`T` the ambient temperature.
 In this demo we employ a Margules model :cite:`Perry:2007`
-for the :math:`g_i`'s, which in non-dimensionalised form, is implemented as follows::
+for the :math:`g_i`'s, which in non-dimensionalised form, is implemented as follows:
+
+.. code-block:: python
 
     RT = Constant(8.314 * 298.15)   # Ideal gas constant times temperature, J / mol
 
@@ -309,7 +327,9 @@ for the :math:`g_i`'s, which in non-dimensionalised form, is implemented as foll
 
         return (mu_1, mu_2)
 
-We discretise :ref:`eq. 4 <eq:gibbs>` through a simple :math:`L^2`-projection::
+We discretise :ref:`eq. 4 <eq:gibbs>` through a simple :math:`L^2`-projection:
+
+.. code-block:: python
 
     g_1, g_2 = mu_relation(x_1, x_2, p)
     gibbs_terms = (inner(mu_1 - g_1, y_1) + inner(mu_2 - g_2, y_2)) * dx
@@ -374,7 +394,9 @@ and pressure diffusion number :math:`\mathrm{Me} = p^{\textrm{ref}} / RT c^{\tex
 Moreover, :ref:`eq 5. <eq:osm>` can be cast into a variational form by
 testing against functions :math:`K_i` and integrating by parts the two gradient terms
 on the left-hand side (the boundary terms drop out owing to our BCs below).
-This leads to the following implementation::
+This leads to the following implementation:
+
+.. code-block:: python
 
     D_sm = Constant(2.1e-9)                         # Stefan--Maxwell diffusivity, m^2 / s
     Pe = v_ref * L_ref / D_sm                       # Péclet number, dimensionless
@@ -398,7 +420,9 @@ This leads to the following implementation::
 
 Lastly, we weakly enforce that
 :math:`\nabla \cdot v = \nabla \cdot (\frac{1}{\rho} \sum_{j=1}^n J_j )`,
-using special density consistency terms to handle inhomogeneous BCs::
+using special density consistency terms to handle inhomogeneous BCs:
+
+.. code-block:: python
 
     div_mass_avg_terms = inner(div(v - (rho_inv * (J_1 + J_2))), q) * dx
 
@@ -407,7 +431,9 @@ using special density consistency terms to handle inhomogeneous BCs::
     div_mass_avg_terms -= inner(dot(v - (rho_inv * (J_1 + J_2)), N), q) * ds
 
 This concludes our discussion of the PDE model and its discretisation.
-Altogether, our total residual is the sum of forms built above::
+Altogether, our total residual is the sum of forms built above:
+
+.. code-block:: python
 
     tot_res = stokes_terms \
             + continuity_terms \
@@ -436,7 +462,9 @@ and the walls are compatible at these points, :class:`~.EquationBC` enforces the
 conditions on the boundary of the boundary, i.e. the points where the inlets/outlet meet the walls.
 To enforce these Dirichlet boundary conditions, tuples with the numbers of the boundary edges coincidental
 to these points need to be constructed first. This is then passed on to a Dirichlet boundary condition
-which is passed on to :class:`~.EquationBC`.::
+which is passed on to :class:`~.EquationBC`.
+
+.. code-block:: python
 
     # Reference species velocities, which we choose to symmetrize so that the molar fluxes agree
     v_ref_1 = Constant(0.4e-6)                      # Reference inflow velocity of benzene, m / s
@@ -475,7 +503,9 @@ which is passed on to :class:`~.EquationBC`.::
                 DirichletBC(Z_h.sub(2), 0, walls_ids)]
 
 It is now natural to assign :math:`v^\textrm{ref}`
-to be the average of the species reference velocities::
+to be the average of the species reference velocities:
+
+.. code-block:: python
 
     v_ref.assign(0.5 * (v_ref_1 + v_ref_2))
 
@@ -490,7 +520,9 @@ At the continuous level the OSM equations imply that
 
 Hence, at the discrete level, we expect :math:`x_1 + \ldots + x_n` to approximately be a constant.
 However, we have not yet incorporated any equations to make this constant be one.
-We accomplish this by enforcing that :math:`\int_{\Omega} (x_1 + \ldots + x_n - 1) \ {\rm d} x = 0`::
+We accomplish this by enforcing that :math:`\int_{\Omega} (x_1 + \ldots + x_n - 1) \ {\rm d} x = 0`:
+
+.. code-block:: python
 
     tot_res += inner(x_1 + x_2 - 1, s_1) * dx
 
@@ -499,7 +531,9 @@ since we have not specified how much mass of fluid is present in :math:`\Omega`.
 For uniqueness we must pin this down by imposing one more constraint.
 Instead of directly imposing the value of :math:`\int_{\Omega} \rho \ {\rm d} x`,
 to demonstrate the flexibility of our approach we enforce that, on the outflow,
-the species have equal average densities::
+the species have equal average densities:
+
+.. code-block:: python
 
     tot_res += inner((M_1_ND * c_1) - (M_2_ND * c_2), s_2) * ds(*outlet_id)
 
@@ -507,7 +541,9 @@ Analogously to :doc:`the steady Boussinesq demo <boussinesq.py>` we use
 :code:`FixAtPointBC` to remove the pressure nullspace and pin the
 :math:`\mu_{i, \textrm{aux}}` at a DOF (by carefully studying which rows in the
 discretised Jacobian are linearly dependent, one checks that it is
-mathematically valid to do this)::
+mathematically valid to do this):
+
+.. code-block:: python
 
     import functools
 
@@ -549,14 +585,18 @@ mathematically valid to do this)::
 Solving the system using Newton's method
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We provide a naive initial guess based on an equimolar spatially uniform distribution of benzene and cyclohexane::
+We provide a naive initial guess based on an equimolar spatially uniform distribution of benzene and cyclohexane:
+
+.. code-block:: python
 
     J_1, J_2, v, mu_aux_1, mu_aux_2, p, x_1, x_2, rho_inv, l_1, l_2 = solution.subfunctions
     x_1.interpolate(Constant(0.5))
     x_2.interpolate(Constant(0.5))
     rho_inv.interpolate(1.0 / ((M_1_ND * c_1) + (M_2_ND * c_2)))
 
-and define the nonlinear variational solver object, which by default uses Newton's method::
+and define the nonlinear variational solver object, which by default uses Newton's method:
+
+.. code-block:: python
 
     NLVP = NonlinearVariationalProblem(tot_res, solution, bcs=flux_bcs+aux_point_bcs)
     NLVS = NonlinearVariationalSolver(NLVP)
@@ -569,7 +609,9 @@ with the naive initial guess and use its solution as initial guess for the probl
 and :math:`v_1^\text{ref}=0.3\times 10^{-5}` before solving for :math:`v_1^\text{ref}=0.4\times 10^{-5}`. 
 We can reuse the nonlinear variational solver object each iteration, but have to reassign :code:`v_ref_1`
 and :code:`v_ref` before calling the :code:`solve()` method. Finally, we write each solution to the same 
-VTK file using the :code:`time` keyword argument. ::
+VTK file using the :code:`time` keyword argument.
+
+.. code-block:: python
 
     outfile = VTKFile("out/solution.pvd")
     vmax = 0.4e-5

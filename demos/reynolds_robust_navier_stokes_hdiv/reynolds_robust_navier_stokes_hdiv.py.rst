@@ -190,7 +190,9 @@ standard DG upwinding.
 We build a mesh hierarchy for geometric multigrid; this can be refined to make the
 simulation more accurate/expensive. The distribution parameters
 configure the mesh partitioning to enable greater overlap than usual,
-which is necessary for vertex-star relaxation in parallel. ::
+which is necessary for vertex-star relaxation in parallel.
+
+.. code-block:: python
 
   from firedrake import *
   from firedrake.petsc import PETSc
@@ -206,7 +208,9 @@ which is necessary for vertex-star relaxation in parallel. ::
   n = FacetNormal(mesh)
   (x, y) = SpatialCoordinate(mesh)
 
-We define the BDM–DG mixed space. ::
+We define the BDM–DG mixed space.
+
+.. code-block:: python
 
   k = 2
   V = FunctionSpace(mesh, "BDM", k)
@@ -214,13 +218,17 @@ We define the BDM–DG mixed space. ::
   W = MixedFunctionSpace([V, Q])
 
 The boundary conditions impose the no-slip and lid conditions on the
-velocity component of the mixed space. ::
+velocity component of the mixed space.
+
+.. code-block:: python
 
   Re = Constant(1)
   bcs = [DirichletBC(W.sub(0), 0, (1, 2, 3)),
          DirichletBC(W.sub(0), as_vector([16 * x**2 * (1-x)**2, 0]), (4,))]
 
-We set up the solution function and test functions. ::
+We set up the solution function and test functions.
+
+.. code-block:: python
 
   w = Function(W, name="Solution")
   (u, p) = split(w)
@@ -241,7 +249,9 @@ The second group is the DG upwind discretisation of the convective term
 :math:`\nabla \cdot (u \otimes u)`.  On interior facets the upwind flux
 is :math:`\tfrac{1}{2}(u \cdot n + |u \cdot n|) u`.
 
-The final group implements the pressure gradient and the divergence constraint. ::
+The final group implements the pressure gradient and the divergence constraint.
+
+.. code-block:: python
 
   gamma = Constant(10000)
   sigma = Constant(5 * (k+1)**2)
@@ -265,7 +275,9 @@ The final group implements the pressure gradient and the divergence constraint. 
 Boundary conditions are imposed weakly via two helper functions.
 ``a_bc`` contributes the viscous boundary terms (analogues of the
 interior penalty terms restricted to boundary facets), and ``c_bc``
-contributes the convective upwind flux on boundary facets. ::
+contributes the convective upwind flux on boundary facets.
+
+.. code-block:: python
 
   def a_bc(u, v, bid, g):
       ures = u - g if g else u
@@ -283,7 +295,9 @@ contributes the convective upwind flux on boundary facets. ::
 
 We loop over the Dirichlet boundary conditions, adding the weak
 boundary terms for each marked wall, and separately handle any
-remaining exterior facets with a zero-inflow flux. ::
+remaining exterior facets with a zero-inflow flux.
+
+.. code-block:: python
 
   exterior_markers = set(mesh.exterior_facets.unique_markers)
   for bc in bcs:
@@ -303,7 +317,9 @@ we first add the penalty term and add the pressure
 mass matrix weighted by :math:`\gamma^{-1}`, and then we
 differentiate to obtain the preconditioning bilinear form ``Jp``
 from which PETSc will extract :math:`A_\gamma` and :math:`-\gamma^{-1}Q`
-required for the Schur factorization. ::
+required for the Schur factorization.
+
+.. code-block:: python
 
   Fp = F + inner(div(u)*gamma, div(v))*dx - inner(p/gamma, q)*dx 
   Jp = derivative(Fp, w)
@@ -332,7 +348,9 @@ solved exactly with LU factorisation.
 
 The pressure block inverts the pressure mass matrix. For the
 integral-variant DG space the mass matrix is diagonal, so Jacobi is
-exact. ::
+exact.
+
+.. code-block:: python
 
   sp = {
       'mat_type': 'matfree',
@@ -383,7 +401,9 @@ We report the total Krylov iterations and the average
 per Newton step, which should remain nearly constant as :math:`\mathrm{Re}` grows.  As a
 diagnostic, we also print :math:`\|\nabla \cdot u\|_{L^2}`. Since the
 discretisation is exactly incompressible, this should remain close to machine
-precision. ::
+precision.
+
+.. code-block:: python
 
   (u_, p_) = w.subfunctions
   u_.rename("Velocity")

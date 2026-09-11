@@ -16,20 +16,26 @@ Run this example in parallel using :math:`P` processes by doing
 We start with the usual import but we also import `petsc4py <https://bitbucket.org/petsc/petsc4py/>`_
 so that classes ``PETSc.X`` are available.  Here ``X`` is one of the
 `PETSc object types <https://petsc.org/release/manualpages/>`_,
-including types like `Vec <https://petsc.org/release/manualpages/Vec/>`_::
+including types like `Vec <https://petsc.org/release/manualpages/Vec/>`_:
+
+.. code-block:: python
 
     from firedrake import *
     from firedrake.petsc import PETSc
 
 In serial the next line could be ``print('setting up mesh...')``  However,
 in parallel that would print :math:`P` times on :math:`P` processes.  In the
-following form the print happens only once (because it is done only on rank 0)::
+following form the print happens only once (because it is done only on rank 0):
+
+.. code-block:: python
 
     PETSc.Sys.Print('setting up mesh across %d processes' % COMM_WORLD.size)
 
 Next we generate a mesh.  It has an MPI communicator ``mesh.comm``, equal to
 ``COMM_WORLD`` by default.  By using the ``COMM_SELF`` communicator each rank
-reports on the portion of the mesh it owns::
+reports on the portion of the mesh it owns:
+
+.. code-block:: python
 
     mesh = UnitSquareMesh(3, 3)
     PETSc.Sys.Print('  rank %d owns %d elements and can access %d vertices' \
@@ -43,7 +49,9 @@ relationship between vertices and degrees of freedom in a global PETSc Vec (belo
 We use a familiar Helmholtz equation problem merely for demonstration.
 First we set up a weak form just as in the
 `helmholtz.py <https://www.firedrakeproject.org/demos/helmholtz.py.html>`_
-demo::
+demo:
+
+.. code-block:: python
 
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
@@ -54,7 +62,9 @@ demo::
     a = (dot(grad(v), grad(u)) + v * u) * dx
     L = f * v * dx
 
-Then solve::
+Then solve:
+
+.. code-block:: python
 
     PETSc.Sys.Print('solving problem ...')
     u = Function(V)
@@ -62,7 +72,9 @@ Then solve::
 
 To print the solution vector in serial one could write ``print(u.dat.data)``
 but then in parallel each processor would show its data separately.
-So using PETSc we do a "view" of the solution vector::
+So using PETSc we do a "view" of the solution vector:
+
+.. code-block:: python
 
     with u.dat.vec_ro as vu:
         vu.view()
@@ -77,7 +89,9 @@ by halo exchanges if needed.  Here we only need read-only access here so we use
 Finally we compute and print the numerical error, relative to the exact
 solution, in two norms.  The :math:`L^2` norm is computed with
 ``assemble`` which already includes an MPI reduction across the ``mesh.comm``
-communicator::
+communicator:
+
+.. code-block:: python
 
     udiff = Function(V).interpolate(u - cos(x*pi*2)*cos(y*pi*2))
     L_2_err = sqrt(assemble(dot(udiff,udiff) * dx))
@@ -85,7 +99,9 @@ communicator::
 We compute the :math:`L^\infty` error a different way.  Note that
 ``u.dat.data.max()`` works in serial but in parallel that only
 gets the max over the process-owned entries.  So again we use the ``PETSc.Vec``
-approach::
+approach:
+
+.. code-block:: python
 
     udiffabs = Function(V).interpolate(abs(udiff))
     with udiffabs.dat.vec_ro as v:
