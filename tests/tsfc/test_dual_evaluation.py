@@ -18,6 +18,19 @@ def test_ufl_only_simple():
     assert kernel.needs_external_coords is False
 
 
+def test_ufl_only_nested_interpolate():
+    mesh = ufl.Mesh(finat.ufl.VectorElement("P", ufl.triangle, 1))
+    V = ufl.FunctionSpace(mesh, finat.ufl.VectorElement("P", ufl.triangle, 2))
+    W = ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("RT", ufl.triangle, 1))
+    X = ufl.FunctionSpace(mesh, finat.ufl.VectorElement("P", ufl.triangle, 2))
+    v = ufl.Coefficient(V)
+    expression = ufl.Interpolate(ufl.Interpolate(v, W), X)
+
+    kernel = compile_expression_dual_evaluation(expression, X.ufl_element())
+
+    assert kernel.needs_external_coords is True
+
+
 def test_ufl_only_spatialcoordinate():
     mesh = ufl.Mesh(finat.ufl.VectorElement("P", ufl.triangle, 1))
     V = ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("P", ufl.triangle, 2))

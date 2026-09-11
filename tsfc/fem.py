@@ -351,18 +351,20 @@ def needs_coordinate_mapping(element):
         return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
-def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, kernel_cfg: dict) -> list[tuple]:
+def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Cofunction,
+                  to_element: FiniteElementBase, kernel_cfg: dict) -> list[tuple]:
     """Translate an interpolation operand and evaluate its target dual basis.
 
     Parameters
     ----------
-    expression : ufl.Interpolate
-        Preprocessed interpolation expression in the target reference frame.
-    to_element : finat.FiniteElementBase
+    operand
+        Expression to evaluate against the target dual basis.
+    dual_arg
+        Dual argument from the interpolation that owns ``operand``.
+    to_element
         Target FInAT element.
-    kernel_cfg : dict
+    kernel_cfg
         Configuration for the point-evaluation translation context.
-
     Returns
     -------
     list[tuple]
@@ -372,7 +374,6 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg = dict(kernel_cfg, quadrature_rule=to_element._rule)
 
-    dual_arg, operand = expression.argument_slots()
     fn = DualEvaluationCallable(operand, kernel_cfg)
 
     if isinstance(to_element, NeedsCoordinateMappingElement):
@@ -418,8 +419,8 @@ def dual_evaluate(expression: ufl.Interpolate, to_element: FiniteElementBase, ke
 class DualEvaluationCallable:
     """Translate an expression at points requested by a FInAT dual basis."""
 
-    def __init__(self, expression: ufl.core.expr.Expr, kernel_cfg: dict) -> None:
-        self.expression = expression
+    def __init__(self, operand: ufl.core.expr.Expr, kernel_cfg: dict) -> None:
+        self.operand = operand
         self.kernel_cfg = kernel_cfg
 
     def __call__(self, point_set: AbstractPointSet) -> gem.Node:
@@ -436,7 +437,7 @@ class DualEvaluationCallable:
             kernel_cfg.update(point_set=point_set)
             translation_context = PointSetContext(**kernel_cfg)
 
-        gem_expr, = compile_ufl(self.expression, translation_context, point_sum=False)
+        gem_expr, = compile_ufl(self.operand, translation_context, point_sum=False)
         assert set(gem_expr.free_indices) <= set(chain(point_set.indices, *kernel_cfg["argument_multiindices"]))
         return gem_expr
 
@@ -864,7 +865,7 @@ def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: 
     vec = gem.Sum(*(
         gem.ComponentTensor(gem.IndexSum(evaluation, quadrature_multiindex), basis_indices)
         for evaluation, quadrature_multiindex, basis_indices
-        in dual_evaluate(terminal, element, kernel_cfg)
+        in dual_evaluate(operand, dual_arg, element, kernel_cfg)
     ))
     return translate_element(terminal, mt, ctx, vec, element, beta=element.get_indices())
 

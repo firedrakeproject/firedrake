@@ -5,7 +5,9 @@ from functools import cached_property, reduce
 from itertools import chain, product
 import copy
 
-from ufl.classes import Cofunction
+from ufl.algorithms.analysis import has_type
+from ufl.classes import Cofunction, GeometricQuantity, Interpolate
+from ufl.finiteelement import AbstractFiniteElement
 from ufl.utils.sequences import max_degree
 from ufl.domain import MeshSequence, extract_unique_domain
 from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
@@ -23,6 +25,8 @@ from gem.optimise import remove_componenttensors as prune
 from gem.unconcatenate import unconcatenate
 from numpy import asarray
 from tsfc import fem
+from tsfc.parameters import is_complex
+from tsfc.ufl_utils import preprocess_interpolate
 from finat.element_factory import as_fiat_cell, create_element
 from finat.ufl import MixedElement
 from tsfc.kernel_interface import KernelInterface
@@ -41,8 +45,6 @@ class KernelBuilderBase(KernelInterface):
 
         # Coordinates
         self.domain_coordinate = {}
-        self.needs_external_coords = False
-
         # Coefficients
         self.coefficient_map = collections.OrderedDict()
         self.coefficient_split = {}
@@ -146,20 +148,46 @@ class KernelBuilderBase(KernelInterface):
 class KernelBuilderMixin:
     """Mixin for KernelBuilder classes."""
 
-    def compile_interpolate(self, expression, target_element, params, ctx):
+    def compile_interpolate(self, ufl_interpolate: Interpolate,
+                            target_element: AbstractFiniteElement,
+                            params: dict, ctx: dict) -> list:
         """Compile UFL interpolate.
 
-        :arg expression: UFL interpolate.
-        :arg target_element: UFL element of the interpolation target. This is
-            not the dual argument's own element when the target is a point
-            cloud: the points are then only known at run time, so the target
-            is a quadrature element on the source cell.
-        :arg params: a dict containing "mode".
-        :arg ctx: context created with :meth:`create_context` method.
+        Parameters
+        ----------
+        ufl_interpolate
+            Unprocessed UFL interpolation.
+        target_element
+            UFL element of the interpolation target. This is not the dual
+            argument's own element when the target is a point cloud: the
+            points are then only known at run time, so the target is a
+            quadrature element on the source cell.
+        params
+            Parameter dictionary containing ``"mode"``.
+        ctx
+            Context created with :meth:`create_context`.
 
-        See :meth:`create_context` for typical calling sequence.
+        Returns
+        -------
+        list
+            Integral representations for the interpolation.
         """
-        expression = CoefficientSplitter(self.coefficient_split)(expression)
+        preprocessed_interpolate = preprocess_interpolate(
+            ufl_interpolate,
+            target_element,
+            self.integral_data_info.domain,
+            complex_mode=is_complex(params["scalar_type"]),
+        )
+        dual_arg, operand = preprocessed_interpolate.argument_slots()
+        operand = CoefficientSplitter(self.coefficient_split)(operand)
+        elements = [f.ufl_element() for f in (*self.integral_data_info.coefficients,
+                                              *self.integral_data_info.arguments)]
+        needs_external_coords = bool(
+            has_type(operand, GeometricQuantity)
+            or any(map(fem.needs_coordinate_mapping, elements))
+        )
+        if needs_external_coords:
+            self.set_coordinates(tuple(self.integral_data_info.domain_integral_type_map))
         try:
             target_element = self.create_element(target_element)
         except KeyError:
@@ -168,13 +196,12 @@ class KernelBuilderMixin:
         config = self.fem_config()
         config.update(argument_multiindices=self.argument_multiindices,
                       index_cache=ctx["index_cache"])
-        evaluations = fem.dual_evaluate(expression, target_element, config)
-        dual_arg, _ = expression.argument_slots()
+        evaluations = fem.dual_evaluate(operand, dual_arg, target_element, config)
         if not isinstance(dual_arg, Cofunction):
             evaluation, quadrature_multiindex, basis_indices = evaluations[0]
             # A dual Argument indexes the return value, so the dual basis must
             # tabulate onto the indices the output tensor was built with.
-            output_indices = self.argument_multiindices[expression.arguments().index(dual_arg)]
+            output_indices = self.argument_multiindices[self.integral_data_info.arguments.index(dual_arg)]
             if tuple(i.extent for i in basis_indices) != tuple(i.extent for i in output_indices):
                 raise ValueError("Interpolation output index shape mismatch")
             evaluation, = gem.optimise.remove_componenttensors([evaluation], tuple(zip(basis_indices, output_indices)))
