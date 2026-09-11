@@ -201,6 +201,7 @@ class ExpressionKernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     def __init__(self, integral_data_info, scalar_type, diagonal=False):
         super().__init__(scalar_type=scalar_type)
         self.fem_scalar_type = scalar_type
+        self.needs_external_coords = False
         self.integral_data_info = integral_data_info
         self.coefficient_numbers = integral_data_info.coefficient_numbers
         self._domain_integral_type_map = integral_data_info.domain_integral_type_map
@@ -222,6 +223,10 @@ class ExpressionKernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.return_variable = gem.Variable("A", (numpy.prod(shape, dtype=int),))
         expression = gem.Indexed(gem.reshape(self.return_variable, shape), indices)
         self.return_variables = prune([expression])
+
+    def set_coordinates(self, domains):
+        super().set_coordinates(domains)
+        self.needs_external_coords = True
 
     def set_coefficients(self):
         """Prepare the coefficients of the expression."""

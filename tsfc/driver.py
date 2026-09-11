@@ -4,9 +4,8 @@ import sys
 
 import ufl
 from ufl.algorithms import extract_coefficients
-from ufl.algorithms.analysis import has_type
 from ufl.algorithms.apply_coefficient_split import build_coefficient_split
-from ufl.classes import Form, GeometricQuantity
+from ufl.classes import Form
 from ufl.domain import extract_unique_domain, extract_domains, join_domains
 
 import finat
@@ -106,13 +105,10 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
 
 def make_kernel_builder(interface, integral_data_info, constants, parameters,
-                        diagonal=False, needs_external_coords=True):
+                        diagonal=False):
     """Create a kernel builder holding every mesh quantity its integral may read."""
     builder = interface(integral_data_info, parameters["scalar_type"], diagonal=diagonal)
-    builder.needs_external_coords = needs_external_coords
     domains = tuple(integral_data_info.domain_integral_type_map)
-    if needs_external_coords:
-        builder.set_coordinates(domains)
     builder.set_cell_orientations(domains)
     builder.set_cell_sizes(domains)
     builder.set_coefficients()
@@ -171,6 +167,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         firedrake_interface_loopy.KernelBuilder, integral_data_info,
         form_data.constants, parameters, diagonal=diagonal,
     )
+    builder.set_coordinates(tuple(integral_data_info.domain_integral_type_map))
     ctx = builder.create_context()
     for integral in integral_data.integrals:
         params = parameters.copy()
@@ -239,8 +236,9 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     if not isinstance(expression, ufl.Interpolate):
         V = ufl.FunctionSpace(extract_unique_domain(expression) or domain, ufl_element)
         expression = ufl.Interpolate(expression, V)
-    domains = expression.ufl_domains()
     dual_arg, operand = expression.argument_slots()
+    arguments = expression.arguments()
+    domains = expression.ufl_domains()
     target_domains = join_domains([dual_arg.ufl_function_space().ufl_domain()])
     if len(target_domains) != 1:
         raise NotImplementedError("Interpolation onto multiple distinct meshes is not supported")
@@ -250,17 +248,14 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         ufl_element = ufl_utils.runtime_quadrature_element(source_domain, ufl_element)
 
     original_coefficients = extract_coefficients(expression)
-    expression = ufl_utils.preprocess_interpolate(
-        expression, ufl_element, source_domain, is_complex(parameters["scalar_type"])
-    )
     coefficients = extract_coefficients(expression)
     integral_data_info = TSFCIntegralDataInfo(
         domain=source_domain,
         integral_type="cell",
         subdomain_id=("everywhere",),
         domain_number=domains.index(target_domain),
-        domain_integral_type_map={domain: "cell" for domain in domains},
-        arguments=expression.arguments(),
+        domain_integral_type_map={mesh: "cell" for mesh in domains},
+        arguments=arguments,
         coefficients=coefficients,
         coefficient_split=build_coefficient_split(
             c for c in coefficients if type(c.ufl_element()) is finat.ufl.MixedElement
@@ -271,13 +266,9 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     if interface is None:
         interface = firedrake_interface_loopy.ExpressionKernelBuilder
 
-    elements = [f.ufl_element() for f in (*integral_data_info.coefficients,
-                                          *integral_data_info.arguments)]
-    needs_external_coords = bool(has_type(expression, GeometricQuantity)
-                                 or any(map(fem.needs_coordinate_mapping, elements)))
     builder = make_kernel_builder(
         interface, integral_data_info, extract_firedrake_constants(expression),
-        parameters, needs_external_coords=needs_external_coords,
+        parameters,
     )
     ctx = builder.create_context()
     reps = builder.compile_interpolate(expression, ufl_element, parameters, ctx)
@@ -285,16 +276,17 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     return builder.construct_kernel(name, ctx, log=parameters["add_petsc_events"])
 
 
-def compile_interpolate(expression, prefix="interpolate", parameters=None):
+def compile_interpolate(ufl_interpolate: ufl.Interpolate, prefix: str = "interpolate",
+                        parameters: dict | None = None) -> list:
     """Compile a UFL interpolation into an assembly kernel.
 
     Parameters
     ----------
-    expression : ufl.Interpolate
-        The interpolation to compile.
-    prefix : str
+    ufl_interpolate
+        The UFL interpolation to compile.
+    prefix
         Kernel name will start with this string.
-    parameters : dict
+    parameters
         Parameters object.
 
     Returns
@@ -304,7 +296,7 @@ def compile_interpolate(expression, prefix="interpolate", parameters=None):
 
     """
     kernel = compile_expression_dual_evaluation(
-        expression, expression.ufl_element(),
+        ufl_interpolate, ufl_interpolate.ufl_element(),
         interface=firedrake_interface_loopy.KernelBuilder,
         parameters=parameters, name=f"{prefix}_cell_integral",
     )

@@ -77,18 +77,21 @@ def runtime_quadrature_element(domain, ufl_element, rt_var_name=RUNTIME_VARIABLE
     return rt_element
 
 
-def preprocess_interpolate(expression, element, domain, complex_mode=False):
+def preprocess_interpolate(ufl_interpolate: ufl.Interpolate,
+                           element: ufl.AbstractFiniteElement,
+                           domain: ufl.AbstractDomain,
+                           complex_mode: bool = False) -> ufl.Interpolate:
     """Prepare a standalone interpolation for TSFC.
 
     Parameters
     ----------
-    expression : ufl.Interpolate
+    ufl_interpolate
         The interpolation to preprocess.
-    element : finat.ufl.finiteelement.FiniteElement
+    element
         The UFL element of the interpolation target.
-    domain : ufl.AbstractDomain
+    domain
         The domain the operand is evaluated on.
-    complex_mode : bool
+    complex_mode
         Is the scalar type complex?
 
     Returns
@@ -102,7 +105,7 @@ def preprocess_interpolate(expression, element, domain, complex_mode=False):
     gets the scalar preprocessing here.  Interpolations inside a form are lowered
     by `ufl.algorithms.apply_interpolate_pullbacks`.
     """
-    dual_arg, operand = expression.argument_slots()
+    dual_arg, operand = ufl_interpolate.argument_slots()
     operand = apply_inverse_pullback(operand, element, domain)
     operand = preprocess_expression(operand, complex_mode=complex_mode)
     operand = simplify_abs(operand, complex_mode)
