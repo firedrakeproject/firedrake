@@ -24,7 +24,6 @@ from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
 from gem.unconcatenate import unconcatenate
 from numpy import asarray
-from tsfc import fem
 from tsfc.parameters import is_complex
 from tsfc.ufl_utils import preprocess_interpolate
 from finat.element_factory import as_fiat_cell, create_element
@@ -180,6 +179,8 @@ class KernelBuilderMixin:
         )
         dual_arg, operand = preprocessed_interpolate.argument_slots()
         operand = CoefficientSplitter(self.coefficient_split)(operand)
+        from tsfc import fem
+
         elements = [f.ufl_element() for f in (*self.integral_data_info.coefficients,
                                               *self.integral_data_info.arguments)]
         needs_external_coords = bool(
@@ -249,6 +250,8 @@ class KernelBuilderMixin:
         config['argument_multiindices'] = self.argument_multiindices
         config['quadrature_rule'] = quad_rule
         config['index_cache'] = ctx['index_cache']
+        from tsfc import fem
+
         expressions = fem.compile_ufl(integrand,
                                       fem.PointSetContext(**config))
         ctx['quadrature_indices'].extend(quad_rule.point_set.indices)
@@ -419,6 +422,8 @@ class KernelBuilderMixin:
 def set_quad_rule(params, cell, integral_type, functions):
     # Check if the integral has a quad degree or quad element attached,
     # otherwise use the estimated polynomial degree attached by compute_form_data
+    from tsfc import fem
+
     quad_rule = params.get("quadrature_rule", "default")
     elements = []
     for f in functions:

@@ -10,7 +10,7 @@ from ufl.domain import extract_unique_domain, extract_domains, join_domains
 
 import finat
 
-from tsfc import fem, ufl_utils
+from tsfc import ufl_utils
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters, is_complex
 from tsfc.ufl_utils import extract_firedrake_constants
