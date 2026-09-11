@@ -928,52 +928,78 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
 
-class MatBufferSpec(abc.ABC):
-    pass
+class PetscMatInitBufferSpec(pyop3.obj.Object):
+    """Abstract class for a 'partial' specification of how to build a PETSc Mat.
+
+    This class differs from the 'full' `PetscMatBufferSpec` class where information
+    like the sizes and lgmaps have been determined from the axis trees.
+
+    """
 
 
-class PetscMatBufferSpec(MatBufferSpec, metaclass=abc.ABCMeta):
-    pass
-
-
-@dataclasses.dataclass(frozen=True)
-class NonNestedPetscMatBufferSpec(PetscMatBufferSpec):
+@pyop3.record.frozenrecord()
+class MonolithicPetscMatInitBufferSpec(PetscMatInitBufferSpec):
     mat_type: str
     block_shape: tuple[tuple[int, ...], tuple[int, ...]] = ((), ())
 
 
-@dataclasses.dataclass(frozen=True)
-class PetscMatNestBufferSpec(PetscMatBufferSpec):
+@pyop3.record.frozenrecord()
+class NestedPetscMatInitBufferSpec(PetscMatInitBufferSpec):
     submat_specs: np.ndarray
 
     mat_type: ClassVar[str] = "nest"
+
+
+class PetscMatBufferSpec(pyop3.obj.Object):
+    """A complete specification of how to build a PETSc Mat."""
 
 
 # TODO: Perhaps also need a nested type here too
 # TODO: This nested dependence suggests that this type belongs elsewhere?
 # I think this does need to have a weird dependency cycle because we inject this
 # into the matrix constructor logic, which belongs on the buffer.
-# @pyop3.record.frozenrecord()
-@pyop3.record.record()
-class FullPetscMatBufferSpec(pyop3.obj.Object):
+@pyop3.record.frozenrecord()
+class MonolithicPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
-    row_spec: PetscMatAxisSpec | AbstractAxisTree
-    column_spec: PetscMatAxisSpec | AbstractAxisTree
-    _comm: MPI.Comm
+    row_spec: PetscMatAxisSpec | AbstractAxisTree  # TODO: drop axis tree as valid type here
+    column_spec: PetscMatAxisSpec | AbstractAxisTree  # TODO: drop axis tree as valid type here
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (type(self), self.mat_type, visitor(self.row_spec), visitor(self.column_spec))
 
     @property
     def comm(self) -> MPI.Comm:
-        return self._comm
+        return pyop3.mpi.common_comm([self.row_spec.comm, self.column_spec.comm])
 
 
-@dataclasses.dataclass()
-class PetscMatAxisSpec:
+@pyop3.record.frozenrecord()
+class NestedPetscMatBufferSpec(PetscMatBufferSpec):
+    submat_specs: np.ndarray
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (type(self), tuple(map(visitor, self.submat_specs.ravel())), self.shape)
+
+    def __hash__(self) -> int:
+        return hash((type(self), tuple(self.submat_specs.ravel()), self.shape))
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.submat_specs.shape
+
+
+@pyop3.record.frozenrecord()
+class PetscMatAxisSpec(pyop3.obj.Object):
     size: int
     lgmap: PETSc.LGMap
     block_shape: tuple[int, ...] = ()
 
-    def __record_post_init(self) -> None:
-        assert isinstance(self.block_shape, tuple)
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # The size and lgmap attributes don't matter for this cache
+        return (type(self), self.block_shape)
+
+    def __hash__(self) -> int:
+        # Need a custom hash because lgmaps aren't hashable
+        return hash((type(self), self.size, id(self.lgmap), self.block_shape))
 
     @property
     def block_size(self) -> int:
@@ -995,7 +1021,7 @@ class PetscMatBuffer(ConcreteBuffer):
     # {{{ instance attrs
 
     _mat: tuple[PETSc.Mat, PETSc.InsertMode]
-    mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None
+    mat_spec: PetscMatBufferSpec | None
     _name: str
     _constant: bool
     _comm: MPI.Comm
@@ -1013,6 +1039,7 @@ class PetscMatBuffer(ConcreteBuffer):
             return (
                 type(self),
                 visitor.renamer.add_obj(self),
+                visitor(self.mat_spec),
                 self._constant,
             )
 
@@ -1024,7 +1051,7 @@ class PetscMatBuffer(ConcreteBuffer):
         mat: PETSc.Mat,
         *,
         comm: MPI.Comm,
-        mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec] | None = None,
+        mat_spec: pyop3.buffer.PetscMatBufferSpec = None,
         name: str | None = None,
         prefix: str | None = None,
         constant: bool = False,
@@ -1032,16 +1059,10 @@ class PetscMatBuffer(ConcreteBuffer):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._mat = (mat, PETSc.InsertMode.NOT_SET_VALUES)
-        self.mat_spec=mat_spec
+        self.mat_spec = mat_spec
         self._name=name
         self._constant=constant
         self._comm=comm
-
-    def __record_post_init(self) -> None:
-        # Set some attributes eagerly because sometimes PETSc Mats are unhelpfully
-        # destroyed too early and subsequently some non-data attributes end up crashing.
-        # The Right Thing is just to not destroy them - we have a GC after all.
-        self._mat_type = self.mat.type
 
     # }}}
 
@@ -1085,7 +1106,8 @@ class PetscMatBuffer(ConcreteBuffer):
     # {{{ factory methods
 
     @classmethod
-    def empty(cls, mat_spec: FullPetscMatBufferSpec | np.ndarray[FullPetscMatBufferSpec], *, comm, preallocator: bool = False, **kwargs):
+    def empty(cls, mat_spec: PetscMatBufferSpec, *, comm, preallocator: bool = False, **kwargs):
+        # can get comm from mat spec?
         mat = cls._make_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
         if preallocator:
             return cls(mat, mat_spec=mat_spec, comm=comm, **kwargs)
@@ -1095,24 +1117,23 @@ class PetscMatBuffer(ConcreteBuffer):
     @classmethod
     def _make_petsc_mat(
         cls,
-        mat_spec: FullPetscMatBufferSpec | np.ndarray,
+        mat_spec: PetscMatBufferSpec,
         *,
         comm,
         preallocator: bool = False,
     ):
-        if isinstance(mat_spec, np.ndarray):
+        if isinstance(mat_spec, NestedPetscMatBufferSpec):
             submats = np.empty(mat_spec.shape, dtype=object)
-            for (i, j), submat_spec in np.ndenumerate(mat_spec):
+            for (i, j), submat_spec in np.ndenumerate(mat_spec.submat_specs):
                 submat = cls._make_petsc_mat(submat_spec, comm=comm, preallocator=preallocator)
                 submats[i, j] = submat
-
             return PETSc.Mat().createNest(submats, comm=comm)
         else:
-            assert isinstance(mat_spec, FullPetscMatBufferSpec)
+            assert isinstance(mat_spec, MonolithicPetscMatBufferSpec)
             return cls._make_non_nested_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
 
     @classmethod
-    def _make_non_nested_petsc_mat(cls, mat_spec: FullPetscMatBufferSpec, *, comm, preallocator: bool):
+    def _make_non_nested_petsc_mat(cls, mat_spec: MonolithicPetscMatBufferSpec, *, comm, preallocator: bool):
         mat_type = mat_spec.mat_type
         row_spec = mat_spec.row_spec
         column_spec = mat_spec.column_spec
@@ -1144,7 +1165,13 @@ class PetscMatBuffer(ConcreteBuffer):
             # None is for the global size, PETSc will figure it out for us
             sizes = ((row_spec.size, None), (column_spec.size, None))
             mat.setSizes(sizes)
-            mat.setBlockSizes(row_spec.block_size, column_spec.block_size)
+
+            # It is important that the block size is the same in both directions
+            rbsize = row_spec.block_size
+            cbsize = column_spec.block_size
+            bsize = rbsize if rbsize == cbsize else 1
+            mat.setBlockSizes(bsize, bsize)
+
             mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
 
         mat.setUp()
@@ -1228,7 +1255,7 @@ class PetscMatBuffer(ConcreteBuffer):
 
     @property
     def mat_type(self) -> str:
-        return self._mat_type
+        return self.mat.type
 
     # TODO: Could also accept a vector here
     def set_diagonal(self, value: numbers.Number) -> None:
@@ -1264,7 +1291,6 @@ class PetscMatBuffer(ConcreteBuffer):
         else:
             if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
                 raise TypeError("Can only materialize preallocator mats")
-
             preallocator.preallocatorPreallocate(template)
 
 
@@ -1521,6 +1547,10 @@ class IndexedBuffer(pyop3.obj.Object):
         return (type(self), visitor(self.buffer), self.nest_indices)
 
     get_instruction_executor_cache_key = get_disk_cache_key
+
+    @property
+    def name(self):
+        return self.buffer.name
 
     @property
     def denested(self):

@@ -1341,7 +1341,7 @@ def TwoFormAssembler(form, *args, **kwargs):
     mat_type = kwargs.pop('mat_type', None)
     sub_mat_type = kwargs.pop('sub_mat_type', None)
     mat_spec = make_mat_spec(mat_type, sub_mat_type, form.arguments())
-    if isinstance(mat_spec, op3.NonNestedPetscMatBufferSpec) and mat_spec.mat_type == "matfree":
+    if isinstance(mat_spec, op3.MonolithicPetscMatInitBufferSpec) and mat_spec.mat_type == "matfree":
         # Arguably we should crash here, as we would be passing ignored arguments through
         kwargs.pop('needs_zeroing', None)
         kwargs.pop('weight', None)
@@ -1424,20 +1424,20 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                         sub_mat_type_ = sub_mat_type
 
                 subspace_key = []
-                if len(test_space) == 1:
-                    subspace_key.append(Ellipsis)
-                else:
+                if is_mixed(test_space):
                     subspace_key.append(test_space.field_axis.component_labels[i])
-                if len(trial_space) == 1:
-                    subspace_key.append(Ellipsis)
                 else:
+                    subspace_key.append(Ellipsis)
+                if is_mixed(trial_space):
                     subspace_key.append(trial_space.field_axis.component_labels[j])
+                else:
+                    subspace_key.append(Ellipsis)
                 subspace_key = tuple(subspace_key)
-                submat_specs[i, j] = (subspace_key, op3.NonNestedPetscMatBufferSpec(sub_mat_type_, block_shape))
-        mat_spec = op3.PetscMatNestBufferSpec(submat_specs)
+                submat_specs[i, j] = (subspace_key, op3.MonolithicPetscMatInitBufferSpec(sub_mat_type_, block_shape))
+        mat_spec = op3.NestedPetscMatInitBufferSpec(submat_specs)
     else:
         block_shape = (test_space.block_shape, trial_space.block_shape)
-        mat_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
+        mat_spec = op3.MonolithicPetscMatInitBufferSpec(mat_type, block_shape)
     return mat_spec
 
 
@@ -1642,38 +1642,43 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             elif space.topological != spaces[1].topological:
                 raise RuntimeError("bc space does not match the trial function space")
 
-            if mat.buffer.mat.type == "is":
-                if len(space) > 1:
-                    raise NotImplementedError("pyop3 todo")
-                if component:
-                    raise NotImplementedError("pyop3 todo")
-                # For MATIS we handle boundary conditions by masking out
-                # rows and columns after the fact because we can't change
-                # lgmaps on the fly.
-                mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
-                mat.buffer.mat.zeroRowsColumnsLocal(bc.nodes*space.block_size, self.weight)
+            # NOTE: This is only OK in parallel with mixed spaces because we
+            # apply the BC to local submat, where DoF interleaving is not
+            # applicable.
+            rows = bc._nodes
+            rows = numpy.asarray(rows, dtype=utils.IntType)
+            rbs = V.block_size
+            if rbs > 1:
+                if component is not None:
+                    rows = rbs * rows + component
+                else:
+                    rows = numpy.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+            rows = numpy.asarray(rows, dtype=utils.IntType)
+
+            # unpack MATNESTs
+            petscmat = mat.buffer.mat
+            row_index = V.index
+            if petscmat.type == PETSc.Mat.Type.NEST:
+                petscmat = petscmat.getNestSubMatrix(row_index or 0, row_index or 0)
+                row_index = None
+            myspace = space if row_index is None else space[row_index]
+
+            if petscmat.type == PETSc.Mat.Type.IS:
+                # We have to fully assemble (MAT_FINAL_ASSEMBLY not MAT_FLUSH_ASSEMBLY)
+                # a MATIS in order for the following routine to work.
+                mat.buffer.assemble()
+                with local_submat(petscmat, myspace, myspace) as submat:
+                    # For MATIS we handle boundary conditions by masking out
+                    # rows and columns after the fact because we can't change
+                    # lgmaps on the fly.
+                    submat.zeroRowsColumnsLocal(rows, self.weight)
+
             else:
-                # NOTE: This is only OK in parallel with mixed spaces because we
-                # apply the BC to local submat, where DoF interleaving is not
-                # applicable.
-                rows = bc._nodes
-                rows = numpy.asarray(rows, dtype=utils.IntType)
-                rbs = V.block_size
-                if rbs > 1:
-                    if component is not None:
-                        rows = rbs * rows + component
-                    else:
-                        rows = numpy.dstack([rbs*rows + i for i in range(rbs)]).flatten()
-
-                rows = numpy.asarray(rows, dtype=utils.IntType)
-
                 # reshape needed for some reason
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
-
                 mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
-                myspace = space if V.index is None else space[V.index]
-                with local_submat(mat.buffer.mat, myspace, myspace) as submat:
+                with local_submat(petscmat, myspace, myspace) as submat:
                     submat.setValuesLocalRCV(
                         rows, rows, values, addv=PETSc.InsertMode.INSERT_VALUES
                     )

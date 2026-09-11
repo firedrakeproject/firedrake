@@ -15,13 +15,10 @@ def run_base_box_3d():
     # assembly.  We keep this line to have that case tested.
     assert np.allclose(3.5, assemble(f*dx))
 
-    x = m.coordinates
+    x = mesh.coordinates
     sd = SubDomainData(And(And(0.2 <= real(x[0]), real(x[0]) <= 0.5),
                            And(0.3 <= real(x[1]), real(x[1]) <= 0.7)))
 
-    # TEMPORARY HACK:
-    # Retarget base subdomain into columns of the extruded mesh.
-    sd = op2.Subset(mesh.cell_set, sd.indices)
     assert np.allclose(0.402, assemble(f*dx(subdomain_data=sd)))
 
 

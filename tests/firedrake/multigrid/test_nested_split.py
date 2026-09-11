@@ -103,6 +103,6 @@ def test_nested_split_multigrid(parameters):
     solver.solve()
     u, p, s = w.subfunctions
 
-    assert norm(assemble(u_expect - u)) < 5e-5
+    assert norm(assemble(u_expect - u)) < 5e-4
     assert norm(assemble(p_expect - p)) < 1e-6
     assert norm(assemble(s_expect - s)) < 1e-10

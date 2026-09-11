@@ -45,18 +45,22 @@ __all__ += [
 from pyop3.buffer import (
     ArrayBuffer,
     DensePythonMatContext,
-    NonNestedPetscMatBufferSpec,
+    MonolithicPetscMatBufferSpec,
+    MonolithicPetscMatInitBufferSpec,
+    NestedPetscMatBufferSpec,
+    NestedPetscMatInitBufferSpec,
     NullBuffer,
     PetscMatBuffer,
-    PetscMatNestBufferSpec,
 )
 __all__ += [
     "ArrayBuffer",
     "DensePythonMatContext",
-    "NonNestedPetscMatBufferSpec",
+    "MonolithicPetscMatBufferSpec",
+    "MonolithicPetscMatInitBufferSpec",
+    "NestedPetscMatBufferSpec",
+    "NestedPetscMatInitBufferSpec",
     "NullBuffer",
     "PetscMatBuffer",
-    "PetscMatNestBufferSpec",
 ]
 from pyop3.constants import (
     DECIDE,

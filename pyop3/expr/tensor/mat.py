@@ -11,6 +11,7 @@ from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.buffer
 import pyop3.dtypes
 import pyop3.index_tree
 import pyop3.record
@@ -21,17 +22,6 @@ from pyop3.axis_tree import (
     AxisTree,
     as_axis_tree,
     as_axis_tree_type,
-)
-from pyop3.buffer import (
-    AbstractBuffer,
-    FullPetscMatBufferSpec,
-    MatBufferSpec,
-    NonNestedPetscMatBufferSpec,
-    NullBuffer,
-    PetscMatAxisSpec,
-    PetscMatBuffer,
-    PetscMatBufferSpec,
-    PetscMatNestBufferSpec,
 )
 from pyop3.cache import cached_method
 from pyop3.dtypes import ScalarType
@@ -49,7 +39,7 @@ class Mat(Tensor):
 
     row_axes: AxisTreeT
     column_axes: AxisTreeT
-    buffer: AbstractBuffer
+    buffer: pyop3.buffer.AbstractBuffer
     name: str
     _transform: TensorTransform | None
 
@@ -70,13 +60,13 @@ class Mat(Tensor):
         self,
         row_axes,
         column_axes,
-        buffer: AbstractBuffer,
+        buffer: pyop3.buffer.AbstractBuffer,
         *,
         name=None,
         prefix=None,
         transform=None,
     ) -> None:
-        if not isinstance(buffer, AbstractBuffer):
+        if not isinstance(buffer, pyop3.buffer.AbstractBuffer):
             raise TypeError(f"Provided buffer has the wrong type ({type(buffer).__name__})")
 
         row_axes = as_axis_tree_type(row_axes)
@@ -102,7 +92,7 @@ class Mat(Tensor):
     # {{{ class attrs
 
     DEFAULT_PREFIX: ClassVar[str] = "mat"
-    DEFAULT_MAT_BUFFER_SPEC: ClassVar[MatBufferSpec] = NonNestedPetscMatBufferSpec(PETSc.Mat.Type.AIJ)
+    DEFAULT_MAT_INIT_BUFFER_SPEC: ClassVar[pyop3.buffer.PetscMatInitBufferSpec] = pyop3.buffer.MonolithicPetscMatInitBufferSpec(PETSc.Mat.Type.AIJ)
 
     # }}}
 
@@ -135,17 +125,17 @@ class Mat(Tensor):
         row_axes,
         column_axes,
         *,
-        buffer_spec: MatBufferSpec | None = None,
+        buffer_spec: pyop3.buffer.PetscMatInitBufferSpec | None = None,
         preallocator: bool = False,
         buffer_kwargs: KwargsT = idict(),
         **kwargs,
     ) -> Mat:
         if buffer_spec is None:
-            buffer_spec = cls.DEFAULT_MAT_BUFFER_SPEC
+            buffer_spec = cls.DEFAULT_MAT_BUFFER_INIT_SPEC
 
         comm = pyop3.mpi.common_comm([row_axes.comm, column_axes.comm])
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
-        buffer = PetscMatBuffer.empty(full_spec, preallocator=preallocator, comm=comm, **buffer_kwargs)
+        buffer = pyop3.buffer.PetscMatBuffer.empty(full_spec, preallocator=preallocator, comm=comm, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     @classmethod
@@ -153,10 +143,10 @@ class Mat(Tensor):
         return cls.empty(row_axes, column_axes, preallocator=True, **kwargs)
 
     @classmethod
-    def null(cls, row_axes, column_axes, dtype=AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: KwargsT = idict(), **kwargs) -> Mat:
+    def null(cls, row_axes, column_axes, dtype=pyop3.buffer.AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: KwargsT = idict(), **kwargs) -> Mat:
         row_axes = as_axis_tree(row_axes)
         column_axes = as_axis_tree(column_axes)
-        buffer = NullBuffer(
+        buffer = pyop3.buffer.NullBuffer(
             (row_axes.unindexed.local_max_size, column_axes.unindexed.local_max_size),
             dtype=dtype,
             **buffer_kwargs,
@@ -292,7 +282,7 @@ class Mat(Tensor):
 
         self.assemble()
 
-        if isinstance(self.buffer, PetscMatBuffer):
+        if isinstance(self.buffer, pyop3.buffer.PetscMatBuffer):
             mat = self.buffer.mat
             row_axes = self.row_axes
             column_axes = self.column_axes
@@ -355,10 +345,10 @@ class Mat(Tensor):
             return indices
 
 
-def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
+def make_full_mat_buffer_spec(partial_spec: pyop3.buffer.PetscMatInitBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
     import pyop3.visitors
 
-    if isinstance(partial_spec, NonNestedPetscMatBufferSpec):
+    if isinstance(partial_spec, pyop3.buffer.MonolithicPetscMatInitBufferSpec):
         comm = pyop3.visitors.common_comm([row_axes, column_axes])
 
         if partial_spec.mat_type in {"rvec", "cvec"}:
@@ -384,11 +374,11 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
             row_lgmap = PETSc.LGMap().create(blocked_row_axes.global_numbering.data_ro_with_halos.copy(), bsize=row_block_size, comm=comm)
             column_lgmap = PETSc.LGMap().create(blocked_column_axes.global_numbering.data_ro_with_halos.copy(), bsize=column_block_size, comm=comm)
 
-            row_spec = PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
-            column_spec = PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
-        full_spec = FullPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec, comm)
+            row_spec = pyop3.buffer.PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
+            column_spec = pyop3.buffer.PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
+        full_spec = pyop3.buffer.MonolithicPetscMatBufferSpec(partial_spec.mat_type, row_spec, column_spec)
     else:  # MATNEST
-        assert isinstance(partial_spec, PetscMatNestBufferSpec)
+        assert isinstance(partial_spec, pyop3.buffer.NestedPetscMatInitBufferSpec)
         full_spec = np.empty_like(partial_spec.submat_specs)
         for i, (index_key, sub_partial_spec) in np.ndenumerate(partial_spec.submat_specs):
             row_index, column_index = index_key
@@ -404,6 +394,7 @@ def make_full_mat_buffer_spec(partial_spec: PetscMatBufferSpec, row_axes: Abstra
 
             sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes)
             full_spec[i] = sub_spec
+        full_spec = pyop3.buffer.NestedPetscMatBufferSpec(full_spec)
 
     return full_spec
 

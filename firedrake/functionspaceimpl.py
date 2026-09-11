@@ -161,8 +161,6 @@ def entity_permutations_key(entity_permutations):
     return key
 
 
-
-
 def _mesh_cached(func):
     return cached_on(lambda self: extract_mesh_topologies(self.mesh()), multi=True)(func)
 

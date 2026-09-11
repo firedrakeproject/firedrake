@@ -772,7 +772,7 @@ class SameMeshInterpolator(Interpolator):
             raise NotImplementedError("Interpolation matrix with MixedFunctionSpace requires MixedInterpolator")
         # Pretend that we are assembling the operator to populate the sparsity.
         block_shape = (Vrow.block_shape, Vcol.block_shape)
-        buffer_spec = op3.NonNestedPetscMatBufferSpec(mat_type, block_shape)
+        buffer_spec = op3.MonolithicPetscMatBufferInitSpec(mat_type, block_shape)
         sparsity = op3.Mat.sparsity(Vrow.axes, Vcol.axes, buffer_spec=buffer_spec)
         loop_index = self.target_mesh.iter("cell")
         op3.loop(
