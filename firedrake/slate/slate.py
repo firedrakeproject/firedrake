@@ -14,8 +14,10 @@ All Slate expressions are handled by a specialized linear algebra
 compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
-from abc import ABCMeta, abstractproperty, abstractmethod
+from abc import abstractproperty, abstractmethod
 import functools
+import numbers
+import operator
 from collections import OrderedDict, namedtuple, defaultdict
 
 from ufl import Constant
@@ -32,10 +34,12 @@ from itertools import chain, count
 from pyop2.utils import as_tuple
 
 from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms.replace import replace
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
+from ufl.constantvalue import ScalarValue
 from ufl.domain import join_domains, sort_domains
-from ufl.form import BaseForm, Form, ZeroBaseForm
+from ufl.form import BaseForm, Form, FormSum, ZeroBaseForm
 import hashlib
 
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -43,7 +47,7 @@ from tsfc.ufl_utils import extract_firedrake_constants
 
 __all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
-           'Add', 'Mul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
+           'Add', 'Mul', 'ScalarMul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
            'Reciprocal']
 
 # BlockFunction description type
@@ -107,18 +111,7 @@ class BlockIndexer(object):
         return block
 
 
-class MockCellIntegral(object):
-    def integral_type(self):
-        return "cell"
-
-    def __iter__(self):
-        yield self
-
-    def __call__(self):
-        return self
-
-
-class TensorBase(object, metaclass=ABCMeta):
+class TensorBase(BaseForm):
     """An abstract Slate node class.
 
     .. warning::
@@ -127,10 +120,6 @@ class TensorBase(object, metaclass=ABCMeta):
        node class; is not meant to be worked with directly. Only use
        the appropriate subclasses.
     """
-
-    integrals = MockCellIntegral()
-    """A mock object that provides enough compatibility with ufl.Form
-    that one can assemble a tensor."""
 
     terminal = False
     assembled = False
@@ -143,6 +132,8 @@ class TensorBase(object, metaclass=ABCMeta):
 
         Mirrors :class:`~ufl.form.Form`.
         """
+        BaseForm.__init__(self)
+        self._hash = None
         self._cache = {}
 
     @cached_property
@@ -156,6 +147,15 @@ class TensorBase(object, metaclass=ABCMeta):
     @property
     def children(self):
         return self.operands
+
+    @property
+    def ufl_operands(self):
+        return self.operands
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        if len(operands) == 0:
+            return self
+        return self.reconstruct(*operands)
 
     @cached_property
     def expression_hash(self):
@@ -172,6 +172,8 @@ class TensorBase(object, metaclass=ABCMeta):
                 data = (type(op).__name__, op.decomposition, )
             elif isinstance(op, Tensor):
                 data = (op.form.signature(), op.diagonal, )
+            elif isinstance(op, ScalarMul):
+                data = (type(op).__name__, op.scalar, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
@@ -372,6 +374,8 @@ class TensorBase(object, metaclass=ABCMeta):
             return NotImplemented
 
     def __mul__(self, other):
+        if isinstance(other, (numbers.Number, ScalarValue)):
+            return ScalarMul(other, self)
         try:
             other = as_slate(other)
             return Mul(self, other)
@@ -379,6 +383,8 @@ class TensorBase(object, metaclass=ABCMeta):
             return NotImplemented
 
     def __rmul__(self, other):
+        if isinstance(other, (numbers.Number, ScalarValue)):
+            return ScalarMul(other, self)
         # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
@@ -440,10 +446,6 @@ class AssembledVector(TensorBase):
     :arg function: A firedrake function.
     """
 
-    @property
-    def integrals(self):
-        raise ValueError("AssembledVector has no integrals")
-
     operands = ()
     terminal = True
     assembled = True
@@ -458,6 +460,12 @@ class AssembledVector(TensorBase):
         else:
             raise TypeError("Expecting a BaseCoefficient or AssembledVector (not a %r)" %
                             type(function))
+
+    def reconstruct(self, form):
+        """Reconstructs this TensorBase with new operands."""
+        if form == 0:
+            form = Tensor(ZeroBaseForm(self.arg_function_spaces))
+        return as_slate(form)
 
     @cached_property
     def form(self):
@@ -482,7 +490,11 @@ class AssembledVector(TensorBase):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return (self._argument,)
+        tensor = self._function
+        if isinstance(tensor, BaseForm):
+            return tensor.arguments()
+        else:
+            return (self._argument,)
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -649,29 +661,93 @@ class Block(TensorBase):
     spanning the specified test/trial spaces.
     """
 
+    _initialised = False
+
     def __new__(cls, tensor, indices):
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only extract blocks of Slate tensors.")
+
+        indices = tuple(map(as_tuple, indices))
 
         if len(indices) != tensor.rank:
             raise ValueError("Length of indices must be equal to the tensor rank.")
 
         if not all(0 <= i < len(arg.function_space())
-                   for arg, idx in zip(tensor.arguments(), indices) for i in as_tuple(idx)):
+                   for arg, idx in zip(tensor.arguments(), indices) for i in idx):
             raise ValueError("Indices out of range.")
 
         if not tensor.is_mixed:
             return tensor
 
+        if isinstance(tensor, Block):
+            wrapped, = tensor.operands
+            composed = tuple(tuple(own[i] for i in req)
+                             for req, own in zip(indices, tensor._indices))
+            return Block(wrapped, composed)
+
+        if not tensor.terminal:
+            if isinstance(tensor, Add):
+                A, B = tensor.operands
+                return Block(A, indices) + Block(B, indices)
+            if isinstance(tensor, Negative):
+                A, = tensor.operands
+                return -Block(A, indices)
+            if isinstance(tensor, Transpose):
+                A, = tensor.operands
+                return Block(A, indices[::-1]).T
+            if isinstance(tensor, ScalarMul):
+                A, = tensor.operands
+                return ScalarMul(tensor.scalar, Block(A, indices))
+            if isinstance(tensor, Mul) and len(indices) == 2 and tensor.operands[0].rank == 2 and tensor.operands[1].rank == 2:
+                A, B = tensor.operands
+                row, col = indices
+                full_col_A = tuple(range(len(A.arguments()[1].function_space())))
+                full_row_B = tuple(range(len(B.arguments()[0].function_space())))
+                return Block(A, (row, full_col_A)) * Block(B, (full_row_B, col))
+
         return super().__new__(cls)
 
     def __init__(self, tensor, indices):
         """Constructor for the Block class."""
+        if self._initialised:
+            # __new__ may have returned an already-initialised Block.
+            return
         super(Block, self).__init__()
-        self.operands = (tensor,)
         indices = tuple(map(as_tuple, indices))
+        self.operands = (tensor,)
         self._blocks = dict(enumerate(indices))
         self._indices = indices
+        self._initialised = True
+
+    def reconstruct(self, *, tensor=None, indices=None):
+        """Reconstruct this block with a replacement tensor or indices."""
+        tensor = self.operands[0] if tensor is None else tensor
+        indices = self._indices if indices is None else indices
+        return Block(tensor, indices=indices)
+
+    @cached_property
+    def _has_ufl_form(self):
+        """Whether `.form` is a genuine UFL Form on which UFL DAG
+        algorithms (such as `ufl.replace`) can operate directly."""
+        tensor, = self.operands
+        return tensor.terminal and not tensor.assembled
+
+    @property
+    def ufl_operands(self):
+        if self._has_ufl_form:
+            form = self.form
+            return form.arguments() + form.coefficients()
+        return self.operands
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        if self._has_ufl_form:
+            mapping = {old: new for old, new in zip(self.ufl_operands, operands) if old is not new}
+            if not mapping:
+                return self
+            return as_slate(replace(self.form, mapping))
+        if len(operands) == 0:
+            return self
+        return self.reconstruct(*operands)
 
     @cached_property
     def terminal(self):
@@ -698,6 +774,8 @@ class Block(TensorBase):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
+        if self._has_ufl_form:
+            return self.form.arguments()
         return self._split_arguments
 
     @cached_property
@@ -706,7 +784,7 @@ class Block(TensorBase):
         assert tensor.terminal
         if not tensor.assembled:
             # turns a Block on a Tensor into an indexed ufl form
-            return ExtractSubBlock().split(tensor.form, self._indices)
+            return tensor.block(self._indices)
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
@@ -799,6 +877,10 @@ class Factorization(TensorBase):
 
         self.operands = (tensor,)
         self.decomposition = decomposition
+
+    def reconstruct(self, tensor, decomposition=None):
+        """Reconstructs this TensorBase with new operands."""
+        return Factorization(tensor, decomposition=decomposition or self.decomposition)
 
     @cached_property
     def arg_function_spaces(self):
@@ -907,6 +989,41 @@ class Tensor(TensorBase):
         self.form = form
         self.diagonal = diagonal
 
+    def reconstruct(self, form, diagonal=None):
+        """Reconstructs this TensorBase with new operands."""
+        return Tensor(form, diagonal=diagonal or self.diagonal)
+
+    @cached_property
+    def _block_cache(self):
+        """Cache of `ExtractSubBlock`-split forms, keyed by the requested
+        argument indices. Shared by every `Block` wrapping this Tensor, so
+        that independently-constructed `Block`s selecting the same indices
+        (e.g. via `Block.__new__`'s pushdown through `Mul`/`Add`, or via
+        repeated reconstruction across MG coarsening levels) always resolve
+        to the identical split Form/Arguments, rather than each minting its
+        own via a fresh `ExtractSubBlock().split()`/`.collapse()` call."""
+        return {}
+
+    def block(self, indices):
+        """Returns the `ExtractSubBlock`-split form for `indices`, memoized
+        on this Tensor so repeated requests for the same indices are
+        identical, not merely equal."""
+        cache = self._block_cache
+        try:
+            return cache[indices]
+        except KeyError:
+            return cache.setdefault(indices, ExtractSubBlock().split(self.form, indices))
+
+    @property
+    def ufl_operands(self):
+        return self.form.arguments() + self.form.coefficients()
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        mapping = {old: new for old, new in zip(self.ufl_operands, operands) if old is not new}
+        if not mapping:
+            return self
+        return self.reconstruct(replace(self.form, mapping))
+
     @cached_property
     def arg_function_spaces(self):
         """Returns a tuple of function spaces that the tensor
@@ -942,6 +1059,8 @@ class Tensor(TensorBase):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
+        if isinstance(self.form, ZeroBaseForm):
+            return {domain: {} for domain in self.form.ufl_domains()}
         return self.form.subdomain_data()
 
     def empty(self):
@@ -970,10 +1089,21 @@ class TensorOp(TensorBase):
         objects.
     """
 
+    _initialised = False
+
     def __init__(self, *operands):
         """Constructor for the TensorOp class."""
+        if self._initialised:
+            # __new__ can shortcut and return an existing operand of this
+            # same type (e.g. Add(A, B) returning B when A == 0); Python then
+            # re-invokes __init__ on that pre-existing, already-initialised
+            # object with the original arguments. Skip re-running the
+            # constructor so we don't corrupt it (e.g. into referencing
+            # itself).
+            return
         super(TensorOp, self).__init__()
         self.operands = tuple(operands)
+        self._initialised = True
 
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""
@@ -1034,6 +1164,11 @@ class UnaryOp(TensorOp):
         example, another instance of a `UnaryOp` object is an acceptable
         input, or a `BinaryOp` object.
     """
+
+    def reconstruct(self, A=None):
+        """Reconstruct this unary operation with a replacement operand."""
+        A = self.operands[0] if A is None else A
+        return type(self)(A)
 
     def __repr__(self):
         """Slate representation of the resulting tensor."""
@@ -1145,41 +1280,6 @@ class Transpose(UnaryOp):
         return "(%s).T" % tensor
 
 
-class Negative(UnaryOp):
-    """Abstract Slate class representing the negation of a tensor object."""
-    def __new__(cls, A):
-        if A == 0:
-            return A
-        return BinaryOp.__new__(cls)
-
-    @cached_property
-    def arg_function_spaces(self):
-        """Returns a tuple of function spaces that the tensor
-        is defined on.
-        """
-        tensor, = self.operands
-        return tensor.arg_function_spaces
-
-    def arguments(self):
-        """Returns the expected arguments of the resulting tensor of
-        performing a specific unary operation on a tensor.
-        """
-        tensor, = self.operands
-        return tensor.arguments()
-
-    def _output_string(self, prec=None):
-        """String representation of a resulting tensor after a unary
-        operation is performed.
-        """
-        if prec is None or self.prec >= prec:
-            par = lambda x: x
-        else:
-            par = lambda x: "(%s)" % x
-
-        tensor, = self.operands
-        return par("-%s" % tensor._output_string(prec=self.prec))
-
-
 class BinaryOp(TensorOp):
     """An abstract Slate class representing binary operations on tensors.
     Such operations take two operands and returns a tensor-valued expression.
@@ -1191,6 +1291,16 @@ class BinaryOp(TensorOp):
         input, or a `UnaryOp` object.
     :arg B: a :class:`~.firedrake.slate.TensorBase` object.
     """
+
+    def reconstruct(self, *, A=None, B=None):
+        """Reconstruct this binary operation with replacement operands."""
+        old_A, old_B = self.operands
+        A = old_A if A is None else A
+        B = old_B if B is None else B
+        return type(self)(A, B)
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        return self.reconstruct(A=operands[0], B=operands[1])
 
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
@@ -1214,6 +1324,124 @@ class BinaryOp(TensorOp):
         return "%s(%r, %r)" % (type(self).__name__, A, B)
 
 
+class ScalarMul(UnaryOp):
+    """Represent multiplication of a Slate tensor by a scalar.
+
+    Parameters
+    ----------
+    scalar : numbers.Number or ufl.constantvalue.ScalarValue
+        The scalar factor, which is not a Slate tensor.
+    tensor : TensorBase
+        The Slate tensor to scale.
+    """
+
+    def __new__(cls, scalar, tensor):
+        scalar = cls._scalar_value(scalar)
+        if not isinstance(tensor, TensorBase):
+            raise TypeError("Can only scale Slate tensors.")
+        if scalar == 0:
+            return Tensor(ZeroBaseForm(tensor.arguments()))
+        elif scalar == 1:
+            return tensor
+        elif scalar == -1 and cls is ScalarMul:
+            return Negative(tensor)
+        return UnaryOp.__new__(cls)
+
+    def __init__(self, scalar, tensor):
+        """Initialise the scalar multiplication node."""
+        if self._initialised:
+            return
+        scalar = self._scalar_value(scalar)
+        super(ScalarMul, self).__init__(tensor)
+        self.scalar = scalar
+
+    @staticmethod
+    def _scalar_value(scalar):
+        if isinstance(scalar, ScalarValue):
+            scalar = scalar.value()
+        if not isinstance(scalar, numbers.Number):
+            raise TypeError("The scalar factor must be numeric.")
+        return scalar
+
+    def reconstruct(self, A=None):
+        """Reconstruct this scalar multiplication with replacement operands."""
+        A = self.operands[0] if A is None else A
+        return ScalarMul(self.scalar, A)
+
+    @cached_property
+    def arg_function_spaces(self):
+        """Return the function spaces on which the tensor is defined."""
+        return self.operands[0].arg_function_spaces
+
+    def arguments(self):
+        """Return the arguments associated with the tensor."""
+        return self.operands[0].arguments()
+
+    def coefficients(self):
+        """Return the coefficients associated with the tensor."""
+        return self.operands[0].coefficients()
+
+    def constants(self):
+        """Return the constants associated with the tensor."""
+        return self.operands[0].constants()
+
+    def slate_coefficients(self):
+        """Return the Slate coefficients associated with the tensor."""
+        return self.operands[0].slate_coefficients()
+
+    @TensorBase._expand_mixed_meshes
+    def ufl_domains(self):
+        """Return the integration domains associated with the tensor."""
+        return self.operands[0].ufl_domains()
+
+    def subdomain_data(self):
+        """Return the subdomain data associated with the tensor."""
+        return self.operands[0].subdomain_data()
+
+    @cached_property
+    def _key(self):
+        """Return a key for hash and equality."""
+        return (type(self), self.scalar, self.operands)
+
+    def __repr__(self):
+        """Return the Slate representation of the scalar multiplication."""
+        tensor, = self.operands
+        return "%s(%r, %r)" % (type(self).__name__, self.scalar, tensor)
+
+    def _output_string(self, prec=None):
+        """Create a string representation of the scalar multiplication."""
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+        tensor, = self.operands
+        result = "%s * %s" % (self.scalar, tensor._output_string(prec=self.prec))
+        return par(result)
+
+
+class Negative(ScalarMul):
+    """Abstract Slate class representing the negation of a tensor object."""
+
+    def __new__(cls, tensor):
+        if tensor == 0:
+            return tensor
+        return UnaryOp.__new__(cls)
+
+    def __init__(self, tensor, _tensor=None):
+        """Initialise the negation node."""
+        super(Negative, self).__init__(-1, tensor if _tensor is None else _tensor)
+
+    def _output_string(self, prec=None):
+        """Create a string representation of the negation."""
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+
+        tensor, = self.operands
+        return par("-%s" % tensor._output_string(prec=self.prec))
+
+
 class Add(BinaryOp):
     """Abstract Slate class representing matrix-matrix, vector-vector
      or scalar-scalar addition.
@@ -1230,6 +1458,10 @@ class Add(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Add class."""
+        if self._initialised:
+            # See TensorOp.__init__: __new__ may have shortcut and returned
+            # a pre-existing, already-initialised operand (B or A) unchanged.
+            return
         if A.shape != B.shape:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
@@ -1275,6 +1507,8 @@ class Mul(BinaryOp):
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
+        if self._initialised:
+            return
         if A.shape[-1] != B.shape[0]:
             raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
@@ -1443,10 +1677,15 @@ def as_slate(F):
     """
     if isinstance(F, TensorBase):
         return F
-    elif isinstance(F, Form):
+    elif isinstance(F, (Form, ZeroBaseForm)):
         return Tensor(F)
     elif isinstance(F, (Function, Cofunction)):
         return AssembledVector(F)
+    elif isinstance(F, FormSum):
+        return functools.reduce(
+            operator.add,
+            (w * as_slate(c)
+             for c, w in zip(F.components(), F.weights())))
     else:
         raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
 

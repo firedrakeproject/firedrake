@@ -1,6 +1,8 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.slate.slate import Negative, ScalarMul, UnaryOp, as_slate
+from ufl.form import FormSum
 import math
 
 
@@ -316,16 +318,37 @@ def test_implicit_casting_add_sub():
     r = Tensor(f)
     assert b + f == b + r
     assert b - f == b - r
-    assert f + b == r + b
-    assert f - b == r - b
+    # A TensorBase is a BaseForm, so UFL claims the reflected operator and
+    # returns a FormSum; as_slate recovers the equivalent Slate expression.
+    assert as_slate(f + b) == r + b
+    assert as_slate(f - b) == r - b
 
     # combine slate Tensor and Cofunction
     c = Cofunction(V.dual())
     s = AssembledVector(c)
     assert b + c == b + s
     assert b - c == b - s
-    assert c + b == s + b
-    assert c - b == s - b
+    assert as_slate(c + b) == s + b
+    assert as_slate(c - b) == s - b
+
+
+def test_scalar_multiplication():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    b = Tensor(v * dx)
+
+    assert isinstance(ScalarMul(0, b), Tensor)
+    assert ScalarMul(1, b) is b
+    assert ScalarMul(-1, b) == -b
+    assert isinstance(ScalarMul(2, b), UnaryOp)
+    assert isinstance(-b, Negative)
+    assert issubclass(Negative, ScalarMul)
+    assert 2 * b == ScalarMul(2, b)
+    assert b * 0.5 == ScalarMul(0.5, b)
+
+    weighted = FormSum((b, 2), (b, 1))
+    assert as_slate(weighted) == ScalarMul(2, b) + b
 
 
 def test_implicit_casting_action():
