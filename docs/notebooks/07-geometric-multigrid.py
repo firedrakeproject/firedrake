@@ -29,7 +29,12 @@ import matplotlib.pyplot as plt
 # %%
 from firedrake import *
 
-coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
+# Setup for faster test execution.
+import os
+if os.getenv("FIREDRAKE_CI") == "1":
+    coarse_mesh = RectangleMesh(5, 4, 1.5, 1)
+else:
+    coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
 
 # %% [markdown]
 # Having made the coarse mesh, we create the hierarchy of meshes.  The second argument tells Firedrake how many levels of refinement to use.  Here we refine three times, so that in total we have four meshes.
@@ -116,7 +121,10 @@ finest_mesh = hierarchy[-1]
 
 # %%
 def create_solver(parameters=None):
-    coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
+    if os.getenv("FIREDRAKE_CI") == "1":
+        coarse_mesh = RectangleMesh(5, 4, 1.5, 1)
+    else:
+        coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
     hierarchy = MeshHierarchy(coarse_mesh, 3)
     
     mesh = hierarchy[-1]
@@ -277,7 +285,10 @@ solver.solve()
 
 # %%
 def create_solver(parameters=None):
-    coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
+    if os.getenv("FIREDRAKE_CI") == "1":
+        coarse_mesh = RectangleMesh(5, 4, 1.5, 1)
+    else:
+        coarse_mesh = RectangleMesh(15, 10, 1.5, 1)
     hierarchy = MeshHierarchy(coarse_mesh, 3)
     
     mesh = hierarchy[-1]

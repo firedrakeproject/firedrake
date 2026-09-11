@@ -173,6 +173,12 @@ solving it ::
 
     print("Naive preconditioning")
     for n in range(8):
+
+        # Setup for faster test execution.
+        import os
+        if os.getenv("FIREDRAKE_CI") == "1" and n == 3:
+            break
+
         solver, w = build_problem(n, parameters, block_matrix=False)
         solver.solve()
 
@@ -280,6 +286,10 @@ applying the action of blocks, so we can use a block matrix format. ::
 
     print("Exact full Schur complement")
     for n in range(8):
+
+        if os.getenv("FIREDRAKE_CI") == "1" and n == 3:
+            break
+
         solver, w = build_problem(n, parameters, block_matrix=True)
         solver.solve()
         print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
@@ -365,6 +375,10 @@ Let's see what happens. ::
 
     print("Schur complement with S_p")
     for n in range(8):
+
+        if os.getenv("FIREDRAKE_CI") == "1" and n == 3:
+            break
+
         solver, w = build_problem(n, parameters, block_matrix=True)
         solver.solve()
         print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
@@ -420,6 +434,10 @@ and so we no longer need a flexible Krylov method. ::
 
     print("Schur complement with S_p and inexact inner inverses")
     for n in range(8):
+
+        if os.getenv("FIREDRAKE_CI") == "1" and n == 3:
+            break
+
         solver, w = build_problem(n, parameters, block_matrix=True)
         solver.solve()
         print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
@@ -485,6 +503,10 @@ variable. We can provide it as an :class:`~.AuxiliaryOperatorPC` via a python pr
 
     print("DG approximation for S_p")
     for n in range(8):
+
+        if os.getenv("FIREDRAKE_CI") == "1" and n == 3:
+            break
+
         solver, w = build_problem(n, parameters, aP=None, block_matrix=False)
         solver.solve()
         print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())
@@ -569,6 +591,10 @@ Let's see what the iteration count looks like now. ::
 
     print("Riesz-map preconditioner")
     for n in range(8):
+
+        if os.getenv("FIREDRAKE_CI") == "1" and n == 3:
+            break
+
         solver, w = build_problem(n, parameters, aP=riesz, block_matrix=True)
         solver.solve()
         print(w.function_space().mesh().unique().num_cells(), solver.snes.ksp.getIterationNumber())

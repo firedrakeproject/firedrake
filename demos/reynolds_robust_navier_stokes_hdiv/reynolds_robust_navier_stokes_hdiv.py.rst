@@ -199,9 +199,16 @@ which is necessary for vertex-star relaxation in parallel. ::
   print = PETSc.Sys.Print
 
   distribution_parameters = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-  num_refinements = 2
-  base = UnitSquareMesh(16, 16, distribution_parameters=distribution_parameters)
-  mh = MeshHierarchy(base, num_refinements)
+
+  # Setup for faster test execution.
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+      base = UnitSquareMesh(8, 8, distribution_parameters=distribution_parameters)
+      mh = MeshHierarchy(base, 1)
+  else:
+      base = UnitSquareMesh(16, 16, distribution_parameters=distribution_parameters)
+      mh = MeshHierarchy(base, 2)
+
   mesh = mh[-1]
   n = FacetNormal(mesh)
   (x, y) = SpatialCoordinate(mesh)
@@ -396,7 +403,11 @@ precision. ::
   problem = NonlinearVariationalProblem(F, w, bcs, Jp=Jp)
   solver = NonlinearVariationalSolver(problem, solver_parameters=sp, pre_apply_bcs=False)
 
-  for Re_ in [1, 500]  + list(range(1000, 5001, 1000)):
+  for Re_ in [1, 500] + list(range(1000, 5001, 1000)):
+
+      if os.getenv("FIREDRAKE_CI") == "1" and Re_ > 500:
+          break
+
       Re.assign(Re_)
 
       # Solve

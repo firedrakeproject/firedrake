@@ -296,11 +296,21 @@ We then use this to build a solver. ::
 We are getting close to the time loop. We set up some timestepping
 parameters. ::
   
-  T = 50.0 # maximum timestep
-  t = 0. # model time
-  ndump = 100 # frequency of file dumps
-  dumpn = 0 # dump counter
-  nsteps = 5000
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+      # Setup for a faster test execution.
+      T = 0.5 # maximum timestep
+      t = 0. # model time
+      ndump = 50 # frequency of file dumps
+      dumpn = 0 # dump counter
+      nsteps = 50
+  else:
+      T = 50.0 # maximum timestep
+      t = 0. # model time
+      ndump = 100 # frequency of file dumps
+      dumpn = 0 # dump counter
+      nsteps = 5000
+
   dt = T/nsteps
   dtc.assign(dt)
 
