@@ -1280,13 +1280,7 @@ class ProxyFunctionSpace(FunctionSpace):
             return self
 
     def __repr__(self):
-        return "%sProxyFunctionSpace(%r, %r, name=%r, index=%r, component=%r)" % \
-            (str(self.identifier).capitalize(),
-             self.mesh(),
-             self.ufl_element(),
-             self.name,
-             self.index,
-             self.component)
+        return FunctionSpace.__repr__(self)
 
     def __str__(self):
         return "%sProxyFunctionSpace(%s, %s, name=%s, index=%s, component=%s)" % \
@@ -1354,13 +1348,8 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
             return self
 
     def __repr__(self):
-        return "%sProxyRestrictedFunctionSpace(%r, name=%r,  boundary_set=%r, index=%r, component=%r)" % \
-            (str(self.identifier).capitalize(),
-             str(self.function_space),
-             self.name,
-             self.boundary_set,
-             self.index,
-             self.component)
+        return "RestrictedFunctionSpace(%r, name=%r, boundary_set=%r)" % (
+            str(self.function_space), self.name, self.boundary_set)
 
     def __str__(self):
         return self.__repr__()
