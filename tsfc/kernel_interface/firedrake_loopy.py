@@ -75,7 +75,7 @@ class Kernel:
         return any(isinstance(arg, argument_type) for arg in self.arguments or ())
 
     @property
-    def needs_external_coordinates(self) -> bool:
+    def needs_external_coords(self) -> bool:
         """Whether the kernel expects coordinates from the caller."""
         return self._has_argument(kernel_args.CoordinatesKernelArg)
 
