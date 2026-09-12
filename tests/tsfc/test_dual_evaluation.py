@@ -5,7 +5,11 @@ import ufl
 import finat.ufl
 from finat.element_factory import create_element
 from tsfc import compile_expression_dual_evaluation
-from tsfc.kernel_args import OutputKernelArg
+from tsfc.kernel_args import CoordinatesKernelArg, OutputKernelArg
+
+
+def has_external_coordinates(kernel):
+    return any(isinstance(arg, CoordinatesKernelArg) for arg in kernel.arguments)
 
 
 def test_ufl_only_simple():
@@ -15,7 +19,7 @@ def test_ufl_only_simple():
     expr = ufl.inner(v, v)
     W = V
     kernel = compile_expression_dual_evaluation(expr, W.ufl_element())
-    assert kernel.needs_external_coords is False
+    assert has_external_coordinates(kernel) is False
 
 
 def test_ufl_only_nested_interpolate():
@@ -28,7 +32,7 @@ def test_ufl_only_nested_interpolate():
 
     kernel = compile_expression_dual_evaluation(expression, X.ufl_element())
 
-    assert kernel.needs_external_coords is True
+    assert has_external_coordinates(kernel) is True
 
 
 def test_ufl_only_spatialcoordinate():
@@ -38,7 +42,7 @@ def test_ufl_only_spatialcoordinate():
     expr = x*y - y**2 + x
     W = V
     kernel = compile_expression_dual_evaluation(expr, W.ufl_element())
-    assert kernel.needs_external_coords is True
+    assert has_external_coordinates(kernel) is True
 
 
 def test_ufl_only_from_contravariant_piola():
@@ -48,7 +52,7 @@ def test_ufl_only_from_contravariant_piola():
     expr = ufl.inner(v, v)
     W = ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("P", ufl.triangle, 2))
     kernel = compile_expression_dual_evaluation(expr, W.ufl_element())
-    assert kernel.needs_external_coords is True
+    assert has_external_coordinates(kernel) is True
 
 
 def test_ufl_only_to_contravariant_piola():
@@ -58,7 +62,7 @@ def test_ufl_only_to_contravariant_piola():
     expr = ufl.as_vector([v, v])
     W = ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("RT", ufl.triangle, 1))
     kernel = compile_expression_dual_evaluation(expr, W.ufl_element())
-    assert kernel.needs_external_coords is True
+    assert has_external_coordinates(kernel) is True
 
 
 def test_ufl_only_shape_mismatch():
@@ -88,7 +92,7 @@ def dual_argument_kernel(cell, degree, restriction=None):
 
     Returns
     -------
-    ExpressionKernel
+    Kernel
         The compiled dual evaluation kernel.
     """
     mesh = ufl.Mesh(finat.ufl.VectorElement("Q", cell, 1))

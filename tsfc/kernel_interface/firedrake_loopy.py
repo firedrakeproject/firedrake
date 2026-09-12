@@ -1,16 +1,13 @@
 import numpy
 from collections import namedtuple, OrderedDict
-from itertools import chain
 
 from ufl import Coefficient, FunctionSpace
 from ufl.domain import MeshSequence
 
-from finat.ufl import MixedElement as ufl_MixedElement, FiniteElement
+from finat.ufl import FiniteElement
 
 import gem
-import gem.impero_utils as impero_utils
 from gem.flop_count import count_flops
-from gem.optimise import remove_componenttensors as prune
 
 import loopy as lp
 
@@ -18,14 +15,6 @@ from tsfc import kernel_args
 from finat.element_factory import as_fiat_cell, create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant, lower_integral_type
 from tsfc.loopy import generate as generate_loopy
-
-
-# Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes',
-                                                   'coefficient_numbers',
-                                                   'needs_external_coords',
-                                                   'tabulations', 'name', 'arguments',
-                                                   'flop_count', 'event'])
 
 
 ActiveDomainNumbers = namedtuple('ActiveDomainNumbers', ['coordinates',
@@ -195,107 +184,6 @@ class KernelBuilderBase(_KernelBuilderBase):
         return self.generate_arg_from_variable(var, dtype=dtype or self.scalar_type)
 
 
-class ExpressionKernelBuilder(KernelBuilderBase, KernelBuilderMixin):
-    """Builds expression kernels for UFL interpolation in Firedrake."""
-
-    def __init__(self, integral_data_info, scalar_type, diagonal=False):
-        super().__init__(scalar_type=scalar_type)
-        self.fem_scalar_type = scalar_type
-        self.needs_external_coords = False
-        self.integral_data_info = integral_data_info
-        self.coefficient_numbers = integral_data_info.coefficient_numbers
-        self._domain_integral_type_map = integral_data_info.domain_integral_type_map
-        domain = integral_data_info.domain
-        _, entity_ids = lower_integral_type(as_fiat_cell(domain.ufl_cell()), integral_data_info.integral_type)
-        self._entity_ids = {domain: entity_ids}
-        self.set_arguments()
-
-    def set_arguments(self):
-        """Process arguments.
-
-        The expression kernel writes into a single flat return argument, so
-        the argument multiindices index it directly.
-        """
-        self.argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
-                                           for arg in self.integral_data_info.arguments)
-        indices = tuple(chain(*self.argument_multiindices))
-        shape = tuple(index.extent for index in indices)
-        self.return_variable = gem.Variable("A", (numpy.prod(shape, dtype=int),))
-        expression = gem.Indexed(gem.reshape(self.return_variable, shape), indices)
-        self.return_variables = prune([expression])
-
-    def set_coordinates(self, domains):
-        super().set_coordinates(domains)
-        self.needs_external_coords = True
-
-    def set_coefficients(self):
-        """Prepare the coefficients of the expression."""
-        for i, coefficient in enumerate(self.integral_data_info.coefficients):
-            if type(coefficient.ufl_element()) == ufl_MixedElement:
-                subcoeffs = coefficient.subfunctions  # Firedrake-specific
-                self.coefficient_split[coefficient] = subcoeffs
-                for j, subcoeff in enumerate(subcoeffs):
-                    self._coefficient(subcoeff, f"w_{i}_{j}")
-            else:
-                self._coefficient(coefficient, f"w_{i}")
-
-    def set_constants(self, constants):
-        for i, const in enumerate(constants):
-            gemexpr = prepare_constant(const, i)
-            self.constant_map[const] = gemexpr
-
-    def register_requirements(self, ir):
-        """Inspect what is referenced by the IR that needs to be
-        provided by the kernel interface."""
-        return check_requirements(ir)
-
-    def construct_kernel(self, name, ctx, log=False):
-        """Constructs an :class:`ExpressionKernel`.
-
-        :arg name: kernel name
-        :arg ctx: kernel builder context to get impero_c from
-        :arg log: bool if the Kernel should be profiled with Log events
-
-        :returns: :class:`ExpressionKernel` object
-        """
-        impero_c, oriented, needs_cell_sizes, tabulations, _ = self.compile_gem(ctx)
-        if impero_c is None:
-            raise impero_utils.NoopError("Empty expression kernel")
-        funarg = self.generate_arg_from_variable(self.return_variable)
-        args = [kernel_args.OutputKernelArg(funarg)]
-        if oriented:
-            cell_orientations, = tuple(self._cell_orientations.values())
-            funarg = self.generate_arg_from_expression(cell_orientations, dtype=numpy.int32)
-            args.append(kernel_args.CellOrientationsKernelArg(funarg))
-        if needs_cell_sizes:
-            cell_sizes, = tuple(self._cell_sizes.values())
-            funarg = self.generate_arg_from_expression(cell_sizes)
-            args.append(kernel_args.CellSizesKernelArg(funarg))
-        for expr in self.coefficient_map.values():
-            # coefficient_map is OrderedDict.
-            funarg = self.generate_arg_from_expression(expr)
-            args.append(kernel_args.CoefficientKernelArg(funarg))
-
-        # now constants
-        for gemexpr in self.constant_map.values():
-            funarg = self.generate_arg_from_expression(gemexpr)
-            args.append(kernel_args.ConstantKernelArg(funarg))
-
-        for name_, shape in tabulations:
-            tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
-            args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
-
-        loopy_args = [arg.loopy_arg for arg in args]
-
-        name = name or "expression_kernel"
-        index_names = get_index_names(ctx["quadrature_indices"], self.argument_multiindices, ctx["index_cache"])
-        loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
-                                             name, index_names, log=log)
-        return ExpressionKernel(loopy_kernel, oriented, needs_cell_sizes,
-                                self.coefficient_numbers, self.needs_external_coords,
-                                tabulations, name, args, count_flops(impero_c), event)
-
-
 class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
@@ -309,7 +197,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.coefficient_number_index_map = OrderedDict()
         self.integral_data_info = integral_data_info
         self.coefficient_split = integral_data_info.coefficient_split
-        self._domain_integral_type_map = integral_data_info.domain_integral_type_map  # For consistency with ExpressionKernelBuilder.
+        self._domain_integral_type_map = integral_data_info.domain_integral_type_map
         self.set_arguments()
         domains = tuple(integral_data_info.domain_integral_type_map)
         self.set_entity_numbers(domains)
