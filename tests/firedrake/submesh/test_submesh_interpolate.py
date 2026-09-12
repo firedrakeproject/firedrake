@@ -58,7 +58,7 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
 
 
 @pytest.mark.parallel([1, 3])
-def test_submesh_interpolate_compile_form():
+def test_submesh_form_interp():
     from firedrake.assemble import OneFormAssembler, get_assembler
 
     mesh = UnitSquareMesh(4, 4)

@@ -369,7 +369,7 @@ def test_nested_block(mesh, degree):
     assert np.allclose(result[:, :], expect[:, :])
 
 
-def test_interpolate_in_slate_tensor():
+def test_slate_tensor_interp():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 2)
     W = FunctionSpace(mesh, "DG", 1)
@@ -387,7 +387,7 @@ def test_interpolate_in_slate_tensor():
     assert np.allclose(actual.dat.data, expected.dat.data)
 
 
-def test_non_fusable_interpolate_in_slate_tensor():
+def test_slate_tensor_nonfusable_interp():
     source_mesh = UnitSquareMesh(1, 1)
     target_mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(source_mesh, "CG", 1)
