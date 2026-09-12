@@ -104,10 +104,12 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     return kernels
 
 
-def make_kernel_builder(interface, integral_data_info, constants, parameters,
+def make_kernel_builder(integral_data_info, constants, parameters,
                         diagonal=False):
     """Create a kernel builder holding every mesh quantity its integral may read."""
-    builder = interface(integral_data_info, parameters["scalar_type"], diagonal=diagonal)
+    builder = firedrake_interface_loopy.KernelBuilder(
+        integral_data_info, parameters["scalar_type"], diagonal=diagonal
+    )
     domains = tuple(integral_data_info.domain_integral_type_map)
     builder.set_cell_orientations(domains)
     builder.set_cell_sizes(domains)
@@ -164,8 +166,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         coefficient_numbers=coefficient_numbers,
     )
     builder = make_kernel_builder(
-        firedrake_interface_loopy.KernelBuilder, integral_data_info,
-        form_data.constants, parameters, diagonal=diagonal,
+        integral_data_info, form_data.constants, parameters, diagonal=diagonal,
     )
     builder.set_coordinates(tuple(integral_data_info.domain_integral_type_map))
     ctx = builder.create_context()
@@ -219,8 +220,7 @@ def preprocess_parameters(parameters):
 
 
 def compile_expression_dual_evaluation(expression, ufl_element, *,
-                                       domain=None, interface=None,
-                                       parameters=None, name=None):
+                                       domain=None, parameters=None, name=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
@@ -228,9 +228,8 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     :arg expression: UFL expression
     :arg ufl_element: The UFL element of the target space.
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
-    :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
-    :returns: Loopy-based ExpressionKernel object.
+    :returns: Loopy-based Kernel object.
     """
     parameters = preprocess_parameters(parameters)
     if not isinstance(expression, ufl.Interpolate):
@@ -263,12 +262,8 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         coefficient_numbers=tuple(map(original_coefficients.index, coefficients)),
     )
 
-    if interface is None:
-        interface = firedrake_interface_loopy.ExpressionKernelBuilder
-
     builder = make_kernel_builder(
-        interface, integral_data_info, extract_firedrake_constants(expression),
-        parameters,
+        integral_data_info, extract_firedrake_constants(expression), parameters,
     )
     ctx = builder.create_context()
     reps = builder.compile_interpolate(expression, ufl_element, parameters, ctx)
@@ -297,7 +292,6 @@ def compile_interpolate(ufl_interpolate: ufl.Interpolate, prefix: str = "interpo
     """
     kernel = compile_expression_dual_evaluation(
         ufl_interpolate, ufl_interpolate.ufl_element(),
-        interface=firedrake_interface_loopy.KernelBuilder,
         parameters=parameters, name=f"{prefix}_cell_integral",
     )
     return [kernel]
