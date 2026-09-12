@@ -708,7 +708,7 @@ def test_interpolator_reuse(family, degree, mode):
 
 
 @pytest.mark.parallel([1, 3])
-def test_square_space_bcs():
+def test_same_space_interp_bcs():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     rg = RandomGenerator(PCG64(seed=123456789))
