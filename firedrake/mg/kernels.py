@@ -131,10 +131,6 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
     return kernel
 
 
-def _has_kernel_argument(kernel, argument_type):
-    return any(isinstance(arg, argument_type) for arg in kernel.arguments)
-
-
 def _make_kernel_args(kernel, output, coefficient, target_coordinates,
                       coordinates=None, cell_orientations=None, cell_sizes=None):
     """Returns a string of argument names to call the kernel.
@@ -258,8 +254,8 @@ def prolong_kernel(expression, Vf):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if _has_kernel_argument(kernel, kernel_args.CellOrientationsKernelArg) else "",
-               "cell_sizes": ", const PetscScalar *cs" if _has_kernel_argument(kernel, kernel_args.CellSizesKernelArg) else "",
+               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
+               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
                "kernel_args": _make_kernel_args(kernel, "R", "fi", "Xref", coordinates="Xci",
                                                 cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
@@ -271,8 +267,8 @@ def prolong_kernel(expression, Vf):
                "tdim": element.cell.get_spatial_dimension()}
 
         transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong")
-        transfer_kernel.oriented = _has_kernel_argument(kernel, kernel_args.CellOrientationsKernelArg)
-        transfer_kernel.needs_cell_sizes = _has_kernel_argument(kernel, kernel_args.CellSizesKernelArg)
+        transfer_kernel.oriented = kernel.oriented
+        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
         return cache.setdefault(key, transfer_kernel)
 
 
@@ -351,8 +347,8 @@ def restrict_kernel(Vf, Vc):
         }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if _has_kernel_argument(kernel, kernel_args.CellOrientationsKernelArg) else "",
-               "cell_sizes": ", const PetscScalar *cs" if _has_kernel_argument(kernel, kernel_args.CellSizesKernelArg) else "",
+               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
+               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
                "kernel_args": _make_kernel_args(kernel, "Ri", "b", "Xref", coordinates="Xc",
                                                 cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
@@ -363,8 +359,8 @@ def restrict_kernel(Vf, Vc):
                "tdim": element.cell.get_spatial_dimension()}
 
         transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_restrict")
-        transfer_kernel.oriented = _has_kernel_argument(kernel, kernel_args.CellOrientationsKernelArg)
-        transfer_kernel.needs_cell_sizes = _has_kernel_argument(kernel, kernel_args.CellSizesKernelArg)
+        transfer_kernel.oriented = kernel.oriented
+        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
         return cache.setdefault(key, transfer_kernel)
 
 

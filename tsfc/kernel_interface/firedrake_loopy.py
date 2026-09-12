@@ -71,6 +71,24 @@ class Kernel:
         self.name = name
         self.event = event
 
+    def _has_argument(self, argument_type) -> bool:
+        return any(isinstance(arg, argument_type) for arg in self.arguments or ())
+
+    @property
+    def needs_external_coordinates(self) -> bool:
+        """Whether the kernel expects coordinates from the caller."""
+        return self._has_argument(kernel_args.CoordinatesKernelArg)
+
+    @property
+    def oriented(self) -> bool:
+        """Whether the kernel expects cell orientations from the caller."""
+        return self._has_argument(kernel_args.CellOrientationsKernelArg)
+
+    @property
+    def needs_cell_sizes(self) -> bool:
+        """Whether the kernel expects cell sizes from the caller."""
+        return self._has_argument(kernel_args.CellSizesKernelArg)
+
 
 class KernelBuilderBase(_KernelBuilderBase):
 
