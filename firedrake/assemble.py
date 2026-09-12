@@ -1128,21 +1128,6 @@ class ParloopFormAssembler(FormAssembler):
         """
         self.local_kernels
 
-    @cached_property
-    def input_dats(self):
-        """The `pyop2.types.Dat` read by this assembler's parloops.
-
-        Callers only test membership, to spot an output tensor that is also an
-        input, so this set is never iterated over.
-        """
-        dats = set()
-        for local_kernel, _ in self.local_kernels:
-            for coeff in _FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo):
-                dats.update(coeff.dat)
-            for coords in _FormHandler.iter_active_coordinates(self._form, local_kernel.kinfo):
-                dats.update(coords.dat)
-        return dats
-
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc, u=None):
         """Apply boundary condition."""
