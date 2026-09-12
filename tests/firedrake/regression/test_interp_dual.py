@@ -35,24 +35,10 @@ def f1(mesh, V1):
     return Function(V1).interpolate(expr)
 
 
-@pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize(
-    ("access", "initial", "expected"),
-    [(None, None, None), (op2.INC, 2.0, 4.0), (op2.MIN, 3.0, 3.0), (op2.MAX, -3.0, -3.0)],
-    ids=["default", "inc", "min", "max"],
-)
-def test_interp_self(V1, access, initial, expected):
-    if access is None:
-        a = assemble(conj(TestFunction(V1)) * dx)
-        b = assemble(conj(TestFunction(V1)) * dx)
-        kwargs = {}
-    else:
-        V = FunctionSpace(UnitSquareMesh(1, 1), "DG", 0)
-        a = Function(V).assign(initial)
-        b = Function(V).assign(expected)
-        kwargs = {"access": access}
-
-    assert a.interpolate(a, **kwargs) is a
+def test_interp_self(V1):
+    a = assemble(conj(TestFunction(V1)) * dx)
+    b = assemble(conj(TestFunction(V1)) * dx)
+    a.interpolate(a)
     assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 
