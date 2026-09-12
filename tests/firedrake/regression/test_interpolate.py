@@ -34,6 +34,21 @@ def test_function():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize(
+    ("access", "initial", "expected"),
+    [(op2.INC, 2.0, 4.0), (op2.MIN, 3.0, 3.0), (op2.MAX, -3.0, -3.0)],
+    ids=["inc", "min", "max"],
+)
+def test_in_place_interpolation_preserves_reduction(access, initial, expected):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    f = Function(V).assign(initial)
+
+    assert f.interpolate(f, access=access) is f
+    assert np.allclose(f.dat.data_ro, expected)
+
+
 def test_mixed_expression():
     m = UnitTriangleMesh()
     x = SpatialCoordinate(m)
