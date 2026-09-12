@@ -17,7 +17,7 @@ from pyop2 import op2
 from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 
 from firedrake.utils import IntType
-from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action
+from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action, extract_domains
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
@@ -699,10 +699,6 @@ class SameMeshInterpolator(Interpolator):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             if self.access and self.access != op2.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
-            self.access = op2.INC
-        elif self.access is None:
-            # Default access for forward 1-form or 2-form (forward and adjoint)
-            self.access = op2.WRITE
 
     @property
     def _needs_adjoint_weighting(self):
@@ -746,7 +742,13 @@ class SameMeshInterpolator(Interpolator):
         weighted copy of the dual argument when the adjoint needs one.
         """
         options = asdict(self.ufl_interpolate.options)
-        options.update(subset=self.subset, access=self.access)
+        access = self.access
+        if not isinstance(self.dual_arg, Coargument):
+            access = op2.INC
+        elif access is None:
+            # Default access for forward 1-form or 2-form (forward and adjoint)
+            access = op2.WRITE
+        options.update(subset=self.subset, access=access)
         dual_arg = self._weighted_dual_arg if self._needs_adjoint_weighting else self.dual_arg
         return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg, **options)
 
@@ -768,36 +770,38 @@ class SameMeshInterpolator(Interpolator):
             f.assign(val)
         return f
 
-    def _make_assembler(self, bcs=None, mat_type=None, sub_mat_type=None):
-        """Return the assembler matching `self.rank`."""
-        # Not routed through get_assembler: its BaseForm preprocessing is not
-        # needed here and can recurse forever on some composed expressions.
-        from firedrake.assemble import get_form_assembler
-
-        return get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
-                                  mat_type=mat_type, sub_mat_type=sub_mat_type,
-                                  needs_zeroing=self.rank == 2 or self.access is op2.INC,
-                                  access=self.access)
-
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        from firedrake.assemble import ParloopFormAssembler
+        from firedrake.assemble import get_form_assembler, ParloopFormAssembler
 
-        assembler = self._make_assembler(bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)
+        output = None
+        preserve_input = False
+        if isinstance(tensor, Function | Cofunction):
+            inputs = set()
+            for coefficient in self._interpolate_to_assemble.coefficients():
+                inputs.update(coefficient.dat)
+            for mesh in extract_domains(self._interpolate_to_assemble):
+                inputs.update(mesh.coordinates.dat)
+            if isinstance(self.dual_arg, Cofunction):
+                inputs.update(self.dual_arg.dat)
+            if set(tensor.dat) & inputs:
+                output = tensor
+                preserve_input = self.access is not None and self.access is not op2.WRITE
+
+        access = self._interpolate_to_assemble.options.access
+        needs_zeroing = (self.rank == 2 or access is op2.INC) and not preserve_input
+        assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
+                                       mat_type=mat_type, sub_mat_type=sub_mat_type,
+                                       needs_zeroing=needs_zeroing, access=access)
         # DirichletBC needs to know now whether it can interpolate its value,
         # so it can project instead when it can't.
         if isinstance(assembler, ParloopFormAssembler):
             assembler.compile()
 
-        output = None
         copy_input = None
         copy_output = None
-        inputs = assembler.input_dats if isinstance(assembler, ParloopFormAssembler) else set()
-        if isinstance(self.dual_arg, Cofunction):
-            inputs = inputs | set(self.dual_arg.dat)
-        if isinstance(tensor, Function | Cofunction) and set(tensor.dat) & inputs:
-            output = tensor
+        if output is not None:
             tensor = assembler.allocate()
-            if self.access is not op2.WRITE:
+            if preserve_input:
                 copy_input = partial(output.dat.copy, tensor.dat)
             copy_output = partial(tensor.dat.copy, output.dat)
         elif tensor is None and self.access in {op2.MIN, op2.MAX}:
@@ -807,17 +811,13 @@ class SameMeshInterpolator(Interpolator):
             tensor.assign(Constant(value))
 
         assembler_tensor = None if self.rank == 2 else tensor
-        assemble_kwargs = {"tensor": assembler_tensor}
-        if copy_input is not None:
-            # Preserve the existing reduction value in the temporary tensor.
-            assemble_kwargs["needs_zeroing"] = False
 
         def callable():
             if self._needs_adjoint_weighting:
                 self._update_weighted_dual_arg()
             if copy_input is not None:
                 copy_input()
-            result = assembler.assemble(**assemble_kwargs)
+            result = assembler.assemble(tensor=assembler_tensor)
             if copy_output is not None:
                 copy_output()
             if isinstance(result, MatrixBase):
