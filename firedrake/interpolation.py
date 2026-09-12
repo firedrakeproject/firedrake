@@ -789,14 +789,17 @@ class SameMeshInterpolator(Interpolator):
             assembler.compile()
 
         output = None
-        copyout = ()
+        copy_input = None
+        copy_output = None
         inputs = assembler.input_dats if isinstance(assembler, ParloopFormAssembler) else set()
         if isinstance(self.dual_arg, Cofunction):
             inputs = inputs | set(self.dual_arg.dat)
         if isinstance(tensor, Function | Cofunction) and set(tensor.dat) & inputs:
             output = tensor
             tensor = assembler.allocate()
-            copyout = (partial(tensor.dat.copy, output.dat),)
+            if self.access is not op2.WRITE:
+                copy_input = partial(output.dat.copy, tensor.dat)
+            copy_output = partial(tensor.dat.copy, output.dat)
         elif tensor is None and self.access in {op2.MIN, op2.MAX}:
             tensor = assembler.allocate()
             finfo = numpy.finfo(tensor.dat.dtype)
@@ -804,16 +807,22 @@ class SameMeshInterpolator(Interpolator):
             tensor.assign(Constant(value))
 
         assembler_tensor = None if self.rank == 2 else tensor
+        assemble_kwargs = {"tensor": assembler_tensor}
+        if copy_input is not None:
+            # Preserve the existing reduction value in the temporary tensor.
+            assemble_kwargs["needs_zeroing"] = False
 
         def callable():
             if self._needs_adjoint_weighting:
                 self._update_weighted_dual_arg()
-            result = assembler.assemble(tensor=assembler_tensor)
-            for copy in copyout:
-                copy()
+            if copy_input is not None:
+                copy_input()
+            result = assembler.assemble(**assemble_kwargs)
+            if copy_output is not None:
+                copy_output()
             if isinstance(result, MatrixBase):
                 return result.petscmat
-            return output if copyout else result
+            return output if copy_output is not None else result
 
         return callable
 
