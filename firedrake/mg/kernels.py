@@ -139,9 +139,9 @@ def _make_kernel_args(kernel, output, coefficient, target_coordinates,
                       coordinates=None, cell_orientations=None, cell_sizes=None):
     """Returns a string of argument names to call the kernel.
        Discards coordinate arguments if they do not appear in the kernel."""
-    # NOTE: TSFC will sometimes drop run-time arguments in generated
-    # kernels if they are deemed not-necessary.
-    # For further information, see the same note in interpolation.py.
+    # TSFC may omit runtime arguments that it determines are unnecessary from
+    # generated kernels. Iterate over the generated kernel's actual arguments
+    # so that the call includes only values that the kernel expects.
     coefficients = (coefficient,) if isinstance(coefficient, str) else tuple(coefficient)
     coefficient_index = 0
     args = []
