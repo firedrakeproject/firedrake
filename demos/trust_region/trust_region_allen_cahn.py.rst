@@ -335,11 +335,10 @@ or the dogleg path between the Cauchy point and the Newton step
 (``dogleg``). All three work for this problem. We have used Firedrake's
 default direct solver for the Newton system, which is fine in one
 dimension. For large problems, the trust-region radius is also passed down
-to Krylov solvers that understand it, such as ``ksp_type: cg`` or the
-Steihaug-Toint variant ``stcg``, which then stop as soon as their iterate
-leaves the region (reported as ``CONVERGED_STEP_LENGTH``) rather than
-solving the Newton system to a tolerance that the trust region will throw
-away anyway.
+to Krylov solvers that understand it, such as ``ksp_type: cg`` which then 
+stop as soon as their iterate leaves the region (reported as 
+``CONVERGED_STEP_LENGTH``) rather than solving the Newton system to a 
+tolerance that the trust region will throw away anyway.
 
 This demo can be found as a script in :demo:`trust_region_allen_cahn.py <trust_region_allen_cahn.py>`.
 
