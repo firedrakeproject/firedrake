@@ -387,7 +387,7 @@ def test_slate_tensor_interp():
     assert np.allclose(actual.dat.data, expected.dat.data)
 
 
-def test_slate_tensor_nonfusable_interp():
+def test_slate_tensor_nonfusible_interp():
     source_mesh = UnitSquareMesh(1, 1)
     target_mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(source_mesh, "CG", 1)

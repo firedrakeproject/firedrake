@@ -1,6 +1,6 @@
 import abc
 from collections import defaultdict
-from collections.abc import Sequence  # noqa: F401
+from collections.abc import Iterable, Sequence  # noqa: F401
 import functools
 import itertools
 from itertools import product
@@ -23,10 +23,11 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.exceptions import MismatchingFunctionSpaceError
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
-from firedrake.mesh import VertexOnlyMeshTopology
+from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.interpolation import get_interp_node_map, get_interpolator
+from firedrake.interpolation import (get_interp_node_map, get_interpolator, interp_cell_subset,
+                                     is_same_mesh_interp, is_submesh_domain)
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -331,33 +332,41 @@ class AbstractFormAssembler(abc.ABC):
         """
 
 
-def _is_fusable(operator, valid_domains) -> bool:
-    """Can ``operator`` share the kernel of the expression that holds it?
+def _domain_is_compatible(domain: object, valid_domains: Iterable[object]) -> bool:
+    """Is ``domain`` one of ``valid_domains``, or a submesh in the same family?"""
+    return any(domain is valid_domain
+               or (isinstance(domain, MeshGeometry) and isinstance(valid_domain, MeshGeometry)
+                   and is_submesh_domain(domain, valid_domain))
+               for valid_domain in valid_domains)
 
-    Parameters
-    ----------
-    operator :
-        A base form operator nested in an integrand or in an interpolation.
-    valid_domains :
-        The domains that the enclosing integral's measure covers, or the
-        domains that the enclosing interpolation targets.
 
-    Returns
-    -------
-    bool
-        Whether TSFC can assemble ``operator`` in the kernel of the expression
-        that holds it.
+def _is_fusible(operator, valid_domains) -> bool:
+    """Can TSFC assemble ``operator`` in the kernel of the expression that holds it?
 
+    ``valid_domains`` are the domains that the enclosing integral's measure covers,
+    or the domains that the enclosing interpolation targets.
     """
     if not isinstance(operator, ufl.Interpolate):
         return False
     # A non-terminal dual argument needs to be assembled on its own
     # beforehand, so it cannot share a kernel with the expression.
     dual_arg, expression = operator.argument_slots()
-    return (isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction))
-            and set(extract_domains(operator)) <= valid_domains
-            and all(_is_fusable(op, valid_domains)
-                    for op in ufl.algorithms.extract_base_form_operators(expression)))
+    if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
+        return False
+    if not all(_domain_is_compatible(domain, valid_domains)
+               for domain in extract_domains(operator)):
+        return False
+    # The expression that holds the interpolation iterates over its own cells,
+    # so it can only absorb an interpolation that maps cells to cells and that
+    # needs no subset.  Any other interpolation keeps its own interpolator.
+    target_mesh = operator.target_space.mesh()
+    source_meshes = extract_domains(expression) or [target_mesh]
+    if any(not is_same_mesh_interp(mesh, target_mesh)
+           or interp_cell_subset(mesh, target_mesh) is not None
+           for mesh in source_meshes):
+        return False
+    return all(_is_fusible(op, valid_domains)
+               for op in ufl.algorithms.extract_base_form_operators(expression))
 
 
 class BaseFormAssembler(AbstractFormAssembler):
@@ -733,32 +742,27 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
             return expr.ufl_operands
         if isinstance(expr, slate.TensorBase):
-            # TSFC compiles the forms wrapped by the terminal tensors, so a
-            # Slate expression has the operands of the forms at its leaves.
-            # A zero tensor wraps no integrals to compile.
-            children = expr.operands or (expr.form,)
-            operands = [BaseFormAssembler.base_form_operands(child) for child in children
+            # A zero tensor wraps no integrals for TSFC to compile.
+            operands = [BaseFormAssembler.base_form_operands(child)
+                        for child in expr.operands or (expr.form,)
                         if not isinstance(child, ufl.ZeroBaseForm)]
             return list(dict.fromkeys(itertools.chain.from_iterable(operands)))
         if isinstance(expr, ufl.Form):
-            # An interpolation that shares the kernels of its integral is not a
-            # child: descending would assemble it on its own instead.
+            # A fusible interpolation is not a child: descending would assemble it alone.
             children = set()
             for integral in expr.integrals():
-                domains = set(integral.extra_domain_integral_type_map())
-                domains.add(integral.ufl_domain())
+                domains = {integral.ufl_domain(), *integral.extra_domain_integral_type_map()}
                 children.update(op for op in ufl.algorithms.extract_base_form_operators(integral.integrand())
-                                if not _is_fusable(op, domains))
+                                if not _is_fusible(op, domains))
             # Use reversed to treat base form operators
             # in the order in which they have been made.
             return [op for op in reversed(expr.base_form_operators()) if op in children]
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-            # An interpolation shares the kernel of the interpolation that
-            # targets its domains. Any other operator assembles its operands.
+            # An interpolation shares the kernel of the one that targets its domains.
             domains = set(extract_domains(expr.argument_slots()[0])) if isinstance(expr, ufl.Interpolate) else set()
             # Conserve order
             children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
-                                     if isinstance(e, ufl.form.BaseForm) and not _is_fusable(e, domains))
+                                     if isinstance(e, ufl.form.BaseForm) and not _is_fusible(e, domains))
             return list(children)
         return []
 
