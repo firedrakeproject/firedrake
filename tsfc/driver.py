@@ -179,6 +179,17 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     return builder.construct_kernel(kernel_name, ctx, log=parameters["add_petsc_events"])
 
 
+def is_same_dim_submesh(domain: ufl.Mesh | ufl.MeshSequence,
+                        other: ufl.Mesh | ufl.MeshSequence) -> bool:
+    """Are these positive-dimensional domains submeshes of the same family?"""
+    if isinstance(domain, ufl.MeshSequence) or isinstance(other, ufl.MeshSequence):
+        return False
+    return (domain.topological_dimension != 0
+            and other.topological_dimension != 0
+            and domain.topological_dimension == other.topological_dimension
+            and domain.submesh_youngest_common_ancestor(other) is not None)
+
+
 def validate_domains(form):
     if len(extract_domains(form)) == 1:
         # Not a multi-domain form, we do not need to keep checking

@@ -1,6 +1,6 @@
 import abc
 from collections import defaultdict
-from collections.abc import Iterable, Sequence  # noqa: F401
+from collections.abc import Sequence  # noqa: F401
 import functools
 import itertools
 from itertools import product
@@ -26,8 +26,8 @@ from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.interpolation import (get_interp_node_map, get_interpolator, interp_cell_subset,
-                                     is_same_mesh_interp, is_submesh_domain)
+from firedrake.interpolation import get_interp_node_map, get_interpolator, SameMeshInterpolator
+from tsfc.driver import is_same_dim_submesh
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -332,14 +332,6 @@ class AbstractFormAssembler(abc.ABC):
         """
 
 
-def _domain_is_compatible(domain: object, valid_domains: Iterable[object]) -> bool:
-    """Is ``domain`` one of ``valid_domains``, or a submesh in the same family?"""
-    return any(domain is valid_domain
-               or (isinstance(domain, MeshGeometry) and isinstance(valid_domain, MeshGeometry)
-                   and is_submesh_domain(domain, valid_domain))
-               for valid_domain in valid_domains)
-
-
 def _is_fusible(operator, valid_domains) -> bool:
     """Can TSFC assemble ``operator`` in the kernel of the expression that holds it?
 
@@ -353,17 +345,17 @@ def _is_fusible(operator, valid_domains) -> bool:
     dual_arg, expression = operator.argument_slots()
     if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
         return False
-    if not all(_domain_is_compatible(domain, valid_domains)
+    if not all(any(domain is valid_domain
+                   or (isinstance(domain, MeshGeometry) and isinstance(valid_domain, MeshGeometry)
+                       and is_same_dim_submesh(domain, valid_domain))
+                   for valid_domain in valid_domains)
                for domain in extract_domains(operator)):
         return False
     # The expression that holds the interpolation iterates over its own cells,
     # so it can only absorb an interpolation that maps cells to cells and that
     # needs no subset.  Any other interpolation keeps its own interpolator.
-    target_mesh = operator.target_space.mesh()
-    source_meshes = extract_domains(expression) or [target_mesh]
-    if any(not is_same_mesh_interp(mesh, target_mesh)
-           or interp_cell_subset(mesh, target_mesh) is not None
-           for mesh in source_meshes):
+    interpolator = get_interpolator(operator)
+    if not isinstance(interpolator, SameMeshInterpolator) or interpolator.subset is not None:
         return False
     return all(_is_fusible(op, valid_domains)
                for op in ufl.algorithms.extract_base_form_operators(expression))
