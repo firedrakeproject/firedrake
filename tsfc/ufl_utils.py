@@ -2,14 +2,16 @@
 
 from functools import singledispatch
 
-import numpy
-
 import ufl
-from ufl import as_tensor, indices, replace
+from ufl import replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients, extract_type
-from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
+from ufl.algorithms.apply_function_pullbacks import (
+    apply_function_pullbacks,
+    apply_interpolate_pullbacks,
+    apply_inverse_pullback,
+)
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
@@ -27,14 +29,89 @@ from ufl.classes import (Abs, Argument, CellOrientation,
                          Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.utils.sorting import sorted_by_count
-from ufl.domain import extract_domains, extract_unique_domain
+from ufl.domain import extract_domains
 
+import gem
 from gem.node import MemoizerArg
+
+from finat.element_factory import as_fiat_cell
+from finat.point_set import UnknownPointSet
+from finat.quadrature import QuadratureRule
+from finat.ufl import FiniteElement, TensorElement
 
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 
 
 preserve_geometry_types = (CellVolume, FacetArea)
+
+# Prefix that forces TSFC to do runtime tabulation for a gem.Variable.
+RUNTIME_VARIABLE_PREFIX = "rt_"
+
+
+def runtime_quadrature_element(domain, ufl_element, rt_var_name=RUNTIME_VARIABLE_PREFIX + "X"):
+    """Construct a Quadrature FiniteElement for interpolation onto a runtime
+    point, e.g. a VertexOnlyMesh point known only at run time.
+
+    Parameters
+    ----------
+    domain : ufl.AbstractDomain
+        The source domain.
+    ufl_element : finat.ufl.finiteelement.FiniteElement
+        The UFL element of the target FunctionSpace.
+    rt_var_name : str
+        Name of the gem.Variable holding the point, prefixed with
+        `RUNTIME_VARIABLE_PREFIX` to force TSFC to tabulate it at run time.
+    """
+    assert rt_var_name.startswith(RUNTIME_VARIABLE_PREFIX)
+
+    cell = domain.ufl_cell()
+    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
+    point_set = UnknownPointSet(point_expr)
+    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
+
+    shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
+    rt_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
+    if shape:
+        symmetry = None if len(shape) < 2 else ufl_element.symmetry()
+        rt_element = TensorElement(rt_element, shape=shape, symmetry=symmetry)
+    return rt_element
+
+
+def preprocess_interpolate(ufl_interpolate: ufl.Interpolate,
+                           element: ufl.AbstractFiniteElement,
+                           domain: ufl.AbstractDomain,
+                           complex_mode: bool = False) -> ufl.Interpolate:
+    """Prepare a standalone interpolation for TSFC.
+
+    Parameters
+    ----------
+    ufl_interpolate
+        The interpolation to preprocess.
+    element
+        The UFL element of the interpolation target.
+    domain
+        The domain the operand is evaluated on.
+    complex_mode
+        Is the scalar type complex?
+
+    Returns
+    -------
+    ufl.Interpolate
+        The interpolation with its operand in ``element``'s reference frame.
+
+    Notes
+    -----
+    A standalone interpolation never reaches `compute_form_data`, so the operand
+    gets the scalar preprocessing here.  Interpolations inside a form are lowered
+    by `ufl.algorithms.apply_interpolate_pullbacks`.
+    """
+    dual_arg, operand = ufl_interpolate.argument_slots()
+    operand = apply_inverse_pullback(operand, element, domain)
+    operand = preprocess_expression(operand, complex_mode=complex_mode)
+    operand = simplify_abs(operand, complex_mode)
+    # Build the UFL node directly: the operand is now in the reference frame,
+    # so it no longer matches the physical shape a Firedrake Interpolate checks.
+    return ufl.Interpolate(operand, dual_arg)
 
 
 def compute_form_data(form,
@@ -136,6 +213,7 @@ def preprocess_expression(expression, complex_mode=False,
     Useful, for example, to preprocess non-scalar expressions, which
     are not and cannot be forms.
     """
+    expression = apply_interpolate_pullbacks(expression)
     if complex_mode:
         expression = do_comparison_check(expression)
     else:
@@ -326,141 +404,6 @@ def simplify_abs(expression, complex_mode):
     mapper = MemoizerArg(_simplify_abs)
     mapper.complex_mode = complex_mode
     return mapper(expression, False)
-
-
-def apply_mapping(expression, element, domain):
-    """Apply the inverse of the pullback for element to an expression.
-
-    :arg expression: An expression in physical space
-    :arg element: The element we're going to interpolate into, whose
-         value_shape must match the shape of the expression, and will
-         advertise the pullback to apply.
-    :arg domain: Optional domain to provide in case expression does
-         not contain a domain (used for constructing geometric quantities).
-    :returns: A new UFL expression with shape element.reference_value_shape
-    :raises NotImplementedError: If we don't know how to apply the
-        inverse of the pullback.
-    :raises ValueError: If we get shape mismatches.
-
-    The following is borrowed from the UFC documentation:
-
-    Let g be a field defined on a physical domain T with physical
-    coordinates x. Let T_0 be a reference domain with coordinates
-    X. Assume that F: T_0 -> T such that
-
-      x = F(X)
-
-    Let J be the Jacobian of F, i.e J = dx/dX and let K denote the
-    inverse of the Jacobian K = J^{-1}. Then we (currently) have the
-    following four types of mappings:
-
-    'identity' mapping for g:
-
-      G(X) = g(x)
-
-    For vector fields g:
-
-    'contravariant piola' mapping for g:
-
-      G(X) = det(J) K g(x)   i.e  G_i(X) = det(J) K_ij g_j(x)
-
-    'covariant piola' mapping for g:
-
-      G(X) = J^T g(x)          i.e  G_i(X) = J^T_ij g(x) = J_ji g_j(x)
-
-    'double covariant piola' mapping for g:
-
-      G(X) = J^T g(x) J     i.e. G_il(X) = J_ji g_jk(x) J_kl
-
-    'double contravariant piola' mapping for g:
-
-      G(X) = det(J)^2 K g(x) K^T  i.e. G_il(X)=(detJ)^2 K_ij g_jk K_lk
-
-    'covariant contravariant piola' mapping for g:
-
-      G(X) = det(J) J^T g(x) K^T     i.e. G_il(X) = det(J) J_ji g_jk(x) K_lk
-
-    If 'contravariant piola' or 'covariant piola' (or their double
-    variants) are applied to a matrix-valued function, the appropriate
-    mappings are applied row-by-row.
-    """
-    mesh = extract_unique_domain(expression)
-    if mesh is None:
-        mesh = domain
-    if domain is not None and mesh != domain:
-        raise NotImplementedError("Multiple domains not supported")
-    pvs = element.pullback.physical_value_shape(element, mesh)
-    if expression.ufl_shape != pvs:
-        raise ValueError(f"Mismatching shapes, got {expression.ufl_shape}, expected {pvs}")
-    mapping = element.mapping().lower()
-    if mapping == "identity":
-        rexpression = expression
-    elif mapping == "covariant piola":
-        J = Jacobian(mesh)
-        *k, i, j = indices(len(expression.ufl_shape) + 1)
-        kj = (*k, j)
-        rexpression = as_tensor(J[j, i] * expression[kj], (*k, i))
-    elif mapping == "l2 piola":
-        detJ = JacobianDeterminant(mesh)
-        rexpression = expression * detJ
-    elif mapping == "contravariant piola":
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        *k, i, j = indices(len(expression.ufl_shape) + 1)
-        kj = (*k, j)
-        rexpression = as_tensor(detJ * K[i, j] * expression[kj], (*k, i))
-    elif mapping == "double covariant piola":
-        J = Jacobian(mesh)
-        *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
-        kmn = (*k, m, n)
-        rexpression = as_tensor(J[m, i] * expression[kmn] * J[n, j], (*k, i, j))
-    elif mapping == "double contravariant piola":
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
-        kmn = (*k, m, n)
-        rexpression = as_tensor(detJ**2 * K[i, m] * expression[kmn] * K[j, n], (*k, i, j))
-    elif mapping == "covariant contravariant piola":
-        J = Jacobian(mesh)
-        K = JacobianInverse(mesh)
-        detJ = JacobianDeterminant(mesh)
-        *k, i, j, m, n = indices(len(expression.ufl_shape) + 2)
-        kmn = (*k, m, n)
-        rexpression = as_tensor(detJ * J[m, i] * expression[kmn] * K[j, n], (*k, i, j))
-    elif mapping == "symmetries":
-        # This tells us how to get from the pieces of the reference
-        # space expression to the physical space one.
-        # We're going to apply the inverse of the physical to
-        # reference space mapping.
-        fcm = element.flattened_sub_element_mapping()
-        sub_elem = element.sub_elements[0]
-        shape = expression.ufl_shape
-        flat = ufl.as_vector([expression[i] for i in numpy.ndindex(shape)])
-        vs = sub_elem.pullback.physical_value_shape(sub_elem, mesh)
-        rvs = sub_elem.reference_value_shape
-        seen = set()
-        rpieces = []
-        gm = int(numpy.prod(vs, dtype=int))
-        for gi, ri in enumerate(fcm):
-            # For each unique piece in reference space
-            if ri in seen:
-                continue
-            seen.add(ri)
-            # Get the physical space piece
-            piece = [flat[gm*gi + j] for j in range(gm)]
-            piece = as_tensor(numpy.asarray(piece).reshape(vs))
-            # get into reference space
-            piece = apply_mapping(piece, sub_elem, mesh)
-            assert piece.ufl_shape == rvs
-            # Concatenate with the other pieces
-            rpieces.extend([piece[idx] for idx in numpy.ndindex(rvs)])
-        # And reshape
-        rexpression = as_tensor(numpy.asarray(rpieces).reshape(element.reference_value_shape))
-    else:
-        raise NotImplementedError(f"Don't know how to handle mapping type {mapping} for expression of rank {ufl.FunctionSpace(mesh, element).value_shape}")
-    if rexpression.ufl_shape != element.reference_value_shape:
-        raise ValueError(f"Mismatching reference shapes, got {rexpression.ufl_shape} expected {element.reference_value_shape}")
-    return rexpression
 
 
 class TSFCConstantMixin:

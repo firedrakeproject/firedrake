@@ -1,31 +1,20 @@
 import collections
 import time
 import sys
-from itertools import chain
-import numpy
-from finat.physically_mapped import NeedsCoordinateMappingElement
 
 import ufl
 from ufl.algorithms import extract_coefficients
-from ufl.algorithms.analysis import has_type
-from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
-from ufl.classes import Form, GeometricQuantity
-from ufl.domain import extract_unique_domain, extract_domains
-
-import gem
-import gem.impero_utils as impero_utils
-from gem.unconcatenate import unconcatenate
+from ufl.algorithms.apply_coefficient_split import build_coefficient_split
+from ufl.classes import Form
+from ufl.domain import extract_unique_domain, extract_domains, join_domains
 
 import finat
-from finat.element_factory import as_fiat_cell
 
-from tsfc import fem, ufl_utils
+from tsfc import ufl_utils
 from tsfc.logging import logger
-from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import default_parameters, is_complex
-from tsfc.ufl_utils import apply_mapping, extract_firedrake_constants, simplify_abs
+from tsfc.ufl_utils import extract_firedrake_constants
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface_loopy
-from tsfc.kernel_interface.common import get_index_ordering, pick_mode
 from tsfc.exceptions import MismatchingDomainError
 
 
@@ -79,6 +68,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     """
     cpu_time = time.time()
 
+    if isinstance(form, ufl.Interpolate):
+        return compile_interpolate(form, prefix=prefix, parameters=parameters)
+
     assert isinstance(form, Form)
 
     GREEN = "\033[1;37;32m%s\033[0m"
@@ -112,6 +104,22 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     return kernels
 
 
+def make_kernel_builder(integral_data_info, constants, parameters,
+                        diagonal=False):
+    """Create a kernel builder holding every mesh quantity its integral may read."""
+    builder = firedrake_interface_loopy.KernelBuilder(
+        integral_data_info, parameters["scalar_type"], diagonal=diagonal
+    )
+    domains = tuple(integral_data_info.domain_integral_type_map)
+    builder.set_cell_orientations(domains)
+    builder.set_cell_sizes(domains)
+    builder.set_coefficients()
+    # TODO: We do not want pass constants to kernels that do not need them
+    # so we should attach the constants to integral data instead
+    builder.set_constants(constants)
+    return builder
+
+
 def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False):
     """Compiles a UFL integral into an assembly kernel.
 
@@ -123,7 +131,6 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     :returns: a kernel constructed by the kernel interface
     """
     parameters = preprocess_parameters(parameters)
-    scalar_type = parameters["scalar_type"]
     integral_type = integral_data.integral_type
     arguments = form_data.preprocessed_form.arguments()
     if integral_type.startswith("interior_facet") and diagonal and any(a.function_space().finat_element.is_dg() for a in arguments):
@@ -158,21 +165,10 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         coefficient_split=coefficient_split,
         coefficient_numbers=coefficient_numbers,
     )
-
-    builder = firedrake_interface_loopy.KernelBuilder(
-        integral_data_info,
-        scalar_type,
-        diagonal=diagonal,
+    builder = make_kernel_builder(
+        integral_data_info, form_data.constants, parameters, diagonal=diagonal,
     )
-    builder.set_entity_numbers(all_meshes)
-    builder.set_entity_orientations(all_meshes)
-    builder.set_coordinates(all_meshes)
-    builder.set_cell_orientations(all_meshes)
-    builder.set_cell_sizes(all_meshes)
-    builder.set_coefficients()
-    # TODO: We do not want pass constants to kernels that do not need them
-    # so we should attach the constants to integral data instead
-    builder.set_constants(form_data.constants)
+    builder.set_coordinates(tuple(integral_data_info.domain_integral_type_map))
     ctx = builder.create_context()
     for integral in integral_data.integrals:
         params = parameters.copy()
@@ -180,7 +176,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
-    return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
+    return builder.construct_kernel(kernel_name, ctx, log=parameters["add_petsc_events"])
 
 
 def validate_domains(form):
@@ -224,8 +220,7 @@ def preprocess_parameters(parameters):
 
 
 def compile_expression_dual_evaluation(expression, ufl_element, *,
-                                       domain=None, interface=None,
-                                       parameters=None, name=None):
+                                       domain=None, parameters=None, name=None):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
@@ -233,225 +228,70 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     :arg expression: UFL expression
     :arg ufl_element: The UFL element of the target space.
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
-    :arg interface: backend module for the kernel interface
     :arg parameters: parameters object
-    :returns: Loopy-based ExpressionKernel object.
+    :returns: Loopy-based Kernel object.
     """
-    if parameters is None:
-        parameters = default_parameters()
-    else:
-        _ = default_parameters()
-        _.update(parameters)
-        parameters = _
-
-    # Determine whether in complex mode
-    complex_mode = is_complex(parameters["scalar_type"])
-
-    orig_coefficients = extract_coefficients(expression)
-    if isinstance(expression, ufl.Interpolate):
-        v, operand = expression.argument_slots()
-    else:
-        operand = expression
-        v = ufl.FunctionSpace(extract_unique_domain(operand), ufl_element)
-
-    # Map into reference space
-    operand = apply_mapping(operand, ufl_element, domain)
-
-    # Apply UFL preprocessing
-    operand = ufl_utils.preprocess_expression(operand, complex_mode=complex_mode)
-    operand = simplify_abs(operand, complex_mode)
-
-    # Reconstructed Interpolate with mapped operand
-    expression = ufl.Interpolate(operand, v)
-
-    # Initialise kernel builder
-    if interface is None:
-        # Delayed import, loopy is a runtime dependency
-        from tsfc.kernel_interface.firedrake_loopy import ExpressionKernelBuilder as interface
-
-    builder = interface(parameters["scalar_type"])
-    arguments = expression.arguments()
-    argument_multiindices = {arg.number(): builder.create_element(arg.ufl_element()).get_indices()
-                             for arg in arguments}
-    assert len(argument_multiindices) == len(arguments)
-
-    # Replace coordinates (if any) unless otherwise specified by kwarg
-    if domain is None:
-        domain = extract_unique_domain(expression)
-    assert domain is not None
-    builder._domain_integral_type_map = {domain: "cell"}
-    builder._entity_ids = {domain: (0,)}
-
-    # Collect required coefficients and determine numbering
-    coefficients = extract_coefficients(expression)
-    coefficient_numbers = tuple(map(orig_coefficients.index, coefficients))
-    builder.set_coefficient_numbers(coefficient_numbers)
-    # Need this ad-hoc fix for now.
-    for c in coefficients:
-        d = extract_unique_domain(c)
-        builder._domain_integral_type_map[d] = "cell"
-
-    elements = [f.ufl_element() for f in (*coefficients, *arguments)]
-
-    needs_external_coords = False
-    if has_type(expression, GeometricQuantity) or any(map(fem.needs_coordinate_mapping, elements)):
-        # Create a fake coordinate coefficient for a domain.
-        coords_coefficient = ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
-        builder.domain_coordinate[domain] = coords_coefficient
-        builder.set_cell_orientations((domain, ))
-        builder.set_cell_sizes((domain, ))
-        coefficients = [coords_coefficient] + coefficients
-        needs_external_coords = True
-    builder.set_coefficients(coefficients)
-
-    constants = extract_firedrake_constants(expression)
-    builder.set_constants(constants)
-
-    # Split mixed coefficients
-    coeff_splitter = CoefficientSplitter(builder.coefficient_split)
-    expression = coeff_splitter(expression)
-
-    # Set up kernel config for translation of UFL expression to gem
-    kernel_cfg = dict(interface=builder,
-                      ufl_cell=domain.ufl_cell(),
-                      integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
-                      # FIXME: change if we ever implement
-                      # interpolation on facets.
-                      argument_multiindices=argument_multiindices,
-                      index_cache={},
-                      scalar_type=parameters["scalar_type"])
-
-    # Create the finat element for the target space
-    try:
-        to_element = builder.create_element(ufl_element)
-    except KeyError:
-        # FInAT only elements
-        raise NotImplementedError(f"Don't know how to create FIAT element for {ufl_element}")
-
-    # Allow interpolation onto QuadratureElements to refer to the quadrature
-    # rule they represent
-    if isinstance(to_element, finat.QuadratureElement):
-        kernel_cfg["quadrature_rule"] = to_element._rule
-
+    parameters = preprocess_parameters(parameters)
+    if not isinstance(expression, ufl.Interpolate):
+        V = ufl.FunctionSpace(extract_unique_domain(expression) or domain, ufl_element)
+        expression = ufl.Interpolate(expression, V)
     dual_arg, operand = expression.argument_slots()
+    arguments = expression.arguments()
+    domains = expression.ufl_domains()
+    target_domains = join_domains([dual_arg.ufl_function_space().ufl_domain()])
+    if len(target_domains) != 1:
+        raise NotImplementedError("Interpolation onto multiple distinct meshes is not supported")
+    target_domain, = target_domains
+    source_domain = domain or extract_unique_domain(operand) or target_domain
+    if target_domain.topological_dimension == 0 and source_domain.topological_dimension > 0:
+        ufl_element = ufl_utils.runtime_quadrature_element(source_domain, ufl_element)
 
-    # Create callable for translation of UFL expression to gem
-    fn = DualEvaluationCallable(operand, kernel_cfg)
+    original_coefficients = extract_coefficients(expression)
+    coefficients = extract_coefficients(expression)
+    integral_data_info = TSFCIntegralDataInfo(
+        domain=source_domain,
+        integral_type="cell",
+        subdomain_id=("everywhere",),
+        domain_number=domains.index(target_domain),
+        domain_integral_type_map={mesh: "cell" for mesh in domains},
+        arguments=arguments,
+        coefficients=coefficients,
+        coefficient_split=build_coefficient_split(
+            c for c in coefficients if type(c.ufl_element()) is finat.ufl.MixedElement
+        ),
+        coefficient_numbers=tuple(map(original_coefficients.index, coefficients)),
+    )
 
-    # Get the gem expression for dual evaluation and corresponding basis
-    # indices needed for compilation of the expression
-    if isinstance(to_element, NeedsCoordinateMappingElement):
-        ctx = fem.PointSetContext(**kernel_cfg)
-        mt = analyse_modified_terminal(ufl.Coefficient(dual_arg.ufl_function_space().dual()))
-        coordinate_mapping = fem.CoordinateMapping(mt, ctx)
-    else:
-        coordinate_mapping = None
-    evaluation, point_indices, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
-    quadrature_multiindex = tuple(point_indices)
-
-    # Compute the action against the dual argument
-    if isinstance(dual_arg, ufl.Cofunction):
-        gem_dual = builder.coefficient_map[dual_arg]
-        if complex_mode:
-            evaluation = gem.MathFunction('conj', evaluation)
-        # The dual argument contracts over the nodes.  Split the dual basis
-        # along its Concatenate nodes first, as assembly does for coefficient
-        # evaluation.  Each block then sums over its own basis indices, rather
-        # than over the concatenated index, which nothing can be split along.
-        var, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
-        summands = []
-        for v, expr in unconcatenate([(var, evaluation)], kernel_cfg["index_cache"]):
-            quadrature_multiindex += v.index_ordering()
-            summands.append(gem.IndexSum(gem.Product(expr, v), v.index_ordering()))
-        evaluation = gem.optimise.make_sum(summands)
-        basis_indices = ()
-    else:
-        argument_multiindices[dual_arg.number()] = basis_indices
-
-    argument_multiindices = dict(sorted(argument_multiindices.items()))
-
-    # Build kernel body
-    return_indices = tuple(chain.from_iterable(argument_multiindices.values()))
-    return_shape = tuple(i.extent for i in return_indices)
-    return_var = gem.Variable('A', (numpy.prod(return_shape, dtype=int),))
-    return_expr = gem.Indexed(gem.reshape(return_var, return_shape), return_indices)
-    return_expr, = gem.optimise.remove_componenttensors([return_expr])
-
-    # Contract over the points with the same GEM optimisations as in assembly.
-    mode = pick_mode(parameters["mode"])
-    reps = mode.Integrals([evaluation], quadrature_multiindex,
-                          tuple(argument_multiindices.values()), parameters)
-    assignments = list(mode.flatten([(return_expr, reps)], kernel_cfg["index_cache"]))
-    return_variables, expressions = zip(*assignments)
-    # Argument factorisation does not cancel every Delta here, so lower them.
-    finalise_options = dict(mode.finalise_options, replace_delta=True)
-    expressions = impero_utils.preprocess_gem(expressions, **finalise_options)
-    index_ordering = get_index_ordering(quadrature_multiindex, return_variables)
-    impero_c = impero_utils.compile_gem(list(zip(return_variables, expressions)), index_ordering)
-    index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
-    # Handle kernel interface requirements
-    builder.register_requirements(expressions)
-    builder.set_output(return_var)
-    # Build kernel tuple
-    return builder.construct_kernel(impero_c, index_names, needs_external_coords, parameters["add_petsc_events"], name=name)
+    builder = make_kernel_builder(
+        integral_data_info, extract_firedrake_constants(expression), parameters,
+    )
+    ctx = builder.create_context()
+    reps = builder.compile_interpolate(expression, ufl_element, parameters, ctx)
+    builder.stash_integrals(reps, parameters, ctx)
+    return builder.construct_kernel(name, ctx, log=parameters["add_petsc_events"])
 
 
-class DualEvaluationCallable(object):
+def compile_interpolate(ufl_interpolate: ufl.Interpolate, prefix: str = "interpolate",
+                        parameters: dict | None = None) -> list:
+    """Compile a UFL interpolation into an assembly kernel.
+
+    Parameters
+    ----------
+    ufl_interpolate
+        The UFL interpolation to compile.
+    prefix
+        Kernel name will start with this string.
+    parameters
+        Parameters object.
+
+    Returns
+    -------
+    list
+        A single-element list holding the kernel.
+
     """
-    Callable representing a function to dual evaluate.
-
-    When called, this takes in a
-    :class:`finat.point_set.AbstractPointSet` and returns a GEM
-    expression for evaluation of the function at those points.
-
-    :param expression: UFL expression for the function to dual evaluate.
-    :param kernel_cfg: A kernel configuration for creation of a
-        :class:`GemPointContext` or a :class:`PointSetContext`
-
-    Not intended for use outside of
-    :func:`compile_expression_dual_evaluation`.
-    """
-    def __init__(self, expression, kernel_cfg):
-        self.expression = expression
-        self.kernel_cfg = kernel_cfg
-
-    def __call__(self, ps):
-        """The function to dual evaluate.
-
-        :param ps: The :class:`finat.point_set.AbstractPointSet` for
-            evaluating at
-        :returns: a gem expression representing the evaluation of the
-            input UFL expression at the given point set ``ps``.
-            For point set points with some shape ``(*value_shape)``
-            (i.e. ``()`` for scalar points ``(x)`` for vector points
-            ``(x, y)`` for tensor points etc) then the gem expression
-            has shape ``(*value_shape)`` and free indices corresponding
-            to the input :class:`finat.point_set.AbstractPointSet`'s
-            free indices alongside any input UFL expression free
-            indices.
-        """
-
-        if not isinstance(ps, finat.point_set.AbstractPointSet):
-            raise ValueError("Callable argument not a point set!")
-
-        # Avoid modifying saved kernel config
-        kernel_cfg = self.kernel_cfg.copy()
-
-        if isinstance(ps, finat.point_set.UnknownPointSet):
-            # Run time known points
-            kernel_cfg.update(point_indices=ps.indices, point_expr=ps.expression)
-            # GemPointContext's aren't allowed to have quadrature rules
-            kernel_cfg.pop("quadrature_rule", None)
-            translation_context = fem.GemPointContext(**kernel_cfg)
-        else:
-            # Compile time known points
-            kernel_cfg.update(point_set=ps)
-            translation_context = fem.PointSetContext(**kernel_cfg)
-
-        gem_expr, = fem.compile_ufl(self.expression, translation_context, point_sum=False)
-        # In some cases ps.indices may be dropped from expr, but nothing
-        # new should now appear
-        argument_multiindices = kernel_cfg["argument_multiindices"].values()
-        assert set(gem_expr.free_indices) <= set(chain(ps.indices, *argument_multiindices))
-
-        return gem_expr
+    kernel = compile_expression_dual_evaluation(
+        ufl_interpolate, ufl_interpolate.ufl_element(),
+        parameters=parameters, name=f"{prefix}_cell_integral",
+    )
+    return [kernel]

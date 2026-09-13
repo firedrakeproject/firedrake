@@ -5,8 +5,12 @@ from functools import cached_property, reduce
 from itertools import chain, product
 import copy
 
+from ufl.algorithms.analysis import has_type
+from ufl.classes import Cofunction, GeometricQuantity, Interpolate
+from ufl.finiteelement import AbstractFiniteElement
 from ufl.utils.sequences import max_degree
-from ufl.domain import extract_unique_domain
+from ufl.domain import MeshSequence, extract_unique_domain
+from ufl.algorithms.apply_coefficient_split import CoefficientSplitter
 
 import gem
 import gem.impero_utils as impero_utils
@@ -18,8 +22,10 @@ from finat.quadrature import AbstractQuadratureRule
 from gem.node import traversal
 from gem.optimise import constant_fold_zero
 from gem.optimise import remove_componenttensors as prune
+from gem.unconcatenate import unconcatenate
 from numpy import asarray
-from tsfc import fem
+from tsfc.parameters import is_complex
+from tsfc.ufl_utils import preprocess_interpolate
 from finat.element_factory import as_fiat_cell, create_element
 from finat.ufl import MixedElement
 from tsfc.kernel_interface import KernelInterface
@@ -38,9 +44,9 @@ class KernelBuilderBase(KernelInterface):
 
         # Coordinates
         self.domain_coordinate = {}
-
         # Coefficients
         self.coefficient_map = collections.OrderedDict()
+        self.coefficient_split = {}
 
         # Constants
         self.constant_map = collections.OrderedDict()
@@ -62,6 +68,11 @@ class KernelBuilderBase(KernelInterface):
             return kernel_arg
         else:
             return kernel_arg[{'+': 0, '-': 1}[restriction]]
+
+    def coefficient_components(self, ufl_coefficient, restriction):
+        """Return GEM expressions for a coefficient's stored components."""
+        coefficients = self.coefficient_split.get(ufl_coefficient, (ufl_coefficient,))
+        return tuple(self.coefficient(coefficient, restriction) for coefficient in coefficients)
 
     def constant(self, const):
         return self.constant_map[const]
@@ -133,8 +144,93 @@ class KernelBuilderBase(KernelInterface):
         return self._domain_integral_type_map
 
 
-class KernelBuilderMixin(object):
+class KernelBuilderMixin:
     """Mixin for KernelBuilder classes."""
+
+    def compile_interpolate(self, ufl_interpolate: Interpolate,
+                            target_element: AbstractFiniteElement,
+                            params: dict, ctx: dict) -> list:
+        """Compile UFL interpolate.
+
+        Parameters
+        ----------
+        ufl_interpolate
+            Unprocessed UFL interpolation.
+        target_element
+            UFL element of the interpolation target. This is not the dual
+            argument's own element when the target is a point cloud: the
+            points are then only known at run time, so the target is a
+            quadrature element on the source cell.
+        params
+            Parameter dictionary containing ``"mode"``.
+        ctx
+            Context created with :meth:`create_context`.
+
+        Returns
+        -------
+        list
+            Integral representations for the interpolation.
+        """
+        preprocessed_interpolate = preprocess_interpolate(
+            ufl_interpolate,
+            target_element,
+            self.integral_data_info.domain,
+            complex_mode=is_complex(params["scalar_type"]),
+        )
+        dual_arg, operand = preprocessed_interpolate.argument_slots()
+        operand = CoefficientSplitter(self.coefficient_split)(operand)
+        from tsfc import fem
+
+        elements = [f.ufl_element() for f in (*self.integral_data_info.coefficients,
+                                              *self.integral_data_info.arguments)]
+        needs_external_coords = bool(
+            has_type(operand, GeometricQuantity)
+            or any(map(fem.needs_coordinate_mapping, elements))
+        )
+        if needs_external_coords:
+            self.set_coordinates(tuple(self.integral_data_info.domain_integral_type_map))
+        try:
+            target_element = self.create_element(target_element)
+        except KeyError:
+            # FInAT only elements
+            raise NotImplementedError(f"Don't know how to create FIAT element for {target_element}")
+        config = self.fem_config()
+        config.update(argument_multiindices=self.argument_multiindices,
+                      index_cache=ctx["index_cache"])
+        evaluations = fem.dual_evaluate(operand, dual_arg, target_element, config)
+        if not isinstance(dual_arg, Cofunction):
+            evaluation, quadrature_multiindex, basis_indices = evaluations[0]
+            # A dual Argument indexes the return value, so the dual basis must
+            # tabulate onto the indices the output tensor was built with.
+            output_indices = self.argument_multiindices[self.integral_data_info.arguments.index(dual_arg)]
+            if tuple(i.extent for i in basis_indices) != tuple(i.extent for i in output_indices):
+                raise ValueError("Interpolation output index shape mismatch")
+            evaluation, = gem.optimise.remove_componenttensors([evaluation], tuple(zip(basis_indices, output_indices)))
+            evaluations = [(evaluation, quadrature_multiindex, output_indices)]
+
+        return_variables = []
+        reps = []
+        for evaluation, quadrature_multiindex, _ in evaluations:
+            for variable, expr in unconcatenate(
+                    [(self.return_variables[0], evaluation)], ctx["index_cache"]):
+                quadrature_multiindex = tuple(
+                    dict.fromkeys(chain(
+                        (index for index in quadrature_multiindex
+                         if index in expr.free_indices),
+                        (index for index in expr.free_indices
+                         if index not in variable.free_indices),
+                    ))
+                )
+                ctx["quadrature_indices"].extend(quadrature_multiindex)
+                return_variables.append(variable)
+                reps.extend(self.construct_integrals(
+                    [expr], params, quadrature_multiindex,
+                    (variable.index_ordering(),)
+                ))
+        self.return_variables = tuple(return_variables)
+        # Argument factorisation does not cancel every Delta here, so lower them.
+        ctx["finalise_options"]["replace_delta"] = True
+        return reps
 
     def compile_integrand(self, integrand, params, ctx):
         """Compile UFL integrand.
@@ -154,12 +250,16 @@ class KernelBuilderMixin(object):
         config['argument_multiindices'] = self.argument_multiindices
         config['quadrature_rule'] = quad_rule
         config['index_cache'] = ctx['index_cache']
+        from tsfc import fem
+
         expressions = fem.compile_ufl(integrand,
                                       fem.PointSetContext(**config))
         ctx['quadrature_indices'].extend(quad_rule.point_set.indices)
         return expressions
 
-    def construct_integrals(self, integrand_expressions, params):
+    def construct_integrals(self, integrand_expressions, params,
+                            quadrature_multiindex=None,
+                            argument_multiindices=None):
         """Construct integrals from integrand expressions.
 
         :arg integrand_expressions: gem expressions for integrands.
@@ -170,12 +270,22 @@ class KernelBuilderMixin(object):
         method or by modifying the gem expressions returned by
         :meth:`compile_integrand`.
 
+        quadrature_multiindex is the sequence of indices to contract. When it
+        is not given, use the point indices from the quadrature rule.
+
+        argument_multiindices are the free indices of the return variables.
+        When they are not given, use the builder's argument multiindices.
+
         See :meth:`create_context` for typical calling sequence.
         """
         mode = pick_mode(params["mode"])
+        if quadrature_multiindex is None:
+            quadrature_multiindex = params["quadrature_rule"].point_set.indices
+        if argument_multiindices is None:
+            argument_multiindices = self.argument_multiindices
         return mode.Integrals(integrand_expressions,
-                              params["quadrature_rule"].point_set.indices,
-                              self.argument_multiindices,
+                              quadrature_multiindex,
+                              argument_multiindices,
                               params)
 
     def stash_integrals(self, reps, params, ctx):
@@ -220,6 +330,7 @@ class KernelBuilderMixin(object):
         options = dict(reduce(operator.and_,
                               [mode.finalise_options.items()
                                for mode in mode_irs.keys()]))
+        options.update(ctx['finalise_options'])
         expressions = impero_utils.preprocess_gem(expressions, **options)
 
         # Let the kernel interface inspect the optimised IR to register
@@ -277,6 +388,11 @@ class KernelBuilderMixin(object):
 
         Dict for mode representations.
 
+        *finalise_options*
+
+        Options overriding the modes' own :func:`impero_utils.preprocess_gem`
+        options.
+
         For each set of integrals to make a kernel for (i,e.,
         `integral_data.integrals`), one must first create a ctx object by
         calling :meth:`create_context` method.
@@ -299,12 +415,15 @@ class KernelBuilderMixin(object):
         """
         return {'index_cache': {},
                 'quadrature_indices': [],
+                'finalise_options': {},
                 'mode_irs': collections.OrderedDict()}
 
 
 def set_quad_rule(params, cell, integral_type, functions):
     # Check if the integral has a quad degree or quad element attached,
     # otherwise use the estimated polynomial degree attached by compute_form_data
+    from tsfc import fem
+
     quad_rule = params.get("quadrature_rule", "default")
     elements = []
     for f in functions:
@@ -577,7 +696,16 @@ def prepare_arguments(arguments, multiindices, domain_integral_type_map, diagona
     c_shape = copy.deepcopy(u_shape)
     rs_tuples = []
     for arg_num, arg in enumerate(arguments):
-        integral_type = domain_integral_type_map[extract_unique_domain(arg)]
+        domain = arg.ufl_function_space().ufl_domain()
+        try:
+            integral_type = domain_integral_type_map[domain]
+        except KeyError:
+            # An unsplit argument (e.g. a mixed-space patch argument) reports
+            # its domain as a MeshSequence rather than a single mesh: every
+            # mesh it sequences is the same iteration, so they must agree.
+            if not isinstance(domain, MeshSequence):
+                raise
+            integral_type, = {domain_integral_type_map[m] for m in domain.meshes}
         if integral_type is None:
             raise RuntimeError(f"Can not determine integral_type on {arg}")
         if integral_type.startswith("interior_facet"):

@@ -2,7 +2,6 @@ import numpy
 import string
 from collections import defaultdict
 from pyop2 import op2
-from pyop2.utils import as_tuple
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspacedata import entity_dofs_key
 from firedrake.functionspaceimpl import FiredrakeDualSpace
@@ -20,6 +19,7 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
+from tsfc import kernel_args
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
@@ -34,7 +34,7 @@ from finat.element_factory import create_element
 from finat.quadrature import make_quadrature
 from firedrake.pointquery_utils import dX_norm_square, X_isub_dX, init_X, inside_check, is_affine, celldist_l1_c_expr
 from firedrake.pointquery_utils import to_reference_coords_newton_step as to_reference_coords_newton_step_body
-from firedrake.pointeval_utils import runtime_quadrature_element
+from tsfc.ufl_utils import runtime_quadrature_element
 
 
 def to_reference_coordinates(ufl_coordinate_element, parameters=None):
@@ -131,22 +131,38 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
     return kernel
 
 
-def _make_kernel_args(kernel, element, *args):
+def _make_kernel_args(kernel, output, coefficient, target_coordinates,
+                      coordinates=None, cell_orientations=None, cell_sizes=None):
     """Returns a string of argument names to call the kernel.
        Discards coordinate arguments if they do not appear in the kernel."""
-    # NOTE: TSFC will sometimes drop run-time arguments in generated
-    # kernels if they are deemed not-necessary.
-    # For further information, see the same note in interpolation.py.
-    mask = [True] * len(args)
-    # Drop source mesh quantities if they do not appear in the kernel.
-    mask[1] = kernel.oriented
-    mask[2] = kernel.needs_cell_sizes
-    mask[3] = kernel.needs_external_coords
-    # Drop the target coordinates if the element is constant.
-    is_constant = sum(as_tuple(element.degree)) == 0 and not element.complex.is_macrocell()
-    mask[-1] = not is_constant
-    kernel_args = ", ".join(arg for arg, include in zip(args, mask) if include)
-    return kernel_args
+    # TSFC may omit runtime arguments that it determines are unnecessary from
+    # generated kernels. Iterate over the generated kernel's actual arguments
+    # so that the call includes only values that the kernel expects.
+    coefficients = (coefficient,) if isinstance(coefficient, str) else tuple(coefficient)
+    coefficient_index = 0
+    args = []
+    for arg in kernel.arguments:
+        if isinstance(arg, kernel_args.OutputKernelArg):
+            value = output
+        elif isinstance(arg, kernel_args.CoordinatesKernelArg):
+            value = coordinates
+        elif isinstance(arg, kernel_args.CellOrientationsKernelArg):
+            value = cell_orientations
+        elif isinstance(arg, kernel_args.CellSizesKernelArg):
+            value = cell_sizes
+        elif isinstance(arg, kernel_args.CoefficientKernelArg):
+            value = coefficients[coefficient_index]
+            coefficient_index += 1
+        elif isinstance(arg, kernel_args.TabulationKernelArg):
+            value = target_coordinates
+        else:
+            raise ValueError(f"Unsupported dual-evaluation kernel argument {type(arg).__name__}")
+        if value is None:
+            raise ValueError(f"Missing value for dual-evaluation kernel argument {type(arg).__name__}")
+        args.append(value)
+    if coefficient_index != len(coefficients):
+        raise ValueError("Too many coefficient arguments for dual-evaluation kernel")
+    return ", ".join(args)
 
 
 def _make_element_key(element):
@@ -240,7 +256,8 @@ def prolong_kernel(expression, Vf):
                "evaluate": evaluate_code,
                "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
+               "kernel_args": _make_kernel_args(kernel, "R", "fi", "Xref", coordinates="Xci",
+                                                cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -332,7 +349,8 @@ def restrict_kernel(Vf, Vc):
                "evaluate": evaluate_code,
                "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
+               "kernel_args": _make_kernel_args(kernel, "Ri", "b", "Xref", coordinates="Xc",
+                                                cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
