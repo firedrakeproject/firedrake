@@ -509,6 +509,21 @@ def test_form_interp_bilinear():
     assert np.allclose(actual.dat.data, expected.dat.data)
 
 
+@pytest.mark.parametrize("family", ("RTCE", "RTCF", "Q"))
+def test_form_interp_direct_sum(family):
+    # A direct sum blocks its tabulation and its dual basis along the same
+    # summands, and each summand dual evaluates on points of its own.  An
+    # interpolation into a nodal space is the identity on that space, so it
+    # catches a block that contracts against the wrong points.
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = FunctionSpace(mesh, family, 2)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    expected = assemble(inner(u, v) * dx)
+    actual = assemble(inner(interpolate(u, V), v) * dx)
+    assert np.allclose(actual.M.values, expected.M.values)
+
+
 def test_form_interp_interior_facet():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 2)

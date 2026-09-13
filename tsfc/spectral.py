@@ -107,8 +107,10 @@ def flatten(var_reps, index_cache):
         monomial_sum = delta_simplified[variable]
         # Collect sum indices applicable to the current MonomialSum
         sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
-        # Put them in a deterministic order
-        sum_indices = [i for i in quadrature_indices if i in sum_indices]
+        # Put them in a deterministic order, quadrature indices first
+        sum_indices = ([i for i in quadrature_indices if i in sum_indices]
+                       + sorted(sum_indices.difference(quadrature_indices),
+                                key=lambda index: index.count))
         # Apply sum factorisation combined with COFFEE technology
         expression = sum_factorise(variable, sum_indices, monomial_sum)
         yield (variable, expression)

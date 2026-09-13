@@ -3,7 +3,8 @@ import pytest
 
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, hexahedron, curl, dot, div, grad)
+                 quadrilateral, hexahedron, curl, dot, div, grad, inner,
+                 Interpolate)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
@@ -62,6 +63,15 @@ def split_vector_laplace(cell, degree):
     tau = TestFunction(CG)
     v = TestFunction(RT)
     return [dot(u, grad(tau))*dx, dot(grad(sigma), v)*dx, dot(curl(u), curl(v))*dx]
+
+
+def interpolated_vector_laplace(cell, degree):
+    m = Mesh(VectorElement('CG', cell, 1))
+    Q = FunctionSpace(m, FiniteElement('Q', cell, degree))
+    NCE = FunctionSpace(m, FiniteElement('NCE', cell, degree))
+    dtest = Interpolate(grad(TestFunction(Q)), NCE)
+    dtrial = TrialFunction(NCE)
+    return inner(dtrial, dtest) * dx
 
 
 def count_flops(form):
@@ -187,6 +197,16 @@ def test_vector_laplace_action(cell, order):
               for form in split_vector_laplace(cell, int(degree))]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(('cell', 'order'),
+                         [(TensorProductCell(quadrilateral, interval), 7)])
+def test_interpolated_vector_laplace(cell, order):
+    degrees = numpy.arange(3, 8)
+    flops = [count_flops(interpolated_vector_laplace(cell, int(degree)))
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
 
 
