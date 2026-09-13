@@ -18,7 +18,9 @@ from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementB
 
 from firedrake.utils import IntType
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action, extract_domains
-from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
+from firedrake.mesh import (MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry,
+                            VertexOnlyMesh)
+from tsfc.driver import is_same_dim_submesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
@@ -176,7 +178,7 @@ class Interpolate(UFLInterpolate):
         except NonUniqueMeshSequenceError:
             return MixedInterpolator(self)
 
-        if target_mesh is source_mesh or is_submesh_domain(source_mesh, target_mesh):
+        if target_mesh is source_mesh or is_same_dim_submesh(source_mesh, target_mesh):
             return SameMeshInterpolator(self, source_mesh, target_mesh)
 
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
@@ -213,42 +215,6 @@ def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate
         A symbolic :class:`Interpolate` object representing the interpolation operation.
     """
     return Interpolate(expr, V, **kwargs)
-
-
-def is_submesh_domain(domain: MeshGeometry, other: MeshGeometry) -> bool:
-    """Are these domains one submesh family that shares a topological dimension?"""
-    return (all(isinstance(m.topology, MeshTopology) for m in [domain, other])
-            and domain.topology.submesh_youngest_common_ancestor(other.topology) is not None
-            and domain.topological_dimension == other.topological_dimension)
-
-
-def is_same_mesh_interp(source_mesh: MeshGeometry, target_mesh: MeshGeometry) -> bool:
-    """Does interpolation between these meshes map cells to cells?"""
-    try:
-        source_mesh = source_mesh.unique()
-        target_mesh = target_mesh.unique()
-    except NonUniqueMeshSequenceError:
-        # A mixed interpolation over several meshes needs its own interpolator.
-        return False
-    return (target_mesh is source_mesh
-            or isinstance(target_mesh.topology, VertexOnlyMeshTopology)
-            or is_submesh_domain(source_mesh, target_mesh))
-
-
-def interp_cell_subset(source_mesh: MeshGeometry, target_mesh: MeshGeometry) -> op2.Subset | None:
-    """Return the target cells that have a source cell, or `None` if every one does."""
-    source_mesh = source_mesh.unique()
-    target_mesh = target_mesh.unique()
-    target, source = target_mesh.topology, source_mesh.topology
-    if target is source or not is_submesh_domain(source_mesh, target_mesh):
-        return None
-    composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
-    if result_integral_type != "cell":
-        raise AssertionError("Only cell-cell interpolation supported.")
-    indices_active = composed_map.indices_active_with_halo
-    if target.comm.allreduce(indices_active.all(), op=MPI.LAND):
-        return None
-    return op2.Subset(target.cell_set, numpy.where(indices_active))
 
 
 class Interpolator(abc.ABC):
@@ -708,7 +674,16 @@ class SameMeshInterpolator(Interpolator):
 
         subset = self.subset
         if subset is None:
-            subset = interp_cell_subset(self.source_mesh, self.target_mesh)
+            source_mesh = self.source_mesh.unique()
+            target_mesh = self.target_mesh.unique()
+            target, source = target_mesh.topology, source_mesh.topology
+            if target is not source and is_same_dim_submesh(source_mesh, target_mesh):
+                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
+                if result_integral_type != "cell":
+                    raise AssertionError("Only cell-cell interpolation supported.")
+                indices_active = composed_map.indices_active_with_halo
+                if not target.comm.allreduce(indices_active.all(), op=MPI.LAND):
+                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
             if subset is not None and not self.allow_missing_dofs:
                 raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
         self.subset = subset
