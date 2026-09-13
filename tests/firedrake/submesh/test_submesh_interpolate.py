@@ -87,6 +87,63 @@ def test_submesh_form_interp():
     assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize('covered', [True, False])
+def test_submesh_form_interp_coverage(covered):
+    # A Form iterates over its own cells, so it only fuses an interpolation
+    # whose source mesh supplies every target cell.
+    from firedrake.assemble import BaseFormAssembler
+
+    mesh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
+    x, y = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    left = Function(DG0).interpolate(conditional(x < 1., 1, 0))
+    mesh = RelabeledMesh(mesh, [left], [111])
+    subm = Submesh(mesh, mesh.topological_dimension, 111)
+    # The parent supplies every submesh cell, but the submesh supplies only
+    # those parent cells that it was cut from.
+    source, target = (mesh, subm) if covered else (subm, mesh)
+    Vsource = FunctionSpace(source, "CG", 1)
+    Vtarget = FunctionSpace(target, "CG", 1)
+    xs, ys = SpatialCoordinate(source)
+    f = Function(Vsource).interpolate(xs + 2 * ys)
+    v = TestFunction(Vtarget)
+    interp = interpolate(f, Vtarget, allow_missing_dofs=not covered)
+    measure = Measure("dx", target, intersect_measures=(Measure("dx", source),))
+    form = inner(interp, v) * measure
+
+    assert (interp not in BaseFormAssembler.base_form_operands(form)) == covered
+    actual = assemble(form)
+    expected = assemble(inner(assemble(interp), v) * dx(target))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_submesh_form_interp_facet_trace():
+    # An interpolation that crosses a codimension does not map cells to cells,
+    # so the Form that holds it assembles it on its own.
+    from firedrake.assemble import BaseFormAssembler
+
+    mesh = UnitCubeMesh(4, 4, 4)
+    x, y, z = SpatialCoordinate(mesh)
+    trace = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+    trace.interpolate(conditional(x > .999, 1., 0.))
+    mesh = RelabeledMesh(mesh, [trace], [999])
+    subm = Submesh(mesh, mesh.topological_dimension - 1, 999)
+    V = FunctionSpace(mesh, "CG", 1)
+    T = FunctionSpace(subm, "CG", 1)
+    f = Function(V).interpolate(y + 2 * z)
+    v = TestFunction(T)
+    interp = interpolate(f, T)
+    measure = Measure("dx", subm, intersect_measures=(Measure("dx", mesh),))
+    form = inner(interp, v) * measure
+
+    assert interp in BaseFormAssembler.base_form_operands(form)
+    actual = assemble(form)
+    expected = assemble(inner(assemble(interp), v) * dx(subm))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
 @pytest.mark.parametrize('nelem', [2, 4, 8, None])
 @pytest.mark.parametrize('fe_fesub', [[("DQ", 0), ("DQ", 0)],
                                       [("Q", 4), ("Q", 5)]])

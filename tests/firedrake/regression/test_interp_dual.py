@@ -607,3 +607,26 @@ def test_nested_cross_mesh_interp_assembles_operand():
 
     expected = assemble(interpolate(assemble(interpolation), Q))
     assert np.allclose(assemble(nested).dat.data, expected.dat.data)
+
+
+def test_nested_submesh_interp_shares_kernel():
+    from firedrake.assemble import BaseFormAssembler
+
+    mesh = RectangleMesh(3, 1, 3., 1., quadrilateral=True)
+    x, y = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    left = Function(DG0).interpolate(conditional(x < 2., 1, 0))
+    right = Function(DG0).interpolate(conditional(x > 1., 1, 0))
+    mesh = RelabeledMesh(mesh, [left, right], [111, 222])
+    left_mesh = Submesh(mesh, mesh.topological_dimension, 111)
+    right_mesh = Submesh(mesh, mesh.topological_dimension, 222)
+    V = FunctionSpace(left_mesh, "CG", 1)
+    W = FunctionSpace(right_mesh, "CG", 1)
+    x, y = SpatialCoordinate(left_mesh)
+
+    interpolation = interpolate(x + y, V)
+    nested = interpolate(interpolation, W, allow_missing_dofs=True)
+    assert interpolation not in BaseFormAssembler.base_form_operands(nested)
+
+    expected = assemble(interpolate(assemble(interpolation), W, allow_missing_dofs=True))
+    assert np.allclose(assemble(nested).dat.data, expected.dat.data)
