@@ -62,12 +62,10 @@ predictor (:math:`\rho_k < \eta_2`) the radius is shrunk by a factor
 :math:`t_1`, and if it was a good predictor (:math:`\rho_k > \eta_3`) and the
 step reached the boundary of the ball, the radius is enlarged by a factor
 :math:`t_2`. A rejected step is simply retried in the smaller region. PETSc
-implements this algorithm as the ``newtontr`` SNES type; its defaults are
-:math:`\eta_1 = 10^{-3}`, :math:`\eta_2 = 1/4`, :math:`\eta_3 = 3/4`,
-:math:`t_1 = 1/4`, :math:`t_2 = 2` and an initial radius
-:math:`\delta_0 = 0.2`, and each can be set through the options ``snes_tr_eta1``,
-..., ``snes_tr_delta0``. See chapter 4 of :cite:`nocedal2006numerical` for a
-thorough treatment of trust-region methods.
+implements this algorithm as the ``newtontr`` SNES type; with defaults that
+can be modified through the options ``snes_tr_eta1``, ..., ``snes_tr_delta0``. 
+See chapter 4 of :cite:`nocedal2006numerical` for a thorough treatment of 
+trust-region methods.
 
 The important point for us is that the whole algorithm is driven by the
 objective :math:`E`: it is what decides whether a step is accepted and
