@@ -2110,7 +2110,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                 swarm.field("globalindex") as swarm_global_indices,
             ):
                 parent_order = parent_renum_inv[swarm_parent_cell_nums.ravel() - pStart]
-                # sort by parent cell order, with ties broken by point global index
+                # points are ordered according to the order the MPI messages arrive in `discover_remote_roots`
+                # This is not very deterministic, so we order by parent cell ID with ties broken by global point ID
                 perm = np.lexsort((swarm_global_indices.ravel(), parent_order)).astype(IntType)
             perm_is = PETSc.IS().create(comm=swarm.comm)
             perm_is.setType("general")
