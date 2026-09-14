@@ -66,7 +66,7 @@ source/demos: copy_demos
 copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
-	for file in source/demos/*.py.rst; do pylit $$file; done
+	for file in source/demos/*.py.rst; do pylit --code-block-marker ".. code-block:: python" $$file; done
 
 # Convert the py:percent tutorial notebooks to .ipynb, copy across the data
 # files they reference at runtime, and execute them. nbsphinx then renders the
@@ -103,7 +103,7 @@ copy_notebooks:
 source/element_list.csv: source/element_list.py
 	cd source; python3 element_list.py
 
-source/team.rst: source/team2.py
+source/team.rst: source/team2.py source/team.ini
 	cd source; python3 team2.py; mv AUTHORS.rst ../..
 
 source/apt_deps.txt:

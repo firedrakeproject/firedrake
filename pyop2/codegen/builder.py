@@ -51,14 +51,14 @@ class Map(object):
         values = Argument(shape, dtype=dtype, pfx="map")
         if offset is not None:
             assert type(offset) == tuple
-            offset = numpy.array(offset, dtype=numpy.int32)
+            offset = numpy.array(offset, dtype=dtype)
             if len(set(offset)) == 1:
                 offset = Literal(offset[0], casting=True)
             else:
                 offset = NamedLiteral(offset, parent=values, suffix="offset")
         if offset_quotient is not None:
             assert type(offset_quotient) == tuple
-            offset_quotient = numpy.array(offset_quotient, dtype=numpy.int32)
+            offset_quotient = numpy.array(offset_quotient, dtype=dtype)
             offset_quotient = NamedLiteral(offset_quotient, parent=values, suffix="offset_quotient")
 
         self.values = values

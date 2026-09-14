@@ -44,6 +44,7 @@ SERIAL_DEMOS = [
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("poisson_adaptive_eigenvalue", "poisson_adaptive_eigenvalue"), ["netgen", "slepc", "vtk"]),
     Demo(("patch", "poisson_mg_patches"), []),
     Demo(("patch", "stokes_vanka_patches"), []),
     Demo(("patch", "hcurl_riesz_star"), []),
@@ -119,7 +120,7 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
     name = splitext(basename(rst_file))[0]
     py_file = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call(["pylit", rst_file, py_file])
+    subprocess.check_call(["pylit", "--code-block-marker", ".. code-block:: python", rst_file, py_file])
     return Path(py_file)
 
 

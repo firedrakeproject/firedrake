@@ -40,7 +40,7 @@ class HypreAMS(PCBase):
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix() or ""
-        V = get_function_space(obj.getDM())
+        V = get_function_space(obj.getDM()).collapse()
         mesh = V.mesh()
 
         family = str(V.ufl_element().family())
