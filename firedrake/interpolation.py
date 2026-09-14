@@ -19,7 +19,7 @@ from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementB
 from firedrake.utils import IntType
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action, extract_domains
 from firedrake.mesh import (MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry,
-                            VertexOnlyMesh)
+                            MeshTopology, VertexOnlyMesh)
 from tsfc.driver import is_same_dim_submesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
@@ -674,24 +674,41 @@ class SameMeshInterpolator(Interpolator):
 
         subset = self.subset
         if subset is None:
-            source_mesh = self.source_mesh.unique()
-            target_mesh = self.target_mesh.unique()
-            target, source = target_mesh.topology, source_mesh.topology
-            if target is not source and is_same_dim_submesh(source_mesh, target_mesh):
+            target = self.target_mesh.unique().topology
+            source = self.source_mesh.unique().topology
+            if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
                 composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
                 if result_integral_type != "cell":
                     raise AssertionError("Only cell-cell interpolation supported.")
                 indices_active = composed_map.indices_active_with_halo
-                if not target.comm.allreduce(indices_active.all(), op=MPI.LAND):
+                make_subset = not indices_active.all()
+                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
+                if make_subset:
+                    if not self.allow_missing_dofs:
+                        raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
                     subset = op2.Subset(target.cell_set, numpy.where(indices_active))
-            if subset is not None and not self.allow_missing_dofs:
-                raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
+                else:
+                    # Do not need subset as target <= source.
+                    pass
         self.subset = subset
 
         if not isinstance(self.dual_arg, Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             if self.access and self.access != op2.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
+
+    def _get_tensor(self) -> Function:
+        """Return a rank-1 `Function` to interpolate into."""
+        assert self.rank == 1
+        f = Function(self.ufl_interpolate.function_space())
+        if self.access in {op2.MIN, op2.MAX}:
+            finfo = numpy.finfo(f.dat.dtype)
+            if self.access == op2.MIN:
+                val = Constant(finfo.max)
+            else:
+                val = Constant(finfo.min)
+            f.assign(val)
+        return f
 
     @property
     def _needs_adjoint_weighting(self):
@@ -748,19 +765,6 @@ class SameMeshInterpolator(Interpolator):
         self.dual_arg.dat.copy(self._weighted_dual_arg.dat)
         with self._adjoint_weight.vec_ro as weight, self._weighted_dual_arg.dat.vec as dual:
             dual.pointwiseMult(dual, weight)
-
-    def _get_tensor(self) -> Function:
-        """Return a rank-1 `Function` to interpolate into."""
-        assert self.rank == 1
-        f = Function(self.ufl_interpolate.function_space())
-        if self.access in {op2.MIN, op2.MAX}:
-            finfo = numpy.finfo(f.dat.dtype)
-            if self.access == op2.MIN:
-                val = Constant(finfo.max)
-            else:
-                val = Constant(finfo.min)
-            f.assign(val)
-        return f
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
         from firedrake.assemble import get_form_assembler, ParloopFormAssembler
