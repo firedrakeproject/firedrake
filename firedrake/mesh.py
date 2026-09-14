@@ -4235,6 +4235,7 @@ def _pic_swarm_in_mesh(
         raise NotImplementedError(
             "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
         )
+    coords = np.asarray(coords, dtype=RealType)
 
     # in the redundant=True case we discard all the points not on rank zero
     # TODO: Here rank 0 queries the partition rtree while all other ranks wait.
@@ -4469,7 +4470,7 @@ def _parent_mesh_embedding(
     )
     # Immersed manifold case: the reference coords have an extra dimension we can safely drop
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:
-        ref_coords = ref_coords[:, :parent_mesh.topological_dimension]
+        ref_coords = np.ascontiguousarray(ref_coords[:, :parent_mesh.topological_dimension])
 
     # `keep` is a mask of candidate points we want to keep
     # keep only points which are visible on this rank (they were found in a cell)
