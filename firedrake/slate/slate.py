@@ -46,7 +46,7 @@ import hashlib
 from tsfc.ufl_utils import extract_firedrake_constants
 
 
-__all__ = ['AssembledVector', 'Block', 'Factorization', 'Tensor',
+__all__ = ['TensorBase', 'AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose', 'Negative',
            'Add', 'Mul', 'ScalarMul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
            'Reciprocal']
