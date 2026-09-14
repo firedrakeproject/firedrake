@@ -72,6 +72,12 @@ def _push_block_transpose(expr, self, indices):
     return Transpose(*map(self, expr.children, repeat(indices[::-1]))) if indices else expr
 
 
+@_push_block.register(ScalarMul)
+def _push_block_scalar_mul(expr, self, indices):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor, indices))
+
+
 @_push_block.register(Add)
 @_push_block.register(Negative)
 @_push_block.register(DiagonalTensor)
@@ -142,6 +148,12 @@ def _push_diag(expr, self, diag):
 def _push_diag_distributive(expr, self, diag):
     """Distributes the DiagonalTensors into these nodes"""
     return type(expr)(*map(self, expr.children, repeat(diag)))
+
+
+@_push_diag.register(ScalarMul)
+def _push_diag_scalar_mul(expr, self, diag):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor, diag))
 
 
 @_push_diag.register(Factorization)
@@ -255,6 +267,12 @@ def _drop_double_transpose_distributive(expr, self):
     return type(expr)(*map(self, expr.children))
 
 
+@_drop_double_transpose.register(ScalarMul)
+def _drop_double_transpose_scalar_mul(expr, self):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor))
+
+
 @singledispatch
 def _push_mul(expr, self, state):
     raise AssertionError("Cannot handle terminal type: %s" % type(expr))
@@ -285,6 +303,12 @@ def _push_mul_vector(expr, self, state):
 def _push_mul_distributive(expr, self, state):
     """Distribute the multiplication into the children of the expression. """
     return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
+
+
+@_push_mul.register(ScalarMul)
+def _push_mul_scalar_mul(expr, self, state):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor, state))
 
 
 @_push_mul.register(Inverse)

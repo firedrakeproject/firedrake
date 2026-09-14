@@ -141,6 +141,19 @@ def test_assemble_vector_into_tensor(mesh):
     assert np.allclose(f.dat.data, 2*assemble(Tensor(v * dx)).dat.data, rtol=1e-14)
 
 
+def test_assemble_scalar_multiplication(mesh):
+    V = FunctionSpace(mesh, "DG", 1)
+    v = TestFunction(V)
+    tensor = Tensor(v * dx)
+    reference = assemble(tensor).dat.data
+
+    for scalar in (0, 0.5, 2):
+        assert np.allclose(assemble(scalar * tensor).dat.data,
+                           scalar * reference, rtol=1e-14)
+        assert np.allclose(assemble(tensor * scalar).dat.data,
+                           scalar * reference, rtol=1e-14)
+
+
 def test_assemble_matrix_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     u = TestFunction(V)

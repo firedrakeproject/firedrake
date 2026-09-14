@@ -1280,13 +1280,7 @@ class ProxyFunctionSpace(FunctionSpace):
             return self
 
     def __repr__(self):
-        return "%sProxyFunctionSpace(%r, %r, name=%r, index=%r, component=%r)" % \
-            (str(self.identifier).capitalize(),
-             self.mesh(),
-             self.ufl_element(),
-             self.name,
-             self.index,
-             self.component)
+        return FunctionSpace.__repr__(self)
 
     def __str__(self):
         return "%sProxyFunctionSpace(%s, %s, name=%s, index=%s, component=%s)" % \
@@ -1302,6 +1296,16 @@ class ProxyFunctionSpace(FunctionSpace):
 
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+
+    def collapse(self) -> "FunctionSpace":
+        """Drop the proxy metadata, returning a plain function space.
+
+        Returns
+        -------
+        FunctionSpace
+            An unindexed space equal to this one.
+        """
+        return FunctionSpace(self.mesh(), self.ufl_element(), name=self.name)
 
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.
@@ -1335,13 +1339,8 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
             return self
 
     def __repr__(self):
-        return "%sProxyRestrictedFunctionSpace(%r, name=%r,  boundary_set=%r, index=%r, component=%r)" % \
-            (str(self.identifier).capitalize(),
-             str(self.function_space),
-             self.name,
-             self.boundary_set,
-             self.index,
-             self.component)
+        return "RestrictedFunctionSpace(%r, name=%r, boundary_set=%r)" % (
+            str(self.function_space), self.name, self.boundary_set)
 
     def __str__(self):
         return self.__repr__()
@@ -1351,6 +1350,21 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
 
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+
+    def collapse(self) -> "RestrictedFunctionSpace":
+        """Drop the proxy metadata, returning a plain restricted space.
+
+        Returns
+        -------
+        RestrictedFunctionSpace
+            An unindexed space equal to this one.
+
+        See Also
+        --------
+        ProxyFunctionSpace.collapse
+        """
+        return RestrictedFunctionSpace(self.function_space.collapse(),
+                                       boundary_set=self.boundary_set)
 
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.

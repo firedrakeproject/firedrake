@@ -3,7 +3,7 @@ import numpy
 import collections
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Form, FormSum, Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -14,6 +14,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+from firedrake import slate
 from firedrake.ufl_expr import Coargument
 
 
@@ -89,6 +90,16 @@ class ExtractSubBlock(MultiFunction):
             assert (len(idx) == 1 for idx in self.blocks.values())
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
+
+        if isinstance(form, FormSum) and any(isinstance(c, slate.slate.TensorBase)
+                                             for c in form.components()):
+            # A Slate component cannot be traversed as a UFL DAG, so recover the
+            # equivalent Slate expression and take a Block of that instead.
+            form = slate.slate.as_slate(form)
+
+        if isinstance(form, slate.slate.TensorBase):
+            return slate.slate.Block(form, tuple(self.blocks[i] for i in range(form.rank)))
+
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         f = map_integrand_dags(self, form)
         if expand_derivatives(f).empty():

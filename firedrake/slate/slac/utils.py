@@ -120,6 +120,15 @@ def _slate2gem_negative(expr, self):
                            indices)
 
 
+@_slate2gem.register(sl.ScalarMul)
+def _slate2gem_scalar_mul(expr, self):
+    child, = map(self, expr.children)
+    indices = tuple(make_indices(len(child.shape)))
+    return ComponentTensor(Product(Literal(expr.scalar),
+                           Indexed(child, indices)),
+                           indices)
+
+
 @_slate2gem.register(sl.Add)
 def _slate2gem_add(expr, self):
     A, B = map(self, expr.children)
