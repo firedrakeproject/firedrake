@@ -1,0 +1,13 @@
+# Jupytext configuration for the Firedrake tutorial notebooks.
+#
+# The notebooks are stored as py:percent scripts (the source of truth) and are
+# converted to .ipynb on the fly for execution, rendering and Colab publishing.
+# The metadata filters keep the committed .py files free of volatile notebook
+# and per-cell metadata so that diffs stay small and reviewable.
+default_jupytext_formats = "py:percent"
+# Keep the kernelspec (needed to execute) but drop the volatile jupytext version
+# stamp. Preserve cell ``tags`` (used to skip Colab-only cells and to mark cells
+# that deliberately raise, honoured by both nbval and nbsphinx/nbconvert) but
+# drop all other per-cell metadata (e.g. outputs_hidden, execution counts).
+notebook_metadata_filter = "-jupytext.text_representation.jupytext_version"
+cell_metadata_filter = "tags,-all"

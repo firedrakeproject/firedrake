@@ -1,14 +1,15 @@
-Adaptive Multigrid Methods using AdaptiveMeshHierarchy
-======================================================
+Adaptive Multigrid Methods
+==========================
 
 
 Contributed by Anurag Rao.
 
 The purpose of this demo is to show how to use Firedrake's multigrid solver on a hierarchy of adaptively refined Netgen meshes.
-We will first have a look at how to use the :class:`~.AdaptiveMeshHierarchy` to construct the mesh hierarchy with Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain.
-Finally, we will show how to use the :class:`~.AdaptiveMeshHierarchy` and :class:`~.AdaptiveTransferManager` to construct a scalable solver. The :class:`~.AdaptiveMeshHierarchy` contains information of the mesh hierarchy and the parent child relations between the meshes.
-The :class:`~.AdaptiveTransferManager` deals with the transfer operator logic across any given levels in the hierarchy.
-We begin by importing the necessary libraries ::
+A :func:`~.MeshHierarchy` is not restricted to uniform refinement: the same object records the parent child relations between adaptively refined meshes, and grows a level at a time as the solution is resolved.
+We will first have a look at how to construct such a hierarchy from Netgen meshes, then we will consider a solution to the Poisson problem on an L-shaped domain, and finally we will use the hierarchy to construct a scalable solver.
+We begin by importing the necessary libraries:
+
+.. code-block:: python
 
    from firedrake import *
    from netgen.occ import *
@@ -18,8 +19,10 @@ Constructing the Mesh Hierarchy
 -------------------------------
 We first must construct the domain over which we will solve the problem. For a more comprehensive demo on how to use Open Cascade Technology (OCC) and Constructive Solid Geometry (CSG),
 see `Netgen integration in Firedrake <netgen_mesh.py>`_. 
-We begin with the L-shaped domain, which we build as the union of two rectangles: ::
-  
+We begin with the L-shaped domain, which we build as the union of two rectangles:
+
+.. code-block:: python
+
    rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
    rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
    L = rect1 + rect2
@@ -28,16 +31,17 @@ We begin with the L-shaped domain, which we build as the union of two rectangles
    ngmsh = geo.GenerateMesh(maxh=0.5)
    mesh = Mesh(ngmsh)
 
-It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the :class:`~.AdaptiveMeshHierarchy`. To call the constructor to the hierarchy, we must pass the initial mesh. Our initial mesh looks like this:
+It is important to convert the initial Netgen mesh into a Firedrake mesh before constructing the :func:`~.MeshHierarchy`. To call the constructor to the hierarchy, we must pass the initial mesh. Our initial mesh looks like this:
 
 .. figure:: initial_mesh.png
    :align: center
    :alt: Initial mesh.
 
-We will also initialize the :class:`~.AdaptiveTransferManager` here: ::
-  
-   amh = AdaptiveMeshHierarchy(mesh)
-   atm = AdaptiveTransferManager()
+We initialize the :func:`~.MeshHierarchy` here. The default of zero uniform refinement levels gives a hierarchy holding just the initial mesh, which we will grow adaptively below; passing a positive number instead would start us off with that many uniformly refined levels, and the adaptive levels would stack on top of them just the same:
+
+.. code-block:: python
+
+   mh = MeshHierarchy(mesh)
 
 Poisson Problem
 ---------------
@@ -47,7 +51,9 @@ Now we can define a simple Poisson problem
 
    - \nabla^2 u = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
-Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`~.DirichletBC` object and apply it to the entire boundary: ::
+Our approach strongly follows the similar problem in this `lecture course <https://github.com/pefarrell/icerm2024>`_. We define the function ``solve_poisson``. The first lines correspond to finding a solution in the CG1 space. The right-hand side is set to be the constant function equal to 1. Since we want Dirichlet boundary conditions, we construct the :class:`~.DirichletBC` object and apply it to the entire boundary:
+
+.. code-block:: python
 
    def solve_poisson(mesh, params):
       V = FunctionSpace(mesh, "CG", 1)
@@ -62,15 +68,14 @@ Our approach strongly follows the similar problem in this `lecture course <https
 
       problem = LinearVariationalProblem(a, L, uh, bcs)
       solver = LinearVariationalSolver(problem, solver_parameters=params)
-
-      solver.set_transfer_manager(atm)
       solver.solve()
 
       its = solver.snes.getLinearSolveIterations()
       return uh, its
 
-Note the code after the construction of the :class:`~.LinearVariationalProblem`. To use the :class:`~.AdaptiveMeshHierarchy` with the existing Firedrake solver, we have to set the :class:`~.AdaptiveTransferManager` as the transfer manager of the multigrid solver.
-Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with ::
+To use the hierarchy in a multigrid solver, we just set the usual multigrid solver parameters. Since we are using linear Lagrange elements, we will employ Jacobi as the multigrid relaxation, which we define with:
+
+.. code-block:: python
 
    solver_params = {
       "mat_type": "matfree",
@@ -100,7 +105,7 @@ The initial solution is shown below.
 
 Adaptive Mesh Refinement
 ------------------------
-In this section we will discuss how to adaptively refine select elements and add the newly refined mesh into the :class:`~.AdaptiveMeshHierarchy`.
+In this section we will discuss how to adaptively refine select elements and add the newly refined mesh into the hierarchy.
 For this problem, we will be using the Babuška-Rheinbolt a-posteriori estimate for an element:
 
 .. math::
@@ -111,7 +116,9 @@ where :math:`K` is the element, :math:`h_K` is the diameter of the element, :mat
 .. math::
    \int_\Omega \eta_K^2 q \,\mathrm{d}x = \int_\Omega \sum_K h_K^2 \int_K (f + \text{div} (\text{grad} u_h) )^2 \,\mathrm{d}x q \,\mathrm{d}x + \int_\Omega \sum_K \frac{h_K}{2} \int_{\partial K \setminus \partial \Omega} \left[[ \nabla u_h \cdot \mathbf{n} \right]]^2 \,\mathrm{d}s q \,\mathrm{d}x \quad \forall\, q \in \mathrm{DG}_0
 
-Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.  ::
+Our approach will be to compute the estimator over all elements and selectively choose to refine only those that contribute most to the error. To compute the error estimator, we use the function below to solve the variational formulation of the error estimator. Since our estimator is a constant per element, we use a DG0 function space.
+
+.. code-block:: python
 
    def estimate_error(mesh, uh):
        Q = FunctionSpace(mesh, "DG", 0)
@@ -149,17 +156,25 @@ The next step is to choose which elements to refine. For this we use a simplifie
    \eta_K \geq \theta \text{max}_L \eta_L
 
 The logic is to select an element :math:`K` to refine if the estimator is greater than some factor :math:`\theta` of the maximum error estimate of the mesh, where :math:`\theta` ranges from 0 to 1. In our code we choose :math:`\theta=0.5`.
-With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid up to level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we adaptively refine the mesh and repeat. ::
+With these helper functions complete, we can solve the system iteratively. In the max_iterations is the number of total levels we want to perform multigrid on. We will solve for 15 levels. At every level :math:`l`, we first compute the solution using multigrid up to level :math:`l`. We then use the current approximation of the solution to estimate the error across the mesh. Finally, we adaptively refine the mesh and repeat.
+
+.. code-block:: python
+
+   import os
+   if os.getenv("FIREDRAKE_CI") == "1":
+      # trick to speed up the Firedrake test suite
+      refinements = 3
+   else:
+      refinements = 15
 
    theta = 0.5
-   refinements = 15
    est_errors = []
    sqrt_dofs = []
    mg_iterations = []
    for level in range(refinements):
       print(f"level {level}")
 
-      mesh = amh[-1]
+      mesh = mh[-1]
       uh, its = solve_poisson(mesh, solver_params)
       VTKFile(f"output/adaptive_loop_{level}.pvd").write(uh)
 
@@ -175,10 +190,17 @@ With these helper functions complete, we can solve the system iteratively. In th
          rates = -numpy.diff(numpy.log(est_errors)) / numpy.diff(numpy.log(sqrt_dofs))
          print(f"  rate = {rates[-1]}")
 
-      if i != refinements - 1:
-         amh.adapt(eta, theta)
+      if level != refinements - 1:
+         mh.adapt(eta, theta)
 
-To perform Dörfler marking, refine the current mesh, and add the mesh to the :class:`~.AdaptiveMeshHierarchy`, we use the ``amh.adapt(eta, theta)`` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy. There is another method for adding a mesh to the hierarchy: ``amh.add_mesh(mesh)``. In this method, refinement on the mesh is performed externally by some custom procedure and the resulting mesh directly gets added to the hierarchy.
+To perform Dörfler marking, refine the current mesh, and add the mesh to the hierarchy, we use the :meth:`~.HierarchyBase.adapt` method. In this method the input is the recently computed error estimator ``eta`` and the Dörfler marking parameter ``theta``. The method always performs this on the current fine mesh in the hierarchy.
+To mark cells by some other criterion, refine the finest mesh yourself and add the result, which is all that :meth:`~.HierarchyBase.adapt` does once it has marked:
+
+.. code-block:: text
+
+   mh.add_mesh(mh[-1].refine_marked_elements(markers))
+
+Here ``markers`` is a DG0 function whose value on each cell is the number of times to refine it. If the mesh was instead produced by some procedure Firedrake cannot trace the parent child relations through, pass those cell maps to :meth:`~.HierarchyBase.add_mesh` explicitly.
 The meshes now refine according to the error estimator. The error estimators at levels 3,5, and 15 are shown below. Zooming into the vertex of the L-shape at level 15 shows the error indicator remains strongest there. Further refinements will focus on that area.
 
 +-------------------------------+-------------------------------+-------------------------------+
@@ -201,7 +223,9 @@ The solutions at level 4 and 15 are shown below.
 |    *MG solution at level 4*        |    *MG solution at level 15*       |
 +------------------------------------+------------------------------------+
 
-The convergence follows the expected optimal behavior: ::
+The convergence follows the expected optimal behavior:
+
+.. code-block:: python
 
    from matplotlib import pyplot as plt
 
@@ -218,7 +242,9 @@ The convergence follows the expected optimal behavior: ::
    :align: center
    :alt: Convergence of the error estimator.
 
-Moreover, the multigrid iteration count is robust to the level of refinement ::
+Moreover, the multigrid iteration count is robust to the level of refinement:
+
+.. code-block:: python
 
    print(" Level\t | Iterations")
    print("---------------------")
@@ -233,18 +259,18 @@ Moreover, the multigrid iteration count is robust to the level of refinement ::
    0	     2
    1	     8
    2	     8
-   3	     8
-   4	     8
-   5	     8
-   6	     8
-   7	     8
-   8	     8
-   9	     9
-   10	     9
-   11	     9
-   12	     9
-   13	     9
-   14	     9
+   3	     7
+   4	     7
+   5	     7
+   6	     7
+   7	     7
+   8	     7
+   9	     7
+   10	     7
+   11	     7
+   12	     7
+   13	     7
+   14	     7
 ======== ================
 
 A runnable python version of this demo can be found :demo:`here<adaptive_multigrid.py>`.

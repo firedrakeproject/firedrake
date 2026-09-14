@@ -25,15 +25,28 @@ The PETSc meeting will run from 1-3 June, and the Firedrake meeting from 3-5
 June, with overlapping sessions of common interest on Wednesday 3 June.
 Participants may register for either part of the week, but we hope that many
 will take the opportunity to learn more about these two related projects by
-staying for the whole week. 
+staying for the whole week.
 
-Key dates
+Programme
 ---------
 
-* Abstract deadline 20 April 2026.
-* Registration deadline 27 April 2026.
-* 1-3 June PETSc user meeting 2026.
-* 3-5 June Firedrake '26.
+`The programme is now available
+<https://easychair.org/smart-program/PETScFiredrake26/>`__.
+
+Firedrake Tutorials
+-------------------
+
+.. toctree::
+   :maxdepth: 1
+
+   Introduction to Firedrake and PETSc solvers<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/00-firedrake-petsc-hello-world.ipynb>
+   Solver Composition<https://colab.research.google.com/github/firedrakeproject/notebooks/blob/main/08-composable-solvers.ipynb>
+   Using Irksome for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/01-irksome-heat-equation.ipynb>
+   Composable solvers for the heat equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/02-preconditioning-heat-eq.ipynb>
+   Exploring the TimeStepper options<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/03-stagetype-heat-eq.ipynb>
+   Using Irksome for the Navier Stokes equations<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/04-Navier-Stokes.ipynb>
+   Implicit-explicit steppers for the monodomain equation<https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/05-IMEX-Monodomain.ipynb>
+   Variational data assimilation in Firedrake <https://colab.research.google.com/github/firedrakeproject/Irksome/blob/master/notebooks/06-Data-assimilation-inverse-problem.ipynb>
 
 Venue & registration
 --------------------
@@ -49,13 +62,13 @@ night for PETSc, Wednesday and Thursday night for Firedrake), 3 meals per day
 coffee breaks. There are also options without the room and breakfast component
 for those who live locally.
 
-=================   =================================== ======  ======= ======================= ========================== 
+=================   =================================== ======  ======= ======================= ==========================
 Event               Dates                               Full    Student Full (no accommodation) Student (no accommodation)
-=================   =================================== ======  ======= ======================= ========================== 
-PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170 
-PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100 
-Firedrake only	    3 June (lunchtime) - 5 June (16:00) £550    £220    £250                    £100 
-=================   =================================== ======  ======= ======================= ========================== 
+=================   =================================== ======  ======= ======================= ==========================
+PETSc & Firedrake   1 June (10:00) - 5 June (16:00)	£1000   £400    £420                    £170
+PETSc only          1 June (10:00) - 3 June (lunchtime) £550    £220    £250                    £100
+Firedrake only	    3 June (lunchtime) - 5 June (16:50) £550    £220    £250                    £100
+=================   =================================== ======  ======= ======================= ==========================
 
 International attendees will likely need to book a hotel for the night before
 the conference. We recommend either booking an extra night at the `conference
@@ -63,16 +76,6 @@ venue <https://mercureoxfordhawkwellhouse.com>`__ or booking a hotel by
 London Paddington, as it is a convenient midpoint between London Heathrow and
 Oxford.
 
-`Register here! <https://cvent.me/lqGoPm>`__
-
-Abstract submissions
---------------------
-
-Submissions for either part of the week for either oral or poster presentation
-can be made `on EasyChair
-<https://easychair.org/conferences/?conf=petscfiredrake26>`__. In the spirit of
-supporting the whole community to communicate their results, we anticipate that
-all submissions will be accepted for presentation in some form.
 
 Travel
 ------
@@ -86,16 +89,16 @@ The venue is:
 |    United Kingdom
 
 From Oxford
-...........
+~~~~~~~~~~~
 
 The venue is on the number 3 and 3A bus routes from Oxford Station. Buses are
 frequent and contactless credit card payments are accepted on the bus.
 
 By air
-......
+~~~~~~
 
 Oxford lies between London and Birmingham. The closest London airport is London
-Heathrow.  
+Heathrow.
 
 From Heathrow, a `regular coach service
 <https://www.theairline.co.uk/oxford-to-heathrow-bus/>`__ runs to Oxford. There
@@ -125,7 +128,7 @@ Support
 
 These workshops are brought to you by `CCP-DCM <https://ccp-dcm.github.io>`__,
 `CoSeC <https://www.cosec.ac.uk/communities/>`__ and `STFC
-<https://www.ukri.org/councils/stfc/>`__ 
+<https://www.ukri.org/councils/stfc/>`__
 
 .. |STFC| image:: /images/stfc.*
   :height: 60px
@@ -141,6 +144,20 @@ These workshops are brought to you by `CCP-DCM <https://ccp-dcm.github.io>`__,
   +--------+---------+
   | |STFC| | |CoSeC| |
   +--------+---------+
+
+
+The poster session and drinks reception is sponsored by
+`Devito Codes <https://www.devitocodes.com>`__.
+
+.. |DevitoLogo| image:: /images/devito.svg
+  :height: 60px
+  :target: https://www.devitocodes.com
+
+.. only:: html
+
+  +--------------+
+  | |DevitoLogo| |
+  +--------------+
 
 
 Further details

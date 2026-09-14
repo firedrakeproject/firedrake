@@ -1,12 +1,12 @@
 .PHONY: ext
 ext:
 	@echo "    Building extension modules"
-	@python setup.py build_ext --inplace 2>&1 | tee cat build.log
+	@python setup.py build_ext --inplace 2>&1 | tee build.log
 
 .PHONY: extforce
 extforce:
 	@echo "    Force building all extension modules"
-	@python setup.py build_ext --inplace --force 2>&1 | tee cat build.log
+	@python setup.py build_ext --inplace --force 2>&1 | tee build.log
 
 .PHONY: lint
 lint: srclint actionlint dockerlint
@@ -34,6 +34,8 @@ srclint:
 	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
 	@echo "    Linting TSFC"
 	@python -m flake8 $(FLAKE8_FORMAT) tsfc
+	@echo "    Linting Cython code"
+	@cython-lint firedrake/cython
 
 .PHONY: actionlint
 actionlint:
@@ -41,7 +43,7 @@ actionlint:
 	@docker pull rhysd/actionlint:latest
 	@# Exclude SC2046 so it doesn't complain about unquoted $ characters (the
 	@# quoting can prevent proper parsing)
-	@docker run -e SHELLCHECK_OPTS='--exclude=SC2046,SC2078,SC2143' --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
+	@docker run -e SHELLCHECK_OPTS='--exclude=SC2046,SC2078,SC2086,SC2143' --rm -v $$(pwd):/repo --workdir /repo rhysd/actionlint -color
 
 .PHONY: dockerlint
 dockerlint:

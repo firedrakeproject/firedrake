@@ -1074,7 +1074,14 @@ class ParloopFormAssembler(FormAssembler):
         if hasattr(self, "_parloops"):
             for (lknl, _), parloop in zip(self.local_kernels, self._parloops):
                 data = self._as_pyop2_type(tensor, lknl.indices)
-                parloop.arguments[0].data = data
+                if isinstance(data, op2.Global):
+                    # In parloops we swap out globals with private ones so
+                    # increments don't double add. The right attribute to swap
+                    # out here is therefore reduced_globals instead of arguments.
+                    tmp = parloop.arguments[0].data
+                    parloop.reduced_globals[tmp] = op2.GlobalParloopArg(data)
+                else:
+                    parloop.arguments[0].data = data
 
         else:
             # Make parloops for one concrete output tensor and cache them.
@@ -1870,7 +1877,7 @@ def _as_global_kernel_arg_coefficient(_, self):
         # Interior facet integrals double Real coefficients for the
         # two sides of the facet, matching the TSFC-generated kernel.
         return op2.GlobalKernelArg(
-            (V.value_size,), double=self._integral_type.startswith("interior_facet")
+            (V.block_size,), double=self._integral_type.startswith("interior_facet")
         )
     else:
         return self._make_dat_global_kernel_arg(V, index=index)

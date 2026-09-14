@@ -125,10 +125,8 @@ class ASMPatchPC(PCBase):
                 viewer.printfASCII(msg)
 
     def update(self, pc):
-        # This is required to update an inplace ILU factorization
-        if self.asmpc.getType() == "asm":
-            for sub in self.asmpc.getASMSubKSP():
-                sub.getOperators()[0].setUnfactored()
+        # Handled by PCSetUp_ASM.
+        pass
 
     def apply(self, pc, x, y):
         self.asmpc.apply(x, y)
@@ -526,7 +524,7 @@ def get_local_ises_indices(V):
     V_local_ises_indices = tuple(iset.indices for iset in V.dof_dset.local_ises)
     for Vi, indices in zip(V, V_local_ises_indices):
         if Vi.boundary_set:
-            indices[Vi.dof_dset.lgmap.indices == -1] = -1
+            indices[Vi.dof_dset.lgmap.indices < 0] = -1
     return V_local_ises_indices
 
 

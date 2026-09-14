@@ -567,3 +567,33 @@ def test_assemble_parent_coefficient():
 
     A_ref.petscmat.axpy(-1, A.petscmat)
     assert np.isclose(A_ref.petscmat.norm(PETSc.NormType.NORM_FROBENIUS), 0)
+
+
+def test_submesh_assemble_facet_macroelement():
+    # Test that the macro quadrature rule is correctly selected
+    # for macroelements whose restriction is also a macroelement
+    rg = RandomGenerator(PCG64(seed=0))
+    mesh = UnitSquareMesh(4, 4)
+    DGT = FunctionSpace(mesh, "DGT", 0)
+    marker = Function(DGT)
+    DirichletBC(DGT, 1, "on_boundary").apply(marker)
+    label = 111
+    mesh = RelabeledMesh(mesh, [marker], [label])
+    submesh = Submesh(mesh, mesh.topological_dimension-1, label)
+
+    V = FunctionSpace(mesh, "CG", 1, variant="iso")
+    Vsub = FunctionSpace(submesh, "CG", 1)
+    Z = V * Vsub
+    z = rg.uniform(Z, -1, 1)
+    u, usub = split(z)
+    v, vsub = TestFunctions(Z)
+
+    ds_sub = Measure("ds", domain=mesh, intersect_measures=[dx(submesh)])
+
+    a1 = assemble(inner(1-u, vsub)*ds_sub(degree=2))
+    a2 = assemble(inner(u, vsub)*ds_sub(degree=4))
+    a = Function(a1.function_space()).assign(a1+a2)
+
+    vsub = TestFunction(Vsub)
+    aref = assemble(inner(1, vsub)*dx(submesh))
+    assert np.allclose(a.dat[1].data_ro, aref.dat.data_ro)

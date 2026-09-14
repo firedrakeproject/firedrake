@@ -14,6 +14,8 @@ from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.algorithms.apply_restrictions import apply_restrictions
+from ufl.algorithms.cancel_jacobian_products import cancel_jacobian_products
+from ufl.algorithms.remove_component_tensors import remove_component_tensors
 from ufl.algorithms.comparison_checker import do_comparison_check
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.algorithms.signature import compute_expression_signature
@@ -25,7 +27,7 @@ from ufl.classes import (Abs, Argument, CellOrientation,
                          Product,
                          ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 from ufl.utils.sorting import sorted_by_count
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_domains, extract_unique_domain
 
 from gem.node import MemoizerArg
 
@@ -40,9 +42,11 @@ def compute_form_data(form,
                       do_apply_integral_scaling=True,
                       do_apply_geometry_lowering=True,
                       preserve_geometry_types=preserve_geometry_types,
+                      do_cancel_jacobian_products=True,
                       do_apply_default_restrictions=True,
                       do_apply_restrictions=True,
                       do_estimate_degrees=True,
+                      do_replace_functions=True,
                       coefficients_to_split=None,
                       complex_mode=False):
     """Preprocess UFL form in a format suitable for TSFC. Return
@@ -52,18 +56,23 @@ def compute_form_data(form,
     kwargs overriden in the way TSFC needs it and is provided for
     other form compilers based on TSFC.
     """
+    # Multidomain problems require further index simplifications to ensure
+    # that unwanted quantities do not appear inside single-domain integrals.
+    do_remove_component_tensors = len(extract_domains(form)) > 1
     fd = ufl_compute_form_data(
         form,
         do_apply_function_pullbacks=do_apply_function_pullbacks,
         do_apply_integral_scaling=do_apply_integral_scaling,
         do_apply_geometry_lowering=do_apply_geometry_lowering,
         preserve_geometry_types=preserve_geometry_types,
+        do_cancel_jacobian_products=do_cancel_jacobian_products,
         do_apply_default_restrictions=do_apply_default_restrictions,
         do_apply_restrictions=do_apply_restrictions,
         do_estimate_degrees=do_estimate_degrees,
-        do_replace_functions=True,
+        do_replace_functions=do_replace_functions,
         coefficients_to_split=coefficients_to_split,
-        complex_mode=complex_mode
+        complex_mode=complex_mode,
+        do_remove_component_tensors=do_remove_component_tensors,
     )
     constants = extract_firedrake_constants(form)
     fd.constants = constants
@@ -108,7 +117,9 @@ def entity_avg(integrand, measure, argument_multiindices):
     degree = estimate_total_polynomial_degree(integrand)
     form = integrand * measure
     fd = compute_form_data(form, do_estimate_degrees=False,
-                           do_apply_function_pullbacks=False)
+                           do_apply_function_pullbacks=False,
+                           do_replace_functions=False,
+                           )
     itg_data, = fd.integral_data
     integral, = itg_data.integrals
     integrand = integral.integrand()
@@ -129,11 +140,19 @@ def preprocess_expression(expression, complex_mode=False,
         expression = do_comparison_check(expression)
     else:
         expression = remove_complex_nodes(expression)
+    jacobian_types = (Jacobian, JacobianInverse, JacobianDeterminant)
+    lowering_preserve_types = preserve_geometry_types + jacobian_types
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
     expression = apply_function_pullbacks(expression)
-    expression = apply_geometry_lowering(expression, preserve_geometry_types)
+    expression = apply_geometry_lowering(expression, lowering_preserve_types)
     expression = apply_derivatives(expression)
+    expression = apply_geometry_lowering(expression, lowering_preserve_types)
+    expression = apply_derivatives(expression)
+    # Cancel contractions of the Jacobian with its inverse before
+    # expanding the inverse into individual matrix entries
+    expression = remove_component_tensors(expression)
+    expression = cancel_jacobian_products(expression)
     expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
     if not complex_mode:

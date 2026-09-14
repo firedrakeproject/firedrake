@@ -1,5 +1,6 @@
 """This tests that exchanging the coordinate field for one of a different dimension does the right thing."""
 
+import numpy as np
 import pytest
 
 from firedrake import *
@@ -63,3 +64,22 @@ def test_relabeled_mesh_preserves_coord_changes():
     actual = relabeled_mesh.coordinates.dat.data_ro
     assert actual.shape == expected.shape
     assert (actual == expected).all()
+
+
+def test_scale_coordinates():
+
+    m = UnitSquareMesh(4, 4)
+    m.coordinates *= 2
+
+    assert np.allclose(assemble(Constant(1)*dx(domain=m)), 4.0)
+
+
+def test_addto_coordinates():
+
+    m = UnitSquareMesh(4, 4)
+    X = SpatialCoordinate(m)
+    xf = Function(m.coordinates.function_space())
+    xf.interpolate(X)
+    m.coordinates += xf
+
+    assert np.allclose(assemble(Constant(1)*dx(domain=m)), 4.0)

@@ -5,6 +5,7 @@ import itertools
 import ufl
 from pyop2.utils import as_tuple
 from pyop2 import op2
+from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 from firedrake.petsc import PETSc
 from firedrake.bcs import DirichletBC
 from firedrake.matrix_free import ImplicitMatrixContext
@@ -21,10 +22,27 @@ class DummyOP2Mat:
 
 def _get_mat_type(petscmat: PETSc.Mat) -> str:
     """Maps PETSc matrix types to Firedrake notation"""
+    from firedrake.interpolation import VomOntoVomMatContext
+
     mat_type = petscmat.getType()
-    if mat_type.startswith("seq") or mat_type.startswith("mpi"):
+    if mat_type == "python":
+        ctx = petscmat.getPythonContext()
+        if isinstance(ctx, ImplicitMatrixContext):
+            return "matfree"
+        elif isinstance(ctx, _GlobalMatPayload):
+            return "global"
+        elif isinstance(ctx, _DatMatPayload):
+            return "dat"
+        elif isinstance(ctx, VomOntoVomMatContext):
+            return "vomtovom"
+        else:
+            raise NotImplementedError(
+                f"Python matrix context type '{type(ctx).__name__}' not recognised"
+            )
+    elif mat_type.startswith("seq") or mat_type.startswith("mpi"):
         return mat_type[3:]
-    return mat_type
+    else:
+        return mat_type
 
 
 class MatrixBase(ufl.Matrix):
@@ -120,20 +138,6 @@ class MatrixBase(ufl.Matrix):
     def __str__(self):
         return f"assembled {type(self).__name__}(a={self.a}, bcs={self.bcs})"
 
-    def __add__(self, other):
-        if isinstance(other, MatrixBase):
-            mat = self.petscmat + other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
-        else:
-            return NotImplemented
-
-    def __sub__(self, other):
-        if isinstance(other, MatrixBase):
-            mat = self.petscmat - other.petscmat
-            return AssembledMatrix(self.arguments(), (), mat)
-        else:
-            return NotImplemented
-
     def assign(self, val):
         """Set matrix entries."""
         if isinstance(val, MatrixBase):
@@ -186,11 +190,6 @@ class Matrix(MatrixBase):
         if options_prefix is not None:
             self.petscmat.setOptionsPrefix(options_prefix)
         self.mat_type = _get_mat_type(self.petscmat)
-
-    def assemble(self):
-        raise NotImplementedError("API compatibility to apply bcs after 'assemble(a)'\
-                                  has been removed.  Use 'assemble(a, bcs=bcs)', which\
-                                  now returns an assembled matrix.")
 
 
 class ImplicitMatrix(MatrixBase):
