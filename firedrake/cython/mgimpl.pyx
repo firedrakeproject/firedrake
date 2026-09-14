@@ -112,11 +112,11 @@ def coarse_to_fine_nodes(Vc, Vf, const PetscInt[:, ::1] coarse_to_fine_cells):
                             continue
                         for layer in range(ratio):
                             fine_layer = coarse_layer * ratio + layer
-                            coarse_node_layer = ((coarse_layer + coarse_offset_quotient[j]) % coarse_layers
-                                                  - coarse_offset_quotient[j] % coarse_layers)
+                            coarse_node_layer = (coarse_layer + coarse_offset_quotient[j]) % coarse_layers
+                            coarse_node_layer -= coarse_offset_quotient[j] % coarse_layers
                             for m in range(fine_per_cell):
-                                fine_node_layer = ((fine_layer + fine_offset_quotient[m]) % fine_layers
-                                                   - fine_offset_quotient[m] % fine_layers)
+                                fine_node_layer = (fine_layer + fine_offset_quotient[m]) % fine_layers
+                                fine_node_layer -= fine_offset_quotient[m] % fine_layers
                                 coarse_to_fine_map[node + coarse_offset[j]*coarse_node_layer, k] = (fine_map[fine, m] +
                                                                                                     fine_offset[m]*fine_node_layer)
                                 k += 1
@@ -185,13 +185,13 @@ def fine_to_coarse_nodes(Vf, Vc, const PetscInt[:, ::1] fine_to_coarse_cells):
                 if extruded:
                     for fine_layer in range(fine_layers):
                         coarse_layer = fine_layer // ratio
-                        fine_node_layer = ((fine_layer + fine_offset_quotient[j]) % fine_layers
-                                           - fine_offset_quotient[j] % fine_layers)
+                        fine_node_layer = (fine_layer + fine_offset_quotient[j]) % fine_layers
+                        fine_node_layer -= fine_offset_quotient[j] % fine_layers
                         for k in range(coarse_per_cell):
-                            coarse_node_layer = ((coarse_layer + coarse_offset_quotient[k]) % coarse_layers
-                                                  - coarse_offset_quotient[k] % coarse_layers)
-                            fine_to_coarse_map[node + fine_offset[j]*fine_node_layer, k] = (coarse_map[coarse_cell, k] +
-                                                                                             coarse_offset[k]*coarse_node_layer)
+                            coarse_node_layer = (coarse_layer + coarse_offset_quotient[k]) % coarse_layers
+                            coarse_node_layer -= coarse_offset_quotient[k] % coarse_layers
+                            fine_to_coarse_map[node + fine_offset[j]*fine_node_layer, k] = (
+                                coarse_map[coarse_cell, k] + coarse_offset[k]*coarse_node_layer)
                 else:
                     for k in range(coarse_per_cell):
                         fine_to_coarse_map[node, coarse_per_cell*ll + k] = coarse_map[coarse_cell, k]
