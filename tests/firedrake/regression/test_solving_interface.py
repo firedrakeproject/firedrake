@@ -230,7 +230,13 @@ def mesh(request):
     return UnitIntervalMesh(10)
 
 
-def test_solve_cofunction_rhs(mesh):
+@pytest.mark.parametrize("pre_apply_bcs", (False, True, "restrict"))
+def test_solve_cofunction_rhs(mesh, pre_apply_bcs):
+    restrict = False
+    if pre_apply_bcs == "restrict":
+        pre_apply_bcs = True
+        restrict = True
+
     V = FunctionSpace(mesh, "CG", 1)
     x, = SpatialCoordinate(mesh)
 
@@ -245,7 +251,7 @@ def test_solve_cofunction_rhs(mesh):
     Lold = L.copy()
 
     w = Function(V)
-    solve(a == L, w, bcs=bcs)
+    solve(a == L, w, bcs=bcs, pre_apply_bcs=pre_apply_bcs, restrict=restrict)
     assert errornorm(x, w) < 1E-10
     assert np.allclose(L.dat.data, Lold.dat.data)
 
@@ -359,12 +365,12 @@ def test_solve_pre_apply_bcs(mesh, mixed):
     # Raises NaNs if pre_apply_bcs=True
     F = derivative(W, z)
     z.zero()
-    solve(F == 0, z, bcs, pre_apply_bcs=False)
+    solve(F == 0, z, bcs)
     assert errornorm(g, uh) < 1E-10
 
     # Test that pre_apply_bcs=False works with a linear problem
     a = derivative(F, z)
     L = Form([])
     z.zero()
-    solve(a == L, z, bcs, pre_apply_bcs=False)
+    solve(a == L, z, bcs)
     assert errornorm(g, uh) < 1E-10
