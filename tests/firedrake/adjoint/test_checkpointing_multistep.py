@@ -4,7 +4,8 @@ from firedrake import *
 from firedrake.adjoint import *
 from .test_burgers_newton import _check_forward, \
     _check_recompute, _check_reverse
-from checkpoint_schedules import MixedCheckpointSchedule, StorageType
+from checkpoint_schedules import MixedCheckpointSchedule, \
+    SingleMemoryStorageSchedule, StorageType
 import numpy as np
 from collections import deque
 
@@ -56,15 +57,15 @@ def test_multisteps(V):
     tape.enable_checkpointing(MixedCheckpointSchedule(total_steps, 2, storage=StorageType.RAM))
     displacement_0 = Function(V).assign(1.0)
     val = J(displacement_0, V)
-    _check_forward(tape)
+    _check_forward(tape, controls=[displacement_0])
     c = Control(displacement_0)
     J_hat = ReducedFunctional(val, c)
     dJ = J_hat.derivative()
-    _check_reverse(tape)
+    _check_reverse(tape, controls=[displacement_0])
     # Recomputing the functional with a modified control variable
     # before the recompute test.
     J_hat(Function(V).assign(0.5))
-    _check_recompute(tape)
+    _check_recompute(tape, controls=[displacement_0])
     # Recompute test
     assert (np.allclose(J_hat(displacement_0), val))
     # Test recompute adjoint-based gradient
@@ -92,3 +93,30 @@ def test_validity(V):
     val_recomputed = J_hat(displacement_0)
     assert np.allclose(val_recomputed, val_recomputed0)
     assert np.allclose(dJ.dat.data_ro[:], dJ0.dat.data_ro[:])
+
+
+@pytest.mark.skipcomplex
+def test_control_value_survives_recompute():
+    """Verify that a control value survives a checkpointed recomputation."""
+    tape = get_working_tape()
+    tape.enable_checkpointing(SingleMemoryStorageSchedule())
+
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    m = Function(V).assign(1.0)
+    sumf = Function(V)
+    u = Function(V)
+    test = TestFunction(V)
+    F = inner(u, test) * dx - inner(m * m, test) * dx
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u))
+
+    for _ in tape.timestepper(iter(range(4))):
+        solver.solve()
+        sumf.assign(sumf + u)
+
+    J_val = assemble(sumf * dx)
+    rf = ReducedFunctional(J_val, Control(m))
+
+    m0 = Function(V).assign(2.0)
+    assert np.allclose(rf(m0), 16.0)
+    assert np.allclose(rf.derivative(apply_riesz=True).dat.data_ro, 16.0)
