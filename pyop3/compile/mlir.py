@@ -44,14 +44,13 @@ from pyop3.dtypes import IntType, RealType, ScalarType
 iType = IndexType()
 
 NUMPY_TO_XDSL = {
-    np.dtype("int64"): IntegerType, # NOTE: Temp forcing int64 to int32
+    np.dtype(np.int64): IntegerType,
     IntType: IntegerType,
     RealType: Float64Type,
     ScalarType: Float64Type, 
 }
 
-# TODO: Maybe better way to read this from IntType
-DEFAULT_INT_WIDTH = 32 
+UNSUPPORTED_BUFFERS = (PetscMatBuffer, NullBuffer)
 
 SSAValueT = SSAValue | numbers.Number | NameVar
 
@@ -61,15 +60,18 @@ def get_mlir_type(np_dtype) -> Any:
 def _is_float(dtype) -> bool:
     return get_mlir_type(dtype) is Float64Type
 
-# NOTE: Assuming 32-bit integer 
 def _mlir_type(dtype):
     t = get_mlir_type(dtype)
-    return t(32) if t is IntegerType else t()
+
+    # Calculating bit-width for int type 
+    nbytes = dtype.itemsize 
+    bits = nbytes * 8 
+    return t(bits) if t is IntegerType else t()
 
 
 def _expr_dtype(expr, hint):
     """
-    The pyop3 dtype an operand will actually produce.
+    The pyop3 dtype of an expression.
     
     If constant number, use fallback hint  
     """
@@ -88,9 +90,9 @@ def _coerce(context, ssa, from_dtype, to_dtype) -> SSAValue:
         return ssa
     from_f, to_f = _is_float(from_dtype), _is_float(to_dtype)
     if not from_f and to_f:
-        return context.insert(arith.SIToFPOp(ssa, Float64Type())).result
+        return context.insert(arith.SIToFPOp(ssa, Float64Type()))
     if from_f and not to_f:
-        return context.insert(arith.FPToSIOp(ssa, _mlir_type(to_dtype))).result
+        return context.insert(arith.FPToSIOp(ssa, _mlir_type(to_dtype)))
     return ssa
 
 @dataclasses.dataclass
@@ -98,7 +100,6 @@ class Argument:
     name: str
     dtype: np.dtype
     shape: Tuple[int] | None
-    buffer: Any = None # NOTE: used to dedup / remap. Probably remove. Use name property.
 
     def __str__(self):
         return self.name
@@ -111,7 +112,7 @@ class SymbolTable:
     """
     Class deals with SSAValues for a respective scope.
 
-    e.g: SSAValues inside scf.ForOp are not valid outwith the iterative loop.
+    e.g: SSAValues inside scf.ForOp are not valid outside the iterative loop.
     """
     def __init__(self) -> None:
         self._scopes: List[Dict[Any, SSAValue]] = [dict()]
@@ -169,35 +170,49 @@ class MLIRCodegenContext(CodegenContext):
         self._temporaries: set = set()
 
     def insert(self, op: Operation) -> Operation:
-        """ Inserts an MLIR operation into the block """
+        """ Inserts an MLIR operation into the block, returning SSA result """
         self._builder.insert(op)
-        return op
+        results = op.results 
+        return results[0] if results else None 
 
-    def insert_arg(self, arg: MemrefType, name: str = None) -> SSAValue:
-        """ Insert memref args into function definition """ 
-        assert isinstance(arg, MemRefType)
+    def insert_arg(
+            self, 
+            arg: Argument, 
+            buffer_view: pyop3.expr.IndexedBuffer 
+    ) -> None:
+        """ Insert args into function definition and symbol table """ 
+        assert isinstance(arg, Argument)
+
+        name = arg.name 
+        buffer_type = self._buffer_type(arg)
+
         block = self._entry_block
-        memref_ssa = block.insert_arg(arg, len(block.args)) 
+        memref_ssa = block.insert_arg(buffer_type, len(block.args)) 
         if name: 
             memref_ssa.name_hint = name 
+
+        self.symbol_table.define(buffer_view, memref_ssa)
         return memref_ssa 
 
     def _const_index(self, value: int) -> SSAValue:
         # NOTE: Casting with `int` might be a problem
-        op = self.insert(arith.ConstantOp(
+        const_ssa = self.insert(arith.ConstantOp(
             IntegerAttr(int(value), iType)
            )
         )
-        return op.result
+        return const_ssa
 
     def _to_index(self, ssa: SSAValue) -> SSAValue:
         # scf.for bounds and memref indices must be `index`.
         if isinstance(ssa.type, IndexType):
             return ssa
-        return self.insert(arith.IndexCastOp(ssa, iType)).result
+        return self.insert(arith.IndexCastOp(ssa, iType))
 
     def var(self, iname: str, *args) -> str:
         return iname
+
+    def arg(self, name, dtype, shape) -> Argument:
+        return Argument(name, dtype=dtype, shape=shape)
 
     def add_domain(self, iname: str, *args) -> None:
         nargs = len(args)
@@ -239,22 +254,9 @@ class MLIRCodegenContext(CodegenContext):
     def set_temporary_shapes(self, shapes) -> None:
         self._temporary_shapes = shapes
 
+    # TODO: Remove this function? 
     def add_assignment(self, assignee, expression, inames, loop_indices, prefix: str = "insn") -> None:
-        """
-        Lower the rhs and bind it in symbol table to assignee name 
-        Function assumes that assignee is a temporary variable, probably a mistake 
-        """
-        assert isinstance(assignee, NameVar)
-
-        # TODO: Pass down name_hint for debugging 
-        rhs = self.lower_expr(
-            expression, 
-            iname_maps=[inames], 
-            loop_indices=loop_indices,
-            buffer_store=False
-        )
-        
-        self.symbol_table.define(assignee.name, rhs)
+        pass
 
     def add_function_call(self, assignees, expression, prefix: str = "insn") -> None:
         raise NotImplementedError("Later stage of implementation")
@@ -283,17 +285,28 @@ class MLIRCodegenContext(CodegenContext):
         intent = assignment_type_as_intent(assignment_type)
 
         buffer_view = assignee.buffer_view
-        # FIXME: Using this get_offset is ugly
+        buffer = buffer_view.buffer
+        if isinstance(buffer_view.buffer, (PetscMatBuffer, NullBuffer)):
+            raise NotImplementedError(f"Buffers of type {type(buffer_view.buffer)} not implemented.") 
+
         self.add_buffer(buffer_view, intent=WRITE)
+        # NOTE: Using this get_offset is ugly
         offset = self._get_offset(assignee, iname_maps, loop_indices, paths=paths)
 
-        ssa_load = self.lower_expr(expression, iname_maps, loop_indices, paths=paths)
+        ssa_load = self.lower_expr(
+            expression, 
+            iname_maps, 
+            loop_indices, 
+            paths=paths, 
+            target_type=assignee.dtype # NOTE: expression should match assignee buffer type
+        )
 
         match assignment_type:
             case AssignmentType.WRITE:
                 value = ssa_load
             case AssignmentType.INC:
-                # If I want to inc, I need to load the lexpr and add it to rexpr. 
+                # TODO: INC requires loading lexpr and adding it to rexpr 
+                # Hence a LoadOp and an Add[i,f]Op 
                 raise NotImplementedError("Must do this soon.")
             case AssignmentType.MAX:
                 raise NotImplementedError("No implementation for MAX yet")
@@ -335,56 +348,19 @@ class MLIRCodegenContext(CodegenContext):
         return offset_ssa
 
     def add_buffer(
-        self,
-        buffer_view: pyop3.buffer.IndexedBuffer,
-        intent: pyop3.constants.Intent | None = None,
-    ) -> str:
-        """ Introduces buffer into argument list and manages intents """ 
-        buffer = buffer_view.buffer
-        if isinstance(buffer, NullBuffer):
-            raise NotImplementedError("Need to implement this for local assembly") 
-            assert not buffer_view.nest_indices
-            # Note that intent is not important for temporaries
-            try:
-                return self.kernel_names[buffer_view]
-            except KeyError:
-                shape = self._temporary_shapes.get(buffer, (buffer.size,))
-                assert isinstance(shape, tuple) and all(isinstance(s, numbers.Integral) for s in shape)
-                name_in_kernel = self.add_temporary("t", buffer.dtype, shape=shape)
-                return self.kernel_names.setdefault(buffer_view, name_in_kernel)
-        else:
-            if intent is None:
-                raise ValueError("Global data must declare intent")
+            self, 
+            buffer_view: pyop3.buffer.IndexedBuffer,
+            intent: pyop3.constants.Intent | None = None
+    ):
+        """ Method wraps super to add SSA to symbol table """
+        need_ssa_insert = buffer_view not in self.kernel_names
+        name_in_kernel = super().add_buffer(buffer_view, intent)
+        arg = self._arguments[-1] # NOTE: appended arg in super method 
+        
+        if need_ssa_insert:
+            self.insert_arg(arg, buffer_view)
 
-            if buffer_view in self.kernel_names:
-                if intent != self.buffer_intents[buffer]:
-                    # We are accessing a buffer with different intents so have to
-                    # pessimally claim RW access
-                    self.buffer_intents[buffer] = RW
-                return self.kernel_names[buffer_view]
-
-            # Extract the underlying data as that is what we need to generate code
-            handle = buffer_view.handle
-            if not isinstance(handle, np.ndarray):
-                raise NotImplementedError(f"No implementation for type {type(handle)}")
-
-            if isinstance(handle.dtype, np.dtypes.IntDType):
-                name_in_kernel = self.unique_name("idat")
-            else:
-                name_in_kernel = self.unique_name("dat")
-
-            shape = self._temporary_shapes.get(buffer, None)  # TODO: should be handle not buffer here?
-            iter_arg = Argument(name_in_kernel, dtype=handle.dtype, shape=shape)
-
-            self.buffer_intents[buffer] = intent
-            self._arguments.append(iter_arg)
-
-            # TODO: Add argument to symbol table with ssa value for arg type 
-            buffer_type = self._buffer_type(iter_arg)
-            buffer_ssa = self.insert_arg(buffer_type, name_in_kernel)
-            self.symbol_table.define(buffer_view, buffer_ssa)
-
-            return self.kernel_names.setdefault(buffer_view, name_in_kernel)
+        return name_in_kernel 
 
     def lower_buffer_access(
         self,
@@ -395,23 +371,22 @@ class MLIRCodegenContext(CodegenContext):
         *, 
         intent,
         buffer_store: bool = False 
-    ) -> SSAValue:
+    ) -> SSAValue | None:
         """ 
-        Returns an SSA for the index of buffer 
+        Returns an SSAValue for a LoadOp from a buffer or None from a StoreOp
 
         Note that it is not associated to buffer. Parent functions should address load/store
         """
-        name_in_kernel = self.add_buffer(buffer_view, intent)
-
         buffer = buffer_view.buffer
-        if isinstance(buffer, PetscMatBuffer):
-            raise NotImplementedError("PETSc buffers not implemented") 
+        if isinstance(buffer, (PetscMatBuffer, NullBuffer)):
+            raise NotImplementedError(f"Buffers of type {type(buffer)} not implemented.") 
+        name_in_kernel = self.add_buffer(buffer_view, intent)
 
         offset_ssa = self._offset_generation(buffer, layouts, iname_maps, loop_indices)
 
         # TODO: Not implemented
         if self.propagate_negatives and intent == READ:
-            pass
+            raise NotImplementedError
             # idx = indices[-1]  # only the final index has meaning
             # is_negative = pym.primitives.Comparison(idx, "<", 0)
             # return pym.primitives.If(is_negative, -1, subscript)
@@ -424,20 +399,18 @@ class MLIRCodegenContext(CodegenContext):
         self.insert(memref_op_ssa)
         return memref_op_ssa.results[0]
 
-    # NOTE: This function really highlights need for more robust type inference in this code 
-    # TODO: Introduce more robust type inference/resolution
+    # NOTE: This should be the only point in which we brute force IndexType on all Ints.
     def _offset_generation(self, buffer, layouts, iname_maps, loop_indices) -> SSAValue: 
         """ Returns an SSA value for the buffer index """ 
 
         mul_ops = []
         for stride, layout, iname_map in zip(utils.strides(buffer.shape), layouts, iname_maps, strict=True):
-            # Problem now is that we have a load. 
-            # The load gives i32 (appropriately) but we don't cast it. It should be done with the add. 
 
             mul_op = self.lower_expr(
                 pyop3.expr.Mul(a=stride, b=layout),
                 [iname_map],
                 loop_indices,
+                is_index=True,
                 target_type=IntType
             )
 
@@ -450,26 +423,10 @@ class MLIRCodegenContext(CodegenContext):
                 acc = self._to_index(acc)
             if not isinstance(val.type, IndexType):
                 val = self._to_index(val) 
-            return self.insert(arith.AddiOp(acc, val)).result
+            return self.insert(arith.AddiOp(acc, val))
 
         return functools.reduce(add, mul_ops[1:], mul_ops[0])
 
-    def lower_expr(
-            self, 
-            expr, 
-            iname_maps, 
-            loop_indices,
-            intent = READ, 
-            paths=None,
-            target_type=None,
-            buffer_store: bool = False
-    ):
-        target_dtype = target_type or expr.dtype
-        return _lower_expr(
-            expr, iname_maps, loop_indices,
-            intent=intent, paths=paths, context=self, target_type=target_dtype,
-            buffer_store=buffer_store,
-        )
 
     @contextlib.contextmanager
     def within_inames(self, inames):
@@ -477,6 +434,7 @@ class MLIRCodegenContext(CodegenContext):
         Contrary to loopy, this builds (scf) loops eagerly.
 
         This lines up with the structural IR generation. Loopy is lazy as it uses polyhedral
+        Likely that optimisations can be made here.
         """
         new_inames = sorted(set(inames) - self._within_inames)
         orig_within_inames = self._within_inames
@@ -495,9 +453,8 @@ class MLIRCodegenContext(CodegenContext):
 
                 # Descend into the loop body.
                 body = for_op.body.block
-                induction = body.args[0]
                 self.symbol_table.push()
-                self.symbol_table.define(iname, induction)
+                self.symbol_table.define(iname, body.args[0])
                 self.insertion_stack.append(self._builder.insertion_point)
                 self._builder = Builder(InsertPoint.at_end(body))
             yield
@@ -520,18 +477,26 @@ class MLIRCodegenContext(CodegenContext):
                 arith.ConstantOp(
                     IntegerAttr(num, iType)
                 )
-        ).result
+        )
         self.symbol_table.define(num, ssa) 
         return num
 
     @register_extent.register(pyop3.expr.Expression)
     def _(self, expr: pyop3.expr.Expression, inames, loop_indices):
         extent_name = self.add_temporary("p")
-        self.add_assignment(extent_name, expr, inames, loop_indices)
+        rhs_ssa = self.lower_expr(
+            expr, 
+            iname_maps=[inames], 
+            loop_indices=loop_indices,
+            buffer_store=False
+        )
+        self.symbol_table.define(extent_name.name, rhs_ssa) 
         return extent_name
 
     def finalize_kernel(self, function_name, compiler_parameters) -> ModuleOp:
         n = len(self._arguments)
+
+        # NOTE: Using indices as re-ordering used for arguments later on
         perm = sorted(range(n), key=lambda i: self._arguments[i].name)
         arg_types = [self._buffer_type(self._arguments[i]) for i in perm]
 
@@ -539,13 +504,21 @@ class MLIRCodegenContext(CodegenContext):
         func_op.attributes["llvm.emit_c_interface"] = UnitAttr()
         new_block = func_op.body.block
 
-        # Reordering arguments
+        """  
+        Arguments are moved and re-ordered from intermediate Block to Func operation. 
+        Re-ordering to match Loopy argument order. 
+        .replace_by replaces all SSA appeareances of the corresponding (old_arg, new_arg) pair.
+        """
         for new_index, old_index in enumerate(perm):
             old_arg = self._entry_block.args[old_index]
             new_arg = new_block.args[new_index]
-            old_arg.replace_by(new_arg)
+            old_arg.replace_by(new_arg)         
 
-        # Move old block ops into the func entry block
+        """
+        In MLIR, the IR works with Regions -> Blocks -> Operations -> Blocks -> Regions...
+        An Operation is attached to a Block and must be explicitly detached when moving.
+        This loop detaches/attaches operations from the intermediate building Block to the FuncOp.
+        """
         ops = list(self._entry_block.ops)
         for op in ops:
             op.detach()
@@ -553,13 +526,12 @@ class MLIRCodegenContext(CodegenContext):
         new_block.add_op(func.ReturnOp())
 
         module = ModuleOp([func_op])
-        # NOTE: Raises errors if there are issues in the generated MLIR
-        # Quite expensive as it walks MLIR AST so maybe debug only in future?
-        module.verify() 
+        if pyop3.config.debug_checks:
+            module.verify()
 
         # NOTE: Temporary while building
-        mlir_str = self.emit_mlir(module)
         with open("input.mlir", "w") as f: 
+            mlir_str = self.emit_mlir(module)
             f.write(mlir_str)
         
         return module
@@ -571,14 +543,34 @@ class MLIRCodegenContext(CodegenContext):
         Printer(stream=output, print_generic_format=False).print_op(module)
         return output.getvalue()
 
-# TODO: Remove this remnant as I realised it was wrong
-def _index_as_int(context, ssa) -> SSAValue:
-    return ssa
+    def lower_expr(
+            self, 
+            expr, 
+            iname_maps, 
+            loop_indices, 
+            intent = READ, 
+            paths=None,
+            target_type=None,
+            buffer_store: bool = False,
+            **kwargs
+    ) -> SSAValue:
+        target_dtype = target_type or expr.dtype
+        return _lower_expr(
+            expr, 
+            iname_maps, 
+            loop_indices,
+            intent=intent, 
+            paths=paths,
+            target_type=target_dtype,
+            context=self, 
+            buffer_store=buffer_store
+        )
 
 @functools.singledispatch
 def _lower_expr(expr: Any, /, *args, **kwargs) -> SSAValue:
     raise NotImplementedError(f"There is no lowering path for {type(expr)}.")
 
+# TODO: Assuming iType here is not necessary. Forcing is probably not correct 
 @_lower_expr.register(numbers.Number)
 def _(num, /, iname_maps, loop_indices, *, target_type, context, **kwargs) -> SSAValue:
     if _is_float(target_type):
@@ -588,7 +580,7 @@ def _(num, /, iname_maps, loop_indices, *, target_type, context, **kwargs) -> SS
         ty = iType
         attr = IntegerAttr(int(num), ty)
     # FIXME: Fix iType to be actual return 
-    ssa = context.insert(arith.ConstantOp(attr, ty)).result
+    ssa = context.insert(arith.ConstantOp(attr, ty))
     return ssa
 
 # TODO: This can go if temp variables gone 
@@ -596,6 +588,7 @@ def _(num, /, iname_maps, loop_indices, *, target_type, context, **kwargs) -> SS
 def _(name_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
     return context.symbol_table[name_var.name]
 
+# TODO: Can I leave this back in the lower_expr? I think so.
 def _binop(e, kind, /, iname_maps, loop_indices, *, context, target_type, **kwargs):
     # TODO: Should use target_type. No need to re-establish at this point 
     # May even cause errors this way.
@@ -632,9 +625,9 @@ def _binop(e, kind, /, iname_maps, loop_indices, *, context, target_type, **kwar
             op = arith.OrIOp(lhs, rhs)
         case _:          
             raise NotImplementedError(kind)
-    return context.insert(op).result
+    return context.insert(op)
 
-
+# Maybe I pass a kwarg for offset_generation which suggests indices? 
 @_lower_expr.register(pyop3.expr.Add)
 def _(e, /, *args, **kwargs): return _binop(e, "add", *args, **kwargs)
 
@@ -666,23 +659,15 @@ def _(neg, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
     val = _lower_expr(neg.a, iname_maps, loop_indices, **child)
     val = _coerce(context, val, _expr_dtype(neg.a, node_dtype), node_dtype)
     if _is_float(node_dtype):
-        return context.insert(arith.NegfOp(val)).result
+        return context.insert(arith.NegfOp(val))
     zero = context.insert(arith.ConstantOp(IntegerAttr(0, _mlir_type(node_dtype)),
-                                           _mlir_type(node_dtype))).result
-    return context.insert(arith.SubiOp(zero, val)).result
-
-@_lower_expr.register(pyop3.expr.Comparison)
-def _(cond, /, iname_maps, loop_indices, *, context, target_type, **kwargs) -> SSAValue:
-    raise NotImplementedError("Still to be implemented.")
-
-@_lower_expr.register(pyop3.expr.Conditional)
-def _(cond, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
-    raise NotImplementedError("Still to be implemented.")
+                                           _mlir_type(node_dtype)))
+    return context.insert(arith.SubiOp(zero, val))
 
 # FIXME: Should AxisVar be trying to cast to int? 
 @_lower_expr.register(pyop3.expr.AxisVar)
 def _(axis_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
-    # iname variables are assigned outwith codegen and constants must be mapped to an SSA value
+    # iname variables are assigned outside codegen and constants must be mapped to an SSA value
     iname = utils.just_one(iname_maps)[axis_var.axis.label]
     if isinstance(iname, numbers.Integral): 
         return context._const_index(iname) 
@@ -693,7 +678,7 @@ def _(axis_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)
 def _(loop_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
-    raise NotImplementedError("Still to be implemented.")
+    return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
 
 @_lower_expr.register(pyop3.expr.ScalarBufferExpression)
 def _(expr, /, iname_maps, loop_indices, *, intent, context, buffer_store, **kwargs) -> SSAValue:
