@@ -350,6 +350,12 @@ def test_scalar_multiplication():
     weighted = FormSum((b, 2), (b, 1))
     assert as_slate(weighted) == ScalarMul(2, b) + b
 
+    scalar = Constant(2)
+    assert b * scalar == ScalarMul(scalar, b)
+    assert scalar * b == ScalarMul(scalar, b)
+    with pytest.raises(ValueError, match="scalar-valued"):
+        ScalarMul(Constant([1, 2]), b)
+
 
 def test_implicit_casting_action():
     mesh = UnitSquareMesh(1, 1)
@@ -414,8 +420,7 @@ def test_ops_TypeError():
     with pytest.raises(TypeError):
         f - A
 
-    with pytest.raises(TypeError):
-        f * A
+    assert f * A == ScalarMul(f, A)
 
 
 def test_illegal_mul():

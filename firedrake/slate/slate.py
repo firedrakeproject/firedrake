@@ -37,7 +37,8 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.replace import replace
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import Zero
-from ufl.constantvalue import ScalarValue
+from ufl.checks import is_true_ufl_scalar
+from ufl.constantvalue import ConstantValue, ScalarValue
 from ufl.domain import join_domains, sort_domains
 from ufl.form import BaseForm, Form, FormSum, ZeroBaseForm
 import hashlib
@@ -374,7 +375,7 @@ class TensorBase(BaseForm):
             return NotImplemented
 
     def __mul__(self, other):
-        if isinstance(other, (numbers.Number, ScalarValue)):
+        if isinstance(other, (numbers.Number, ConstantValue, ScalarValue)):
             return ScalarMul(other, self)
         try:
             other = as_slate(other)
@@ -383,7 +384,7 @@ class TensorBase(BaseForm):
             return NotImplemented
 
     def __rmul__(self, other):
-        if isinstance(other, (numbers.Number, ScalarValue)):
+        if isinstance(other, (numbers.Number, ConstantValue, ScalarValue)):
             return ScalarMul(other, self)
         # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
@@ -1280,56 +1281,12 @@ class Transpose(UnaryOp):
         return "(%s).T" % tensor
 
 
-class BinaryOp(TensorOp):
-    """An abstract Slate class representing binary operations on tensors.
-    Such operations take two operands and returns a tensor-valued expression.
-
-    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
-        (:class:`Tensor`) or any derived expression resulting from any
-        number of linear algebra operations on `Tensor` objects. For
-        example, another instance of a `BinaryOp` object is an acceptable
-        input, or a `UnaryOp` object.
-    :arg B: a :class:`~.firedrake.slate.TensorBase` object.
-    """
-
-    def reconstruct(self, *, A=None, B=None):
-        """Reconstruct this binary operation with replacement operands."""
-        old_A, old_B = self.operands
-        A = old_A if A is None else A
-        B = old_B if B is None else B
-        return type(self)(A, B)
-
-    def _ufl_expr_reconstruct_(self, *operands):
-        return self.reconstruct(A=operands[0], B=operands[1])
-
-    def _output_string(self, prec=None):
-        """Creates a string representation of the binary operation."""
-        ops = {Add: '+',
-               Mul: '*',
-               Solve: '\\'}
-        if prec is None or self.prec >= prec:
-            par = lambda x: x
-        else:
-            par = lambda x: "(%s)" % x
-        A, B = self.operands
-        operand1 = A._output_string(prec=self.prec)
-        operand2 = B._output_string(prec=self.prec)
-
-        result = "%s %s %s" % (operand1, ops[type(self)], operand2)
-
-        return par(result)
-
-    def __repr__(self):
-        A, B = self.operands
-        return "%s(%r, %r)" % (type(self).__name__, A, B)
-
-
 class ScalarMul(UnaryOp):
     """Represent multiplication of a Slate tensor by a scalar.
 
     Parameters
     ----------
-    scalar : numbers.Number or ufl.constantvalue.ScalarValue
+    scalar : numbers.Number, ufl.constantvalue.ConstantValue, or ufl.constantvalue.ScalarValue
         The scalar factor, which is not a Slate tensor.
     tensor : TensorBase
         The Slate tensor to scale.
@@ -1359,8 +1316,10 @@ class ScalarMul(UnaryOp):
     def _scalar_value(scalar):
         if isinstance(scalar, ScalarValue):
             scalar = scalar.value()
-        if not isinstance(scalar, numbers.Number):
-            raise TypeError("The scalar factor must be numeric.")
+        elif not isinstance(scalar, (numbers.Number, ConstantValue, ScalarValue)):
+            raise TypeError("The scalar factor must be numeric or a UFL ConstantValue.")
+        if isinstance(scalar, ConstantValue) and not is_true_ufl_scalar(scalar):
+            raise ValueError("The scalar factor must be scalar-valued.")
         return scalar
 
     def reconstruct(self, A=None):
@@ -1376,27 +1335,6 @@ class ScalarMul(UnaryOp):
     def arguments(self):
         """Return the arguments associated with the tensor."""
         return self.operands[0].arguments()
-
-    def coefficients(self):
-        """Return the coefficients associated with the tensor."""
-        return self.operands[0].coefficients()
-
-    def constants(self):
-        """Return the constants associated with the tensor."""
-        return self.operands[0].constants()
-
-    def slate_coefficients(self):
-        """Return the Slate coefficients associated with the tensor."""
-        return self.operands[0].slate_coefficients()
-
-    @TensorBase._expand_mixed_meshes
-    def ufl_domains(self):
-        """Return the integration domains associated with the tensor."""
-        return self.operands[0].ufl_domains()
-
-    def subdomain_data(self):
-        """Return the subdomain data associated with the tensor."""
-        return self.operands[0].subdomain_data()
 
     @cached_property
     def _key(self):
@@ -1440,6 +1378,50 @@ class Negative(ScalarMul):
 
         tensor, = self.operands
         return par("-%s" % tensor._output_string(prec=self.prec))
+
+
+class BinaryOp(TensorOp):
+    """An abstract Slate class representing binary operations on tensors.
+    Such operations take two operands and returns a tensor-valued expression.
+
+    :arg A: a :class:`~.firedrake.slate.TensorBase` object. This can be a terminal tensor object
+        (:class:`Tensor`) or any derived expression resulting from any
+        number of linear algebra operations on `Tensor` objects. For
+        example, another instance of a `BinaryOp` object is an acceptable
+        input, or a `UnaryOp` object.
+    :arg B: a :class:`~.firedrake.slate.TensorBase` object.
+    """
+
+    def reconstruct(self, *, A=None, B=None):
+        """Reconstruct this binary operation with replacement operands."""
+        old_A, old_B = self.operands
+        A = old_A if A is None else A
+        B = old_B if B is None else B
+        return type(self)(A, B)
+
+    def _ufl_expr_reconstruct_(self, *operands):
+        return self.reconstruct(A=operands[0], B=operands[1])
+
+    def _output_string(self, prec=None):
+        """Creates a string representation of the binary operation."""
+        ops = {Add: '+',
+               Mul: '*',
+               Solve: '\\'}
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+        A, B = self.operands
+        operand1 = A._output_string(prec=self.prec)
+        operand2 = B._output_string(prec=self.prec)
+
+        result = "%s %s %s" % (operand1, ops[type(self)], operand2)
+
+        return par(result)
+
+    def __repr__(self):
+        A, B = self.operands
+        return "%s(%r, %r)" % (type(self).__name__, A, B)
 
 
 class Add(BinaryOp):
