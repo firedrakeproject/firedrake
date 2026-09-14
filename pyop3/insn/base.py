@@ -120,8 +120,6 @@ class TerminalInstruction(Instruction, Terminal, abc.ABC):
         )
 
 
-
-
 # TODO not a useful thing to have any more
 _DEFAULT_LOOP_NAME = "pyop3_loop"
 
@@ -640,7 +638,6 @@ class AbstractAssignmentLike(TerminalInstruction):
     @property
     def arguments(self) -> tuple[Any, Any]:
         return (self._assignee, self.expression)
-        # return (self.assignee, self.expression)
 
     @cached_property
     def compiler_options(self) -> pyop3.cc.CompilerOptions:
@@ -673,8 +670,13 @@ class AbstractAssignment(AbstractAssignmentLike):
         # multi-line representations. We want to line these up.
         # NOTE: This might not be the ideal solution, eagerly break the Assignment up?
 
-        assignee_strs = str(self.assignee).split("\n")
         expression_strs = str(self.expression).split("\n")
+        if isinstance(self._assignee, weakref.ReferenceType):
+            assignee = self._assignee()
+        if assignee is None:
+            assignee_strs = ["<dead>" for _ in expression_strs]
+        else:
+            assignee_strs = str(self.assignee).split("\n")
 
         if len(assignee_strs) > 1:
             if len(expression_strs) > 1:
@@ -865,7 +867,6 @@ class Exscan(AbstractAssignmentLike):
 
     @property
     def arguments(self) -> tuple[Any, Any]:
-        # return (self.assignee, self.expression)
         return (self._assignee, self.expression)
 
     @cached_property

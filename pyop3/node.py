@@ -130,6 +130,7 @@ class Visitor(abc.ABC):
             if isinstance(node, weakref.ReferenceType):
                 # Don't try to cache weakrefs
                 node = node()
+                assert node is not None, "Cannot do a traversal involving a dead weakref"
                 do_cache = False
             else:
                 cache_key = self.get_cache_key(node, *args, **kwargs)

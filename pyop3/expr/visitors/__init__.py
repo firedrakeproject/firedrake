@@ -221,11 +221,12 @@ def _(op: pyop3.expr.BinaryOperator):
 def _(dat: pyop3.expr.Dat, /) -> OrderedSet:
     loop_indices = OrderedSet()
 
-    if dat.transform and dat.transform.prev:
-        loop_indices |= collect_loop_index_vars(dat.transform.prev)
+    if dat.transform:
+        loop_indices |= collect_loop_index_vars(dat.transform)
 
-    for leaf_layout in dat.axes.leaf_subst_layouts.values():
-        loop_indices |= collect_loop_index_vars(leaf_layout)
+    for axis_tree in dat.axes.trees:
+        for leaf_layout in axis_tree.leaf_subst_layouts.values():
+            loop_indices |= collect_loop_index_vars(leaf_layout)
     return loop_indices
 
 
@@ -242,14 +243,24 @@ def _(expr: pyop3.expr.LinearDatBufferExpression, /) -> OrderedSet:
 @collect_loop_index_vars.register(pyop3.expr.Mat)
 def _(mat: pyop3.expr.Mat, /) -> OrderedSet:
     loop_indices = OrderedSet()
-    if mat.parent:
-        loop_indices |= collect_loop_index_vars(mat.parent)
+    if mat.transform:
+        loop_indices |= collect_loop_index_vars(mat.transform)
 
-    for cs_axes in {mat.row_axes, mat.column_axes}:
-        for cf_axes in cs_axes.context_map.values():
-            for leaf in cf_axes.leaves:
-                path = cf_axes.path(leaf)
-                loop_indices |= collect_loop_index_vars(cf_axes.layouts2[path])
+    for axess in [mat.row_axes, mat.column_axes]:
+        for axes in axess.trees:
+            for leaf_layout in axes.leaf_subst_layouts.values():
+                loop_indices |= collect_loop_index_vars(leaf_layout)
+    return loop_indices
+
+
+@collect_loop_index_vars.register
+def _(reshape: pyop3.expr.ReshapeTensorTransform, /) -> OrderedSet:
+    loop_indices = OrderedSet()
+    for axis_tree in reshape.axis_trees:
+        for leaf_layout in axis_tree.leaf_subst_layouts.values():
+            loop_indices |= collect_loop_index_vars(leaf_layout)
+    if reshape.prev:
+        loop_indices |= collect_loop_index_vars(reshape.prev)
     return loop_indices
 
 
@@ -894,13 +905,13 @@ def _(agg_tensor: pyop3.expr.AggregateMat, /, access_type):
     temporary = agg_tensor.materialize()
     if access_type == ArrayAccessType.READ:
         insns = tuple(
-            temporary[ix].assign(submat)
+            temporary[ix].assign(submat, _weakref=False)
             for ix, submat in agg_tensor
         )
     else:
         mode = _array_access_type_to_mode(access_type)
         insns = tuple(
-            submat.assign(temporary[ix], mode)
+            submat.assign(temporary[ix], mode, _weakref=False)
             for ix, submat in agg_tensor
         )
     return temporary, insns
@@ -920,12 +931,22 @@ def _array_access_type_to_mode(access_type):
             raise AssertionError
 
 
-# TODO: Add intermediate type here to assert that there is no longer a parent attr
+@expand_transforms.register(weakref.ReferenceType)
 @expand_transforms.register(pyop3.expr.Tensor)
-def _(tensor: pyop3.expr.Tensor, /, access_type):
+def _(tensor, /, access_type):
+    if isinstance(tensor, weakref.ReferenceType):
+        tensor = tensor()
+        assert isinstance(tensor, pyop3.expr.Tensor)
+        is_weakref = True
+    else:
+        is_weakref = False
+
     if not tensor.transform:
+        if is_weakref:
+            tensor = weakref.ref(tensor)
         return tensor, ()
     else:
+        # safe to ignore weakref on this branch because tensor is getting reconstructed
         bare_tensor = tensor.record_new(_transform=None)
         return _expand_transforms_tensor(bare_tensor, tensor.transform, access_type)
 
@@ -943,7 +964,7 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
             # to apply to the incremental change, not the whole data structure.
             # We therefore materialise and return a temporary to hold the change.
             temporary = tensor.materialize()
-            return temporary, (tensor.assign(temporary, mode),)
+            return temporary, (tensor.assign(temporary, mode, _weakref=False),)
 
     prev_tensor = tensor
     if isinstance(transform, ReshapeTensorTransform):
@@ -1001,12 +1022,12 @@ def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None,
 
         if access_type == ArrayAccessType.READ:
             insns = prev_insns + (
-                temp.assign(prev_tensor),
+                temp.assign(prev_tensor, _weakref=False),
             )
             return temp_reshaped, insns
         else:
             insns = (
-                prev_tensor.assign(temp),
+                prev_tensor.assign(temp, _weakref=False),
             ) + prev_insns
             return temp_reshaped, insns
 

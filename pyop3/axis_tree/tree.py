@@ -873,45 +873,16 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         # index using slices, strings etc and we get a big performance boost by
         # caching these.
         if pyop3.index_tree.tree.has_loop_indices(indices):
-            return self._getitem_with_loop_indices(indices, strict=strict)
+            return self._getitem_uncached(indices, strict=strict)
         else:
-            return self._getitem_without_loop_indices(indices, strict=strict)
+            return self._getitem_cached(indices, strict=strict)
 
     @cached_method()
-    def _getitem_without_loop_indices(self, indices, *, strict):
-        return self._getitem_cached(self, indices, strict=strict)
+    def _getitem_cached(self, indices, *, strict):
+        return self._getitem_uncached(indices, strict=strict)
 
-    def _getitem_with_loop_indices(self, indices, *, strict):
-        import pyop3.index_tree.parse
-        import pyop3.visitors
-
-        relabeler = pyop3.visitors.Relabeler(
-            self._canonical_relabel_map, allow_missing=True
-        )
-        relabeled_indices = pyop3.index_tree.parse.relabel_indices(
-            indices, relabeler
-        )
-        relabeled_indexed_tree = self._getitem_cached(
-            self._canonicalized, relabeled_indices, strict=strict
-        )
-
-        # We allow for missing entries in the unrelabeler because some labels
-        # may be generated during indexing (e.g. dat[::2] will create a new axis
-        # but we don't know its name from just looking at dat and ::2 independently).
-        unrelabeler = pyop3.visitors.Relabeler(
-            relabeler.inverse_relabel_map, allow_missing=True
-        )
-        return unrelabeler(relabeled_indexed_tree)
-
-    # TODO: indices may not be hashable if it contains a slice (Py3.11)
-    @staticmethod
-    @pyop3.cache.memory_cache(
-        heavy=True,
-        get_comm=lambda t, *a, **kw: t.comm,
-        make_cache=lambda: pyop3.cache.LRUCache(10),
-    )
-    def _getitem_cached(
-        axis_tree,
+    def _getitem_uncached(
+        self,
         indices,
         *,
         strict,
@@ -920,7 +891,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         from pyop3.index_tree.parse import as_index_forests
         from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
 
-        index_forests = as_index_forests(indices, axes=axis_tree, strict=strict)
+        index_forests = as_index_forests(indices, axes=self, strict=strict)
 
         if len(index_forests) == 1:
             # There is no outer loop context to consider. Needn't return a
@@ -941,7 +912,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
             # we need to consider each of these separately and produce an axis *forest*.
             indexed_axess = []
             for restricted_index_tree in index_forest:
-                indexed_axes = index_axes(restricted_index_tree, idict(), axis_tree)
+                indexed_axes = index_axes(restricted_index_tree, idict(), self)
                 indexed_axess.append(indexed_axes)
 
             assert len(indexed_axess) > 0, "no match found at all!"
@@ -955,7 +926,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
             for loop_context, index_forest in index_forests.items():
                 indexed_axess = []
                 for index_tree in index_forest:
-                    indexed_axes = index_axes(index_tree, idict(), axis_tree)
+                    indexed_axes = index_axes(index_tree, idict(), self)
                     indexed_axess.append(indexed_axes)
 
                 if len(indexed_axess) > 1:

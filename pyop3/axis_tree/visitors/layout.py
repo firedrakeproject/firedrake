@@ -148,6 +148,8 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     if isinstance(axis_tree, weakref.ReferenceType):
         axis_tree = axis_tree()
 
+    return _compute_layouts_cached(axis_tree)
+
     relabeled_layouts, sf = _compute_layouts_cached(axis_tree._canonicalized)
     unrelabeler = axis_tree._canonical_unrelabeler
     layouts = idict({
@@ -161,11 +163,11 @@ def _compute_layouts_cached_hashkey(axis_tree):
     return axis_tree._canonical_cache_key
 
 
-@memory_cache(
-    heavy=True,
-    hashkey=_compute_layouts_cached_hashkey,
-    get_comm=lambda tree: tree.comm,
-)
+# @memory_cache(
+#     heavy=True,
+#     hashkey=_compute_layouts_cached_hashkey,
+#     get_comm=lambda tree: tree.comm,
+# )
 def _compute_layouts_cached(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     if axis_tree.is_empty:
         return idict({idict(): None}), pyop3.sf.NullStarForest(0)

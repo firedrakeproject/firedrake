@@ -17,7 +17,7 @@ from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed, entity_dofs_key, entity_permutations_key
 from firedrake.matrix import Matrix
-from firedrake.mesh import MeshLoopIndex
+from firedrake.mesh import MeshLoopIndex, extract_mesh_topologies
 
 
 @op3.cache.with_heavy_caches(lambda t, li, *a, **kw: [li.mesh.topology])
@@ -129,7 +129,20 @@ def _pack_dat_nonmixed(
     return packed_dat
 
 
-# TODO: cache me
+def _myhashkey(axes, loop_index, space):
+    edofs_key = entity_dofs_key(space.finat_element.entity_dofs())
+    try:
+        eperms_key = entity_permutations_key(space.finat_element.entity_permutations)
+    except NotImplementedError:
+        eperms_key = None
+    return (loop_index, edofs_key, eperms_key)
+
+
+# @op3.cache.cached_on(
+#     get_obj=lambda ax, idx, s: extract_mesh_topologies(s.mesh()),
+#     get_key=_myhashkey,
+#     multi=True,
+# )
 def _pack_dat_nonmixed_topological(axes, loop_index, space):
     map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
@@ -137,13 +150,13 @@ def _pack_dat_nonmixed_topological(axes, loop_index, space):
 
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
-    if isinstance(axes, op3.AxisForest):
+    if isinstance(packed_axes, op3.AxisForest):
         depth = utils.single_valued(
-            [axis.label for axis in packed_axes.axes].index("closure")
-            for axes in packed_axes.trees
+            [ax.label for ax in tree.axes].index("closure")
+            for tree in packed_axes.trees
         )
     else:
-        depth = [axis.label for axis in packed_axes.axes].index("closure")
+        depth = [ax.label for ax in packed_axes.axes].index("closure")
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
@@ -155,7 +168,9 @@ def _pack_dat_nonmixed_topological(axes, loop_index, space):
     return _orient_dat_dofs(packed_axes, space, cell_index, depth=depth), depth
 
 
-# TODO: cache me
+# No cache key is needed because there is a 1:1 relationship between
+# topological and nodal axes
+@op3.cache.cached_on(get_obj=lambda ax, *a: ax, get_key=lambda *a, **kw: None)
 def _pack_dat_nonmixed_nodal(packed_topological_axes, space, depth):
     packed_nodal_axes, nodal_axis = _packed_nodal_axes(packed_topological_axes, space, depth)
     perm = _static_node_permutation_slice(nodal_axis, space, depth)
@@ -187,6 +202,7 @@ def _(
         return op3.AggregateMat(packed_mats, row_space.field_axis, column_space.field_axis)
 
 
+# TODO: cache this like we do for dats
 def _pack_mat_nonmixed(
     mat: op3.Mat,
     loop_info: MeshLoopIndex,

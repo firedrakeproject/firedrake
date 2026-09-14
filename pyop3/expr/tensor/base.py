@@ -124,8 +124,9 @@ class Tensor(TerminalExpression, abc.ABC):
         eager: bool = False,
         eager_strategy: Literal["array", "compile"] | None = None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
+        **kwargs,
     ) -> pyop3.insn.Assignment | None:
-        return self._assign(other, mode, eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
+        return self._assign(other, mode, eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters, **kwargs)
 
     def iassign(
         self,
@@ -135,8 +136,9 @@ class Tensor(TerminalExpression, abc.ABC):
         eager: bool = False,
         eager_strategy: Literal["array", "compile"] | None = None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
+        **kwargs,
     ) -> pyop3.insn.Assignment | None:
-        return self._assign(other, "inc", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters)
+        return self._assign(other, "inc", eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters, **kwargs)
 
     def _assign(
         self,
@@ -147,6 +149,7 @@ class Tensor(TerminalExpression, abc.ABC):
         eager: bool,
         eager_strategy: Literal["array", "compile"] | None,
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None,
+        **kwargs
     ) -> pyop3.insn.Assignment | None:
         if compiler_parameters is not None and not eager:
             raise ValueError("Compiler parameters can only be passed to eager operations")
@@ -159,7 +162,7 @@ class Tensor(TerminalExpression, abc.ABC):
             except AttributeError:
                 pass
             else:
-                cache_key = self._symbolic_assign.cache_key(self, other, mode)
+                cache_key = self._symbolic_assign.cache_key(self, other, mode, **kwargs)
                 try:
                     assign_insn = cache[cache_key]
                 except KeyError:
@@ -170,16 +173,16 @@ class Tensor(TerminalExpression, abc.ABC):
 
             if eager_strategy is None:
                 try:
-                    self._array_assign(other, mode)
+                    self._array_assign(other, mode, **kwargs)
                 except BaseException as e:
                     raise e
                     # TODO: log a warning, or do something else sensible
-                    self._symbolic_assign(other, mode)(compiler_parameters=compiler_parameters)
+                    self._symbolic_assign(other, mode, **kwargs)(compiler_parameters=compiler_parameters)
             elif eager_strategy == "array":
-                self._array_assign(other, mode)
+                self._array_assign(other, mode, **kwargs)
             else:
                 assert eager_strategy == "compile"
-                self._symbolic_assign(other, mode)(compiler_parameters=compiler_parameters)
+                self._symbolic_assign(other, mode, **kwargs)(compiler_parameters=compiler_parameters)
             return
 
         else:
@@ -188,23 +191,26 @@ class Tensor(TerminalExpression, abc.ABC):
                     "'eager_strategy' is only a valid option for eagerly evaluated assignments"
                 )
 
-            return self._symbolic_assign(other, mode)
+            return self._symbolic_assign(other, mode, **kwargs)
 
-    def _symbolic_assign(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.Assignment:
+    def _symbolic_assign(self, other, /, mode: Literal["write", "inc"], **kwargs) -> pyop3.insn.Assignment:
         import pyop3
         from pyop3.insn import Assignment
 
-        if (
-            isinstance(self.buffer, pyop3.buffer.NullBuffer)
-            or bool(pyop3.expr.visitors.collect_loop_index_vars(self))
-        ):
+        if bool(pyop3.expr.visitors.collect_loop_index_vars(self)):
             # Cannot count on self to persist, assume the assignment holds the main reference
             return Assignment(self, other, mode)
         else:
-            return self._symbolic_assign_cached(other, mode)
+            return self._symbolic_assign_cached(other, mode, **kwargs)
 
     @cached_method(make_cache=lambda: pyop3.cache.LRUCache(5))
-    def _symbolic_assign_cached(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.Assignment:
+    def _symbolic_assign_cached(
+        self,
+        other,
+        /,
+        mode: Literal["write", "inc"],
+        _weakref: bool = True,
+    ) -> pyop3.insn.Assignment:
         from pyop3.insn import Assignment
 
         # We want to cache the assignment instruction for performance but the
@@ -214,7 +220,13 @@ class Tensor(TerminalExpression, abc.ABC):
         # We pass a weakref.ref instead of a weakref.proxy because consumers
         # do actually need to know that they have been passed a weakref-ed
         # object and weakref.proxy objects don't advertise that information.
-        return Assignment(weakref.ref(self), other, mode)
+        # In some circumstances (e.g. during compiler passes) we generate
+        # assignments where the assignment persists and needs to hold a
+        # reference to the assignee, not the other way around. The '_weakref'
+        # flag allows us to control this.
+        assignee = weakref.ref(self) if _weakref else self
+
+        return Assignment(assignee, other, mode)
 
     @abc.abstractmethod
     def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:

@@ -204,27 +204,27 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             local_tensor = func_arg.materialize()
 
             if intent == READ:
-                arg_pack_insns.append(local_tensor.assign(func_arg))
+                arg_pack_insns.append(local_tensor.assign(func_arg, _weakref=False))
             elif intent == WRITE:
                 # TODO: Some interpolation kernels for more exotic function
                 # spaces (e.g. HHJ) do not write to all of their DoFs, and
                 # this (somehow) results in NaNs. We get around this for
                 # now by zeroing the temporary on entry, though I think
                 # that this indicates an issue in the local kernel.
-                arg_pack_insns.append(local_tensor.assign(0))
-                arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
+                arg_pack_insns.append(local_tensor.assign(0, _weakref=False))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, _weakref=False))
             elif intent == RW:
-                arg_pack_insns.append(local_tensor.assign(func_arg))
-                arg_unpack_insns.insert(0, func_arg.assign(local_tensor))
+                arg_pack_insns.append(local_tensor.assign(func_arg, _weakref=False))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, _weakref=False))
             elif intent == INC:
-                arg_pack_insns.append(local_tensor.assign(0))
-                arg_unpack_insns.insert(0, func_arg.iassign(local_tensor))
+                arg_pack_insns.append(local_tensor.assign(0, _weakref=False))
+                arg_unpack_insns.insert(0, func_arg.iassign(local_tensor, _weakref=False))
             elif intent == MAX_RW:
-                arg_pack_insns.append(local_tensor.assign(func_arg))
-                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "max"))
+                arg_pack_insns.append(local_tensor.assign(func_arg, _weakref=False))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "max", _weakref=False))
             elif intent == MIN_RW:
-                arg_pack_insns.append(local_tensor.assign(func_arg))
-                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "min"))
+                arg_pack_insns.append(local_tensor.assign(func_arg, _weakref=False))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "min", _weakref=False))
             else:
                 raise NotImplementedError(f"Intent {intent} not handled")
 

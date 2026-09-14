@@ -351,7 +351,7 @@ class Assigner:
             # overlap from the outset.
 
             # create a persistent loop object so we can reuse it
-            loop = op3.loop(loop_index, op3_assignee.assign(op3_expr))
+            loop = op3.loop(loop_index, op3_assignee.assign(op3_expr, _weakref=False))
 
             def assign_op() -> None:
                 # swap out another buffer for the computation
@@ -378,7 +378,7 @@ class Assigner:
                 op3_assignee.assign(op3_expr, eager=True, eager_strategy="array")
 
         else:
-            assign_op = op3_assignee.assign(op3_expr)
+            assign_op = op3_assignee.assign(op3_expr, _weakref=False)
 
         return assign_op
 
