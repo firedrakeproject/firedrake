@@ -688,13 +688,14 @@ class Dat(Tensor):
         """Return a new "unindexed" array with the same shape."""
         return type(self).null(self.axes.materialize().regionless(), dtype=self.dtype, prefix="t")
 
-    def reshape(self, axes: AxisTree) -> Dat:
+    def reshape(self, axes: AxisTree, _allow_indexed: bool = False) -> Dat:
         """Return a reshaped view of the `Dat`.
 
         TODO
 
         """
-        assert isinstance(axes, AxisTree), "not indexed"
+        if not _allow_indexed:
+            assert isinstance(axes, AxisTree), "not indexed"
 
         return self.record_new(axes=axes, _transform=ReshapeTensorTransform((self.axes,), self.transform))
 

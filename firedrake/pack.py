@@ -21,19 +21,19 @@ from firedrake.mesh import MeshLoopIndex
 
 
 @op3.cache.with_heavy_caches(lambda t, li, *a, **kw: [li.mesh.topology])
-def pack(tensor: Any, loop_info: MeshLoopIndex, *args, **kwargs) -> op3.Tensor:
+def pack(tensor: Any, index: MeshLoopIndex, *args, **kwargs) -> op3.Tensor:
     """Prepare a tensor for use inside a pyop3 expression."""
-    return _pack(tensor, loop_info, *args, **kwargs)
+    return _pack(tensor, index, *args, **kwargs)
 
 
 @functools.singledispatch
-def _pack(tensor: Any, loop_info: MeshLoopIndex, **kwargs) -> op3.Tensor:
+def _pack(tensor: Any, index: MeshLoopIndex, **kwargs) -> op3.Tensor:
     """Prepare a tensor for use inside a pyop3 expression."""
     raise TypeError(f"No handler defined for {utils.pretty_type(tensor)}")
 
 
 @_pack.register
-def _(const: firedrake.constant.Constant, loop_info: MeshLoopIndex, **kwargs) -> op3.Dat:
+def _(const: firedrake.constant.Constant, index: MeshLoopIndex, **kwargs) -> op3.Dat:
     return const.dat
 
 
@@ -54,7 +54,6 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     iter_mesh = loop_index.mesh
     mesh = mesh.topology
     if iter_mesh.topology is mesh:
-        composed_map = None
         target_integral_type = loop_index.integral_type
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
@@ -64,28 +63,21 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
             loop_index = iter_mesh.support(loop_index)
         else:
             assert loop_index.integral_type == "cell"
-        composed_map = iter_mesh.extr_cell_to_base_cell_map(loop_index, label="extr_cell_base_cell")
+        loop_index = iter_mesh.extr_cell_to_base_cell_map(loop_index, label="extr_cell_base_cell")
         target_integral_type = "cell"
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
-        composed_map, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
+        loop_index, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
     else:
         # No shared topology, must be using a vertex-only mesh
-        composed_map = loop_index.mesh.cell_parent_cell_map(loop_index)
+        loop_index = loop_index.mesh.cell_parent_cell_map(loop_index)
         target_integral_type = "cell"
 
     if target_integral_type == "cell":
-        def self_map(index):
-            return mesh.closure(index)
+        return mesh.closure(loop_index)
     elif "facet" in target_integral_type:
-        def self_map(index):
-            return mesh.closure(mesh.support(index))
+        return mesh.closure(mesh.support(loop_index))
     else:
         raise ValueError(f"Unknown integral_type: {target_integral_type}")
-
-    if not composed_map:
-        return self_map(loop_index)
-    else:
-        return self_map(composed_map)
 
 
 @_pack.register(op3.Dat)
@@ -118,27 +110,56 @@ def _pack_dat_nonmixed(
     dat: op3.Dat,
     loop_index: MeshLoopIndex,
     space: WithGeometry,
-    *,
-    permutation: collections.abc.Iterable | None = None,
 ) -> op3.Dat:
     if isinstance(space.topological, RestrictedFunctionSpace):
         space = space.function_space
 
+    # First pack the dat in a topological sense. This will pack all cell DoFs before
+    # all edge DoFs etc but they will be correctly oriented and so on.
+    packed_topological_axes, depth = _pack_dat_nonmixed_topological(dat.axes, loop_index, space)
+    packed_dat = dat.with_axes(packed_topological_axes)
+
+    if _needs_static_permutation(space.finat_element):
+        # For high order elements the DoFs for the different topological entities are
+        # interleaved. We therefore need to reshape the dat to a 'nodal' view in
+        # order to permute the nodes.
+        packed_nodal_axes = _pack_dat_nonmixed_nodal(packed_topological_axes, space, depth)
+        packed_dat = packed_dat.reshape(packed_nodal_axes, _allow_indexed=True)
+
+    return packed_dat
+
+
+# TODO: cache me
+def _pack_dat_nonmixed_topological(axes, loop_index, space):
     map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
-    packed_dat = dat[map_]
+    packed_axes = axes[map_]
 
     # bit of a hack, find the depth of the axis labelled 'closure', this relies
     # on the fact that the tree is always linear at the top
-    if isinstance(packed_dat.axes, op3.AxisForest):
+    if isinstance(axes, op3.AxisForest):
         depth = utils.single_valued(
-            [axis.label for axis in axes.axes].index("closure")
-            for axes in packed_dat.axes.trees
+            [axis.label for axis in packed_axes.axes].index("closure")
+            for axes in packed_axes.trees
         )
     else:
-        depth = [axis.label for axis in packed_dat.axes.axes].index("closure")
+        depth = [axis.label for axis in packed_axes.axes].index("closure")
 
-    return transform_packed_cell_closure_dat(packed_dat, space, cell_index, depth=depth, permutation=permutation)
+    # Do this before the DoF transformations because this occurs at the level of entities, not nodes
+    # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
+    # defined. This makes no sense for simplex and quad meshes because they are already
+    # oriented. In effect we just arbitrarily permute the DoFs in the cell-node map for
+    # no reason. This orientation work should really only be necessary for hexes but I'm
+    # leaving as is for now because we otherwise get small inconsistencies between the
+    # old and new 'cell_node_list's which I want to avoid.
+    return _orient_dat_dofs(packed_axes, space, cell_index, depth=depth), depth
+
+
+# TODO: cache me
+def _pack_dat_nonmixed_nodal(packed_topological_axes, space, depth):
+    packed_nodal_axes, nodal_axis = _packed_nodal_axes(packed_topological_axes, space, depth)
+    perm = _static_node_permutation_slice(nodal_axis, space, depth)
+    return packed_nodal_axes[perm]
 
 
 @_pack.register(op3.Mat)
@@ -199,46 +220,6 @@ def _pack_mat_nonmixed(
     )
 
 
-def transform_packed_cell_closure_dat(
-    packed_dat: op3.Dat,
-    space,
-    cell_index: op3.LoopIndex,
-    *,
-    depth: int = 0,
-    permutation=None,
-) -> op3.Dat:
-    # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
-    # defined. This makes no sense for simplex and quad meshes because they are already
-    # oriented. In effect we just arbitrarily permute the DoFs in the cell-node map for
-    # no reason. This orientation work should really only be necessary for hexes but I'm
-    # leaving as is for now because we otherwise get small inconsistencies between the
-    # old and new 'cell_node_list's which I want to avoid.
-    packed_dat = _orient_dofs(packed_dat, space, cell_index, depth=depth)
-
-    # FIXME: This is awful! Just do it universally
-    if _needs_static_permutation(space.finat_element) or permutation is not None:
-        nodal_axis_tree, nodal_axis = _packed_nodal_axes(packed_dat.axes, space, depth)
-        packed_dat = packed_dat.reshape(nodal_axis_tree)
-
-        if _needs_static_permutation(space.finat_element):
-            dof_perm_slice = _static_node_permutation_slice(nodal_axis, space, depth)
-            packed_dat = packed_dat[dof_perm_slice]
-
-        if permutation is not None:
-            raise NotImplementedError("Need to fix uniqueness of dat")
-            # needed because we relabel here... else the labels dont match
-            nodal_axis = packed_dat.axes.axes[depth]
-            perm_dat = op3.Dat(nodal_axis, data=permutation, prefix="perm", buffer_kwargs={"constant": True})
-            perm_slice = op3.Slice(
-                nodal_axis.label,
-                [op3.SubsetSliceComponent(None, perm_dat)],
-            )
-            packed_dat = packed_dat[perm_slice]
-
-    return packed_dat
-
-
 def transform_packed_cell_closure_mat(
     packed_mat: op3.Mat,
     row_space: WithGeometry,
@@ -253,7 +234,7 @@ def transform_packed_cell_closure_mat(
     column_element = column_space.finat_element
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
-    packed_mat = _orient_dofs(
+    packed_mat = _orient_mat_dofs(
         packed_mat,
         row_space,
         column_space,
@@ -275,13 +256,14 @@ def transform_packed_cell_closure_mat(
     return packed_mat
 
 
-@functools.singledispatch
-def _orient_dofs(packed_tensor: op3.Tensor, *args, **kwargs) -> op3.Tensor:
-    raise TypeError(f"No handler defined for '{utils.pretty_type(packed_tensor)}'")
-
-
-@_orient_dofs.register(op3.Dat)
-def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.Dat:
+# TODO: fairly redundant function now, use orient_axis_tree
+def _orient_dat_dofs(
+    packed_axes: op3.IndexedAxisTree,
+    space: WithGeometry,
+    cell_index: op3.Index,
+    *,
+    depth: int,
+) -> op3.IndexedAxisTree:
     """
 
     As an example, consider the edge DoFs of a Q3 function space in 2D. The
@@ -307,17 +289,15 @@ def _(packed_dat: op3.Dat, space: WithGeometry, cell_index: op3.Index, *, depth:
     try:
         space.finat_element.entity_permutations  # noqa: F401
     except NotImplementedError:
-        return packed_dat
+        return packed_axes
+
+    if space.mesh().dimension == 0:  # i.e. a VoM
+        return packed_axes
     else:
-        if space.mesh().dimension > 0:  # i.e. not a VoM
-            permuted_axis_tree = _orient_axis_tree(packed_dat.axes, space, cell_index, depth=depth)
-        else:
-            permuted_axis_tree = packed_dat.axes
-        return packed_dat.with_axes(permuted_axis_tree)
+        return _orient_axis_tree(packed_axes, space, cell_index, depth=depth)
 
 
-@_orient_dofs.register(op3.Mat)
-def _(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
+def _orient_mat_dofs(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
     try:
         row_space.finat_element.entity_permutations  # noqa: F401
     except NotImplementedError:

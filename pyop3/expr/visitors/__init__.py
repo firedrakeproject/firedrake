@@ -221,7 +221,7 @@ def _(op: pyop3.expr.BinaryOperator):
 def _(dat: pyop3.expr.Dat, /) -> OrderedSet:
     loop_indices = OrderedSet()
 
-    if dat.transform:
+    if dat.transform and dat.transform.prev:
         loop_indices |= collect_loop_index_vars(dat.transform.prev)
 
     for leaf_layout in dat.axes.leaf_subst_layouts.values():
