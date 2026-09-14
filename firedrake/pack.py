@@ -129,20 +129,11 @@ def _pack_dat_nonmixed(
     return packed_dat
 
 
-def _myhashkey(axes, loop_index, space):
-    edofs_key = entity_dofs_key(space.finat_element.entity_dofs())
-    try:
-        eperms_key = entity_permutations_key(space.finat_element.entity_permutations)
-    except NotImplementedError:
-        eperms_key = None
-    return (loop_index, edofs_key, eperms_key)
-
-
-# @op3.cache.cached_on(
-#     get_obj=lambda ax, idx, s: extract_mesh_topologies(s.mesh()),
-#     get_key=_myhashkey,
-#     multi=True,
-# )
+@op3.cache.cached_on(
+    get_obj=lambda ax, idx, sp: extract_mesh_topologies(sp.mesh()),
+    get_key=lambda ax, idx, sp: (idx, sp),
+    multi=True,
+)
 def _pack_dat_nonmixed_topological(axes, loop_index, space):
     map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
