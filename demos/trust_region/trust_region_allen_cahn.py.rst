@@ -21,7 +21,7 @@ solving the linear system
 
 .. math::
 
-  dF(u)s = -F(u),
+  \delta F(u)s = -F(u),
 
 and then uses a line search to decide how far to move along :math:`s`. The
 line search trusts the *direction* :math:`s` completely and only questions
