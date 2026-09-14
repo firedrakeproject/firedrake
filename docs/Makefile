@@ -74,29 +74,31 @@ NOTEBOOK_ASSETS = $(patsubst notebooks/%,source/notebooks/%,\
 	$(wildcard notebooks/*.geo notebooks/*.msh notebooks/image/*))
 NOTEBOOK_PROFILE = $(BUILDDIR)/ipython/profile_default/ipython_kernel_config.py
 
-# Convert the py:percent tutorial notebooks to .ipynb, copy across the data
-# files they reference at runtime, and execute them. nbsphinx then renders the
-# stored output (nbsphinx_execute='never'). Each notebook is its own target, so
-# editing one re-executes only that one, and `make -j` executes them in
-# parallel.
-# Cells carrying the ``skip-execution`` and ``raises-exception`` tags (the same
-# tags nbval honours) are skipped / allowed to raise by nbconvert automatically.
+# Build all generated notebooks.
 source/notebooks: $(EXECUTED_NOTEBOOKS)
 
-# Copy each runtime input as its own target, so Make can track the files that
-# notebooks read without hiding them behind a phony aggregate target.
+# Copy each notebook asset (geometry, mesh, or image file) from notebooks/ to the
+# matching path under source/notebooks/. Keep each asset as a separate target so
+# Make can update it independently.
 $(NOTEBOOK_ASSETS): source/notebooks/%: notebooks/%
 	mkdir -p $(dir $@)
 	cp $< $@
 
-# Keep the IPython profile separate from the notebook outputs. The profile
-# controls how notebooks execute, but it is not part of their stored content.
+# Copy the IPython kernel configuration into the profile that runs the
+# generated notebooks.
 $(NOTEBOOK_PROFILE): ipython_kernel_config.py
 	mkdir -p $(dir $@)
 	cp $< $@
 
-# The `|` separates order-only prerequisites: Make builds the runtime inputs
-# before executing a notebook, but refreshing those inputs does not re-execute it.
+# Convert each Jupytext-formatted Python source to a Jupyter notebook, then
+# execute it. Sphinx uses the stored output instead of executing it again. Each
+# generated notebook has its own target, so editing one Python source rebuilds
+# only its corresponding notebook, and `make -j` can build them in parallel.
+# nbconvert skips cells tagged `skip-execution` and allows cells tagged
+# `raises-exception` to raise an exception.
+# The `|` makes notebook assets and the IPython profile order-only prerequisites.
+# Make builds the notebook assets and IPython profile first, but changes to these
+# prerequisites do not cause the generated notebook to run again.
 source/notebooks/%.ipynb: notebooks/%.py | $(NOTEBOOK_ASSETS) $(NOTEBOOK_PROFILE)
 	mkdir -p $(dir $@)
 	jupytext --to ipynb --output $@ $<
@@ -107,7 +109,7 @@ source/notebooks/%.ipynb: notebooks/%.py | $(NOTEBOOK_ASSETS) $(NOTEBOOK_PROFILE
 		--ExecutePreprocessor.timeout=600 \
 		$@
 
-# Convenience target to force regeneration of the executed notebooks.
+# Remove the generated notebooks and notebook assets, then rebuild them.
 copy_notebooks:
 	rm -rf source/notebooks
 	$(MAKE) source/notebooks
