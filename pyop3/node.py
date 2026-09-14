@@ -4,6 +4,7 @@ import abc
 import collections
 import functools
 import itertools
+import weakref
 from collections.abc import Hashable
 from typing import Any, Union
 
@@ -41,28 +42,14 @@ def postorder(method):
                     for key, value in child_attr.items()
                 })
             else:
-                new_children[attr_name] = self._call(child_attr, **kwargs)
+                new_children[attr_name] = self(child_attr, **kwargs)
         new_children = idict(new_children)
         return method(self, node, new_children, **kwargs)
-
-    @functools.wraps(method)
-    def _postorder_labelled_tree(self, node, path, **kwargs):
-        visited = []
-        for component_label in node.component_labels:
-            path_ = path | {node.label: component_label}
-            if self._tree.node_map[path_]:
-                visited.append(self._call(path_, **kwargs))
-            else:
-                visited.append(self.EMPTY)
-        visited = tuple(visited)
-        return method(self, node, path, visited, **kwargs)
 
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         if isinstance(self, NodeVisitor):
             return _postorder_node(self, *args, **kwargs)
-        elif isinstance(self, LabeledTreeVisitor):
-            return _postorder_labelled_tree(self, *args, **kwargs)
         else:
             raise TypeError(f"Cannot postorder visit '{utils.pretty_type(self)}'")
 
@@ -104,7 +91,6 @@ class Visitor(abc.ABC):
     def __init__(
         self,
         *,
-        allowed_types: type | tuple[type, ...] | Union | None = None,
         reuse_results: bool = True,
     ) -> None:
         if reuse_results:
@@ -112,7 +98,6 @@ class Visitor(abc.ABC):
         else:
             result_cache = None
 
-        self.allowed_types = allowed_types
         self.reuse_results = reuse_results
 
         self._visited_cache = {}
@@ -122,16 +107,58 @@ class Visitor(abc.ABC):
 
     # {{{ overrideable interface
 
-    def __call__(self, *args, **kwargs):
-        """Maybe overload this if you want to set some things up"""
-        return self._call(*args, **kwargs)
+    def __call__(self, node, *args, **kwargs):
+        """Perform memoised DAG traversal with ``process`` singledispatch method.
 
-    def get_cache_key(self, node, **kwargs) -> Hashable:
-        """Maybe overload this if you want to set some things up"""
-        return (node, tuple((k, v) for k, v in kwargs.items()))
+        Args:
+            node:
+                Expression to start DAG traversal from.
+            *args:
+                Positional arguments for the ``process`` singledispatchmethod.
+            **kwargs:
+                keyword arguments for the ``process`` singledispatchmethod.
 
-    def preprocess_node(self, node) -> tuple[Any, ...]:
-        return (node,)
+        Returns:
+            Processed Expression.
+
+        """
+        try:
+            # Push the current index (location in the tree) onto a stack
+            prev_index = self.index
+            self.index += (next(self._index_stack[self.index]),)
+
+            if isinstance(node, weakref.ReferenceType):
+                # Don't try to cache weakrefs
+                node = node()
+                do_cache = False
+            else:
+                cache_key = self.get_cache_key(node, *args, **kwargs)
+                if cache_key in self._visited_cache:
+                    return self._visited_cache[cache_key]
+                do_cache = True
+
+            result = self.process(node, *args, **kwargs)
+            # Conditionally check if r is in result_cache, a memory optimization
+            # to be able to keep representation of result compact
+            if do_cache and self.reuse_results:
+                try:
+                    # Cache hit: Use previously computed object, allowing current
+                    # ``result`` to be garbage collected as soon as possible
+                    result = self._result_cache[result]
+                except KeyError:
+                    # Cache miss: store in result_cache
+                    self._result_cache[result] = result
+
+            # Store result in cache
+            if do_cache:
+                self._visited_cache[cache_key] = result
+            return result
+        finally:
+            self.index = prev_index
+
+    def get_cache_key(self, node, *args, **kwargs) -> Hashable:
+        """Maybe overload this if you want to set some things up"""
+        return (node, args, tuple((k, v) for k, v in kwargs.items()))
 
     # TODO: Make this 'process_invalid' and make process an abstract method
     def process(self, o: Expr, **kwargs) -> Expr:
@@ -149,105 +176,6 @@ class Visitor(abc.ABC):
         raise TypeError(f"'{utils.pretty_type(self)}' does not define a rule for '{utils.pretty_type(o)}'")
 
     # }}}
-
-    # TODO: allow *args
-    def _call(self, node: Expr, **kwargs) -> Expr:
-        """Perform memoised DAG traversal with ``process`` singledispatch method.
-
-        Args:
-            node:
-                Expression to start DAG traversal from.
-            **kwargs:
-                keyword arguments for the ``process`` singledispatchmethod.
-
-        Returns:
-            Processed Expression.
-
-        """
-        if (
-            self.allowed_types is not None
-            and not isinstance(node, self.allowed_types)
-        ):
-            raise TypeError(
-                f"'{utils.pretty_type(node)}' is not one of the allowed types "
-                f"({self.allowed_types}) for {utils.pretty_type(self)}"
-            )
-
-        prev_index = self.index
-        self.index += (next(self._index_stack[self.index]),)
-
-        cache_key = self.get_cache_key(node, **kwargs)
-        try:
-            return self._visited_cache[cache_key]
-        except KeyError:
-            preprocessed = self.preprocess_node(node)
-            result = self.process(*preprocessed, **kwargs)
-            # Conditionally check if r is in result_cache, a memory optimization
-            # to be able to keep representation of result compact
-            if self.reuse_results:
-                try:
-                    # Cache hit: Use previously computed object, allowing current
-                    # ``result`` to be garbage collected as soon as possible
-                    result = self._result_cache[result]
-                except KeyError:
-                    # Cache miss: store in result_cache
-                    self._result_cache[result] = result
-            # Store result in cache
-            self._visited_cache[cache_key] = result
-            return result
-        finally:
-            self.index = prev_index
-
-
-class LabeledTreeVisitor(Visitor):
-    """
-    Notes
-    -----
-    Empty or unit trees get passed `None`.
-
-    """
-
-    def __init__(self):
-        assert False, "used?"
-        # FIXME: component.size is unique to each axis object, but the cache
-        # keys used aren't. This means that we hit cache erroneously sometimes.
-        super().__init__(visited_cache=op3_collections.AlwaysEmptyDict())
-
-        # variables that are only valid mid traversal
-        self._tree = None
-
-    # {{{ abstract methods
-
-    @property
-    @staticmethod
-    @abc.abstractmethod
-    def EMPTY():
-        pass
-
-    # }}}
-
-    # {{{ interface impls
-
-    def __call__(self, tree: AxisTree, **kwargs):
-        assert self._tree is None
-        try:
-            self._tree = tree
-            return super().__call__(idict(), **kwargs)
-        finally:
-            self._tree = None
-
-    def get_cache_key(self, path: ConcretePathT, **kwargs) -> Hashable:
-        # an axis is uniquely identified by itself and the subtree beneath it
-        return (
-            self._tree._subtree_node_map(path),
-            tuple((k, v) for k, v in kwargs.items()),
-        )
-
-    def preprocess_node(self, path: ConcetePathT, /) -> tuple[TreeNode, ConcretePathT]:
-        return (self._tree.node_map[path], path)
-
-    # }}}
-
 
 class NodeVisitor(Visitor):
 

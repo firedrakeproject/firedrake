@@ -8,6 +8,7 @@ import itertools
 import numbers
 import operator
 import typing
+import weakref
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from functools import cached_property
 from types import GeneratorType, NoneType
@@ -771,7 +772,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         import pyop3.visitors
 
         visitor = pyop3.visitors.MemoryCacheKeyGetter()
-        cache_key = visitor(self)
+        cache_key = visitor(weakref.ref(self))
         return (cache_key, visitor.renamer.type_store)
 
     @cached_property
@@ -800,7 +801,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     @cached_property
     def _canonicalized(self):
-        return self._canonical_relabeler(self)
+        return self._canonical_relabeler(weakref.ref(self))
 
     # }}}
 
@@ -880,8 +881,6 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def _getitem_without_loop_indices(self, indices, *, strict):
         return self._getitem_cached(self, indices, strict=strict)
 
-    # SOMETIMES SLOW, SOMETIMES NOT
-    # @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def _getitem_with_loop_indices(self, indices, *, strict):
         import pyop3.index_tree.parse
         import pyop3.visitors
@@ -904,10 +903,13 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         )
         return unrelabeler(relabeled_indexed_tree)
 
-
     # TODO: indices may not be hashable if it contains a slice (Py3.11)
     @staticmethod
-    @pyop3.cache.memory_cache(heavy=True, get_comm=lambda t, *a, **kw: t.comm, make_cache=lambda: pyop3.cache.LRUCache(10))
+    @pyop3.cache.memory_cache(
+        heavy=True,
+        get_comm=lambda t, *a, **kw: t.comm,
+        make_cache=lambda: pyop3.cache.LRUCache(10),
+    )
     def _getitem_cached(
         axis_tree,
         indices,
@@ -1582,7 +1584,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindex
         """Initialise the multi-axis by computing the layout functions."""
         from .visitors import compute_layouts
 
-        return compute_layouts(self)
+        return compute_layouts(weakref.ref(self))
 
     # }}}
 

@@ -21,7 +21,7 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
     """
     def __init__(self, shallow: bool = False, allowed_types: set | None = None) -> None:
         self.shallow = shallow
-        super().__init__(allowed_types=allowed_types)
+        super().__init__()
 
     def visit_path(self, path, **kwargs):
         return path

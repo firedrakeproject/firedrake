@@ -771,6 +771,9 @@ class heavy_caches:
 
     def __init__(self, objs: Any) -> None:
         objs = pyop3.collections.as_tuple(objs)
+        objs = tuple(
+            obj for obj in objs if not isinstance(obj, weakref.ReferenceType)
+        )
 
         for obj in objs:
             if not hasattr(obj, "_pyop3_heavy_cache_id"):

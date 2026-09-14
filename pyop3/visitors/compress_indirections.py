@@ -215,15 +215,11 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     def get_cache_key(self, node, **kwargs):
         return (*super().get_cache_key(node, **kwargs), self._collecting)
 
-    # TODO dont need this any more, just access self.index
-    def preprocess_node(self, node) -> tuple[Any, ...]:
-        return node, self.index
-
     @functools.singledispatchmethod
     def process(self, obj: pyop3.obj.Object, /, *args, **kwargs) -> tuple[tuple[Any, int, int], ...]:
         utils.raise_missing_dispatch_handler(obj)
 
-    def _null(self, obj: Any, index, /, **kwargs):
+    def _null(self, obj: Any, /, **kwargs):
         """Handler for terminals where we don't do anything."""
         if self._collecting:
             return ()
@@ -233,7 +229,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     # {{{ pyop3.expr
 
     @process.register
-    def _(self, op: pyop3.expr.BinaryOperator, index, /, *, compress: bool) -> tuple:
+    def _(self, op: pyop3.expr.BinaryOperator, /, *, compress: bool) -> tuple:
         if not self._collecting:
             return utils.merge_dicts(
                 self(x, compress=compress) for x in op.operands
@@ -287,7 +283,6 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     def _(
         self,
         expr: pyop3.expr.LinearDatBufferExpression,
-        index,
         /,
         *,
         compress: bool,
@@ -334,7 +329,6 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     def _(
         self,
         dat_expr: pyop3.expr.NonlinearDatBufferExpression,
-        index,
         /,
         **kwargs,
     ) -> idict:
@@ -346,7 +340,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         )
 
     @process.register
-    def _(self, tern: pyop3.expr.TernaryOperator, index, /, **kwargs) -> idict:
+    def _(self, tern: pyop3.expr.TernaryOperator, /, **kwargs) -> idict:
         return utils.merge_dicts(self(x, **kwargs) for x in tern.operands)
 
     @process.register(pyop3.expr.AxisVar)
@@ -359,7 +353,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         return self._null(var, *args, **kwargs)
 
     @process.register
-    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, index, /, *, compress: bool) -> idict:
+    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, *, compress: bool) -> idict:
         candidates = {}
         layouts = [mat_expr.row_layout, mat_expr.column_layout]
         for i, layout in enumerate(layouts):
@@ -383,7 +377,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         return idict(candidates)
 
     @process.register
-    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, index, /, *,  compress: bool) -> idict:
+    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, /, *,  compress: bool) -> idict:
         candidates = {}
         with self.collecting():
             layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
@@ -400,18 +394,18 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
 
     @process.register(pyop3.insn.NullInstruction)
     @process.register(pyop3.insn.Exscan)  # assume we are fine
-    def _(self, null: pyop3.insn.InstructionList, index, /, **kwargs) -> idict:
+    def _(self, null: pyop3.insn.InstructionList, /, **kwargs) -> idict:
         return idict()
 
 
     @process.register
-    def _(self, insn_list: pyop3.insn.InstructionList, index, /, **kwargs) -> idict:
+    def _(self, insn_list: pyop3.insn.InstructionList, /, **kwargs) -> idict:
         return utils.merge_dicts(
             (self(insn, **kwargs) for insn in insn_list),
         )
 
     @process.register(pyop3.insn.Loop)
-    def _(self, loop: pyop3.insn.Loop, index, /, **kwargs) -> idict:
+    def _(self, loop: pyop3.insn.Loop, /, **kwargs) -> idict:
         return utils.merge_dicts(
             (
                 self(stmt, **kwargs)
@@ -420,7 +414,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         )
 
     @process.register
-    def _(self, terminal: pyop3.insn.NonEmptyTerminal, index, /, *, compress: bool) -> idict:
+    def _(self, terminal: pyop3.insn.NonEmptyTerminal, /, *, compress: bool) -> idict:
         candidates = {}
         for i, arg in enumerate(terminal.arguments):
             per_arg_candidates = self(arg, compress=compress)
