@@ -36,7 +36,7 @@ the same as finding a critical point of :math:`E`. At the current iterate
 
 .. math::
 
-  m_k(s) = E(u_k) + \langle F(u_k), s\rangle + \frac{1}{2}\langle dF(u_k)s, s\rangle,
+  m_k(s) = E(u_k) + \langle F(u_k), s\rangle + \frac{1}{2}\langle \delta F(u_k)s, s\rangle,
 
 and we only trust this model within a ball of radius :math:`\delta_k` around
 :math:`u_k`. The step is chosen to (approximately) minimise the model inside
