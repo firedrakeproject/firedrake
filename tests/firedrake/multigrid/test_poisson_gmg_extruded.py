@@ -66,12 +66,14 @@ def run_poisson(solver_type, periodic=False):
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10
     # iterations of ilu fails to converge this problem sufficiently.
     x = SpatialCoordinate(V.mesh())
-    f.interpolate(-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1]))
+    exact_expr = sin(pi*x[0])*tan(pi*x[0]*0.25)
+    exact_expr *= (1 + 0.5*sin(2*pi*x[1])) if periodic else sin(pi*x[1])
+    f.interpolate(-div(grad(exact_expr)))
 
     solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
 
     exact = Function(V[-1])
-    exact.interpolate(sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1]))
+    exact.interpolate(exact_expr)
 
     return norm(assemble(exact - u))
 
