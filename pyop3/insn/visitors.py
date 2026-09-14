@@ -101,7 +101,7 @@ class LoopContextExpander(InstructionTransformer):
     def _(self, assignment: pyop3.insn.Assignment, /, *, loop_context) -> pyop3.insn.Assignment:
         assignee = pyop3.expr.visitors.restrict_to_context(assignment.assignee, loop_context)
         expression = pyop3.expr.visitors.restrict_to_context(assignment.expression, loop_context)
-        return assignment.record_new(assignee=assignee, expression=expression)
+        return assignment.record_new(_assignee=assignee, expression=expression)
 
     @process.register(pyop3.insn.Exscan)  # for now assume we are fine
     def _(self, insn: pyop3.insn.Instruction, /, **kwargs) -> pyop3.insn.Instruction:
@@ -306,7 +306,7 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         case _:
             raise AssertionError
     bare_assignee, assignee_insns = pyop3.expr.visitors.expand_transforms(
-        assignment.assignee, access_type
+        assignment._assignee, access_type
     )
 
     assignment_type = assignment.assignment_type
@@ -341,7 +341,7 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         bare_expression = expression_temp
 
     bare_assignment = assignment.record_new(
-        assignee=bare_assignee,
+        _assignee=bare_assignee,
         expression=bare_expression,
         _assignment_type=assignment_type,
     )

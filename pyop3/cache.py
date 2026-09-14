@@ -197,10 +197,9 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
 
 
 class _AbstractInstrumentedCache(abc.ABC):
-    def __init__(self, cidx, comm, func):
+    def __init__(self, cidx, comm_name, func):
         self.cidx = cidx
-        self.comm = comm
-        self.comm_name = comm.name
+        self.comm_name = comm_name
         self.func = func
         self.func_module = func.__module__
         self.func_name = func.__qualname__
@@ -220,6 +219,9 @@ class _AbstractInstrumentedCache(abc.ABC):
 
 class _InstrumentedCache(_AbstractInstrumentedCache):
     def __init__(self, cidx, comm, func, cache):
+        with pyop3.mpi.temp_internal_comm(comm) as icomm:
+            comm_name = icomm.Get_name()
+
         self.cache = cache
         self.cache_name = cache.__class__.__qualname__
         try:
@@ -230,13 +232,13 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
         self.hit = 0
         self.miss = 0
 
-        super().__init__(cidx, comm, func)
+        super().__init__(cidx, comm_name, func)
 
     def __str__(self) -> str:
         return f"{type(self.cache).__name__}({self.func_name})"
 
     def __del__(self):
-        _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm, self.func, self.hit, self.miss, self.size, self.maxsize)
+        _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm_name, self.func, self.hit, self.miss, self.size, self.maxsize)
 
     def __getitem__(self, key):
         try:

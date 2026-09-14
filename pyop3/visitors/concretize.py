@@ -30,10 +30,10 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
 
     @process.register
     def _(self, exscan: pyop3.insn.Exscan, /):
-        assignees = self(exscan.assignee, axis_trees=exscan.shape)
+        assignees = self(exscan._assignee, axis_trees=exscan.shape)
         expressions = self(exscan.expression, axis_trees=exscan.shape)
         return pyop3.insn.InstructionList((
-            exscan.record_new(assignee=assignee, expression=expression)
+            exscan.record_new(_assignee=assignee, expression=expression)
             for assignee, expression in itertools.product(assignees, expressions)
         ))
 
@@ -67,7 +67,7 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
         # of all candidates.
         for axis_trees in itertools.product(*(tree.trees for tree in assignment.shape)):
             try:
-                assignees = self(assignment.assignee, axis_trees=axis_trees)
+                assignees = self(assignment._assignee, axis_trees=axis_trees)
                 expressions = self(assignment.expression, axis_trees=axis_trees)
             except pyop3.exceptions.IncompatibleAxisTargetException:
                 continue

@@ -6,6 +6,7 @@ import dataclasses
 import functools
 import os
 import re
+import weakref
 from collections.abc import Callable, Hashable, Mapping
 from functools import cached_property
 from typing import Any
@@ -139,13 +140,17 @@ class InstructionExecutionContext:
     def __init__(self, root_insn: Instruction, compiler_parameters) -> None:
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
-        self.root_insn = root_insn
+        self._root_insn = root_insn
         self.compiler_parameters = compiler_parameters
 
         # Flag for detecting whether or not we hit cache
         # TODO: rename to 'preprocess_called'?
         self._has_called_compile = False
         self._preprocessed = None
+
+    @property
+    def root_insn(self):
+        return self._root_insn()
 
     @property
     def comm(self) -> MPI.Comm:
@@ -173,12 +178,9 @@ class InstructionExecutionContext:
 
     @cached_method()
     def compile(self) -> Callable[[int, ...], None]:
-        executor, orig_arguments = self._compile()
+        executor, orig_arg_index_to_buffer_map = self._compile()
 
-        if (
-            not self._has_called_compile
-            and orig_arguments != self.root_insn.global_arguments
-        ):
+        if not self._has_called_compile:
             # If the returned executor is cached from a previous invocation then we
             # have to duplicate it with new buffers. For example consider the expressions:
             #
@@ -193,12 +195,10 @@ class InstructionExecutionContext:
             # isn't an exhaustive list of buffers: buffers from axis trees etc
             # are unchanged and will not be replaced.
             arg_buffer_map = {}
-            for arg_index, orig_arg in enumerate(orig_arguments):
+            for arg_index, orig_buffers in orig_arg_index_to_buffer_map.items():
                 new_arg = self.root_insn.global_arguments[arg_index]
                 for orig_buf, new_buf in zip(
-                    self._extract_buffers(orig_arg),
-                    self._extract_buffers(new_arg),
-                    strict=True,
+                    orig_buffers, self._extract_buffers(new_arg), strict=True
                 ):
                     arg_buffer_map[orig_buf] = new_buf
 
@@ -292,7 +292,12 @@ class InstructionExecutionContext:
         })
         executor = CompiledCodeExecutor(executable, kernel_name_to_buffer_views, buffer_intents, self.comm)
 
-        return executor, self.root_insn.global_arguments
+        arg_index_to_buffer_map = {
+            i: self._extract_buffers(arg)
+            for i, arg in enumerate(self.root_insn.global_arguments)
+        }
+
+        return executor, arg_index_to_buffer_map
 
     def preprocess(self) -> Instruction:
         import pyop3.visitors
@@ -352,6 +357,9 @@ class InstructionExecutionContext:
         name_to_buffer_map = {}
         names_to_skip = set()
         for arg in self.root_insn.global_arguments:
+            if isinstance(arg, weakref.ReferenceType):
+                arg = arg()
+
             if arg.name in names_to_skip:
                 continue
 
@@ -375,6 +383,14 @@ class InstructionExecutionContext:
     @functools.singledispatchmethod
     def _extract_buffers(self, arg: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
         utils.raise_missing_dispatch_handler(arg)
+
+    @_extract_buffers.register
+    def _(self, wref: weakref.ReferenceType, /):
+        obj = wref()
+        if obj is None:
+            return (None,)
+        else:
+            return self._extract_buffers(obj)
 
     @_extract_buffers.register(pyop3.expr.OpaqueTerminal)
     def _(self, expr: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
@@ -509,14 +525,11 @@ class CompiledCodeExecutor:
         self.buffer_intents = buffer_intents
         self.comm = comm
 
-    # @cached_property
-    # def _buffer_global_id_to_name_in_kernel_map(self):
-    #     return {buffer: name_in_kernel for name_in_kernel, (buffer, _) in self.buffer_map.items()}
-    #
     @cached_property
     def _default_buffers(self):
         return tuple(self.buffer_intents.keys())
 
+    # I THINK new_buffers should be changing but isn't...
     def __call__(self, new_buffers: Mapping[ConcreteBuffer, ConcreteBuffer]) -> None:
         """
         Notes

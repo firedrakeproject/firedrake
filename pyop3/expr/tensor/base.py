@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import itertools
 import typing
+import weakref
 from collections.abc import Callable, Hashable
 from functools import cached_property
 from typing import ClassVar, Literal
@@ -189,11 +190,31 @@ class Tensor(TerminalExpression, abc.ABC):
 
             return self._symbolic_assign(other, mode)
 
-    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(10))
     def _symbolic_assign(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.Assignment:
+        import pyop3
         from pyop3.insn import Assignment
 
-        return Assignment(self, other, mode)
+        if (
+            isinstance(self.buffer, pyop3.buffer.NullBuffer)
+            or bool(pyop3.expr.visitors.collect_loop_index_vars(self))
+        ):
+            # Cannot count on self to persist, assume the assignment holds the main reference
+            return Assignment(self, other, mode)
+        else:
+            return self._symbolic_assign_cached(other, mode)
+
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(5))
+    def _symbolic_assign_cached(self, other, /, mode: Literal["write", "inc"]) -> pyop3.insn.Assignment:
+        from pyop3.insn import Assignment
+
+        # We want to cache the assignment instruction for performance but the
+        # reference cycles this creates are so complicated that they seem to
+        # be entirely invisible to the garbage collector. We therefore pass
+        # a weakref here instead of self.
+        # We pass a weakref.ref instead of a weakref.proxy because consumers
+        # do actually need to know that they have been passed a weakref-ed
+        # object and weakref.proxy objects don't advertise that information.
+        return Assignment(weakref.ref(self), other, mode)
 
     @abc.abstractmethod
     def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:

@@ -5,6 +5,7 @@ import functools
 import itertools
 import numbers
 import typing
+import weakref
 from collections.abc import Callable, Iterable, Mapping
 from functools import partial
 from typing import Any, Literal
@@ -750,6 +751,10 @@ class ArgumentCollector(NodeCollector):
     @process.register(pyop3.expr.LoopIndexVar)
     def _(self, expr: pyop3.expr.ExpressionT, /) -> OrderedFrozenSet:
         return OrderedFrozenSet()
+
+    @process.register
+    def _(self, wref: weakref.ReferenceType, /):
+        return OrderedFrozenSet([wref])
 
     # TODO: AbstractBufferExpression
     @process.register(pyop3.expr.OpaqueTerminal)

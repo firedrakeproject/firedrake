@@ -5,6 +5,7 @@ import dataclasses
 import enum
 import textwrap
 import typing
+import weakref
 from collections.abc import Hashable, Iterable, Mapping, Iterator
 from functools import cached_property
 from typing import Any, ClassVar
@@ -86,7 +87,8 @@ class Instruction(Node, abc.ABC):
     def _get_execution_context(self, compiler_parameters) -> InstructionExecutionContext:
         from .exec import InstructionExecutionContext
 
-        return InstructionExecutionContext(self, compiler_parameters)
+        weak_self = weakref.ref(self)
+        return InstructionExecutionContext(weak_self, compiler_parameters)
 
 
 class NonTerminalInstruction(Instruction, Operator):
@@ -633,11 +635,12 @@ def assignment_type_as_intent(assignment_type: AssignmentType) -> Intent:
 
 class AbstractAssignmentLike(TerminalInstruction):
 
-    __abstract_record_attrs = ("assignee", "expression")
+    __abstract_record_attrs = ("_assignee", "expression")
 
     @property
     def arguments(self) -> tuple[Any, Any]:
-        return (self.assignee, self.expression)
+        return (self._assignee, self.expression)
+        # return (self.assignee, self.expression)
 
     @cached_property
     def compiler_options(self) -> pyop3.cc.CompilerOptions:
@@ -700,7 +703,7 @@ class Assignment(AbstractAssignment):
 
     # {{{ instance attrs
 
-    assignee: Any
+    _assignee: Any
     expression: Any
     _assignment_type: AssignmentType
 
@@ -715,9 +718,18 @@ class Assignment(AbstractAssignment):
     def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "assignee", assignee)
+        object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
+
+    @property
+    def assignee(self):
+        if isinstance(self._assignee, weakref.ReferenceType):
+            assignee_ = self._assignee()
+            assert assignee_ is not None
+            return assignee_
+        else:
+            return self._assignee
 
     # }}}
 
@@ -741,7 +753,7 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
     # {{{ instance attrs
 
-    assignee: Any
+    _assignee: Any
     expression: Any
     _axis_trees: tuple[AxisTree, ...]
     _assignment_type: AssignmentType
@@ -775,11 +787,15 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     ) -> None:
         assignment_type = AssignmentType(assignment_type)
 
-        object.__setattr__(self, "assignee", assignee)
+        object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_axis_trees", axis_trees)
         object.__setattr__(self, "_assignment_type", assignment_type)
         object.__setattr__(self, "_comm", comm)
+
+    @property
+    def assignee(self):
+        return self._assignee
 
     # }}}
 
@@ -800,7 +816,7 @@ class Exscan(AbstractAssignmentLike):
 
     # {{{ instance attrs
 
-    assignee: Any
+    _assignee: Any
     expression: Any
     scan_type: Any
     scan_axis: Axis
@@ -836,6 +852,10 @@ class Exscan(AbstractAssignmentLike):
         )
 
     @property
+    def assignee(self):
+        return self._assignee
+
+    @property
     def comm(self):
         return self._comm
 
@@ -845,7 +865,8 @@ class Exscan(AbstractAssignmentLike):
 
     @property
     def arguments(self) -> tuple[Any, Any]:
-        return (self.assignee, self.expression)
+        # return (self.assignee, self.expression)
+        return (self._assignee, self.expression)
 
     @cached_property
     def extent(self):
