@@ -443,32 +443,33 @@ class MLIRCodegenContext(CodegenContext):
         new_inames = sorted(set(inames) - self._within_inames)
         orig_within_inames = self._within_inames
         for_ops = []
-        try:
-            for iname in new_inames:
-                start, stop = self._domains[iname]
-                # Getting SSA values for the temp variables/ints
-                lb = self._resolve_bound(start)
-                ub = self._resolve_bound(stop)
-                step = self._const_index(1)
 
-                for_op = scf.ForOp(lb, ub, step, [],
-                                   Region(Block(arg_types=[iType])))
-                self.insert(for_op)
-                for_ops.append(for_op)
+        for iname in new_inames:
+            start, stop = self._domains[iname]
+            # Getting SSA values for the temp variables/ints
+            lb = self._resolve_bound(start)
+            ub = self._resolve_bound(stop)
+            step = self._const_index(1)
 
-                # Add symbol table and builder for operation
-                body = for_op.body.block
-                self.symbol_table.push()
-                self.symbol_table.define(iname, body.args[0])
-                self._builder_stack.append(Builder(InsertPoint.at_end(body)))
-            yield
-        finally:
-            self._within_inames = orig_within_inames
-            for for_op in zip(reversed(for_ops)):
-                # scf.for bodies need a yield terminator.
-                self.insert(scf.YieldOp())
-                self._builder_stack.pop()
-                self.symbol_table.pop()
+            for_op = scf.ForOp(lb, ub, step, [],
+                               Region(Block(arg_types=[iType])))
+            self.insert(for_op)
+            for_ops.append(for_op)
+
+            # Add symbol table and builder for operation
+            body = for_op.body.block
+            self.symbol_table.push()
+            self.symbol_table.define(iname, body.args[0])
+            self._builder_stack.append(Builder(InsertPoint.at_end(body)))
+
+        yield
+
+        self._within_inames = orig_within_inames
+        for for_op in zip(reversed(for_ops)):
+            # scf.for bodies need a yield terminator.
+            self.insert(scf.YieldOp())
+            self._builder_stack.pop()
+            self.symbol_table.pop()
 
     @functools.singledispatchmethod
     def register_extent(self, obj: Any, *args, **kwargs):
