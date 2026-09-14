@@ -79,6 +79,7 @@ _cells = {
 
 
 _supported_embedded_cell_types_and_gdims = [('interval', 2),
+                                            ('interval', 3),
                                             ('triangle', 3),
                                             ("quadrilateral", 3),
                                             ("interval * interval", 3)]
@@ -2894,15 +2895,19 @@ values from f.)"""
     def init_cell_orientations(self, expr):
         """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
 
-        :arg expr: a UFL expression evaluated to produce a
-             reference normal direction.
+        Parameters
+        ----------
+        expr : ufl.core.expr.Expr
+            A UFL expression for the reference direction. This is a normal
+            direction, except for intervals embedded in 3D, where it is a
+            tangent direction because a curve in 3D has no unique normal.
 
         """
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
         if (self.ufl_cell().cellname, self.geometric_dimension) not in _supported_embedded_cell_types_and_gdims:
-            raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
+            raise NotImplementedError('Only implemented for intervals embedded in 2d or 3d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
             raise CellOrientationsRuntimeError("init_cell_orientations already called, did you mean to do so again?")
@@ -2917,7 +2922,9 @@ values from f.)"""
         x = ufl.SpatialCoordinate(self)
         f = function.Function(fs)
 
-        if self.topological_dimension == 1:
+        if self.topological_dimension == 1 and self.geometric_dimension == 3:
+            normal = ReferenceGrad(x)[:, 0]
+        elif self.topological_dimension == 1:
             normal = ufl.as_vector((-ReferenceGrad(x)[1, 0], ReferenceGrad(x)[0, 0]))
         else:  # self.topological_dimension == 2
             normal = ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])
