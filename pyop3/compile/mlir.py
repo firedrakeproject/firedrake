@@ -592,10 +592,8 @@ def _(num, /, iname_maps, loop_indices, *, target_type, context, **kwargs) -> SS
 def _(name_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
     return context.symbol_table[name_var.name]
 
-# TODO: Can I leave this back in the lower_expr? I think so.
-def _binop(e, kind, /, iname_maps, loop_indices, *, context, target_type, **kwargs):
-    # TODO: Should use target_type. No need to re-establish at this point 
-    # May even cause errors this way.
+def align_binops(e, /, iname_maps, loop_indices, *, context, target_type, **kwargs):
+    """ Method lowers and ensures that components of binary operations align """ 
     node_dtype = e.dtype
     is_f = _is_float(node_dtype)
     child = dict(kwargs, context=context, target_type=node_dtype)
@@ -614,47 +612,63 @@ def _binop(e, kind, /, iname_maps, loop_indices, *, context, target_type, **kwar
         lhs = context._to_index(lhs)
         rhs = context._to_index(rhs)
 
-    match kind:
-        case "add":
-            op = arith.AddfOp(lhs, rhs) if is_f else arith.AddiOp(lhs, rhs)
-        case "sub": 
-            op = arith.SubfOp(lhs, rhs) if is_f else arith.SubiOp(lhs, rhs)
-        case "mul": 
-            op = arith.MulfOp(lhs, rhs) if is_f else arith.MuliOp(lhs, rhs)
-        case "mod": 
-            op = arith.RemSIOp(lhs, rhs) # NOTE: signed int operation
-        case "floordiv": 
-            op = arith.FloorDivSIOp(lhs, rhs) # NOTE: signed int op again
-        case "or":       
-            op = arith.OrIOp(lhs, rhs)
-        case _:          
-            raise NotImplementedError(kind)
-    return context.insert(op)
+    return lhs, rhs
 
 # Maybe I pass a kwarg for offset_generation which suggests indices? 
 @_lower_expr.register(pyop3.expr.Add)
-def _(e, /, *args, **kwargs): return _binop(e, "add", *args, **kwargs)
+def _(expr, /, *args, context, **kwargs): 
+    lhs, rhs = align_binops(expr, *args, context=context, **kwargs)
+    is_float = _is_float(expr.dtype)
+
+    op = arith.AddfOp(lhs, rhs) if is_float else arith.AddiOp(lhs, rhs)
+    return context.insert(op)
 
 
 @_lower_expr.register(pyop3.expr.Sub)
-def _(e, /, *args, **kwargs): return _binop(e, "sub", *args, **kwargs)
+def _(expr, /, *args, context, **kwargs): 
+    lhs, rhs = align_binops(expr, *args, context=context, **kwargs)
+    is_float = _is_float(expr.dtype)
 
+    op = arith.SubfOp(lhs, rhs) if is_float else arith.SubiOp(lhs, rhs)
+    return context.insert(op)
 
 @_lower_expr.register(pyop3.expr.Mul)
-def _(e, /, *args, **kwargs): return _binop(e, "mul", *args, **kwargs)
+def _(expr, /, *args, context, **kwargs): 
+    lhs, rhs = align_binops(expr, *args, context=context, **kwargs)
+    is_float = _is_float(expr.dtype)
+
+    op = arith.MulfOp(lhs, rhs) if is_float else arith.MuliOp(lhs, rhs)
+    return context.insert(op)
 
 
 @_lower_expr.register(pyop3.expr.Modulo)
-def _(e, /, *args, **kwargs): return _binop(e, "mod", *args, **kwargs)
+def _(expr, /, *args, context, **kwargs): 
+    is_float = _is_float(expr.dtype)
+    assert not is_float, "Modulo operation only acts on integer operations" 
 
+    lhs, rhs = align_binops(expr, *args, context=context, **kwargs)
+    op = arith.RemSIOp(lhs, rhs)
+    return context.insert(op)
 
 @_lower_expr.register(pyop3.expr.FloorDiv)
-def _(e, /, *args, **kwargs): return _binop(e, "floordiv", *args, **kwargs)
+def _(expr, /, *args, context, **kwargs): 
+    is_float = _is_float(expr.dtype)
 
+    assert not is_float, "FloorDiv operation only acts on integer operations" 
+
+    lhs, rhs = align_binops(expr, *args, context=context, **kwargs)
+    op = arith.FloorDivSIOp(lhs, rhs)
+    return context.insert(op)
 
 @_lower_expr.register(pyop3.expr.Or)
-def _(e, /, *args, **kwargs): return _binop(e, "or", *args, **kwargs)
+def _(expr, /, *args, context, **kwargs): 
+    is_float = _is_float(expr.dtype)
+    
+    assert not is_float, "Or operation only acts on integer operations" 
 
+    lhs, rhs = align_binops(expr, *args, context=context, **kwargs)
+    op = arith.OrIOp(lhs, rhs)
+    return context.insert(op)
 
 @_lower_expr.register(pyop3.expr.Neg)
 def _(neg, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
