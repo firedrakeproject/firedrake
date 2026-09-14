@@ -1294,6 +1294,8 @@ class ScalarMul(UnaryOp):
 
     def __new__(cls, scalar, tensor):
         scalar = cls._scalar_value(scalar)
+        if tensor == 0:
+            return tensor
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only scale Slate tensors.")
         if scalar == 0:
@@ -1361,9 +1363,7 @@ class Negative(ScalarMul):
     """Abstract Slate class representing the negation of a tensor object."""
 
     def __new__(cls, tensor):
-        if tensor == 0:
-            return tensor
-        return UnaryOp.__new__(cls)
+        return super().__new__(cls, -1, tensor)
 
     def __init__(self, tensor, _tensor=None):
         """Initialise the negation node."""

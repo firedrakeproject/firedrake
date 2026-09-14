@@ -338,7 +338,10 @@ def test_scalar_multiplication():
     v = TestFunction(V)
     b = Tensor(v * dx)
 
-    assert isinstance(ScalarMul(0, b), Tensor)
+    zero = ScalarMul(0, b)
+    assert isinstance(zero, Tensor)
+    assert ScalarMul(2, zero) is zero
+    assert Negative(zero) is zero
     assert ScalarMul(1, b) is b
     assert ScalarMul(-1, b) == -b
     assert isinstance(ScalarMul(2, b), UnaryOp)
