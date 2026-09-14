@@ -44,28 +44,35 @@ from tsfc.modified_terminals import is_modified_terminal, analyse_modified_termi
 
 preserve_geometry_types = (CellVolume, FacetArea)
 
-# Prefix that forces TSFC to do runtime tabulation for a gem.Variable.
-RUNTIME_VARIABLE_PREFIX = "rt_"
+# The gem.Variable that holds a point which is only known at run time. TSFC
+# tabulates at any variable whose name starts with "rt_", and the assembler
+# passes the reference coordinates of the point cloud in its place.
+RUNTIME_POINT_VARIABLE = "rt_X"
 
 
-def runtime_quadrature_element(domain, ufl_element, rt_var_name=RUNTIME_VARIABLE_PREFIX + "X"):
-    """Construct a Quadrature FiniteElement for interpolation onto a runtime
-    point, e.g. a VertexOnlyMesh point known only at run time.
+def runtime_quadrature_element(domain: ufl.AbstractDomain,
+                               ufl_element: ufl.AbstractFiniteElement) -> ufl.AbstractFiniteElement:
+    """Construct a Quadrature element for interpolation onto a runtime point.
+
+    The point is one that is only known at run time, for example a point of a
+    `firedrake.mesh.VertexOnlyMesh`.
 
     Parameters
     ----------
-    domain : ufl.AbstractDomain
-        The source domain.
-    ufl_element : finat.ufl.finiteelement.FiniteElement
+    domain
+        The source domain, whose cells the point is located in.
+    ufl_element
         The UFL element of the target FunctionSpace.
-    rt_var_name : str
-        Name of the gem.Variable holding the point, prefixed with
-        `RUNTIME_VARIABLE_PREFIX` to force TSFC to tabulate it at run time.
-    """
-    assert rt_var_name.startswith(RUNTIME_VARIABLE_PREFIX)
 
+    Returns
+    -------
+    ufl.AbstractFiniteElement
+        A Quadrature element on the source cell, with one point that TSFC reads
+        from `RUNTIME_POINT_VARIABLE`, and the value shape of ``ufl_element``.
+
+    """
     cell = domain.ufl_cell()
-    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
+    point_expr = gem.Variable(RUNTIME_POINT_VARIABLE, (1, cell.topological_dimension))
     point_set = UnknownPointSet(point_expr)
     rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
 
