@@ -25,7 +25,7 @@ solving the linear system
 
 and then uses a line search to decide how far to move along :math:`s`. The
 line search trusts the *direction* :math:`s` completely and only questions
-its length. This is a problem if :math:`dF(u)` is indefinite, because then the
+its length. This is a problem if :math:`\delta F(u)` is indefinite, because then the
 Newton direction need not be a descent direction for any sensible merit
 function, and no choice of step length will help.
 
