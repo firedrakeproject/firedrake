@@ -217,8 +217,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         #     with stop_annotating(modifies=(self,)):
         #         self.dat.zero(subset=subset)
         #     return self
-        if (isinstance(expr, Cofunction)
-              and expr.function_space() == self.function_space()):
+        if (isinstance(expr, Cofunction) and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
                 if subset is not None:

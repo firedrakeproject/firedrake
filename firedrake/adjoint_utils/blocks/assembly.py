@@ -2,6 +2,7 @@ import ufl
 import firedrake
 from ufl.domain import extract_domains
 from ufl.formatting.ufl2unicode import ufl2unicode
+from ufl.algorithms import expand_derivatives
 from pyadjoint import Block, AdjFloat, create_overloaded_object
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 
@@ -140,11 +141,11 @@ class AssembleBlock(Block):
             else:
                 dFdc = firedrake.derivative(form, c_rep)
                 if isinstance(c_rep, firedrake.Cofunction):
-                    dform += firedrake.Action(dFdc, tlm_value)
+                    dform += firedrake.Action(expand_derivatives(dFdc), tlm_value)
                 else:
                     dform += firedrake.action(dFdc, tlm_value)
         if not isinstance(dform, float):
-            dform = ufl.algorithms.expand_derivatives(dform)
+            dform = expand_derivatives(dform)
             dform = firedrake.assemble(dform)
         return dform
 
@@ -189,10 +190,13 @@ class AssembleBlock(Block):
                 X = firedrake.SpatialCoordinate(c2_rep)
                 ddform += firedrake.derivative(dform, X, tlm_input)
             else:
-                ddform += firedrake.derivative(dform, c2_rep, tlm_input)
+                d2form = expand_derivatives(
+                    firedrake.derivative(expand_derivatives(dform), c2_rep, tlm_input))
+                if not isinstance(d2form, ufl.ZeroBaseForm):
+                    ddform += d2form
 
         if not isinstance(ddform, float):
-            ddform = ufl.algorithms.expand_derivatives(ddform)
+            ddform = expand_derivatives(ddform)
             if not (isinstance(ddform, ufl.ZeroBaseForm)
                     or (isinstance(ddform, ufl.Form) and ddform.empty())):
                 hessian_outputs += self.compute_action_adjoint(

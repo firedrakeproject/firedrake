@@ -148,7 +148,7 @@ class NonlinearVariationalSolverMixin:
             DirichletBC,
             MatrixBase,
             NonlinearVariationalProblem,
-            NonlinearVariationalSolver)
+        )
 
         problem = self._ad_problem
 
