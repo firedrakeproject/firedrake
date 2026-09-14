@@ -22,7 +22,6 @@ __all__ = ["solve"]
 import ufl
 
 import firedrake.linear_solver as ls
-from firedrake.matrix import MatrixBase
 import firedrake.variational_solver as vs
 from firedrake.function import Function
 from firedrake.adjoint_utils import annotate_solve
@@ -43,7 +42,7 @@ def solve(*args, **kwargs):
 
     A linear system Ax = b may be solved by calling
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
@@ -57,7 +56,7 @@ def solve(*args, **kwargs):
     construct any preconditioner from; if none is supplied ``A`` is used to
     construct the preconditioner.
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(A, x, b, P=P, bcs=bcs, solver_parameters={...})
 
@@ -69,7 +68,7 @@ def solve(*args, **kwargs):
     solution). Optional arguments may be supplied to specify boundary
     conditions or solver parameters. Some examples are given below:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(a == L, u)
         solve(a == L, u, bcs=bc)
@@ -82,7 +81,7 @@ def solve(*args, **kwargs):
     options as solver parameters.  For example, to solve the system
     using direct factorisation use:
 
-    .. code-block:: python3
+    .. code-block:: python
 
        solve(a == L, u, bcs=bcs,
              solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
@@ -104,7 +103,7 @@ def solve(*args, **kwargs):
     pure PETSc code.  See :class:`~.NonlinearVariationalSolver` for more
     details.
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(F == 0, u)
         solve(F == 0, u, bcs=bc)
@@ -135,12 +134,21 @@ def solve(*args, **kwargs):
 
     To linearise around the initial guess before imposing boundary
     conditions, set the ``pre_apply_bcs`` keyword argument to be False.
+
+    Returns
+    -------
+    firedrake.function.Function or None
+        For a variational problem (cases 2 and 3 above), the (possibly
+        adapted) solution :class:`~.Function`. This may differ from the
+        ``u`` that was passed in if the solver performed mesh adaptation
+        during the solve. `None` is returned when solving a pre-assembled
+        linear system (case 1 above).
     """
 
     assert len(args) > 0
     # Call variational problem solver if we get an equation
     if isinstance(args[0], ufl.classes.Equation):
-        _solve_varproblem(*args, **kwargs)
+        return _solve_varproblem(*args, **kwargs)
     else:
         # Solve pre-assembled system
         return _la_solve(*args, **kwargs)
@@ -150,7 +158,7 @@ def _solve_varproblem(*args, **kwargs):
     "Solve variational problem a == L or F == 0"
 
     # Extract arguments
-    eq, u, bcs, J, Jp, M, form_compiler_parameters, \
+    eq, u, bcs, J, Jp, objective, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
         options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
@@ -164,7 +172,12 @@ def _solve_varproblem(*args, **kwargs):
     form_compiler_parameters['scalar_type'] = ScalarType
 
     appctx = kwargs.get("appctx", {})
-    if isinstance(eq.lhs, (ufl.Form, MatrixBase)) and isinstance(eq.rhs, ufl.BaseForm):
+    if not isinstance(eq.lhs, ufl.BaseForm):
+        raise TypeError(f"Equation LHS must be a ufl.BaseForm, not a {type(eq.lhs).__name__}")
+
+    if len(eq.lhs.arguments()) == 2:
+        if objective is not None:
+            raise ValueError("The objective functional only makes sense for nonlinear problems.")
         # Create linear variational problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                               form_compiler_parameters=form_compiler_parameters,
@@ -173,8 +186,9 @@ def _solve_varproblem(*args, **kwargs):
     else:
         # Create nonlinear variational problem
         if eq.rhs != 0:
-            raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
+            raise ValueError(f"RHS of nonlinear Equation must be `0`, not {eq.rhs}")
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
+                                                 objective=objective,
                                                  form_compiler_parameters=form_compiler_parameters,
                                                  restrict=restrict)
         create_solver = vs.NonlinearVariationalSolver
@@ -187,7 +201,7 @@ def _solve_varproblem(*args, **kwargs):
                            options_prefix=options_prefix,
                            appctx=appctx,
                            pre_apply_bcs=pre_apply_bcs)
-    solver.solve()
+    return solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):
@@ -220,14 +234,14 @@ def _la_solve(A, x, b, **kwargs):
         Any boundary conditions must be applied when assembling the
         bilinear form as:
 
-        .. code-block:: python3
+        .. code-block:: python
 
            A = assemble(a, bcs=[bc1])
            solve(A, x, b)
 
     Example usage:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
@@ -263,7 +277,7 @@ def _extract_linear_solver_args(*args, **kwargs):
 
     P = kwargs.get("P", None)
     bcs = kwargs.get("bcs", None)
-    solver_parameters = kwargs.get("solver_parameters", {})
+    solver_parameters = kwargs.get("solver_parameters", {}) or {}
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
@@ -277,7 +291,7 @@ def _extract_args(*args, **kwargs):
     "Extraction of arguments for _solve_varproblem"
 
     # Check for use of valid kwargs
-    valid_kwargs = ["bcs", "J", "Jp", "M",
+    valid_kwargs = ["bcs", "J", "Jp", "objective",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
                     "options_prefix", "appctx", "restrict", "pre_apply_bcs"]
@@ -312,9 +326,7 @@ def _extract_args(*args, **kwargs):
     Jp = kwargs.get("Jp", None)
 
     # Extract functional
-    M = kwargs.get("M", None)
-    if M is not None and not isinstance(M, ufl.Form):
-        raise RuntimeError("Expecting goal functional M to be a UFL Form")
+    objective = kwargs.get("objective", None)
 
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
@@ -326,7 +338,7 @@ def _extract_args(*args, **kwargs):
     restrict = kwargs.get("restrict", False)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
-    return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
+    return eq, u, bcs, J, Jp, objective, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \
         options_prefix, restrict, pre_apply_bcs
 

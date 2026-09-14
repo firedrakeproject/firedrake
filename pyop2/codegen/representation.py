@@ -1,8 +1,7 @@
 import numbers
 import itertools
-from functools import partial
+from functools import cached_property, partial
 from collections import defaultdict
-from pyop2.utils import cached_property
 import numpy
 from abc import ABCMeta
 from pyop2.codegen.node import Node as NodeBase

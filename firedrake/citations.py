@@ -320,3 +320,35 @@ petsctools.add_citation("Farrell2015", """
   url =          {http://arxiv.org/abs/1410.5620}
 }
 """)
+
+petsctools.add_citation("Croci2018", """
+@article{Croci2018,
+  title={Efficient White Noise Sampling and Coupling for Multilevel Monte Carlo with Nonnested Meshes},
+  volume={6},
+  ISSN={2166-2525},
+  DOI={10.1137/18M1175239},
+  number={4},
+  journal={SIAM/ASA Journal on Uncertainty Quantification},
+  author={Croci, M. and Giles, M. B. and Rognes, M. E. and Farrell, P. E.},
+  year={2018},
+  month={jan},
+  pages={1630–1655},
+  language={en}
+}
+""")
+
+petsctools.add_citation("Weaver2013", """
+@article{weaver_diffusion_2013,
+    title = {On the diffusion equation and its application to isotropic and anisotropic correlation modelling in variational assimilation},
+    volume = {139},
+    issn = {0035-9009, 1477-870X},
+    doi = {10.1002/qj.1955},
+    language = {en},
+    number = {670},
+    journal = {Quarterly Journal of the Royal Meteorological Society},
+    author = {Weaver, A. T. and Mirouze, I.},
+    month = jan,
+    year = {2013},
+    pages = {242--260},
+}
+""")

@@ -5,7 +5,7 @@ pgfplot
 
 pgfplots numbering by patch type:
 ---------------------------------
-.. code-block::
+.. code-block:: text
 
    2              2              3-------2        3---6---2
    | \            | \            |       |        |       |
@@ -19,7 +19,7 @@ FIAT/FInAT DoF orderings:
 -------------------------
 UFCTriangle:
 
-.. code-block::
+.. code-block:: text
 
   2              2
   | \            | \
@@ -32,7 +32,7 @@ UFCTriangle:
 
 UFCTetrahedron:
 
-.. code-block::
+.. code-block:: text
 
    3.             3.        3
    | \            | 4        \    edge 1-3
@@ -45,7 +45,7 @@ UFCTetrahedron:
 
 UFCQuadrilateral:
 
-.. code-block::
+.. code-block:: text
 
    1-------3    1---7---4
    |       |    |       |
@@ -58,7 +58,7 @@ UFCQuadrilateral:
 
 UFCHexahedron:
 
-.. code-block::
+.. code-block:: text
 
      3-------7    3-------7            4--22--13      4--22--13
     /.       |   /       /|          7 .       |    7  25  16 |
@@ -212,7 +212,7 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
     V = f.function_space()
     elem = V.ufl_element()
     mesh = V.ufl_domain()
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     if dim not in (2, 3):
         raise NotImplementedError(f"Not yet implemented for functions in spatial dimension {dim}")
     if mesh.extruded:

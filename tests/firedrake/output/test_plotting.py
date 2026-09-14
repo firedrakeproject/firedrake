@@ -13,6 +13,11 @@ except ImportError:
     pass
 
 
+@pytest.fixture(autouse=True)
+def autouse_clear_pyplot_figures(clear_pyplot_figures):
+    pass
+
+
 @pytest.mark.skipplot
 def test_plotting_1d():
     mesh = UnitIntervalMesh(32)
@@ -177,9 +182,43 @@ def test_fn_plotter_extruded_mesh_multiple_layers():
 
 
 @pytest.mark.skipplot
+@pytest.mark.parametrize("family,degree", [("CG", 2), ("DG", 1)])
+def test_fn_plotter_extruded_mesh_offsets(family, degree):
+    # Only spaces whose nodes are numbered consecutively up a column have a
+    # vertical offset of 1; CG2 has an offset of 2 and DQ1 an offset of 4.
+    mesh = ExtrudedMesh(UnitIntervalMesh(4), 3)
+    x, y = SpatialCoordinate(mesh)
+
+    fn_plotter = FunctionPlotter(mesh, num_sample_points=10)
+    coords = fn_plotter(mesh.coordinates).reshape(-1, 2)
+
+    V = FunctionSpace(mesh, family, degree)
+    u = assemble(interpolate(x + 2 * y, V))
+
+    # A linear function is in every one of these spaces, so sampling it must
+    # reproduce it exactly at the sample points.
+    assert np.allclose(fn_plotter(u), coords[:, 0] + 2 * coords[:, 1])
+
+
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    x = SpatialCoordinate(mesh)
+    f.interpolate(as_vector((-x[1], x[0])))
+
+    fig, axes = plt.subplots()
+    arrows = quiver(f, axes=axes)
+    assert arrows is not None
+    fig.colorbar(arrows)
+
+
+@pytest.mark.skipplot
+def test_quiver_plot_vom():
+    mesh = UnitSquareMesh(10, 10)
+    vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
+    V = VectorFunctionSpace(vom, "DG", 0)
     f = Function(V)
     x = SpatialCoordinate(mesh)
     f.interpolate(as_vector((-x[1], x[0])))
@@ -355,7 +394,7 @@ def test_tripcolor_movie():
     def animate(time):
         t.assign(time)
         q.interpolate(expr)
-        colors.set_array(fn_plotter(q))
+        colors.set_array(fn_plotter(q).real)
 
     duration = 6
     fps = 24
@@ -363,3 +402,145 @@ def test_tripcolor_movie():
     interval = 1e3 / fps
     movie = FuncAnimation(fig, animate, frames=frames, interval=interval)
     assert movie is not None
+
+    # Use a method of the animation to prevent warning about it being unused
+    movie.to_jshtml()
+
+
+@pytest.mark.skipplot
+def test_scatter():
+    mesh = UnitSquareMesh(10, 10)
+    vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
+
+    fig, axes = plt.subplots()
+    sc = scatter(vom, axes=axes)
+
+    assert sc is not None
+    assert len(sc.get_offsets()) == vom.num_vertices()
+
+
+@pytest.mark.skipplot
+def test_scatter_3d():
+    mesh = UnitCubeMesh(5, 5, 5)
+    coords_3d = np.random.rand(20, 3)
+    vom = VertexOnlyMesh(mesh, coords_3d)
+
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection='3d')
+    sc = scatter(vom, axes=axes)
+    assert sc is not None
+    assert len(sc.get_offsets()) == vom.num_vertices()
+
+
+@pytest.mark.skipplot
+def test_scatter_scalar_field():
+    mesh = UnitSquareMesh(10, 10)
+    vom = VertexOnlyMesh(mesh, [[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
+    V = FunctionSpace(vom, "DG", 0)
+    f = Function(V)
+    f.dat.data[:] = [1.0, 2.0, 3.0]
+
+    fig, axes = plt.subplots()
+    sc = scatter(f, axes=axes)
+    assert np.allclose(sc.get_array(), f.dat.data_ro)
+
+
+def test_triplot_manifold_mesh():
+    mesh = CircleManifoldMesh(16)
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    assert collections
+
+
+def _embedded_interval_mesh(expr, dim):
+    interval = UnitIntervalMesh(6)
+    V = VectorFunctionSpace(interval, "CG", 1, dim=dim)
+    x, = SpatialCoordinate(interval)
+    return Mesh(assemble(interpolate(expr(x), V)))
+
+
+@pytest.mark.skipplot
+def test_triplot_manifold_mesh_with_boundary():
+    # The facets of a 1D mesh are points, so the two ends of an interval
+    # embedded into the plane are drawn as markers rather than as segments.
+    mesh = _embedded_interval_mesh(lambda x: as_vector([x, x**2]), 2)
+
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    legend = axes.legend()
+    assert [text.get_text() for text in legend.get_texts()] == ["1", "2"]
+
+    offsets = np.concatenate([c.get_offsets() for c in collections[1:]])
+    assert np.allclose(np.sort(offsets, axis=0), [[0.0, 0.0], [1.0, 1.0]])
+    fig.canvas.draw()
+
+
+@pytest.mark.skipplot
+def test_triplot_manifold_mesh_3d():
+    # A curve in space is drawn like one in the plane, but its markers have to
+    # be promoted to 3D so that they are sorted by depth along with everything
+    # else in the axes.
+    mesh = _embedded_interval_mesh(
+        lambda x: as_vector([cos(6 * x), sin(6 * x), x]), 3
+    )
+
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection='3d')
+    collections = triplot(mesh, axes=axes)
+    legend = axes.legend()
+    assert [text.get_text() for text in legend.get_texts()] == ["1", "2"]
+
+    # The offsets of the markers are projected onto the viewing plane once the
+    # axes have been drawn, so read them beforehand.
+    offsets = np.concatenate([c.get_offsets() for c in collections[1:]])
+    endpoints = [[np.cos(6.0), np.sin(6.0)], [1.0, 0.0]]
+    assert np.allclose(np.sort(offsets, axis=0), np.sort(endpoints, axis=0))
+    fig.canvas.draw()
+
+
+@pytest.mark.skipplot
+def test_triplot_extruded():
+    # The annulus is a periodic extrusion of an interval, so its inner and
+    # outer boundaries are the markers of the base mesh on vertical facets.
+    mesh = AnnulusMesh(2, 1, nr=4, nt=32)
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend(loc='upper right')
+    assert len(legend.get_texts()) == 2
+
+
+@pytest.mark.skipplot
+def test_triplot_extruded_horizontal_boundaries():
+    # Extruding a closed base mesh leaves the bottom and top of the columns as
+    # the only boundaries of the domain.
+    circle = CircleManifoldMesh(32, radius=1.0)
+    mesh = ExtrudedMesh(circle, layers=4, layer_height=0.15, extrusion_type="radial")
+
+    fig, axes = plt.subplots()
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend(loc='upper right')
+    assert [text.get_text() for text in legend.get_texts()] == ["bottom", "top"]
+
+
+@pytest.mark.skipplot
+def test_triplot_hex_mesh():
+    mesh = UnitCubeMesh(2, 2, 2, hexahedral=True)
+    fig = plt.figure()
+    axes = fig.add_subplot(111, projection='3d')
+    collections = triplot(mesh, axes=axes)
+    assert collections
+    legend = axes.legend(loc='upper right')
+    assert len(legend.get_texts()) == 6
+
+    # The paths of a Poly3DCollection are only populated once the polygons have
+    # been projected onto the viewing plane.
+    fig.canvas.draw()
+
+    # Every facet of a hexahedron is a quadrilateral, so each of the 6 * 2 * 2
+    # boundary facets must be drawn as a polygon with four distinct vertices.
+    paths = [path for collection in collections for path in collection.get_paths()]
+    assert len(paths) == 24
+    for path in paths:
+        assert len(np.unique(path.vertices, axis=0)) == 4

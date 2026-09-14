@@ -4,9 +4,9 @@ from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from firedrake import utils
 from firedrake.exceptions import ConvergenceError
 from ufl import replace, inner, dx
+from functools import cached_property
 try:
     from slepc4py import SLEPc
 except ImportError:
@@ -18,7 +18,7 @@ __all__ = ["LinearEigenproblem",
 class LinearEigenproblem:
     """Generalised linear eigenvalue problem.
 
-    The problem has the form, find `u`, `λ` such that::
+    The problem has the form, find ``u``, ``λ`` such that::
 
         A(u, v) = λM(u, v)    ∀ v ∈ V
 
@@ -87,7 +87,7 @@ class LinearEigenproblem:
         for bc in self.bcs:
             yield from bc.dirichlet_bcs()
 
-    @utils.cached_property
+    @cached_property
     def dm(self):
         r"""Return the dm associated with the output space."""
         if self.restrict:
@@ -142,9 +142,10 @@ class LinearEigensolver(OptionsManager):
         "eps_largest_real": None
     """
 
-    DEFAULT_EPS_PARAMETERS = {"eps_type": "krylovschur",
-                              "eps_tol": 1e-10,
-                              "eps_target": 0.0}
+    DEFAULT_EPS_PARAMETERS = {
+        "eps_type": "krylovschur",
+        "eps_tol": 1e-10,
+    }
 
     def __init__(self, problem, n_evals, *, options_prefix=None,
                  solver_parameters=None, ncv=None, mpd=None):
@@ -158,8 +159,6 @@ class LinearEigensolver(OptionsManager):
         for key in self.DEFAULT_EPS_PARAMETERS:
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
-        if self._problem.bcs:
-            solver_parameters.setdefault("st_type", "sinvert")
         super().__init__(solver_parameters, options_prefix)
         self.set_from_options(self.es)
 

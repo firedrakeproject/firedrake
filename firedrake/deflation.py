@@ -94,7 +94,8 @@ class DeflatedSNES(SNESBase):
         snes.reason = self.inner.reason
 
         # Record the solution we've just found
-        self.deflation.append(Function(self.problem.u))
+        if snes.reason > 0:
+            self.deflation.append(Function(self.problem.u))
 
         return out
 

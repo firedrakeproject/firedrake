@@ -18,7 +18,7 @@ except ImportError:
         raise ImportError("PyTorch is not installed and is required to use the FiredrakeTorchOperator.")
 
 
-from functools import partial
+from functools import partial, cached_property
 
 import petsctools
 from firedrake.external_operators import MLOperator
@@ -82,7 +82,7 @@ class PytorchOperator(MLOperator):
     def model_output(self, output):
         self.operator_data['model_output'] = output
 
-    @utils.cached_property
+    @cached_property
     def torch_grad_enabled(self):
         # Default: set PyTorch annotation on, unless otherwise specified.
         return self.operator_data.get('torch_grad_enabled', True)

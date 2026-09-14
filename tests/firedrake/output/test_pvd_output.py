@@ -2,6 +2,7 @@ import pytest
 from collections import Counter
 from os import listdir
 from os.path import isfile, join
+import numpy as np
 
 from firedrake import *
 
@@ -42,15 +43,13 @@ def pvd(dumpdir):
     return VTKFile(f)
 
 
+@pytest.mark.skipvtk
+@pytest.mark.parallel([1, 3])
 def test_can_save_coordinates(mesh, pvd):
     pvd.write(mesh.coordinates)
 
 
-@pytest.mark.parallel
-def test_can_save_coordinates_parallel(mesh, pvd):
-    pvd.write(mesh.coordinates)
-
-
+@pytest.mark.skipvtk
 @pytest.mark.parametrize("typ",
                          ["vector", "tensor", "tensor-3"])
 def test_bad_shape(typ, mesh, pvd):
@@ -67,11 +66,13 @@ def test_bad_shape(typ, mesh, pvd):
         pvd.write(f)
 
 
+@pytest.mark.skipvtk
 def test_bad_file_name(tmpdir):
     with pytest.raises(ValueError):
         VTKFile(str(tmpdir.join("foo.vtu")))
 
 
+@pytest.mark.skipvtk
 @pytest.mark.parametrize("space",
                          ["primal", "dual"])
 def test_different_functions(mesh, pvd, space):
@@ -89,6 +90,7 @@ def test_different_functions(mesh, pvd, space):
         pvd.write(g)
 
 
+@pytest.mark.skipvtk
 def test_multiple_functions(mesh, pvd):
     V = FunctionSpace(mesh, "DG", 0)
     P = FunctionSpace(mesh, "CG", 1)
@@ -104,6 +106,7 @@ def test_multiple_functions(mesh, pvd):
         pvd.write(g, f)
 
 
+@pytest.mark.skipvtk
 def test_different_meshes(mesh, pvd):
     V = VectorFunctionSpace(mesh, "DG", 1)
     f = Function(V)
@@ -114,6 +117,7 @@ def test_different_meshes(mesh, pvd):
         pvd.write(mesh.coordinates, mesh2.coordinates)
 
 
+@pytest.mark.skipvtk
 def test_bad_cell(pvd):
     mesh = UnitCubeMesh(1, 1, 1)
     mesh = ExtrudedMesh(mesh, layers=1)
@@ -122,6 +126,7 @@ def test_bad_cell(pvd):
         pvd.write(mesh.coordinates)
 
 
+@pytest.mark.skipvtk
 def test_not_function(mesh, pvd):
     c = Constant(1)
     with pytest.raises(ValueError):
@@ -134,6 +139,7 @@ def test_not_function(mesh, pvd):
         pvd.write(grad(f))
 
 
+@pytest.mark.skipvtk
 @pytest.mark.parametrize("space",
                          ["primal", "dual"])
 def test_append(mesh, tmpdir, space):
@@ -163,3 +169,39 @@ def test_append(mesh, tmpdir, space):
 
     assert compare(pvdfile_in_tmp, expected_pvdfile)
     assert compare(vtufiles_in_tmp, expected_vtufiles)
+
+
+@pytest.mark.skipvtk
+@pytest.mark.parallel([1, 3])
+def test_can_save_vom_data(dumpdir):
+    # [test_can_save_vom_data 1]
+    parent_mesh = UnitSquareMesh(4, 4)
+
+    points = np.asarray([
+        [0.75, 0.75],
+        [0.25, 0.25],
+        [0.75, 0.25],
+        [0.25, 0.75],
+    ])
+
+    vom = VertexOnlyMesh(parent_mesh, points)
+
+    # Define a field on the parent mesh
+    V = FunctionSpace(parent_mesh, "CG", 1)
+    x, y = SpatialCoordinate(parent_mesh)
+    f = Function(V).interpolate(x+y)
+
+    # Sample the parent mesh field at the points given by the vertex-only mesh
+    P0 = FunctionSpace(vom, "DG", 0)
+    f_at_points = Function(P0, name="f_at_points").interpolate(f)
+
+    # Sample another field at the the vertex-only mesh points
+    g_at_points = Function(P0, name="g_at_points").interpolate(2 * f)
+
+    # Save the vertex-only mesh data to a VTKFile
+    outfile = VTKFile(join(dumpdir, "vom_output.pvd"))
+    outfile.write(f_at_points, g_at_points)
+    # [test_can_save_vom_data 2]
+
+    if parent_mesh.comm.rank == 0:
+        assert isfile(join(dumpdir, "vom_output.pvd"))

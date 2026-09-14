@@ -9,49 +9,16 @@ from mpi4py import MPI
 from petsc4py import PETSc
 from pyop2 import mpi
 
-from firedrake import utils
 
-
-__all__ = (
-    "PETSc",
-    # TODO: These are all now deprecated
-    "get_petsc_variables",
-    "get_petscconf_h",
-    "get_external_packages"
-)
+__all__ = ("PETSc",)
 
 
 class FiredrakePETScError(Exception):
     pass
 
 
-@utils.deprecated("petsctools.flatten_parameters")
-def flatten_parameters(*args, **kwargs):
-    return petsctools.flatten_parameters(*args, **kwargs)
-
-
-@utils.deprecated("petsctools.get_petscvariables")
-def get_petsc_variables():
-    return petsctools.get_petscvariables()
-
-
-@utils.deprecated("petsctools.get_petscconf_h")
-def get_petscconf_h():
-    return petsctools.get_petscconf_h()
-
-
-@utils.deprecated("petsctools.get_external_packages")
-def get_external_packages():
-    return petsctools.get_external_packages()
-
-
-@utils.deprecated("petsctools.get_blas_library")
-def get_blas_library():
-    return petsctools.get_blas_library()
-
-
-def _extract_comm(obj: Any) -> MPI.Comm:
-    """Extract and return the Firedrake/PyOP2 internal comm of a given object.
+def _extract_comm(obj: Any) -> MPI.Comm | None:
+    """Extract and return the comm of a given object.
 
     Parameters
     ----------
@@ -60,35 +27,20 @@ def _extract_comm(obj: Any) -> MPI.Comm:
 
     Returns
     -------
-    MPI.Comm
-        Internal communicator
+    MPI.Comm | None
+        A communicator if found, else `None`.
 
     """
-    comm = None
-    # If the object is a communicator check whether it is already an internal
-    # communicator, otherwise get the internal communicator attribute from the
-    # given communicator.
-    if isinstance(obj, (PETSc.Comm, mpi.MPI.Comm)):
-        try:
-            if mpi.is_pyop2_comm(obj):
-                comm = obj
-            else:
-                internal_comm = obj.Get_attr(mpi.innercomm_keyval)
-                if internal_comm is None:
-                    comm = obj
-                else:
-                    comm = internal_comm
-        except mpi.PyOP2CommError:
-            pass
-    elif hasattr(obj, "_comm"):
-        comm = obj._comm
+    if isinstance(obj, PETSc.Comm | mpi.MPI.Comm):
+        return obj
     elif hasattr(obj, "comm"):
-        comm = obj.comm
-    return comm
+        return obj.comm
+    else:
+        return None
 
 
 @mpi.collective
-def garbage_cleanup(obj: Any):
+def garbage_cleanup(obj: Any) -> None:
     """Clean up garbage PETSc objects on a Firedrake object or any comm.
 
     Parameters
@@ -110,7 +62,7 @@ def garbage_cleanup(obj: Any):
 
 
 @mpi.collective
-def garbage_view(obj: Any):
+def garbage_view(obj: Any) -> None:
     """View garbage PETSc objects stored on a Firedrake object or any comm.
 
     Parameters

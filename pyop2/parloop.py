@@ -2,6 +2,7 @@ import abc
 import itertools
 import operator
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Optional, Tuple
 
 import loopy as lp
@@ -18,7 +19,6 @@ from pyop2.local_kernel import LocalKernel, CStringLocalKernel, LoopyLocalKernel
 from pyop2.types import (Access, Global, AbstractDat, Dat, DatView, MixedDat, Mat, Set,
                          MixedSet, ExtrudedSet, Subset, Map, ComposedMap, MixedMap)
 from pyop2.types.data_carrier import DataCarrier
-from pyop2.utils import cached_property
 
 
 class ParloopArg(abc.ABC):
@@ -189,7 +189,7 @@ class Parloop:
 
         self.global_kernel = global_knl
         self.iterset = iterset
-        self.comm = mpi.internal_comm(iterset.comm, self)
+        self.comm = iterset.comm
         self.arguments, self.reduced_globals = self.prepare_reduced_globals(arguments, global_knl)
 
     @property
@@ -296,7 +296,8 @@ class Parloop:
                     olgmaps = []
                     for m, lgmaps in zip(pl_arg.data, pl_arg.lgmaps):
                         olgmaps.append(m.handle.getLGMap())
-                        m.handle.setLGMap(*lgmaps)
+                        if m.handle.type != "is":
+                            m.handle.setLGMap(*lgmaps)
                     orig_lgmaps.append(olgmaps)
         return tuple(orig_lgmaps)
 
@@ -309,7 +310,8 @@ class Parloop:
         for arg, d in reversed(list(zip(self.global_kernel.arguments, self.arguments))):
             if isinstance(arg, (MatKernelArg, MixedMatKernelArg)) and d.lgmaps is not None:
                 for m, lgmaps in zip(d.data, orig_lgmaps.pop()):
-                    m.handle.setLGMap(*lgmaps)
+                    if m.handle.type != "is":
+                        m.handle.setLGMap(*lgmaps)
 
     @cached_property
     def _has_mats(self):
@@ -760,6 +762,7 @@ def parloop(knl, *args, **kwargs):
         raise KernelTypeError
 
 
+@PETSc.Log.EventDecorator()
 def generate_single_cell_wrapper(iterset, args, forward_args=(),
                                  kernel_name=None, wrapper_name=None):
     """Generates wrapper for a single cell. No iteration loop, but cellwise data is extracted.

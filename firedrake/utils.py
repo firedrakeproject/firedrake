@@ -1,13 +1,17 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
 import warnings
+import functools
+from typing import Callable, Self, Hashable
 from decorator import decorator
-from pyop2.utils import cached_property  # noqa: F401
 from pyop2.datatypes import ScalarType, as_cstr
 from pyop2.datatypes import RealType     # noqa: F401
 from pyop2.datatypes import IntType      # noqa: F401
 from pyop2.datatypes import as_ctypes    # noqa: F401
 from pyop2.mpi import MPI
+from petsc4py import PETSc
+from functools import cache
+from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
 
 
@@ -22,6 +26,83 @@ complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "comp
 
 # Remove this (and update test suite) when Slate supports complex mode.
 SLATE_SUPPORTS_COMPLEX = False
+
+
+@cache
+def get_device_type() -> str | None:
+    r"""Get PETSc device type.
+
+    Attempt to initialise a GPU and return the type of GPU
+    identified by PETSc.
+
+    Returns
+    -------
+    str | None
+        The PETSc device type, or `None` if no device is found.
+
+    """
+    try:
+        dev = PETSc.Device.create()
+    except PETSc.Error:
+        # Could not initialise device - not a failure condition as this could
+        # be a GPU-enabled PETSc installation running on a CPU-only host.
+        return None
+    dev_type = dev.getDeviceType()
+    dev.destroy()
+    return dev_type
+
+
+@cache
+def device_matrix_type(*, warn: bool = True) -> str | None:
+    r"""Get device matrix type
+
+    Attempt to initialise a GPU device and return the PETSc mat_type
+    compatible with that device, or None if no device is detected.
+    Typical Usage Example:
+    mat_type = device_matrix_type(pc.comm.rank == 0)
+
+    Parameters
+    ----------
+    warn
+        Emit a warning containing the reason a device mat_type
+        has not been returned. Defaults to True.
+
+    Raises
+    ------
+    UnrecognisedDeviceError
+        Raised when PETSc initialises a GPU device that
+        Firedrake does not understand
+
+    Returns
+    -------
+    str | None
+        The PETSc mat_type compatible with the GPU device detected on
+        this system or None
+
+    """
+    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse", "HIP": "aijhipsparse"}
+    dev_type = get_device_type()
+    if dev_type is None:
+        if warn:
+            warnings.warn(
+                "This installation of Firedrake is GPU-enabled, but no GPU device has been detected"
+            )
+        return None
+    if dev_type not in _device_mat_type_map:
+        raise UnrecognisedDeviceError(
+            f"Unknown device type: {dev_type} initialised by PETSc. Firedrake "
+            f"currently understands {', '.join([k for k in _device_mat_type_map if k != 'HOST'])}"
+            "devices"
+        )
+
+    if warn:
+        if dev_type == "HOST":
+            warnings.warn(
+                "This installation of Firedrake is not GPU-enabled, to enable GPU functionality "
+                "PETSc will need to be rebuilt with some GPU capability appropriate for this system "
+                "(e.g. '--with-cuda=1')."
+            )
+    return _device_mat_type_map[dev_type]
 
 
 def _new_uid(comm):
@@ -166,5 +247,57 @@ def deprecated(prefer=None, internal=False):
             warning_type = DeprecationWarning if internal else FutureWarning
             warnings.warn(msg, warning_type)
             return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def check_netgen_installed() -> None:
+    """Check that netgen and ngsPETSc are available.
+
+    If they are not an import error is raised.
+
+    """
+    try:
+        import netgen  # noqa: F401
+        import ngsPETSc  # noqa: F401
+    except ImportError:
+        raise ImportError(
+            "Unable to import netgen and ngsPETSc. Please ensure that they "
+            "are installed and available to Firedrake (see "
+            "https://www.firedrakeproject.org/install.html#netgen)."
+        )
+
+
+def cached_property_until(key: Callable[[Self], Hashable]):
+    """Decorator for a property that is cached until some value changes.
+
+    For example, the ``expensive_property`` below will be cached until
+    ``self.value`` changes, and will be recomputed with the new ``self.value``
+    and cached when accessed again.
+
+    .. code-block:: python
+
+        class MyClass:
+
+            def __init__(self, value):
+                self.value = value
+
+            @cached_property_until(lambda self: self.value)
+            def expensive_property(self):
+                # Some expensive computation that depends on self.value
+                ...
+    """
+    def decorator(func):
+        @property
+        @functools.wraps(func)
+        def wrapper(self):
+            cache_attribute = f"_{func.__name__}_cache"
+            current_value = key(self)
+            cached_value = getattr(self, cache_attribute, None)
+            if cached_value is None or cached_value[0] != current_value:
+                result = func(self)
+                setattr(self, cache_attribute, (current_value, result))
+                return result
+            return cached_value[1]
         return wrapper
     return decorator

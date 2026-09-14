@@ -23,7 +23,6 @@ from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
-from pyop2.utils import get_petsc_dir
 from pyop2.mpi import COMM_WORLD
 from pyop2.codegen.rep2loopy import SolveCallable, INVCallable
 from pyop2.caching import memory_and_disk_cache
@@ -44,13 +43,6 @@ from petsc4py import PETSc
 __all__ = ['compile_expression']
 
 GREEN = "\033[1;37;32m%s\033[0m"
-
-
-try:
-    PETSC_DIR, PETSC_ARCH = get_petsc_dir()
-except ValueError:
-    PETSC_DIR, = get_petsc_dir()
-    PETSC_ARCH = None
 
 BLASLAPACK_LIB = None
 BLASLAPACK_INCLUDE = None
@@ -200,6 +192,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
                                                                  cell_sizes=(0, ) if builder.bag.needs_cell_sizes else (),
                                                                  exterior_facets=(),
                                                                  interior_facets=(),
+                                                                 orientations_cell=(),
                                                                  orientations_exterior_facet=(),
                                                                  orientations_interior_facet=(),),
                        coefficient_numbers=coefficient_numbers,

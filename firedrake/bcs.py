@@ -1,8 +1,10 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import numpy as np
 
-import functools
+from functools import partial, reduce, cached_property
 import itertools
+
+import numpy as np
+from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
@@ -11,17 +13,17 @@ import finat
 
 import pyop2 as op2
 from pyop2 import exceptions
+from pyop2.mpi import temp_internal_comm
 from pyop2.utils import as_tuple
 
 import firedrake
-import firedrake.matrix as matrix
-import firedrake.utils as utils
-from firedrake import ufl_expr
-from firedrake import slate
-from firedrake import solving
+from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -88,7 +90,15 @@ class BCBase(object):
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
-    @utils.cached_property
+    @property
+    def parent_function_space(self):
+        """The top-level function space, walking up through indexed or component subspaces."""
+        V = self._function_space
+        while V.parent is not None:
+            V = V.parent
+        return V
+
+    @cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
         # Define facet, edge, vertex using tuples:
@@ -123,19 +133,19 @@ class BCBase(object):
             s.append((ndim - 1 - i, as_tuple(sd[i])))
         return as_tuple(s)
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
-            tdim = self._function_space.mesh().topological_dimension()
+            tdim = self._function_space.mesh().topological_dimension
             if isinstance(fe, finat.Hermite) and tdim == 1:
                 bcnodes = bcnodes[::2]  # every second dof is the vertex value
             elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
@@ -148,7 +158,7 @@ class BCBase(object):
                     bcnodes = np.setdiff1d(bcnodes, deriv_ids)
             return bcnodes
 
-        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = (self.sub_domain,) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
         for s in sub_d:
@@ -167,11 +177,19 @@ class BCBase(object):
                     # Edge conditions have only been tested with Lagrange elements.
                     # Need to expand the list.
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
+                bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
+        bcnodes = np.concatenate(bcnodes)
 
-    @utils.cached_property
+        with temp_internal_comm(self._function_space.mesh().comm) as icomm:
+            num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
+            if num_global_nodes == 0 and icomm.rank == 0:
+                logger.warning(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                               "Did you choose the right label?")
+
+        return bcnodes
+
+    @cached_property
     def node_set(self):
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
@@ -186,8 +204,8 @@ class BCBase(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.MatrixBase):
-            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
+        if not isinstance(r, Function | Cofunction):
+            raise NotImplementedError(f"Zeroing bcs not supported for {type(r).__name__}")
 
         for idx in self._indices:
             r = r.sub(idx)
@@ -269,24 +287,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
         to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
-    :arg method: the method for determining boundary nodes.
-        DEPRECATED. The only way boundary nodes are identified is by
-        topological association.
 
     '''
 
     @DirichletBCMixin._ad_annotate_init
-    def __init__(self, V, g, sub_domain, method=None):
-        if method == "geometric":
-            raise NotImplementedError("'geometric' bcs are no longer implemented. Please enforce them weakly")
-        if method not in {None, "topological"}:
-            raise ValueError(f"Unhandled boundary condition method '{method}'")
-        if method is not None:
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter('always', DeprecationWarning)
-                warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
-                              DeprecationWarning)
+    def __init__(self, V, g, sub_domain):
         super().__init__(V, sub_domain)
         if len(V.boundary_set) and not set(self.sub_domain).issubset(V.boundary_set):
             raise ValueError(f"Sub-domain {self.sub_domain} not in the boundary set of the restricted space {V.boundary_set}.")
@@ -359,11 +364,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
                 self._function_arg = firedrake.Function(V)
-                # Use `Interpolator` instead of assembling an `Interpolate` form
-                # as the expression compilation needs to happen at this stage to
-                # determine if we should use interpolation or projection
-                #  -> e.g. interpolation may not be supported for the element.
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
+                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
+                # Call this here to check if the element supports interpolation
+                # TODO: It's probably better to have a more explicit way of checking this
+                interpolator._get_callable()
+                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
@@ -424,7 +429,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         corresponding rows and columns.
 
         """
-        if isinstance(r, matrix.MatrixBase):
+        if isinstance(r, ufl.Matrix):
             raise NotImplementedError("Capability to delay bc application has been dropped. Use assemble(a, bcs=bcs, ...) to obtain a fully assembled matrix")
 
         fs = self._function_space
@@ -639,9 +644,6 @@ class EquationBCSplit(BCBase):
             rank = len(self.f.arguments())
             splitter = ExtractSubBlock()
             form = splitter.split(self.f, argument_indices=(row_field, col_field)[:rank])
-            if isinstance(form, ufl.ZeroBaseForm) or form.empty():
-                # form is empty, do nothing
-                return
             if u is not None:
                 form = firedrake.replace(form, {self.u: u})
         if action_x is not None:

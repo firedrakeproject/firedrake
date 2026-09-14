@@ -9,7 +9,7 @@ import gem
 import numpy
 import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
-from FIAT.reference_element import UFCHexahedron, UFCSimplex, make_affine_mapping
+from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
@@ -35,6 +35,7 @@ from ufl.algorithms import extract_arguments
 
 from tsfc import ufl2gem
 from tsfc.kernel_interface import ProxyKernelInterface
+from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      construct_modified_terminal)
 from tsfc.parameters import is_complex
@@ -52,7 +53,6 @@ class ContextBase(ProxyKernelInterface):
         'ufl_cell',
         'fiat_cell',
         'integration_dim',
-        'entity_ids',
         'argument_multiindices',
         'facetarea',
         'index_cache',
@@ -74,9 +74,14 @@ class ContextBase(ProxyKernelInterface):
 
     @cached_property
     def integration_dim(self):
-        return self.fiat_cell.get_dimension()
-
-    entity_ids = [0]
+        integration_dims = set()
+        for domain, integral_type in self.domain_integral_type_map.items():
+            cell = domain.ufl_cell()
+            fiat_cell = as_fiat_cell(cell)
+            integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
+            integration_dims.add(integration_dim)
+        integration_dim, = integration_dims
+        return integration_dim
 
     @cached_property
     def epsilon(self):
@@ -97,11 +102,11 @@ class ContextBase(ProxyKernelInterface):
         :arg restriction: Restriction of the modified terminal, used
                           for entity selection.
         """
-        if len(self.entity_ids) == 1:
-            return callback(self.entity_ids[0])
+        if len(self.entity_ids(domain)) == 1:
+            return callback(self.entity_ids(domain)[0])
         else:
             f = self.entity_number(domain, restriction)
-            return gem.select_expression(list(map(callback, self.entity_ids)), f)
+            return gem.select_expression(list(map(callback, self.entity_ids(domain))), f)
 
     argument_multiindices = ()
 
@@ -119,19 +124,52 @@ class ContextBase(ProxyKernelInterface):
         # Directly set use_canonical_quadrature_point_ordering = False in context
         # for translation of special nodes, e.g., CellVolume, FacetArea, CellOrigin, and CellVertices,
         # as quadrature point ordering is not relevant for those node types.
-        cell_integral_type_map = {
-            as_fiat_cell(domain.ufl_cell()): integral_type
-            for domain, integral_type in self.domain_integral_type_map.items()
-            if integral_type is not None
-        }
-        if all(integral_type == 'cell' for integral_type in cell_integral_type_map.values()):
+        def _any(cell_type, integral_types):
+            for d, it in self.domain_integral_type_map.items():
+                if it is None:
+                    continue
+                c = as_fiat_cell(d.ufl_cell())
+                if isinstance(c, cell_type) and it in integral_types:
+                    return True
             return False
-        elif all(integral_type in ['exterior_facet', 'interior_facet'] for integral_type in cell_integral_type_map.values()):
-            if all(isinstance(cell, UFCHexahedron) for cell in cell_integral_type_map):
-                return True
-            elif len(set(cell_integral_type_map)) > 1:  # mixed cell types
-                return True
-        return False
+        if _any(UFCHexahedron, ['exterior_facet', 'interior_facet']):
+            return True
+        elif _any(UFCQuadrilateral, ['exterior_facet', 'interior_facet']) and _any(UFCSimplex, ['cell', 'exterior_facet', 'interior_facet']):
+            return True
+        else:
+            return False
+
+
+class CellKernelInterface(ProxyKernelInterface):
+    # For a single-domain cell integration kernel.
+
+    def __init__(self, wrapee, domain):
+        super().__init__(wrapee)
+        self._domain = domain
+
+    def entity_ids(self, domain):
+        if domain is not self._domain:
+            raise ValueError(f"{domain} != {self._domain}")
+        return (0,)
+
+    @cached_property
+    def domain_integral_type_map(self):
+        return {self._domain: "cell"}
+
+
+class CellVolumeKernelInterface(CellKernelInterface):
+    # Since CellVolume is evaluated as a cell integral, we must ensure
+    # that the right restriction is applied when it is used in an
+    # interior facet integral.  This proxy diverts coefficient
+    # translation to use a specified restriction.
+
+    def __init__(self, wrapee, domain, restriction):
+        super().__init__(wrapee, domain)
+        self.restriction = restriction
+
+    def coefficient(self, ufl_coefficient, r):
+        assert r is None
+        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
 
 
 class CoordinateMapping(PhysicalGeometry):
@@ -168,7 +206,7 @@ class CoordinateMapping(PhysicalGeometry):
         config["interface"] = self.interface
         return config
 
-    def translate_point_expression(self, expr, point=None):
+    def translate_point_expression(self, expr, point=None, interface=None):
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -181,6 +219,8 @@ class CoordinateMapping(PhysicalGeometry):
         config = {"point_set": PointSingleton(point)}
         config.update(self.config)
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
+        if interface:
+            config.update(interface=interface)
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
         return map_expr_dag(context.translator, expr)
@@ -189,12 +229,16 @@ class CoordinateMapping(PhysicalGeometry):
         return self.interface.cell_size(extract_unique_domain(self.mt.terminal), self.mt.restriction)
 
     def jacobian_at(self, point):
-        expr = Jacobian(extract_unique_domain(self.mt.terminal))
-        return self.translate_point_expression(expr, point=point)
+        domain = extract_unique_domain(self.mt.terminal)
+        expr = Jacobian(domain)
+        interface = CellKernelInterface(self.interface, domain)
+        return self.translate_point_expression(expr, point=point, interface=interface)
 
     def detJ_at(self, point):
-        expr = JacobianDeterminant(extract_unique_domain(self.mt.terminal))
-        return self.translate_point_expression(expr, point=point)
+        domain = extract_unique_domain(self.mt.terminal)
+        expr = JacobianDeterminant(domain)
+        interface = CellKernelInterface(self.interface, domain)
+        return self.translate_point_expression(expr, point=point, interface=interface)
 
     def reference_normals(self):
         cell = self.interface.fiat_cell
@@ -207,6 +251,11 @@ class CoordinateMapping(PhysicalGeometry):
         cell = self.interface.fiat_cell
         num_edges = len(cell.get_topology()[1])
         return gem.Literal(numpy.asarray([cell.compute_edge_tangent(i) for i in range(num_edges)]))
+
+    def normalized_reference_edge_tangents(self):
+        cell = self.interface.fiat_cell
+        num_edges = len(cell.get_topology()[1])
+        return gem.Literal(numpy.asarray([cell.compute_normalized_edge_tangent(i) for i in range(num_edges)]))
 
     def physical_tangents(self):
         cell = self.interface.fiat_cell
@@ -248,7 +297,7 @@ class CoordinateMapping(PhysicalGeometry):
             e, _ = entity
             assert point_shape == e
         else:
-            assert point_shape == extract_unique_domain(expr).topological_dimension()
+            assert point_shape == extract_unique_domain(expr).topological_dimension
         if self.mt.restriction == '+':
             expr = PositiveRestricted(expr)
         elif self.mt.restriction == '-':
@@ -257,7 +306,7 @@ class CoordinateMapping(PhysicalGeometry):
         config.update(self.config)
         if entity is not None:
             config.update({name: getattr(self.interface, name)
-                           for name in ["integration_dim", "entity_ids"]})
+                           for name in ["integration_dim"]})
         config.update(use_canonical_quadrature_point_ordering=False)  # quad point ordering not relevant.
         context = PointSetContext(**config)
         expr = self.preprocess(expr, context)
@@ -282,15 +331,6 @@ def needs_coordinate_mapping(element):
 def get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme):
     integration_cell = fiat_cell.construct_subcomplex(integration_dim)
     return make_quadrature(integration_cell, quadrature_degree, scheme=scheme)
-
-
-def make_basis_evaluation_key(ctx, finat_element, mt, entity_id):
-    ufl_element = mt.terminal.ufl_element()
-    domain = extract_unique_domain(mt.terminal)
-    coordinate_element = domain.ufl_coordinate_element()
-    # This way of caching is fragile.
-    # Should Implement _hash_key_() for ModifiedTerminal and use the entire mt as key.
-    return (ufl_element, mt.local_derivatives, ctx.point_set, ctx.integration_dim, entity_id, coordinate_element, mt.restriction, domain._ufl_hash_data_())
 
 
 class PointSetContext(ContextBase):
@@ -323,12 +363,32 @@ class PointSetContext(ContextBase):
     def weight_expr(self):
         return self.quadrature_rule.weight_expression
 
-    @serial_cache(hashkey=make_basis_evaluation_key)
+    @staticmethod
+    def _make_basis_evaluation_key(finat_element, mt, entity_id):
+        ufl_element = mt.terminal.ufl_element()
+        domain = extract_unique_domain(mt.terminal)
+        coordinate_element = domain.ufl_coordinate_element()
+        # This way of caching is fragile.
+        # Should implement _hash_key_() in ModifiedTerminal and include the entire mt in the key,
+        # or only pass necessary bits in mt to basis_evaluation.
+        return (ufl_element, mt.local_derivatives, entity_id, coordinate_element, mt.restriction, domain._ufl_hash_data_())
+
+    @cached_property
+    def _basis_evaluation_cache(self):
+        return {}
+
     def basis_evaluation(self, finat_element, mt, entity_id):
-        return finat_element.basis_evaluation(mt.local_derivatives,
-                                              self.point_set,
-                                              (self.integration_dim, entity_id),
-                                              coordinate_mapping=CoordinateMapping(mt, self))
+        key = PointSetContext._make_basis_evaluation_key(finat_element, mt, entity_id)
+        try:
+            return self._basis_evaluation_cache[key]
+        except KeyError:
+            val = finat_element.basis_evaluation(
+                mt.local_derivatives,
+                self.point_set,
+                (self.integration_dim, entity_id),
+                coordinate_mapping=CoordinateMapping(mt, self),
+            )
+            return self._basis_evaluation_cache.setdefault(key, val)
 
 
 class GemPointContext(ContextBase):
@@ -395,7 +455,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
 
         config = {name: getattr(self.context, name)
                   for name in ["ufl_cell", "index_cache", "scalar_type",
-                               "integration_dim", "entity_ids"]}
+                               "integration_dim"]}
         config.update(quadrature_degree=degree, interface=self.context,
                       argument_multiindices=argument_multiindices)
         expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
@@ -478,10 +538,13 @@ def make_cell_facet_jacobian(cell, facet_dim, facet_i):
 
 @translate.register(ReferenceNormal)
 def translate_reference_normal(terminal, mt, ctx):
+    domain = extract_unique_domain(terminal)
+    fiat_cell = as_fiat_cell(domain.ufl_cell())
+
     def callback(facet_i):
-        n = ctx.fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
+        n = fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
         return gem.Literal(n)
-    return ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction)
+    return ctx.entity_selector(callback, domain, mt.restriction)
 
 
 @translate.register(ReferenceCellEdgeVectors)
@@ -536,29 +599,19 @@ def translate_spatialcoordinate(terminal, mt, ctx):
     return ctx.translator(expr)
 
 
-class CellVolumeKernelInterface(ProxyKernelInterface):
-    # Since CellVolume is evaluated as a cell integral, we must ensure
-    # that the right restriction is applied when it is used in an
-    # interior facet integral.  This proxy diverts coefficient
-    # translation to use a specified restriction.
-
-    def __init__(self, wrapee, restriction):
-        ProxyKernelInterface.__init__(self, wrapee)
-        self.restriction = restriction
-
-    def coefficient(self, ufl_coefficient, r):
-        assert r is None
-        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
-
-
 @translate.register(CellVolume)
 def translate_cellvolume(terminal, mt, ctx):
-    integrand, degree = one_times(ufl.dx(domain=extract_unique_domain(terminal)))
-    interface = CellVolumeKernelInterface(ctx, mt.restriction)
+    domain = extract_unique_domain(terminal)
+    integrand, degree = one_times(ufl.dx(domain=domain))
+    interface = CellVolumeKernelInterface(ctx, domain, mt.restriction)
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
-    config.update(interface=interface, quadrature_degree=degree, use_canonical_quadrature_point_ordering=False)
+    config.update(
+        interface=interface,
+        quadrature_degree=degree,
+        use_canonical_quadrature_point_ordering=False,
+    )
     expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
 
@@ -572,7 +625,7 @@ def translate_facetarea(terminal, mt, ctx):
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "integration_dim", "scalar_type",
-                           "entity_ids", "index_cache"]}
+                           "index_cache"]}
     config.update(interface=ctx, quadrature_degree=degree, use_canonical_quadrature_point_ordering=False)
     expr, = compile_ufl(integrand, PointSetContext(**config), point_sum=True)
     return expr
@@ -583,7 +636,7 @@ def translate_cellorigin(terminal, mt, ctx):
     domain = extract_unique_domain(terminal)
     coords = SpatialCoordinate(domain)
     expression = construct_modified_terminal(mt, coords)
-    point_set = PointSingleton((0.0,) * domain.topological_dimension())
+    point_set = PointSingleton((0.0,) * domain.topological_dimension)
 
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
@@ -594,13 +647,18 @@ def translate_cellorigin(terminal, mt, ctx):
 
 @translate.register(CellVertices)
 def translate_cell_vertices(terminal, mt, ctx):
-    coords = SpatialCoordinate(extract_unique_domain(terminal))
+    domain = extract_unique_domain(terminal)
+    coords = SpatialCoordinate(domain)
     ufl_expr = construct_modified_terminal(mt, coords)
     ps = PointSet(numpy.array(ctx.fiat_cell.get_vertices()))
-
+    interface = CellKernelInterface(ctx, domain)
     config = {name: getattr(ctx, name)
               for name in ["ufl_cell", "index_cache", "scalar_type"]}
-    config.update(interface=ctx, point_set=ps, use_canonical_quadrature_point_ordering=False)
+    config.update(
+        interface=interface,
+        point_set=ps,
+        use_canonical_quadrature_point_ordering=False,
+    )
     context = PointSetContext(**config)
     expr = context.translator(ufl_expr)
 
@@ -683,17 +741,13 @@ def translate_constant_value(terminal, mt, ctx):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
+    domain = extract_unique_domain(terminal)
     vec = ctx.coefficient(terminal, mt.restriction)
-
-    if terminal.ufl_element().family() == 'Real':
-        assert mt.local_derivatives == 0
-        return vec
-
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
-    for entity_id in ctx.entity_ids:
+    for entity_id in ctx.entity_ids(domain):
         finat_dict = ctx.basis_evaluation(element, mt, entity_id)
         for alpha, table in finat_dict.items():
             # Filter out irrelevant derivatives
@@ -705,14 +759,14 @@ def translate_coefficient(terminal, mt, ctx):
                 per_derivative[alpha].append(table)
 
     # Merge entity tabulations for each derivative
-    if len(ctx.entity_ids) == 1:
+    if len(ctx.entity_ids(domain)) == 1:
         def take_singleton(xs):
             x, = xs  # asserts singleton
             return x
         per_derivative = {alpha: take_singleton(tables)
                           for alpha, tables in per_derivative.items()}
     else:
-        f = ctx.entity_number(extract_unique_domain(terminal), mt.restriction)
+        f = ctx.entity_number(domain, mt.restriction)
         per_derivative = {alpha: gem.select_expression(tables, f)
                           for alpha, tables in per_derivative.items()}
 

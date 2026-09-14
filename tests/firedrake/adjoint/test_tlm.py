@@ -4,26 +4,14 @@ from firedrake import *
 from firedrake.adjoint import *
 
 
+@pytest.fixture(autouse=True)
+def autouse_set_test_tape(set_test_tape):
+    pass
+
+
 @pytest.fixture
 def rg():
     return RandomGenerator(PCG64(seed=1234))
-
-
-@pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
 
 
 # Tolerance in the tests.
@@ -65,7 +53,7 @@ def test_tlm_bc():
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "Lagrange", 1)
     R = FunctionSpace(mesh, "R", 0)
-    c = Function(R, val=1)
+    c = Function(R, val=1.)
     f = Function(V).assign(1.)
 
     u = Function(V)
@@ -216,8 +204,8 @@ def test_projection():
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
 
-    bc = DirichletBC(V, Constant(1), "on_boundary")
-    k = Function(R, val=2)
+    bc = DirichletBC(V, Constant(1.), "on_boundary")
+    k = Function(R, val=2.)
     x, y = SpatialCoordinate(mesh)
     expr = sin(k*x)
     f = project(expr, V)
@@ -234,7 +222,7 @@ def test_projection():
     J = assemble(u_**2*dx)
     Jhat = ReducedFunctional(J, Control(k))
 
-    assert (taylor_test(Jhat, k, Function(R, val=1), dJdm=Jhat.tlm(Constant(1))) > 1.9)
+    assert (taylor_test(Jhat, k, Function(R, val=1.), dJdm=Jhat.tlm(Constant(1.))) > 1.9)
 
 
 @pytest.mark.skipcomplex
@@ -244,7 +232,7 @@ def test_projection_function(rg):
     mesh = UnitSquareMesh(10, 10)
     V = FunctionSpace(mesh, "CG", 1)
 
-    bc = DirichletBC(V, Constant(1), "on_boundary")
+    bc = DirichletBC(V, Constant(1.), "on_boundary")
     x, y = SpatialCoordinate(mesh)
     g = project(sin(x)*sin(y), V, annotate=False)
     expr = sin(g*x)

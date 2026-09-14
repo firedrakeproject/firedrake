@@ -15,7 +15,7 @@ and they can be used to generate a randomised :class:`.Function` by passing a :c
 
 Example:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
 
@@ -43,7 +43,7 @@ If ``seed`` keyword is not provided by the user, it is set using `numpy.random.S
 To make ``.PCG64`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
 
-.. code-block:: python3
+.. code-block:: python
 
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -54,7 +54,7 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
     ``inc`` is no longer a valid keyword for ``.PCG64`` constructor. However, one can reset the ``state`` after construction as:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         pcg = PCG64()
         state = pcg.state
@@ -69,7 +69,7 @@ If ``seed`` keyword is not provided by the user, it is set using `numpy.random.S
 To make ``.PCG64DXSM`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__:
 
-.. code-block:: python3
+.. code-block:: python
 
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -80,7 +80,7 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 
     ``inc`` is no longer a valid keyword for ``.PCG64DXSM`` constructor. However, one can reset the ``state`` after construction as:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         pcg = PCG64DXSM()
         state = pcg.state
@@ -93,7 +93,7 @@ Philox
 ``.Philox`` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
 If the ``key`` keyword is not provided by the user, ``.Philox`` computes a default key as:
 
-.. code-block:: python3
+.. code-block:: python
 
     key = np.zeros(2, dtype=np.uint64)
     key[0] = comm.Get_rank()
@@ -326,8 +326,8 @@ def __getattr__(module_attr):
 
         def __init__(self, *args, **kwargs):
             _kwargs = kwargs.copy()
-            self._comm = _kwargs.pop('comm', COMM_WORLD)
-            if self._comm.Get_size() > 1 and module_attr not in ['PCG64', 'PCG64DXSM', 'Philox']:
+            self.comm = _kwargs.pop('comm', COMM_WORLD)
+            if self.comm.Get_size() > 1 and module_attr not in ['PCG64', 'PCG64DXSM', 'Philox']:
                 raise TypeError("Use 'PCG64', 'PCG64DXSM', or 'Philox', for parallel RNG")
             self._init(*args, **_kwargs)
 
@@ -338,8 +338,8 @@ def __getattr__(module_attr):
             def _init(self, *args, **kwargs):
                 if 'inc' in kwargs:
                     raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake.html#module-firedrake.randomfunctiongen>")
-                rank = self._comm.Get_rank()
-                size = self._comm.Get_size()
+                rank = self.comm.Get_rank()
+                size = self.comm.Get_size()
                 _kwargs = kwargs.copy()
                 seed = _kwargs.get("seed")
                 if seed is None:
@@ -348,7 +348,7 @@ def __getattr__(module_attr):
                         seed = randomgen.SeedSequence().entropy
                     else:
                         seed = None
-                    seed = self._comm.bcast(seed, root=0)
+                    seed = self.comm.bcast(seed, root=0)
                 if isinstance(seed, randomgen.SeedSequence):
                     # We assume that the user has generated
                     # a parallel-safe SeedSequence.
@@ -363,8 +363,8 @@ def __getattr__(module_attr):
                 seed = kwargs.get("seed")
                 # counter = kwargs.get("counter")
                 key = kwargs.get("key")
-                if self._comm.Get_size() > 1:
-                    rank = self._comm.Get_rank()
+                if self.comm.Get_size() > 1:
+                    rank = self.comm.Get_rank()
                     if seed is not None:
                         raise TypeError("'seed' should not be used when using 'Philox' in parallel.  A random 'key' is automatically generated and used unless specified.")
                     # if 'key' is to be passed, it is users' responsibility

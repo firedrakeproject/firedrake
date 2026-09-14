@@ -38,13 +38,15 @@
    dependencies. For full instructions, see :doc:`obtaining Firedrake
    <install>`.
 
+   .. _intro_tutorials:
+
    .. include:: intro_tut.rst
 
    Jupyter notebooks
    -----------------
 
-   In addition to the documented tutorials, we also have some `Jupyter
-   notebooks <https://jupyter.org/>`__ that are a more interactive way of
+   In addition to the documented tutorials, we also have some Jupyter
+   notebooks that are a more interactive way of
    getting to know Firedrake. They are described in more detail :doc:`on
    their own page <notebooks>`.
 
@@ -61,4 +63,7 @@
    effective mechanism is the site :ref:`search engine <search>`.
 
    .. include:: manual.rst
+
+   .. _advanced_tutorials:
+
    .. include:: advanced_tut.rst

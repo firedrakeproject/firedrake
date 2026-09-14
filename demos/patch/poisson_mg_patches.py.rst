@@ -4,7 +4,7 @@ Using patch relaxation for multigrid
 Contributed by `Robert Kirby <https://sites.baylor.edu/robert_kirby/>`_
 and `Pablo Brubeck <https://www.maths.ox.ac.uk/people/pablo.brubeckmartinez/>`_.
 
-Simple relaxation like point Jacobi are not optimal or even suitable
+Simple multigrid relaxation methods like point Jacobi are not optimal or even suitable
 smoothers for all applications.  Firedrake supports additive Schwarz methods
 based on local patch-based decompositions through two different paths.
 
@@ -20,12 +20,17 @@ degree-independent iteration counts.  Here, all the degrees of freedom in the ce
 For many problems, point Jacobi is even worse, and patches are required even to
 get a convergent method.  We refer the reader to other demos.
 
-We start by importing firedrake and setting up a mesh hierarchy and the
-exact solution and forcing data. ::
+We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+exact solution and forcing data. Crucially, the meshes must have an overlapping
+parallel domain decomposition that supports the vertex star patches. This is set
+via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.
+
+.. code-block:: python
 
   from firedrake import *
 
-  base = UnitSquareMesh(4, 4)
+  dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+  base = UnitSquareMesh(4, 4, distribution_parameters=dparams)
   mh = MeshHierarchy(base, 1)
   mesh = mh[-1]
 
@@ -33,8 +38,9 @@ Next, this function solves the Poisson equation discretized with
 a user-provided degree of Lagrange elements and set of solver
 parameters and returns the iteration count required for convergence.
 To stress-test the solver, the forcing function is taken as a randomly
-generated cofunction. ::
+generated cofunction.
 
+.. code-block:: python
 
   def run_solve(deg, params):
       V = FunctionSpace(mesh, "CG", deg)
@@ -57,7 +63,9 @@ generated cofunction. ::
 This function creates multigrid parameters using a given set of
 relaxation options and matrix assembly type.  On the coarsest level of the
 multigrid hierarchy, we force the matrix to be assembled and use a sparse direct
-solver. ::
+solver.
+
+.. code-block:: python
 
   def mg_params(relax, mat_type="aij"):
       return {
@@ -80,8 +88,9 @@ The simplest parameter case will use point Jacobi smoothing on each level.
 Here, a matrix-free implementation is appropriate, and Firedrake will
 automatically assemble the diagonal for us.
 Point Jacobi, however, will require more multigrid iterations as the polynomial
-degree increases. ::
+degree increases.
 
+.. code-block:: python
 
   jacobi_relax = mg_params({"pc_type": "jacobi"}, mat_type="matfree")
 
@@ -93,7 +102,9 @@ These options tell the patch mechanism to use vertex star patches, storing
 the element matrices in a dense format.  The patch problems are solved by
 LU factorizations without a Krylov iteration.  As an optimization,
 patch is told to precompute all the element matrices and store the inverses
-in dense format. ::
+in dense format.
+
+.. code-block:: python
 
   patch_relax = mg_params({
       "pc_type": "python",
@@ -113,25 +124,43 @@ in dense format. ::
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
 submatrices for each patch from the already-assembled global stiffness matrix.
 
+The `"tinyasm"` backend uses LAPACK to invert all the patch operators, which is ideal
+for low-order discretizations:
 
-The tinyasm backend uses LAPACK to invert all the patch operators.  If this option
-is not specified, PETSc's ASM framework will set up a small KSP for each patch.
-This can be useful when the patches become larger and one wants to use a sparse
-direct solver or a Krylov iteration on each one. ::
+.. code-block:: python
 
-  asm_relax = mg_params({
+  tinyasm_relax = mg_params({
       "pc_type": "python",
       "pc_python_type": "firedrake.ASMStarPC",
       "pc_star_backend": "tinyasm"})
 
+If the backend option is not specified, PETSc's ASM framework will set up a KSP for each patch.
+This can be useful when the patches become larger and one wants to use a sparse
+direct solver or a Krylov iteration on each one.
+
+Moreover, the option `"use_coloring"` applies a mesh coloring to combine
+subsets of non-overlapping patches into sparse block-diagonal matrices. This
+results in a mathematically equivalent preconditioner, while reducing the
+overhead costs of calling the sparse factorization library many times.
+
+.. code-block:: python
+
+  color_relax = mg_params({
+      "pc_type": "python",
+      "pc_python_type": "firedrake.ASMStarPC",
+      "pc_star_use_coloring": True})
+
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
 in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
-latter options do the same operations, just via different code paths. ::
+latter options do the same operations, just via different code paths.
+
+.. code-block:: python
 
   names = {"Jacobi": jacobi_relax,
            "Patch": patch_relax,
-           "ASM Star": asm_relax}
+           "Tiny ASM": tinyasm_relax,
+           "Color ASM": color_relax}
 
   for name, method in names.items():
       print(name)
@@ -155,7 +184,7 @@ For Jacobi, we expect output such as
    7         19
 ======== ================
 
-While for either :class:`~.PatchPC` or :class:`~.ASMStarPC`, we expect
+While for either :class:`~.PatchPC` or :class:`~.ASMStarPC` (with dense inversion or with coloring + sparse factorization), we expect
 
 ======== ================
  Degree    Iterations

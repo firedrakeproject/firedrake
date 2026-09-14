@@ -17,11 +17,11 @@ Creating output files
 
 Output for visualisation purposes is managed with a
 :class:`~.vtk_output.VTKFile` object. To create one, first import the
-class from `firedrake.output, then we just need to pass the name of the
+class from :py:mod:`firedrake.output`, then we just need to pass the name of the
 output file on disk. The file Firedrake creates is in PVD and
 therefore the requested file name must end in ``.pvd``.
 
-.. code-block:: python3
+.. code-block:: python
 
    outfile = VTKFile("output.pvd")
    # The following raises an error
@@ -30,7 +30,7 @@ therefore the requested file name must end in ``.pvd``.
 To save functions to the :class:`~.vtk_output.VTKFile` we use the
 :meth:`~.vtk_output.VTKFile.write` method.
 
-.. code-block:: python3
+.. code-block:: python
 
    mesh = UnitSquareMesh(1, 1)
    V = FunctionSpace(mesh, "DG", 0)
@@ -56,7 +56,7 @@ same function at multiple timesteps.  This is straightforward, we must
 create the output :class:`~.vtk_output.VTKFile` outside the time loop
 and call :meth:`~.vtk_output.VTKFile.write` inside.
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    outfile = VTKFile("timesteps.pvd")
@@ -74,7 +74,7 @@ used that is incremented by 1 each time
 :meth:`~.vtk_output.VTKFile.write` is called.  It is possible to
 override this by passing the keyword argument ``time``.
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    outfile = VTKFile("timesteps.pvd")
@@ -106,7 +106,7 @@ use interpolation.  For example, assume we wish to output a
 vector-valued function that lives in an :math:`H(\operatorname{div})`
 space. If we want it to be interpolated in the output file we can use
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, "RT", 2)
    f = Function(V)
@@ -116,7 +116,7 @@ space. If we want it to be interpolated in the output file we can use
 
 If instead we want projection, we use
 
-.. code-block:: python3
+.. code-block:: python
 
    projected = VTKFile("proj_output.pvd", project_output=True)
    projected.write(f)
@@ -131,7 +131,7 @@ If instead we want projection, we use
    to manage this issue. For instance, we can force the output to be
    discontinuous piecewise linears via
 
-   .. code-block:: python3
+   .. code-block:: python
 
       projected = VTKFile("proj_output.pvd", target_degree=1, target_continuity=H1)
       projected.write(f)
@@ -181,7 +181,7 @@ data can also be saved for future reference.
    the View menu). For instance, Field Error can be more clearly
    specified via an argument to the Tessellate_ filter constructor.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       from paraview.simple import *
       pvd = PVDReader(FileName="Example.pvd")
@@ -199,7 +199,7 @@ the same output file.  The latter may be more convenient for
 subsequent analysis.  To do this, we just need to pass multiple
 :class:`~.Function`\s to :meth:`~.vtk_output.VTKFile.write`.
 
-.. code-block:: python3
+.. code-block:: python
 
    u = Function(V, name="Velocity")
    p = Function(P, name="Pressure")
@@ -219,7 +219,7 @@ subsequent analysis.  To do this, we just need to pass multiple
    functions, and the functions must have the *same* names.  The
    following example results in an error.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       u = Function(V, name="Velocity")
       p = Function(P, name="Pressure")
@@ -269,7 +269,7 @@ would make a filled contour plot of the function ``u`` using the inferno
 colormap, with contours drawn at 0.0, 0.02, ..., 1.0, and add a colorbar to the
 figure.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       import matplotlib.pyplot as plt
       import numpy as np
@@ -301,7 +301,7 @@ the boundary should have Dirichlet or Neumann boundary conditions is a common
 source of errors in applications. To see a legend explaining the colors, you can
 add a legend like so:
 
-   .. code-block:: python3
+   .. code-block:: python
 
       import matplotlib.pyplot as plt
       from firedrake import *
@@ -326,11 +326,77 @@ points per element could be specfied to when calling :func:`plot
 To install matplotlib_, please look at the installation instructions of
 matplotlib.
 
+Visualising a vertex-only mesh
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Plotting vertex-only mesh data with matplotlib
+++++++++++++++++++++++++++++++++++++++++++++++
+
+Firedrake supports the visualisation of point data, represented as a :func:`~.VertexOnlyMesh`, in much the same way as its other plotting routines.
+In particular, :func:`scatter <firedrake.pyplot.scatter>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
+Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjuction with :func:`triplot <firedrake.pyplot.triplot>`
+which makes apparent the embedding of the vertex-only mesh inside its parent mesh. As the below code demonstrates, :func:`scatter <firedrake.pyplot.scatter>` gives the user the freedom to pass 
+either a :func:`~.VertexOnlyMesh` object or a scalar :class:`~.Function` defined on it, in which case, the values of the function will be used to colour the points. 
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_2d_manual_examples 1]
+   :end-before: [test_vom_plotting_2d_manual_examples 2]
+
+
+The visualisation works equally well in 3D. It is advisable, however, to reduce the opacity of the mesh's interior facets
+to ensure the points remain visible.
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_3d_manual_examples 1]
+   :end-before: [test_vom_plotting_3d_manual_examples 2]
+
+As :func:`scatter <firedrake.pyplot.scatter>` is exposed as a standalone plotting method, it is possible to combine it with any other plots in one single figure. 
+The example below demonstrates this by superimposing the scatter plot of point data onto a :func:`tripcolor <firedrake.pyplot.tripcolor>` plot of a field
+defined on the parent mesh.
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_2d_manual_examples 3]
+   :end-before: [test_vom_plotting_2d_manual_examples 4]
+
+Last but not least, vector fields defined on a vertex-only mesh can be visualised using
+:func:`quiver <firedrake.pyplot.quiver>` which will show both the magnitude and direction of the vectors at each point.
+
+.. literalinclude:: ../../tests/firedrake/output/test_vom_plotting_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_vom_plotting_2d_manual_examples 5]
+   :end-before: [test_vom_plotting_2d_manual_examples 6]
+
+Writing vertex-only mesh data to VTK
+++++++++++++++++++++++++++++++++++++
+
+Vertex-only mesh data can be written to VTK output enabling point data visualisations in third-party software such as ParaView. A :class:`~.vtk_output.VTKFile` accepts :class:`~.Function`\s
+defined on a :func:`~.VertexOnlyMesh` in the same way as functions defined on ordinary meshes. The output includes the point coordinates, the values of any supplied function(s), 
+and a persistent particle ID field. In ParaView, for instance, this ID field can be used to colour particles by identity.
+
+.. literalinclude:: ../../tests/firedrake/output/test_pvd_output.py
+   :language: python3
+   :dedent:
+   :start-after: [test_can_save_vom_data 1]
+   :end-before: [test_can_save_vom_data 2]
+
+.. figure:: images/vom-paraview.png
+   :alt: Vertex-only mesh particle IDs visualised in ParaView
+   :align: center
+
+   Vertex-only mesh data visualised in ParaView, with particles coloured by their IDs.
+
 
 .. _Paraview: http://www.paraview.org
 .. _VTK: http://www.vtk.org
 .. _matplotlib: http://matplotlib.org
 .. _Arbitrary: https://www.kitware.com/modeling-arbitrary-order-lagrange-finite-elements-in-the-visualization-toolkit/
 __ Arbitrary_
-.. _Tessellate: https://www.paraview.org/paraview-docs/nightly/python/paraview.simple.Tessellate.html
+.. _Tessellate: https://www.paraview.org/paraview-docs/nightly/python/paraview.simple.__init__.Tessellate.html
 .. _Tessellation: https://ieeexplore.ieee.org/document/1634311/

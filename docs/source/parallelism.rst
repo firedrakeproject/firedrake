@@ -13,7 +13,7 @@ the MPI job launcher available on your system.  Often this program is
 called ``mpiexec``.  For example, to run a simulation in a file named
 ``simulation.py`` on 16 processes we might use.
 
-.. code-block:: shell
+.. code-block:: console
 
    mpiexec -n 16 python simulation.py
 
@@ -69,7 +69,7 @@ the supplied communicator, rather than ``MPI_COMM_WORLD``.  For
 example, to split the global communicator into two and perform two
 different simulations on the two halves we would write.
 
-.. code-block:: python3
+.. code-block:: python
 
    from firedrake import *
 
@@ -95,10 +95,6 @@ different simulations on the two halves we would write.
 
 To access the communicator a mesh was created on, we can use the
 ``mesh.comm`` property, or the function ``mesh.mpi_comm``.
-
-.. warning::
-  Do not use the internal ``mesh._comm`` attribute for communication.
-  This communicator is for internal Firedrake MPI communication only.
 
 .. _MPI: http://mpi-forum.org/
 .. _STREAMS: http://www.cs.virginia.edu/stream/

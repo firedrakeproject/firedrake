@@ -25,13 +25,13 @@ def meshdata(request):
 
 @pytest.mark.parametrize(('point', 'value'),
                          [((0.2, 0.1), 1),
-                          ((0.5, 0.2), 2),
+                          ((0.4, 0.2), 2),
                           ((0.7, 0.1), 3),
                           ((0.2, 0.4), 4),
                           ((0.4, 0.4), 5),
-                          ((0.8, 0.5), 6),
+                          ((0.8, 0.6), 6),
                           ((0.1, 0.7), 7),
-                          ((0.5, 0.9), 8),
+                          ((0.6, 0.9), 8),
                           ((0.9, 0.8), 9)])
 def test_locate_cell(meshdata, point, value):
     m, f = meshdata

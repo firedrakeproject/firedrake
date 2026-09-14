@@ -58,17 +58,21 @@ Ed Bueler
 
 Henrik Buesing
 
+Anastasia Chanbour
+
 Justin Chang
 
 Cyrus Cheng
 
 Teodoro Fields Collin
 
+Leo Collins
+
 Colin J. Cotter...............<https://www.imperial.ac.uk/people/colin.cotter>
 
 Joshua Coutinho
 
-Daiane I. Dolci...............<https://www.imperial.ac.uk/people/d.dolci>
+Daiane I. Dolci
 
 Patrick E. Farrell............<https://pefarrell.org>
 
@@ -104,9 +108,9 @@ Robert C. Kirby...............<https://www.baylor.edu/math/index.php?id=90540>
 
 Stephan C. Kramer.............<https://www.imperial.ac.uk/people/s.kramer>
 
-Tuomas Kärnä..................<https://www.tuomaskarna.com>
+Tuomas Kärnä
 
-Michael Lange.................<https://www.linkedin.com/in/michael-lange-56675994/>
+Michael Lange
 
 Nicolas Loriant
 
@@ -128,7 +132,7 @@ Lawrence Mitchell.............<https://www.wence.uk/>
 
 Eike H. Mueller
 
-Reuben W. Nixon-Hill..........<https://www.imperial.ac.uk/people/reuben.nixon-hill10>
+Reuben W. Nixon-Hill
 
 Alberto Paganini..............<https://le.ac.uk/people/alberto-paganini>
 
@@ -144,7 +148,7 @@ Thomas Roy
 
 Francis P. Russell
 
-Koki Sagiyama.................<https://www.imperial.ac.uk/people/k.sagiyama>
+Koki Sagiyama
 
 Tomasz J. Salwa
 
@@ -158,11 +162,11 @@ Daniel R. Shapero.............<https://psc.apl.uw.edu/people/investigators/danie
 
 Jemma Shipton
 
-Tianjiao Sun..................<https://www.doc.ic.ac.uk/~ts2914/>
+Tianjiao Sun
 
-Sophia Vorderwuelbecke........<https://www.imperial.ac.uk/people/s.vorderwuelbecke18>
+Sophia Vorderwuelbecke
 
-Joseph G. Wallwork............<https://www.imperial.ac.uk/people/j.wallwork16>
+Joseph G. Wallwork
 
 Connor J. Ward................<https://www.imperial.ac.uk/people/c.ward20>
 

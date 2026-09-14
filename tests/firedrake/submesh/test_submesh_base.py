@@ -1,16 +1,17 @@
 import pytest
+import numpy as np
 from firedrake import *
 
 
 def _get_expr(m):
-    if m.geometric_dimension() == 1:
+    if m.geometric_dimension == 1:
         x, = SpatialCoordinate(m)
         y = x * x
         z = x + y
-    elif m.geometric_dimension() == 2:
+    elif m.geometric_dimension == 2:
         x, y = SpatialCoordinate(m)
         z = x + y
-    elif m.geometric_dimension() == 3:
+    elif m.geometric_dimension == 3:
         x, y, z = SpatialCoordinate(m)
     else:
         raise NotImplementedError("Not implemented")
@@ -239,7 +240,7 @@ def test_submesh_base_entity_maps():
         assert (mesh.interior_facets.facets == np.array([11])).all
         assert (mesh.exterior_facets.facets == np.array([8, 9, 10, 12, 13, 14])).all
         assert (submesh.interior_facets.facets == np.array([])).all
-        assert (submesh.exterior_facets.facets == np.array([5, 6, 8, 7])).all()
+        assert (submesh.exterior_facets.facets == np.array([5, 8, 6, 7])).all()
     else:
         assert subdm.getLabel("pyop2_core").getStratumSize(1) == 0
         assert subdm.getLabel("pyop2_owned").getStratumSize(1) == 0
@@ -248,8 +249,8 @@ def test_submesh_base_entity_maps():
         assert (mesh.interior_facets.facets == np.array([8])).all
         assert (mesh.exterior_facets.facets == np.array([9, 10, 11, 12, 13, 14])).all
         assert (submesh.interior_facets.facets == np.array([])).all
-        assert (submesh.exterior_facets.facets == np.array([6, 7, 5, 8])).all()
-    composed_map, integral_type = mesh.topology.trans_mesh_entity_map(submesh.topology, "cell", None, None)
+        assert (submesh.exterior_facets.facets == np.array([6, 5, 7, 8])).all()
+    composed_map, integral_type = mesh.topology.trans_mesh_entity_map(submesh.topology, "cell", "everywhere", None)
     assert integral_type == "cell"
     if rank == 0:
         assert (composed_map.maps_[0].values_with_halo == np.array([0])).all()
@@ -258,18 +259,18 @@ def test_submesh_base_entity_maps():
     composed_map, integral_type = mesh.topology.trans_mesh_entity_map(submesh.topology, "exterior_facet", 5, None)
     assert integral_type == "interior_facet"
     if rank == 0:
-        assert (composed_map.maps_[0].values_with_halo == np.array([-1, -1, 0, -1]).reshape((-1, 1))).all()  # entire exterior-interior map
+        assert (composed_map.maps_[0].values_with_halo == np.array([-1, 0, -1, -1]).reshape((-1, 1))).all()  # entire exterior-interior map
     else:
-        assert (composed_map.maps_[0].values_with_halo == np.array([-1, -1, 0, -1]).reshape((-1, 1))).all()  # entire exterior-interior map
+        assert (composed_map.maps_[0].values_with_halo == np.array([-1, 0, -1, -1]).reshape((-1, 1))).all()  # entire exterior-interior map
     composed_map, integral_type = mesh.topology.trans_mesh_entity_map(submesh.topology, "exterior_facet", 4, None)
     assert integral_type == "exterior_facet"
     if rank == 0:
-        assert (composed_map.maps_[0].values_with_halo == np.array([0, 1, -1, 2]).reshape((-1, 1))).all()  # entire exterior-exterior map
+        assert (composed_map.maps_[0].values_with_halo == np.array([0, -1, 1, 2]).reshape((-1, 1))).all()  # entire exterior-exterior map
     else:
-        assert (composed_map.maps_[0].values_with_halo == np.array([3, 4, -1, 5]).reshape((-1, 1))).all()  # entire exterior-exterior map
+        assert (composed_map.maps_[0].values_with_halo == np.array([3, -1, 4, 5]).reshape((-1, 1))).all()  # entire exterior-exterior map
     composed_map, integral_type = submesh.topology.trans_mesh_entity_map(mesh.topology, "exterior_facet", 1, None)
     assert integral_type == "exterior_facet"
     if rank == 0:
-        assert (composed_map.maps_[0].values_with_halo == np.array([0, 1, 3, -1, -1, -1]).reshape((-1, 1))).all()
+        assert (composed_map.maps_[0].values_with_halo == np.array([0, 2, 3, -1, -1, -1]).reshape((-1, 1))).all()
     else:
-        assert (composed_map.maps_[0].values_with_halo == np.array([-1, -1, -1, 0, 1, 3]).reshape((-1, 1))).all()
+        assert (composed_map.maps_[0].values_with_halo == np.array([-1, -1, -1, 0, 2, 3]).reshape((-1, 1))).all()

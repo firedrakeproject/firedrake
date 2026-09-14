@@ -10,14 +10,14 @@ cwd = abspath(dirname(__file__))
 
 def _get_expr(V):
     m = V.ufl_domain()
-    if m.geometric_dimension() == 1:
+    if m.geometric_dimension == 1:
         x, = SpatialCoordinate(m)
         y = x * x
         z = x + y
-    elif m.geometric_dimension() == 2:
+    elif m.geometric_dimension == 2:
         x, y = SpatialCoordinate(m)
         z = x + y
-    elif m.geometric_dimension() == 3:
+    elif m.geometric_dimension == 3:
         x, y, z = SpatialCoordinate(m)
     else:
         raise NotImplementedError("Not implemented")
@@ -28,7 +28,7 @@ def _get_expr(V):
 
 
 def make_submesh(mesh, subdomain_cond, label_value):
-    dim = mesh.topological_dimension()
+    dim = mesh.topological_dimension
     DG0 = FunctionSpace(mesh, "DG", 0)
     indicator_function = Function(DG0).interpolate(subdomain_cond)
     mesh.mark_entities(indicator_function, label_value)
@@ -51,7 +51,7 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
     f = Function(V_).interpolate(f)
     v0 = Coargument(V.dual(), 0)
     v1 = TrialFunction(Vsub)
-    interp = Interpolate(v1, v0, allow_missing_dofs=True)
+    interp = interpolate(v1, v0, allow_missing_dofs=True)
     A = assemble(interp)
     g = assemble(action(A, gsub))
     assert assemble(inner(g - f, g - f) * dx(label_value)).real < 1e-14
@@ -145,7 +145,7 @@ def test_submesh_interpolate_subcell_subcell_2_processes():
     mesh = RectangleMesh(
         3, 1, 3., 1., quadrilateral=True, distribution_parameters={"partitioner_type": "simple"},
     )
-    dim = mesh.topological_dimension()
+    dim = mesh.topological_dimension
     x, _ = SpatialCoordinate(mesh)
     DG0 = FunctionSpace(mesh, "DG", 0)
     f_l = Function(DG0).interpolate(conditional(x < 2.0, 1, 0))
@@ -165,7 +165,7 @@ def test_submesh_interpolate_subcell_subcell_2_processes():
     f_l.dat.data_with_halos[:] = 3.0
     v0 = Coargument(V_r.dual(), 0)
     v1 = TrialFunction(V_l)
-    interp = Interpolate(v1, v0, allow_missing_dofs=True)
+    interp = interpolate(v1, v0, allow_missing_dofs=True)
     A = assemble(interp)
     f_r = assemble(action(A, f_l))
     g_r = Function(V_r).interpolate(conditional(x < 2.001, 3.0, 0.0))
@@ -210,7 +210,7 @@ def test_submesh_interpolate_3Dcell_2Dfacet(hexahedral, direction, facet_type):
     )
     facet_value = 999
     mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
-    subm = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    subm = Submesh(mesh, mesh.topological_dimension - 1, facet_value)
     DG3d = FunctionSpace(mesh, "DG", degree)
     dg3d = Function(DG3d).interpolate(expr(mesh))
     DG2d = FunctionSpace(subm, "DG", degree)
@@ -258,7 +258,7 @@ def test_submesh_interpolate_3Dcell_2Dfacet_simplex_sckelton():
     facet_function = Function(V).interpolate(Constant(1.))
     facet_value = 999
     mesh = RelabeledMesh(mesh, [facet_function], [facet_value])
-    subm = Submesh(mesh, mesh.topological_dimension() - 1, facet_value)
+    subm = Submesh(mesh, mesh.topological_dimension - 1, facet_value)
     HDivT3d = FunctionSpace(mesh, "HDiv Trace", degree)
     hdivt3d = Function(HDivT3d).interpolate(expr(mesh))
     DG2d = FunctionSpace(subm, "DG", degree)
@@ -346,3 +346,51 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     # Test 0-form
     result_0 = assemble(interpolate(u1, ustar2, allow_missing_dofs=True))
     assert np.isclose(result_0, expected)
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_8_processes():
+    # Regression test: ranks with zero Submesh cells crashed with IndexError
+    # in _pic_swarm_in_mesh (-1 sentinels invalid on empty-rank cell_closure).
+    mesh = UnitCubeMesh(2, 2, 2)
+    x, y, z = SpatialCoordinate(mesh)
+    V_marker = FunctionSpace(mesh, "HDiv Trace", 0)
+    facet_indicator = Function(V_marker).interpolate(
+        conditional(x > 0.999, 1.0, 0.0)
+    )
+    facet_value = 999
+    mesh = RelabeledMesh(mesh, [facet_indicator], [facet_value])
+    subm = Submesh(mesh, mesh.topological_dimension - 1, facet_value)
+    subm.tolerance = 0.1
+    x, y, z = SpatialCoordinate(mesh)
+    xs, ys, zs = SpatialCoordinate(subm)
+    V_sub = FunctionSpace(subm, "CG", 1)
+    V_parent = FunctionSpace(mesh, "CG", 1)
+    f_sub = Function(V_sub).interpolate(ys + zs)
+    f_parent = Function(V_parent)
+    f_parent.interpolate(f_sub, allow_missing_dofs=True)
+    expected = Function(V_parent).interpolate(
+        conditional(x > 0.999, y + z, 0.0)
+    )
+    assert np.allclose(
+        f_parent.dat.data_with_halos, expected.dat.data_with_halos
+    )
+
+
+@pytest.mark.parallel(nprocs=8)
+def test_submesh_interpolate_3Dcell_extruded_empty_rank_8_processes():
+    # Regression test for the same IndexError in the extruded branch of
+    # _pic_swarm_in_mesh: ExtrudedMesh(UnitSquareMesh(1,1), layers=3) has 6
+    # cells, so with nprocs=8 at least two ranks own zero extruded cells.
+    base = UnitSquareMesh(1, 1)
+    ext = ExtrudedMesh(base, layers=3)
+    xe, ye, ze = SpatialCoordinate(ext)
+    V_ext = FunctionSpace(ext, "CG", 1)
+    f_ext = Function(V_ext).interpolate(xe + ye + ze)
+    mesh = UnitCubeMesh(2, 2, 2)
+    xt, yt, zt = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    f.interpolate(f_ext, allow_missing_dofs=True)
+    expected = Function(V).interpolate(xt + yt + zt)
+    assert np.allclose(f.dat.data_with_halos, expected.dat.data_with_halos)

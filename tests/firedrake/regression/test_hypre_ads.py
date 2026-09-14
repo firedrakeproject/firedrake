@@ -2,89 +2,58 @@ import pytest
 from firedrake import *
 
 
+@pytest.fixture(params=["simplex", "hexahedron"])
+def V(request):
+    cell = request.param
+    if cell == "simplex":
+        mesh = UnitCubeMesh(10, 10, 10)
+        V = FunctionSpace(mesh, "RT", 1)
+    elif cell == "hexahedron":
+        mesh = ExtrudedMesh(UnitSquareMesh(10, 10, quadrilateral=True), 10)
+        V = FunctionSpace(mesh, "NCF", 1)
+    else:
+        raise ValueError(f"Unrecognized cell {cell}.")
+    return V
+
+
 @pytest.mark.skiphypre
 @pytest.mark.skipcomplex
-def test_homogeneous_field_linear():
-    mesh = UnitCubeMesh(10, 10, 10)
-    V = FunctionSpace(mesh, "RT", 1)
-
+@pytest.mark.parametrize("mat_type,interface", [("aij", "linear"), ("matfree", "linear"), ("aij", "nonlinear")])
+def test_homogeneous_field(V, mat_type, interface):
     u = TrialFunction(V)
     v = TestFunction(V)
 
+    u_exact = Constant((1, 0.5, 4))
     a = inner(div(u), div(v))*dx + inner(u, v)*dx
-    L = inner(Constant((1, 0.5, 4)), v)*dx
+    L = inner(u_exact, v)*dx
 
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
+    bc = DirichletBC(V, u_exact, (1, 2, 3, 4))
 
-    params = {'snes_type': 'ksponly',
-              'ksp_type': 'cg',
-              'ksp_max_it': '30',
-              'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.HypreADS',
-              }
-
-    u = Function(V)
-    solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
-
-
-@pytest.mark.skiphypre
-@pytest.mark.skipcomplex
-def test_homogeneous_field_matfree():
-    mesh = UnitCubeMesh(10, 10, 10)
-    V = FunctionSpace(mesh, "RT", 1)
-
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
-    a = inner(div(u), div(v))*dx + inner(u, v)*dx
-    L = inner(Constant((1, 0.5, 4)), v)*dx
-
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
-
-    params = {'snes_type': 'ksponly',
-              'mat_type': 'matfree',
-              'ksp_type': 'cg',
-              'ksp_max_it': '30',
-              'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.AssembledPC',
-              'assembled_pc_type': 'python',
-              'assembled_pc_python_type': 'firedrake.HypreADS',
-              }
+    params = {
+        'snes_type': 'ksponly',
+        'mat_type': mat_type,
+        'pmat_type': 'aij',
+        'ksp_type': 'cg',
+        'ksp_max_it': '20',
+        'ksp_rtol': '2e-15',
+        'ksp_view_singularvalues': None,
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.HypreADS',
+        # Pin the cycle: the hypre default varies between builds, and the one
+        # selected here takes 21 iterations, which the cap above rejects.
+        'hypre_ads_pc_hypre_ads_cycle_type': 1,
+    }
 
     u = Function(V)
-    solve(a == L, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+    problem = LinearVariationalProblem(a, L, u, bcs=bc)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+    assert (errornorm(u_exact, u, 'L2') < 1e-10)
 
-
-@pytest.mark.skiphypre
-@pytest.mark.skipcomplex
-def test_homogeneous_field_nonlinear():
-    mesh = UnitCubeMesh(10, 10, 10)
-    V = FunctionSpace(mesh, "RT", 1)
-
-    u = Function(V)
-    v = TestFunction(V)
-
-    F = inner(div(u), div(v))*dx + inner(u, v)*dx - inner(Constant((1, 0.5, 4)), v)*dx
-
-    bc = DirichletBC(V, Constant((1, 0.5, 4)), (1, 2, 3, 4))
-
-    params = {'snes_type': 'ksponly',
-              'ksp_type': 'cg',
-              'ksp_itmax': '30',
-              'ksp_rtol': '1e-15',
-              'ksp_atol': '1e-15',
-              'pc_type': 'python',
-              'pc_python_type': 'firedrake.HypreADS',
-              }
-
-    solve(F == 0, u, bc, solver_parameters=params)
-    assert (errornorm(Constant((1, 0.5, 4)), u, 'L2') < 1e-10)
+    # ADS leaves the operator nearly perfectly conditioned: 1.67 on the
+    # simplex and 1.11 on the hexahedron, against 1.2e4 and 4.1e3 without it.
+    ew = solver.snes.ksp.computeEigenvalues().real
+    assert max(abs(ew)) / min(abs(ew)) < 2
 
 
 @pytest.mark.skiphypre
@@ -120,3 +89,45 @@ def test_homogeneous_field_linear_convergence():
         solver = LinearVariationalSolver(problem, solver_parameters=params)
         solver.solve()
         assert solver.snes.ksp.getIterationNumber() == expected
+
+
+@pytest.mark.skiphypre
+@pytest.mark.skipcomplex
+def test_hypre_ads_fieldsplit():
+    mesh = UnitCubeMesh(6, 6, 6)
+    V = FunctionSpace(mesh, "RT", 1)
+    W = V * V
+    sigma = as_vector(TrialFunctions(W))
+    tau = as_vector(TestFunctions(W))
+
+    a = inner(sigma, tau) * dx + inner(div(sigma), div(tau)) * dx
+    rg = RandomGenerator(PCG64(seed=0))
+    L = rg.uniform(W.dual())
+    sol = Function(W)
+
+    # Configure fieldsplit with Hypre ADS for each block
+    params = {
+        "mat_type": "nest",
+        "ksp_type": "cg",
+        "ksp_rtol": 1e-8,
+        "ksp_view_singularvalues": None,
+        "pc_type": "fieldsplit",
+        "pc_fieldsplit_type": "additive",
+        "fieldsplit_ksp_type": "preonly",
+        "fieldsplit_pc_type": "python",
+        "fieldsplit_pc_python_type": "firedrake.HypreADS",
+        # Pin the ADS cycle.  Left to the hypre default, the cycle chosen
+        # varies between builds, and the one selected here leaves the
+        # condition number at 1.8 -- close enough to the bound below that
+        # rounding decides whether the test passes.
+        "fieldsplit_hypre_ads_pc_hypre_ads_cycle_type": 1,
+    }
+    prob = LinearVariationalProblem(a, L, sol)
+    solver = LinearVariationalSolver(prob, solver_parameters=params)
+    solver.solve()
+
+    # Check the condition number
+    ew = solver.snes.ksp.computeEigenvalues().real
+    condition_number = max(abs(ew)) / min(abs(ew))
+    # 1.22 with this cycle, against 4.8e3 unpreconditioned.
+    assert condition_number < 2

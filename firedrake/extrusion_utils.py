@@ -65,7 +65,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         layer_height = numpy.cumsum(numpy.concatenate(([0], layer_height)))
 
     layer_heights = layer_height.size
-    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology._comm)
+    layer_height = op2.Global(layer_heights, layer_height, dtype=RealType, comm=extruded_topology.comm)
 
     if kernel is not None:
         op2.ParLoop(kernel,
@@ -145,7 +145,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
-        tdim = extract_unique_domain(base_coords).ufl_cell().topological_dimension()
+        tdim = extract_unique_domain(base_coords).ufl_cell().topological_dimension
         if tdim not in [1, 2]:
             raise NotImplementedError("Hedgehog extrusion not implemented for %s" % extract_unique_domain(base_coords).ufl_cell())
         # tdim == 1:

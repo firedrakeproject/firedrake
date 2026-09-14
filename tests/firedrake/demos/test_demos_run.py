@@ -18,14 +18,16 @@ CWD = abspath(dirname(__file__))
 DEMO_DIR = join(CWD, "..", "..", "..", "demos")
 
 SERIAL_DEMOS = [
+    Demo(("adaptive_multigrid", "adaptive_multigrid"), ["matplotlib", "netgen", "vtk"]),
     Demo(("benney_luke", "benney_luke"), ["vtk"]),
-    Demo(("boussinesq", "boussinesq"), []),
+    Demo(("boussinesq", "boussinesq"), ["netgen", "vtk"]),
     Demo(("burgers", "burgers"), ["vtk"]),
     Demo(("camassa-holm", "camassaholm"), ["vtk"]),
     Demo(("deflation", "deflation"), ["matplotlib"]),
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
     Demo(("eigenvalues_QG_basinmodes", "qgbasinmodes"), ["matplotlib", "slepc", "vtk"]),
     Demo(("extruded_continuity", "extruded_continuity"), []),
+    Demo(("extruded_shallow_water", "extruded_shallow_water"), []),
     Demo(("helmholtz", "helmholtz"), ["vtk"]),
     Demo(("higher_order_mass_lumping", "higher_order_mass_lumping"), ["vtk"]),
     Demo(("immersed_fem", "immersed_fem"), []),
@@ -36,12 +38,13 @@ SERIAL_DEMOS = [
     Demo(("matrix_free", "poisson"), []),
     Demo(("matrix_free", "rayleigh-benard"), ["hypre", "mumps", "vtk"]),
     Demo(("matrix_free", "stokes"), ["hypre", "mumps", "vtk"]),
-    Demo(("multicomponent", "multicomponent"), ["vtk, netgen"]),
+    Demo(("multicomponent", "multicomponent"), ["netgen", "vtk"]),
     Demo(("multigrid", "geometric_multigrid"), ["vtk"]),
     Demo(("netgen", "netgen_mesh"), ["mumps", "netgen", "slepc", "vtk"]),
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("poisson_adaptive_eigenvalue", "poisson_adaptive_eigenvalue"), ["netgen", "slepc", "vtk"]),
     Demo(("patch", "poisson_mg_patches"), []),
     Demo(("patch", "stokes_vanka_patches"), []),
     Demo(("patch", "hcurl_riesz_star"), []),
@@ -50,7 +53,10 @@ SERIAL_DEMOS = [
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
     Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
     Demo(('vlasov_poisson_1d', 'vp1d'), []),
-    Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"])
+    Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"]),
+    Demo(('submesh_reaction_diffusion', 'submesh_reaction_diffusion'), ["netgen", "vtk"]),
+    Demo(('nonlinear_pc', 'nonlinear_pc_allen_cahn'), []),
+    Demo(('reynolds_robust_navier_stokes_hdiv', 'reynolds_robust_navier_stokes_hdiv'), ["vtk"]),
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
@@ -114,7 +120,7 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
     name = splitext(basename(rst_file))[0]
     py_file = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call(["pylit", rst_file, py_file])
+    subprocess.check_call(["pylit", "--code-block-marker", ".. code-block:: python", rst_file, py_file])
     return Path(py_file)
 
 
