@@ -864,9 +864,6 @@ def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: 
     domain = extract_unique_domain(operand) or dual_arg.ufl_function_space().ufl_domain()
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
     kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
-    # The summands of a direct sum evaluate on points of their own, so the
-    # interpolation points stay free here.  The contraction below happens
-    # once the sum is split, against the points that each summand really has.
     vec = gem.Sum(*(
         gem.ComponentTensor(evaluation, basis_indices)
         for evaluation, _, basis_indices
