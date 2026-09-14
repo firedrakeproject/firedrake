@@ -39,8 +39,6 @@ from xdsl.dialects.builtin import (
 
 from pyop3.dtypes import IntType, RealType, ScalarType
 
-# NOTE: Can I just set an IndexType object here and reuse this? 
-# Bad design from xDSL. Who makes a type an object?   
 iType = IndexType()
 
 NUMPY_TO_XDSL = {
@@ -151,12 +149,13 @@ class MLIRCodegenContext(CodegenContext):
         )
 
         self._entry_block = Block()
-        self._builder = Builder(InsertPoint.at_end(self._entry_block))
 
-        # Insertion-point stack (restored when leaving nesting regions).
-        self.insertion_stack: List[InsertPoint] = []
+        # Builder stack - Builder object acts as bridge to generate code for a given reg/block/op
+        self._builder_stack: List[Builder] = [
+            Builder(InsertPoint.at_end(self._entry_block))
+        ] 
 
-        # Symbol table (buffers in outer scope, inames/loop-idx in inner).
+        # Symbol table (buffers in outer scope, inames/loop-idx in inner)
         self.symbol_table = SymbolTable()
 
         # buffer identity -> block-arg SSAValue
@@ -169,9 +168,13 @@ class MLIRCodegenContext(CodegenContext):
         # symbol_table; this records which names are temporaries.
         self._temporaries: set = set()
 
+    @property
+    def builder(self) -> Builder:
+        return self._builder_stack[-1]
+
     def insert(self, op: Operation) -> Operation:
         """ Inserts an MLIR operation into the block, returning SSA result """
-        self._builder.insert(op)
+        self.builder.insert(op)
         results = op.results 
         return results[0] if results else None 
 
@@ -434,7 +437,8 @@ class MLIRCodegenContext(CodegenContext):
         Contrary to loopy, this builds (scf) loops eagerly.
 
         This lines up with the structural IR generation. Loopy is lazy as it uses polyhedral
-        Likely that optimisations can be made here.
+        
+        Investigation of refactoring or improving loop would be worthwhile.
         """
         new_inames = sorted(set(inames) - self._within_inames)
         orig_within_inames = self._within_inames
@@ -442,6 +446,7 @@ class MLIRCodegenContext(CodegenContext):
         try:
             for iname in new_inames:
                 start, stop = self._domains[iname]
+                # Getting SSA values for the temp variables/ints
                 lb = self._resolve_bound(start)
                 ub = self._resolve_bound(stop)
                 step = self._const_index(1)
@@ -451,19 +456,18 @@ class MLIRCodegenContext(CodegenContext):
                 self.insert(for_op)
                 for_ops.append(for_op)
 
-                # Descend into the loop body.
+                # Add symbol table and builder for operation
                 body = for_op.body.block
                 self.symbol_table.push()
                 self.symbol_table.define(iname, body.args[0])
-                self.insertion_stack.append(self._builder.insertion_point)
-                self._builder = Builder(InsertPoint.at_end(body))
+                self._builder_stack.append(Builder(InsertPoint.at_end(body)))
             yield
         finally:
             self._within_inames = orig_within_inames
             for for_op in zip(reversed(for_ops)):
                 # scf.for bodies need a yield terminator.
                 self.insert(scf.YieldOp())
-                self._builder = Builder(self.insertion_stack.pop())
+                self._builder_stack.pop()
                 self.symbol_table.pop()
 
     @functools.singledispatchmethod
