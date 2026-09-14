@@ -105,7 +105,7 @@ class Tensor(TerminalExpression, abc.ABC):
 
     def __itruediv__(self, other: ExpressionT, /) -> Self:
         if other != 1:
-            self.assign(self//other, eager=True)
+            self.assign(self/other, eager=True)
         return self
 
     # }}}

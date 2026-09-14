@@ -23,6 +23,9 @@ def _init_likwid():
 _init_likwid()
 del _init_likwid
 
+# module imports, not in __all__ but we still want them exposed
+import pyop3.compile
+
 
 from pyop3.axis_tree import (
     Axis,
