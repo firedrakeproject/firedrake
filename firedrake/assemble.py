@@ -13,7 +13,7 @@ import numpy
 from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from finat.element_factory import create_element
-from tsfc.ufl_utils import extract_firedrake_constants, RUNTIME_VARIABLE_PREFIX
+from tsfc.ufl_utils import extract_firedrake_constants, RUNTIME_POINT_VARIABLE
 import ufl
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, parameters, solving,
@@ -26,7 +26,7 @@ from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.interpolation import get_interp_node_map, get_interpolator, SameMeshInterpolator
+from firedrake.interpolation import get_assembly_entity_node_map, get_interpolator, SameMeshInterpolator
 from tsfc.driver import is_same_dim_submesh
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
@@ -154,8 +154,9 @@ def assemble(expr, *args, **kwargs):
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
-def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase, *args, **kwargs) -> "ParloopFormAssembler":
-    """Construct the assembler for the rank of ``form``, forwarding the relevant options."""
+def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
+                       *args, **kwargs) -> "FormAssembler":
+    """Construct the assembler for the rank of ``form``, forwarding the options it takes."""
     diagonal = kwargs.pop("diagonal", False)
     nargs = len(form.arguments())
     if nargs == 0:
@@ -332,10 +333,11 @@ class AbstractFormAssembler(abc.ABC):
         """
 
 
-def _is_fusible(operator, valid_domains) -> bool:
+def _can_fuse_operator(operator: ufl.core.base_form_operator.BaseFormOperator,
+                       covering_domains: set) -> bool:
     """Can TSFC assemble ``operator`` in the kernel of the expression that holds it?
 
-    ``valid_domains`` are the domains that the enclosing integral's measure covers,
+    ``covering_domains`` are the domains that the enclosing integral's measure covers,
     or the domains that the enclosing interpolation targets.
     """
     if not isinstance(operator, ufl.Interpolate):
@@ -345,10 +347,10 @@ def _is_fusible(operator, valid_domains) -> bool:
     dual_arg, expression = operator.argument_slots()
     if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
         return False
-    if not all(any(domain is valid_domain
-                   or (isinstance(domain, MeshGeometry) and isinstance(valid_domain, MeshGeometry)
-                       and is_same_dim_submesh(domain, valid_domain))
-                   for valid_domain in valid_domains)
+    if not all(any(domain is covering_domain
+                   or (isinstance(domain, MeshGeometry) and isinstance(covering_domain, MeshGeometry)
+                       and is_same_dim_submesh(domain, covering_domain))
+                   for covering_domain in covering_domains)
                for domain in extract_domains(operator)):
         return False
     # The expression that holds the interpolation iterates over its own cells,
@@ -357,7 +359,7 @@ def _is_fusible(operator, valid_domains) -> bool:
     interpolator = get_interpolator(operator)
     if not isinstance(interpolator, SameMeshInterpolator) or interpolator.subset is not None:
         return False
-    return all(_is_fusible(op, valid_domains)
+    return all(_can_fuse_operator(op, covering_domains)
                for op in ufl.algorithms.extract_base_form_operators(expression))
 
 
@@ -495,19 +497,22 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Substitute the base form operators by their output
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
             form = expr
-            rank = len(form.arguments())
-            if rank == 0:
-                assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params)
-            elif rank == 1 or (rank == 2 and self._diagonal):
-                assembler = OneFormAssembler(form, form_compiler_parameters=self._form_compiler_params,
-                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
-            elif rank == 2:
-                assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=self._form_compiler_params,
-                                             mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
-                                             options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
-                                             allocation_integral_types=self.allocation_integral_types)
-            else:
-                raise AssertionError
+            # The bcs of a 1-form are applied to the assembled result instead,
+            # so only a matrix takes them here, and only a matrix allocates a
+            # sparsity to match the one that the result was allocated with.
+            is_matrix = len(form.arguments()) == 2 and not self._diagonal
+            assembler = get_form_assembler(
+                form,
+                bcs=bcs if is_matrix else (),
+                form_compiler_parameters=self._form_compiler_params,
+                mat_type=self._mat_type,
+                sub_mat_type=self._sub_mat_type,
+                options_prefix=self._options_prefix,
+                appctx=self._appctx,
+                diagonal=self._diagonal,
+                weight=self._weight,
+                allocation_integral_types=self.allocation_integral_types if is_matrix else None,
+            )
             return assembler.assemble(tensor=tensor)
         elif isinstance(expr, ufl.Adjoint):
             if len(args) != 1:
@@ -745,7 +750,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             for integral in expr.integrals():
                 domains = {integral.ufl_domain(), *integral.extra_domain_integral_type_map()}
                 children.update(op for op in ufl.algorithms.extract_base_form_operators(integral.integrand())
-                                if not _is_fusible(op, domains))
+                                if not _can_fuse_operator(op, domains))
             # Use reversed to treat base form operators
             # in the order in which they have been made.
             return [op for op in reversed(expr.base_form_operators()) if op in children]
@@ -754,7 +759,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             domains = set(extract_domains(expr.argument_slots()[0])) if isinstance(expr, ufl.Interpolate) else set()
             # Conserve order
             children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
-                                     if isinstance(e, ufl.form.BaseForm) and not _is_fusible(e, domains))
+                                     if isinstance(e, ufl.form.BaseForm) and not _can_fuse_operator(e, domains))
             return list(children)
         return []
 
@@ -1516,8 +1521,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     # Make Sparsity independent of the subdomain of integration for better reusability;
                     # subdomain_id is passed here only to determine the integration_type on the target domain
                     # (see ``entity_node_map``).
-                    rmap_ = _get_entity_node_map(mesh, test.function_space()[i], integral_type, subdomain_id, all_subdomain_ids)
-                    cmap_ = _get_entity_node_map(mesh, trial.function_space()[j], integral_type, subdomain_id, all_subdomain_ids)
+                    rmap_ = get_assembly_entity_node_map(test.function_space()[i], mesh, integral_type, subdomain_id, all_subdomain_ids)
+                    cmap_ = get_assembly_entity_node_map(trial.function_space()[j], mesh, integral_type, subdomain_id, all_subdomain_ids)
                     region = ExplicitMatrixAssembler._integral_type_region_map[integral_type]
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
             return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
@@ -1536,8 +1541,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             for i, Vrow in enumerate(test.function_space()):
                 for j, Vcol in enumerate(trial.function_space()):
                     mesh = Vrow.mesh()
-                    rmap_ = _get_entity_node_map(mesh, Vrow, integral_type, None, None)
-                    cmap_ = _get_entity_node_map(mesh, Vcol, integral_type, None, None)
+                    rmap_ = get_assembly_entity_node_map(Vrow, mesh, integral_type, None, None)
+                    cmap_ = get_assembly_entity_node_map(Vcol, mesh, integral_type, None, None)
                     maps_and_regions[(i, j)][(rmap_, cmap_)].add(region)
         return {block_indices: [map_pair + (tuple(region_set), ) for map_pair, region_set in map_pair_to_region_set.items()]
                 for block_indices, map_pair_to_region_set in maps_and_regions.items()}
@@ -1734,14 +1739,6 @@ def _make_global_kernel(*args, **kwargs):
     return _GlobalKernelBuilder(*args, **kwargs).build()
 
 
-def _get_entity_node_map(mesh, function_space, integral_type, subdomain_id, all_integer_subdomain_ids):
-    """Return the map from subdomain entities to function space nodes."""
-    if isinstance(mesh.topology, VertexOnlyMeshTopology):
-        return get_interp_node_map(function_space.mesh(), mesh, function_space)
-    else:
-        return function_space.topological.entity_node_map(mesh.topology, integral_type, subdomain_id, all_integer_subdomain_ids)
-
-
 class _GlobalKernelBuilder:
     """Class that builds a :class:`op2.GlobalKernel`.
 
@@ -1855,9 +1852,14 @@ class _GlobalKernelBuilder:
         else:
             return (1,)
 
+    def _get_map(self, V):
+        """Return the appropriate PyOP2 map for a given function space."""
+        return get_assembly_entity_node_map(V, self._mesh, self._integral_type,
+                                            self._subdomain_id, self._all_integer_subdomain_ids)
+
     def _make_dat_global_kernel_arg(self, V, index=None):
         finat_element = create_element(V.ufl_element())
-        map_arg = _get_entity_node_map(self._mesh, V, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg
+        map_arg = self._get_map(V)._global_kernel_arg
         if isinstance(finat_element, finat.EnrichedElement) and finat_element.is_mixed:
             assert index is None
             subargs = tuple(self._make_dat_global_kernel_arg(Vsub, index=index)
@@ -1875,7 +1877,7 @@ class _GlobalKernelBuilder:
             shape = len(relem.elements), len(celem.elements)
             return op2.MixedMatKernelArg(subargs, shape)
         else:
-            rmap_arg, cmap_arg = (_get_entity_node_map(self._mesh, V, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)._global_kernel_arg for V in [Vrow, Vcol])
+            rmap_arg, cmap_arg = (self._get_map(V)._global_kernel_arg for V in [Vrow, Vcol])
             # PyOP2 matrix objects have scalar dims so we flatten them here
             rdim = numpy.prod(self._get_dim(relem), dtype=int)
             cdim = numpy.prod(self._get_dim(celem), dtype=int)
@@ -1898,9 +1900,16 @@ class _GlobalKernelBuilder:
         return entity_dofs_key(finat_element.entity_dofs()), real_tensorproduct, eperm_key
 
 
-# FIXME: name-matching is a stopgap; get this from a coefficient map handed
-# down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
-_RUNTIME_TABULATION_ARG_NAME = RUNTIME_VARIABLE_PREFIX + "X"
+def _runtime_tabulation_coordinates(arg: kernel_args.TabulationKernelArg,
+                                    mesh: MeshGeometry) -> firedrake.Function:
+    """Return the reference coordinates that a kernel tabulates its runtime point at."""
+    # FIXME: name-matching is a stopgap; get this from a coefficient map handed
+    # down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
+    if arg.loopy_arg.name != RUNTIME_POINT_VARIABLE:
+        raise ValueError(f"Expecting the runtime tabulation argument {RUNTIME_POINT_VARIABLE}: got {arg.loopy_arg.name}")
+    if not isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise ValueError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(mesh.topology).__name__}")
+    return mesh.reference_coordinates
 
 
 @functools.singledispatch
@@ -1984,11 +1993,8 @@ def _as_global_kernel_arg_constant(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.TabulationKernelArg)
 def _as_global_kernel_arg_tabulation(arg, self):
-    if arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME:
-        raise ValueError(f"Expecting the runtime tabulation argument {_RUNTIME_TABULATION_ARG_NAME}: got {arg.loopy_arg.name}")
-    if not isinstance(self._mesh.topology, VertexOnlyMeshTopology):
-        raise ValueError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(self._mesh.topology).__name__}")
-    return self._make_dat_global_kernel_arg(self._mesh.reference_coordinates.function_space())
+    reference_coordinates = _runtime_tabulation_coordinates(arg, self._mesh)
+    return self._make_dat_global_kernel_arg(reference_coordinates.function_space())
 
 
 @_as_global_kernel_arg.register(kernel_args.ExteriorFacetKernelArg)
@@ -2255,7 +2261,8 @@ class ParloopBuilder:
     def _get_map(self, V):
         """Return the appropriate PyOP2 map for a given function space."""
         assert isinstance(V, (WithGeometry, FiredrakeDualSpace, FunctionSpace))
-        return _get_entity_node_map(self._mesh, V, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
+        return get_assembly_entity_node_map(V, self._mesh, self._integral_type,
+                                            self._subdomain_id, self._all_integer_subdomain_ids)
 
     def _as_parloop_arg(self, tsfc_arg):
         """Return a :class:`op2.ParloopArg` corresponding to the provided
@@ -2337,11 +2344,7 @@ def _as_parloop_arg_constant(arg, self):
 
 @_as_parloop_arg.register(kernel_args.TabulationKernelArg)
 def _as_parloop_arg_tabulation(arg, self):
-    if arg.loopy_arg.name != _RUNTIME_TABULATION_ARG_NAME:
-        raise ValueError(f"Expecting the runtime tabulation argument {_RUNTIME_TABULATION_ARG_NAME}: got {arg.loopy_arg.name}")
-    if not isinstance(self._mesh.topology, VertexOnlyMeshTopology):
-        raise ValueError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(self._mesh.topology).__name__}")
-    reference_coordinates = self._mesh.reference_coordinates
+    reference_coordinates = _runtime_tabulation_coordinates(arg, self._mesh)
     map_ = self._get_map(reference_coordinates.function_space())
     return op2.DatParloopArg(reference_coordinates.dat, map_)
 

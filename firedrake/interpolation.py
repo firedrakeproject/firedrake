@@ -711,11 +711,10 @@ class SameMeshInterpolator(Interpolator):
         else:
             spaces_and_weights = ((W, weight),)
 
-        source_mesh = self.source_mesh.unique()
         target_mesh = self.target_mesh.unique()
         iterset = target_mesh.cell_set if self.subset is None else self.subset
         for i, (V, component_weight) in enumerate(spaces_and_weights):
-            node_map = get_interp_node_map(source_mesh, target_mesh, V)
+            node_map = get_assembly_entity_node_map(V, target_mesh)
             size = V.finat_element.space_dimension() * V.block_size
             kernel_code = f"""
             void multiplicity_{i}(PetscScalar *restrict w) {{
@@ -967,38 +966,33 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         return {"aij", "baij", "matfree", None}
 
 
-def get_interp_node_map(source_mesh: MeshGeometry, target_mesh: MeshGeometry, fs: WithGeometry) -> op2.Map | None:
-    """Return the map between cells of the target mesh and nodes of the function space.
+def get_assembly_entity_node_map(fs: WithGeometry, target_mesh: MeshGeometry,
+                                 integral_type: str = "cell",
+                                 subdomain_id: str | int = "everywhere",
+                                 all_integer_subdomain_ids: dict | None = None) -> op2.Map | None:
+    """Return the map between entities of the target mesh and nodes of the function space.
 
-    If the function space is defined on the source mesh then the node map is composed
-    with a map between target and source cells.
+    If the function space is not defined on the target mesh then its node map is
+    composed with a map between target and source cells.
     """
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        coeff_mesh = fs.mesh()
+        source_mesh = fs.mesh()
         m_ = fs.cell_node_map()
-        if coeff_mesh is target_mesh or not coeff_mesh:
-            # NOTE: coeff_mesh is None is allowed e.g. when interpolating from
-            # a Real space
-            pass
-        elif coeff_mesh is source_mesh:
-            if m_:
-                # Since the par_loop is over the target mesh cells we need to
-                # compose a map that takes us from target mesh cells to the
-                # function space nodes on the source mesh.
-                if source_mesh.extruded:
-                    # ExtrudedSet cannot be a map target so we need to build
-                    # this ourselves
-                    m_ = vom_cell_parent_node_map_extruded(target_mesh, m_)
-                else:
-                    m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, m_)
+        # NOTE: source_mesh and m_ are None when interpolating from a Real
+        # space, in the trans-mesh case too.
+        if source_mesh is not target_mesh and source_mesh and m_:
+            # Since the par_loop is over the target mesh cells we need to
+            # compose a map that takes us from target mesh cells to the
+            # function space nodes on the source mesh.
+            if source_mesh.extruded:
+                # ExtrudedSet cannot be a map target so we need to build
+                # this ourselves
+                m_ = vom_cell_parent_node_map_extruded(target_mesh, m_)
             else:
-                # m_ is allowed to be None when interpolating from a Real space,
-                # even in the trans-mesh case.
-                pass
-        else:
-            raise ValueError("Have coefficient with unexpected mesh")
+                m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, m_)
     else:
-        m_ = fs.entity_node_map(target_mesh.topology, "cell", "everywhere", None)
+        m_ = fs.entity_node_map(target_mesh.topology, integral_type, subdomain_id,
+                                all_integer_subdomain_ids)
     return m_
 
 

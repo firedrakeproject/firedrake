@@ -630,3 +630,27 @@ def test_nested_submesh_interp_shares_kernel():
 
     expected = assemble(interpolate(assemble(interpolation), W, allow_missing_dofs=True))
     assert np.allclose(assemble(nested).dat.data, expected.dat.data)
+
+
+@pytest.mark.parametrize("target", ["same mesh", "submesh", "point cloud"])
+def test_tsfc_interp_accepts_related_domains(target):
+    """TSFC lowers an interpolation on the cells of its source mesh."""
+    from tsfc import compile_form
+
+    mesh = RectangleMesh(3, 1, 3., 1., quadrilateral=True)
+    x, y = SpatialCoordinate(mesh)
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    left = Function(DG0).interpolate(conditional(x < 2., 1, 0))
+    mesh = RelabeledMesh(mesh, [left], [111])
+
+    x, y = SpatialCoordinate(mesh)
+    f = Function(FunctionSpace(mesh, "CG", 2)).interpolate(x + y)
+    if target == "same mesh":
+        V = FunctionSpace(mesh, "CG", 1)
+    elif target == "submesh":
+        V = FunctionSpace(Submesh(mesh, mesh.topological_dimension, 111), "CG", 1)
+    else:
+        V = FunctionSpace(VertexOnlyMesh(mesh, [[0.5, 0.5], [2.5, 0.5]]), "DG", 0)
+
+    kernel, = compile_form(interpolate(f, V, allow_missing_dofs=True), prefix="interp")
+    assert kernel.name == "interp_cell_integral"

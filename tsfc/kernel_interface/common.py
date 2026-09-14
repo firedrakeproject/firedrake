@@ -199,32 +199,32 @@ class KernelBuilderMixin:
                       index_cache=ctx["index_cache"])
         evaluations = fem.dual_evaluate(operand, dual_arg, target_element, config)
         if not isinstance(dual_arg, Cofunction):
-            evaluation, quadrature_multiindex, basis_indices = evaluations[0]
+            evaluation, quadrature_indices, basis_indices = evaluations[0]
             # A dual Argument indexes the return value, so the dual basis must
             # tabulate onto the indices the output tensor was built with.
             output_indices = self.argument_multiindices[self.integral_data_info.arguments.index(dual_arg)]
             if tuple(i.extent for i in basis_indices) != tuple(i.extent for i in output_indices):
                 raise ValueError("Interpolation output index shape mismatch")
             evaluation, = gem.optimise.remove_componenttensors([evaluation], tuple(zip(basis_indices, output_indices)))
-            evaluations = [(evaluation, quadrature_multiindex, output_indices)]
+            evaluations = [(evaluation, quadrature_indices, output_indices)]
 
         return_variables = []
         reps = []
-        for evaluation, quadrature_multiindex, _ in evaluations:
+        for evaluation, quadrature_indices, _ in evaluations:
             for variable, expr in unconcatenate(
                     [(self.return_variables[0], evaluation)], ctx["index_cache"]):
-                quadrature_multiindex = tuple(
+                summed_indices = tuple(
                     dict.fromkeys(chain(
-                        (index for index in quadrature_multiindex
+                        (index for index in quadrature_indices
                          if index in expr.free_indices),
                         (index for index in expr.free_indices
                          if index not in variable.free_indices),
                     ))
                 )
-                ctx["quadrature_indices"].extend(quadrature_multiindex)
+                ctx["quadrature_indices"].extend(summed_indices)
                 return_variables.append(variable)
                 reps.extend(self.construct_integrals(
-                    [expr], params, quadrature_multiindex,
+                    [expr], params, summed_indices,
                     (variable.index_ordering(),)
                 ))
         self.return_variables = tuple(return_variables)

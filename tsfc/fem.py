@@ -352,7 +352,8 @@ def needs_coordinate_mapping(element):
 
 
 def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Cofunction,
-                  to_element: FiniteElementBase, kernel_cfg: dict) -> list[tuple]:
+                  to_element: FiniteElementBase,
+                  kernel_cfg: dict) -> list[tuple[gem.Node, tuple, tuple]]:
     """Translate an interpolation operand and evaluate its target dual basis.
 
     Parameters
@@ -365,11 +366,14 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
         Target FInAT element.
     kernel_cfg
         Configuration for the point-evaluation translation context.
+
     Returns
     -------
     list[tuple]
-        The GEM expressions for the local interpolated values, each with the
-        multiindex that contracts it and the basis indices of its return value.
+        One triple for each summand of the dual basis: the GEM expression for
+        the local interpolated values, the quadrature indices to sum it over,
+        and the basis indices that remain uncontracted.
+
     """
     if isinstance(to_element, finat.QuadratureElement):
         kernel_cfg = dict(kernel_cfg, quadrature_rule=to_element._rule)
@@ -388,14 +392,14 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
         gem_duals = ()
 
     if not gem_duals:
-        evaluation, point_indices, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
-        return [(evaluation, tuple(point_indices), basis_indices)]
+        evaluation, quadrature_indices, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
+        return [(evaluation, tuple(quadrature_indices), basis_indices)]
 
     # A mixed dual argument has one component per sub-element.
     elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
     component_summands = []
     for element, gem_dual in zip(elements, gem_duals, strict=True):
-        evaluation, point_indices, basis_indices = element.dual_evaluation(fn, coordinate_mapping)
+        evaluation, quadrature_indices, basis_indices = element.dual_evaluation(fn, coordinate_mapping)
         if is_complex(kernel_cfg["scalar_type"]):
             evaluation = gem.MathFunction("conj", evaluation)
         # The dual argument contracts over the nodes, so the basis indices
@@ -403,16 +407,16 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
         # tabulates into a Concatenate that only its own component can split.
         dual, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
         for var, expr in unconcatenate([(dual, evaluation)], kernel_cfg["index_cache"]):
-            component_summands.append((tuple(point_indices), var, expr))
+            component_summands.append((tuple(quadrature_indices), var, expr))
 
     evaluations = []
-    for point_indices, var, expr in component_summands:
+    for quadrature_indices, var, expr in component_summands:
         product = gem.Product(expr, var)
-        quadrature_multiindex = tuple(
-            index for index in chain(point_indices, var.index_ordering())
+        summed_indices = tuple(
+            index for index in chain(quadrature_indices, var.index_ordering())
             if index in product.free_indices
         )
-        evaluations.append((product, quadrature_multiindex, ()))
+        evaluations.append((product, summed_indices, ()))
     return evaluations
 
 
@@ -861,26 +865,31 @@ def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: 
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
     kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
     # The summands of a direct sum evaluate on points of their own, so the
-    # interpolation points stay free here.  translate_element contracts them
-    # once it has split the sum, against the points each summand really has.
+    # interpolation points stay free here.  The contraction below happens
+    # once the sum is split, against the points that each summand really has.
     vec = gem.Sum(*(
         gem.ComponentTensor(evaluation, basis_indices)
         for evaluation, _, basis_indices
         in dual_evaluate(operand, dual_arg, element, kernel_cfg)
     ))
-    return translate_element(terminal, mt, ctx, vec, element, beta=element.get_indices())
+    return evaluate_element_values(terminal, mt, ctx, vec, element, beta=element.get_indices())
 
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
     vec = ctx.coefficient(terminal, mt.restriction)
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
-    return translate_element(terminal, mt, ctx, vec, element)
+    return evaluate_element_values(terminal, mt, ctx, vec, element)
 
 
-def translate_element(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: ContextBase,
-                      vec: gem.Node, element: FiniteElementBase, beta: tuple | None = None) -> gem.Node:
-    """Evaluate local finite element values at the current points."""
+def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: ContextBase,
+                            vec: gem.Node, element: FiniteElementBase,
+                            beta: tuple | None = None) -> gem.Node:
+    """Evaluate the function whose values ``vec`` holds, at the current points.
+
+    ``beta`` are the basis indices of ``vec``. They default to the indices that
+    the context caches for ``terminal``.
+    """
     domain = extract_unique_domain(terminal)
 
     # Collect FInAT tabulation for all entities
