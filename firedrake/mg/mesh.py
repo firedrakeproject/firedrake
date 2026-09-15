@@ -2,9 +2,7 @@ import numpy as np
 import warnings
 from fractions import Fraction
 from collections import defaultdict
-from collections.abc import Callable, Sequence
-
-from pyop2 import op2
+from collections.abc import Sequence
 from pyop2.datatypes import IntType
 
 import petsctools
@@ -323,11 +321,11 @@ def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
                           base_layer: int = -1,
                           refinement_ratio: int = 2,
                           layers: Sequence[int] | None = None,
-                          kernel: op2.Kernel | None = None,
+                          kernel=None,
                           extrusion_type: str = 'uniform',
                           periodic: bool = False,
                           gdim: int | None = None,
-                          mesh_builder: Callable[..., firedrake.MeshGeometry] = firedrake.ExtrudedMesh
+                          mesh_builder=firedrake.ExtrudedMesh
                           ) -> HierarchyBase:
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
@@ -353,7 +351,7 @@ def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
         extruded hierarchy. Do not combine this option with ``base_layer`` and
         ``refinement_ratio``. The ratio of successive entries must be an
         integer for the multigrid transfer operators to work.
-    kernel : op2.Kernel or None
+    kernel : pyop2.op2.Kernel or None
         An optional kernel that computes the coordinates of the extruded mesh.
     extrusion_type : str
         The algorithm that computes the extruded coordinates. Supported
@@ -365,7 +363,7 @@ def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
     gdim : int or None
         The number of spatial dimensions in the resulting mesh. This value is
         used only when ``kernel`` is provided.
-    mesh_builder : callable
+    mesh_builder : collections.abc.Callable
         The function that turns a ``Mesh`` into an extruded mesh. This is used
         by pyadjoint.
 
