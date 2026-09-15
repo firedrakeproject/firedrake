@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy
 from fractions import Fraction
+from mpi4py import MPI
 from pyop2 import op2
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
@@ -81,7 +82,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
-        if not nonempty[:Vc.node_set.size].all():
+        if not Vc.comm.allreduce(bool(nonempty[:Vc.node_set.size].all()), op=MPI.LAND):
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
         replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                   dtype=coarse_to_fine_nodes.dtype)
