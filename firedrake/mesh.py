@@ -2333,9 +2333,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
         vertices as roots and this mesh's non-halo vertices as leaves.
         """
-        # The leaves have been ordered according to the pyop2 classes with non-halo
-        # cells first; self.cell_set.size is the number of rank-local non-halo cells.
-        return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
+        warnings.warn(
+            "The property `input_order_without_halos_sf` has been deprecated. "
+            "VertexOnlyMeshes now do not include halo points. Access `input_ordering_sf` "
+            "for the underlying PETScSF. ", FutureWarning
+        )
+        return self.input_ordering_sf
 
 
 class CellOrientationsRuntimeError(RuntimeError):

@@ -492,6 +492,7 @@ def test_pyop2_labelling():
     vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
     assert vm.cell_set.sizes == (0, 0, 0)
 
+
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("redundant", [True, False], ids=["redundant", "nonredundant"])
 def test_vertex_only_mesh_particle_ids(redundant):
