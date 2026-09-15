@@ -459,7 +459,7 @@ class HDF5File:
             If checkpoint mode is FILE_READ.
         TypeError :
             If function is not a Function.
-        CommMismatchError :
+        firedrake.CommMismatchError :
             If function` is not defined on the same MPI comm as this file.
         """
         if self._mode == 'r':
@@ -507,7 +507,7 @@ class HDF5File:
         ------
         TypeError :
             If function is not a Function.
-        CommMismatchError :
+        firedrake.CommMismatchError :
             If function is not defined on the same MPI comm as this file.
         """
         if not isinstance(function, firedrake.Function):
