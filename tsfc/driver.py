@@ -188,71 +188,22 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
     return builder.construct_kernel(kernel_name, ctx, log=parameters["add_petsc_events"])
 
 
-def is_same_dim_submesh(domain: ufl.Mesh | ufl.MeshSequence,
-                        other: ufl.Mesh | ufl.MeshSequence) -> bool:
-    """Are these positive-dimensional domains submeshes of the same family?
-
-    The relation is symmetric: it holds when one domain is a submesh of the other,
-    and when both are submeshes of a common ancestor. `validate_domains` permits
-    a point cloud target under a separate rule.
-    """
-    if isinstance(domain, ufl.MeshSequence) or isinstance(other, ufl.MeshSequence):
-        return False
-    return (domain.topological_dimension != 0
-            and other.topological_dimension != 0
-            and domain.topological_dimension == other.topological_dimension
-            and domain.submesh_youngest_common_ancestor(other) is not None)
-
-
-def interpolation_domains(ufl_interpolate: ufl.Interpolate,
-                          domain: ufl.AbstractDomain | None = None) -> tuple:
-    """Return the source and target domains that an interpolation maps between.
-
-    ``domain`` is the mesh that the operand is evaluated on. Pass it when the
-    operand carries no domain of its own.
-    """
-    dual_arg, operand = ufl_interpolate.argument_slots()
-    target_domains = join_domains([dual_arg.ufl_function_space().ufl_domain()])
-    if len(target_domains) != 1:
-        raise NotImplementedError("Interpolation onto multiple distinct meshes is not supported")
-    target_domain, = target_domains
-    source_domain = domain or extract_unique_domain(operand) or target_domain
-    return source_domain, target_domain
-
-
-def validate_domains(form: Form | ufl.Interpolate,
-                     domain: ufl.AbstractDomain | None = None) -> None:
-    """Check that TSFC can compile ``form`` on the meshes that it uses.
-
-    ``domain`` is the mesh that an interpolation operand is evaluated on.
-    """
-    if isinstance(form, ufl.Interpolate):
-        source_domain, target_domain = interpolation_domains(form, domain)
-        if source_domain == target_domain or is_same_dim_submesh(source_domain, target_domain):
-            return
-        if (source_domain.topological_dimension > 0
-                and target_domain.topological_dimension == 0):
-            # The points of an immersed point cloud are only known at run time,
-            # so the source cells tabulate the target element where they land.
-            return
-        raise MismatchingDomainError("Interpolation between unrelated meshes is not supported here. "
-                                     "Try using Submeshes or cross-mesh interpolation.")
-
+def validate_domains(form):
     if len(extract_domains(form)) == 1:
         # Not a multi-domain form, we do not need to keep checking
         return
 
     for itg in form.integrals():
         # Check that all domains are related to each other
-        integration_domain = itg.ufl_domain()
+        domain = itg.ufl_domain()
         for other_domain in itg.extra_domain_integral_type_map():
-            if integration_domain.submesh_youngest_common_ancestor(other_domain) is None:
+            if domain.submesh_youngest_common_ancestor(other_domain) is None:
                 raise MismatchingDomainError("Assembly of forms over unrelated meshes is not supported. "
                                              "Try using Submeshes or cross-mesh interpolation.")
 
         # Check that all Arguments and Coefficients are defined on the valid domains
         valid_domains = set(itg.extra_domain_integral_type_map())
-        valid_domains.add(integration_domain)
+        valid_domains.add(domain)
 
         itg_domains = set(extract_domains(itg))
         if len(itg_domains - valid_domains) > 0:
@@ -295,8 +246,12 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         expression = ufl.Interpolate(expression, V)
     arguments = expression.arguments()
     domains = expression.ufl_domains()
-    validate_domains(expression, domain)
-    source_domain, target_domain = interpolation_domains(expression, domain)
+    dual_arg, operand = expression.argument_slots()
+    target_domains = join_domains([dual_arg.ufl_function_space().ufl_domain()])
+    if len(target_domains) != 1:
+        raise NotImplementedError("Interpolation onto multiple distinct meshes is not supported")
+    target_domain, = target_domains
+    source_domain = domain or extract_unique_domain(operand) or target_domain
     if target_domain.topological_dimension == 0 and source_domain.topological_dimension > 0:
         ufl_element = ufl_utils.runtime_quadrature_element(source_domain, ufl_element)
 

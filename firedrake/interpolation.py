@@ -20,7 +20,6 @@ from firedrake.utils import IntType
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action, extract_domains
 from firedrake.mesh import (MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry,
                             MeshTopology, VertexOnlyMesh)
-from tsfc.driver import is_same_dim_submesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
@@ -178,7 +177,12 @@ class Interpolate(UFLInterpolate):
         except NonUniqueMeshSequenceError:
             return MixedInterpolator(self)
 
-        if target_mesh is source_mesh or is_same_dim_submesh(source_mesh, target_mesh):
+        submesh_interp_implemented = (
+            all(isinstance(m.topology, MeshTopology) for m in [target_mesh, source_mesh])
+            and target_mesh.submesh_ancestors[-1] is source_mesh.submesh_ancestors[-1]
+            and target_mesh.topological_dimension == source_mesh.topological_dimension
+        )
+        if target_mesh is source_mesh or submesh_interp_implemented:
             return SameMeshInterpolator(self, source_mesh, target_mesh)
 
         if isinstance(target_mesh.topology, VertexOnlyMeshTopology):

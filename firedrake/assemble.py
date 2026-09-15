@@ -27,7 +27,6 @@ from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
 from firedrake.interpolation import get_assembly_entity_node_map, get_interpolator, SameMeshInterpolator
-from tsfc.driver import is_same_dim_submesh
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -349,7 +348,8 @@ def _can_fuse_operator(operator: ufl.core.base_form_operator.BaseFormOperator,
         return False
     if not all(any(domain is covering_domain
                    or (isinstance(domain, MeshGeometry) and isinstance(covering_domain, MeshGeometry)
-                       and is_same_dim_submesh(domain, covering_domain))
+                       and domain.submesh_ancestors[-1] is covering_domain.submesh_ancestors[-1]
+                       and domain.topological_dimension == covering_domain.topological_dimension)
                    for covering_domain in covering_domains)
                for domain in extract_domains(operator)):
         return False
@@ -1901,7 +1901,7 @@ class _GlobalKernelBuilder:
 
 
 def _runtime_tabulation_coordinates(arg: kernel_args.TabulationKernelArg,
-                                    mesh: MeshGeometry) -> firedrake.Function:
+                                    mesh: MeshGeometry) -> "firedrake.Function":
     """Return the reference coordinates that a kernel tabulates its runtime point at."""
     # FIXME: name-matching is a stopgap; get this from a coefficient map handed
     # down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
