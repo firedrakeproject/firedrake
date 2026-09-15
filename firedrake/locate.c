@@ -11,7 +11,6 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
         const int64_t *ids,
         size_t ncells_ignore,
         const PetscInt *cells_ignore,
-        PetscInt cell_limit,
         PetscInt *cell_out)
 {
     bool cell_ignore_found = false;
@@ -37,10 +36,6 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
             return PETSC_ERR_ARG_OUTOFRANGE;
         }
         PetscInt candidate = (PetscInt)ids[i];
-        if (candidate >= cell_limit) {
-            /* candidate is a halo-cell */
-            continue;
-        }
         for (size_t j = 0; j < ncells_ignore; j++) {
             if (candidate == cells_ignore[j]) {
                 cell_ignore_found = true;

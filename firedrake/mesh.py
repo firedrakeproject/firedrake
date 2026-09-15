@@ -2559,8 +2559,9 @@ values from f.)"""
             coords = mesh.coordinates
 
         cell_node_list = mesh.coordinates.function_space().cell_node_list
+        n_owned_cells = mesh.cell_set.size
         if not mesh.extruded:
-            all_coords = coords.dat.data_ro_with_halos[cell_node_list]
+            all_coords = coords.dat.data_ro_with_halos[cell_node_list[:n_owned_cells]]
             return np.min(all_coords, axis=1), np.max(all_coords, axis=1)
 
         # Extruded case: calculate the bounding boxes for all cells by running a kernel
@@ -2586,7 +2587,7 @@ values from f.)"""
                   'f_max': (coords_max, MAX)})
 
         # Reorder bounding boxes according to the cell indices we use
-        column_list = V.cell_node_list.reshape(-1)
+        column_list = V.cell_node_list.reshape(-1)[:n_owned_cells]
         coords_min = mesh._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
         coords_max = mesh._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
         return coords_min, coords_max
@@ -2776,9 +2777,7 @@ values from f.)"""
         return cells[0], ref_coords[0]
 
     @PETSc.Log.EventDecorator()
-    def locate_cells_ref_coords_and_dists(
-        self, xs, tolerance=None, cells_ignore=None, owned_only=False
-    ):
+    def locate_cells_ref_coords_and_dists(self, xs, tolerance=None, cells_ignore=None):
         # TODO: add docstring
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
@@ -2802,12 +2801,6 @@ values from f.)"""
         assert cells_ignore.shape == (npoints, cells_ignore.shape[1])
         ref_cell_dists_l1 = np.empty(npoints, dtype=RealType)
         cells = np.empty(npoints, dtype=IntType)
-        # Owned cells precede halo cells in Firedrake cell numbering.
-        # TODO: If the local rtree is built from owned cell bounding boxes only, then we
-        # don't need to pass cell_limit into locate.c.
-        cell_limit = self.cell_set.size if owned_only else self.cell_set.total_size
-        if self.extruded:
-            cell_limit *= self.layers - 1
         assert xs.size == npoints * self.geometric_dimension
         run_c = self._c_locator(tolerance=tolerance)
         cells_data = cells.ctypes.data_as(ctypes.POINTER(as_ctypes(IntType)))
@@ -2824,7 +2817,6 @@ values from f.)"""
                 npoints,
                 cells_ignore.shape[1],
                 cells_ignore,
-                cell_limit,
             )
         if err != 0:
             raise RuntimeError(f"C locator failed with error code {err}")
@@ -2854,8 +2846,7 @@ values from f.)"""
                                        {IntType_c} *cells,
                                        size_t npoints,
                                        size_t ncells_ignore,
-                                       {IntType_c} *cells_ignore,
-                                       {IntType_c} cell_limit)
+                                       {IntType_c} *cells_ignore)
                 {{
                     PetscErrorCode locate_err = PETSC_SUCCESS;
                     int64_t *candidate_ids = NULL;
@@ -2889,7 +2880,7 @@ values from f.)"""
                             f, &x[j], &to_reference_coords, &to_reference_coords_xtr,
                             &temp_reference_coords, &found_reference_coords,
                             &ref_cell_dists_l1[i], nids_i, ids_i,
-                            ncells_ignore, cells_ignore_i, cell_limit, &cells[i]);
+                            ncells_ignore, cells_ignore_i, &cells[i]);
 
                         if (locate_err != PETSC_SUCCESS) {{
                             break;
@@ -2930,8 +2921,7 @@ values from f.)"""
                                 ctypes.POINTER(as_ctypes(IntType)),
                                 ctypes.c_size_t,
                                 ctypes.c_size_t,
-                                np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS"),
-                                as_ctypes(IntType)]
+                                np.ctypeslib.ndpointer(as_ctypes(IntType), flags="C_CONTIGUOUS")]
             locator.restype = ctypes.c_int
             return cache.setdefault(tolerance, locator)
 
@@ -4380,7 +4370,7 @@ def _parent_mesh_embedding(
     # send coords to the candidates, and locate each candidate point
     coords = candidate_sf.broadcast(coords)
     parent_cell_nums, ref_coords, ref_cell_dists = (
-        parent_mesh.locate_cells_ref_coords_and_dists(coords, tolerance, owned_only=True)
+        parent_mesh.locate_cells_ref_coords_and_dists(coords, tolerance)
     )
     # Immersed manifold case: the reference coords have an extra dimension we can safely drop
     if parent_mesh.geometric_dimension > parent_mesh.topological_dimension:

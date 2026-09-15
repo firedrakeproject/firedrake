@@ -62,7 +62,6 @@ extern PetscErrorCode locate_cell_from_candidates(struct Function *f,
                                                   const int64_t *ids,
                                                   size_t ncells_ignore,
                                                   const PetscInt *cells_ignore,
-                                                  PetscInt cell_limit,
                                                   PetscInt *cell_out);
 
 extern int evaluate(struct Function *f,
