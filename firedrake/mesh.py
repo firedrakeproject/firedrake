@@ -707,7 +707,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         `entity_orientations` has the same shape as `cell_closure`.
         Each row of this array contains orientations of the entities
-in the closure of the associated cell. Here, for each cell in the mesh,
+        in the closure of the associated cell. Here, for each cell in the mesh,
         orientation of an entity, say e, encodes how the the canonical
         representation of the entity defined by Cone(e) compares to
         that of the associated entity in the reference FInAT (FIAT) cell. (Note
@@ -2314,8 +2314,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def input_ordering_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
-        vertices as roots and this mesh's vertices (including any halo cells)
-        as leaves.
+        vertices as roots and this mesh's vertices as leaves.
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
@@ -2334,7 +2333,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         vertices as roots and this mesh's non-halo vertices as leaves.
         """
         warnings.warn(
-            "The property `input_order_without_halos_sf` has been deprecated. "
+            "The property `input_ordering_without_halos_sf` has been deprecated. "
             "VertexOnlyMeshes now do not include halo points. Access `input_ordering_sf` "
             "for the underlying PETScSF. ", FutureWarning
         )
