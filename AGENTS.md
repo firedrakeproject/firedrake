@@ -132,7 +132,7 @@ Write as an expert technical writer addressing a peer (a mathematician or softwa
 Use ASD-STE100. Write clear, complete sentences rather than grammatically convoluted shortcuts.
 All comments, docstrings, and documentation must adhere to the following standards:
 
-* **Active Verbs Over Noun-Stacking:** Rephrase to avoid stacking words that double as nouns, verbs, or adjectives.
+* **Break Noun/Verb Stacks:** Rephrase to avoid stacking words that double as nouns, verbs, or adjectives.
    - **WRONG:** `# Process boundary facet normal orientation sign correction.`
    - **RIGHT:** `# Flips boundary facets so their normals point outside the mesh.`
 
@@ -144,6 +144,11 @@ All comments, docstrings, and documentation must adhere to the following standar
 subject of the main clause. Avoid dangling modifiers.
    - **WRONG**: `# Using the tangent linear model, $O(M)$ solves are needed.`
    - **RIGHT**: `# The tangent linear approach requires $O(M)$ solves.`
+
+* **Keep Modal Verbs:** When a docstring describes something that has not happened yet, keep the
+`can` and prefer passive voice to state the intent precisely.
+   - **WRONG**: `Whether one fused kernel assembles expr.`
+   - **RIGHT**: `Whether expr can be assembled in a single fused kernel.`
 
 ## Anti-Patterns
 
