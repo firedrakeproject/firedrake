@@ -331,7 +331,13 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
 
 
 @pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("operator", ["prolong", "inject"])
+@pytest.mark.parametrize("operator", [
+    "prolong",
+    pytest.param(
+        "inject",
+        marks=pytest.mark.skip(reason="Skipped until https://github.com/firedrakeproject/firedrake/pull/5337 is merged."),
+    ),
+])
 def test_DG0(mh, operator):
     """Prolongation & Injection test for DG0"""
     V_coarse = FunctionSpace(mh[0], "DG", 0)
