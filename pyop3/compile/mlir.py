@@ -52,46 +52,33 @@ UNSUPPORTED_BUFFERS = (PetscMatBuffer, NullBuffer)
 
 SSAValueT = SSAValue | numbers.Number | NameVar
 
-def get_mlir_type(np_dtype) -> Any:
-    return NUMPY_TO_XDSL[np_dtype]
-
 def _is_float(dtype) -> bool:
-    return get_mlir_type(dtype) is Float64Type
+    return NUMPY_TO_XDSL[dtype] is Float64Type
 
-def _mlir_type(dtype):
-    t = get_mlir_type(dtype)
+def get_mlir_type(dtype):
+    t = NUMPY_TO_XDSL[dtype]
 
     # Calculating bit-width for int type 
     nbytes = dtype.itemsize 
     bits = nbytes * 8 
     return t(bits) if t is IntegerType else t()
 
+""" Function is not needed but leaving in case someone else wants to force type resolution """ 
+# def _align_mlir_type(context, ssa, from_dtype, to_dtype) -> SSAValue:
+#     """
+#     Insert cast if float and int types are differing from expected.
 
-def _expr_dtype(expr, hint):
-    """
-    The pyop3 dtype of an expression.
+#     Ugly function, seeking improvements. 
+#     """
+#     if from_dtype == to_dtype:
+#         return ssa
     
-    If constant number, use fallback hint  
-    """
-    if isinstance(expr, numbers.Number):
-        return hint
-    return expr.dtype
-
-
-def _coerce(context, ssa, from_dtype, to_dtype) -> SSAValue:
-    """
-    Insert cast if float and int types are differing from expected.
-
-    Ugly function, seeking improvements. 
-    """
-    if from_dtype == to_dtype:
-        return ssa
-    from_f, to_f = _is_float(from_dtype), _is_float(to_dtype)
-    if not from_f and to_f:
-        return context.insert(arith.SIToFPOp(ssa, Float64Type()))
-    if from_f and not to_f:
-        return context.insert(arith.FPToSIOp(ssa, _mlir_type(to_dtype)))
-    return ssa
+#     from_f, to_f = _is_float(from_dtype), _is_float(to_dtype)
+#     if not from_f and to_f:
+#         return context.insert(arith.SIToFPOp(ssa, Float64Type()))
+#     if from_f and not to_f:
+#         return context.insert(arith.FPToSIOp(ssa, get_mlir_type(to_dtype)))
+#     return ssa
 
 @dataclasses.dataclass
 class Argument:
@@ -198,7 +185,6 @@ class MLIRCodegenContext(CodegenContext):
         return memref_ssa 
 
     def _const_index(self, value: int) -> SSAValue:
-        # NOTE: Casting with `int` might be a problem
         const_ssa = self.insert(arith.ConstantOp(
             IntegerAttr(int(value), iType)
            )
@@ -225,26 +211,31 @@ class MLIRCodegenContext(CodegenContext):
             assert nargs == 2
             start, stop = args[0], args[1]
 
-        # TODO: Linked to using temporary variables. Really should drop them.
+        # TODO: Linked to using temporary variables.
         for arg in (start, stop):
             if isinstance(arg, NameVar):
                 assert self._is_temporary(arg)
         self._domains[iname] = (start, stop)
 
-    # TODO: Move to dispatch? 
+    @functools.singledispatchmethod
     def _resolve_bound(self, bound) -> SSAValue:
         """ 
         Resolving the iterative bound as bound may be NameVar (temp variable) or integer. 
         """ 
-        if isinstance(bound, numbers.Integral):
-            return self._const_index(bound)
-        if isinstance(bound, NameVar):
-            return self._to_index(self.symbol_table[bound.name])
-        if isinstance(bound, SSAValue):
-            return self._to_index(bound)
         raise NotImplementedError(f"No implementation for bound of type {type(bound)}")
 
-    # TODO: Can we resolve temporary straight to SSA? Only issue is sending SSA back to `core.py` which seems odd.
+    @_resolve_bound.register(numbers.Integral)
+    def _(self, bound) -> SSAValue: 
+        return self._const_index(bound)
+
+    @_resolve_bound.register(NameVar)
+    def _(self, bound) -> SSAValue: 
+        return self._to_index(self.symbol_table[bound.name])
+
+    @_resolve_bound.register(SSAValue)
+    def _(self, bound) -> SSAValue: 
+        return self._to_index(bound)
+
     def add_temporary(self, prefix) -> NameVar:
         name = self.unique_name(prefix)
         name_var = NameVar(name)
@@ -257,9 +248,8 @@ class MLIRCodegenContext(CodegenContext):
     def set_temporary_shapes(self, shapes) -> None:
         self._temporary_shapes = shapes
 
-    # TODO: Remove this function? 
     def add_assignment(self, assignee, expression, inames, loop_indices, prefix: str = "insn") -> None:
-        pass
+        raise NotImplementedError("Not necessary for eager generation")
 
     def add_function_call(self, assignees, expression, prefix: str = "insn") -> None:
         raise NotImplementedError("Later stage of implementation")
@@ -324,7 +314,7 @@ class MLIRCodegenContext(CodegenContext):
     def _buffer_type(self, arg: Argument):
         """ Return 1D memref dynamic type if not constant shape """
         shape = arg.shape or [DYNAMIC_INDEX]
-        mlir_type = _mlir_type(arg.dtype)
+        mlir_type = get_mlir_type(arg.dtype)
         return memref.MemRefType(mlir_type, shape)
 
     @functools.singledispatchmethod
@@ -358,9 +348,9 @@ class MLIRCodegenContext(CodegenContext):
         """ Method wraps super to add SSA to symbol table """
         need_ssa_insert = buffer_view not in self.kernel_names
         name_in_kernel = super().add_buffer(buffer_view, intent)
-        arg = self._arguments[-1] # NOTE: appended arg in super method 
         
         if need_ssa_insert:
+            arg = self._arguments[-1] # NOTE: arg was appended in super method, if necessary
             self.insert_arg(arg, buffer_view)
 
         return name_in_kernel 
@@ -413,14 +403,14 @@ class MLIRCodegenContext(CodegenContext):
                 pyop3.expr.Mul(a=stride, b=layout),
                 [iname_map],
                 loop_indices,
-                is_index=True,
+                is_index=True, # NOTE: all operations will forcibly cast to index type
                 target_type=IntType
             )
 
             index_op = self._to_index(mul_op)
             mul_ops.append(index_op)
 
-        # TODO: Bit ugly having this here. Lambda also bad. 
+        # TODO: Could we have a more generic reduction operation?
         def add(acc, val):
             if not isinstance(acc.type, IndexType):
                 acc = self._to_index(acc)
@@ -555,6 +545,7 @@ class MLIRCodegenContext(CodegenContext):
             loop_indices, 
             intent = READ, 
             paths=None,
+            is_index=None,
             target_type=None,
             buffer_store: bool = False,
             **kwargs
@@ -566,6 +557,7 @@ class MLIRCodegenContext(CodegenContext):
             loop_indices,
             intent=intent, 
             paths=paths,
+            is_index=is_index,
             target_type=target_dtype,
             context=self, 
             buffer_store=buffer_store
@@ -575,47 +567,35 @@ class MLIRCodegenContext(CodegenContext):
 def _lower_expr(expr: Any, /, *args, **kwargs) -> SSAValue:
     raise NotImplementedError(f"There is no lowering path for {type(expr)}.")
 
-# TODO: Assuming iType here is not necessary. Forcing is probably not correct 
-@_lower_expr.register(numbers.Number)
-def _(num, /, iname_maps, loop_indices, *, target_type, context, **kwargs) -> SSAValue:
-    if _is_float(target_type):
-        ty = _mlir_type(target_type)
-        attr = FloatAttr(float(num), ty)
-    else:
-        ty = iType
-        attr = IntegerAttr(int(num), ty)
-    # FIXME: Fix iType to be actual return 
-    ssa = context.insert(arith.ConstantOp(attr, ty))
-    return ssa
-
-# TODO: This can go if temp variables gone 
 @_lower_expr.register(NameVar)
 def _(name_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
     return context.symbol_table[name_var.name]
 
-def align_binops(e, /, iname_maps, loop_indices, *, context, target_type, **kwargs):
+@_lower_expr.register(numbers.Number)
+def _(num, /, *args, target_type, context, **kwargs) -> SSAValue:
+    ty = get_mlir_type(target_type)
+
+    if _is_float(target_type):
+        attr = FloatAttr(float(num), ty)
+    else:
+        attr = IntegerAttr(int(num), ty)
+
+    ssa = context.insert(arith.ConstantOp(attr, ty))
+    return ssa
+
+def align_binops(e, /, iname_maps, loop_indices, *, context, is_index, target_type, **kwargs):
     """ Method lowers and ensures that components of binary operations align """ 
-    node_dtype = e.dtype
-    is_f = _is_float(node_dtype)
-    child = dict(kwargs, context=context, target_type=node_dtype)
+    child = dict(kwargs, context=context, is_index=is_index, target_type=target_type)
 
     lhs = _lower_expr(e.a, iname_maps, loop_indices, **child)
     rhs = _lower_expr(e.b, iname_maps, loop_indices, **child)
-
-    # Addressing float/int type mismatching 
-    lhs = _coerce(context, lhs, _expr_dtype(e.a, node_dtype), node_dtype)
-    rhs = _coerce(context, rhs, _expr_dtype(e.b, node_dtype), node_dtype)
     
-    # TODO: Improve this hotfix. Type resolution needs to consider indices
-    lhs_is_index = isinstance(lhs.type, IndexType)
-    rhs_is_index = isinstance(rhs.type, IndexType)
-    if lhs_is_index != rhs_is_index:
+    if is_index:
         lhs = context._to_index(lhs)
         rhs = context._to_index(rhs)
 
     return lhs, rhs
 
-# Maybe I pass a kwarg for offset_generation which suggests indices? 
 @_lower_expr.register(pyop3.expr.Add)
 def _(expr, /, *args, context, **kwargs): 
     lhs, rhs = align_binops(expr, *args, context=context, **kwargs)
@@ -623,7 +603,6 @@ def _(expr, /, *args, context, **kwargs):
 
     op = arith.AddfOp(lhs, rhs) if is_float else arith.AddiOp(lhs, rhs)
     return context.insert(op)
-
 
 @_lower_expr.register(pyop3.expr.Sub)
 def _(expr, /, *args, context, **kwargs): 
@@ -673,27 +652,29 @@ def _(expr, /, *args, context, **kwargs):
 
 @_lower_expr.register(pyop3.expr.Neg)
 def _(neg, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
-    node_dtype = neg.dtype
-    child = dict(kwargs, context=context, target_type=node_dtype)
-    val = _lower_expr(neg.a, iname_maps, loop_indices, **child)
-    val = _coerce(context, val, _expr_dtype(neg.a, node_dtype), node_dtype)
-    if _is_float(node_dtype):
+    """ Returns Neg operation for float or int (no NegiOp in MLIR...) """
+    val = _lower_expr(neg.a, iname_maps, loop_indices, context, **kwargs)
+    if _is_float(neg.dtype):
         return context.insert(arith.NegfOp(val))
-    zero = context.insert(arith.ConstantOp(IntegerAttr(0, _mlir_type(node_dtype)),
-                                           _mlir_type(node_dtype)))
-    return context.insert(arith.SubiOp(zero, val))
 
-# FIXME: Should AxisVar be trying to cast to int? 
+    return context.lower_expr(
+        pyop3.expr.Sub(a=0, b=neg.a),
+        iname_maps,
+        loop_indices,
+        context,
+        **kwargs
+    )
+
 @_lower_expr.register(pyop3.expr.AxisVar)
 def _(axis_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
-    # iname variables are assigned outside codegen and constants must be mapped to an SSA value
     iname = utils.just_one(iname_maps)[axis_var.axis.label]
     if isinstance(iname, numbers.Integral): 
+        # NOTE: iname variables are assigned outside codegen and constants must be mapped to an SSA value
         return context._const_index(iname) 
     elif isinstance(iname, str): 
         return context.symbol_table[iname]
     else:
-        raise NotImplementedError("Not anticipating this outcome...")
+        raise NotImplementedError(f"No implementation for iname of type: {type(iname)}")
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)
 def _(loop_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
