@@ -178,7 +178,7 @@ coefficients of the interpolated function. In Firedrake, we can do this by
 
    When interpolating a :py:class:`~.Function` directly, for example
 
-   .. code-block:: python3
+   .. code-block:: python
 
       assemble(interpolate(Function(U), V))
 
@@ -491,7 +491,7 @@ All distribution methods defined in `numpy.random`_,
 are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
 to generate a randomised :class:`.Function`.
 
-.. code-block:: python3
+.. code-block:: python
 
     mesh = UnitSquareMesh(2,2)
     V = FunctionSpace(mesh, "CG", 1)
