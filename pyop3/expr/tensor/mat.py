@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import numbers
 import typing
+import weakref
 from functools import cached_property
 from typing import Any, ClassVar
 
@@ -131,7 +132,7 @@ class Mat(Tensor):
         **kwargs,
     ) -> Mat:
         if buffer_spec is None:
-            buffer_spec = cls.DEFAULT_MAT_BUFFER_INIT_SPEC
+            buffer_spec = cls.DEFAULT_MAT_INIT_BUFFER_SPEC
 
         comm = pyop3.mpi.common_comm([row_axes.comm, column_axes.comm])
         full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
@@ -499,12 +500,14 @@ class AggregateMat(pyop3.obj.Object):
     def materialize(self):
         return Mat.null(self.row_axes, self.column_axes, dtype=self.dtype)
 
-    def assign(self, other):
+    def assign(self, other, *, _weakref: bool = True):
         from pyop3.insn import Assignment
 
-        return Assignment(self, other, "write")
+        assignee = weakref.ref(self) if _weakref else self
+        return Assignment(assignee, other, "write")
 
-    def iassign(self, other):
+    def iassign(self, other, *, _weakref: bool = True):
         from pyop3.insn import Assignment
 
-        return Assignment(self, other, "inc")
+        assignee = weakref.ref(self) if _weakref else self
+        return Assignment(assignee, other, "inc")

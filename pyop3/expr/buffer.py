@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import functools
 import numbers
+import weakref
 from typing import ClassVar
 
 import numpy as np
@@ -33,14 +34,18 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
     def dtype(self) -> np.dtype:
         return self.buffer_view.buffer.dtype
 
-    def assign(self, other) -> ArrayAssignment:
+    # used?
+    def assign(self, other, *, _weakref: bool = True) -> ArrayAssignment:
         from pyop3.insn import Assignment
 
-        return Assignment(self, other, "write")
+        assignee = weakref.ref(self) if _weakref else self
+        return Assignment(assignee, other, "write")
 
-    def iassign(self, other) -> ArrayAssignment:
+    # used?
+    def iassign(self, other, *, _weakref: bool = True) -> ArrayAssignment:
         from pyop3.insn import Assignment
 
+        assignee = weakref.ref(self) if _weakref else self
         return Assignment(self, other, "inc")
 
     @property

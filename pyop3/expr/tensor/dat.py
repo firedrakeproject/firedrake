@@ -849,12 +849,14 @@ class AggregateDat(pyop3.obj.Object):
     def materialize(self):
         return Dat.null(self.axes, dtype=self.dtype)
 
-    def assign(self, other):
+    def assign(self, other, *, _weakref: bool = True):
         from pyop3.insn import Assignment
 
+        assignee = weakref.ref(self) if _weakref else self
         return Assignment(self, other, "write")
 
-    def iassign(self, other):
+    def iassign(self, other, *, _weakref: bool = True):
         from pyop3.insn import Assignment
 
-        return Assignment(self, other, "inc")
+        assignee = weakref.ref(self) if _weakref else self
+        return Assignment(assignee, other, "inc")
