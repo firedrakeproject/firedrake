@@ -53,3 +53,8 @@ class UnrecognisedDeviceError(FiredrakeException):
     """Raised when a GPU device has been initialised in PETSc that Firedrake
     does not support.
     """
+
+
+class CommMismatchError(FiredrakeException):
+    """Raised when MPI communicators do not include identical sets of ranks.
+    """

@@ -128,13 +128,13 @@ def test_bad_cell(pvd):
 @pytest.mark.skipvtk
 def test_not_function(mesh, pvd):
     c = Constant(1)
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         pvd.write(c)
 
     V = FunctionSpace(mesh, "DG", 0)
     f = Function(V)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         pvd.write(grad(f))
 
 
