@@ -707,7 +707,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         `entity_orientations` has the same shape as `cell_closure`.
         Each row of this array contains orientations of the entities
-        in the closure of the associated cell. Here, for each cell in the mesh,
+in the closure of the associated cell. Here, for each cell in the mesh,
         orientation of an entity, say e, encodes how the the canonical
         representation of the entity defined by Cone(e) compares to
         that of the associated entity in the reference FInAT (FIAT) cell. (Note
@@ -2513,7 +2513,7 @@ values from f.)"""
     @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     @PETSc.Log.EventDecorator()
     def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Calculates bounding boxes for the mesh rtree.
+        """Calculates bounding boxes of owned cells for the mesh rtree.
 
         Returns
         -------
@@ -2597,6 +2597,8 @@ values from f.)"""
     def rtree(self):
         """Builds an rtree from bounding box coordinates, expanding
         the bounding boxes by the mesh tolerance.
+
+        The Rtree is build from bounding boxes of owned cells only.
 
         Returns
         -------
@@ -2778,7 +2780,26 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def locate_cells_ref_coords_and_dists(self, xs, tolerance=None, cells_ignore=None):
-        # TODO: add docstring
+        """Locate cell containing a given a point, the reference coordinates w.r.t this cell,
+        and the L^1 distance of the point to this cell. Searches through owned cells only.
+
+        Parameters
+        ----------
+        xs : np.ndarray
+            Array of points to locate, of shape (npoints, gdim)
+        tolerance : float
+            Tolerance for determining if a point is in a cell. By default this is the
+            mesh's :attr:`tolerance` property.
+        cells_ignore : np.ndarray
+            Array of cell IDs to ignore in the cell location, of shape (npoints, n_points_ignore).
+            Each column corresponds to a single coordinate in xs. By default, we don't ignore any cells.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray, np.ndarray]
+            An array of cell IDs containing each point, an array containing the reference coordinates of each point, and an array containing reference L^1 distances to the cell.
+            If the point is not found, then the cell ID will be -1.
+        """
         if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
         if tolerance is None:
