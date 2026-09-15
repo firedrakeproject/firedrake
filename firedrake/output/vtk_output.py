@@ -486,7 +486,7 @@ class VTKFile:
 
         if self.project:
             if isinstance(function, Cofunction):
-                raise ValueError("Can not project Cofunctions")
+                raise TypeError("Can not project Cofunctions")
             output.project(function)
         else:
             output.interpolate(function)
@@ -505,7 +505,9 @@ class VTKFile:
 
         for f in functions:
             if not isinstance(f, (Function, Cofunction)):
-                raise ValueError(f"Can only output Functions, Cofunctions or a single mesh, not {type(f).__name__}")
+                raise TypeError(f"Can only output Functions, Cofunctions or a single mesh, not {type(f).__name__}")
+            if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
+                raise CommMismatchError("Function communicator does not match VTKFile communicator")
         meshes = tuple(extract_unique_domain(f) for f in functions)
         if not all(m == meshes[0] for m in meshes):
             raise ValueError("All functions must be on same mesh")
@@ -659,10 +661,6 @@ class VTKFile:
         CommMismatchError :
             If function is not defined on the same MPI comm as this file.
         """
-        for f in functions:
-            if MPI.Comm.Compare(f.comm, self.comm) not in {MPI.CONGRUENT, MPI.IDENT}:
-                raise CommMismatchError("Function communicator does not match VTKFile communicator")
-
         time = kwargs.get("time", None)
         vtu = self._write_vtu(*functions)
         if time is None:
