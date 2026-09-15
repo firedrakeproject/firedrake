@@ -193,7 +193,7 @@ Then a SLEPc Eigenvalue Problem Solver (``EPS``) is initialised and set up to us
         E.setST(ST)
         E.solve()
         vr, vi = Asc.getVecs()
-        with uh.vec_wo as vr:
+        with uh.dat.vec_wo as vr:
             lam = E.getEigenpair(0, vr, vi)
         return (lam, uh, V)
 
@@ -222,8 +222,8 @@ In order to do so we begin by computing the value of the indicator using a piece
         part = .2
         mark = Function(W)
         # Filling in the marked element vector using eta.
-        with mark.vec as markedVec:
-            with eta.vec as etaVec:
+        with mark.dat.vec as markedVec:
+            with eta.dat.vec as etaVec:
                 sum_eta = etaVec.sum()
                 if sum_eta < tolerance:
                     return markedVec

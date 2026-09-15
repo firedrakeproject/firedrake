@@ -373,7 +373,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
         base_hierarchy.coarse_to_fine_cells.values(),
         strict=True,
     ):
-        c2f, f2c = _make_extruded_cell_maps(meshc, meshf, base_coarse_to_fine_cells_per_layer)
+        c2f, f2c = _make_extruded_cell_maps(coarse_mesh, fine_mesh, base_coarse_to_fine_cells_per_layer)
         coarse_to_fine_cells[c2f_key] = c2f
         fine_to_coarse_cells[f2c_key] = f2c
 
