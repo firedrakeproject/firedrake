@@ -286,7 +286,7 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
 def test_near_nullspace_mixed(aux_pc, rhs):

@@ -45,7 +45,7 @@ def run_test(mesh):
         solver_parameters={
             'ksp_type': 'preonly',
             'pc_type': 'bjacobi',
-            'sub_pc_type': 'ilu'
+            'sub_pc_type': 'ilu',
         }
     )
 

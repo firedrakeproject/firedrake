@@ -2,7 +2,7 @@ from firedrake import dx, assemble, LinearSolver
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.functionspace import FunctionSpace
-from firedrake.parloops import par_loop, READ, RW, MIN, MAX
+from firedrake.parloops import par_loop, READ, RW
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
 from firedrake import utils
@@ -46,8 +46,8 @@ class VertexBasedLimiter(Limiter):
         domain = "{[i]: 0 <= i < maxq.dofs}"
         instructions = """
         for i
-            maxq[i] = fmax(maxq[i], q[0])
-            minq[i] = fmin(minq[i], q[0])
+            maxq[i, 0] = fmax(maxq[i, 0], q[0, 0])
+            minq[i, 0] = fmin(minq[i, 0], q[0, 0])
         end
         """
         self._min_max_loop = (domain, instructions)
@@ -58,12 +58,12 @@ class VertexBasedLimiter(Limiter):
         <float64> alpha = 1
         <float64> qavg = qbar[0, 0]
         for i
-            <float64> _alpha1 = fmin(alpha, fmin(1, (qmax[i] - qavg)/(q[i] - qavg)))
-            <float64> _alpha2 = fmin(alpha, fmin(1, (qavg - qmin[i])/(qavg - q[i])))
-            alpha = _alpha1 if q[i] > qavg else (_alpha2 if q[i] < qavg else  alpha)
+            <float64> _alpha1 = fmin(alpha, fmin(1, (qmax[i, 0] - qavg)/(q[i, 0] - qavg)))
+            <float64> _alpha2 = fmin(alpha, fmin(1, (qavg - qmin[i, 0])/(qavg - q[i, 0])))
+            alpha = _alpha1 if q[i, 0] > qavg else (_alpha2 if q[i, 0] < qavg else  alpha)
         end
         for ii
-            q[ii] = qavg + alpha * (q[ii] - qavg)
+            q[ii, 0] = qavg + alpha * (q[ii, 0] - qavg)
         end
         """
         self._limit_kernel = (domain, instructions)
@@ -98,8 +98,8 @@ class VertexBasedLimiter(Limiter):
 
         par_loop(self._min_max_loop,
                  dx,
-                 {"maxq": (self.max_field, MAX),
-                  "minq": (self.min_field, MIN),
+                 {"maxq": (self.max_field, RW),
+                  "minq": (self.min_field, RW),
                   "q": (self.centroids, READ)})
 
     def apply_limiter(self, field):

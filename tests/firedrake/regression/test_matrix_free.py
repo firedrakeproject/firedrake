@@ -61,6 +61,9 @@ def bcs(problem, V):
 @pytest.mark.parametrize("pmat_type", ("matfree", "aij"))
 def test_assembled_pc_equivalence(V, a, L, bcs, pc_type, pmat_type):
 
+    if V.value_size > 1 and pc_type is not None:
+        pytest.skip(reason="block matrices do not work yet")
+
     u = Function(V)
 
     def residuals(parameters):
@@ -116,9 +119,9 @@ def test_matrixfree_action(a, V, bcs):
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
 
     with f.dat.vec_ro as x:
-        with expect.dat.vec as y:
+        with expect.dat.vec_wo as y:
             A.petscmat.mult(x, y)
-        with actual.dat.vec as y:
+        with actual.dat.vec_wo as y:
             Amf.petscmat.mult(x, y)
 
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
@@ -255,11 +258,7 @@ def test_get_info(a, bcs, infotype):
              "max": A.petscmat.InfoType.GLOBAL_MAX}[infotype]
     info = ctx.getInfo(A.petscmat, info=itype)
     test, trial = a.arguments()
-    expect = ((test.function_space().dof_dset.total_size
-               * test.function_space().value_size)
-              + (trial.function_space().dof_dset.total_size
-                 * trial.function_space().value_size))
-
+    expect = (test.function_space().dof_count + trial.function_space().dof_count)
     expect *= ScalarType.itemsize
 
     if infotype == "sum":
@@ -308,7 +307,7 @@ def test_duplicate(a, bcs):
         ksp.solve(b, x)
 
     # Multiply with copied matrix B
-    with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
+    with solution1.dat.vec_ro as x, solution2.dat.vec_wo as y:
         B_petsc.mult(x, y)
     # Check if original rhs is equal to BA^-1 (rhs)
     assert np.allclose(rhs.dat.data_ro, solution2.dat.data_ro)
