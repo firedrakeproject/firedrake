@@ -1,7 +1,7 @@
 import numpy
 import ufl
 from ufl.domain import extract_domains, extract_unique_domain
-from ufl import replace
+from ufl import replace, ZeroBaseForm
 from ufl.formatting.ufl2unicode import ufl2unicode
 from enum import Enum
 
@@ -261,7 +261,7 @@ class CachedSolverBlock(Block):
                 continue
             if dep.output is self.forward_cache.func:  # Can't compute dependence on initial guess
                 continue
-            if len(d2Fdmdu.integrals()) > 0:
+            if not d2Fdmdu.empty() and len(d2Fdmdu.integrals()) > 0:
                 hessian_rhs -= firedrake.assemble(d2Fdmdu)
 
         # 2. Solve adjoint system
@@ -302,10 +302,10 @@ class CachedSolverBlock(Block):
 
         hessian_output = 0
 
-        for form in (self.hessian_cache.d2Fdudm_forms[idx],
-                     self.hessian_cache.dFdm_adj2_forms[idx],
+        for form in (self.hessian_cache.dFdm_adj2_forms[idx],
+                     self.hessian_cache.d2Fdudm_forms[idx],
                      *relevant_d2Fdm2_forms):
-            if not form.empty():
+            if not isinstance(form, ZeroBaseForm):
                 hessian_output += firedrake.assemble(form)
 
         return hessian_output
