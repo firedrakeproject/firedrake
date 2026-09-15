@@ -2807,7 +2807,7 @@ values from f.)"""
         else:
             self.tolerance = tolerance
         # `xs` are the physical coordinates we query the rtree with.
-        # libspatialindex requires these to be of type double
+        # firedrake-rtree requires these to be of type double
         xs = np.asarray(xs).real.astype(np.float64, order="C")
         if xs.shape[1] != self.geometric_dimension:
             raise ValueError("Point coordinate dimension does not match mesh geometric dimension")
