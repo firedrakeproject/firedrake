@@ -5266,11 +5266,6 @@ def _submesh_with_transferred_coordinates(mesh, submesh, name):
         coordinates of ``mesh`` restricted to it.
 
     """
-    if submesh.ufl_cell() != mesh.ufl_cell():
-        raise NotImplementedError(
-            "Can only transfer the coordinates of a curved or periodic mesh "
-            "onto a submesh of the same dimension"
-        )
     import firedrake.function as function
 
     V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
