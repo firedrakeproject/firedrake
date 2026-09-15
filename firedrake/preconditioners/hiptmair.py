@@ -21,10 +21,23 @@ __all__ = ("TwoLevelPC", "HiptmairPC")
 
 
 class TwoLevelPC(PCBase):
-    """ PC for two-level methods
+    """Base class for two-level preconditioners.
 
-    should implement:
-    - :meth:`coarsen`
+    Subclasses implement :meth:`coarsen` and supply their options prefix.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    mg_coarse_mat_type : str, default parameters["default_matrix_type"]
+        Matrix type for the assembled coarse operator. Prepend the outer
+        solver prefix and the subclass prefix to this suffix. For
+        :class:`HiptmairPC`, the key relative to the outer prefix is
+        ``hiptmair_mg_coarse_mat_type``.
+
+    PETSc handles the inner PCMG options under the subclass prefix through
+    ``setFromOptions``. The level and coarse solvers add ``mg_levels_`` and
+    ``mg_coarse_``, respectively.
     """
     @abc.abstractmethod
     def coarsen(self, pc):
@@ -123,17 +136,35 @@ class HiptmairPC(TwoLevelPC):
     potential space in H^1 or H(curl), respectively.
 
     Internally this creates a PETSc PCMG object that can be controlled by
-    options using the extra options prefix ``hiptmair_mg_``.
+    options using the extra options prefix ``hiptmair_``.
 
     This allows for effective multigrid relaxation methods with patch solves
     centered around vertices for H^1, edges for H(curl), or faces for H(div).
     For the lowest-order spaces this corresponds to point-Jacobi.
 
     The H(div) auxiliary vector potential problem in H(curl) is singular for
-    high-order.  This can be overcome by pertubing the problem by a multiple of
+    high-order.  This can be overcome by perturbing the problem by a multiple of
     the mass matrix. The scaling factor can be provided (defaulting to 0) by
     providing a scalar in the application context, keyed on
     ``"hiptmair_shift"``.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    hiptmair_mg_coarse_restriction_domain : str, default ""
+        Restrict the auxiliary element to this domain. An empty string leaves
+        the auxiliary element unrestricted.
+    hiptmair_zero_beta_poisson : bool, default True
+        Constrain auxiliary nodes whose coarse operator diagonal is zero
+        within a tolerance of 1e-10 times the largest diagonal magnitude.
+
+    ``hiptmair_mg_coarse_mat_type`` inherits its type, default, and meaning
+    from :class:`TwoLevelPC`. The internal PC prefix is ``hiptmair_``;
+    PETSc level and coarse solver options use ``hiptmair_mg_levels_`` and
+    ``hiptmair_mg_coarse_``.
     """
 
     _prefix = "hiptmair_"

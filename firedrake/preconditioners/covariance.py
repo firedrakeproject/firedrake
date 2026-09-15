@@ -4,10 +4,10 @@ from firedrake.function import Function
 
 
 class CovariancePC(petsctools.PCBase):
-    r"""
-    A python PC context for a covariance operator.
-    Will apply either the action or inverse of the covariance,
-    whichever is the opposite of the Mat operator.
+    r"""A Python PC context for a covariance operator.
+
+    Apply either the action or inverse of the covariance, whichever is the
+    opposite of the Mat operator.
 
     .. math::
 
@@ -15,16 +15,22 @@ class CovariancePC(petsctools.PCBase):
 
         B^{-1}: V \to V^{*}
 
-    Available options:
-
-    * ``-pc_use_amat`` - use Amat to apply the covariance operator.
-
     See Also
     --------
     ~firedrake.adjoint.covariance_operator.CovarianceOperatorBase
     ~firedrake.adjoint.covariance_operator.AutoregressiveCovariance
     ~firedrake.adjoint.covariance_operator.CovarianceMatCtx
     ~firedrake.adjoint.covariance_operator.CovarianceMat
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    pc_use_amat : bool, default False
+        Use the covariance context from Amat when True, or Pmat otherwise.
+        The key is prefixed by ``parent_prefix`` (the outer PC prefix), with
+        no extra ``covariance`` prefix. Apply the operation opposite to the
+        selected matrix's operation.
     """
     needs_python_pmat = True
     prefix = "covariance"

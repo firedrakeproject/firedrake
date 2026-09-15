@@ -20,6 +20,16 @@ class MassInvPC(AssembledPC):
     This can be provided (defaulting to constant viscosity) by
     providing a field defining the viscosity in the application
     context, keyed on ``"mu"``.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    ``Mp_mat_type`` and ``Mp_sub_mat_type`` inherit their types,
+    defaults, and meanings from :class:`~.AssembledPC`. The inner PETSc PC
+    also uses the ``Mp_`` prefix.
     """
 
     _prefix = "Mp_"

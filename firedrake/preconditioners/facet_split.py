@@ -24,6 +24,23 @@ class FacetSplitPC(PCBase):
     generated for the matrix-free operator evaluation in the space with full
     DOFs will run faster than the one with interior-facet decomposition, since
     the full element has a simpler structure.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    facet_mat_type : str, default "submatrix"
+        Extract a virtual submatrix from Pmat, or reuse Pmat when no permutation
+        is needed. Any other supported matrix type assembles the operator on
+        the restricted space using that type.
+    facet_restriction_domain : str, default "interior,facet"
+        Comma-separated, ordered list of element restriction domains. The list
+        determines the order of blocks in the restricted space. A single domain
+        constructs one restricted element; multiple domains form a mixed element.
+
+    PETSc handles inner PC options under ``facet_`` through ``setFromOptions``.
     """
 
     needs_python_pmat = False

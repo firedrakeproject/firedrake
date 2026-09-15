@@ -25,30 +25,60 @@ __all__ = ("BDDCPC",)
 
 
 class BDDCPC(PCBase):
-    """PC for PETSc PCBDDC (Balancing Domain Decomposition by Constraints).
-    This is a domain decomposition method using subdomains defined by the
-    blocks in a Mat of type IS.
+    """Apply PETSc BDDC (Balancing Domain Decomposition by Constraints).
 
-    Internally, this PC creates a PETSc PCBDDC object that can be controlled by
-    the options:
-    - ``'bddc_cellwise'`` to set up a MatIS on cellwise subdomains if P.type == python,
-    - ``'bddc_matfree'`` to set up a matrix-free MatIS if A.type == python,
-    - ``'bddc_pc_bddc_neumann'`` to set sub-KSPs on subdomains excluding corners,
-    - ``'bddc_pc_bddc_dirichlet'`` to set sub-KSPs on subdomain interiors,
-    - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
+    Subdomains are the blocks of a matrix of type ``is``.
 
-    This PC also inspects optional callbacks supplied in the application context:
-    - ``'get_discrete_gradient'`` for 3D problems in H(curl), this is a callable that
-    provide the arguments (a Mat tabulating the gradient of the auxiliary H1 space) and
-    keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.
-    - ``'get_divergence_mat'`` for problems in H(div) (resp. 2D H(curl)), this is
-    provide the arguments (a Mat with the assembled bilinear form testing the divergence
-    (curl) against an L2 space) and keyword arguments supplied to ``PETSc.PC.setDivergenceMat``.
-    - ``'primal_markers'`` a Function marking degrees of freedom of the solution space to be included in the
-    coarse space. Any nonzero value is counted as a marked degree of freedom.
-    If a DG(0) Function is provided, then all degrees of freedom on the cell are marked.
-    Alternatively, ``'primal_markers'`` can be a list of the global degrees of freedom to
-    be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    bddc_matfree : bool, default False
+        Reconstruct a Python Amat as a matrix-free MatIS.
+    bddc_cellwise : bool, default False
+        Use cellwise subdomains when reconstructing a Python Pmat as MatIS.
+        This option is read only when Pmat has type ``python``.
+    bddc_pc_bddc_corner_selection : bool, default depends on the space
+        Provide coordinates for corner selection. The default enables this
+        when the element has vertex degrees of freedom. An explicit value
+        takes precedence.
+    bddc_use_divergence_mat : bool, default depends on the space
+        Supply a divergence matrix. This defaults to True when the topological
+        dimension is at least 2 and the element form degree is dimension minus
+        one, including H(div) and two-dimensional H(curl) spaces.
+    bddc_use_discrete_gradient : bool, default depends on the space
+        Supply a discrete gradient. This defaults to True when the topological
+        dimension is at least 3 and the element form degree is 1.
+    bddc_pc_bddc_use_local_mat_graph : bool, default depends on the space
+        Let PETSc infer connectivity from the local matrix graph. If absent,
+        Firedrake sets this to False for spaces outside H1/H2 or elements that
+        do not have a pointwise dual basis. Otherwise PETSc chooses the default.
+    bddc_debug : int, default unset
+        Alias for ``bddc_pc_bddc_check_level`` when that option is absent.
+    bddc_pc_bddc_check_level : int, default chosen by PETSc
+        Diagnostic level passed to PETSc. An explicit value overrides
+        ``bddc_debug``.
+
+    PETSc handles other inner PC options through ``setFromOptions`` with the
+    ``bddc_`` prefix. Configure subdomain solves that exclude corners with
+    ``bddc_pc_bddc_neumann_``, interior solves with ``bddc_pc_bddc_dirichlet_``,
+    and the coarse KSP with ``bddc_pc_bddc_coarse_``.
+
+    .. rubric:: Application context
+
+    ``get_discrete_gradient`` and ``get_divergence_mat`` are optional callbacks
+    that replace the built-in auxiliary matrix constructors. The gradient
+    callback receives the function space; the divergence callback also
+    receives ``mat_type="is"`` and ``allow_repeated``. Each returns a matrix or
+    an ``(args, kwargs)`` pair for ``PETSc.PC.setBDDCDiscreteGradient`` or
+    ``PETSc.PC.setBDDCDivergenceMat``, respectively.
+
+    ``primal_markers`` optionally identifies degrees of freedom for the coarse
+    space. It can be a Function whose nonzero entries mark degrees of freedom,
+    a DG(0) Function that marks all degrees of freedom on selected cells, or a
+    list of global indices for ``PETSc.PC.setBDDCPrimalVerticesIS``.
     """
 
     _prefix = "bddc_"

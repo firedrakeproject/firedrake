@@ -12,6 +12,21 @@ class AssembledPC(PCBase):
 
     Internally this makes a PETSc PC object that can be controlled by
     options using the extra options prefix ``assembled_``.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    assembled_mat_type : str, default "aij"
+        Matrix type used to assemble the operator.
+    assembled_sub_mat_type : str, default unset
+        Matrix type for blocks of a nested matrix. An empty string leaves the
+        choice to the assembler.
+
+    Subclasses use their own prefix in place of ``assembled_``. PETSc handles
+    inner PC options under the same prefix through ``setFromOptions``.
     """
 
     _prefix = "assembled_"
@@ -106,7 +121,18 @@ class AssembledPC(PCBase):
 
 class AuxiliaryOperatorPC(AssembledPC):
     """A preconditioner that builds a PC on a specified form.
-    Mainly used for describing approximations to Schur complements.
+
+    Use this class to describe approximations to Schur complements.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    ``aux_mat_type`` and ``aux_sub_mat_type`` inherit their types,
+    defaults, and meanings from :class:`~.AssembledPC`. The inner PETSc PC
+    also uses the ``aux_`` prefix.
     """
 
     _prefix = "aux_"

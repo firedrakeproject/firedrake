@@ -41,8 +41,7 @@ __all__ = ("FDMPC", "PoissonFDMPC")
 
 
 class FDMPC(PCBase):
-    """
-    A preconditioner for tensor-product elements that changes the shape
+    """A preconditioner for tensor-product elements that changes the shape
     functions so that the H(d) (d in {grad, curl, div}) Riesz map is sparse on
     Cartesian cells, and assembles a global sparse matrix on which other
     preconditioners, such as `ASMStarPC`, can be applied.
@@ -55,9 +54,23 @@ class FDMPC(PCBase):
     obtained by approximating (v, alpha * u) and (v, beta * u) as diagonal mass
     matrices.
 
-    The PETSc options inspected by this class are:
-    - 'fdm_mat_type': can be either 'aij', 'sbaij', or 'is'
-    - 'fdm_static_condensation': are we assembling the Schur complement on facets?
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    fdm_pc_use_amat : bool, default True
+        Use Amat in the inner preconditioner and for the exact Schur complement
+        when static condensation is enabled.
+    fdm_static_condensation : bool, default False
+        Assemble the Schur complement on facet degrees of freedom.
+    fdm_mat_type : str, default "aij"
+        Sparse matrix type: ``aij``, ``sbaij``, or ``is``.
+    fdm_mat_is_allow_repeated : bool, default True
+        Allow repeated indices in MatIS. Read only for ``fdm_mat_type=is``.
+
+    PETSc handles inner solver options under ``fdm_`` through ``setFromOptions``.
     """
 
     _prefix = "fdm_"
@@ -1895,8 +1908,7 @@ class SparseAssembler:
 
 
 class PoissonFDMPC(FDMPC):
-    """
-    A preconditioner for tensor-product elements that changes the shape
+    """A preconditioner for tensor-product elements that changes the shape
     functions so that the H^1 Riesz map is sparse in the interior of a
     Cartesian cell, and assembles a global sparse matrix on which other
     preconditioners, such as `ASMStarPC`, can be applied.
@@ -1913,6 +1925,16 @@ class PoissonFDMPC(FDMPC):
     For spaces that are not H^1-conforming, this preconditioner will use
     the symmetric interior-penalty DG method. The penalty coefficient can be
     provided in the application context, keyed on ``"eta"``.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    ``fdm_pc_use_amat``, ``fdm_static_condensation``, ``fdm_mat_type``, and
+    ``fdm_mat_is_allow_repeated`` inherit their types, defaults, and meanings
+    from :class:`FDMPC`. The inner solver also uses ``fdm_``.
     """
 
     _variant = "fdm_ipdg"

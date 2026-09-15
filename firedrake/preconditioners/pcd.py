@@ -5,19 +5,16 @@ __all__ = ("PCDPC", )
 
 
 class PCDPC(PCBase):
-
-    needs_python_pmat = True
-
     r"""A Pressure-Convection-Diffusion preconditioner for Navier-Stokes.
 
-    This preconditioner approximates the inverse of the pressure schur
-    complement for the Navier-Stokes equations by.
+    This preconditioner approximates the inverse of the pressure Schur
+    complement for the Navier-Stokes equations by
 
     .. math::
 
        S^{-1} \sim K^{-1} F_p M^{-1}
 
-    Where :math:`K = \nabla^2`,
+    where :math:`K = \nabla^2`,
     :math:`F_p = (1/\mathrm{Re}) \nabla^2 + u\cdot\nabla`
     and :math:`M = \mathbb{I}`.
 
@@ -27,18 +24,35 @@ class PCDPC(PCBase):
     The inverse of :math:`M` is similarly approximated by a KSP which
     can be controlled using the options prefix ``pcd_Mp_``.
 
-    :math:`F_p` requires both the Reynolds number and the current
-    velocity.  You must provide these with options using the glbaol
-    option ``Re`` for the Reynolds number and the prefixed option
-    ``pcd_velocity_space`` which should be the index into the full
-    space that gives velocity field.
+    The application context must contain ``state``, the current mixed solution,
+    and ``velocity_space``, the index of its velocity subspace. The optional
+    ``Re`` entry supplies the Reynolds number and defaults to 1.0.
 
     .. note::
 
        Currently, the boundary conditions applied to the PCD operator
        are correct for characteristic velocity boundary conditions,
        but sub-optimal for in and outflow boundaries.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    pcd_Mp_mat_type : str, default parameters["default_matrix_type"]
+        Matrix type for the pressure mass operator.
+    pcd_Kp_mat_type : str, default parameters["default_matrix_type"]
+        Matrix type for the regularized pressure Laplacian.
+    pcd_Fp_mat_type : str, default "matfree"
+        Matrix type for the pressure convection-diffusion operator.
+
+    PETSc handles the mass and Laplacian KSP options under ``pcd_Mp_`` and
+    ``pcd_Kp_`` through ``setFromOptions``.
     """
+
+    needs_python_pmat = True
+
     def initialize(self, pc):
         from firedrake import (TrialFunction, TestFunction, dx, inner,
                                grad, split, Constant, parameters)

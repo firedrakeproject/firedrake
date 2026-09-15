@@ -30,6 +30,25 @@ def chop(A, tol=1E-10):
 
 
 class HypreAMS(PCBase):
+    """Apply Hypre AMS to a problem with lowest-order Nedelec elements.
+
+    The application context can provide a ``get_gradient`` callback that takes
+    the auxiliary Lagrange space and the Nedelec space and returns the discrete
+    gradient matrix. Otherwise Firedrake constructs this matrix.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    pc_hypre_ams_zero_beta_poisson : bool, default False
+        Tell Hypre that the beta Poisson matrix is zero by passing a null matrix.
+        This key uses only the outer prefix.
+
+    PETSc handles the inner Hypre AMS solver options under the extra
+    ``hypre_ams_`` prefix through ``setFromOptions``.
+    """
     def initialize(self, obj):
         from firedrake.assemble import assemble
 

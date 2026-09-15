@@ -659,6 +659,36 @@ def select_entity(p, dm=None, exclude=None):
 
 
 class PlaneSmoother(object):
+    """Construct patches by sweeping through planes of mesh entities.
+
+    Use this callable as the Python construction type for :class:`PatchPC`,
+    for example with ``patch_pc_patch_construct_type=python`` and
+    ``patch_pc_patch_construct_python_type=firedrake.PlaneSmoother``.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    patch_pc_patch_construct_ps_sweeps : str, required
+        Colon-separated sweep specifications, each of the form
+        ``axis+divisions`` or ``axis-divisions``. There is no default.
+        For example, ``0+10:1-10`` requests sweeps along coordinate axes 0 and
+        1, with ten equally spaced divisions in each direction. ``+`` orders
+        entities by increasing coordinate; ``-`` orders them by decreasing
+        coordinate.
+
+    An axis is a zero-based coordinate index, or an application-context key
+    whose value is a callable that maps coordinates to a scalar. Divisions
+    are an integer number of equally spaced bins, or an application-context
+    key whose value is an array of division boundaries. For example,
+    ``distance+bins`` uses ``appctx["distance"]`` and ``appctx["bins"]``.
+
+    The callable reads ``pc_patch_construct_ps_sweeps`` with the prefix of the
+    PETSc object passed to it. With :class:`PatchPC`, that object has the extra
+    ``patch_`` prefix shown above.
+    """
     @staticmethod
     def coords(dm, p, coordinates):
         coordinatesV = coordinates.function_space()
@@ -787,6 +817,40 @@ class PlaneSmoother(object):
 
 
 class PatchBase(PCSNESBase):
+    """Base class for variational patch preconditioners and nonlinear solvers.
+
+    The inner PETSc patch object uses the outer solver prefix followed by
+    ``patch_``. Subclasses configure either a PC or a SNES.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver prefix for
+    :class:`PatchPC`. For :class:`PatchSNES`, replace ``patch_pc_patch_`` with
+    ``patch_snes_patch_``. These options are also passed to the inner PETSc
+    object through ``setFromOptions``.
+
+    patch_pc_patch_construct_type : str, default unset
+        Patch construction type. Set this to ``star``, ``vanka``, ``pardecomp``,
+        or ``python``. Firedrake uses it to validate mesh overlap; it does not
+        supply a default construction type.
+    patch_pc_patch_construct_dim : int, default -1
+        Dimension of the entities that seed patches; -1 means unset. Do not
+        set both dimension and codimension. If neither is set, Firedrake
+        validates overlap using dimension 0.
+    patch_pc_patch_construct_codim : int, default -1
+        Codimension of the entities that seed patches; -1 means unset.
+        Firedrake converts a supplied codimension to a dimension for overlap
+        validation.
+    patch_pc_patch_construct_python_type : str, required for Python construction
+        Dotted Python name of a callable, or a class that can be instantiated
+        without arguments. The callable receives the inner PETSc object and
+        the arguments from the patch construction callback. There is no default.
+
+    The dimension defaults above describe Firedrake's overlap validation;
+    PETSc also reads these options when it constructs patches.
+    """
 
     def initialize(self, obj):
 
@@ -995,6 +1059,20 @@ class PatchBase(PCSNESBase):
 
 
 class PatchPC(PCBase, PatchBase):
+    """Apply a variational patch preconditioner.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    ``patch_pc_patch_construct_type``, ``patch_pc_patch_construct_dim``,
+    ``patch_pc_patch_construct_codim``, and
+    ``patch_pc_patch_construct_python_type`` use the descriptions, types,
+    and defaults in :class:`PatchBase`. PETSc handles other inner solver
+    options under ``patch_`` through ``setFromOptions``.
+    """
 
     _petsc_prefix = "pc_patch_"
 
@@ -1010,6 +1088,20 @@ class PatchPC(PCBase, PatchBase):
 
 
 class PatchSNES(SNESBase, PatchBase):
+    """Apply a nonlinear variational patch solver.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    ``patch_snes_patch_construct_type``, ``patch_snes_patch_construct_dim``,
+    ``patch_snes_patch_construct_codim``, and
+    ``patch_snes_patch_construct_python_type`` use the descriptions, types,
+    and defaults in :class:`PatchBase`. PETSc handles other inner solver
+    options under ``patch_`` through ``setFromOptions``.
+    """
 
     _petsc_prefix = "snes_patch_"
 

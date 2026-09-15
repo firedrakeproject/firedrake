@@ -14,9 +14,9 @@ __all__ = ['GTMGPC']
 
 
 class GTMGPC(PCBase):
-    """Non-nested multigrid preconditioner
+    """A non-nested multigrid preconditioner.
 
-    Implements the method described in [1]. Note that while the authors of
+    Implements the method described in [1]_. Note that while the authors of
     this paper consider a non-nested function space hierarchy, the algorithm
     can also be applied if the spaces are nested.
 
@@ -49,12 +49,27 @@ class GTMGPC(PCBase):
     PETSc options for the underlying PCMG object can be set with the
     prefix ``gt_``.
 
-    Reference:
+    Notes
+    -----
+    .. rubric:: PETSc options
 
-        [1] Gopalakrishnan, J. and Tan, S., 2009: "A convergent multigrid
+    The keys below are relative to the outer solver options prefix.
+
+    gt_mat_type : str, default parameters["default_matrix_type"]
+        Matrix type for the fine operator when Pmat has type ``python``.
+        Otherwise the existing Pmat is used and this option is not read.
+    gt_mg_coarse_mat_type : str, default parameters["default_matrix_type"]
+        Matrix type for the coarse operator.
+
+    PETSc handles the inner PCMG options under ``gt_`` through ``setFromOptions``.
+    Level and coarse solver prefixes are ``gt_mg_levels_`` and ``gt_mg_coarse_``.
+
+    References
+    ----------
+
+    .. [1] Gopalakrishnan, J. and Tan, S., 2009: "A convergent multigrid
         cycle for the hybridized mixed method". Numerical Linear Algebra
         with Applications, 16(9), pp.689-714. https://doi.org/10.1002/nla.636
-
     """
 
     needs_python_pmat = False

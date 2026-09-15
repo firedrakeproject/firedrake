@@ -16,32 +16,51 @@ __all__ = ("PMGPC", "PMGSNES")
 
 
 class PMGBase(PCSNESBase):
-    """A class for implementing p-multigrid.
+    """Base class for multigrid methods that coarsen the polynomial degree.
 
-    Internally, this sets up a DM with a custom coarsen routine
-    that p-coarsens the problem. This DM is passed to an internal
-    PETSc PC of type MG and with options prefix ``pmg_``. The
-    relaxation to apply on every p-level is described by ``pmg_mg_levels_``,
-    and the coarse solve by ``pmg_mg_coarse_``. Geometric multigrid
-    or any other solver in firedrake may be applied to the coarse problem.
+    A DM with a custom coarsening routine builds the hierarchy. The default
+    :meth:`coarsen_element` halves the polynomial degree at each step until
+    it reaches the requested coarse degree. Subclasses can override
+    :meth:`coarsen_element` and :meth:`coarsen_form`. The element routine
+    returns a coarser :class:`finat.ufl.finiteelement.FiniteElement`, or raises
+    ``ValueError`` when its argument should be the coarsest element.
 
-    Other PETSc options inspected by this class are:
-    - 'pmg_mg_coarse_degree': polynomial degree of the coarse level
-    - 'pmg_mg_coarse_mat_type': can be either a `PETSc.Mat.Type`, or 'matfree'
-    - 'pmg_mg_coarse_pmat_type': can be either a `PETSc.Mat.Type`, or 'matfree'
-    - 'pmg_mg_coarse_form_compiler_mode': can be 'spectral' (default), 'vanilla', 'coffee', or 'tensor'
-    - 'pmg_mg_levels_transfer_mat_type': can be either 'aij' or 'matfree'
+    The internal solver is PCMG for :class:`PMGPC` and SNESFAS for
+    :class:`PMGSNES`. Geometric multigrid or another Firedrake solver can
+    solve the coarse problem.
 
-    The p-coarsening is implemented in the `coarsen_element` routine.
-    This takes in a :class:`finat.ufl.finiteelement.FiniteElement` and either returns a
-    new, coarser element, or raises a `ValueError` (if the supplied element
-    should be the coarsest one of the hierarchy).
+    Notes
+    -----
+    .. rubric:: PETSc options
 
-    The default coarsen_element is to perform power-of-2 reduction
-    of the polynomial degree.
-    It is expected that some applications of this preconditioner
-    will subclass :class:`PMGBase` to override `coarsen_element` and
-    `coarsen_form`.
+    Keys below are relative to the outer solver prefix and use the linear
+    ``pmg_`` prefix. For nonlinear solvers, replace ``pmg_mg_coarse_`` with
+    ``pfas_fas_coarse_``. For :class:`~.LORPC`, replace it with
+    ``lor_mg_coarse_``. Concrete classes list their applicable keys.
+
+    pmg_mg_coarse_degree : int, default 1
+        Polynomial degree of the coarsest element.
+    pmg_mg_coarse_mat_type : str, default inherited from the fine context
+        Matrix type for the coarse operator, either a supported PETSc matrix
+        type or ``matfree``. A fine context of type ``submatrix`` instead
+        gives the default ``matfree``.
+    pmg_mg_coarse_pmat_type : str, default the coarse operator matrix type
+        Matrix type for the coarse preconditioning operator.
+    pmg_mg_coarse_form_compiler_mode : str, default inherited from the fine problem
+        Form compiler mode on the coarse level: ``spectral``, ``vanilla``,
+        ``coffee``, or ``tensor``. The default is ``spectral`` if the fine
+        problem does not specify a mode.
+    pmg_mg_levels_transfer_mat_type : str, default "matfree"
+        Matrix type for interpolation and injection, such as ``aij`` or
+        ``matfree``. This is read with the coarse DM prefix, which is inherited
+        unchanged through the polynomial hierarchy. The nonlinear key is
+        ``pfas_mg_levels_transfer_mat_type``; the low-order refined key is
+        ``lor_mg_levels_transfer_mat_type``.
+
+    PETSc handles other inner solver options through ``setFromOptions``.
+    Linear relaxation and coarse solves use ``pmg_mg_levels_`` and
+    ``pmg_mg_coarse_``; nonlinear solves use ``pfas_fas_levels_`` and
+    ``pfas_fas_coarse_``.
     """
 
     _prefix = "pmg_"
@@ -350,6 +369,31 @@ class PMGBase(PCSNESBase):
 
 
 class PMGPC(PCBase, PMGBase):
+    """Apply multigrid with polynomial coarsening through PETSc PCMG.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    The shared options ``pmg_mg_coarse_degree``, ``pmg_mg_coarse_mat_type``,
+    ``pmg_mg_coarse_pmat_type``, ``pmg_mg_coarse_form_compiler_mode``, and
+    ``pmg_mg_levels_transfer_mat_type`` use the descriptions and defaults in
+    :class:`PMGBase`. Inner relaxation and coarse solves use
+    ``pmg_mg_levels_`` and ``pmg_mg_coarse_``.
+
+    pmg_mg_coarse_pc_type : str, default unset by Firedrake
+        PETSc coarse PC type. On a mesh with refinement levels, Firedrake
+        checks whether this is ``mg`` to limit the geometric hierarchy.
+    pmg_mg_coarse_pc_mg_levels : int, default the mesh refinement level plus one
+        Number of geometric coarse-solver levels. When the mesh has refinement
+        levels and the coarse PC type is ``mg``, Firedrake caps this value at
+        the mesh refinement level plus one. Otherwise PETSc handles it.
+
+    The geometric-level checks use the literal ``pmg_`` prefix, including
+    when a subclass changes the internal solver prefix.
+    """
     _prefix = "pmg_"
 
     def configure_pmg(self, pc, pdm):
@@ -383,6 +427,36 @@ class PMGPC(PCBase, PMGBase):
 
 
 class PMGSNES(SNESBase, PMGBase):
+    """Apply nonlinear multigrid with polynomial coarsening through PETSc SNESFAS.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    The keys below are relative to the outer solver options prefix.
+
+    The shared options ``pfas_fas_coarse_degree``, ``pfas_fas_coarse_mat_type``,
+    ``pfas_fas_coarse_pmat_type``, ``pfas_fas_coarse_form_compiler_mode``, and
+    ``pfas_mg_levels_transfer_mat_type`` use the descriptions and defaults in
+    :class:`PMGBase`. The transfer key retains ``mg_levels_``. Inner relaxation
+    and coarse solves use ``pfas_fas_levels_`` and ``pfas_fas_coarse_``.
+
+    pfas_fas_coarse_pc_type : str, default unset by Firedrake
+        PETSc coarse PC type. On a mesh with refinement levels, a value of
+        ``mg`` enables the geometric PC level cap.
+    pfas_fas_coarse_pc_mg_levels : int, default the mesh refinement level plus one
+        Number of geometric PC levels. If the mesh has refinement levels and
+        the coarse PC type is ``mg``, cap this at the available mesh levels.
+    pfas_fas_coarse_snes_type : str, default unset by Firedrake
+        PETSc coarse SNES type. On a mesh with refinement levels, a value of
+        ``fas`` enables the geometric SNES level cap.
+    pfas_fas_coarse_snes_fas_levels : int, default the mesh refinement level plus one
+        Number of geometric FAS levels. If the mesh has refinement levels and
+        the coarse SNES type is ``fas``, cap this at the available mesh levels.
+
+    PETSc handles these solver options when the conditions for a Firedrake
+    level cap do not apply.
+    """
     _prefix = "pfas_"
 
     def configure_pmg(self, snes, pdm):

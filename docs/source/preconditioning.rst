@@ -321,5 +321,18 @@ explicitly switch off the line search in the ``npc_`` parameters
 with ``"npc_snes_linesearch_type": "basic"`` (although you may well
 want to experiment with using a linesearch for your application).
 
+Shared PETSc options
+====================
+
+The following base classes document options that their concrete solvers inherit.
+
+.. autoclass:: firedrake.preconditioners.patch.PatchBase
+   :no-members:
+   :no-special-members:
+
+.. autoclass:: firedrake.preconditioners.pmg.PMGBase
+   :no-members:
+   :no-special-members:
+
 .. bibliography:: _static/references.bib _static/firedrake-apps.bib
    :filter: docname in docnames

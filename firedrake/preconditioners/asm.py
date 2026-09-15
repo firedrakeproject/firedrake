@@ -16,11 +16,45 @@ __all__ = ("ASMPatchPC", "ASMStarPC", "ASMVankaPC", "ASMLinesmoothPC", "ASMExtru
 
 
 class ASMPatchPC(PCBase):
-    ''' PC for PETSc PCASM
+    """Base class for additive Schwarz preconditioners that construct patches.
 
-    should implement:
-    - :meth:`get_patches`
-    '''
+    Subclasses implement :meth:`get_patches`.
+
+    Notes
+    -----
+    .. rubric:: PETSc options
+
+    Append the subclass prefix to the outer solver prefix: ``pc_star_`` for
+    :class:`ASMStarPC` and :class:`ASMExtrudedStarPC`, ``pc_vanka_`` for
+    :class:`ASMVankaPC`, or ``pc_linesmooth_`` for :class:`ASMLinesmoothPC`.
+    The following suffixes share their descriptions and defaults across these
+    classes.
+
+    backend : str, default "petscasm"
+        Select ``petscasm`` or ``tinyasm`` (case-insensitive).
+    view_patch_sizes : bool, default False
+        Collect the minimum, mean, and maximum patch sizes for the PC viewer.
+    mat_ordering_type : str, default unset in this base class
+        With ``petscasm``, explicitly setting this option prevents PCASM from
+        sorting patch indices, except for symmetric block AIJ matrices.
+        Star and Vanka constructors also use it to reorder the connectivity
+        graph; their default is ``natural``.
+    sub_sub_pc_type : str, default "lu"
+        PETSc solver type for each patch with the ``petscasm`` backend. Firedrake
+        inserts this default only when the option is absent.
+    sub_sub_pc_factor_mat_ordering_type : str, default "natural"
+        PETSc factorization ordering for each patch with ``petscasm``. Firedrake
+        inserts this default only when the option is absent.
+
+    PETSc handles the inner ASM options under the subclass prefix followed by
+    ``sub_`` through ``setFromOptions``.
+
+    The global option ``mat_coloring_type`` (str) has no outer or subclass
+    prefix. When coloring is enabled and this option is absent, Firedrake
+    temporarily sets it to ``greedy`` for star patches (distance 1) or ``power``
+    for Vanka patches (distance 3). An explicit PETSc coloring type takes
+    precedence.
+    """
 
     @property
     @abc.abstractmethod
@@ -140,21 +174,27 @@ class ASMPatchPC(PCBase):
 
 
 class ASMStarPC(ASMPatchPC):
-    '''Patch-based PC using Star of mesh entities implemented as an
-    :class:`ASMPatchPC`.
+    """Construct additive Schwarz patches from the topological stars of mesh entities.
 
-    ASMStarPC is an additive Schwarz preconditioner where each patch
-    consists of all DoFs on the topological star of the mesh entity
-    specified by `pc_star_construct_dim`.
+    Notes
+    -----
+    .. rubric:: PETSc options
 
-    Non-overlapping patches may be optionally grouped together via a
-    coloring of the mesh entities. This is specified via the option
-    `pc_star_use_coloring`.
+    The keys below are relative to the outer solver options prefix.
 
-    The mesh entities in the patches may be reordered by applying a
-    matrix reordering to the connectivity graph with the option
-    `pc_star_mat_ordering_type`.
-    '''
+    pc_star_construct_dim : int, default 0
+        Topological dimension of the entities whose stars define the patches.
+    pc_star_use_coloring : bool, default False
+        Group non-overlapping patches with a coloring of the mesh entities.
+    pc_star_mat_ordering_type : str, default "natural"
+        PETSc matrix ordering applied to the connectivity graph of each patch.
+
+    The shared keys ``pc_star_backend``, ``pc_star_view_patch_sizes``,
+    ``pc_star_mat_ordering_type``, ``pc_star_sub_sub_pc_type``, and
+    ``pc_star_sub_sub_pc_factor_mat_ordering_type`` use the descriptions
+    in :class:`ASMPatchPC`. That class also documents the global
+    ``mat_coloring_type`` option and the inner ``pc_star_sub_`` prefix.
+    """
 
     _prefix = "pc_star_"
 
@@ -187,21 +227,36 @@ class ASMStarPC(ASMPatchPC):
 
 
 class ASMVankaPC(ASMPatchPC):
-    '''Patch-based PC using closure of star of mesh entities implmented as an
-    :class:`ASMPatchPC`.
+    """Construct additive Schwarz patches from the closures of topological stars.
 
-    ASMVankaPC is an additive Schwarz preconditioner where each patch
-    consists of all DoFs on the closure of the star of the mesh entity
-    specified by `pc_vanka_construct_dim` (or codim).
+    Notes
+    -----
+    .. rubric:: PETSc options
 
-    Non-overlapping patches may be optionally grouped together via a
-    coloring of the mesh entities. This is specified via the option
-    `pc_vanka_use_coloring`.
+    The keys below are relative to the outer solver options prefix.
 
-    The mesh entities in the patches may be reordered by applying a
-    matrix reordering to the connectivity graph with the option
-    `pc_vanka_mat_ordering_type`.
-   '''
+    pc_vanka_construct_dim : int, default -1
+        Dimension of the entities that define the patches. The value -1 means
+        unset. Set exactly one of this option and ``pc_vanka_construct_codim``.
+    pc_vanka_construct_codim : int, default -1
+        Codimension of the entities that define the patches; -1 means unset.
+    pc_vanka_exclude_subspaces : array of int, default empty
+        Indices of subspaces whose degrees of freedom are restricted by
+        ``pc_vanka_include_type``. Other subspaces use the closure of the star.
+    pc_vanka_include_type : str, default "star"
+        Include degrees of freedom of excluded subspaces on the ``star`` or
+        only on the seed ``entity`` (case-insensitive).
+    pc_vanka_use_coloring : bool, default False
+        Group non-overlapping patches with a coloring of the mesh entities.
+    pc_vanka_mat_ordering_type : str, default "natural"
+        PETSc matrix ordering applied to the connectivity graph of each patch.
+
+    The shared keys ``pc_vanka_backend``, ``pc_vanka_view_patch_sizes``,
+    ``pc_vanka_mat_ordering_type``, ``pc_vanka_sub_sub_pc_type``, and
+    ``pc_vanka_sub_sub_pc_factor_mat_ordering_type`` use the descriptions
+    in :class:`ASMPatchPC`. That class also documents the global
+    ``mat_coloring_type`` option and the inner ``pc_vanka_sub_`` prefix.
+    """
 
     _prefix = "pc_vanka_"
 
@@ -251,23 +306,26 @@ class ASMVankaPC(ASMPatchPC):
 
 
 class ASMLinesmoothPC(ASMPatchPC):
-    '''Linesmoother PC for extruded meshes implemented as an
-    :class:`ASMPatchPC`.
+    """Construct additive Schwarz patches along vertical columns of an extruded mesh.
 
-    ASMLinesmoothPC is an additive Schwarz preconditioner where each
-    patch consists of all dofs associated with a vertical column (and
-    hence extruded meshes are necessary). Three types of columns are
-    possible: columns of horizontal faces (each column built over a
-    face of the base mesh), columns of vertical faces (each column
-    built over an edge of the base mesh), and columns of vertical
-    edges (each column built over a vertex of the base mesh).
+    Notes
+    -----
+    .. rubric:: PETSc options
 
-    To select the column type or types for the patches, use
-    'pc_linesmooth_codims' to set integers giving the codimension of
-    the base mesh entities for the columns. For example,
-    'pc_linesmooth_codims 0,1' creates patches for each cell and each
-    facet of the base mesh.
-    '''
+    The keys below are relative to the outer solver options prefix.
+
+    pc_linesmooth_codims : str, default "0, 1"
+        Comma-separated codimensions of base mesh entities whose vertical
+        columns define the patches. For example, ``0,1`` selects cells and
+        facets of the base mesh. Columns can consist of horizontal faces,
+        vertical faces, or vertical edges.
+
+    The shared keys ``pc_linesmooth_backend``, ``pc_linesmooth_view_patch_sizes``,
+    ``pc_linesmooth_mat_ordering_type``, ``pc_linesmooth_sub_sub_pc_type``, and
+    ``pc_linesmooth_sub_sub_pc_factor_mat_ordering_type`` use the descriptions
+    in :class:`ASMPatchPC`. That class also documents the global
+    ``mat_coloring_type`` option and the inner ``pc_linesmooth_sub_`` prefix.
+    """
 
     _prefix = "pc_linesmooth_"
 
@@ -377,21 +435,25 @@ def get_basemesh_nodes(W):
 
 
 class ASMExtrudedStarPC(ASMStarPC):
-    '''Patch-based PC using Star of mesh entities implmented as an
-    :class:`ASMPatchPC`.
+    """Construct additive Schwarz star patches on an extruded mesh.
 
-    ASMExtrudedStarPC is an additive Schwarz preconditioner where each patch
-    consists of all DoFs on the topological star of the mesh entity
-    specified by `pc_star_construct_dim`.
+    On a non-extruded mesh, use the construction from :class:`ASMStarPC`.
 
-    Non-overlapping patches may be optionally grouped together via a
-    coloring of the mesh entities. This is specified via the option
-    `pc_star_use_coloring`.
+    Notes
+    -----
+    .. rubric:: PETSc options
 
-    The mesh entities in the patches may be reordered by applying a
-    matrix reordering to the connectivity graph with the option
-    `pc_star_mat_ordering_type`.
-    '''
+    The keys below are relative to the outer solver options prefix.
+
+    ``pc_star_construct_dim``, ``pc_star_use_coloring``, and
+    ``pc_star_mat_ordering_type`` inherit their types, defaults, and meanings
+    from :class:`ASMStarPC`.
+
+    ``pc_star_backend``, ``pc_star_view_patch_sizes``, ``pc_star_sub_sub_pc_type``,
+    and ``pc_star_sub_sub_pc_factor_mat_ordering_type`` use the descriptions
+    in :class:`ASMPatchPC`, including the global ``mat_coloring_type`` option.
+    The inner solver uses ``pc_star_sub_``.
+    """
 
     _prefix = 'pc_star_'
 
