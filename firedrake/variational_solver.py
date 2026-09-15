@@ -359,7 +359,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
 
-        .. code-block:: python3
+        .. code-block:: python
 
             {'snes_type': 'ksponly'}
 
@@ -367,7 +367,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         be specified with ``None``.
         For example:
 
-        .. code-block:: python3
+        .. code-block:: python
 
             {'snes_monitor': None}
 
@@ -375,7 +375,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         functionality, the user-defined function must accept the current
         solution as a petsc4py Vec. Example usage is given below:
 
-        .. code-block:: python3
+        .. code-block:: python
 
             def update_diffusivity(current_solution):
                 with cursol.dat.vec_wo as v:
