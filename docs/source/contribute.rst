@@ -101,6 +101,20 @@ of Firedrake's `contributors <https://github.com/firedrakeproject/firedrake/grap
 and mentioned in the `release notes <https://github.com/firedrakeproject/firedrake/releases>`__
 of the next release. Congratulations!
 
+Tagging PRs
+~~~~~~~~~~~
+
+In order for Firedrake's CI to run correctly, it may be necessary to add
+additional tags to your PR. Specifically:
+
+* If you are submitting a PR that does not target the ``release`` or ``main``
+  branches then either the ``base:release`` or ``base:main`` tag must be applied
+  so the correct 'base' build is used (e.g. which version of PETSc is built).
+* Add ``ci:macos``, ``ci:complex``, ``ci:int64``, ``ci:gpu`` if your PR touches
+  code that affects macOS installations, complex mode, int64 builds of PETSc, or
+  GPU code respectively.
+
+
 .. _presubmission_checks:
 
 Pre-submission checklist
