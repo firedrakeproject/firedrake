@@ -47,6 +47,8 @@ from pyop3.insn.base import (
 from pyop3.compile.loopy import LoopyCodegenContext
 from pyop3.compile.mlir import MLIRCodegenContext
 
+import pyop3.debug_flags
+
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, pyop3.config)
 
@@ -103,8 +105,6 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
 
     translation_unit = context.finalize_kernel(function_name, compiler_parameters)
 
-    if compiler_parameters.backend == "mlir":
-        raise NotImplementedError("MLIR code compilation is still being implemented.") 
 
     # Extra information needed by the code executor
     kernel_name_to_buffer_info = utils.invert_mapping(context.kernel_names)
@@ -114,7 +114,13 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     # match the calling order for the kernel.
     kernel_name_to_global_buffer_info = {}
     global_buffer_intents = {}
-    for kernel_arg in translation_unit.default_entrypoint.args:
+
+    if compiler_parameters.backend == "mlir":
+        kernel_args = translation_unit["args"]
+    elif compiler_parameters.backend == "loopy":
+        kernel_args = translation_unit.default_entrypoint.args 
+
+    for kernel_arg in kernel_args:
         buf_view = kernel_name_to_buffer_info[kernel_arg.name]
         buf_index = op.preprocessed_buffers.index(buf_view.buffer)
         kernel_name_to_global_buffer_info[kernel_arg.name] = (buf_index, buf_view.nest_indices)

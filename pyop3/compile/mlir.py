@@ -26,12 +26,15 @@ from xdsl.builder import Builder, InsertPoint
 from xdsl.ir import SSAValue, Block, Region, Operation
 
 from xdsl.dialects.builtin import (
+    ArrayAttr,
+    DictionaryAttr,
     DYNAMIC_INDEX,
     IntegerType,
     IndexType,
     IntegerAttr,
     Float64Type,
     FloatAttr,
+    i64, i32, f64,
     MemRefType,
     ModuleOp,
     UnitAttr,
@@ -293,7 +296,7 @@ class MLIRCodegenContext(CodegenContext):
             paths=paths, 
             target_type=assignee.dtype # NOTE: expression should match assignee buffer type
         )
-
+        
         match assignment_type:
             case AssignmentType.WRITE:
                 value = ssa_load
@@ -507,7 +510,13 @@ class MLIRCodegenContext(CodegenContext):
         for new_index, old_index in enumerate(perm):
             old_arg = self._entry_block.args[old_index]
             new_arg = new_block.args[new_index]
-            old_arg.replace_by(new_arg)         
+            old_arg.replace_by(new_arg)
+
+        # Finally, add restrict to all arguments
+        func_op.arg_attrs = ArrayAttr([
+            DictionaryAttr({"llvm.noalias": UnitAttr()})
+            for _ in func_op.function_type.inputs
+        ])
 
         """
         In MLIR, the IR works with Regions -> Blocks -> Operations -> Blocks -> Regions...
@@ -525,11 +534,12 @@ class MLIRCodegenContext(CodegenContext):
             module.verify()
 
         # NOTE: Temporary while building
-        with open("input.mlir", "w") as f: 
-            mlir_str = self.emit_mlir(module)
-            f.write(mlir_str)
+        # with open("input.mlir", "w") as f: 
+        #     mlir_str = self.emit_mlir(module)
+        #     f.write(mlir_str)
         
-        return module
+        # TODO: This is temporary for prototyping 
+        return {"module": module, "args": self.arguments, "name": f"_mlir_ciface_{function_name}"}
 
     def emit_mlir(self, module) -> str:
         from xdsl.printer import Printer
@@ -590,6 +600,11 @@ def align_binops(e, /, iname_maps, loop_indices, *, context, is_index, target_ty
     lhs = _lower_expr(e.a, iname_maps, loop_indices, **child)
     rhs = _lower_expr(e.b, iname_maps, loop_indices, **child)
     
+    # Ensure that lhs.dtype == rhs.dtype ( & == target_type) 
+    # if target_type and (target_type != e.a.dtype or target_type != e.b.dtype):
+        # breakpoint()
+        # pass
+
     if is_index:
         lhs = context._to_index(lhs)
         rhs = context._to_index(rhs)
@@ -670,11 +685,18 @@ def _(axis_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
     iname = utils.just_one(iname_maps)[axis_var.axis.label]
     if isinstance(iname, numbers.Integral): 
         # NOTE: iname variables are assigned outside codegen and constants must be mapped to an SSA value
-        return context._const_index(iname) 
+        ssa = context._const_index(iname) 
     elif isinstance(iname, str): 
-        return context.symbol_table[iname]
+        ssa = context.symbol_table[iname]
     else:
         raise NotImplementedError(f"No implementation for iname of type: {type(iname)}")
+
+    # NOTE: Bug fix for AxisVar used for value and index: arr[i] = i
+    # `arr[i]` implies `i` index but ` = i` implies `i` must match arr.dtype 
+    if not kwargs["is_index"] and kwargs["target_type"]: 
+        # TODO: Cast SSA to target_type 
+        ssa = context.insert(arith.IndexCastOp(ssa, i32))
+    return ssa 
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)
 def _(loop_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:

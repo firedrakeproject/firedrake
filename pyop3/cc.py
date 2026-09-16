@@ -84,6 +84,21 @@ _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
+# NOTE: Basic mlir-opt passes. Further optimisations can be made in future.
+MLIR_OPT_PASSES = (
+    "--cse",
+    "--canonicalize",
+    "--convert-scf-to-cf",
+    "--convert-cf-to-llvm",
+    "--convert-func-to-llvm",
+    "--finalize-memref-to-llvm",
+    "--convert-arith-to-llvm",
+    "--convert-index-to-llvm",
+    "--llvm-request-c-wrappers",
+    "--reconcile-unrealized-casts",
+    "--canonicalize",
+)
+
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True)
@@ -442,6 +457,74 @@ class AnonymousCompiler(Compiler):
     _name = "Unknown"
 
 
+class MLIRCompiler(Compiler):
+    """A "compiler" that turns MLIR source into a shared library.
+
+    The pipeline is:
+
+    mlir-opt lowers down to the mlir-llvm
+       dialect.
+    mlir-translate converts mlir-llvm dialect to LLVM IR
+       (.ll).
+    clang compiles the LLVM IR into a shared library.
+
+    :arg extra_compiler_flags: Extra arguments passed to ``mlir-opt``
+        (optional, prepended to any flags specified as the mlir-opt-flags
+        configuration option). The environment variable
+        ``PYOP2_MLIR_OPT_FLAGS`` can also be used to extend these options.
+    :arg extra_linker_flags: Extra arguments passed to ``clang`` when
+        compiling the LLVM IR into a shared library (optional, prepended to
+        any flags specified as the ldflags configuration option). The
+        environment variable ``PYOP2_LDFLAGS`` can also be used to extend
+        these options.
+    :arg version: (Optional) usually sniffed by loader.
+    :arg debug: Whether to use debugging compiler flags.
+    """
+    _name = "MLIR"
+
+    _mlir_opt = None
+    _mlir_translate = None
+    _cc = None
+
+    _mlir_opt_flags = MLIR_OPT_PASSES
+    _cflags = ("-fPIC",)
+    _ldflags = ("-shared",)
+
+    _optflags = ("-O3",)
+    _debugflags = ("-O0", "-g")
+
+    @property
+    def mlir_opt(self):
+        return self._mlir_opt or shutil.which("mlir-opt") or "mlir-opt"
+
+    @property
+    def mlir_translate(self):
+        return self._mlir_translate or shutil.which("mlir-translate") or "mlir-translate"
+
+    @property
+    def opt(self):
+        return shutil.which("opt")
+
+    @property
+    def cc(self):
+        return self._cc or shutil.which("clang") or "clang"
+
+    @property
+    def mlir_opt_flags(self) -> tuple[str, ...]:
+        return (
+            *self._mlir_opt_flags,
+            # *self._extra_compiler_flags, # NOTE: Ignoring this as it adds include library flags 
+            *getattr(pyop3.config, "extra_mlir_opt_flags", ()),
+        )
+
+    @property
+    def cflags(self) -> tuple[str, ...]:
+        return (
+            *self._cflags,
+            *(self._debugflags if self._debug else self._optflags),
+        )
+
+
 def load_hashkey(code, extension, cppargs=(), ldargs=(), comm=None):
     cppargs = tuple(cppargs)
     ldargs = tuple(ldargs)
@@ -461,7 +544,10 @@ def load(code, extension, cppargs=(), ldargs=(), comm=MPI.COMM_WORLD):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to mpi4py.MPI.COMM_WORLD).
     """
-    if _compiler:
+    if extension == "mlir":
+        # MLIR source has to go through separate mlir-opt -> mlir-translate -> clang pipeline
+        compiler = MLIRCompiler
+    elif _compiler:
         # Use the global compiler if it has been set
         compiler = _compiler
     else:
@@ -515,7 +601,13 @@ class CompilerDiskAccess(DictLikeDiskAccess):
 
 
 def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
-    if extension == "cpp":
+    if extension == "mlir":
+        return (
+            compiler, code, compiler.mlir_opt, compiler.mlir_opt_flags,
+            compiler.mlir_translate, compiler.cc, compiler.cflags,
+            compiler.ld, compiler.ldflags,
+        )
+    elif extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
     else:
@@ -570,7 +662,10 @@ def make_so(compiler, code, extension, comm):
     icomm = mpi.internal_comm(comm, compiler)
     ccomm = mpi.compilation_comm(icomm, compiler)
 
-    if extension == "cpp":
+    if extension == "mlir":
+        exe = None
+        compiler_flags = None
+    elif extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
     else:
@@ -598,7 +693,45 @@ def make_so(compiler, code, extension, comm):
                     fh.write(code)
                 os.close(descriptor)
 
-                if not compiler.ld:
+                if extension == "mlir":
+                    # 1. mlir -> optimised mlir 
+                    lowered_name = filename.with_suffix(".llvm.mlir")
+                    mlir_opt_cmd = (
+                        (compiler.mlir_opt, str(cname))
+                        + compiler.mlir_opt_flags
+                        + ('-o', str(lowered_name))
+                    )
+                    _run(mlir_opt_cmd, logfile, errfile, step="Lowering")
+
+                    # mlir -> llvm
+                    llname = filename.with_suffix(".ll")
+                    translate_cmd = (
+                        compiler.mlir_translate,
+                        "--mlir-to-llvmir",
+                        str(lowered_name),
+                        '-o', str(llname),
+                    )
+                    _run(translate_cmd, logfile, errfile, step="Translating", filemode="a")
+
+                    # llvm -> opt llvm 
+                    optname = filename.with_suffix(".ll")
+                    opt_cmd = (
+                        compiler.opt,
+                        "-O3",
+                        "-mcpu=native",
+                        str(llname),
+                        '-o', str(optname),
+                    )
+
+                    # llvm -> shared library
+                    # NOTE: How can I guarantee this is clang??
+                    cc = (
+                        (compiler.cc,) + compiler.cflags + ("-march=native",)
+                        + (str(optname),) + compiler.ldflags
+                        + ('-o', str(soname))
+                    )
+                    _run(cc, logfile, errfile, step="Compilation", filemode="a")
+                elif not compiler.ld:
                     # Compile and link
                     cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
                     _run(cc, logfile, errfile)

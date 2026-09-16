@@ -30,6 +30,8 @@ from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
+import time 
+import pyop3.debug_flags
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
@@ -272,12 +274,19 @@ class InstructionExecutionContext:
         else:
             petsc_events = ()
 
+        start_time = time.perf_counter()
         executable = Executable(
             loopy_code,
             self.comm,
             extra_compiler_options=extra_compiler_options,
             petsc_events=petsc_events,
+            compiler_parameters=compiler_parameters
         )
+        end_time = time.perf_counter()
+
+        if pyop3.debug_flags.hit_assign:
+            compilation_time = end_time - start_time
+            print(f"Compilation time: {compilation_time * 1000:.5f} milliseconds")
 
         # replace buffer indices with the real things
         kernel_name_to_buffer_views = {}
@@ -439,12 +448,13 @@ class Executable:
     the function pointer.
 
     """
-    code: lp.TranslationUnit
+    code: lp.TranslationUnit # Or MLIR 
     comm: MPI.Comm
     extra_compiler_options: pyop3.cc.CompilerOptions = dataclasses.field(
         default=pyop3.cc.CompilerOptions(), kw_only=True
     )
     petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    compiler_parameters: ParsedCompilerParameters 
 
     def __call__(self, *args: int) -> None:
         self._callable(*args)
@@ -472,18 +482,34 @@ class Executable:
             cppargs += ("-DLIKWID_PERFMON",)
             ldargs += ("-llikwid",)
 
-        dll = pyop3.cc.load(self._device_code, "c", cppargs, ldargs, comm=self.comm)
+        # TODO: This is just temporary for prototyping and results - software eng to come
+        if self.compiler_parameters.backend == "mlir": 
+            cast_arg_to_ctype_type = cast_memref_arg_to_ctype_type
+            extension = "mlir"
+            kernel_args = self.code["args"]
+            func_name = self.code["name"]
+            device_code = _mlir_module_to_mlir_string(self.code["module"], self.comm)
+
+        elif self.compiler_parameters.backend == "loopy":
+            cast_arg_to_ctype_type = cast_loopy_arg_to_ctypes_type
+            extension = "c" 
+            kernel_args = self.code.default_entrypoint.args
+            func_name = self.code.default_entrypoint.name
+            device_code = self._device_code
+
+        dll = pyop3.cc.load(device_code, extension, cppargs, ldargs, comm=self.comm)
 
         for event in self.petsc_events:
             # Create the event in python and then set in the shared library to avoid
             # allocating memory over and over again in the C kernel.
             ctypes.c_int.in_dll(dll, f"id_{event}").value = PETSc.Log.Event(event).id
 
-        func = getattr(dll, self.code.default_entrypoint.name)
+        func = getattr(dll, func_name)
         func.argtypes = [
-            cast_loopy_arg_to_ctypes_type(arg) for arg in self.code.default_entrypoint.args
+            cast_arg_to_ctype_type(arg) for arg in kernel_args
         ]
         func.restype = None
+        
         return func
 
     @cached_property
@@ -645,7 +671,13 @@ class CompiledCodeExecutor:
             bcast()
 
         # Now all the data is correct, compute!
+        start_time = time.perf_counter()
         self.executable(*exec_arguments)
+        end_time = time.perf_counter()
+
+        if pyop3.debug_flags.hit_assign:
+            execution_time = end_time - start_time
+            print(f"Execution time: {execution_time * 1000:.2f} milliseconds")
 
         # if "MatSetValues" in str(self) and "form" in str(self):
         #     buf = list(self.buffer_intents.keys())[0]
@@ -681,7 +713,12 @@ class CompiledCodeExecutor:
         return "", "<PetscMat>"
 
     @cached_property
-    def _default_exec_arguments(self) -> tuple[int]:
+    def _default_exec_arguments(self):
+        if self.executable.compiler_parameters.backend == "mlir":
+            return tuple(
+                Memref.from_array(buffer_view.handle)
+                for buffer_view in self.kernel_name_to_buffer_info.values()
+            )
         return tuple(
             self._handle_to_pointer(buffer_view.handle)
             for buffer_view in self.kernel_name_to_buffer_info.values()
@@ -859,6 +896,19 @@ def _(arg: lp.ValueArg):
     else:
         return np.ctypeslib.as_ctypes_type(arg.dtype)
 
+def cast_memref_arg_to_ctype_type(arg: Any) -> type:
+    """ 
+    Takes in compile/mlir.py::Argument (memref) and returns ctype 
+    arg has three attrs: name, dtype, shape.
+
+    If the shape is not given, assume dynamic shape for the ctype arg. 
+    The object will be a flat 1-D array. 
+
+    The dtype will be a numpy dtype.
+    """
+    rank = 1 if arg.shape is None else len(arg.shape)
+    return ctypes.POINTER(Memref.ctype(rank, np.dtype(arg.dtype)))
+
 
 # TODO: This should probably get folded into '_compile_static', otherwise we
 # have to get the translation unit from cache, hash it, then get the thing
@@ -867,3 +917,75 @@ def _(arg: lp.ValueArg):
 @pyop3.cache.disk_only_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu), bcast=True)
 def _loopy_to_c_string(tu: lp.TranslationUnit, comm: MPI.Comm) -> str:
     return lp.generate_code_v2(tu).device_code()
+
+# NOTE: Not using cache at the moment as I need new key builder 
+# @pyop3.cache.memory_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu))
+# @pyop3.cache.disk_only_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu), bcast=True)
+def _mlir_module_to_mlir_string(tu: ModuleOp, comm: MPI.Comm) -> str:
+    from xdsl.printer import Printer 
+    from io import StringIO
+    output = StringIO()
+    printer = Printer(stream=output)
+    printer.print_op(tu)
+    return output.getvalue()
+
+class Memref:
+    """
+    Builds ctypes descriptors conforming to MLIR's memref ABI.
+    
+    Source for descriptor is here: https://mlir.llvm.org/doxygen/structStridedMemRefType.html
+    (Hopefully it does not change)
+
+    The descriptor layout must match the struct produced by
+    `cast_memref_arg_to_ctype_type` for the same (rank, dtype).
+    Although all memrefs are rank-1 through PyOP3, with dynamic extents
+    """
+
+    @staticmethod
+    @functools.lru_cache # Using cache so that it reuses ctype byrefs - no need to making new instances
+    def ctype(rank: int, dtype: np.dtype) -> type:
+        elem_ctype = np.ctypeslib.as_ctypes_type(np.dtype(dtype))
+
+        class MemRefCType(ctypes.Structure):
+            _fields_ = [
+                ("allocated", ctypes.POINTER(elem_ctype)),
+                ("aligned", ctypes.POINTER(elem_ctype)),
+                ("offset", ctypes.c_int64),
+                ("shape", ctypes.c_int64 * rank),
+                ("strides", ctypes.c_int64 * rank),
+            ]
+
+        MemRefCType.__name__ = f"MemRefCType_{np.dtype(dtype).name}_{rank}d"
+        return MemRefCType
+
+    @classmethod
+    def from_array(cls, array: np.ndarray, *, rank: int | None = None):
+        """Wrap a numpy array, taking shape/strides from the array itself."""
+        shape = array.shape if rank is None or rank == array.ndim else (array.size,)
+        return cls._build(array.ctypes.data, shape, np.dtype(array.dtype))
+
+    @classmethod
+    def from_pointer(cls, address: int, shape, dtype):
+        """Wraps pointer, to Memref struct type compatible with _mlir_ciface """
+        return cls._build(address, tuple(shape), np.dtype(dtype))
+
+    @classmethod
+    def _build(cls, address: int, shape: tuple[int, ...], dtype: np.dtype):
+        rank = len(shape)
+        struct_type = cls.ctype(rank, dtype)
+        elem_ctype = np.ctypeslib.as_ctypes_type(dtype)
+        ptr = ctypes.cast(ctypes.c_void_p(address), ctypes.POINTER(elem_ctype))
+
+        strides, acc = [], 1
+        for extent in reversed(shape):
+            strides.append(acc)
+            acc *= extent
+        strides.reverse()
+
+        return struct_type(
+            allocated=ptr,
+            aligned=ptr,
+            offset=0,
+            shape=(ctypes.c_int64 * rank)(*shape),
+            strides=(ctypes.c_int64 * rank)(*strides),
+        )
