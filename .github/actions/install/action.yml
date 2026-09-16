@@ -119,8 +119,6 @@ runs:
     - name: Install Firedrake
       shell: bash
       run: |
-        find /github/home -maxdepth 2 -printf '%P\t%y\t%m\t%U\t%G\t%l\n' | LC_ALL=C sort
-        awk '/^(Uid|Gid|Groups|CapInh|CapPrm|CapEff|CapBnd|CapAmb|NoNewPrivs|Seccomp):/' /proc/$$/status
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
@@ -135,6 +133,26 @@ runs:
         . venv/bin/activate
 
         : # Empty the pip cache to ensure that everything is compiled from scratch
+        printf '\n=== diagnostics begin ===\n'
+        command -V find awk python
+
+        find /github/home -maxdepth 2 -printf 'path=%p type=%y mode=%m uid=%U gid=%G\n'
+        printf 'find exit=%s\n' "$?"
+
+        printf '\n=== shell status ===\n'
+        cat /proc/$$/status
+
+        printf '\n=== cache paths ===\n'
+        python - <<'PY'
+        import os
+        for path in ("/github/home", "/github/home/.cache", "/github/home/.cache/pip"):
+            try:
+                s = os.stat(path)
+                print(f"{path}: uid={s.st_uid} gid={s.st_gid} mode={oct(s.st_mode & 0o7777)}")
+            except OSError as e:
+                print(f"{path}: {e}")
+        PY
+        printf '=== diagnostics end ===\n'
         pip cache purge
 
         if [ ${{ inputs.base_ref }} = 'main' ]; then
