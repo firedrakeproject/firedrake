@@ -103,6 +103,13 @@ jobs:
       # Disable some compiler optimisations as they cause runner-specific bugs
       PYOP2_CFLAGS: -O1 -fno-fast-math
     steps:
+      - name: checking things
+        run: |
+          echo $USER
+          groups
+          cat /etc/passwd | grep $USER
+          env
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
