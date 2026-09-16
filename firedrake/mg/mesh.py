@@ -3,7 +3,6 @@ import warnings
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
-
 from pyop2.datatypes import IntType
 
 import petsctools
@@ -319,31 +318,61 @@ def MeshHierarchy(mesh, refinement_levels=0,
                          refinements_per_level, nested=nested)
 
 
-def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_ratio=2, layers=None,
-                          kernel=None, extrusion_type='uniform', gdim=None,
-                          mesh_builder=firedrake.ExtrudedMesh):
+def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
+                          height: float,
+                          base_layer: int = -1,
+                          refinement_ratio: int = 2,
+                          layers: Sequence[int] | None = None,
+                          kernel=None,
+                          extrusion_type: str = 'uniform',
+                          periodic: bool = False,
+                          gdim: int | None = None,
+                          mesh_builder=firedrake.ExtrudedMesh
+                          ) -> HierarchyBase:
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
-    :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
-    :arg height: the height of the domain to extrude to. This is in contrast
-       to the extrusion routines, which take in layer_height, the height of
-       an individual layer. This is because when refining in the extruded
-       dimension, the height of an individual layer will vary.
-    :arg base_layer: the number of layers to use the extrusion of the coarsest
-       grid.
-    :arg refinement_ratio: the ratio by which base_layer should be increased
-       on every refinement. refinement_ratio = 2 means standard uniform
-       refinement. refinement_ratio = 1 means to not refine in the extruded
-       dimension, i.e. the multigrid hierarchy will use semicoarsening.
-    :arg layers: as an alternative to specifying base_layer and refinement_ratio,
-       one may specify directly the number of layers to be used by each level
-       in the extruded hierarchy. This option cannot be combined with base_layer
-       and refinement_ratio. Note that the ratio of successive entries in this
-       iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a ``Mesh`` into an
-       extruded mesh. Used by pyadjoint.
+    Parameters
+    ----------
+    base_hierarchy : HierarchyBase
+        The unextruded base mesh hierarchy to extrude.
+    height : float
+        The height of the domain to extrude to. This is in contrast to the
+        extrusion routines, which take ``layer_height``, the height of an
+        individual layer. The height of an individual layer varies when the
+        hierarchy is refined in the extruded dimension.
+    base_layer : int
+        The number of layers to use for the coarsest grid.
+    refinement_ratio : int
+        The ratio by which to increase ``base_layer`` at every refinement. A
+        value of 2 gives standard uniform refinement, and a value of 1 does
+        not refine in the extruded dimension, which gives a semicoarsened
+        hierarchy.
+    layers : Sequence[int] or None
+        An alternative to specifying ``base_layer`` and ``refinement_ratio``.
+        This sequence gives the number of layers at each level in the
+        extruded hierarchy. Do not combine this option with ``base_layer`` and
+        ``refinement_ratio``. The ratio of successive entries must be an
+        integer for the multigrid transfer operators to work.
+    kernel : pyop2.op2.Kernel or None
+        An optional kernel that computes the coordinates of the extruded mesh.
+    extrusion_type : str
+        The algorithm that computes the extruded coordinates. Supported
+        values include ``"uniform"``, ``"radial"``,
+        ``"radial_hedgehog"``, and ``"custom"``.
+    periodic : bool
+        Whether to identify the top and bottom boundaries of each extruded
+        mesh. Periodic extrusion requires a constant number of layers.
+    gdim : int or None
+        The number of spatial dimensions in the resulting mesh. This value is
+        used only when ``kernel`` is provided.
+    mesh_builder : collections.abc.Callable
+        The function that turns a ``Mesh`` into an extruded mesh. This is used
+        by pyadjoint.
 
-    See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
+    Returns
+    -------
+    HierarchyBase
+        The hierarchy of extruded meshes.
     """
     if not isinstance(base_hierarchy, HierarchyBase):
         raise ValueError("Expecting a HierarchyBase, not a %r" % type(base_hierarchy))
@@ -361,6 +390,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     meshes = [mesh_builder(m, layer, kernel=kernel,
                            layer_height=height/layer,
                            extrusion_type=extrusion_type,
+                           periodic=periodic,
                            gdim=gdim)
               for (m, layer) in zip(base_hierarchy._meshes, layers)]
 
