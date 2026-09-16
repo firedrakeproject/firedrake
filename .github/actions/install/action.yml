@@ -119,6 +119,8 @@ runs:
     - name: Install Firedrake
       shell: bash
       run: |
+        find /github/home -maxdepth 2 -printf '%P\t%y\t%m\t%U\t%G\t%l\n' | LC_ALL=C sort
+        awk '/^(Uid|Gid|Groups|CapInh|CapPrm|CapEff|CapBnd|CapAmb|NoNewPrivs|Seccomp):/' /proc/$$/status
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
