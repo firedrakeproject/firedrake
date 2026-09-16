@@ -701,19 +701,6 @@ class SameMeshInterpolator(Interpolator):
             if self.access and self.access != op2.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
 
-    def _get_tensor(self) -> Function:
-        """Return a rank-1 `Function` to interpolate into."""
-        assert self.rank == 1
-        f = Function(self.ufl_interpolate.function_space())
-        if self.access in {op2.MIN, op2.MAX}:
-            finfo = numpy.finfo(f.dat.dtype)
-            if self.access == op2.MIN:
-                val = Constant(finfo.max)
-            else:
-                val = Constant(finfo.min)
-            f.assign(val)
-        return f
-
     @property
     def _needs_adjoint_weighting(self):
         return (isinstance(self.dual_arg, Cofunction)
@@ -855,7 +842,11 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         mat_type = mat_type or "matfree"
 
         if self.rank == 1:
-            f = tensor or self._get_tensor()
+            f = tensor or Function(self.ufl_interpolate.function_space())
+            if tensor is None and self.access in {op2.MIN, op2.MAX}:
+                finfo = numpy.finfo(f.dat.dtype)
+                value = finfo.max if self.access == op2.MIN else finfo.min
+                f.assign(Constant(value))
             self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
