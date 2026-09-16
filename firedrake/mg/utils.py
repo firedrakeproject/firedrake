@@ -185,7 +185,7 @@ def coarse_cell_child_count(
     hierarchy = hierarchyf
     increment = Fraction(1, hierarchyf.refinements_per_level)
     if levelc + increment != levelf:
-        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+        raise ValueError(f"Can't map between level {levelc} and level {levelf}")
 
     key = (levelc, Vc.extruded and (Vf.mesh().layers, Vc.mesh().layers))
     cache = mesh._shared_data_cache["hierarchy_coarse_cell_child_count"]
