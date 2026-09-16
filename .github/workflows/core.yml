@@ -104,6 +104,7 @@ jobs:
       PYOP2_CFLAGS: -O1 -fno-fast-math
     steps:
       - name: checking things
+        shell: bash
         run: |
           echo $USER
           groups
