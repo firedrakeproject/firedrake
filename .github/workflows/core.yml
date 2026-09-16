@@ -103,7 +103,7 @@ jobs:
       # Disable some compiler optimisations as they cause runner-specific bugs
       PYOP2_CFLAGS: -O1 -fno-fast-math
       LC_ALL: C
-      TARGET=/github/home
+      TARGET: /github/home
     steps:
       - name: checking things
         shell: bash
