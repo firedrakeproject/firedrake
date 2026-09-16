@@ -108,7 +108,7 @@ jobs:
         run: |
           echo $USER
           groups
-          cat /etc/passwd | grep $USER
+          cat /etc/passwd
           env
 
       - name: Pre-run cleanup
