@@ -62,7 +62,9 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
             best_distance = distance;
             best_cell = candidate;
             memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-            /* Reference-cell distance is nonnegative, so this is optimal. */
+            /* If distance == 0.0, the point is inside the cell, so we break early.
+            * NOTE: FIAT's `distance_to_point_l1` returns exactly 0.0 for points inside the cell,
+            * so exact floating point comparison is intentional here. */
             if (distance == 0.0) {
                 break;
             }
