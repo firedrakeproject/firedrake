@@ -221,244 +221,147 @@ cdef PetscInt num_owned_cells(PETSc.DM dm) except? -1:
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_cells(coarse_mesh, fine_mesh,
-                         PETSc.DM coarse_dm, PETSc.DM fine_dm,
-                         clgmaps=None, flgmaps=None):
-    """Build cell maps from the transform that produced ``fine_dm``.
+def transform_source_points(PETSc.DM dm):
+    """Find the point that produced each point of a transformed DMPlex.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        A DMPlex made by a transform, such as a refinement, of a DMPlex on
+        which ``setSaveTransform`` was called first.
+
+    Returns
+    -------
+    numpy.ndarray
+        For each point of ``dm``, the point of the original DMPlex that
+        produced it.
+
+    """
+    cdef:
+        PETSc.PetscDMPlexTransform transform = NULL
+        PetscInt pStart, pEnd, p, source
+        PetscInt[::1] points
+
+    CHKERR(DMPlexGetTransform(dm.dm, &transform))
+    if transform == NULL:
+        raise ValueError("The DMPlex did not save the transform that made it")
+    pStart, pEnd = dm.getChart()
+    points = np.empty(pEnd - pStart, dtype=IntType)
+    for p in range(pStart, pEnd):
+        CHKERR(DMPlexTransformGetSourcePoint(transform, p, NULL, NULL, &source, NULL))
+        points[p - pStart] = source
+    return np.asarray(points)
+
+
+def compose_points(outer, inner):
+    """Compose two point maps.
+
+    Parameters
+    ----------
+    outer : numpy.ndarray
+        The map to apply second.
+    inner : numpy.ndarray
+        The map to apply first, with -1 where it has no point.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``outer[inner]``, with -1 where ``inner`` has no point.
+
+    """
+    points = np.full(inner.shape, -1, dtype=IntType)
+    found = inner >= 0
+    points[found] = outer[inner[found]]
+    return points
+
+
+def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_points,
+                                     coarse_lgmap, fine_lgmap):
+    """Renumber a refinement of unoverlapped DMPlexes onto the DMPlexes of two meshes.
+
+    A hierarchy refines unoverlapped DMPlexes and adds overlap only when it
+    builds each mesh. The saved transform relates the points of the
+    unoverlapped DMPlexes, so this function carries both ends of the relation
+    over to the meshes through the global point numbers.
 
     Parameters
     ----------
     coarse_mesh, fine_mesh : MeshGeometry
-        The coarse and fine Firedrake meshes. Their cell numberings define the
-        numbering of the returned maps.
-    coarse_dm, fine_dm : PETSc.DM
-        The halo-free DMPlex pair on which the transform was applied.
-    clgmaps, flgmaps : tuple or None
-        The ``(halo-free, overlapped)`` point local-to-global maps for the
-        coarse and fine meshes. Pass ``None`` when the Firedrake meshes use the
-        same DMPlexes as the transform.
+        The coarse mesh, and the mesh built from the refinement of its
+        unoverlapped DMPlex.
+    fine_to_coarse_points : numpy.ndarray
+        For each point of the unoverlapped fine DMPlex, the point of the
+        unoverlapped coarse DMPlex that produced it, as given by
+        `transform_source_points`.
+    coarse_lgmap, fine_lgmap : PETSc.LGMap or None
+        The point local-to-global maps of the unoverlapped coarse and fine
+        DMPlexes, as given by `create_lgmap`.
 
     Returns
     -------
-    tuple of numpy.ndarray
-        The ``(coarse_to_fine, fine_to_coarse)`` maps in Firedrake cell
-        numbering. Rows in ``coarse_to_fine`` are padded with -1.
+    numpy.ndarray
+        For each point of ``fine_mesh.topology_dm``, the point of
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1 for a
+        point that only the overlap has.
 
     """
-    cdef:
-        PetscInt cStart, cEnd, fStart, fEnd
-        PetscInt ncoarse, nfine, c, fine_cell, coarse_cell
-        PetscInt parent, max_children
-        np.ndarray co2n, fn2o
-        np.ndarray idx, found, permuted
-        PetscInt[::1] child_counts
-        PetscInt[:, ::1] coarse_to_fine
-        PetscInt[:, ::1] fine_to_coarse
-        PETSc.PetscDMPlexTransform transform = NULL
-
-    ncoarse = coarse_mesh.cell_set.size
-    nfine = fine_mesh.cell_set.size
-    cStart, cEnd = coarse_dm.getHeightStratum(0)
-    fStart, fEnd = fine_dm.getHeightStratum(0)
-    co2n, _ = get_entity_renumbering(
-        coarse_mesh.topology_dm, coarse_mesh._cell_numbering, "cell",
-    )
-    _, fn2o = get_entity_renumbering(
-        fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell",
-    )
-
-    if clgmaps is not None and clgmaps[0] is not None:
-        cno, co = clgmaps
-        fno, fo = flgmaps
-        # Translate fine Firedrake cells from the overlapped DM to the
-        # halo-free fine DM, where the transform relation is defined.
-        fn2o = fn2o + fine_mesh.topology_dm.getHeightStratum(0)[0]
-        fo.apply(fn2o, result=fn2o)
-        fn2o = fno.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
-
-        # Translate the coarse point-to-cell numbering to the halo-free coarse
-        # DM. The map changes both the point values and the array index, so
-        # scatter it into the coarse cell stratum rather than slicing it.
-        idx = np.arange(coarse_mesh.cell_set.total_size, dtype=PETSc.IntType)
-        idx += coarse_mesh.topology_dm.getHeightStratum(0)[0]
-        co.apply(idx, result=idx)
-        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.MASK)
-        found = idx >= 0
-        permuted = np.full(cEnd - cStart, -1, dtype=PETSc.IntType)
-        permuted[idx[found] - cStart] = co2n[found]
-        co2n = permuted
-
-    CHKERR(DMPlexGetTransform(fine_dm.dm, &transform))
-    if transform == NULL:
-        raise RuntimeError("The fine DMPlex did not retain its refinement transform")
-
-    fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
-    child_counts = np.zeros(ncoarse, dtype=IntType)
-    for c in range(nfine):
-        fine_cell = fn2o[c]
-        if not (fStart <= fine_cell < fEnd):
-            continue
-        CHKERR(DMPlexTransformGetSourcePoint(
-            transform, fine_cell, NULL, NULL, &coarse_cell, NULL,
-        ))
-        if not (cStart <= coarse_cell < cEnd):
-            continue
-        parent = co2n[coarse_cell - cStart]
-        if not (0 <= parent < ncoarse):
-            continue
-        fine_to_coarse[c, 0] = parent
-        child_counts[parent] += 1
-
-    max_children = 0
-    for c in range(ncoarse):
-        if child_counts[c] > max_children:
-            max_children = child_counts[c]
-    max_children = fine_dm.comm.tompi4py().allreduce(max_children, op=MPI.MAX)
-    coarse_to_fine = np.full((ncoarse, max_children), -1, dtype=IntType)
-    child_counts[:] = 0
-    for c in range(nfine):
-        parent = fine_to_coarse[c, 0]
-        if parent >= 0:
-            coarse_to_fine[parent, child_counts[parent]] = c
-            child_counts[parent] += 1
-
-    return np.asarray(coarse_to_fine), np.asarray(fine_to_coarse)
+    if fine_lgmap is None:
+        # On one process there is no overlap, so the numberings agree.
+        return fine_to_coarse_points
+    pStart, pEnd = fine_mesh.topology_dm.getChart()
+    points = np.arange(pStart, pEnd, dtype=IntType)
+    create_lgmap(fine_mesh.topology_dm).apply(points, result=points)
+    points = fine_lgmap.applyInverse(points, PETSc.LGMap.MapMode.MASK)
+    points = compose_points(fine_to_coarse_points, points)
+    coarse_lgmap.apply(points, result=points)
+    return create_lgmap(coarse_mesh.topology_dm).applyInverse(points, PETSc.LGMap.MapMode.MASK)
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def coarse_to_fine_submesh_cells(coarse_mesh, fine_mesh,
-                                 PETSc.DM coarse_dm, PETSc.DM fine_dm,
-                                 clgmaps, flgmaps):
-    """Build cell maps for consecutive submeshes of a transformed hierarchy.
-
-    The submesh cells are points in the parent DMPlex. The saved transform on
-    the parent fine DMPlex therefore supplies their parent relation, even
-    though the submesh DMPlexes did not arise from that transform directly.
+def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
+    """Build the cell maps between two meshes from the refinement of their points.
 
     Parameters
     ----------
     coarse_mesh, fine_mesh : MeshGeometry
-        The coarse and fine submeshes whose Firedrake cell numbering defines
-        the returned maps.
-    coarse_dm, fine_dm : PETSc.DM
-        The halo-free parent DMPlex pair on which the transform was applied.
-    clgmaps, flgmaps : tuple
-        The parent mesh ``(halo-free, overlapped)`` point local-to-global maps.
+        The coarse and fine meshes.
+    fine_to_coarse_points : numpy.ndarray
+        For each point of ``fine_mesh.topology_dm``, the point of
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1.
 
     Returns
     -------
-    tuple of numpy.ndarray
-        The ``(coarse_to_fine, fine_to_coarse)`` maps in submesh Firedrake cell
-        numbering. Rows in ``coarse_to_fine`` are padded with -1.
+    coarse_to_fine : numpy.ndarray
+        For each owned coarse cell, the owned fine cells refined from it, in
+        increasing order. Every row is as wide as the busiest coarse cell on
+        any process, so a coarse cell with fewer fine cells has its row
+        right-padded with -1.
+    fine_to_coarse : numpy.ndarray
+        A column with the owned coarse cell that each owned fine cell was
+        refined from, or -1 where there is none.
 
     """
-    cdef:
-        PetscInt ncoarse, nfine, c, parent
-        PetscInt coarse_subStart, fine_subStart
-        PetscInt coarse_parent_pStart, coarse_parent_pEnd
-        PetscInt coarse_point, fine_point
-        PetscInt max_children
-        np.ndarray coarse_subcell_to_point, fine_subcell_to_point
-        np.ndarray fine_dm_points
-        np.ndarray valid, mapped_points
-        PetscInt[::1] coarse_point_to_cell
-        PetscInt[::1] fine_parent_points
-        PetscInt[::1] coarse_dm_points
-        PetscInt[::1] child_counts
-        PetscInt[:, ::1] coarse_to_fine
-        PetscInt[:, ::1] fine_to_coarse
-        PETSc.IS coarse_subpoint_is, fine_subpoint_is
-        const PetscInt *coarse_subpoints = NULL
-        const PetscInt *fine_subpoints = NULL
-        PETSc.PetscDMPlexTransform transform = NULL
-
     ncoarse = coarse_mesh.cell_set.size
     nfine = fine_mesh.cell_set.size
-    coarse_subStart, _ = coarse_mesh.topology_dm.getHeightStratum(0)
-    fine_subStart, _ = fine_mesh.topology_dm.getHeightStratum(0)
-    coarse_parent_pStart, coarse_parent_pEnd = coarse_mesh.submesh_parent.topology_dm.getChart()
-    coarse_subcell_to_point = get_entity_renumbering(
-        coarse_mesh.topology_dm, coarse_mesh._cell_numbering, "cell",
-    )[1]
-    fine_subcell_to_point = get_entity_renumbering(
-        fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell",
-    )[1]
-    coarse_subpoint_is = coarse_mesh.topology_dm.getSubpointIS()
-    fine_subpoint_is = fine_mesh.topology_dm.getSubpointIS()
-    CHKERR(ISGetIndices(coarse_subpoint_is.iset, &coarse_subpoints))
-    CHKERR(ISGetIndices(fine_subpoint_is.iset, &fine_subpoints))
+    cStart, cEnd = coarse_mesh.topology_dm.getHeightStratum(0)
+    fStart, _ = fine_mesh.topology_dm.getHeightStratum(0)
+    coarse_cells, _ = get_entity_renumbering(coarse_mesh.topology_dm, coarse_mesh._cell_numbering, "cell")
+    _, fine_points = get_entity_renumbering(fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell")
 
-    coarse_point_to_cell = np.full(
-        coarse_parent_pEnd - coarse_parent_pStart, -1, dtype=IntType,
-    )
-    for c in range(ncoarse):
-        coarse_point = coarse_subcell_to_point[c] + coarse_subStart
-        parent = coarse_subpoints[coarse_point]
-        if coarse_parent_pStart <= parent < coarse_parent_pEnd:
-            coarse_point_to_cell[parent - coarse_parent_pStart] = c
+    parents = fine_to_coarse_points[fine_points[:nfine] + fStart]
+    # A submesh cell can be refined from a point that is not a coarse cell.
+    is_cell = (cStart <= parents) & (parents < cEnd)
+    parents[is_cell] = coarse_cells[parents[is_cell] - cStart]
+    parents[~is_cell | (parents >= ncoarse)] = -1
 
-    fine_parent_points = np.empty(nfine, dtype=IntType)
-    for c in range(nfine):
-        fine_point = fine_subcell_to_point[c] + fine_subStart
-        fine_parent_points[c] = fine_subpoints[fine_point]
-
-    fine_dm_points = np.asarray(fine_parent_points)
-    if flgmaps[0] is not None:
-        fno, fo = flgmaps
-        fo.apply(fine_dm_points, result=fine_dm_points)
-        fine_dm_points = fno.applyInverse(fine_dm_points,
-                                          PETSc.LGMap.MapMode.MASK)
-
-    CHKERR(DMPlexGetTransform(fine_dm.dm, &transform))
-    if transform == NULL:
-        raise RuntimeError("The fine DMPlex did not retain its refinement transform")
-    coarse_dm_points = np.full(nfine, -1, dtype=IntType)
-    for c in range(nfine):
-        fine_point = fine_dm_points[c]
-        if fine_point < 0:
-            continue
-        CHKERR(DMPlexTransformGetSourcePoint(
-            transform, fine_point, NULL, NULL, &coarse_point, NULL,
-        ))
-        coarse_dm_points[c] = coarse_point
-
-    if clgmaps[0] is not None:
-        cno, co = clgmaps
-        valid = np.asarray(coarse_dm_points) >= 0
-        mapped_points = np.asarray(coarse_dm_points)[valid]
-        cno.apply(mapped_points, result=mapped_points)
-        np.asarray(coarse_dm_points)[valid] = co.applyInverse(
-            mapped_points, PETSc.LGMap.MapMode.MASK,
-        )
-
-    fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
-    child_counts = np.zeros(ncoarse, dtype=IntType)
-    for c in range(nfine):
-        coarse_point = coarse_dm_points[c]
-        if not (coarse_parent_pStart <= coarse_point < coarse_parent_pEnd):
-            continue
-        parent = coarse_point_to_cell[coarse_point - coarse_parent_pStart]
-        if 0 <= parent < ncoarse:
-            fine_to_coarse[c, 0] = parent
-            child_counts[parent] += 1
-
-    max_children = 0
-    for c in range(ncoarse):
-        if child_counts[c] > max_children:
-            max_children = child_counts[c]
-    max_children = fine_dm.comm.tompi4py().allreduce(max_children, op=MPI.MAX)
-    coarse_to_fine = np.full((ncoarse, max_children), -1, dtype=IntType)
-    child_counts[:] = 0
-    for c in range(nfine):
-        parent = fine_to_coarse[c, 0]
-        if parent >= 0:
-            coarse_to_fine[parent, child_counts[parent]] = c
-            child_counts[parent] += 1
-
-    CHKERR(ISRestoreIndices(coarse_subpoint_is.iset, &coarse_subpoints))
-    CHKERR(ISRestoreIndices(fine_subpoint_is.iset, &fine_subpoints))
-    return np.asarray(coarse_to_fine), np.asarray(fine_to_coarse)
+    fine = np.flatnonzero(parents >= 0).astype(IntType)
+    coarse = parents[fine]
+    order = np.argsort(coarse, kind="stable")
+    counts = np.bincount(coarse, minlength=ncoarse)
+    width = coarse_mesh.comm.allreduce(int(counts.max(initial=0)), op=MPI.MAX)
+    coarse_to_fine = np.full((ncoarse, width), -1, dtype=IntType)
+    columns = np.arange(len(order)) - np.repeat(np.cumsum(counts) - counts, counts)
+    coarse_to_fine[coarse[order], columns] = fine[order]
+    return coarse_to_fine, parents.reshape(-1, 1)
 
 
 @cython.boundscheck(False)
@@ -466,14 +369,15 @@ def coarse_to_fine_submesh_cells(coarse_mesh, fine_mesh,
 def preserved_points(PETSc.DM coarse_dm,
                      PETSc.Section coarse_cell_numbering,
                      PETSc.DM fine_dm,
-                     PETSc.Section fine_cell_numbering):
+                     PETSc.Section fine_cell_numbering,
+                     np.ndarray coarse_to_fine_cells):
     """Pair unrefined fine points with their coarse originals.
 
     Adaptive refinement copies an untouched coarse cell into the fine mesh
     without change. It therefore preserves the cone of every point in that
-    cell, and so preserves the whole plex closure, point for point. PETSc's
-    transform identifies the fine cells whose coarse cell was split, so its
-    complement identifies the cells that are candidates for preservation.
+    cell, and so preserves the whole plex closure, point for point. Such a
+    cell has exactly one child. The right-padding of ``coarse_to_fine_cells``
+    with -1 identifies which cells these are.
 
     Parameters
     ----------
@@ -485,6 +389,9 @@ def preserved_points(PETSc.DM coarse_dm,
         The adaptively refined DMPlex.
     fine_cell_numbering : PETSc.Section
         The cell numbering section of the fine mesh.
+    coarse_to_fine_cells : numpy.ndarray
+        The Firedrake-numbered coarse-to-fine cell map.
+
     Returns
     -------
     numpy.ndarray
@@ -494,75 +401,61 @@ def preserved_points(PETSc.DM coarse_dm,
 
     """
     cdef:
-        PetscInt ncoarse, nfine, cStart, cEnd, pStart, pEnd
-        PetscInt nunsplit, split_size, i, fine_cell, coarse_cell
-        PetscInt fine_off, coarse_off
-        PetscInt coarse_size, fine_size, c
+        PetscInt ncoarse, nfine, max_children, c, i, off, child
+        PetscInt cStart, cEnd, pStart, pEnd, coarse_size, fine_size
         PetscInt *coarse_closure = NULL
         PetscInt *fine_closure = NULL
-        const PetscInt *unsplit_cells = NULL
-        PetscInt[::1] fine_to_coarse
-        PETSc.PetscDMPlexTransform transform = NULL
-        DMLabel split_label = NULL
-        PETSc.PetscIS split_cell_is = NULL
-        PETSc.PetscIS unsplit_cell_is = NULL
+        PetscInt[::1] coarse_point, fine_point, fine_to_coarse
+        PetscInt[:, ::1] coarse_to_fine
 
+    coarse_to_fine = coarse_to_fine_cells
     ncoarse = num_owned_cells(coarse_dm)
+    assert ncoarse == coarse_to_fine.shape[0]
+    max_children = coarse_to_fine.shape[1]
     nfine = num_owned_cells(fine_dm)
+
+    # Both cell maps are in Firedrake numbering, so invert each mesh's cell
+    # numbering section to get back to the plex points the closures live on.
+    coarse_point = np.full(ncoarse, -1, dtype=IntType)
+    cStart, cEnd = coarse_dm.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, c, &off))
+        if 0 <= off < ncoarse:
+            coarse_point[off] = c
+    fine_point = np.full(nfine, -1, dtype=IntType)
+    cStart, cEnd = fine_dm.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
+        if 0 <= off < nfine:
+            fine_point[off] = c
 
     pStart, pEnd = fine_dm.getChart()
     fine_to_coarse = np.full(pEnd - pStart, -1, dtype=IntType)
-
-    # The parent point relation is available when the coarse DM requested that
-    # PETSc retain the transform that produced the fine DM.
-    CHKERR(DMPlexGetTransform(fine_dm.dm, &transform))
-    if transform == NULL:
-        return np.asarray(fine_to_coarse)
-
-    CHKERR(DMPlexTransformCreateSplitCellLabel(transform, fine_dm.dm, &split_label))
-    cStart, cEnd = fine_dm.getHeightStratum(0)
-    CHKERR(DMLabelGetStratumSize(split_label, 1, &split_size))
-    if split_size:
-        CHKERR(DMLabelGetStratumIS(split_label, 1, &split_cell_is))
-        CHKERR(ISComplement(split_cell_is, cStart, cEnd, &unsplit_cell_is))
-        CHKERR(ISGetSize(unsplit_cell_is, &nunsplit))
-        CHKERR(ISGetIndices(unsplit_cell_is, &unsplit_cells))
-    else:
-        nunsplit = cEnd - cStart
-
-    for i in range(nunsplit):
-        fine_cell = unsplit_cells[i] if split_size else cStart + i
-        CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, fine_cell, &fine_off))
-        if not (0 <= fine_off < nfine):
+    for c in range(ncoarse):
+        child = coarse_to_fine[c, 0]
+        if child < 0 or (max_children > 1 and coarse_to_fine[c, 1] >= 0):
             continue
-        CHKERR(DMPlexTransformGetSourcePoint(
-            transform, fine_cell, NULL, NULL, &coarse_cell, NULL,
-        ))
-        CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, coarse_cell, &coarse_off))
-        if not (0 <= coarse_off < ncoarse):
+        if coarse_point[c] < 0 or fine_point[child] < 0:
             continue
-        CHKERR(DMPlexGetTransitiveClosure(coarse_dm.dm, coarse_cell, PETSC_TRUE,
+        CHKERR(DMPlexGetTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
                                           &coarse_size, &coarse_closure))
-        CHKERR(DMPlexGetTransitiveClosure(fine_dm.dm, fine_cell, PETSC_TRUE,
+        CHKERR(DMPlexGetTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
                                           &fine_size, &fine_closure))
+        # A one-child cell that refinement did change would have a closure
+        # of a different size. Skip it and let the transfer kernel handle it.
         if coarse_size == fine_size:
-            for c in range(coarse_size):
+            for i in range(coarse_size):
                 # Each closure interleaves a point with its orientation. Copy
                 # a point only when its orientation matches in both meshes:
                 # only then do the two cells order their nodes the same way.
-                if coarse_closure[2*c + 1] == fine_closure[2*c + 1]:
-                    fine_to_coarse[fine_closure[2*c] - pStart] = coarse_closure[2*c]
-        CHKERR(DMPlexRestoreTransitiveClosure(coarse_dm.dm, coarse_cell, PETSC_TRUE,
+                if coarse_closure[2*i + 1] == fine_closure[2*i + 1]:
+                    fine_to_coarse[fine_closure[2*i] - pStart] = coarse_closure[2*i]
+        CHKERR(DMPlexRestoreTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
                                               &coarse_size, &coarse_closure))
-        CHKERR(DMPlexRestoreTransitiveClosure(fine_dm.dm, fine_cell, PETSC_TRUE,
+        CHKERR(DMPlexRestoreTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
                                               &fine_size, &fine_closure))
-
-    if split_size:
-        CHKERR(ISRestoreIndices(unsplit_cell_is, &unsplit_cells))
-        CHKERR(ISDestroy(&unsplit_cell_is))
-        CHKERR(ISDestroy(&split_cell_is))
-    CHKERR(DMLabelDestroy(&split_label))
     return np.asarray(fine_to_coarse)
+
 
 
 @cython.boundscheck(False)

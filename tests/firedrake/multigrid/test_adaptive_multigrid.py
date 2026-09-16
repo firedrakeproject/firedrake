@@ -101,7 +101,9 @@ def test_refine_marked_elements_is_local():
     markers.dat.data_wo[0] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
-    coarse_to_fine, _ = refined_mesh.adaptive_cell_maps
+    mh = MeshHierarchy(mesh)
+    mh.add_mesh(refined_mesh)
+    coarse_to_fine = mh.coarse_to_fine_cells[0]
 
     n_children = (coarse_to_fine >= 0).sum(axis=1)
     unmarked = np.ones(ncoarse, dtype=bool)
@@ -126,7 +128,10 @@ def test_refine_marked_elements_repeats(coarse_mesh):
         markers.dat.data_wo[:1] = n
 
         refined_mesh = mesh.refine_marked_elements(markers)
-        coarse_to_fine, fine_to_coarse = refined_mesh.adaptive_cell_maps
+        mh = MeshHierarchy(mesh)
+        mh.add_mesh(refined_mesh)
+        coarse_to_fine = mh.coarse_to_fine_cells[0]
+        fine_to_coarse = mh.fine_to_coarse_cells[1]
 
         assert coarse_to_fine.shape[0] == mesh.cell_set.size
         assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
@@ -175,7 +180,7 @@ def test_adapt_basic():
     assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
 
 
-def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
+def test_CG1_native_transfers(coarse_mesh):
     mesh = coarse_mesh
     mh = MeshHierarchy(mesh)
 
@@ -472,6 +477,22 @@ def test_restrict_DG0(mh):
         assemble(action(rf, u_fine)),
         rtol=1e-12
     )
+
+
+@pytest.mark.parallel([1, 2])
+def test_transfers_repeated_refinement(coarse_mesh):
+    """Transfers across a level that refines some of its cells twice.
+
+    The fine DMPlex was refined from an intermediate DMPlex, not directly
+    from the coarse one.
+    """
+    mesh = coarse_mesh
+    mh = MeshHierarchy(mesh)
+    x = SpatialCoordinate(mesh)
+    markers = Function(FunctionSpace(mesh, "DG", 0))
+    markers.interpolate(conditional(sum(x) < 0.5, 2, 0))
+    mh.add_mesh(mesh.refine_marked_elements(markers))
+    test_transfers(mh, "CG", 3)
 
 
 @pytest.mark.parallel([1, 2])

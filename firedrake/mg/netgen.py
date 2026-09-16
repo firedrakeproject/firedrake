@@ -167,30 +167,12 @@ def uniformRefinementRoutine(ngmesh, cdm):
     return (rdm, mapping.ngMesh)
 
 
-def uniformMapRoutine(meshes, lgmaps, dms):
+def uniformMapRoutine(rdm):
     '''
-    This function computes the coarse to fine and fine to coarse maps
-    for a uniform mesh hierarchy.
+    This function computes the fine to coarse point map
+    of a uniformly refined plex.
     '''
-    refinements_per_level = 1
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps), (coarse_dm, fine_dm) in zip(
-        zip(meshes[:-1], meshes[1:]),
-        zip(lgmaps[:-1], lgmaps[1:]),
-        zip(dms[:-1], dms[1:]),
-    ):
-        c2f, f2c = impl.coarse_to_fine_cells(
-            coarse, fine, coarse_dm, fine_dm, clgmaps, flgmaps,
-        )
-        coarse_to_fine_cells.append(c2f)
-        fine_to_coarse_cells.append(f2c)
-
-    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
-                                for i, c2f in enumerate(coarse_to_fine_cells))
-    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
-                                for i, f2c in enumerate(fine_to_coarse_cells))
-    return (coarse_to_fine_cells, fine_to_coarse_cells)
+    return impl.transform_source_points(rdm)
 
 
 def alfeldRefinementRoutine(ngmesh, cdm):
@@ -208,10 +190,10 @@ def alfeldRefinementRoutine(ngmesh, cdm):
     return (rdm, ngmesh)
 
 
-def alfeldMapRoutine(meshes, lgmaps=None, dms=None):
+def alfeldMapRoutine(rdm):
     '''
-    This function computes the coarse to fine and fine to coarse maps
-    for a alfeld mesh hierarchy.
+    This function computes the fine to coarse point map
+    of an alfeld refined plex.
     '''
     raise NotImplementedError("Alfeld refinement is not implemented yet.")
 
@@ -259,8 +241,6 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     logger.info(f"\tSnap to {snap} using {snap_smoothing} smoothing (if snapping to coarse)")
     # Firedrake quantities
     meshes = []
-    lgmaps = []
-    dms = []
     # Curve the mesh
     if order[0] != mesh.coordinates.function_space().ufl_element().degree():
         coordinates = mesh.curve_field(
@@ -274,21 +254,20 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     cdm.removeLabel("pyop2_core")
     cdm.removeLabel("pyop2_owned")
     cdm.removeLabel("pyop2_ghost")
-    no = impl.create_lgmap(cdm)
-    o = impl.create_lgmap(mesh.topology_dm)
-    lgmaps.append((no, o))
-    dms.append(cdm)
+    lgmaps = [impl.create_lgmap(cdm)]
+    points = []
     mesh.topology_dm.setRefineLevel(0)
     meshes.append(mesh)
     base_ngmesh = mesh.netgen_mesh
     comm = mesh.comm
     for l in range(1, levs+1):
         rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
-        # Keep the transform-produced DM unchanged for parent/child maps.
-        # Build the Firedrake mesh from a clone because mesh construction can
-        # replace its DM while adding overlap.
-        dms.append(rdm)
-        cdm = rdm
+        # `fd.Mesh` mutates `rdm` in place (e.g. adding overlap), so first
+        # read off how it numbers and refines its points, and clone it to
+        # keep an unoverlapped dm for the next refinement.
+        lgmaps.append(impl.create_lgmap(rdm))
+        points.append(refinementTypes[refType][1](rdm))
+        cdm = rdm.clone()
         if optMoves:
             # Optimises the mesh, for example smoothing
             if tdim == 2:
@@ -308,17 +287,13 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         else:
             parameters.update(mesh._distribution_parameters)
         parameters["partition"] = False
-        mesh = fd.Mesh(rdm.clone(), dim=mesh.geometric_dimension,
+        mesh = fd.Mesh(rdm, dim=mesh.geometric_dimension,
                        reorder=False,
                        distribution_parameters=parameters,
                        tolerance=mesh.tolerance,
                        comm=comm)
         mesh.netgen_mesh = ngmesh
         mesh.netgen_flags = flags
-
-        no = impl.create_lgmap(rdm)
-        o = impl.create_lgmap(mesh.topology_dm)
-        lgmaps.append((no, o))
 
         # Curve the mesh
         if order[l] != mesh.coordinates.function_space().ufl_element().degree():
@@ -341,9 +316,12 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         mesh.topology_dm.setRefineLevel(l)
         meshes.append(mesh)
     # Populate the coarse to fine map
-    coarse_to_fine_cells, fine_to_coarse_cells = refinementTypes[refType][1](meshes, lgmaps, dms)
-    return fd.HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells, 1,
-                            nested=nested, dms=dms, lgmaps=lgmaps)
+    fine_to_coarse_points = {
+        Fraction(l, 1): impl.overlapped_fine_to_coarse_points(
+            meshes[l-1], meshes[l], points[l-1], lgmaps[l-1], lgmaps[l])
+        for l in range(1, levs+1)
+    }
+    return fd.HierarchyBase(meshes, nested=nested, fine_to_coarse_points=fine_to_coarse_points)
 
 
 def reconstruct_mesh(mesh, *args, **kwargs):

@@ -210,7 +210,7 @@ def coarse_cell_child_count(
         return cache.setdefault(key, op2.Dat(dset, counts, dtype=IntType))
 
 
-def _preserved_point_sf(coarse_mesh, fine_mesh):
+def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
     """Create the SF that pairs unrefined points with their coarse originals.
 
     Adaptive refinement leaves some cells untouched. This SF maps each
@@ -238,6 +238,7 @@ def _preserved_point_sf(coarse_mesh, fine_mesh):
     fine_to_coarse_points = impl.preserved_points(
         coarse_plex, coarse_mesh._cell_numbering,
         fine_plex, fine_mesh._cell_numbering,
+        coarse_to_fine,
     )
     leaves = numpy.nonzero(fine_to_coarse_points >= 0)[0].astype(IntType)
     # Refinement acts on each rank's own plex. A fine point and the coarse
@@ -302,7 +303,9 @@ def preserved_node_sf(
     try:
         return cache[key]
     except KeyError:
-        point_sf = _preserved_point_sf(Vc.mesh().topology, Vf.mesh().topology)
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        point_sf = _preserved_point_sf(Vc.mesh().topology, Vf.mesh().topology,
+                                       coarse_to_fine)
         root_section = Vc.dm.getSection()
         leaf_section = Vf.dm.getSection()
         # `distributeSection` builds its own section over the range of points
