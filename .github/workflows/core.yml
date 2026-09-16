@@ -108,6 +108,7 @@ jobs:
       - name: checking things
         shell: bash
         run: |
+          apt update
           uname -srmo
           id
           umask
@@ -117,7 +118,6 @@ jobs:
           cat /proc/self/attr/current
           namei -l "$TARGET"
           stat -Lc 'path=%n type=%F mode=%a uid=%u gid=%g' "$TARGET"
-          getfacl -n -p "$TARGET"
           findmnt -T "$TARGET" -o TARGET,SOURCE,FSTYPE,OPTIONS
           ls -ldnZ "$TARGET"
 
