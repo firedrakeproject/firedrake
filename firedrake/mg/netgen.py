@@ -154,6 +154,7 @@ def uniformRefinementRoutine(ngmesh, cdm):
     # We refine the DMPlex mesh uniformly
     logger.info(f"\t\t\t[{time.time()}]Refining the plex")
     cdm.setRefinementUniform(True)
+    cdm.setSaveTransform()
     rdm = cdm.refine()
     rdm.removeLabel("pyop2_core")
     rdm.removeLabel("pyop2_owned")
@@ -166,7 +167,7 @@ def uniformRefinementRoutine(ngmesh, cdm):
     return (rdm, mapping.ngMesh)
 
 
-def uniformMapRoutine(meshes, lgmaps):
+def uniformMapRoutine(meshes, lgmaps, dms):
     '''
     This function computes the coarse to fine and fine to coarse maps
     for a uniform mesh hierarchy.
@@ -174,11 +175,14 @@ def uniformMapRoutine(meshes, lgmaps):
     refinements_per_level = 1
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(
+    for (coarse, fine), (clgmaps, flgmaps), (coarse_dm, fine_dm) in zip(
         zip(meshes[:-1], meshes[1:]),
-        zip(lgmaps[:-1], lgmaps[1:])
+        zip(lgmaps[:-1], lgmaps[1:]),
+        zip(dms[:-1], dms[1:]),
     ):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
+        c2f, f2c = impl.coarse_to_fine_cells(
+            coarse, fine, coarse_dm, fine_dm, clgmaps, flgmaps,
+        )
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
@@ -204,7 +208,7 @@ def alfeldRefinementRoutine(ngmesh, cdm):
     return (rdm, ngmesh)
 
 
-def alfeldMapRoutine(meshes):
+def alfeldMapRoutine(meshes, lgmaps=None, dms=None):
     '''
     This function computes the coarse to fine and fine to coarse maps
     for a alfeld mesh hierarchy.
@@ -256,6 +260,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     # Firedrake quantities
     meshes = []
     lgmaps = []
+    dms = []
     # Curve the mesh
     if order[0] != mesh.coordinates.function_space().ufl_element().degree():
         coordinates = mesh.curve_field(
@@ -272,15 +277,18 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
     no = impl.create_lgmap(cdm)
     o = impl.create_lgmap(mesh.topology_dm)
     lgmaps.append((no, o))
+    dms.append(cdm)
     mesh.topology_dm.setRefineLevel(0)
     meshes.append(mesh)
     base_ngmesh = mesh.netgen_mesh
     comm = mesh.comm
     for l in range(1, levs+1):
         rdm, ngmesh = refinementTypes[refType][0](base_ngmesh, cdm)
-        # `fd.Mesh` mutates `rdm` in place (e.g. adding overlap), so clone
-        # it first to keep an unoverlapped dm for the next refinement.
-        cdm = rdm.clone()
+        # Keep the transform-produced DM unchanged for parent/child maps.
+        # Build the Firedrake mesh from a clone because mesh construction can
+        # replace its DM while adding overlap.
+        dms.append(rdm)
+        cdm = rdm
         if optMoves:
             # Optimises the mesh, for example smoothing
             if tdim == 2:
@@ -300,7 +308,7 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         else:
             parameters.update(mesh._distribution_parameters)
         parameters["partition"] = False
-        mesh = fd.Mesh(rdm, dim=mesh.geometric_dimension,
+        mesh = fd.Mesh(rdm.clone(), dim=mesh.geometric_dimension,
                        reorder=False,
                        distribution_parameters=parameters,
                        tolerance=mesh.tolerance,
@@ -333,8 +341,9 @@ def NetgenHierarchy(mesh, levs, flags, distribution_parameters=None):
         mesh.topology_dm.setRefineLevel(l)
         meshes.append(mesh)
     # Populate the coarse to fine map
-    coarse_to_fine_cells, fine_to_coarse_cells = refinementTypes[refType][1](meshes, lgmaps)
-    return fd.HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells, 1, nested=nested)
+    coarse_to_fine_cells, fine_to_coarse_cells = refinementTypes[refType][1](meshes, lgmaps, dms)
+    return fd.HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells, 1,
+                            nested=nested, dms=dms, lgmaps=lgmaps)
 
 
 def reconstruct_mesh(mesh, *args, **kwargs):

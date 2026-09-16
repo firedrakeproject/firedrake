@@ -98,6 +98,14 @@ cdef extern from "petscdmlabel.h" nogil:
     PetscErrorCode DMLabelSetStratumIS(DMLabel, PetscInt, PETSc.PetscIS)
     PetscErrorCode DMLabelClearStratum(DMLabel, PetscInt)
 
+cdef extern from "petscdmplextransform.h" nogil:
+    PetscErrorCode DMPlexGetTransform(PETSc.PetscDM, PETSc.PetscDMPlexTransform*)
+    PetscErrorCode DMPlexTransformGetSourcePoint(
+        PETSc.PetscDMPlexTransform, PetscInt, PetscDMPolytopeType*,
+        PetscDMPolytopeType*, PetscInt*, PetscInt*)
+    PetscErrorCode DMPlexTransformCreateSplitCellLabel(
+        PETSc.PetscDMPlexTransform, PETSc.PetscDM, DMLabel*)
+
 cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMCreateLabel(PETSc.PetscDM, char[])
     PetscErrorCode DMGetLabel(PETSc.PetscDM, char[], DMLabel*)
@@ -135,9 +143,10 @@ cdef extern from "petscis.h" nogil:
     PetscErrorCode PetscSectionGetConstraintIndices(PETSc.PetscSection, PetscInt, const PetscInt**)
     PetscErrorCode PetscSectionGetMaxDof(PETSc.PetscSection, PetscInt*)
     PetscErrorCode PetscSectionSetPermutation(PETSc.PetscSection, PETSc.PetscIS)
-    PetscErrorCode ISGetIndices(PETSc.PetscIS, PetscInt*[])
+    PetscErrorCode ISGetIndices(PETSc.PetscIS, const PetscInt*[])
     PetscErrorCode ISGetSize(PETSc.PetscIS, PetscInt*)
-    PetscErrorCode ISRestoreIndices(PETSc.PetscIS, PetscInt*[])
+    PetscErrorCode ISRestoreIndices(PETSc.PetscIS, const PetscInt*[])
+    PetscErrorCode ISComplement(PETSc.PetscIS, PetscInt, PetscInt, PETSc.PetscIS*)
     PetscErrorCode ISGeneralSetIndices(PETSc.PetscIS, PetscInt, PetscInt[], PetscCopyMode)
     PetscErrorCode ISLocalToGlobalMappingCreateIS(PETSc.PetscIS, PETSc.PetscLGMap*)
     PetscErrorCode ISLocalToGlobalMappingGetSize(PETSc.PetscLGMap, PetscInt*)
