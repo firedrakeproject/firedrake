@@ -1414,7 +1414,7 @@ class FunctionSpace(AbstractFunctionSpace):
             if mode == "plex":
                 for axis_target in axis_targets:
                     # make mesh things target the original mesh axis, and make dofs target dofs
-                    if axis_target.axis == self._mesh.name:
+                    if axis_target.axis == self._mesh._uid:
                         base_dim, extr_dim = axis_target.component
                         # hacky way to get the right entities
                         base_selector = utils.just_one(
@@ -2428,7 +2428,7 @@ class RealFunctionSpace(FunctionSpace):
             new_axis_targets = []
             axis_targets = utils.just_one(axis_targetss)
             if mode == "plex":
-                if path.keys() == {self._mesh.name}:
+                if path.keys() == {self._mesh._uid}:
                     new_axis_targets = []
                 else:
                     for axis_target in axis_targets:

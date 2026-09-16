@@ -1554,7 +1554,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             ):
                 op3.loop(
                     loop_index,
-                    pack(sparsity[test_index_, trial_index_], loop_index, test_space, trial_space).assign(666),
+                    pack(sparsity[test_index_, trial_index_], loop_index, test_space, trial_space).assign(666, _weakref=False),
                     eager=True,
                 )
 

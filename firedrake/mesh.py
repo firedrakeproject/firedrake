@@ -591,7 +591,7 @@ class AbstractMeshTopology(abc.ABC):
     @cached_property
     def _strata_slice(self):
         if self.dimension == 0:
-            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, None, label=0)], label=self._mesh_id)
+            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, None, label=0)], label=self._uid)
 
         subsets = []
         if self._is_renumbered:
@@ -2615,7 +2615,6 @@ class MeshTopology(AbstractMeshTopology):
 
         subpoints = plex_index_map[from_plex_indices][:, np.newaxis]  # arity 1 map between plex points
         values = self._renumber_map_fixed(subpoints, from_plex_indices, from_numbering_sec, to_numbering_sec)
-        map_name = f"{self.name}_submesh_map_{from_set.label}_{to_set.label}"
         to_label = to_set.component.label
         map_dat = op3.Dat(from_set, data=values.ravel())
         return op3.ScalarMap(
@@ -2624,7 +2623,6 @@ class MeshTopology(AbstractMeshTopology):
                     op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label),
                 ],
             },
-            # name=map_name,
         )
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
@@ -3510,7 +3508,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
-        dest_axis = self._parent_mesh.name
+        dest_axis = self._parent_mesh._uid
         dest_stratum = self._parent_mesh.cell_label
 
         dat = op3.Dat(self.points, data=self.cell_parent_cell_list)

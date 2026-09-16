@@ -138,7 +138,6 @@ def test_real_mixed_empty_component_assembly():
     assemble(derivative(inner(grad(v), grad(v)) * dx, w))
 
 
-@pytest.mark.skip("pyop3 extruded")
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("coefficient", (False, True))
 def test_real_extruded_mixed_one_form_assembly(coefficient):
@@ -148,6 +147,7 @@ def test_real_extruded_mixed_one_form_assembly(coefficient):
     cgfs = FunctionSpace(mesh, "CG", 1)
 
     mfs = cgfs*rfs
+    label0, label1 = mfs._labels
     v, q = TestFunctions(mfs)
 
     if coefficient:
@@ -162,11 +162,9 @@ def test_real_extruded_mixed_one_form_assembly(coefficient):
 
     AA = assemble(qq * dx)
 
-    np.testing.assert_almost_equal(A.dat.data[1],
-                                   AA.dat.data)
+    assert np.allclose(A.dat[label1].data_ro, AA.dat.data_ro)
 
 
-@pytest.mark.skip("pyop3 extruded")
 @pytest.mark.skipcomplex
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)
@@ -175,6 +173,7 @@ def test_real_extruded_mixed_two_form_assembly():
     cgfs = FunctionSpace(mesh, "CG", 1)
 
     mfs = cgfs*rfs
+    label0, label1 = mfs._labels
     u, p = TrialFunctions(mfs)
     v, q = TestFunctions(mfs)
 
@@ -185,15 +184,11 @@ def test_real_extruded_mixed_two_form_assembly():
     uu = TrialFunction(cgfs)
 
     m00 = assemble(inner(uu, vv) * dx)
-    np.testing.assert_almost_equal(m00.M.values,
-                                   m.M.blocks[0][0].values)
+    assert np.allclose(m00.M.values, m.M[label0, label0].values)
     m01 = assemble(uu * qq * dx)
-    np.testing.assert_almost_equal(m01.M.values.T,
-                                   m.M.blocks[0][1].values)
-    np.testing.assert_almost_equal(m01.M.values,
-                                   m.M.blocks[1][0].values)
-    np.testing.assert_almost_equal(np.array([[1.]]),
-                                   m.M.blocks[1][1].values)
+    assert np.allclose(m01.M.values.T, m.M[label0, label1].values)
+    assert np.allclose(m01.M.values, m.M[label1, label0].values)
+    assert np.allclose(np.array([[1.]]), m.M[label1, label1].values)
 
 
 def mixed_poisson_opts():
@@ -228,7 +223,6 @@ def mixed_poisson_opts():
     return opts
 
 
-@pytest.mark.skip("pyop3")
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
 def test_real_mixed_solve():
@@ -262,7 +256,6 @@ def test_real_mixed_solve():
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 
 
-@pytest.mark.skip("pyop3")
 @pytest.mark.skipcomplex
 @pytest.mark.parallel
 def test_real_mixed_solve_split_comms():
@@ -305,12 +298,11 @@ def test_real_space_eq():
     assert V is not V2
 
 
-@pytest.mark.skip("pyop3, easy fix")
 @pytest.mark.skipcomplex
 def test_real_space_mixed_assign():
     mesh = UnitIntervalMesh(4)
-    V = FunctionSpace(mesh, "Real", 0)
     Q = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "Real", 0)
 
     W = Q*V
 
@@ -331,16 +323,16 @@ def test_real_space_mixed_assign():
     a = Function(W)
     b = Function(W).assign(2)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         a.assign(b, subset="not None")
 
     a.assign(2*b)  # a = 2*2
     b += 3*a  # b = 2 + 3*4
 
-    assert np.allclose(a.dat.split[0].data_ro, 4.0)
-    assert np.allclose(a.dat.split[1].data_ro, 4.0)
-    assert np.allclose(b.dat.split[0].data_ro, 14.0)
-    assert np.allclose(b.dat.split[1].data_ro, 14.0)
+    assert np.allclose(a.sub(0).dat.data_ro, 4.0)
+    assert np.allclose(a.sub(1).dat.data_ro, 4.0)
+    assert np.allclose(b.sub(0).dat.data_ro, 14.0)
+    assert np.allclose(b.sub(1).dat.data_ro, 14.0)
 
 
 @pytest.mark.skipcomplex
