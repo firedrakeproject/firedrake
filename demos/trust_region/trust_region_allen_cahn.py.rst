@@ -199,6 +199,11 @@ of iterations.
       "snes_monitor": "::ascii_info_detail",
       "snes_converged_reason": None,
       "snes_tr_delta0": 10,
+      "snes_tr_eta1": 1e-4,
+      "snes_tr_eta2": 0.25,
+      "snes_tr_eta3": 0.75,
+      "snes_tr_t1": 0.25,
+      "snes_tr_t2": 2.0,
       "snes_rtol": 1e-14,
       "snes_max_it": 50,
   }
