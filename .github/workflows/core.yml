@@ -102,14 +102,24 @@ jobs:
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
       PYOP2_CFLAGS: -O1 -fno-fast-math
+      LC_ALL: C
+      TARGET=/github/home
     steps:
       - name: checking things
         shell: bash
         run: |
-          echo $USER
-          groups
-          cat /etc/passwd
-          env
+          uname -srmo
+          id
+          umask
+          pwd -P
+          cat /proc/self/uid_map
+          cat /proc/self/gid_map
+          cat /proc/self/attr/current
+          namei -l "$TARGET"
+          stat -Lc 'path=%n type=%F mode=%a uid=%u gid=%g' "$TARGET"
+          getfacl -n -p "$TARGET"
+          findmnt -T "$TARGET" -o TARGET,SOURCE,FSTYPE,OPTIONS
+          ls -ldnZ "$TARGET"
 
       - name: Pre-run cleanup
         # Make sure the current directory is empty
