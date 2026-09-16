@@ -325,7 +325,7 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     """
     if len(Vc) > 1 or len(Vf) > 1:
         raise NotImplementedError(
-            'Explicit aij prolongation matrix assembly is not impelemented for mixed function spaces. '
+            'Explicit aij prolongation matrix assembly is not implemented for mixed function spaces. '
             'Use TransferManager(mat_type="aij").prolong to compute field-wise matrix-vector products.'
         )
     arguments = (ufl_expr.TestFunction(Vf.dual()), ufl_expr.TrialFunction(Vc))

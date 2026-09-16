@@ -36,17 +36,19 @@ class TransferManager(object):
             self._V_dof_weights = {}
 
     def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree"):
-        """
-        An object for managing transfers between levels in a multigrid
-        hierarchy (possibly via embedding in DG spaces).
+        """Manage transfers between levels in a multigrid hierarchy.
 
-        :arg native_transfers: dict mapping UFL element
-           to "natively supported" transfer operators. This should be
-           a three-tuple of (prolong, restrict, inject).
-        :arg use_averaging: Use averaging to approximate the
-           projection out of the embedded DG space? If False, a global
-           L2 projection will be performed.
-        :arg mat_type: The matrix assembly type for prolongation/restriction.
+        Parameters
+        ----------
+        native_transfers : dict, optional
+            A mapping from UFL elements to natively supported transfer
+            operators. Each value must be a three-tuple containing the
+            prolong, restrict, and inject operators.
+        use_averaging : bool, optional
+            Whether to use averaging to approximate the projection out of an
+            embedded DG space. If false, perform a global L2 projection.
+        mat_type : str, optional
+            The matrix assembly type for prolongation and restriction.
         """
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
@@ -400,6 +402,11 @@ class TransferManager(object):
             The source (coarse grid) function space.
         Vf : WithGeometry
             The target (fine grid) function space.
+
+        Returns
+        -------
+        AssembledMatrix
+            The cached prolongation matrix mapping Vc to Vf.
 
         """
         key = (Vc, Vf)
