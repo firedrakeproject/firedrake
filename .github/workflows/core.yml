@@ -96,7 +96,7 @@ jobs:
 
   test_default:
     name: Test default
-    runs-on: [self-hosted, Linux]
+    runs-on: [self-hosted, testing]
     container:
       image: ubuntu:latest
     env:
