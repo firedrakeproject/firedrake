@@ -484,22 +484,6 @@ def test_transfers_repeated_refinement(coarse_mesh):
 
 
 @pytest.mark.parallel([1, 2])
-def test_transfers_repeated_refinement(coarse_mesh):
-    """Transfers across a level that refines some of its cells twice.
-
-    The fine DMPlex was refined from an intermediate DMPlex, not directly
-    from the coarse one.
-    """
-    mesh = coarse_mesh
-    mh = MeshHierarchy(mesh)
-    x = SpatialCoordinate(mesh)
-    markers = Function(FunctionSpace(mesh, "DG", 0))
-    markers.interpolate(conditional(sum(x) < 0.5, 2, 0))
-    mh.add_mesh(mesh.refine_marked_elements(markers))
-    test_transfers(mh, "CG", 3)
-
-
-@pytest.mark.parallel([1, 2])
 def test_mg_jacobi(mh):
     """Test multigrid with jacobi smoothers"""
     V = FunctionSpace(mh[-1], "CG", 1)
