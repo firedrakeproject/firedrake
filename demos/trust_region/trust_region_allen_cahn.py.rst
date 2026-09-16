@@ -21,11 +21,11 @@ solving the linear system
 
 .. math::
 
-  \delta F(u)s = -F(u),
+  \grad F(u)s = -F(u),
 
 and then uses a line search to decide how far to move along :math:`s`. The
 line search trusts the *direction* :math:`s` completely and only questions
-its length. This is a problem if :math:`\delta F(u)` is indefinite, because then the
+its length. This is a problem if :math:`\grad F(u)` is indefinite, because then the
 Newton direction need not be a descent direction for any sensible merit
 function, and no choice of step length will help.
 
@@ -36,7 +36,7 @@ the same as finding a critical point of :math:`E`. At the current iterate
 
 .. math::
 
-  m_k(s) = E(u_k) + \langle F(u_k), s\rangle + \frac{1}{2}\langle \delta F(u_k)s, s\rangle,
+  m_k(s) = E(u_k) + \langle F(u_k), s\rangle + \frac{1}{2}\langle \grad F(u_k)s, s\rangle,
 
 and we only trust this model within a ball of radius :math:`\delta_k` around
 :math:`u_k`. The step is chosen to (approximately) minimise the model inside
@@ -44,9 +44,9 @@ the ball,
 
 .. math::
 
-  s_k = \operatorname{arg\,min}_{\|s\| \le \delta_k} m_k(s).
+  s_k = \operatorname{arg\,min}_{\|s\| \le \Delta_k} m_k(s).
 
-If the Newton step lies inside the ball, and :math:`dF(u_k)` is positive
+If the Newton step lies inside the ball, and :math:`\grad F(u_k)` is positive
 definite, then this is just the Newton step. Otherwise the constraint will 
 be active and somehow we need to bring back the step to the boundary of the
 trust region - a variety of techniques are available to do this. Having 
@@ -83,7 +83,7 @@ steady-state Allen-Cahn equation
 
 on an interval with Dirichlet boundary conditions :math:`u = +1` on the left
 and :math:`u = -1` on the right, adapted from this `Chebfun example`_. The
-Jacobian :math:`dF(u) = -\epsilon\Delta + 3u^2 - 1` is indefinite wherever
+Jacobian :math:`\grad F(u) = -\epsilon\Delta + 3u^2 - 1` is indefinite wherever
 :math:`|u| < 1/\sqrt{3}`, and our initial guess crosses this region.
 
 .. _Chebfun example: https://www.chebfun.org/examples/ode-nonlin/AllenCahn.html
@@ -132,6 +132,7 @@ by hand for clarity.
 
   v = TestFunction(Q)
   E = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
+  # F is the derivative of E with respect to u
   F = (eps * inner(grad(u), grad(v)) + inner(u**3 - u, v)) * dx
 
 We will compare three solver configurations on the same initial guess, so
@@ -162,7 +163,7 @@ need one.
 
   linesearch_parameters = {
       "snes_type": "newtonls",
-      "snes_monitor": "::ascii_info_detail",
+      "snes_monitor": "::ascii_info_detail", # will print update norm and objective if available
       "snes_converged_reason": None,
       "snes_linesearch_type": "cp",
       "snes_linesearch_max_it": 10,
@@ -224,16 +225,17 @@ iterations the residual norm gets stuck around :math:`6 \times 10^{-2}`:
 
 What went wrong? We never told the solver what :math:`E` is. When no
 objective is available, PETSc falls back to the least-squares merit function
-:math:`\tfrac{1}{2}\|F(u)\|^2`, whose gradient is :math:`dF(u)^T F(u)` and
-whose quadratic model uses :math:`dF(u)^T dF(u)` as the Hessian. That is a
+:math:`\tfrac{1}{2}\|F(u)\|^2`, whose gradient is :math:`\grad F(u)^T F(u)` and
+whose quadratic model uses :math:`\grad F(u)^T \grad F(u)` as the Hessian. That is a
 perfectly reasonable thing to do for a generic nonlinear system, but it
-changes the landscape completely. The model Hessian :math:`dF^T dF` is
-always positive semi-definite, so the solver never sees the negative
-curvature of :math:`E` and never takes the steepest-descent escape route
-that an energy-based model would take in the indefinite region. Instead it
-wanders onto a plateau of the least-squares merit function: at the point
-where it gets stuck, the residual is far from zero, but its gradient
-:math:`dF^T F` is an order of magnitude smaller, the Jacobian still has
+changes the landscape completely. The model Hessian :math:`\grad F^T \grad F` is
+always positive semi-definite. This is known as the Gauss-Newton model which is
+not the exact Hessian of :math:`\tfrac{1}{2}\|F(u)\|^2`. The solver never sees the 
+negative curvature of :math:`E` nor that of :math:`\tfrac{1}{2}\|F(u)\|^2` and never 
+takes the steepest-descent escape route that an energy-based model would take in the 
+indefinite region. Instead it wanders onto a plateau of the least-squares merit function: 
+at the point where it gets stuck, the residual is far from zero, but its gradient
+:math:`\grad F^T F` is an order of magnitude smaller, the Jacobian still has
 plenty of negative eigenvalues, and the free energy has barely moved from its
 initial value (1.20 against 1.33). The update norms show the trust-region
 radius collapsing from 0.625 to :math:`2.4 \times 10^{-3}` as one step
@@ -279,15 +281,15 @@ increases :math:`E` is never accepted. The residual norm, on the other hand,
 is *not* monotone (look at iteration 10), which is fine, since the residual
 is not what we are minimising. The update norms tell the story of the
 trust-region radius. The first step is a full Newton step, well inside the
-initial radius of 10. The following ones are steps on the boundary of a
-region that has been shrunk by rejected steps (which the monitor does not
-print) and then re-expanded, hence the sequence
+initial radius of 10 (``snes_tr_delta0``). The following ones are steps on the 
+boundary of a region that has been shrunk by rejected steps (which the monitor 
+does not print) and then re-expanded, hence the sequence
 :math:`0.3125, 0.625, 1.25, 2.5` of radii that differ by the factors
 :math:`t_1 = 1/4` and :math:`t_2 = 2`. Finally, once we get close enough to
 the solution, the Newton step falls inside the region, the ordinary Newton
 iteration takes over, and we see the quadratic convergence in the last four
 iterations. The initial radius is not critical: with PETSc's default of
-:math:`\delta_0 = 0.2` the solver takes 17 iterations instead of 15.
+:math:`\Delta_0 = 0.2` the solver takes 17 iterations instead of 15.
 
 To close, let's check the free energy at the starting guess and at the
 computed solution, and confirm that we have found the same solution as the
