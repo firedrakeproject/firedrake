@@ -40,14 +40,14 @@ class TransferManager(object):
 
         Parameters
         ----------
-        native_transfers : dict, optional
+        native_transfers : dict
             A mapping from UFL elements to natively supported transfer
             operators. Each value must be a three-tuple containing the
             prolong, restrict, and inject operators.
-        use_averaging : bool, optional
+        use_averaging : bool
             Whether to use averaging to approximate the projection out of an
             embedded DG space. If false, perform a global L2 projection.
-        mat_type : str, optional
+        mat_type : str
             The matrix assembly type for prolongation and restriction.
         """
         self.native_transfers = native_transfers or {}
