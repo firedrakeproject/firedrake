@@ -60,6 +60,13 @@ def solve(*args, **kwargs):
 
         solve(A, x, b, P=P, bcs=bcs, solver_parameters={...})
 
+    User data for Python-type preconditioners is passed with the ``appctx``
+    keyword argument, as it is for the variational cases below.
+
+    .. code-block:: python3
+
+        solve(A, x, b, appctx={"mu": mu}, solver_parameters={...})
+
     *2. Solving linear variational problems*
 
     A linear variational problem a(u, v) = L(v) for all v may be
@@ -214,6 +221,11 @@ def _la_solve(A, x, b, **kwargs):
          created.  Use this option if you want to pass options
          to the solver from the command line in addition to
          through the ``solver_parameters`` dict.
+    :kwarg appctx: an optional :class:`dict` of user data made available to
+         Python-type preconditioners and to matrix-free operators.  The appctx
+         can also be given as an ``"appctx"`` entry of ``solver_parameters``,
+         which is the older route; the keyword argument wins when both are
+         given.
 
     .. note::
 
@@ -234,13 +246,18 @@ def _la_solve(A, x, b, **kwargs):
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
     (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
-     options_prefix, pre_apply_bcs,
+     options_prefix, appctx, pre_apply_bcs,
      ) = _extract_linear_solver_args(A, x, b, **kwargs)
 
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
-    appctx = solver_parameters.get("appctx", {})
+    if appctx is None:
+        # Before `appctx` was a keyword argument of this code path, the only way
+        # to reach the preconditioners from `solve(A, x, b, ...)` was to put the
+        # appctx inside the solver parameters. Keep reading it from there so that
+        # existing code works. The keyword argument wins when both are given.
+        appctx = solver_parameters.get("appctx", {})
     solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
@@ -254,7 +271,7 @@ def _la_solve(A, x, b, **kwargs):
 def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
                     "transpose_nullspace", "near_nullspace", "options_prefix",
-                    "pre_apply_bcs"]
+                    "appctx", "pre_apply_bcs"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -270,9 +287,14 @@ def _extract_linear_solver_args(*args, **kwargs):
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
+    # `None` (and not `{}`) marks "no appctx given here", so that the caller can
+    # tell an omitted appctx from an empty one and fall back to the older route
+    # of passing the appctx inside `solver_parameters`.
+    appctx = kwargs.get("appctx", None)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
-    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
+    return (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
+            options_prefix, appctx, pre_apply_bcs)
 
 
 def _extract_args(*args, **kwargs):
