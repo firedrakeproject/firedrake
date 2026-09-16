@@ -403,7 +403,14 @@ def materialize_composite_dat(
     relabeler = pyop3.visitors.Relabeler()
     relabeled_composite_dat = relabeler(composite_dat)
     materialized = _materialize_composite_dat_cached(relabeled_composite_dat, comm, linear)
-    return pyop3.visitors.relabel(materialized, relabeler.inverse_relabel_map)
+    # Set allow_missing to true because certain elements of the layout expressions
+    # are not entirely replaced on the way out. This is because of the (slightly)
+    # permissive implementation of AxisVar.__hash__. The differences between the
+    # axis vars are cosmetic and do not affect anything, there are just certain
+    # deeply nested attributes that will raise key errors otherwise.
+    # This issue was specifically encountered with restricted function spaces, where
+    # one gets axis vars wrapping axes with tabulated region sizes.
+    return pyop3.visitors.relabel(materialized, relabeler.inverse_relabel_map, allow_missing=True)
 
 
 @memory_cache(heavy=True)
@@ -421,7 +428,6 @@ def _materialize_composite_dat_cached(
 
     # step 2: assign
     assignee = Dat.empty(big_tree, dtype=IntType)
-
 
     loop_slices = []
     for axis_var in loop_var_replace_map.values():
@@ -448,29 +454,25 @@ def _materialize_composite_dat_cached(
 
 
     # step 3: replace axis vars with loop indices in the layouts
-    # newlayouts = {}
-    # axis_to_loop_var_replace_map = {axis_var.axis.label: loop_var for loop_var, axis_var in loop_var_replace_map.items()}
     will_modify = len(loop_var_replace_map) > 0
-    # if isinstance(composite_dat.axis_tree, _UnitAxisTree):
-    #     layout = utils.just_one(assignee.axes.leaf_subst_layouts.values())
-    #     newlayout = replace_terminals(layout, axis_to_loop_var_replace_map, assert_modified=will_modify)
-    #     newlayouts[idict()] = newlayout
-    # else:
-    newlayouts = {}
+    layouts = {}
     from pyop3.expr.base import get_loop_tree
     loop_tree, _ = get_loop_tree(composite_dat)  # NOTE: conflicts with loopified_shape above
     for path_ in composite_dat.axis_tree.node_map:
-        fullpath = loop_tree.leaf_path | path_
-        layout = assignee.axes.layouts2[fullpath]
-        newlayout = pyop3.visitors.replace(layout, utils.invert_mapping(loop_var_replace_map), assert_modified=will_modify)
-        newlayouts[path_] = newlayout
-    newlayouts = idict(newlayouts)
+        orig_layout = assignee.axes.layouts2[loop_tree.leaf_path | path_]
+        new_layout = pyop3.visitors.replace(
+            orig_layout,
+            utils.invert_mapping(loop_var_replace_map),
+            assert_modified=will_modify,
+        )
+        layouts[path_] = new_layout
+    layouts = idict(layouts)
 
     if linear:
-        layout = newlayouts[composite_dat.axis_tree.leaf_path]
+        layout = layouts[composite_dat.axis_tree.leaf_path]
         return pyop3.expr.LinearDatBufferExpression(assignee.buffer, layout)
     else:
-        return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, newlayouts)
+        return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, layouts)
 
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch

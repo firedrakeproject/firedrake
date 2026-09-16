@@ -355,6 +355,8 @@ class AbstractMeshTopology(abc.ABC):
     """A representation of an abstract mesh topology without a concrete
         PETSc DM implementation"""
 
+    counter = itertools.count()
+
     def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
         """Initialise a mesh topology.
 
@@ -501,6 +503,8 @@ class AbstractMeshTopology(abc.ABC):
         # target_mesh._parallel_compatible = {weakref.ref(source_mesh)}
         self._parallel_compatible = None
 
+        self._uid = f"mesh_{next(self.counter)}"
+
     layers = None
     """No layers on unstructured mesh"""
 
@@ -587,13 +591,14 @@ class AbstractMeshTopology(abc.ABC):
     @cached_property
     def _strata_slice(self):
         if self.dimension == 0:
-            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, None, label=0)], label=self.name)
+            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, None, label=0)], label=self._mesh_id)
 
         subsets = []
         if self._is_renumbered:
             for dim in self._plex_strata_ordering:
                 indices = op3.ArrayBuffer(self._dim_indices_renum(dim), ordered=True)
-                subset_axes = op3.Axis({dim: op3.Scalar(indices.size)}, self.name)
+                # NOTE: We should be able to do this without matching axes I think
+                subset_axes = op3.Axis({dim: op3.Scalar(indices.size)}, self._uid)
                 subset_array = op3.Dat(subset_axes, buffer=indices)
                 subset = op3.SubsetSliceComponent("mylabel", subset_array, label=dim)
                 subsets.append(subset)
@@ -604,7 +609,7 @@ class AbstractMeshTopology(abc.ABC):
                 slice_component = op3.AffineSliceComponent("mylabel", start, end, label=str(dim))
                 subsets.append(slice_component)
 
-        return op3.Slice("mesh", subsets, label=self.name)
+        return op3.Slice("mesh", subsets, label=self._uid)
 
     @cached_method()
     def _dim_indices_renum(self, dim: int) -> np.ndarray:
@@ -651,7 +656,7 @@ class AbstractMeshTopology(abc.ABC):
         if name is not None:
             return self._entity_axes_by_name(name)
         elif dim is not None:
-            dim_slice = op3.Slice(self.name, op3.atom(dim))
+            dim_slice = op3.Slice(self._uid, op3.atom(dim))
             return self.points[dim_slice]
         else:
             if isinstance(self, ExtrudedMeshTopology):
@@ -663,7 +668,7 @@ class AbstractMeshTopology(abc.ABC):
     def _entity_axes_by_name(self, name: str):
         if name == "cell":
             # NOTE: not sure this is necessary
-            cell_slice = op3.Slice(self.name, op3.atom(self.cell_label))
+            cell_slice = op3.Slice(self._uid, op3.atom(self.cell_label))
             # return self.points[op3.atom(self.cell_label)]
             return self.points[cell_slice]
 
@@ -704,7 +709,7 @@ class AbstractMeshTopology(abc.ABC):
         plex_indices_is = self._entity_indices_is("plex", name)
         subset_indices = dmcommon.section_offsets(numbering_sec, plex_indices_is, sort=True)
         subset_dat = op3.Dat.from_array(subset_indices.indices, comm=self.comm)
-        subset = op3.Slice(self.name, [op3.SubsetSliceComponent(label, subset_dat)], label=name)
+        subset = op3.Slice(self._uid, [op3.SubsetSliceComponent(label, subset_dat)], label=name)
         return self.points[subset]
 
     @cached_property
@@ -1165,7 +1170,7 @@ class AbstractMeshTopology(abc.ABC):
         ).reshape((-1, arity))
         return op3.Dat(
             local_facet_numbers_dat.axes, data=data.flatten(),
-            name=f"{self.name}_{facet_type}_local_facet_orientation"
+            name=f"{self._uid}_{facet_type}_local_facet_orientation"
         )
 
     @cached_property
@@ -1587,13 +1592,13 @@ class AbstractMeshTopology(abc.ABC):
             axis = self._entity_axes(support_name).as_axis()
             support_dat = self._support_dat(support_name, only_owned=False)
             supports[idict({axis.label: axis.component.label})] = [[
-                op3.TabulatedMapComponent(self.name, self.cell_label, support_dat, label=None),
+                op3.TabulatedMapComponent(self._uid, self.cell_label, support_dat, label=None),
             ]]
 
             owned_axis = axis.owned
             owned_support_dat = self._support_dat(support_name, only_owned=True)
             supports[idict({owned_axis.label: owned_axis.component.label})] = [[
-                op3.TabulatedMapComponent(self.name, self.cell_label, owned_support_dat, label=None),
+                op3.TabulatedMapComponent(self._uid, self.cell_label, owned_support_dat, label=None),
             ]]
         return op3.Map(supports)
 
@@ -2733,10 +2738,7 @@ class MeshTopology(AbstractMeshTopology):
             for dim in range(self.dimension)
         ]
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)
-        return op3.ScalarMap(
-            connectivity,
-            # name=f"{self.name}_child_{self.submesh_parent.name}_parent_map_point_point",
-        )
+        return op3.ScalarMap(connectivity)
 
     @cached_property
     def submesh_parent_to_child_map(self):
@@ -2748,10 +2750,7 @@ class MeshTopology(AbstractMeshTopology):
             for dim in range(self.dimension)
         ]
         connectivity = op3.utils.merge_dicts(m.connectivity for m in maps)
-        return op3.ScalarMap(
-            connectivity,
-            # name=f"{self.name}_parent_{self.submesh_parent.name}_child_map_point_point",
-        )
+        return op3.ScalarMap(connectivity)
 
     @cached_property
     def _submesh_to_parent_plex_index_map(self) -> np.ndarray[IntType]:
@@ -2883,6 +2882,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # AbstractMeshTopology.__init__
         self._shared_data_cache = defaultdict(dict)
         self._max_work_functions = {}
+
+        # needed because we don't call super().__init__
+        self._uid = f"mesh_{next(self.counter)}"
 
     @cached_property
     def _ufl_cell(self):
@@ -3220,7 +3222,7 @@ class ExtrudedMeshTopology(MeshTopology):
         extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
         src_axis = self.cells.owned.root
-        dest_axis = self._base_mesh.name
+        dest_axis = self._base_mesh._uid
         dest_stratum = self._base_mesh.cell_label
 
         map_axes = op3.AxisTree.from_iterable([
@@ -3514,7 +3516,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         dat = op3.Dat(self.points, data=self.cell_parent_cell_list)
         return op3.ScalarMap(
             {
-                idict({self.name: self.cell_label}): [
+                idict({self._uid: self.cell_label}): [
                     op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
                 ]
             },

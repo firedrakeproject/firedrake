@@ -6,7 +6,6 @@ from collections.abc import Hashable, Mapping
 from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
-import pyop3.expr
 import pyop3.index_tree
 import pyop3.insn
 import pyop3.node
@@ -32,6 +31,7 @@ class Relabeler(IdentityVisitor):
         relabel_map: Mapping[type, Mapping[str, str]] | None = None,
         *,
         allow_missing: bool | None = None,
+        shallow: bool = False,
     ) -> None:
         if relabel_map is None:
             assert allow_missing is None
@@ -45,7 +45,7 @@ class Relabeler(IdentityVisitor):
             existing_type_store=relabel_map,
             allow_missing=allow_missing,
         )
-        super().__init__()
+        super().__init__(shallow=shallow)
 
     @property
     def relabel_map(self):
@@ -200,5 +200,5 @@ class Relabeler(IdentityVisitor):
     # }}}
 
 
-def relabel(obj: pyop3.obj.Object, relabel_map: Mapping) -> pyop3.obj.Object:
-    return Relabeler(relabel_map)(obj)
+def relabel(obj: pyop3.obj.Object, relabel_map: Mapping, **kwargs) -> pyop3.obj.Object:
+    return Relabeler(relabel_map, **kwargs)(obj)
