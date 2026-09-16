@@ -8,7 +8,7 @@ from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
-from firedrake.netgen import _transfer_high_order_coordinates
+from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
 from firedrake.petsc import PETSc
 
 
@@ -64,18 +64,15 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
     target_mesh._distribution_parameters = dict(source_mesh._distribution_parameters)
     target_mesh._did_reordering = source_mesh._did_reordering
     target_mesh._tolerance = source_mesh.tolerance
-    if hasattr(source_mesh, "netgen_mesh") and not hasattr(target_mesh, "netgen_mesh"):
-        target_mesh.netgen_mesh = source_mesh.netgen_mesh
-    if hasattr(source_mesh, "netgen_flags") and not hasattr(target_mesh, "netgen_flags"):
-        target_mesh.netgen_flags = source_mesh.netgen_flags
 
 
 def refine_marked_elements(mesh, cell_marker):
     """Adaptively refine a mesh using a DG0 marking function.
 
     Positive integer marker values request repeated refinement of the
-    corresponding cells. Curved Netgen meshes are re-curved to the
-    original coordinate degree after refinement.
+    corresponding cells. The vertices of a Netgen mesh are snapped onto its
+    geometry after each round, and the coordinates are curved to their
+    original degree at the end.
 
     Parameters
     ----------
@@ -102,8 +99,11 @@ def refine_marked_elements(mesh, cell_marker):
     current_mesh = mesh
     current_mark = cell_marker
     fine_to_coarse_points = np.arange(*mesh.topology_dm.getChart(), dtype=IntType)
+    is_netgen = hasattr(mesh, "netgen_mesh")
     for ref in range(num_refinements):
         new_dm = _adapt_marked_cells(current_mesh, current_mark)
+        if is_netgen:
+            ngmesh = _snap_to_netgen(new_dm, mesh.netgen_mesh)
         fine_to_coarse_points = impl.compose_points(
             fine_to_coarse_points, impl.transform_source_points(new_dm))
         with PETSc.Log.Event("AdaptiveRefine: Mesh()"):
@@ -115,6 +115,9 @@ def refine_marked_elements(mesh, cell_marker):
                 comm=mesh.comm,
                 tolerance=mesh.tolerance,
             )
+        if is_netgen:
+            current_mesh.netgen_mesh = ngmesh
+            current_mesh.netgen_flags = mesh.netgen_flags
         if ref < num_refinements - 1:
             with PETSc.Log.Event("AdaptiveRefine: re-mark"):
                 # A cell asking for n refinements stays marked until n rounds
@@ -128,11 +131,11 @@ def refine_marked_elements(mesh, cell_marker):
                     cell_marker.dat.data_ro[ancestor[refined]] - (ref + 1)
 
     final_mesh = current_mesh
-    if hasattr(mesh, "netgen_mesh"):
-        order = mesh.coordinates.function_space().ufl_element().degree()
-        if order > 1:
-            with PETSc.Log.Event("AdaptiveRefine: recurve netgen coords"):
-                final_mesh = _transfer_high_order_coordinates(mesh, final_mesh, order)
+    if is_netgen:
+        coordinates = mesh.coordinates.function_space()
+        with PETSc.Log.Event("AdaptiveRefine: recurve netgen coords"):
+            final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
+                                            cg_field=not coordinates.finat_element.is_dg())
 
     final_mesh.adaptive_parent = mesh
     final_mesh.adaptive_fine_to_coarse_points = fine_to_coarse_points
