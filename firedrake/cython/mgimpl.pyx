@@ -54,7 +54,7 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section numbering, entity_type):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
+def coarse_to_fine_nodes(Vc, Vf, const PetscInt[:, ::1] coarse_to_fine_cells):
     cdef:
         np.ndarray fine_map, coarse_map, coarse_to_fine_map
         PetscInt i, j, k, l, m, node, fine
@@ -87,12 +87,12 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
                     coarse_to_fine_map[node, k] = fine_map[fine, m]
                     k += 1
 
-    return coarse_to_fine_map
+    return np.asarray(coarse_to_fine_map)
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
+def fine_to_coarse_nodes(Vf, Vc, const PetscInt[:, ::1] fine_to_coarse_cells):
     cdef:
         np.ndarray fine_map, coarse_map, fine_to_coarse_map
         PetscInt i, j, k, node
@@ -119,7 +119,7 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
                 for k in range(coarse_per_cell):
                     fine_to_coarse_map[node, coarse_per_cell*ll + k] = coarse_map[coarse_cell, k]
 
-    return fine_to_coarse_map
+    return np.asarray(fine_to_coarse_map)
 
 
 def create_lgmap(PETSc.DM dm):
