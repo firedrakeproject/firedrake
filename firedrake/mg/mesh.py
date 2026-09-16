@@ -59,7 +59,8 @@ class HierarchyBase(object):
 
     """
     def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                 refinements_per_level=1, nested=False):
+                 refinements_per_level=1, nested=False,
+                 dms=None, lgmaps=None):
         petsctools.cite("Mitchell2016")
         self._meshes = list(meshes)
         self.meshes = self._meshes[::refinements_per_level]
@@ -67,6 +68,8 @@ class HierarchyBase(object):
         self.fine_to_coarse_cells = fine_to_coarse_cells
         self.refinements_per_level = refinements_per_level
         self.nested = nested
+        self._dms = list(dms) if dms is not None else None
+        self._lgmaps = list(lgmaps) if lgmaps is not None else None
         for level, m in enumerate(meshes):
             set_level(m, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
@@ -123,8 +126,10 @@ class HierarchyBase(object):
         if self.refinements_per_level != 1:
             raise NotImplementedError("Cannot add a mesh to a hierarchy with "
                                       "refinements_per_level > 1")
+        adaptive = False
         if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
             if mesh.adaptive_parent is self[-1]:
+                adaptive = True
                 coarse_to_fine_cells, fine_to_coarse_cells = mesh.adaptive_cell_maps
             elif self.nested:
                 raise ValueError("Expecting a mesh adaptively refined from the finest "
@@ -137,6 +142,13 @@ class HierarchyBase(object):
         mesh.topology_dm.setRefineLevel(level)
         self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
         self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
+        if self._dms is not None:
+            if adaptive:
+                self._dms.append(mesh.topology_dm)
+                self._lgmaps.append((None, None))
+            else:
+                self._dms = None
+                self._lgmaps = None
         return mesh
 
     def adapt(self, eta, theta: float):
@@ -257,6 +269,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
     for i in range(refinement_levels*refinements_per_level):
         if i % refinements_per_level == 0:
             before(cdm, i)
+        cdm.setSaveTransform()
         rdm = cdm.refine()
         if i % refinements_per_level == 0:
             after(rdm, i)
@@ -284,7 +297,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
     meshes = [mesh]
     for rdm in dms[1:]:
         fmesh = mesh_builder(
-            rdm,
+            rdm.clone(),
             dim=mesh.geometric_dimension,
             distribution_parameters=parameters,
             reorder=reorder,
@@ -300,9 +313,14 @@ def MeshHierarchy(mesh, refinement_levels=0,
     ]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
-                                                  zip(lgmaps[:-1], lgmaps[1:])):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
+    for (coarse, fine), (clgmaps, flgmaps), (coarse_dm, fine_dm) in zip(
+        zip(meshes[:-1], meshes[1:]),
+        zip(lgmaps[:-1], lgmaps[1:]),
+        zip(dms[:-1], dms[1:]),
+    ):
+        c2f, f2c = impl.coarse_to_fine_cells(
+            coarse, fine, coarse_dm, fine_dm, clgmaps, flgmaps,
+        )
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
@@ -315,7 +333,8 @@ def MeshHierarchy(mesh, refinement_levels=0,
     fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
                                 for i, f2c in enumerate(fine_to_coarse_cells))
     return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level, nested=nested)
+                         refinements_per_level, nested=nested,
+                         dms=dms, lgmaps=lgmaps)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
@@ -526,19 +545,21 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
                                 comm=comm)
               for mesh in parent_hierarchy._meshes]
 
-    lgmaps_with_overlap = []
+    if parent_hierarchy._dms is None or parent_hierarchy._lgmaps is None:
+        raise ValueError("SubmeshHierarchy requires a hierarchy that retains "
+                         "its coarse/fine DMPlexes and local-to-global maps")
+
     for i, m in enumerate(meshes):
-        lgmaps_with_overlap.append(impl.create_lgmap(m.topology_dm))
         m.topology_dm.setRefineLevel(i)
-    lgmaps_without_overlap = lgmaps_with_overlap
-    lgmaps = [
-        (no, o) for no, o in zip(lgmaps_without_overlap, lgmaps_with_overlap)
-    ]
     coarse_to_fine_cells = []
     fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
-                                                  zip(lgmaps[:-1], lgmaps[1:])):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
+    for i, (coarse, fine) in enumerate(zip(meshes[:-1], meshes[1:])):
+        c2f, f2c = impl.coarse_to_fine_submesh_cells(
+            coarse, fine,
+            parent_hierarchy._dms[i],
+            parent_hierarchy._dms[i + 1],
+            parent_hierarchy._lgmaps[i], parent_hierarchy._lgmaps[i + 1],
+        )
         coarse_to_fine_cells.append(c2f)
         fine_to_coarse_cells.append(f2c)
 
