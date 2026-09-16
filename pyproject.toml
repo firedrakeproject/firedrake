@@ -27,8 +27,7 @@ dependencies = [
   "h5py>3.12.1",
   "firedrake-rtree>=2026.2.0",
   "immutabledict",
-  # TODO RELEASE
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
+  "libsupermesh>=2026.1",
   "loopy>2024.1",
   "numpy",
   "packaging",
@@ -77,7 +76,7 @@ check = [
   "pytest",
 ]
 docs = [
-  "bibtexparser",
+  "bibtexparser>=2",
   "ipykernel",  # kernel for executing the tutorial notebooks
   "ipympl",  # %matplotlib widget backend used by the tutorial notebooks
   "jupytext",  # convert the .py tutorial notebooks to .ipynb
@@ -123,8 +122,7 @@ ci = [
   "networkx",
   "ngsPETSc>=0.2.0",
   "pdf2image",
-  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
-  # "pygraphviz",
+  "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",
@@ -144,8 +142,7 @@ docker = [  # Used in firedrake-vanilla container
   "nbval",
   "networkx",
   "pdf2image",
-  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
-  # "pygraphviz",
+  "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",
