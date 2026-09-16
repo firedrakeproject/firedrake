@@ -658,7 +658,7 @@ class VTKFile:
 
         Raises
         ------
-        firedrake.CommMismatchError :
+        CommMismatchError
             If function is not defined on the same MPI comm as this file.
         """
         time = kwargs.get("time", None)
