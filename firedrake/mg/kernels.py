@@ -1,5 +1,6 @@
 import numpy
 import string
+from collections import defaultdict
 from pyop2 import op2
 from pyop2.utils import as_tuple
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
@@ -8,6 +9,7 @@ from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
+from ufl.classes import ReferenceValue
 from ufl.domain import extract_unique_domain
 
 import loopy as lp
@@ -253,6 +255,136 @@ def prolong_kernel(expression, Vf):
         return cache.setdefault(key, transfer_kernel)
 
 
+def prolong_matrix_kernel(Vc, Vf):
+    """Return a PyOP2 kernel that assembles the local prolongation matrices mapping Vc to Vf.
+
+    Parameters
+    ----------
+    Vc : WithGeometry
+        The source (coarse grid) function space.
+    Vf : WithGeometry
+        The target (fine grid) function space.
+
+    Returns
+    -------
+    pyop2.op2.Kernel
+        A kernel that fills in the local dense matrix of the point evaluation
+        prolongation operator, for each fine grid cell and its overlapping
+        coarse grid cells.
+
+    """
+    hierarchy, levelf = utils.get_level(Vf.mesh())
+    hierarchy, levelc = utils.get_level(Vc.mesh())
+    if Vc.mesh().extruded:
+        assert Vf.mesh().extruded
+        level_ratio = (Vc.mesh().layers - 1) // (Vf.mesh().layers - 1)
+    else:
+        level_ratio = 1
+    if levelf <= levelc:
+        raise ValueError("Can only build hierarchy interpolation matrices from coarse to fine spaces")
+    ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio
+    coordinates = Vc.mesh().coordinates
+    key = (("prolong_matrix", ncandidate)
+           + (Vf.block_size,)
+           + _make_element_key(Vf.finat_element)
+           + _make_element_key(Vc.finat_element)
+           + _make_element_key(coordinates.function_space().finat_element))
+    cache = hierarchy._shared_data_cache["transfer_kernels"]
+    try:
+        return cache[key]
+    except KeyError:
+        kernel = dual_evaluation_kernel(ufl.TrialFunction(Vc), ufl.TestFunction(Vf.dual()))
+        evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
+        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+        coords_element = create_element(coordinates.ufl_element())
+        element = create_element(Vc.ufl_element())
+        num_verts = len(element.cell.get_vertices())
+        row_dim = Vf.block_size
+        source_cell_inc = element.space_dimension()
+        source_stencil_inc = ncandidate * source_cell_inc
+        local_tensor_size = row_dim * source_stencil_inc
+        cell_tensor_size = row_dim * source_cell_inc
+
+        kernel_code = """#include <petsc.h>
+        %(to_reference)s
+        %(evaluate)s
+        __attribute__((noinline)) /* Clang bug */
+        static void pyop2_kernel_prolong_matrix(PetscScalar *A, const PetscScalar *X, const PetscScalar *Xc
+                                                %(cell_orient)s%(cell_sizes)s)
+        {
+            PetscScalar Xref[%(tdim)d];
+            PetscScalar B[%(cell_tensor_size)d];
+            int cell = -1;
+            int bestcell = -1;
+            double bestdist = 1e10;
+            for (int i = 0; i < %(local_tensor_size)d; i++) {
+                A[i] = 0;
+            }
+            for (int i = 0; i < %(cell_tensor_size)d; i++) {
+                B[i] = 0;
+            }
+            for (int i = 0; i < %(ncandidate)d; i++) {
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+                double celldist = 2*bestdist;
+                to_reference_coords_kernel(Xref, X, Xci);
+                if (%(inside_cell)s) {
+                    cell = i;
+                    break;
+                }
+
+                celldist = %(celldist_l1_c_expr)s;
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
+                }
+
+            }
+            if (cell == -1) {
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 10) {
+                    cell = bestcell;
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(tdim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
+            }
+            const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
+            pyop2_kernel_evaluate(%(kernel_args)s);
+            for (int i = 0; i < %(row_dim)d; i++) {
+                for (int j = 0; j < %(source_cell_inc)d; j++) {
+                    A[i*%(source_stencil_inc)d + cell*%(source_cell_inc)d + j] =
+                        B[i*%(source_cell_inc)d + j];
+                }
+            }
+        }
+        """ % {"to_reference": str(to_reference_kernel),
+               "evaluate": evaluate_code,
+               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
+               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
+               "kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
+               "ncandidate": ncandidate,
+               "row_dim": row_dim,
+               "source_cell_inc": source_cell_inc,
+               "source_stencil_inc": source_stencil_inc,
+               "cell_tensor_size": cell_tensor_size,
+               "local_tensor_size": local_tensor_size,
+               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
+               "Xc_cell_inc": coords_element.space_dimension(),
+               "tdim": element.cell.get_spatial_dimension()}
+
+        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong_matrix")
+        transfer_kernel.oriented = kernel.oriented
+        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
+        return cache.setdefault(key, transfer_kernel)
+
+
 def restrict_kernel(Vf, Vc):
     hierarchy, levelf = utils.get_level(Vf.mesh())
     if Vf.mesh().extruded:
@@ -419,9 +551,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake.slate.slac import compile_expression
     if complex_mode:
         raise NotImplementedError("In complex mode we are waiting for Slate")
-    # The kernel integrates over one micro-cell per call. The outer kernel
-    # below calls it once for each real child of the coarse cell.
-    macro_builder = MacroKernelBuilder(ScalarType, 1)
+    macro_builder = MacroKernelBuilder(ScalarType, ncell)
     macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
     macro_builder._entity_ids = {Vf.mesh(): (0,)}
     f = ufl.Coefficient(Vf)
@@ -447,7 +577,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
                      scalar_type=parameters["scalar_type"])
 
     macro_context = fem.PointSetContext(**macro_cfg)
-    fexpr, = fem.compile_ufl(f, macro_context)
     X = ufl.SpatialCoordinate(Vf.mesh())
     C_a, = fem.compile_ufl(X, macro_context)
     detJ = ufl_utils.preprocess_expression(abs(ufl.JacobianDeterminant(extract_unique_domain(f))),
@@ -515,9 +644,25 @@ def dg_injection_kernel(Vf, Vc, ncell):
     tensor_indices = tuple(gem.Index(extent=d) for d in index_shape)
 
     phi_c = gem.Indexed(phi_c, argument_multiindex + tensor_indices)
+    fexpr, = fem.compile_ufl(ReferenceValue(f), macro_context)
     fexpr = gem.Indexed(fexpr, tensor_indices)
+    inner_prod = gem.Product(phi_c, fexpr)
+
+    if Vf.ufl_element().mapping() == "symmetries":
+        # Symmetric elements only store independent components.
+        # The L2 inner product adds entrywise products of every component of the full tensor.
+        # We work with the reference components so we need to scale by their multiplicities.
+        symmetry = Vf.ufl_element().symmetry()
+        multiplicity = defaultdict(int)
+        for idx in numpy.ndindex(Vf.value_shape):
+            idx = symmetry.get(idx, idx)
+            multiplicity[idx] += 1
+        block_scale = numpy.array([scale for idx, scale in multiplicity.items()])
+        scale = gem.Indexed(gem.Literal(block_scale), tensor_indices)
+        inner_prod = gem.Product(scale, inner_prod)
+
     quadrature_weight = macro_quadrature_rule.weight_expression
-    expr = gem.Product(gem.IndexSum(gem.Product(phi_c, fexpr), tensor_indices),
+    expr = gem.Product(gem.IndexSum(inner_prod, tensor_indices),
                        gem.Product(macro_detJ, quadrature_weight))
 
     quadrature_indices = macro_builder.indices + macro_quadrature_rule.point_set.indices
@@ -571,11 +716,12 @@ def dg_injection_kernel(Vf, Vc, ncell):
         lp.TemporaryVariable(local_tensor.name, shape=local_tensor.shape, dtype=local_tensor.dtype))
     depends_on |= {"zero"}
 
-    # 2. Fill the local tensor, one micro-cell at a time
+    # 2. Fill the local tensor
     macro_coordinates_arg = macro_builder.generate_arg_from_expression(
         macro_builder.coefficient_map[macro_builder.domain_coordinate[Vf.mesh()]])
     coarse_coordinates_arg = coarse_builder.generate_arg_from_expression(
         coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
+    nchild_arg = lp.GlobalArg("nchild", dtype=IntType, shape=(1,))
     eval_args = [
         lp.GlobalArg(
             local_tensor.name, dtype=local_tensor.dtype, shape=local_tensor.shape,
@@ -583,34 +729,27 @@ def dg_injection_kernel(Vf, Vc, ncell):
         *macro_builder.kernel_args,
         macro_coordinates_arg,
         coarse_coordinates_arg,
+        nchild_arg,
     ]
     eval_kernel, _ = generate_loopy(
         impero_c, eval_args,
         ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+
+    # The coarse cell's children come first in its row of
+    # coarse_cell_to_fine_node_map. Skip the slots after them, which only
+    # repeat a child.
+    is_child = pym.primitives.Comparison(
+        pym.var("entity"), "<", pym.subscript(pym.var(nchild_arg.name), (0,)))
+    callee = eval_kernel.default_entrypoint
+    eval_kernel = eval_kernel.with_kernel(callee.copy(instructions=[
+        insn.copy(predicates=insn.predicates | {is_child})
+        if "entity" in insn.within_inames else insn
+        for insn in callee.instructions]))
     subkernels.append(eval_kernel)
 
-    # The macro arguments arrive holding every child slot of the coarse cell,
-    # back to back. The callee takes one slot, so each call gets the slice
-    # that starts at this child.
-    macro_args = [*macro_builder.kernel_args, macro_coordinates_arg]
-    macro_names = {arg.name for arg in macro_args}
-    entity = pym.var("entity")
-    offsets = [entity * arg.shape[0] if arg.name in macro_names else None
-               for arg in eval_args]
-
-    # A coarse cell that adaptive refinement left alone has fewer children
-    # than the busiest cell of the level, and coarse_cell_to_fine_node_map
-    # pads its row out to that width. Stop at this cell's own children, so
-    # the padding is never read.
-    nchild_arg = lp.GlobalArg("nchild", dtype=IntType, shape=(1,))
-    domains.append(f"{{ [entity]: 0 <= entity < {ncell} }}")
     fill_insn, extra_domains = _generate_call_insn(
         "pyop2_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
-        offsets=offsets, depends_on=depends_on,
-        within_inames=frozenset({"entity"}), within_inames_is_final=True,
-        predicates=frozenset({
-            pym.primitives.Comparison(
-                entity, "<", pym.subscript(pym.var(nchild_arg.name), (0,)))}))
+        depends_on=depends_on, within_inames_is_final=True)
     instructions.append(fill_insn)
     domains.extend(extra_domains)
     depends_on |= {fill_insn.id}
@@ -620,14 +759,9 @@ def dg_injection_kernel(Vf, Vc, ncell):
     retarg = lp.GlobalArg(
         "R", dtype=ScalarType, shape=local_tensor.shape, is_output=True)
 
-    # The caller holds every child slot, so its macro arguments are ncell
-    # times as long as the ones the callee takes.
-    outer_macro_args = [
-        lp.GlobalArg(arg.name, dtype=arg.dtype, shape=(arg.shape[0] * ncell,))
-        for arg in macro_args]
     kernel_data = [
-        retarg, *outer_macro_args, coarse_coordinates_arg, nchild_arg,
-        *kernel_data]
+        retarg, *macro_builder.kernel_args, macro_coordinates_arg,
+        coarse_coordinates_arg, nchild_arg, *kernel_data]
 
     u = TrialFunction(Vc)
     v = TestFunction(Vc)
@@ -654,7 +788,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         headers=Ainv.headers, events=Ainv.events)
 
 
-def _generate_call_insn(name, args, *, iname_prefix=None, offsets=None, **kwargs):
+def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):
     """Create an appropriate loopy call instruction from its arguments.
 
     This function is useful because :class:`loopy.CallInstruction` are a
@@ -670,11 +804,6 @@ def _generate_call_insn(name, args, *, iname_prefix=None, offsets=None, **kwargs
         vector shape.
     iname_prefix : str, optional
         Prefix to the autogenerated inames, defaults to ``name``.
-    offsets : iterable of pymbolic.primitives.Expression, optional
-        One offset per argument, or `None` for no offset. The call passes the
-        slice of that argument which starts at the offset and is as long as
-        the callee expects. Use this to hand a callee one block of a caller
-        array that holds several.
     kwargs
         All other keyword arguments are passed to the
         :class:`loopy.CallInstruction` constructor.
@@ -689,14 +818,12 @@ def _generate_call_insn(name, args, *, iname_prefix=None, offsets=None, **kwargs
     """
     if not iname_prefix:
         iname_prefix = name
-    if offsets is None:
-        offsets = (None,) * len(args)
 
     domains = []
     assignees = []
     parameters = []
     swept_iname_counter = 0
-    for arg, offset in zip(args, offsets):
+    for arg in args:
         try:
             shape, = arg.shape
         except ValueError:
@@ -706,12 +833,8 @@ def _generate_call_insn(name, args, *, iname_prefix=None, offsets=None, **kwargs
         swept_iname_counter += 1
         domains.append(f"{{ [{swept_iname}]: 0 <= {swept_iname} < {shape} }}")
         swept_index = (pym.var(swept_iname),)
-        if offset is None:
-            outer_index = swept_index
-        else:
-            outer_index = (offset + pym.var(swept_iname),)
         param = lp.symbolic.SubArrayRef(
-            swept_index, pym.subscript(pym.var(arg.name), outer_index))
+            swept_index, pym.subscript(pym.var(arg.name), swept_index))
         parameters.append(param)
         if arg.is_output:
             assignees.append(param)
