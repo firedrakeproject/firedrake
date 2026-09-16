@@ -34,7 +34,7 @@ def _get_mesh(cell_type, comm):
         mesh = Mesh(mesh_file, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra":
         # TODO: Prepare more interesting mesh.
-        mesh = UnitCubeMesh(16, 16, 16, name=mesh_name, comm=comm)
+        mesh = UnitCubeMesh(4, 4, 4, name=mesh_name, comm=comm)
     elif cell_type == "tetrahedra_large":
         mesh = Mesh(join(os.environ["PETSC_DIR"], "share/petsc/datafiles/meshes/mesh-3d-box-innersphere.msh"),
                     name=mesh_name, comm=comm)
@@ -56,9 +56,9 @@ def _get_mesh(cell_type, comm):
         # Sanity check
         mesh = UnitSquareMesh(2, 2, quadrilateral=True, name=mesh_name)
     elif cell_type == "triangle_periodic":
-        mesh = PeriodicUnitSquareMesh(20, 20, name=mesh_name)
+        mesh = PeriodicUnitSquareMesh(10, 10, name=mesh_name)
     elif cell_type == "tetrahedra_periodic":
-        mesh = PeriodicUnitCubeMesh(10, 10, 10, name=mesh_name)
+        mesh = PeriodicUnitCubeMesh(4, 4, 4, name=mesh_name)
     elif cell_type == "triangle_3d":
         mesh = UnitIcosahedralSphereMesh(refinement_level=1, name=mesh_name)
         x = SpatialCoordinate(mesh)

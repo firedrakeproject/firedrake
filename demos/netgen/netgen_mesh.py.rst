@@ -48,10 +48,19 @@ Now using the two of the predefined CSG geometries included in Netgen, a rectang
    geo.SetMaterial(2, "inner")
    geo.SetDomainMaxH(2, 0.02)
 
+   # Setup for faster test execution.
+   import os
+   if os.getenv("FIREDRAKE_CI") == "1":
+       geo.SetDomainMaxH(2, 0.1)
+
 Notice that the ``leftdomain`` and ``rightdomain`` attribute in the ``AddRectangle`` and ``AddCircle`` methods are used to set a domain index for the domain on the left and right side respectively of the rectangle and circle perimeter. It is worth mentioning that the perimeters are parametrised in a counterclockwise direction.
 We can now construct a mesh for the geometry we have defined and save it to a PVD file for visualisation. We will do so using the ``GenerateMesh`` method inside of the ``SplineGeometry`` class: ::
 
-   ngmsh = geo.GenerateMesh(maxh=0.1)
+   if os.getenv("FIREDRAKE_CI") == "1":
+       ngmsh = geo.GenerateMesh(maxh=0.3)
+   else:
+       ngmsh = geo.GenerateMesh(maxh=0.1)
+
    # Generating a Firedrake mesh from the NetGen mesh
    msh = Mesh(ngmsh)
    VTKFile("output/MeshExample1.pvd").write(msh)
@@ -141,6 +150,10 @@ We begin by defining some quantities of interest such as the desired tolerance, 
 
    tolerance = 1e-16
    max_iterations = 10
+
+   if os.getenv("FIREDRAKE_CI") == "1":
+       max_iterations = 3
+
    exact = 3.375610652693620492628**2
 
 We create a function to solve the eigenvalue problem using SLEPc. We begin initialising the ``FunctionSpace``, the bilinear forms and linear functionals needed in the variational problem.
@@ -256,7 +269,12 @@ The `+,-,*` operators have respectively the meaning of union, set difference, an
    sphere = Sphere(Pnt(0.6, 0.6, 0.6), 0.5)
    geo = CSGeometry()
    geo.Add(cube-sphere)
-   ngmsh = geo.GenerateMesh(maxh=0.1)
+
+   if os.getenv("FIREDRAKE_CI") == "1":
+       ngmsh = geo.GenerateMesh(maxh=0.3)
+   else:
+       ngmsh = geo.GenerateMesh(maxh=0.1)
+
    msh = Mesh(ngmsh)
    VTKFile("output/MeshExample3.pvd").write(msh)
 
@@ -399,6 +417,10 @@ It is also possible to construct high-order meshes using the ``SplineGeometry``,
    if COMM_WORLD.rank == 0:
        geo = CSG2d()
        circle = Circle(center=(1,1), radius=0.1, bc="curve").Maxh(0.01)
+
+       if os.getenv("FIREDRAKE_CI") == "1":
+           circle = Circle(center=(1,1), radius=0.1, bc="curve").Maxh(0.05)
+
        rect = Rectangle(pmin=(0,1), pmax=(1,2),
                         bottom="b", left="l", top="t", right="r")
        geo.Add(rect-circle)

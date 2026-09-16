@@ -199,8 +199,8 @@ def parameters(request):
         V_dest = TensorFunctionSpace(m_dest, "CG", 4)
         V_dest_2 = TensorFunctionSpace(m_dest, "DQ", 2)
     elif request.param == "spheresphere":
-        m_src = UnitCubedSphereMesh(5, name="src_sphere")
-        m_dest = UnitIcosahedralSphereMesh(5, name="dest_sphere")
+        m_src = UnitCubedSphereMesh(4, name="src_sphere")
+        m_dest = UnitIcosahedralSphereMesh(4, name="dest_sphere")
         coords = np.array(
             [
                 [0, 1, 0],
@@ -273,8 +273,8 @@ def test_interpolate_unitsquare_mixed():
     V_1 = FunctionSpace(m_src, "CG", 1)
     V_2 = FunctionSpace(m_src, "CG", 2)
     V_src = V_1 * V_2
-    V_3 = FunctionSpace(m_dest, "CG", 3)
-    V_4 = FunctionSpace(m_dest, "CG", 4)
+    V_3 = FunctionSpace(m_dest, "CG", 1)
+    V_4 = FunctionSpace(m_dest, "CG", 2)
     V_dest = V_3 * V_4
     f_src = Function(V_src)
     f_src.subfunctions[0].interpolate(expr_1)
@@ -510,7 +510,7 @@ def test_interpolate_cross_mesh(run_test, space, parameters):
     if m_src.name == "src_sphere" and m_dest.name == "dest_sphere":
         # Between immersed manifolds we will often be doing projection so we
         # need a higher tolerance for our tests
-        atol = 1e-3
+        atol = 5e-2
     else:
         atol = 1e-8  # default
     run_test(

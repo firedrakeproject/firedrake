@@ -76,6 +76,12 @@ mesh of quadrilaterals. ::
 
   from firedrake import *
   n = 100
+
+  # Setup for faster test execution.
+  import os
+  if os.getenv("FIREDRAKE_CI") == "1":
+      n = 20
+
   mesh = UnitSquareMesh(n, n, quadrilateral=True)
 
 We construct the quadratic function space for :math:`u`, ::
