@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.utils import complex_mode
 import pytest
 
 
@@ -43,9 +42,5 @@ def test_inject_refined_extmesh(quadrilateral, dg):
     xc, *_ = SpatialCoordinate(mh[0])
     Vc = FunctionSpace(mh[0], elt)
     uc = Function(Vc)
-    if dg and complex_mode:
-        with pytest.raises(NotImplementedError):
-            inject(uf, uc)
-    else:
-        inject(uf, uc)
-        assert norm(uc - xc) < 1e-10
+    inject(uf, uc)
+    assert norm(uc - xc) < 1e-10
