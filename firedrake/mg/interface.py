@@ -413,7 +413,8 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
 
     if needs_quadrature:
         interp = interpolate(ufl_expr.TrialFunction(Vf), Vtarget)
-        Q = assemble(interp, bcs=bcs, mat_type="aij").petscmat
+        target_bcs = [bc for bc in bcs or () if _bc_matches_space(bc, Vtarget)]
+        Q = assemble(interp, bcs=target_bcs, mat_type="aij").petscmat
         result = Q.matMult(result)
 
     return AssembledMatrix(arguments, result, bcs=bcs)
