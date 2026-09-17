@@ -538,7 +538,7 @@ class CompiledCodeExecutor:
 
         """
         # if "MatSetValues" in str(self):
-        # #     breakpoint()
+        #     breakpoint()
         #     import pyop3.debug
         # pyop3.debug.maybe_breakpoint()
 
@@ -646,10 +646,6 @@ class CompiledCodeExecutor:
 
         # Now all the data is correct, compute!
         self.executable(*exec_arguments)
-
-        # if "MatSetValues" in str(self) and "form" in str(self):
-        #     buf = list(self.buffer_intents.keys())[0]
-        #     breakpoint()
 
         for fin in finalizers:
             fin()

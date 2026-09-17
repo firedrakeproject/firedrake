@@ -312,6 +312,7 @@ def _(slice_: slice, /, *, axes, path) -> Slice:
     except KeyError:
         raise InvalidIndexTargetException
 
+    breakpoint()
     if len(axis.components) == 1:
         if slice_is_full:
             return Slice(axis.label, utils.atom(axis.component.label))
@@ -507,9 +508,11 @@ def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_p
                 index_path=index_path_,
                 possible_target_paths_acc=possible_target_paths_acc_,
             ):
+                breakpoint()
                 return False
         else:
             if all(tp not in axes.leaf_paths for tp in possible_target_paths_acc_):
+                breakpoint()
                 return False
     return True
 

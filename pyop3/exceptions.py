@@ -98,6 +98,10 @@ class CompilationException(Pyop3Exception):
 class EffectlessComputationException(Pyop3Exception):
     """Error raised if the operation has no effect."""
 
+
+class InvalidIntentException(Pyop3Exception):
+    """Error raised if the operation has no effect."""
+
 # }}}
 
 # {{{ parallel

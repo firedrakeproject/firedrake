@@ -404,7 +404,7 @@ class Function(pyop3.obj.Object):
                 case Intent.WRITE:
                     is_input = True  # is this needed?
                     is_output = True
-                case Intent.RW | Intent.INC | Intent.MAX_RW | Intent.MIN_RW:
+                case Intent.RW | Intent.INC | Intent.MAX_RW | Intent.MAX_WRITE | Intent.MIN_RW | Intent.MIN_WRITE:
                     is_input = True
                     is_output = True
                 case _:
@@ -459,6 +459,10 @@ class Function(pyop3.obj.Object):
             shape = arg.shape if not isinstance(arg, lp.ValueArg) else ()
             spec.append(ArgumentSpec(access, arg.dtype, shape))
         return tuple(spec)
+
+    @property
+    def intents(self):
+        return tuple(a.intent for a in self.argspec)
 
     @property
     def name(self):
@@ -530,6 +534,16 @@ class CalledFunction(AbstractCalledFunction):
         )
 
     def __init__(self, function: Function, arguments: Iterable) -> None:
+        for arg, intent in zip(arguments, function.intents, strict=True):
+            if (
+                isinstance(arg, pyop3.expr.Tensor)
+                and isinstance(arg.buffer, pyop3.buffer.PetscMatBuffer)
+                and intent not in [pyop3.constants.WRITE, pyop3.constants.INC]
+            ):
+                raise pyop3.exceptions.InvalidIntentException(
+                    f"PETSc mats can only be accessed using WRITE or INC, not {intent}"
+                )
+
         function = self._fixup_function_argument_shapes(function, arguments)
         arguments = tuple(arguments)
         object.__setattr__(self, "function", function)
@@ -673,6 +687,8 @@ class AbstractAssignment(AbstractAssignmentLike):
         expression_strs = str(self.expression).split("\n")
         if isinstance(self._assignee, weakref.ReferenceType):
             assignee = self._assignee()
+        else:
+            assignee = self._assignee
         if assignee is None:
             assignee_strs = ["<dead>" for _ in expression_strs]
         else:

@@ -22,6 +22,9 @@ from .size import compute_axis_tree_component_size, compute_axis_tree_size  # no
 
 def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
     """Detect any common innermost integer shape in an axis tree."""
+    if axis_tree.depth < 2:
+        return ()
+
     axis_tree = axis_tree.materialize()
 
     block_shape = []

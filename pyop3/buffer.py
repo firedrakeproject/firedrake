@@ -1257,9 +1257,11 @@ class PetscMatBuffer(ConcreteBuffer):
     def mat_type(self) -> str:
         return self.mat.type
 
-    # TODO: Could also accept a vector here
-    def set_diagonal(self, value: numbers.Number) -> None:
-        value = utils.strict_cast(value, PETSc.ScalarType)
+    def set_diagonal(self, value: np.ndarray | numbers.Number) -> None:
+        if isinstance(value, numbers.Number):
+            value = utils.strict_cast(value, PETSc.ScalarType)
+        else:
+            value = value.astype(PETSc.ScalarType)
         set_petsc_mat_diagonal(self.mat, value)
 
     def materialize(self) -> PetscMatBuffer:

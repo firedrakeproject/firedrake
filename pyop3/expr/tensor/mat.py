@@ -113,8 +113,20 @@ class Mat(Tensor):
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
-        raise NotImplementedError("Matrix assignment needs special consideration")
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        # TODO: This is a generic property of axis trees
+        is_unindexed = all(
+            ax.buffer_size(include_ghosts=True) == ax.unindexed.buffer_size(include_ghosts=True)
+            for ax in [self.row_axes, self.column_axes]
+        )
+        if is_unindexed and other == 0:
+            if mode == "write":
+                self.buffer.zero()
+            else:
+                # inc-ing zero means to do nothing
+                pass
+        else:
+            raise NotImplementedError("Matrix assignment needs special consideration")
 
     # }}}
 
@@ -131,6 +143,9 @@ class Mat(Tensor):
         buffer_kwargs: KwargsT = idict(),
         **kwargs,
     ) -> Mat:
+        row_axes = row_axes.as_tree()
+        column_axes = column_axes.as_tree()
+
         if buffer_spec is None:
             buffer_spec = cls.DEFAULT_MAT_INIT_BUFFER_SPEC
 
@@ -270,7 +285,7 @@ class Mat(Tensor):
     def values(self):
         return self.as_array("ro")
 
-    def as_array(self, mode, *, regions=frozenset({"owned"})):
+    def as_array(self, mode):
         assert mode == "ro"
         if self.comm.size > 1:
             raise RuntimeError("Only valid in serial")
@@ -300,8 +315,8 @@ class Mat(Tensor):
                 context = mat.getPythonContext()
                 return mat.getPythonContext().data_ro
             else:
-                row_indices = row_axes.with_region_labels(regions).buffer_slice(include_ghosts=True)
-                column_indices = column_axes.with_region_labels(regions).buffer_slice(include_ghosts=True)
+                row_indices = row_axes.buffer_slice(include_ghosts=True)
+                column_indices = column_axes.buffer_slice(include_ghosts=True)
                 return mat[row_indices, column_indices]
         else:
             raise NotImplementedError

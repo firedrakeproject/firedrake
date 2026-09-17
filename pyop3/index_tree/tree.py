@@ -277,8 +277,11 @@ class TabulatedMapComponent(MapComponent):
         from pyop3 import Dat
         from pyop3.expr import as_linear_buffer_expression
 
-        if not isinstance(array, Dat):
+        if isinstance(array, np.ndarray):
+            array = Dat.from_array(array)
+        elif not isinstance(array, Dat):
             raise NotImplementedError
+
         assert array.axes.is_linear
         match array.axes.depth:
             case 1:

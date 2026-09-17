@@ -62,6 +62,11 @@ class Tensor(TerminalExpression, abc.ABC):
     def dim(self) -> int:
         pass
 
+    @property
+    @abc.abstractmethod
+    def size(self) -> int:
+        pass
+
     @abc.abstractmethod
     def getitem(self, *indices, strict=False):
         pass

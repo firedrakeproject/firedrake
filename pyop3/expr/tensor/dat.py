@@ -272,30 +272,30 @@ class Dat(Tensor):
         if sf and sf.comm != comm:
             raise pyop3.exceptions.CommMismatchException
 
-        # If no SF is provided then we assume no overlap
-        # if sf is None:
-        #     sf = pyop3.sf.local_sf(array.size, comm=comm)
-
-        buffer_kwargs = buffer_kwargs or {}
-
         name = utils.maybe_generate_name(kwargs.pop("name", None), kwargs.pop("prefix", None), cls.DEFAULT_PREFIX)
         kwargs["name"] = name
 
-        buffer_kwargs = dict(buffer_kwargs)
+        buffer_kwargs = dict(buffer_kwargs or {})
         if "name" not in buffer_kwargs:
             buffer_kwargs["name"] = f"{name}_buffer"
-
         if constant:
             buffer_kwargs["constant"] = True
-
         if rank_equal:
             buffer_kwargs["rank_equal"] = True
-            size = array.size
-        else:
-            size = Scalar(array.size)
 
-        axes = pyop3.axis_tree.Axis(pyop3.axis_tree.AxisComponent(size, sf=sf))
-        buffer = ArrayBuffer(array, sf=sf, **buffer_kwargs)
+        axes = pyop3.axis_tree.AxisTree()
+        for i, s in enumerate(array.shape):
+            if i == 0:
+                # Parallel considerations only apply to the outermost axis
+                axis_sf = sf
+                axis_size = s if rank_equal else Scalar(s)
+            else:
+                axis_sf = None
+                axis_size = s
+            axis = pyop3.axis_tree.Axis(pyop3.axis_tree.AxisComponent(axis_size, sf=axis_sf))
+            axes = axes.add_axis(None, axis)
+
+        buffer = ArrayBuffer(array.ravel(), sf=axes.sf, **buffer_kwargs)
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod

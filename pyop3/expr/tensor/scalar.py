@@ -72,6 +72,7 @@ class Scalar(Tensor):
     # {{{ interface impls
 
     dim: ClassVar[int] = 0
+    size = 1
     transform: ClassVar[None] = None
 
     def copy(self) -> Scalar:

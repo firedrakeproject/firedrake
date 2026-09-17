@@ -267,15 +267,24 @@ def _compile_array_assignment(
         iname_replace_maps = []
 
     if axis_tree is None:
+        # First time calling this function, fetch from axis_trees
         axis_tree, *axis_trees = axis_trees
-
         paths += [idict()]
         iname_replace_maps += [idict()]
-        
-        if axis_tree.is_empty or axis_tree is UNIT_AXIS_TREE or isinstance(axis_tree, IndexedAxisTree):
-            if axis_trees: 
-                raise NotImplementedError("Refactor needed")
 
+    assert not axis_tree.is_empty
+    if isinstance(axis_tree, pyop3.axis_tree.AbstractUnitAxisTree):
+        if axis_trees: 
+            _compile_array_assignment(
+                assignment, 
+                loop_indices, 
+                axis_trees, 
+                codegen_context,
+                iname_replace_maps=iname_replace_maps, 
+                axis_tree=None, 
+                paths=paths,
+            )
+        else:
             codegen_context.add_leaf_assignment(
                 assignment.assignee,
                 assignment.expression,
@@ -284,7 +293,7 @@ def _compile_array_assignment(
                 iname_replace_maps, 
                 loop_indices
             )
-            return
+        return
 
     axis = axis_tree.node_map[paths[-1]]
     for component in axis.components:

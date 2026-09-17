@@ -500,7 +500,7 @@ class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
         # relabel components if needed
         if utils.strictly_all(c.label is DECIDE for c in components):
             if len(components) > 1:
-                components = tuple(c.record_new(_label=i) for i, c in enumerate(components))
+                components = tuple(c.record_new(label=i) for i, c in enumerate(components))
             else:
                 components = (utils.just_one(components).record_new(label=None),)
 
@@ -551,7 +551,6 @@ class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
     def region_sets(self) -> Axis:
         return self.as_tree().region_sets
 
-    @cached_property
     def with_region_labels(self, *args, **kwargs) -> Axis:
         return self.as_tree().with_region_labels(*args, **kwargs)
 
@@ -707,6 +706,15 @@ class AbstractAxisTree(LoopContextFreeAxisTreeLike):
     @property
     def trees(self) -> tuple[AbstractAxisTree, ...]:
         return (self,)
+
+    @cached_property
+    def nest_labels(self):
+        return tuple(label for label, _ in self._nest_info)
+
+    @property
+    @abc.abstractmethod
+    def _nest_info(self):
+        pass
 
 
 class AbstractUnitAxisTree(AbstractAxisTree):
@@ -1227,6 +1235,10 @@ class AbstractUnindexedAxisTree(LoopContextFreeAxisTreeLike):
     def unindexed(self) -> Self:
         return self
 
+    @property
+    def _nest_info(self):
+        return ()
+
 
 class AbstractIndexedAxisTree(LoopContextFreeAxisTreeLike):
     """Base class for axis trees that are indexed."""
@@ -1255,7 +1267,7 @@ class AbstractIndexedAxisTree(LoopContextFreeAxisTreeLike):
 
 
 @pyop3.record.frozenrecord()
-class _UnitAxisTree(AbstractUnitAxisTree, AbstractUnindexedAxisTree):
+class _UnitAxisTree(AbstractUnindexedAxisTree, AbstractUnitAxisTree):
 
     # {{{ instance attrs
 
@@ -1362,7 +1374,7 @@ labels.
 
 
 @pyop3.record.frozenrecord(repr=False)
-class AxisTree(MutableLabeledTreeMixin, AbstractNonUnitAxisTree, AbstractUnindexedAxisTree):
+class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUnitAxisTree):
 
     # {{{ instance attrs
 
@@ -1770,14 +1782,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             unindexed=self.unindexed.regionless(),
         )
 
-    # @cached_property
-    # def nest_indices(self):
-    #     return tuple(index for _, index in self._nest_info)
-
-    @cached_property
-    def nest_labels(self):
-        return tuple(label for label, _ in self._nest_info)
-
     @cached_property
     def _nest_info(self) -> tuple:
         # Compare the 'fully indexed' bits of the matching target and try to
@@ -2129,14 +2133,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
     def with_context(self, context):
         return self
 
-    # @cached_property
-    # def nest_indices(self):
-    #     return tuple(index for _, index in self._nest_info)
-
-    @cached_property
-    def nest_labels(self):
-        return tuple(label for label, _ in self._nest_info)
-
     @cached_property
     def _nest_info(self):
         if idict() not in self._matching_target:
@@ -2415,10 +2411,6 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     def restrict_nest(self, index):
         return type(self)(tree.restrict_nest(index) for tree in self.trees)
-
-    # @property
-    # def nest_indices(self):
-    #     return utils.single_valued(tree.nest_indices for tree in self.trees)
 
     @property
     def nest_labels(self):

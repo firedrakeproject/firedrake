@@ -8,6 +8,7 @@ from .tree import (  # noqa: F401
     UNIT_AXIS_TREE,
     LoopContextFreeAxisTreeLike,
     AbstractNonUnitAxisTree,
+    AbstractUnitAxisTree,
     AbstractUnindexedAxisTree,
     Axis,
     AxisComponent,
