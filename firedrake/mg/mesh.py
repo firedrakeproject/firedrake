@@ -11,6 +11,7 @@ from functools import cached_property
 
 from firedrake import utils
 from firedrake.cython import dmcommon
+from firedrake.petsc import PETSc
 from firedrake.cython import mgimpl as impl
 from .utils import set_level, set_dm_refine_level
 
@@ -59,6 +60,8 @@ class HierarchyBase(object):
         was refined from, or to -1.
     redistribute :
         Redistribute adaptively refined meshes that have empty ranks?
+    coarse_facet_label :
+       Optional subdomain ID to label the coarse facets on each level of the hierarchy.
 
     Notes
     -----
@@ -68,7 +71,7 @@ class HierarchyBase(object):
     """
     def __init__(self, meshes, coarse_to_fine_cells=None, fine_to_coarse_cells=None,
                  refinements_per_level=1, nested=False,
-                 fine_to_coarse_points=None, redistribute=True):
+                 fine_to_coarse_points=None, redistribute=True, coarse_facet_label=None):
         petsctools.cite("Mitchell2016")
         self._meshes = list(meshes)
         self.meshes = self._meshes[::refinements_per_level]
@@ -86,6 +89,7 @@ class HierarchyBase(object):
         self.coarse_to_fine_cells = coarse_to_fine_cells
         self.fine_to_coarse_cells = fine_to_coarse_cells
         self.redistribute = redistribute
+        self._coarse_facet_label = coarse_facet_label
         for level, m in enumerate(meshes):
             set_level(m, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
@@ -214,7 +218,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
                   mesh_builder=firedrake.Mesh, nested=True,
-                  redistribute=True):
+                  redistribute=True, coarse_facet_label=None):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     Parameters
@@ -258,6 +262,9 @@ def MeshHierarchy(mesh, refinement_levels=0,
         Are the meshes added to this hierarchy required to be nested? If
         `False`, :meth:`HierarchyBase.add_mesh` accepts a mesh that was not
         adaptively refined from the finest level.
+    coarse_facet_label : int | None
+        Optional subdomain ID to label the coarse facets on each
+        level of the hierarchy.
 
     Returns
     -------
@@ -310,6 +317,15 @@ def MeshHierarchy(mesh, refinement_levels=0,
     for i in range(refinement_levels*refinements_per_level):
         coarse_lgmap = impl.create_lgmap(cdm)
         cdm.setRefinementUniform(True)
+        if coarse_facet_label is not None:
+            # Create a temporary label on all the facets of the coarse dm
+            # to label every coarse facet on the fine dm
+            fstart, fend = cdm.getHeightStratum(1)
+            iset = PETSc.IS().createStride(fend-fstart, first=fstart, comm=cdm.comm)
+            cdm.createLabel("temp_label")
+            label = cdm.getLabel("temp_label")
+            label.setStratumIS(1, iset)
+
         if i % refinements_per_level == 0:
             before(cdm, i)
         cdm.setSaveTransform()
@@ -319,6 +335,15 @@ def MeshHierarchy(mesh, refinement_levels=0,
             after(rdm, i)
         if is_netgen:
             ngmesh = _snap_to_netgen(rdm, mesh.netgen_mesh)
+
+        if coarse_facet_label is not None:
+            # Move coarse_facet_label into FACE_SETS_LABEL
+            iset = rdm.getLabel("temp_label").getStratumIS(1)
+            label = rdm.getLabel(dmcommon.FACE_SETS_LABEL)
+            label.setStratumIS(coarse_facet_label, iset)
+            rdm.removeLabel("temp_label")
+            cdm.removeLabel("temp_label")
+
         # Fix up coords if refining embedded circle or sphere
         if hasattr(mesh, '_radius'):
             # FIXME, really we need some CAD-like representation
@@ -368,7 +393,8 @@ def MeshHierarchy(mesh, refinement_levels=0,
                                 for i, f2c in enumerate(fine_to_coarse_cells))
     return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
                          refinements_per_level, nested=nested,
-                         redistribute=redistribute)
+                         redistribute=redistribute,
+                         coarse_facet_label=coarse_facet_label)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
