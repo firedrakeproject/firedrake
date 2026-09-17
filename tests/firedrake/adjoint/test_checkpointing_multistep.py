@@ -4,7 +4,8 @@ from firedrake import *
 from firedrake.adjoint import *
 from .test_burgers_newton import _check_forward, \
     _check_recompute, _check_reverse
-from checkpoint_schedules import MixedCheckpointSchedule, StorageType
+from checkpoint_schedules import MixedCheckpointSchedule, \
+    SingleMemoryStorageSchedule, StorageType
 import numpy as np
 from collections import deque
 
@@ -56,15 +57,15 @@ def test_multisteps(V):
     tape.enable_checkpointing(MixedCheckpointSchedule(total_steps, 2, storage=StorageType.RAM))
     displacement_0 = Function(V).assign(1.0)
     val = J(displacement_0, V)
-    _check_forward(tape)
+    _check_forward(tape, controls=[displacement_0])
     c = Control(displacement_0)
     J_hat = ReducedFunctional(val, c)
     dJ = J_hat.derivative()
-    _check_reverse(tape)
+    _check_reverse(tape, controls=[displacement_0])
     # Recomputing the functional with a modified control variable
     # before the recompute test.
     J_hat(Function(V).assign(0.5))
-    _check_recompute(tape)
+    _check_recompute(tape, controls=[displacement_0])
     # Recompute test
     assert (np.allclose(J_hat(displacement_0), val))
     # Test recompute adjoint-based gradient
@@ -92,3 +93,40 @@ def test_validity(V):
     val_recomputed = J_hat(displacement_0)
     assert np.allclose(val_recomputed, val_recomputed0)
     assert np.allclose(dJ.dat.data_ro[:], dJ0.dat.data_ro[:])
+
+
+@pytest.mark.skipcomplex
+def test_control_value_survives_recompute():
+    """Regression test for firedrakeproject/firedrake#5082.
+
+    Under SingleMemoryStorageSchedule, the checkpoint manager used to
+    clear the control's block-variable checkpoint during the forward
+    replay by writing var._checkpoint = None directly. That bypassed the
+    is_control guard in the BlockVariable setter, so the adjoint then
+    read back the underlying (stale) Function value instead of the new
+    control value installed by Control.update. For J = sum_k m**2 over
+    4 timesteps with m0 = 2, the correct derivative is 8 * m0 = 16; the
+    bug produced 8 (i.e. evaluated at the original m = 1).
+    """
+    tape = get_working_tape()
+    tape.enable_checkpointing(SingleMemoryStorageSchedule())
+
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    m = Function(V).assign(1.0)
+    sumf = Function(V)
+    u = Function(V)
+    tst = TestFunction(V)
+    F = tst * u * dx - tst * m * m * dx
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u))
+
+    for _ in tape.timestepper(iter(range(4))):
+        solver.solve()
+        sumf.assign(sumf + u)
+
+    J_val = assemble(sumf * dx)
+    rf = ReducedFunctional(J_val, Control(m))
+
+    m0 = Function(V).assign(2.0)
+    assert np.allclose(rf(m0), 16.0)
+    assert np.allclose(rf.derivative(apply_riesz=True).dat.data_ro, 16.0)
