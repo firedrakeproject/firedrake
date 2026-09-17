@@ -672,6 +672,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
+            if bcs:
+                spaces = tuple(arg.function_space().topological for arg in expr.arguments())
+                bcs = tuple(bc for bc in bcs if bc.parent_function_space.topological in spaces)
             interpolator = get_interpolator(expr)
             return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
