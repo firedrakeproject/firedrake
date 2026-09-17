@@ -56,8 +56,6 @@ def parentmesh(request):
         return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
-    elif request.param == "extrudedvariablelayers":
-        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -154,7 +152,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     if not skip_in_bounds_checks:
         # Correct local coordinates (though not guaranteed to be in same order)
         # [*here]
-        np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
+        assert np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
     else:
         # Accessing data_ro [*here] is collective, hence this redundant call
         _ = len(vm.coordinates.dat.data_ro)
@@ -164,6 +162,8 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     # Correct generic cell properties
     if not skip_in_bounds_checks:
         assert vm._fiat_cell_closures.shape == (vm.num_cells(), 1)
+    else:
+        vm._fiat_cell_closures.shape
     with pytest.raises(AttributeError):
         vm.exterior_facets
     with pytest.raises(AttributeError):

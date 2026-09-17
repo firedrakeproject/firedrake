@@ -82,6 +82,10 @@ PYOP2_FINALIZED = False
 REDUCTION_OPS = idict({
     pyop3.constants.WRITE: MPI.REPLACE,
     pyop3.constants.INC: MPI.SUM,
+    pyop3.constants.MAX_RW: MPI.MAX,
+    pyop3.constants.MAX_WRITE: MPI.MAX,
+    pyop3.constants.MIN_RW: MPI.MIN,
+    pyop3.constants.MIN_WRITE: MPI.MIN,
 })
 
 

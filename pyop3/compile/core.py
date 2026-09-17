@@ -79,6 +79,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         raise NotImplementedError("MLIR code generation is still being implemented.") 
 
     context = make_context(
+        named_terminal_buffer_intents=op.named_terminal_buffer_intents,
         propagate_negatives=compiler_parameters.propagate_negatives,
         mask_array_accesses=compiler_parameters.mask_array_accesses,
     )
@@ -95,7 +96,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
-    if not context.buffer_intents:
+    if sum(1 for intent in context.buffer_intents.values() if intent is not READ) == 0:
         raise pyop3.exceptions.EffectlessComputationException(
             "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
         )
@@ -103,20 +104,20 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     translation_unit = context.finalize_kernel(function_name, compiler_parameters)
 
     # Extra information needed by the code executor
-    kernel_name_to_buffer_info = utils.invert_mapping(context.kernel_names)
-    buffer_intents = context.buffer_intents
+    kernel_name_to_buffer_view = utils.invert_mapping(context.kernel_names)
 
     # Replace buffers with their indices, dropping any temporaries. Also
     # match the calling order for the kernel.
-    kernel_name_to_global_buffer_info = {}
-    global_buffer_intents = {}
+    kernel_name_to_buffer_info = {}
+    buffer_intents_by_index = {}
     for kernel_arg in translation_unit.default_entrypoint.args:
-        buf_view = kernel_name_to_buffer_info[kernel_arg.name]
+        buf_view = kernel_name_to_buffer_view[kernel_arg.name]
         buf_index = op.preprocessed_buffers.index(buf_view.buffer)
-        kernel_name_to_global_buffer_info[kernel_arg.name] = (buf_index, buf_view.nest_indices)
-        global_buffer_intents[buf_index] = buffer_intents[buf_view.buffer]
 
-    return translation_unit, kernel_name_to_global_buffer_info, global_buffer_intents
+        kernel_name_to_buffer_info[kernel_arg.name] = (buf_index, buf_view.nest_indices)
+        buffer_intents_by_index[buf_index] = context.buffer_intents[buf_view.buffer]
+
+    return translation_unit, kernel_name_to_buffer_info, buffer_intents_by_index
 
 @functools.singledispatch
 def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:

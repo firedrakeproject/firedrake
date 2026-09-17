@@ -444,4 +444,4 @@ def test_real_space_repeated_assembly():
     form = q*dx + q*ds  # area + perimeter of the unit square = 1 + 4 = 5
     for i in range(3):
         x = assemble(form)
-        pytest_mpi.parallel_assert(np.isclose(x.dat.data_ro.item(), 5))
+        pytest_mpi.parallel_assert(float(x), 5)

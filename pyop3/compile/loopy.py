@@ -58,11 +58,8 @@ LOOPY_TARGET = lp.CWithGNULibcTarget()
 LOOPY_LANG_VERSION = (2018, 2)
 
 class LoopyCodegenContext(CodegenContext):
-    def __init__(self, *, propagate_negatives: bool, mask_array_accesses: bool) -> None:
-        super().__init__(
-            propagate_negatives=propagate_negatives,
-            mask_array_accesses=mask_array_accesses
-        )
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
         self._within_inames = frozenset()
 
         # initializer hash -> temporary name
@@ -86,7 +83,7 @@ class LoopyCodegenContext(CodegenContext):
 
     def add_subkernel(self, subkernel): 
         self._subkernels.append(subkernel)
-    
+
     def var(self, iname: str, *args) -> pym.primitives.Variable:
         return pym.var(iname)
 
@@ -207,6 +204,12 @@ class LoopyCodegenContext(CodegenContext):
             if intent is None:
                 raise ValueError("Global data must declare intent")
 
+            if buffer in self.named_terminal_buffer_intents:
+                self.buffer_intents[buffer] = self.named_terminal_buffer_intents[buffer]
+            else:
+                assert intent == READ
+                self.buffer_intents[buffer] = intent
+
             # Inject constant buffer data into the generated code if sufficiently small
             # TODO: Enable this in an earlier pass (insert literals) (but have to make absolutely sure
             # that it is correctly included in the cache key).
@@ -227,10 +230,6 @@ class LoopyCodegenContext(CodegenContext):
             #         )
 
             if buffer_view in self.kernel_names:
-                if intent != self.buffer_intents[buffer]:
-                    # We are accessing a buffer with different intents so have to
-                    # pessimally claim RW access
-                    self.buffer_intents[buffer] = RW
                 return self.kernel_names[buffer_view]
 
             # Extract the underlying data as that is what we need to generate code
@@ -251,7 +250,6 @@ class LoopyCodegenContext(CodegenContext):
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
 
-            self.buffer_intents[buffer] = intent
             self._arguments.append(loopy_arg)
             return self.kernel_names.setdefault(buffer_view, name_in_kernel)
 

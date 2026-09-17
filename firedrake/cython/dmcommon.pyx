@@ -3553,7 +3553,7 @@ def submesh_correct_entity_classes(PETSc.DM dm,
         all_points = PETSc.IS().createStride(subpEnd - subpStart,
                                              first=subpStart, step=1,
                                              comm=PETSc.COMM_SELF)
-        CHKERR(DMLabelSetStratumIS(is_ghost, 0, (<PETSc.IS>all_points).iset))
+        CHKERR(DMLabelClearStratum(is_ghost, 1))
         all_points.destroy()
     else:
         ownership_loss = np.zeros(pEnd - pStart, dtype=IntType)

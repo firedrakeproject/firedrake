@@ -7,6 +7,7 @@ from typing import Callable, Self, Hashable
 from decorator import decorator
 from petsc4py import PETSc
 
+import pyop3
 from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict, as_tuple  # noqa: F401
 from pyop3.dtypes import ScalarType, as_cstr
 from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
@@ -127,6 +128,7 @@ def device_matrix_type(*, warn: bool = True) -> str | None:
     return _device_mat_type_map[dev_type]
 
 
+@pyop3.mpi.collective
 def _new_uid(comm):
     uid = comm.Get_attr(FIREDRAKE_UID)
     if uid is None:

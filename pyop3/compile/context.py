@@ -38,11 +38,13 @@ from pyop3.insn.base import (
 class CodegenContext(ABC):
     """
     Base class for code generation backends
-    
+
     Class designed solely for use in codegen.py, as an interface to specific backends.
     """
-    
-    def __init__(self, *, propagate_negatives: bool, mask_array_accesses: bool) -> None:
+
+    def __init__(self, *, named_terminal_buffer_intents, propagate_negatives: bool, mask_array_accesses: bool) -> None:
+        # buffer (from original inputs) -> intent
+        self.named_terminal_buffer_intents = named_terminal_buffer_intents
         self.propagate_negatives = propagate_negatives
         self.mask_array_accesses = mask_array_accesses
 
@@ -54,10 +56,10 @@ class CodegenContext(ABC):
 
         self._name_generator = utils.UniqueNameGenerator()
 
-        # (buffer, nest_indices) -> name in kernel
+        # buffer view -> name in kernel
         self.kernel_names = {}
 
-        # buffer name -> buffer
+        # buffer -> intent
         self.buffer_intents = {}
 
         # assignee name -> indirection expression

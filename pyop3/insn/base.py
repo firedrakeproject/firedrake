@@ -44,6 +44,35 @@ class IntentMismatchError(Exception):
     pass
 
 
+_intent_merge_mapping = {
+    frozenset({Intent.READ, Intent.WRITE}): Intent.RW,
+}
+
+
+# TODO: Would probably be nicer as a dict-like class
+def _add_named_terminal_intent(intents, arg, intent):
+    """Add an object with a particular intent.
+
+    If the object is already in the dictionary the intent may change accordingly.
+
+    """
+    if arg not in intents:
+        intents[arg] = intent
+    elif intents[arg] == intent:
+        pass
+    else:
+        new_intent = intent
+        orig_intent = intents[arg]
+        mix = frozenset({new_intent, orig_intent})
+
+        try:
+            shared_intent = _intent_merge_mapping[mix]
+        except KeyError:
+            raise ValueError(f"dont know how to deal with combination {mix}")
+        else:
+            intents[arg] = shared_intent
+
+
 # FIXME: This is not a thing any more
 class KernelArgument(abc.ABC):
     """Abstract class for types that may be passed as arguments to kernels.
@@ -69,15 +98,27 @@ class UnprocessedExpressionException(Pyop3Exception):
 
 class Instruction(Node, abc.ABC):
 
-    # FIXME: This is very similar to PreprocessedOperation.buffers but *not the same*
-    #  Here we only permit the 'shallow' buffers (i.e. not the layouts) whereas there
-    # it is everything that gets passed in
-    # TODO: Call 'named_terminals'? because that's the type that we have...
-    # exec_arguments?
     @property
     @abc.abstractmethod
-    def global_arguments(self) -> OrderedFrozenSet[AbstractBufferExpression]:
-        """Mapping from name to tensor that is passed in as an argument."""
+    def named_terminal_intents(self):
+        # TODO: rename .arguments to .argument_exprs
+        """Mapping from named terminals to their intents.
+
+        For example consider the assignment
+
+            dat1[map1] <- 2*dat2[map2] + dat3[map3]
+
+        There are:
+          * 2 arguments: dat1 and '2*dat2 + dat3'
+          * 3 named arguments: dat1, dat2 and dat3
+          * 6 buffers: dat1, dat2, dat3, map1, map2, map3
+
+        """
+        ...
+
+    @property
+    def named_terminals(self) -> tuple:
+        return tuple(self.named_terminal_intents)
 
     @with_self_heavy_cache
     def __call__(self, *, compiler_parameters=None, **kwargs) -> None:
@@ -97,27 +138,29 @@ class NonTerminalInstruction(Instruction, Operator):
 
 class TerminalInstruction(Instruction, Terminal, abc.ABC):
 
-    # {{{ abstract methods
-
     @property
     @abc.abstractmethod
-    def arguments(self) -> tuple[Any, ...]:
+    def argument_intents(self) -> tuple[Any, ...]:
         pass
+
+    @property
+    def arguments(self) -> tuple[Any, ...]:
+        return tuple(a for a, _ in self.argument_intents)
 
     @property
     @abc.abstractmethod
     def compiler_options(self) -> pyop3.cc.CompilerOptions:
         """Extra options needed to compile this terminal."""
 
-    # }}}
-
-    @property
-    def global_arguments(self) -> OrderedFrozenSet[BufferExpression, ...]:
+    @cached_property
+    def named_terminal_intents(self) -> dict:
         from pyop3.expr.visitors import collect_arguments
 
-        return OrderedFrozenSet().union(
-            *(collect_arguments(arg) for arg in self.arguments)
-        )
+        intents = {}
+        for arg_expr, intent in self.argument_intents:
+            for term in collect_arguments(arg_expr):
+                _add_named_terminal_intent(intents, term, intent)
+        return intents
 
 
 # TODO not a useful thing to have any more
@@ -180,8 +223,12 @@ class Loop(NonTerminalInstruction):
     child_attrs = ("statements",)
 
     @cached_property
-    def global_arguments(self) -> OrderedFrozenSet[Tensor]:
-        return OrderedFrozenSet().union(*(stmt.global_arguments for stmt in self.statements))
+    def named_terminal_intents(self) -> dict:
+        intents = {}
+        for stmt in self.statements:
+            for term, intent in stmt.named_terminal_intents.items():
+                _add_named_terminal_intent(intents, term, intent)
+        return intents
 
     # }}}
 
@@ -243,9 +290,13 @@ class InstructionList(NonTerminalInstruction):
 
     child_attrs = ("instructions",)
 
-    @property
-    def global_arguments(self) -> OrderedFrozenSet[Tensor]:
-        return OrderedFrozenSet().union(*(insn.global_arguments for insn in self.instructions))
+    @cached_property
+    def named_terminal_intents(self) -> OrderedFrozenSet[Tensor]:
+        intents = {}
+        for insn in self.instructions:
+            for term, intent in insn.named_terminal_intents.items():
+                _add_named_terminal_intent(intents, term, intent)
+        return intents
 
     # }}}
 
@@ -510,6 +561,13 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
     def function_arguments(self):
         return tuple((arg, spec.intent) for arg, spec in zip(self.arguments, self.argspec, strict=True))
 
+    @cached_property
+    def argument_intents(self):
+        return tuple(
+            (arg, intent)
+            for arg, intent in zip(self.arguments, self.function.intents, strict=True)
+        )
+
     @property
     def argument_shapes(self):
         return tuple(
@@ -551,11 +609,7 @@ class CalledFunction(AbstractCalledFunction):
 
     # }}}
 
-    # {{{ interface impls
-
     arguments: ClassVar[property] = pyop3.record.attr("_arguments")
-
-    # }}}
 
     @classmethod
     def _fixup_function_argument_shapes(cls, function, arguments):
@@ -664,14 +718,19 @@ class AbstractAssignmentLike(TerminalInstruction):
 
 class AbstractAssignment(AbstractAssignmentLike):
 
-    # {{{ abstract methods
-
     @property
     @abc.abstractmethod
     def assignment_type(self) -> AssignmentType:
         pass
 
-    # }}}
+    @cached_property
+    def argument_intents(self) -> dict:
+        if self.assignment_type == AssignmentType.WRITE:
+            assignee_intent = Intent.WRITE
+        else:
+            assert self.assignment_type == AssignmentType.INC
+            assignee_intent = Intent.INC
+        return ((self._assignee, assignee_intent), (self.expression, Intent.READ))
 
     def __str__(self) -> str:
         if self.assignment_type == AssignmentType.WRITE:
@@ -740,6 +799,8 @@ class Assignment(AbstractAssignment):
         object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_assignment_type", assignment_type)
 
+    # }}}
+
     @property
     def assignee(self):
         if isinstance(self._assignee, weakref.ReferenceType):
@@ -749,19 +810,13 @@ class Assignment(AbstractAssignment):
         else:
             return self._assignee
 
-    # }}}
-
     @cached_property
     def comm(self) -> MPI.Comm:
         import pyop3.visitors
 
         return pyop3.visitors.common_comm([self.assignee, self.expression])
 
-    # {{{ interface impls
-
     assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
-
-    # }}}
 
 
 
@@ -869,6 +924,12 @@ class Exscan(AbstractAssignmentLike):
             scan_axis_key,
         )
 
+    # }}}
+
+    @cached_property
+    def argument_intents(self) -> dict:
+        return ((self._assignee, Intent.RW), (self.expression, Intent.READ))
+
     @property
     def assignee(self):
         return self._assignee
@@ -876,10 +937,6 @@ class Exscan(AbstractAssignmentLike):
     @property
     def comm(self):
         return self._comm
-
-    # }}}
-
-    # {{{ interface impls
 
     @property
     def arguments(self) -> tuple[Any, Any]:
@@ -892,8 +949,6 @@ class Exscan(AbstractAssignmentLike):
     @cached_property
     def compiler_options(self) -> pyop3.cc.CompilerOptions:
         return pyop3.cc.CompilerOptions()
-
-    # }}}
 
 
 def exscan(*args, eager: bool = False, **kwargs):

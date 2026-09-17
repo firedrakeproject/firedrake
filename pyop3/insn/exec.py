@@ -24,6 +24,7 @@ import pyop3.cache
 import pyop3.cc
 import pyop3.collections
 import pyop3.config
+import pyop3.dtypes
 import pyop3.expr
 import pyop3.insn.base
 from pyop3 import utils
@@ -196,7 +197,7 @@ class InstructionExecutionContext:
             # are unchanged and will not be replaced.
             arg_buffer_map = {}
             for arg_index, orig_buffers in orig_arg_index_to_buffer_map.items():
-                new_arg = self.root_insn.global_arguments[arg_index]
+                new_arg = self.root_insn.named_terminals[arg_index]
                 for orig_buf, new_buf in zip(
                     orig_buffers, self._extract_buffers(new_arg), strict=True
                 ):
@@ -294,7 +295,7 @@ class InstructionExecutionContext:
 
         arg_index_to_buffer_map = {
             i: self._extract_buffers(arg)
-            for i, arg in enumerate(self.root_insn.global_arguments)
+            for i, arg in enumerate(self.root_insn.named_terminals)
         }
 
         return executor, arg_index_to_buffer_map
@@ -330,6 +331,19 @@ class InstructionExecutionContext:
         return self._preprocessed
 
     @cached_property
+    def named_terminal_buffer_intents(self):
+        intents = {}
+        for arg, intent in self.root_insn.named_terminal_intents.items():
+            for buf in self._extract_buffers(arg):
+                if buf not in intents:
+                    intents[buf] = intent
+                elif intents[buf] == intent:
+                    pass
+                else:
+                    raise NotImplementedError
+        return intents
+
+    @cached_property
     def preprocessed_buffers(self) -> OrderedFrozenSet:
         """Data structures that are arguments to the compiled code."""
         from pyop3.visitors import collect_buffers
@@ -356,7 +370,7 @@ class InstructionExecutionContext:
         # We don't want to get conflicts if we pass in two tensors with the same name
         name_to_buffer_map = {}
         names_to_skip = set()
-        for arg in self.root_insn.global_arguments:
+        for arg in self.root_insn.named_terminals:
             if isinstance(arg, weakref.ReferenceType):
                 arg = arg()
 
@@ -537,7 +551,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "MatSetValues" in str(self):
+        # if "maxq" in str(self):
         #     breakpoint()
         #     import pyop3.debug
         # pyop3.debug.maybe_breakpoint()
@@ -734,79 +748,67 @@ class CompiledCodeExecutor:
     def _(self, buffer: pyop3.buffer.ArrayBuffer, intent):
         initializers, reductions, bcasts, finalizers = [], [], [], []
 
-        # Possibly instead of touches_ghost_points we could produce custom SFs for each loop
-        # (we have filter_star_forest())
-        # For now we just disregard the optimisation
-        touches_ghost_points = True
+        # NOTE: We could be more doing some cool optimisations here. If we don't touch
+        # leaf points then we don't need to do a reduction. Along similar lines we could
+        # also create custom SFs for different parloops depending on the access pattern.
 
-        if intent in {READ, RW}:
-            if touches_ghost_points:
-                if not buffer._roots_valid:
-                    initializers.append(buffer.sync_roots_begin)
-                    reductions.extend([
-                        buffer.sync_roots_end,
-                        buffer.sync_leaves_begin,
-                    ])
-                    bcasts.append(buffer.sync_leaves_end)
-                elif not buffer._leaves_valid:
-                    initializers.append(buffer.sync_leaves_begin)
-                    bcasts.append(buffer.sync_leaves_end)
-                else:
-                    pass
+        if intent in {READ, RW, MAX_RW, MIN_RW}:
+            # Make sure everything is up-to-date before we compute
+            if not buffer._roots_valid:
+                initializers.append(buffer.sync_roots_begin)
+                reductions.extend([
+                    buffer.sync_roots_end,
+                    buffer.sync_leaves_begin,
+                ])
+                bcasts.append(buffer.sync_leaves_end)
+            elif not buffer._leaves_valid:
+                initializers.append(buffer.sync_leaves_begin)
+                bcasts.append(buffer.sync_leaves_end)
             else:
-                if not buffer._roots_valid:
-                    initializers.append(buffer.sync_roots_begin)
-                    reductions.append(buffer.sync_roots_end)
+                pass
 
-        elif intent == WRITE:
+        if intent == WRITE:
             # Assumes that all points are written to (i.e. not a subset). If
             # this is not the case then a manual reduction is needed.
             initializers.append(lambda: setattr(buffer, "_pending_reduction", None))
-            finalizers.append(lambda: setattr(buffer, "_leaves_valid", False))
 
-        else:
-            # reductions
-            assert intent in {INC, MIN_WRITE, MIN_RW, MAX_WRITE, MAX_RW}
+        # reductions
+        if intent in {INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE}:
             # We don't need to update roots if performing the same reduction
             # again. For example we can increment into a buffer as many times
             # as we want. The reduction only needs to be done when the
-            # data is read.
-            if buffer._pending_reduction == intent:
+            # data is read. This only applies to non-RW reductions.
+            if intent not in {MAX_RW, MIN_RW} and buffer._pending_reduction == intent:
                 pass
             else:
                 # We assume that all points are visited, and therefore that
-                # WRITE accesses do not need to update roots. If only a subset
-                # of entities are written to then a manual reduction is required.
-                # This is the same assumption that we make for data_wo.
-                if not buffer._roots_valid and intent in {INC, MIN_RW, MAX_RW}:
-                    initializers.append(buffer._reduce_leaves_to_roots_begin)
-                    reductions.append(buffer._reduce_leaves_to_roots_end)
+                # WRITE accesses do not need to update roots. We have already
+                # updated the roots for XXX_RW accesses above so we only have
+                # to prepare INC here.
+                if intent == INC and not buffer._roots_valid:
+                    initializers.append(buffer.sync_roots_begin)
+                    reductions.append(buffer.sync_roots_end)
 
                 # set leaves to appropriate nil value
                 if intent == INC:
                     nil = 0
                 elif intent in {MIN_WRITE, MIN_RW}:
-                    nil = dtype_limits(buffer.dtype).max
+                    nil = pyop3.dtypes.dtype_limits(buffer.dtype).max
                 else:
                     assert intent in {MAX_WRITE, MAX_RW}
-                    nil = dtype_limits(buffer.dtype).min
+                    nil = pyop3.dtypes.dtype_limits(buffer.dtype).min
 
                 def _init_nil():
-                    # Not modifying owned values so don't want to update state via intent
+                    # Use _current_device_array to avoid inc-ing the buffer state
                     np.ravel(buffer._current_device_array)[buffer.sf.ileaf] = nil
 
                 reductions.append(_init_nil)
 
-            # We are modifying owned values so the leaves must now be wrong
-            finalizers.append(lambda: setattr(buffer, "_leaves_valid", False))
-
-            # If ghost points are not modified then no future reduction is required
-            if not touches_ghost_points:
-                finalizers.append(lambda: setattr(buffer, "_pending_reduction", None))
-            else:
-                finalizers.append(lambda: setattr(buffer, "_pending_reduction", intent))
+            finalizers.append(lambda: setattr(buffer, "_pending_reduction", intent))
 
         if intent != READ:
+            # We have modified owned values so the leaves must now be wrong
+            finalizers.append(lambda: setattr(buffer, "_leaves_valid", False))
             finalizers.append(lambda: buffer.inc_state())
 
         return initializers, reductions, bcasts, finalizers

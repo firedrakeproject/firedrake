@@ -143,8 +143,10 @@ class Mat(Tensor):
         buffer_kwargs: KwargsT = idict(),
         **kwargs,
     ) -> Mat:
-        row_axes = row_axes.as_tree()
-        column_axes = column_axes.as_tree()
+        if isinstance(row_axes, pyop3.axis_tree.Axis):
+            row_axes = row_axes.as_tree()
+        if isinstance(column_axes, pyop3.axis_tree.Axis):
+            column_axes = column_axes.as_tree()
 
         if buffer_spec is None:
             buffer_spec = cls.DEFAULT_MAT_INIT_BUFFER_SPEC
