@@ -167,6 +167,7 @@ nitpick_ignore_regex = [
     ('py:class', 'pyop2.caching.Cached'),
     ('py:class', 'pyop2.op2.Kernel'),
     ('py:class', 'pyop2.types.mat.Mat'),
+    ('py:class', 'pyop2.types.access.Access'),
     # Ignore mission docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase

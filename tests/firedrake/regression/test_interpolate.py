@@ -34,6 +34,21 @@ def test_function():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize(
+    ("access", "initial", "expected"),
+    [(op2.INC, 2.0, 4.0), (op2.MIN, 3.0, 3.0), (op2.MAX, -3.0, -3.0)],
+    ids=["inc", "min", "max"],
+)
+def test_in_place_interpolation_preserves_reduction(access, initial, expected):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    f = Function(V).assign(initial)
+
+    assert f.interpolate(f, access=access) is f
+    assert np.allclose(f.dat.data_ro, expected)
+
+
 def test_mixed_expression():
     m = UnitTriangleMesh()
     x = SpatialCoordinate(m)
@@ -606,6 +621,57 @@ def test_mixed_matrix(mode, mat_type):
         assert np.allclose(x.dat.data, y.dat.data)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+def test_mixed_matrix_q_rtce(mode):
+    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
+    source = FunctionSpace(mesh, "Q", 1) * FunctionSpace(mesh, "RTCE", 1)
+    target = FunctionSpace(mesh, "Q", 2) * FunctionSpace(mesh, "RTCE", 2)
+
+    if mode == "forward":
+        I = Interpolate(TrialFunction(source), TestFunction(target.dual()))
+        a = assemble(I)
+        u = Function(source)
+        u.subfunctions[0].assign(1)
+        u.subfunctions[1].assign(2)
+        result_matfree = assemble(Interpolate(u, TestFunction(target.dual())))
+    else:
+        I = Interpolate(TestFunction(source), TrialFunction(target.dual()))
+        a = assemble(I)
+        u = Cofunction(target.dual())
+        u.subfunctions[0].assign(1)
+        u.subfunctions[1].assign(2)
+        result_matfree = assemble(Interpolate(TestFunction(source), u))
+
+    result_explicit = assemble(action(a, u))
+    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
+        assert np.allclose(x.dat.data, y.dat.data)
+
+
+def test_mixed_matrix_direct_sum():
+    mesh = UnitSquareMesh(3, 3, quadrilateral=True)
+    V1 = VectorFunctionSpace(mesh, "CG", 2)
+    V2 = FunctionSpace(mesh, "CG", 1)
+    # RTCF is a direct sum, so it tabulates into a Concatenate that only its
+    # own block of the dual argument can split.
+    V3 = FunctionSpace(mesh, "RTCF", 1)
+    V4 = FunctionSpace(mesh, "DG", 0)
+
+    Z = V1 * V2
+    W = V3 * V4
+
+    a = assemble(Interpolate(TestFunction(Z), TrialFunction(W.dual())))
+
+    u = Function(W.dual())
+    u.subfunctions[0].assign(1)
+    u.subfunctions[1].assign(2)
+
+    result_explicit = assemble(action(a, u))
+    result_matfree = assemble(Interpolate(TestFunction(Z), u))
+    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
+        assert np.allclose(x.dat.data, y.dat.data)
+
+
 @pytest.mark.parallel(2)
 @pytest.mark.parametrize("mode", ["forward", "adjoint"])
 @pytest.mark.parametrize("family,degree", [("CG", 1), ("DG", 0)])
@@ -639,6 +705,24 @@ def test_interpolator_reuse(family, degree, mode):
 
         # Test for correctness
         assert np.allclose(result.dat.data, expected)
+
+
+@pytest.mark.parallel([1, 3])
+def test_same_space_interp_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(V)
+
+    # Source and target agree, so the interpolation has a diagonal to carry
+    # the boundary rows, just as a Form on the same spaces does.
+    I = assemble(interpolate(2 * TrialFunction(V), V), bcs=[DirichletBC(V, 0, 1)])
+    result = assemble(action(I, w))
+
+    expected = Function(V).assign(2 * w)
+    DirichletBC(V, w, 1).apply(expected)
+
+    assert np.allclose(result.dat.data, expected.dat.data)
 
 
 def test_mixed_space_bcs():
