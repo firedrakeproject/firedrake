@@ -31,6 +31,29 @@ def test_submesh_redistribute_codim():
         Submesh(mesh, subdomain_id="on_boundary", redistribute=True)
 
 
+@pytest.mark.parallel(2)
+def test_submesh_redistribute_distribution_parameters():
+    parent_parameters = {
+        "overlap_type": (DistributedMeshOverlapType.NONE, 0),
+        "partitioner_type": "simple",
+    }
+    submesh_parameters = {
+        "overlap_type": (DistributedMeshOverlapType.VERTEX, 1),
+        "partitioner_type": "simple",
+    }
+    parent = UnitSquareMesh(4, 4, distribution_parameters=parent_parameters)
+    submesh = Submesh(
+        parent,
+        redistribute=True,
+        distribution_parameters=submesh_parameters,
+    )
+
+    assert parent._distribution_parameters["overlap_type"] == parent_parameters["overlap_type"]
+    assert submesh._distribution_parameters["partition"]
+    assert submesh._distribution_parameters["overlap_type"] == submesh_parameters["overlap_type"]
+    assert submesh._distribution_parameters["partitioner_type"] == submesh_parameters["partitioner_type"]
+
+
 def _curved_mesh(nx=4, degree=2):
     """Build a unit square whose curved coordinates the plex can not carry."""
     mesh = UnitSquareMesh(nx, nx)

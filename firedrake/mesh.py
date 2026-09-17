@@ -5049,7 +5049,7 @@ def _make_submesh_point_sf(plex, subplex):
     return point_sf
 
 
-def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None, redistribute=False):
+def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None, redistribute=False, distribution_parameters=None):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -5086,6 +5086,10 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         A redistributed submesh can not be assembled or interpolated
         alongside its parent; use `~.Function.assign` to transfer data
         between the two.
+    distribution_parameters : dict | None
+        Options controlling the distribution of the submesh when
+        ``redistribute=True``. By default, the parent mesh's distribution
+        parameters are used with partitioning enabled.
 
     Returns
     -------
@@ -5171,7 +5175,11 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         # Drop the parent halo so that every point of the submesh is owned
         # by exactly one rank before it is repartitioned.
         ignore_halo = True
-        distribution_parameters = dict(mesh._distribution_parameters, partition=True)
+        if distribution_parameters is None:
+            distribution_parameters = dict(mesh._distribution_parameters,
+                                           partition=True)
+        else:
+            distribution_parameters = dict(distribution_parameters, partition=True)
     else:
         distribution_parameters = DISTRIBUTION_PARAMETERS_NOOP
 
