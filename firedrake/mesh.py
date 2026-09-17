@@ -1525,7 +1525,7 @@ class MeshTopology(AbstractMeshTopology):
             plex.createLabel(label_name)
         plex.clearLabelStratum(label_name, label_value)
         label = plex.getLabel(label_name)
-        section = tV.dm.getSection()
+        section = tV.dm.getLocalSection()
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
 
@@ -4840,7 +4840,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         # Clear label stratum; this is a copy, so safe to change.
         plex1.clearLabelStratum(dmlabel_name, subid)
         dmlabel = plex1.getLabel(dmlabel_name)
-        section = f.topological.function_space().dm.getSection()
+        section = f.topological.function_space().dm.getLocalSection()
         dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,

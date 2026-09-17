@@ -118,7 +118,7 @@ class Halo(op2.Halo):
     @cached_property
     def local_to_global_numbering(self):
         lsec = self.dm.getLocalSection()
-        gsec = self.dm.getDefaultGlobalSection()
+        gsec = self.dm.getGlobalSection()
         return dmcommon.make_global_numbering(lsec, gsec)
 
     @PETSc.Log.EventDecorator()

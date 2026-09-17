@@ -83,7 +83,7 @@ class ASMPatchPC(PCBase):
             # TinyASM wants local numbers, no need to translate
             tinyasm.SetASMLocalSubdomains(
                 asmpc, ises,
-                [W.dm.getDefaultSF() for W in V],
+                [W.dm.getSectionSF() for W in V],
                 [W.block_size for W in V],
                 sum(W.block_size * W.dof_dset.total_size for W in V))
             asmpc.setUp()
