@@ -2,8 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
-from firedrake.mg.utils import (coarse_cell_to_fine_node_map, preserved_node_sf,
-                                transfer_mesh, transfer_node_subset)
+from firedrake.mg.utils import preserved_node_sf, transfer_mesh
 from firedrake.utils import complex_mode
 
 
@@ -424,27 +423,6 @@ def _copied_nodes(mh, V):
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("degree", [0, 1])
-def test_dg_injection_conserves_mass_extruded(degree):
-    """DG injection conserves mass on an extruded adaptive hierarchy.
-
-    A coarse cell's children must each contribute every one of their fine
-    layers exactly once, including on the levels that have padded rows.
-    """
-    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
-    mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
-    assert mh[0].comm.allreduce(bool((mh.coarse_to_fine_cells[1] < 0).any()), MPI.LOR)
-
-    rg = RandomGenerator(PCG64(seed=0))
-    for level in range(len(mh) - 1):
-        u_fine = rg.uniform(FunctionSpace(mh[level + 1], "DG", degree))
-        u_coarse = Function(FunctionSpace(mh[level], "DG", degree))
-        inject(u_fine, u_coarse)
-        assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
-
-
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("degree", [0, 1])
 def test_dg_injection_conserves_mass_extruded(degree):
