@@ -484,7 +484,6 @@ def preserved_points(PETSc.DM coarse_dm,
     return np.asarray(fine_to_coarse)
 
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def filter_labels(PETSc.DM dm, keep, *label_names):
