@@ -160,8 +160,8 @@ cdef extern from "petscsf.h" nogil:
 
     PetscErrorCode PetscSFGetGraph(PETSc.PetscSF, PetscInt*, PetscInt*, PetscInt**, PetscSFNode**)
     PetscErrorCode PetscSFSetGraph(PETSc.PetscSF, PetscInt, PetscInt, PetscInt*, PetscCopyMode, PetscSFNode*, PetscCopyMode)
-    PetscErrorCode PetscSFBcastBegin(PETSc.PetscSF, MPI.MPI_Datatype, const void*, void*,)
-    PetscErrorCode PetscSFBcastEnd(PETSc.PetscSF, MPI.MPI_Datatype, const void*, void*)
+    PetscErrorCode PetscSFBcastBegin(PETSc.PetscSF, MPI.MPI_Datatype, const void*, void*, MPI.MPI_Op)
+    PetscErrorCode PetscSFBcastEnd(PETSc.PetscSF, MPI.MPI_Datatype, const void*, void*, MPI.MPI_Op)
     PetscErrorCode PetscSFReduceBegin(PETSc.PetscSF, MPI.MPI_Datatype, const void*, void*, MPI.MPI_Op)
     PetscErrorCode PetscSFReduceEnd(PETSc.PetscSF, MPI.MPI_Datatype, const void*, void*, MPI.MPI_Op)
 
