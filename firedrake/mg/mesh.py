@@ -289,7 +289,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
             raise ValueError(f"Expecting one coordinate degree per level in the hierarchy ({nlevels}), "
                              f"got {len(degree)}.")
         cg_field = netgen_flags.get("cg")
-        ngmeshes = [mesh.netgen_mesh]
         mesh = _curve_netgen_mesh(mesh, degree[0], cg_field=cg_field)
 
     if callbacks is not None:
