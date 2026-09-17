@@ -105,6 +105,7 @@ class BCBase(object):
         while V.parent is not None:
             V = V.parent
         return V
+
     @cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
