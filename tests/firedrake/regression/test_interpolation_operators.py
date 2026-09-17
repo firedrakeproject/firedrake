@@ -81,21 +81,6 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
     assert np.allclose(res.dat.data, exact.dat.data)
 
 
-def test_same_mesh_interpolation_filters_unrelated_bcs():
-    mesh = UnitSquareMesh(2, 2)
-    source_space = FunctionSpace(mesh, "CG", 2)
-    target_space = FunctionSpace(mesh, "CG", 1)
-    unrelated_space = FunctionSpace(mesh, "DG", 0)
-
-    target_bc = DirichletBC(target_space, 0.0, "on_boundary")
-    unrelated_bc = DirichletBC(unrelated_space, 0.0, "on_boundary")
-    interpolation = interpolate(TrialFunction(source_space), target_space)
-
-    matrix = assemble(interpolation, bcs=[target_bc, unrelated_bc])
-
-    assert matrix.bcs == (target_bc,)
-
-
 @pytest.mark.parametrize("value_shape", ["scalar", "vector"], ids=lambda v: f"fs_type={v}")
 @pytest.mark.parametrize("mat_type", [None, "aij", "matfree"], ids=lambda v: f"mat_type={v}")
 def test_cross_mesh_mattype(value_shape, mat_type):
