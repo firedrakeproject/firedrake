@@ -11,9 +11,7 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
         const int64_t *ids,
         size_t ncells_ignore,
         const PetscInt *cells_ignore,
-        const PetscInt *cell_owner_ranks,
-        PetscInt *cell_out,
-        PetscInt *owner_out)
+        PetscInt *cell_out)
 {
     bool cell_ignore_found = false;
     /* NOTE: temp_ref_coords and found_ref_coords are actually of type
@@ -24,19 +22,12 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
     ref_coords_copy function and trust that the underlying memory which the
     pointers refer to is updated as necessary. */
     PetscReal best_distance = PETSC_MAX_REAL;
-    PetscInt best_owner = -1;
     PetscInt best_cell = -1;
     /* NOTE: `tolerance`, which is used throughout this function, is a static
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
 
-    /* NOTE: `cell_owner_ranks` and `owner_out` may be NULL. In this case, every
-       candidate is treated as having owner rank 0. This is for backwards compatibility
-       with the `Function.at` code path which is being deprecated soon. */
     *cell_out = -1;
-    if (owner_out) {
-        *owner_out = -1;
-    }
     for (size_t i = 0; i < nids; ++i) {
         /* Check that casting the ids from int64 to PetscInt is safe (for 32 bit petsc builds). 
         Since the ids are mesh cell ids this *should* always be safe, but better to check
@@ -57,32 +48,31 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
         }
 
         PetscReal distance;
-        PetscInt owner;
         if (f->extruded) {
             PetscInt nlayers = f->n_layers;
             PetscInt c = candidate / nlayers;
             PetscInt l = candidate % nlayers;
             distance = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-            owner = cell_owner_ranks ? cell_owner_ranks[c] : 0;
         }
         else {
             distance = (*try_candidate)(temp_ref_coords, f, candidate, x);
-            owner = cell_owner_ranks ? cell_owner_ranks[candidate] : 0;
         }
-        /* Select owning cell by minimum L1 distance, with ties broken by highest owning rank. */
-        if (distance < best_distance || (distance == best_distance && owner > best_owner)) {
+        /* Select a cell by minimum L1 distance. */
+        if (distance < best_distance) {
             best_distance = distance;
-            best_owner = owner;
             best_cell = candidate;
             memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
+            /* If distance == 0.0, the point is inside the cell, so we break early.
+            * NOTE: FIAT's `distance_to_point_l1` returns exactly 0.0 for points inside the cell,
+            * so exact floating point comparison is intentional here. */
+            if (distance == 0.0) {
+                break;
+            }
         }
     }
 
     if (best_cell != -1 && (best_distance <= 0.0 || best_distance < tolerance)) {
         *cell_out = best_cell;
-        if (owner_out) {
-            *owner_out = best_owner;
-        }
         *found_ref_cell_dist_l1 = best_distance;
     }
     return PETSC_SUCCESS;
