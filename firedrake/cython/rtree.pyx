@@ -178,16 +178,17 @@ def discover_remote_roots(
     rtree : RTree
         The distributed Rtree built by :func:`build_from_aabb` with rank
         numbers as leaf ids.
-    points : (n_points, gdim) float64 array
-        Local point coordinates.
+    points : numpy.ndarray
+        Local point coordinates in a ``float64`` array of shape
+        ``(n_points, gdim)``.
     comm : mpi4py.MPI.Comm
         The MPI communicator.
 
     Returns
     -------
-    remote : (nleaves, 2) IntType array
+    remote : numpy.ndarray
         For every local candidate leaf, the MPI rank and local index of its
-        remote root point.
+        remote root point in an ``IntType`` array of shape ``(nleaves, 2)``.
     """
     cdef:
         MPI.Comm dup_comm = comm.Dup()
