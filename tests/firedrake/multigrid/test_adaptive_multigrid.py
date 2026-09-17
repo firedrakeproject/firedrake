@@ -35,8 +35,9 @@ def _linear_expr(mesh):
 def coarse_mesh(request):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesher = request.param
-    # Big enough that refining part of it leaves untouched cells behind, and
-    # that a coarse cell's child count varies widely across the mesh.
+    # Big enough that refining part of it leaves untouched cells behind.
+    # The transfers copy those cells' nodes instead of evaluating them.
+    # It also gives a coarse cell's child count a wide range.
     if mesher == "firedrake-square":
         return UnitSquareMesh(4, 4, distribution_parameters=dparams)
     elif mesher == "firedrake-cube":
@@ -119,8 +120,10 @@ def test_refine_marked_elements_is_local():
 
 @pytest.mark.parallel([1, 2])
 def test_refine_marked_elements_repeats(coarse_mesh):
-    """A marker value of n refines the marked cells n times, and the cell maps
-    reach all the way from the original mesh to the n-times-refined one."""
+    """A marker value of n refines the marked cells n times.
+
+    The cell maps reach all the way from the original mesh to the
+    n-times-refined one."""
     mesh = coarse_mesh
     ncells = {}
     max_children = {}
@@ -154,8 +157,9 @@ def test_refine_marked_elements_repeats(coarse_mesh):
 
 def test_add_mesh_rejects_unrelated_mesh():
     """Cell maps are only meaningful relative to the mesh they were built
-    against, so a mesh refined from anything but the finest level is refused
-    rather than silently recorded with somebody else's maps."""
+    against. Refuse a mesh refined from anything but the finest level,
+    instead of silently recording it with maps that belong to another
+    mesh."""
     mh = MeshHierarchy(UnitSquareMesh(2, 2))
 
     other = UnitSquareMesh(4, 4)
@@ -221,10 +225,11 @@ def test_CG1_native_transfers(coarse_mesh):
 
 
 def _assert_adapt_after_uniform_refinement(mh):
-    """Adaptively refine the finest level of the uniformly-refined hierarchy
-    ``mh`` by marking a single cell, and check that the cell maps of the level
-    this adds are sane. Shared by the ``test_adapt_after_uniform_*refinement``
-    tests, which only differ in how ``mh`` itself was built.
+    """Adaptively refine the finest level of the hierarchy ``mh``.
+
+    Mark a single cell and check that the cell maps of the new level are
+    sane. The ``test_adapt_after_uniform_*refinement`` tests share this
+    helper; they differ only in how they build ``mh``.
     """
     mesh = mh[-1]
     level = len(mh)
@@ -270,9 +275,10 @@ def test_adapt_after_uniform_netgen_refinement():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", [1, 2])
 def test_adapt_preserves_mesh_metadata(degree):
-    """Adaptive refinement carries the Netgen geometry and flags, and the mesh
-    construction parameters, over to the refined mesh, so that the refined
-    mesh can itself be refined again."""
+    """Adaptive refinement carries mesh metadata to the refined mesh.
+
+    It copies the Netgen geometry, flags, and construction parameters, so
+    the refined mesh can itself be refined again."""
     from netgen.geom2d import CSG2d, Circle
     geo = CSG2d()
     geo.Add(Circle(center=(0, 0), radius=1.0, bc="circle"))
@@ -310,8 +316,9 @@ def test_adapt_after_uniform_refinement(coarse_mesh, refine):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     """An adaptively refined mesh can be uniformly refined into a hierarchy.
-    Its plex numbers cells by refinement case, so its owned cells are
-    interleaved with its halo cells, which the cell maps must not assume away.
+
+    Its plex numbers cells by refinement case. This interleaves owned cells
+    with halo cells, and the cell maps must not assume otherwise.
     """
     netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
 
@@ -373,6 +380,24 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     assert mh[0].comm.allreduce(padded, MPI.LOR)
 
 
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("degree", [0, 1])
+def test_dg_injection_conserves_mass_extruded(degree):
+    """Test that DG injection should conserves mass globally on an extruded adaptive hierarchy."""
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
+    mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
+    assert mh[0].comm.allreduce(bool((mh.coarse_to_fine_cells[1] < 0).any()), MPI.LOR)
+
+    rg = RandomGenerator(PCG64(seed=0))
+    for level in range(len(mh) - 1):
+        u_fine = rg.uniform(FunctionSpace(mh[level + 1], "DG", degree))
+        u_coarse = Function(FunctionSpace(mh[level], "DG", degree))
+        inject(u_fine, u_coarse)
+        assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
+
+
 def _representable_expr(mesh, degree):
     """An expression that a space of the given degree holds exactly on any mesh."""
     x = SpatialCoordinate(mesh)
@@ -394,24 +419,6 @@ def _copied_nodes(mh, V):
             _, preserved, _ = section_sf.getGraph()
             copied += len(preserved)
     return mh[0].comm.allreduce(copied, MPI.SUM)
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("degree", [0, 1])
-def test_dg_injection_conserves_mass_extruded(degree):
-    """Test that DG injection should conserves mass globally on an extruded adaptive hierarchy."""
-    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
-    base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
-    mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
-    assert mh[0].comm.allreduce(bool((mh.coarse_to_fine_cells[1] < 0).any()), MPI.LOR)
-
-    rg = RandomGenerator(PCG64(seed=0))
-    for level in range(len(mh) - 1):
-        u_fine = rg.uniform(FunctionSpace(mh[level + 1], "DG", degree))
-        u_coarse = Function(FunctionSpace(mh[level], "DG", degree))
-        inject(u_fine, u_coarse)
-        assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
 
 
 @pytest.mark.parallel([1, 2, 4])
