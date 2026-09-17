@@ -101,7 +101,7 @@ class Halo(op2.Halo):
             raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")
         self.dm = PETSc.DMShell().create(self.comm)
         self.dm.setPointSF(dm.getPointSF())
-        self.dm.setDefaultSection(section)
+        self.dm.setLocalSection(section)
 
     @cached_property
     def sf(self):
