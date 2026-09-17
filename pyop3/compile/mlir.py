@@ -200,6 +200,12 @@ class MLIRCodegenContext(CodegenContext):
             return ssa
         return self.insert(arith.IndexCastOp(ssa, iType))
 
+    def _demote_ssa(self, ssa: SSAValue, target_type: np.dtype) -> SSAValue:
+        target_mlir_type = get_mlir_type(target_type)
+
+        truncop = arith.TruncFOp(ssa, target_mlir_type) if _is_float(target_type) else arith.TruncIOp(ssa, target_mlir_type)
+        return self.insert(truncop)
+
     def var(self, iname: str, *args) -> str:
         return iname
 
@@ -288,22 +294,36 @@ class MLIRCodegenContext(CodegenContext):
         self.add_buffer(buffer_view, intent=WRITE)
         # NOTE: Using this get_offset is ugly
         offset = self._get_offset(assignee, iname_maps, loop_indices, paths=paths)
+        target_type = getattr(expression, "dtype", assignee.dtype)
 
         ssa_load = self.lower_expr(
             expression, 
             iname_maps, 
             loop_indices, 
-            paths=paths, 
-            target_type=assignee.dtype # NOTE: expression should match assignee buffer type
+            paths=paths,
+            target_type=target_type
         )
+
+        if getattr(expression, "dtype", False) and assignee.dtype != expression.dtype: 
+            # NOTE: Assignee should be lower dtype 
+            assert assignee.dtype < expression.dtype, "Cannot promote result to be stored" 
+            ssa_load = self._demote_ssa(ssa_load, assignee.dtype)
         
         match assignment_type:
             case AssignmentType.WRITE:
                 value = ssa_load
             case AssignmentType.INC:
-                # TODO: INC requires loading lexpr and adding it to rexpr 
-                # Hence a LoadOp and an Add[i,f]Op 
-                raise NotImplementedError("Must do this soon.")
+                # FIXME: This can be cleaned and more general than me manually doing the inc operation. 
+                loaded_lexpr = self.insert(
+                    memref.LoadOp.get(self.symbol_table[buffer_view], offset)
+                )
+                
+                if _is_float(assignee.dtype):
+                    addop = arith.AddfOp(loaded_lexpr, ssa_load) 
+                else:
+                    addop = arith.AddiOp(loaded_lexpr, ssa_load)
+
+                ssa_load = self.insert(addop)
             case AssignmentType.MAX:
                 raise NotImplementedError("No implementation for MAX yet")
             case AssignmentType.MIN:
@@ -410,6 +430,13 @@ class MLIRCodegenContext(CodegenContext):
                 target_type=IntType
             )
 
+            # NOTE: Bug arises when the mul operation is just 1*i = i 
+            # and `i` is string. We need this to be cast to SSA value
+            # it should be an index variable so hopefully in symbol table 
+            if isinstance(mul_op, str):
+                assert mul_op in self.symbol_table
+                mul_op = self.symbol_table[mul_op]
+        
             index_op = self._to_index(mul_op)
             mul_ops.append(index_op)
 
@@ -560,7 +587,6 @@ class MLIRCodegenContext(CodegenContext):
             buffer_store: bool = False,
             **kwargs
     ) -> SSAValue:
-        target_dtype = target_type or expr.dtype
         return _lower_expr(
             expr, 
             iname_maps, 
@@ -568,7 +594,7 @@ class MLIRCodegenContext(CodegenContext):
             intent=intent, 
             paths=paths,
             is_index=is_index,
-            target_type=target_dtype,
+            target_type=target_type,
             context=self, 
             buffer_store=buffer_store
         )
@@ -600,15 +626,14 @@ def align_binops(e, /, iname_maps, loop_indices, *, context, is_index, target_ty
     lhs = _lower_expr(e.a, iname_maps, loop_indices, **child)
     rhs = _lower_expr(e.b, iname_maps, loop_indices, **child)
     
-    # Ensure that lhs.dtype == rhs.dtype ( & == target_type) 
-    # if target_type and (target_type != e.a.dtype or target_type != e.b.dtype):
-        # breakpoint()
-        # pass
-
     if is_index:
         lhs = context._to_index(lhs)
         rhs = context._to_index(rhs)
-
+    # elif e.a.dtype != e.b.dtype:
+    #     pass
+        # extend whichever necessary.
+        # should both be of same type family (i.e. float32 + float64, or int32 + int64) 
+        
     return lhs, rhs
 
 @_lower_expr.register(pyop3.expr.Add)
@@ -694,8 +719,9 @@ def _(axis_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
     # NOTE: Bug fix for AxisVar used for value and index: arr[i] = i
     # `arr[i]` implies `i` index but ` = i` implies `i` must match arr.dtype 
     if not kwargs["is_index"] and kwargs["target_type"]: 
-        # TODO: Cast SSA to target_type 
-        ssa = context.insert(arith.IndexCastOp(ssa, i32))
+        # breakpoint()
+        mlir_type = get_mlir_type(kwargs["target_type"])
+        ssa = context.insert(arith.IndexCastOp(ssa, mlir_type))
     return ssa 
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)

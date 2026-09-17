@@ -699,7 +699,6 @@ def make_so(compiler, code, extension, comm):
                     lowered_name = filename.with_suffix(".llvm.mlir")
                     mlir_opt_cmd = (
                         (compiler.mlir_opt, str(cname))
-                        + ("--mlir-timing",) 
                         + compiler.mlir_opt_flags
                         + ('-o', str(lowered_name))
                     )
@@ -711,7 +710,6 @@ def make_so(compiler, code, extension, comm):
                     llname = filename.with_suffix(".ll")
                     translate_cmd = (
                         compiler.mlir_translate,
-                        "--mlir-timing",
                         "--mlir-to-llvmir",
                         str(lowered_name),
                         '-o', str(llname),
@@ -847,4 +845,4 @@ def timer(description="Operation"):
     yield
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-    print(f"{description}: {elapsed_time*1000:.4f} milliseconds")
+    # print(f"{description}: {elapsed_time*1000:.4f} milliseconds")
