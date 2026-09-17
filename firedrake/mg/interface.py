@@ -293,6 +293,7 @@ def inject(fine, coarse):
                     fine.dat[compose_map(fine)],
                     fine_coords.dat[compose_map(fine_coords)],
                     coarse_coords.dat[coarse_coords.function_space().cell_node_map(c)],
+                    utils.coarse_cell_child_count(Vc, Vf)[c],
                 ),
                 eager=True,
             )

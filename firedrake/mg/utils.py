@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import numpy
 from immutabledict import immutabledict as idict
 from fractions import Fraction
 import pyop3 as op3
+from mpi4py import MPI
 from firedrake.utils import IntType
 from firedrake.functionspaceimpl import entity_dofs_key
 import finat.ufl
@@ -80,20 +83,13 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-
-        # Under adaptive refinement, coarse cells have varying numbers of
-        # fine descendants, so coarse_to_fine (and hence coarse_to_fine_nodes)
-        # is right-padded with -1 up to the busiest coarse cell's count.
-        # op2.Map cannot hold negative indices, and every *owned* coarse
-        # node needs at least one real candidate to inject from; but padding
-        # slots on rows that do have candidates can safely be filled with a
-        # duplicate of one of that row's real entries; the injection kernel
-        # below only ever reads (op2.READ) through this map and picks the
-        # candidate matching the coarse node's physical location, so a
-        # repeated valid entry is just redundantly (harmlessly) considered.
+        # op2.Map cannot hold the -1 that pads a short row, so fill each
+        # padded slot with a real entry from its own row. The injection
+        # kernel picks the candidate that matches the coarse node's physical
+        # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
-        if not nonempty[:Vc.axes.buffer_size(include_ghosts=False)//Vc.block_size].all():
+        if not Vc.comm.allreduce(bool(nonempty[:Vc.node_set.size].all()), op=MPI.LAND):
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
         replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                   dtype=coarse_to_fine_nodes.dtype)
@@ -144,13 +140,12 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         fine_per_cell = Vf.finat_element.space_dimension()
         arity = fine_per_cell * ncell
         coarse_to_fine_nodes = numpy.full((Vc.mesh().cells.local_size, arity), -1, dtype=IntType)
-        values = numpy.full((iterset.local_size, ncell, fine_per_cell), -1, dtype=IntType)
-        owned_coarse_to_fine = coarse_to_fine[:iterset.local_size, :]
-        valid = owned_coarse_to_fine >= 0
-        values[valid, :] = Vf.cell_node_list[owned_coarse_to_fine[valid], :]
-        values = values.reshape(iterset.local_size, arity)
-
-        coarse_to_fine_nodes[:iterset.local_size, :] = values
+        # The DG injection kernel skips the padded slots of a row, but pyop3
+        # still reads through them. Fill each one with the row's first child.
+        children = coarse_to_fine[:iterset.local_size, :]
+        children = numpy.where(children >= 0, children, children[:, :1])
+        values = Vf.cell_node_list[children]
+        coarse_to_fine_nodes[:iterset.local_size, :] = values.reshape(iterset.local_size, -1)
 
         src_axis = iterset.root
         target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
@@ -162,6 +157,66 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             }, 
         )
         return cache.setdefault(key, node_map)
+
+
+def coarse_cell_child_count(
+    Vc: firedrake.functionspaceimpl.WithGeometry,
+    Vf: firedrake.functionspaceimpl.WithGeometry,
+) -> op2.Dat:
+    """Count the fine cells that each coarse cell was refined into.
+
+    A row of `HierarchyBase.coarse_to_fine_cells` is as wide as the busiest
+    coarse cell's count, so its width overstates how many children most cells
+    have. The DG injection kernel reads this count to stop at a coarse cell's
+    own children, and so leaves the padding alone.
+
+    Parameters
+    ----------
+    Vc : firedrake.functionspaceimpl.WithGeometry
+        The coarse function space.
+    Vf : firedrake.functionspaceimpl.WithGeometry
+        The fine function space, on the next level of the same hierarchy.
+
+    Returns
+    -------
+    pyop2.types.dat.Dat
+        One count per cell of ``Vc``'s mesh, over that mesh's cell set. Halo
+        cells are left at zero: a par_loop visits the core and owned parts
+        only, so the kernel never reads them.
+
+    """
+    mesh = Vc.mesh()
+    assert hasattr(mesh, "_shared_data_cache")
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
+
+    if hierarchyc != hierarchyf:
+        raise ValueError("Can't map across hierarchies")
+
+    hierarchy = hierarchyf
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
+        raise ValueError(f"Can't map between level {levelc} and level {levelf}")
+
+    key = (levelc, Vc.extruded and (Vf.mesh().layers, Vc.mesh().layers))
+    cache = mesh._shared_data_cache["hierarchy_coarse_cell_child_count"]
+    try:
+        return cache[key]
+    except KeyError:
+        if Vc.extruded:
+            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
+        else:
+            level_ratio = 1
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        iterset = mesh.cell_set
+        counts = numpy.zeros(iterset.total_size, dtype=IntType)
+        # Each child of a coarse cell becomes level_ratio cells once extruded.
+        counts[:iterset.size] = (coarse_to_fine[:iterset.size] >= 0).sum(axis=1) * level_ratio
+        # A count belongs to a base cell, and every layer of that cell shares
+        # it. An ExtrudedSet holds no data of its own, so hang the counts off
+        # the base set that it was built on.
+        dset = op2.DataSet(iterset.parent if Vc.extruded else iterset, 1)
+        return cache.setdefault(key, op2.Dat(dset, counts, dtype=IntType))
 
 
 def physical_node_locations(V):
