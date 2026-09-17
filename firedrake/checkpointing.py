@@ -26,13 +26,13 @@ import h5py
 __all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE", "CheckpointFile"]
 
 
-FILE_READ = PETSc.Viewer.Mode.READ
+FILE_READ = PETSc.Viewer.FileMode.READ
 r"""Open a checkpoint file for reading.  Raises an error if file does not exist."""
 
-FILE_CREATE = PETSc.Viewer.Mode.WRITE
+FILE_CREATE = PETSc.Viewer.FileMode.WRITE
 r"""Create a checkpoint file.  Truncates the file if it exists."""
 
-FILE_UPDATE = PETSc.Viewer.Mode.APPEND
+FILE_UPDATE = PETSc.Viewer.FileMode.APPEND
 r"""Open a checkpoint file for updating.  Creates the file if it does not exist, providing both read and write access."""
 
 
