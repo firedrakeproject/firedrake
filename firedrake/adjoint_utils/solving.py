@@ -1,5 +1,5 @@
 from pyadjoint.tape import get_working_tape
-from firedrake.adjoint_utils.blocks import CachedSolverBlock, GenericSolveBlock, ProjectBlock
+from firedrake.adjoint_utils.blocks import CachedSolverBlock
 
 
 def get_solve_blocks():
@@ -11,6 +11,6 @@ def get_solve_blocks():
     return [
         block
         for block in get_working_tape().get_blocks()
-        if issubclass(type(block), (CachedSolverBlock, GenericSolveBlock))
-        and not issubclass(type(block), ProjectBlock)
+        if issubclass(type(block), CachedSolverBlock)
+        and not getattr(block, "_is_project", False)
     ]

@@ -1,6 +1,6 @@
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
+from firedrake.adjoint_utils.blocks import SupermeshProjectBlock
 
 
 def annotate_project(project):
@@ -35,7 +35,7 @@ def annotate_super_project(project):
         V = self.target.function_space()
         if annotate:
             bcs = kwargs.get("bcs", [])
-            sb_kwargs = ProjectBlock.pop_kwargs(kwargs)
+            sb_kwargs = SupermeshProjectBlock.pop_kwargs(kwargs)
             if self._target_is_function:
                 # block should be created before project because output might also be an input that needs checkpointing
                 block = SupermeshProjectBlock(self.source, V, self.target, bcs, ad_block_tag=self.ad_block_tag, **sb_kwargs)

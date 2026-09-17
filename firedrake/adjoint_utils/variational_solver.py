@@ -1,8 +1,7 @@
 import copy
 from functools import wraps, cached_property
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import (
-    NonlinearVariationalSolveBlock, CachedSolverBlock)
+from firedrake.adjoint_utils.blocks import CachedSolverBlock
 from firedrake.adjoint_utils.blocks.solving import solve_init_params
 from firedrake.ufl_expr import derivative, adjoint, action
 from ufl import replace, Action
@@ -503,72 +502,15 @@ class NonlinearVariationalSolverMixin:
                     self._ad_hessian_cache,
                     ad_block_tag=self.ad_block_tag)
 
+                if hasattr(self, "_is_project"):
+                    block._is_project = self._is_project
+
                 for dep in self._ad_dependencies_to_add:
                     block.add_dependency(dep, no_duplicates=True)
                 # mesh = self._ad_problem.u.function_space().mesh()
                 # block.add_dependency(mesh, no_duplicates=True)
 
                 get_working_tape().add_block(block)
-
-            with stop_annotating():
-                out = solve(self, **kwargs)
-
-            if annotate:
-                block.add_output(self._ad_problem._ad_u.create_block_variable())
-
-            return out
-
-        return wrapper
-
-    @staticmethod
-    def _ad_annotate_solve_old(solve):
-        @wraps(solve)
-        def wrapper(self, **kwargs):
-            """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
-            Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
-            for the purposes of the adjoint computation (such as projecting fields to other function spaces
-            for the purposes of visualisation)."""
-            from firedrake import LinearVariationalSolver
-            annotate = annotate_tape(kwargs)
-            if annotate:
-                bounds = kwargs.pop("bounds", None)
-                if bounds is not None:
-                    raise ValueError(
-                        "MissingMathsError: we do not know how to differentiate through a variational inequality")
-
-                tape = get_working_tape()
-                problem = self._ad_problem
-                sb_kwargs = NonlinearVariationalSolveBlock.pop_kwargs(kwargs)
-                sb_kwargs.update(kwargs)
-
-                block = NonlinearVariationalSolveBlock(problem._ad_F == 0,
-                                                       problem._ad_u,
-                                                       problem._ad_bcs,
-                                                       adj_cache=self._ad_adj_cache,
-                                                       problem_J=problem._ad_J,
-                                                       solver_kwargs=self._ad_kwargs,
-                                                       ad_block_tag=self.ad_block_tag,
-                                                       **sb_kwargs)
-
-                # Forward variational solver.
-                if not self._ad_solvers["forward_nlvs"]:
-                    self._ad_solvers["forward_nlvs"] = type(self)(
-                        self._ad_problem_clone(self._ad_problem, block.get_dependencies()),
-                        **self._ad_kwargs
-                    )
-
-                # Adjoint variational solver.
-                if not self._ad_solvers["adjoint_lvs"]:
-                    with stop_annotating():
-                        self._ad_solvers["adjoint_lvs"] = LinearVariationalSolver(
-                            self._ad_adj_lvs_problem(block, problem._ad_adj_F),
-                            *block.adj_args, **block.adj_kwargs)
-                        if self._ad_problem._constant_jacobian:
-                            self._ad_solvers["update_adjoint"] = False
-
-                block._ad_solvers = self._ad_solvers
-
-                tape.add_block(block)
 
             with stop_annotating():
                 out = solve(self, **kwargs)
