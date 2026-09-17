@@ -6,6 +6,8 @@ from ufl.domain import extract_unique_domain
 from typing import Optional, Union
 
 import firedrake
+from firedrake.adjoint_utils import NonlinearVariationalSolverMixin
+from firedrake.adjoint_utils import annotate_project, annotate_super_project
 from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
 from functools import cached_property
@@ -13,7 +15,6 @@ from functools import cached_property
 from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import functionspaceimpl
 from firedrake import function
-from firedrake.adjoint_utils import annotate_project
 
 
 __all__ = ['project', 'Projector']
@@ -84,8 +85,6 @@ def project(
         Quadrature degree to use when approximating integrands.
     name
         The name of the resulting :class:`.Function`.
-    ad_block_tag
-        String for tagging the resulting block on the Pyadjoint tape.
 
     Returns
     -------
@@ -111,19 +110,22 @@ def project(
         solver_parameters=solver_parameters,
         form_compiler_parameters=form_compiler_parameters,
         use_slate_for_inverse=use_slate_for_inverse,
-        quadrature_degree=quadrature_degree
+        quadrature_degree=quadrature_degree,
+        ad_block_tag=ad_block_tag,
     ).project()
     val.rename(name)
     return val
 
 
 class Assigner(object):
-    def __init__(self, source, target):
+    def __init__(self, source, target, **kwargs):
         self.source = source
         self.target = target
 
+        self._kwargs = kwargs
+
     def project(self):
-        self.target.assign(self.source)
+        self.target.assign(self.source, **self._kwargs)
         return self.target
 
 
@@ -236,7 +238,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
         return self.target
 
 
-class BasicProjector(ProjectorBase):
+class BasicProjector(ProjectorBase, NonlinearVariationalSolverMixin):
     """
     A basic projector projects a UFL expression into a function space
     and places the result in a function from that function space,
@@ -244,6 +246,43 @@ class BasicProjector(ProjectorBase):
     :class:`.SupermeshProjector` is that both function spaces are
     defined on the same mesh.
     """
+
+    def __init__(self, *args, **kwargs):
+        ad_block_tag = kwargs.pop("ad_block_tag", None)
+        super().__init__(*args, **kwargs)
+
+        V = self.target.function_space()
+        mesh = V.mesh()
+        ad_target = firedrake.Function(V)
+
+        dx = firedrake.dx(mesh)
+        w = firedrake.TestFunction(V)
+        Pv = firedrake.TrialFunction(V)
+        a = firedrake.inner(Pv, w) * dx
+        L = firedrake.inner(self.source, w) * dx
+        p = firedrake.LinearVariationalProblem(a, L, ad_target)
+
+        # If we project from an expression containing u (e.g. u + c) onto u, the
+        # resulting form looks nonlinear. However, the projection is in effect a
+        # solve onto a temporary function (here ad_target), followed by an implicit
+        # assignment. Instead of representing this as an explicit solve and assign
+        # block, we solve for a temporary function and modify _ad_u on the problem.
+        # This is used for creating the output variable (and thus the dependency
+        # resolution), in effect merging the implicit assignment into the block
+        # output phase.
+        p._ad_u = self.target
+
+        solver_params = firedrake.LinearVariationalSolver.DEFAULT_SNES_PARAMETERS | self.solver_parameters
+
+        self._init_as_solver(p, forward_kwargs={"solver_parameters": solver_params}, ad_block_tag=ad_block_tag)
+
+    @NonlinearVariationalSolverMixin._ad_annotate_init
+    def _init_as_solver(self, problem, **kwargs):
+        return
+
+    @NonlinearVariationalSolverMixin._ad_annotate_solve
+    def project(self):
+        return super().project()
 
     @cached_property
     def rhs_form(self):
@@ -285,6 +324,12 @@ class BasicProjector(ProjectorBase):
 
 
 class SupermeshProjector(ProjectorBase):
+    def __init__(self, *args, **kwargs):
+        self._target_is_function = kwargs.pop("target_is_function", True)
+        self.ad_block_tag = kwargs.pop("ad_block_tag", None)
+
+        super().__init__(*args, **kwargs)
+
     @cached_property
     def mixed_mass(self):
         from firedrake.supermeshing import assemble_mixed_mass_matrix
@@ -297,6 +342,10 @@ class SupermeshProjector(ProjectorBase):
             self.mixed_mass.mult(u, v)
         return self.residual
 
+    @annotate_super_project
+    def project(self):
+        return super().project()
+
 
 @PETSc.Log.EventDecorator()
 def Projector(
@@ -307,7 +356,8 @@ def Projector(
     form_compiler_parameters: Optional[dict] = None,
     constant_jacobian: Optional[bool] = True,
     use_slate_for_inverse: Optional[bool] = False,
-    quadrature_degree: Optional[Union[int, tuple[int]]] = None
+    quadrature_degree: Optional[Union[int, tuple[int]]] = None,
+    ad_block_tag: Optional[str] = None,
 ):
     """ Projection class.
 
@@ -339,6 +389,8 @@ def Projector(
         function spaces)(only valid for DG function spaces).
     quadrature_degree
         Quadrature degree to use when approximating integrands.
+    ad_block_tag
+        String for tagging the resulting block on the Pyadjoint tape.
     """
     target = create_output(v_out)
     source = sanitise_input(v, target.function_space())
@@ -347,14 +399,15 @@ def Projector(
         raise ValueError("Shape mismatch between source %s and target %s in project" %
                          (source.ufl_shape, target.ufl_shape))
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
-        return Assigner(source, target)
+        return Assigner(source, target, ad_block_tag=ad_block_tag)
     elif source_mesh == target_mesh:
         return BasicProjector(
             source, target, bcs=bcs, solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
             use_slate_for_inverse=use_slate_for_inverse,
-            quadrature_degree=quadrature_degree
+            quadrature_degree=quadrature_degree,
+            ad_block_tag=ad_block_tag,
         )
     else:
         if bcs is not None:
@@ -366,5 +419,7 @@ def Projector(
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
             use_slate_for_inverse=use_slate_for_inverse,
-            quadrature_degree=quadrature_degree
+            quadrature_degree=quadrature_degree,
+            target_is_function=isinstance(v_out, firedrake.Function),
+            ad_block_tag=ad_block_tag,
         )
