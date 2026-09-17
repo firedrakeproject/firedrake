@@ -12,7 +12,7 @@ from functools import cached_property
 from firedrake import utils
 from firedrake.cython import dmcommon
 from firedrake.cython import mgimpl as impl
-from .utils import set_level, set_dm_refine_level
+from .utils import set_level, set_dm_refine_level, transfer_mesh
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
@@ -147,7 +147,7 @@ class HierarchyBase(object):
             fine_to_coarse_points = mesh.adaptive_fine_to_coarse_points
         if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
             if fine_to_coarse_points is not None:
-                fine_mesh = utils.transfer_mesh(mesh)
+                fine_mesh = transfer_mesh(mesh)
                 coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
                     self[-1], fine_mesh, fine_to_coarse_points)
             elif self.nested:
