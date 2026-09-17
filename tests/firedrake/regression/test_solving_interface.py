@@ -368,3 +368,95 @@ def test_solve_pre_apply_bcs(mesh, mixed):
     z.zero()
     solve(a == L, z, bcs, pre_apply_bcs=False)
     assert errornorm(g, uh) < 1E-10
+
+
+class AppctxRecorderPC(PCBase):
+    """Identity preconditioner that records the appctx it was given.
+
+    The recorded values let a test check which appctx reached the
+    preconditioner, without depending on the preconditioner doing any real
+    work. The application is the identity, so the outer Krylov method still
+    converges to the correct answer.
+    """
+
+    # Class attribute, so that the test can read what the instance built by
+    # PETSc saw. Every test that reads it must clear it first.
+    seen = []
+
+    def initialize(self, pc):
+        AppctxRecorderPC.seen.append(self.get_appctx(pc))
+
+    def update(self, pc):
+        pass
+
+    def apply(self, pc, X, Y):
+        X.copy(Y)
+
+    def applyTranspose(self, pc, X, Y):
+        X.copy(Y)
+
+
+@pytest.fixture
+def mass_system():
+    """An assembled mass matrix, a right hand side and an output Function.
+
+    The exact solution of the system is the constant 1, which makes the
+    correctness check in the tests below independent of the mesh.
+    """
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    A = assemble(inner(u, v) * dx)
+    b = assemble(conj(v) * dx)
+    return A, Function(V), b
+
+
+# Solver parameters that drive the solve through AppctxRecorderPC. The
+# preconditioner is the identity, so cg still converges on the mass matrix.
+_recorder_parameters = {
+    "ksp_type": "cg",
+    "pc_type": "python",
+    "pc_python_type": __name__ + ".AppctxRecorderPC",
+}
+
+
+def test_la_solve_appctx_kwarg(mass_system):
+    """``solve(A, x, b, appctx=...)`` reaches a Python-type preconditioner."""
+    A, x, b = mass_system
+    AppctxRecorderPC.seen.clear()
+
+    solve(A, x, b, appctx={"value": 42}, solver_parameters=_recorder_parameters)
+
+    assert AppctxRecorderPC.seen[0]["value"] == 42
+    assert np.allclose(x.dat.data_ro, 1.0)
+
+
+def test_la_solve_appctx_in_solver_parameters(mass_system):
+    """The older route, an ``"appctx"`` entry of ``solver_parameters``, still works."""
+    A, x, b = mass_system
+    AppctxRecorderPC.seen.clear()
+
+    solve(A, x, b,
+          solver_parameters={**_recorder_parameters, "appctx": {"value": 42}})
+
+    assert AppctxRecorderPC.seen[0]["value"] == 42
+    assert np.allclose(x.dat.data_ro, 1.0)
+
+
+def test_la_solve_appctx_kwarg_wins(mass_system):
+    """When the appctx is given both ways, the keyword argument is used."""
+    A, x, b = mass_system
+    AppctxRecorderPC.seen.clear()
+
+    solve(A, x, b, appctx={"value": 42},
+          solver_parameters={**_recorder_parameters, "appctx": {"value": 7}})
+
+    assert AppctxRecorderPC.seen[0]["value"] == 42
+
+
+def test_la_solve_rejects_unknown_kwarg(mass_system):
+    """Kwarg validation still rejects a name that is not on the list."""
+    A, x, b = mass_system
+    with pytest.raises(RuntimeError, match="Illegal keyword argument"):
+        solve(A, x, b, not_a_kwarg=1)
