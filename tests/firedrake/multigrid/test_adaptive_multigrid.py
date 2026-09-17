@@ -35,8 +35,9 @@ def _linear_expr(mesh):
 def coarse_mesh(request):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesher = request.param
-    # Big enough that refining part of it leaves untouched cells behind, and
-    # that a coarse cell's child count varies widely across the mesh.
+    # Big enough that refining part of it leaves untouched cells behind.
+    # The transfers copy those cells' nodes instead of evaluating them.
+    # It also gives a coarse cell's child count a wide range.
     if mesher == "firedrake-square":
         return UnitSquareMesh(4, 4, distribution_parameters=dparams)
     elif mesher == "firedrake-cube":

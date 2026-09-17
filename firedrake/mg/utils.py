@@ -151,7 +151,8 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             # Keep the layers of each child together, so that the children of
             # a coarse cell come before its padded slots.
             values = values[:, :, None, :] + numpy.arange(level_ratio)[:, None] * Vf.offset
-        coarse_to_fine_nodes[:iterset.size, :] = values.reshape(iterset.size, -1)
+        coarse_to_fine_nodes[:iterset.size, :] = values.reshape(
+            iterset.size, arity * level_ratio)
         offset = Vf.offset
         if offset is not None:
             offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
