@@ -373,32 +373,6 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     assert mh[0].comm.allreduce(padded, MPI.LOR)
 
 
-def _coarse_cell_integrals(mh, level, u_coarse, u_fine):
-    """Integrate a coarse and a fine function over each owned coarse cell.
-
-    Both returned arrays hold one entry per owned cell of ``mh[level]``. The
-    first is the integral of ``u_coarse`` over that cell. The second is the
-    integral of ``u_fine`` over that cell's fine children.
-    """
-    coarse_mesh = mh[level]
-    fine_mesh = mh[level + 1]
-
-    # A DG0 test function integrates over one cell per entry.
-    W_coarse = FunctionSpace(coarse_mesh, "DG", 0)
-    mass_coarse = assemble(TestFunction(W_coarse) * u_coarse * dx).dat.data_ro
-    W_fine = FunctionSpace(fine_mesh, "DG", 0)
-    mass_per_child = assemble(TestFunction(W_fine) * u_fine * dx).dat.data_ro
-
-    # Refinement acts on each rank's own plex, so the children of an owned
-    # coarse cell are owned fine cells. Summing the owned children of each
-    # owned coarse cell therefore needs no halo exchange.
-    children = mh.coarse_to_fine_cells[level][:coarse_mesh.cell_set.size]
-    valid = children >= 0
-    assert (children[valid] < fine_mesh.cell_set.size).all()
-    mass_fine = np.where(valid, mass_per_child[children], 0).sum(axis=1)
-    return mass_coarse[:coarse_mesh.cell_set.size], mass_fine
-
-
 def _representable_expr(mesh, degree):
     """An expression that a space of the given degree holds exactly on any mesh."""
     x = SpatialCoordinate(mesh)
@@ -426,11 +400,7 @@ def _copied_nodes(mh, V):
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("degree", [0, 1])
 def test_dg_injection_conserves_mass_extruded(degree):
-    """DG injection conserves mass on an extruded adaptive hierarchy.
-
-    A coarse cell's children must each contribute every one of their fine
-    layers exactly once, including on the levels that have padded rows.
-    """
+    """Test that DG injection should conserves mass globally on an extruded adaptive hierarchy."""
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
     mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
