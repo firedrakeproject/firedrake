@@ -274,7 +274,6 @@ class InstructionExecutionContext:
         else:
             petsc_events = ()
 
-        start_time = time.perf_counter()
         executable = Executable(
             loopy_code,
             self.comm,
@@ -282,11 +281,6 @@ class InstructionExecutionContext:
             petsc_events=petsc_events,
             compiler_parameters=compiler_parameters
         )
-        end_time = time.perf_counter()
-
-        if pyop3.debug_flags.hit_assign:
-            compilation_time = end_time - start_time
-            print(f"Compilation time: {compilation_time * 1000:.5f} milliseconds")
 
         # replace buffer indices with the real things
         kernel_name_to_buffer_views = {}
@@ -497,8 +491,14 @@ class Executable:
             func_name = self.code.default_entrypoint.name
             device_code = self._device_code
 
+        start_time = time.perf_counter()
         dll = pyop3.cc.load(device_code, extension, cppargs, ldargs, comm=self.comm)
+        end_time = time.perf_counter()
 
+        if pyop3.debug_flags.hit_assign:
+            compilation_time = end_time - start_time
+            print(f"Compilation time: {compilation_time * 1000:.2f} milliseconds")
+    
         for event in self.petsc_events:
             # Create the event in python and then set in the shared library to avoid
             # allocating memory over and over again in the C kernel.

@@ -68,6 +68,9 @@ from pyop3.cache import (
 from pyop3.exceptions import CompilationException
 from pyop3.log import INFO, debug, progress, warning
 
+# TODO: Sam testing 
+import contextlib
+import time
 
 def _check_hashes(x, y, datatype):
     """MPI reduction op to check if code hashes differ across ranks."""
@@ -94,11 +97,8 @@ MLIR_OPT_PASSES = (
     "--finalize-memref-to-llvm",
     "--convert-arith-to-llvm",
     "--convert-index-to-llvm",
-    "--llvm-request-c-wrappers",
     "--reconcile-unrealized-casts",
-    "--canonicalize",
 )
-
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True)
@@ -694,43 +694,53 @@ def make_so(compiler, code, extension, comm):
                 os.close(descriptor)
 
                 if extension == "mlir":
+                    # TODO: This can be done in-process. It would be significant compilation-time save.
                     # 1. mlir -> optimised mlir 
                     lowered_name = filename.with_suffix(".llvm.mlir")
                     mlir_opt_cmd = (
                         (compiler.mlir_opt, str(cname))
+                        + ("--mlir-timing",) 
                         + compiler.mlir_opt_flags
                         + ('-o', str(lowered_name))
                     )
-                    _run(mlir_opt_cmd, logfile, errfile, step="Lowering")
+
+                    with timer("mlir-opt"): 
+                        _run(mlir_opt_cmd, logfile, errfile, step="Lowering")
 
                     # mlir -> llvm
                     llname = filename.with_suffix(".ll")
                     translate_cmd = (
                         compiler.mlir_translate,
+                        "--mlir-timing",
                         "--mlir-to-llvmir",
                         str(lowered_name),
                         '-o', str(llname),
                     )
-                    _run(translate_cmd, logfile, errfile, step="Translating", filemode="a")
+                    with timer("mlir-translate"):
+                        _run(translate_cmd, logfile, errfile, step="Translating", filemode="a")
 
                     # llvm -> opt llvm 
-                    optname = filename.with_suffix(".ll")
-                    opt_cmd = (
-                        compiler.opt,
-                        "-O3",
-                        "-mcpu=native",
-                        str(llname),
-                        '-o', str(optname),
-                    )
+                    # optname = filename.with_suffix(".ll")
+                    # opt_cmd = (
+                    #     compiler.opt,
+                    #     "-O3",
+                    #     "-mcpu=native",
+                    #     str(llname),
+                    #     '-o', str(optname),
+                    # )
+                    # with timer("opt"):
+                    #     _run(opt_cmd, logfile, errfile, step="Optimising", filemode="a")
 
                     # llvm -> shared library
                     # NOTE: How can I guarantee this is clang??
                     cc = (
                         (compiler.cc,) + compiler.cflags + ("-march=native",)
-                        + (str(optname),) + compiler.ldflags
+                        + ("-ffast-math",)
+                        + (str(llname),) + compiler.ldflags
                         + ('-o', str(soname))
                     )
-                    _run(cc, logfile, errfile, step="Compilation", filemode="a")
+                    with timer("clang"):
+                        _run(cc, logfile, errfile, step="Compilation", filemode="a")
                 elif not compiler.ld:
                     # Compile and link
                     cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
@@ -829,3 +839,12 @@ def clear_compiler_disk_cache(prompt=False):
             shutil.rmtree(directory, ignore_errors=True)
         else:
             print("Not removing cached libraries")
+
+
+@contextlib.contextmanager
+def timer(description="Operation"):
+    start_time = time.perf_counter()
+    yield
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    print(f"{description}: {elapsed_time*1000:.4f} milliseconds")

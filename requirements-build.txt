@@ -11,6 +11,8 @@ petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main
 pybind11
 setuptools>=77.0.3
 rtree
+xdsl
+cupy
 
 # Transitive build dependencies
 hatchling
