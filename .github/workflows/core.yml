@@ -103,6 +103,12 @@ jobs:
       # Disable some compiler optimisations as they cause runner-specific bugs
       PYOP2_CFLAGS: -O1 -fno-fast-math
     steps:
+      - name: Fix HOME
+        # GitHub actions overwrite HOME to /github/home which causes permissions
+        # issues for certain operations (observed at 'pip cache purge')
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
@@ -311,6 +317,12 @@ jobs:
       # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
       PETSC_OPTIONS: -use_gpu_aware_mpi 0
     steps:
+      - name: Fix HOME
+        # GitHub actions overwrite HOME to /github/home which causes permissions
+        # issues for certain operations (observed at 'pip cache purge')
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
@@ -527,6 +539,12 @@ jobs:
     outputs:
       conclusion: ${{ steps.report_docs.outputs.conclusion }}
     steps:
+      - name: Fix HOME
+        # GitHub actions overwrite HOME to /github/home which causes permissions
+        # issues for certain operations (observed at 'pip cache purge')
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Install system dependencies
         run: |
           apt-get update
