@@ -121,6 +121,12 @@ jobs:
           findmnt -T "$TARGET" -o TARGET,SOURCE,FSTYPE,OPTIONS
           ls -ldnZ "$TARGET"
 
+      - name: Fix HOME
+        # For unknown reasons GitHub actions overwrite HOME to /github/home
+        # which will break everything unless fixed
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete

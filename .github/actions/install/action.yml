@@ -133,7 +133,7 @@ runs:
         . venv/bin/activate
 
         : # Empty the pip cache to ensure that everything is compiled from scratch
-        mkdir -p ${HOME}/.cache
+        : # mkdir -p ${HOME}/.cache
         pip cache purge
 
         if [ ${{ inputs.base_ref }} = 'main' ]; then
