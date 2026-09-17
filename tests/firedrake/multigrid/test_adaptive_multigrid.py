@@ -356,9 +356,9 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     for level in range(len(mh) - 1):
         coarse_mesh = mh[level]
         fine_mesh = mh[level + 1]
-        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cell_set.size]
+        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cells.owned.local_size]
         valid = children >= 0
-        assert (children[valid] < fine_mesh.cell_set.size).all()
+        assert (children[valid] < fine_mesh.cells.owned.local_size).all()
         # Adaptive refinement gives rows different child counts, so the map
         # should be padded with -1.
         padded |= bool((children < 0).any())
@@ -370,7 +370,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
         # Compute mass on each coarse cell
         W_coarse = FunctionSpace(coarse_mesh, "DG", 0)
         mass_coarse = assemble(inner(u_coarse, TestFunction(W_coarse)) * dx).dat.data_ro
-        mass_coarse = mass_coarse[:coarse_mesh.cell_set.size]
+        mass_coarse = mass_coarse[:coarse_mesh.cells.owned.local_size]
 
         W_fine = FunctionSpace(fine_mesh, "DG", 0)
         mass_per_child = assemble(inner(u_fine, TestFunction(W_fine)) * dx).dat.data_ro

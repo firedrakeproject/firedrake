@@ -89,7 +89,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
-        if not Vc.comm.allreduce(bool(nonempty[:Vc.node_set.size].all()), op=MPI.LAND):
+        if not Vc.comm.allreduce(bool(nonempty[:Vc.axes.owned.local_size].all()), op=MPI.LAND):
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
         replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                   dtype=coarse_to_fine_nodes.dtype)
@@ -203,20 +203,14 @@ def coarse_cell_child_count(
     try:
         return cache[key]
     except KeyError:
-        if Vc.extruded:
-            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-        else:
-            level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
-        iterset = mesh.cell_set
-        counts = numpy.zeros(iterset.total_size, dtype=IntType)
+        counts = numpy.zeros(mesh.cells.local_size, dtype=IntType)
         # Each child of a coarse cell becomes level_ratio cells once extruded.
-        counts[:iterset.size] = (coarse_to_fine[:iterset.size] >= 0).sum(axis=1) * level_ratio
+        counts[:mesh.cells.owned.local_size] = (coarse_to_fine[:mesh.cells.owned.local_size] >= 0).sum(axis=1)
         # A count belongs to a base cell, and every layer of that cell shares
         # it. An ExtrudedSet holds no data of its own, so hang the counts off
         # the base set that it was built on.
-        dset = op2.DataSet(iterset.parent if Vc.extruded else iterset, 1)
-        return cache.setdefault(key, op2.Dat(dset, counts, dtype=IntType))
+        return cache.setdefault(key, op3.Dat(mesh.cells.materialize(), data=counts))
 
 
 def physical_node_locations(V):
