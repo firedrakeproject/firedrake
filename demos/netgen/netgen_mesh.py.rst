@@ -192,7 +192,7 @@ Then a SLEPc Eigenvalue Problem Solver (``EPS``) is initialised and set up to us
         PC.setFactorSolverType("mumps")
         E.setST(ST)
         E.solve()
-        vr, vi = Asc.getVecs()
+        vr, vi = Asc.createVecs()
         with uh.dat.vec_wo as vr:
             lam = E.getEigenpair(0, vr, vi)
         return (lam, uh, V)
