@@ -79,6 +79,7 @@ class HierarchyBase(object):
             coarse_to_fine_cells = {}
             fine_to_coarse_cells = {Fraction(0, 1): None}
             for i, (coarse, fine) in enumerate(zip(self._meshes[:-1], self._meshes[1:])):
+                fine = transfer_mesh(fine)
                 c2f, f2c = impl.coarse_to_fine_cells(
                     coarse, fine, self.fine_to_coarse_points[Fraction(i+1, refinements_per_level)])
                 coarse_to_fine_cells[Fraction(i, refinements_per_level)] = c2f
@@ -304,8 +305,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
     if refinement_levels > 0:
         cdm = make_unoverlapped_dm(cdm)
     meshes = [mesh]
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
+    point_maps = {}
     for i in range(refinement_levels*refinements_per_level):
         coarse_lgmap = impl.create_lgmap(cdm)
         cdm.setRefinementUniform(True)
@@ -348,9 +348,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
             meshes[-1], fmesh, fine_to_coarse_points,
             coarse_lgmap, fine_lgmap,
         )
-        c2f, f2c = impl.coarse_to_fine_cells(meshes[-1], fmesh, points)
-        coarse_to_fine_cells.append(c2f)
-        fine_to_coarse_cells.append(f2c)
+        point_maps[Fraction(i + 1, refinements_per_level)] = points
 
         if redistribute and fmesh.any_rank_is_empty:
             fmesh = firedrake.Submesh(fmesh, redistribute=True)
@@ -361,12 +359,9 @@ def MeshHierarchy(mesh, refinement_levels=0,
         # Firedrake counts multigrid levels, PETSc counts refinements
         set_dm_refine_level(m, i)
 
-    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
-                                for i, c2f in enumerate(coarse_to_fine_cells))
-    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
-                                for i, f2c in enumerate(fine_to_coarse_cells))
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level, nested=nested,
+    return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
+                         nested=nested,
+                         fine_to_coarse_points=point_maps,
                          redistribute=redistribute)
 
 
