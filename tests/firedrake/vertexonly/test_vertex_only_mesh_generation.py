@@ -155,7 +155,9 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     if not skip_in_bounds_checks:
         # Correct local coordinates (though not guaranteed to be in same order)
         # [*here]
-        np.allclose(np.sort(vm.coordinates.dat.data_ro), np.sort(inputvertexcoords[in_bounds]))
+        a = vm.coordinates.dat.data_ro.reshape(-1, gdim)
+        b = inputvertexcoords[in_bounds].reshape(-1, gdim)
+        assert np.allclose(a[np.lexsort(a.T[::-1])], b[np.lexsort(b.T[::-1])])
     else:
         # Accessing data_ro [*here] is collective, hence this redundant call
         _ = len(vm.coordinates.dat.data_ro)
