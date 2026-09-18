@@ -4,11 +4,13 @@ import numpy
 from fractions import Fraction
 from mpi4py import MPI
 from pyop2 import op2
+from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
+from firedrake.halo import _get_mtype
 
 
 def identity_node_map(V):
@@ -218,6 +220,121 @@ def coarse_cell_child_count(
         return cache.setdefault(key, op2.Dat(dset, counts, dtype=IntType))
 
 
+def _preserved_point_sf(coarse_mesh, fine_mesh, coarse_to_fine):
+    """Create the SF that pairs unrefined points with their coarse originals."""
+    coarse_plex = coarse_mesh.topology_dm
+    fine_plex = fine_mesh.topology_dm
+    fine_to_coarse_points = impl.preserved_points(
+        coarse_plex, coarse_mesh._cell_numbering,
+        fine_plex, fine_mesh._cell_numbering,
+        coarse_to_fine,
+    )
+    leaves, = numpy.nonzero(fine_to_coarse_points >= 0)
+    # A uniform refinement preserves no points. Every rank must agree on
+    # whether to build the SF at all, not just the ranks with no leaves.
+    if not fine_plex.comm.tompi4py().allreduce(len(leaves) > 0, op=MPI.LOR):
+        return None
+    leaves = leaves.astype(IntType)
+    # Refinement acts on each rank's own plex. A fine point and the coarse
+    # point it was copied from always live on the same rank.
+    remote = numpy.empty((len(leaves), 2), dtype=IntType)
+    remote[:, 0] = coarse_plex.comm.rank
+    remote[:, 1] = fine_to_coarse_points[leaves]
+    pStart, pEnd = coarse_plex.getChart()
+    point_sf = PETSc.SF().create(comm=coarse_plex.comm)
+    point_sf.setGraph(pEnd - pStart, leaves, remote)
+    return point_sf
+
+
+def preserved_node_sf(Vc, Vf):
+    """Find the nodes that adaptive refinement leaves unchanged.
+
+    An unrefined cell has the same nodes in both spaces. Transfer operators
+    can then copy values between them instead of evaluating them.
+    """
+    if Vc.ufl_element() != Vf.ufl_element() or Vc.boundary_set != Vf.boundary_set:
+        return None
+    if Vc.extruded or Vf.extruded:
+        return None
+    hierarchy, levelc = get_level(Vc.mesh())
+    _, levelf = get_level(Vf.mesh())
+    if hierarchy is None or levelc + Fraction(1, hierarchy.refinements_per_level) != levelf:
+        return None
+    cache = Vf.mesh().topology._shared_data_cache["hierarchy_preserved_node_sf"]
+    key = _cache_key(Vc, Vf)
+    try:
+        return cache[key]
+    except KeyError:
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        point_sf = _preserved_point_sf(Vc.mesh().topology, Vf.mesh().topology,
+                                       coarse_to_fine)
+        if point_sf is None:
+            return cache.setdefault(key, None)
+        root_section = Vc.dm.getSection()
+        leaf_section = Vf.dm.getSection()
+        remote_offsets, distributed_section = point_sf.distributeSection(root_section)
+        pStart, pEnd = leaf_section.getChart()
+        lpStart, lpEnd = distributed_section.getChart()
+        offsets = numpy.zeros(pEnd - pStart, dtype=IntType)
+        offsets[lpStart - pStart:lpEnd - pStart] = remote_offsets
+        section_sf = point_sf.createSectionSF(root_section, offsets, leaf_section)
+        # Transfer kernels compute owned fine nodes and leave the halo to a
+        # later exchange. A ghost fine node must not reduce onto its coarse
+        # node because that would count the value twice.
+        nroots, ilocal, iremote = section_sf.getGraph()
+        owned = ilocal < Vf.node_set.size
+        if not Vf.mesh().comm.allreduce(bool(owned.any()), op=MPI.LOR):
+            return cache.setdefault(key, None)
+        trimmed = PETSc.SF().create(comm=section_sf.comm)
+        trimmed.setGraph(nroots, ilocal[owned], iremote[owned])
+        return cache.setdefault(key, trimmed)
+
+
+def transfer_node_subset(Vc, Vf):
+    """Find the fine nodes that the transfer kernels must evaluate."""
+    section_sf = preserved_node_sf(Vc, Vf)
+    if section_sf is None:
+        return Vf.node_set
+    cache = Vf.mesh().topology._shared_data_cache["hierarchy_transfer_node_subset"]
+    key = _cache_key(Vc, Vf)
+    try:
+        return cache[key]
+    except KeyError:
+        _, preserved, _ = section_sf.getGraph()
+        nodes = numpy.setdiff1d(numpy.arange(Vf.node_set.size, dtype=IntType),
+                                preserved)
+        return cache.setdefault(key, op2.Subset(Vf.node_set, nodes))
+
+
+def prolong_preserved_nodes(coarse, fine):
+    """Copy coarse values onto nodes that adaptive refinement preserved."""
+    section_sf = preserved_node_sf(coarse.function_space(), fine.function_space())
+    if section_sf is None:
+        return
+    mtype, _ = _get_mtype(fine.dat)
+    source = coarse.dat.data_ro_with_halos
+    target = fine.dat.data_wo
+    section_sf.bcastBegin(mtype, source, target, MPI.REPLACE)
+    section_sf.bcastEnd(mtype, source, target, MPI.REPLACE)
+
+
+def restrict_preserved_nodes(fine_dual, coarse_dual):
+    """Add preserved fine-node contributions to the coarse dual."""
+    coarse_V = coarse_dual.function_space()
+    section_sf = preserved_node_sf(coarse_V, fine_dual.function_space())
+    if section_sf is None:
+        return
+    buffer = type(coarse_dual)(coarse_V)
+    mtype, _ = _get_mtype(buffer.dat)
+    source = fine_dual.dat.data_ro
+    target = buffer.dat.data_wo_with_halos
+    section_sf.reduceBegin(mtype, source, target, MPI.SUM)
+    section_sf.reduceEnd(mtype, source, target, MPI.SUM)
+    buffer.dat.local_to_global_begin(op2.INC)
+    buffer.dat.local_to_global_end(op2.INC)
+    coarse_dual.dat.data[...] += buffer.dat.data_ro
+
+
 def physical_node_locations(V):
     element = V.ufl_element()
     if V.value_shape:
@@ -238,9 +355,29 @@ def physical_node_locations(V):
         return cache.setdefault(key, locations)
 
 
+def transfer_mesh(mesh):
+    """Return the mesh on which grid transfer operates."""
+    return mesh.submesh_parent if mesh.submesh_point_sf is not None else mesh
+
+
+def _redistribution_ancestors(topology):
+    """Yield a topology and the topologies from which it was redistributed."""
+    yield topology
+    while topology.submesh_point_sf is not None:
+        topology = topology.submesh_parent
+        yield topology
+
+
+def set_dm_refine_level(mesh, level):
+    """Set the refinement level on a mesh and its redistribution ancestors."""
+    for topology in _redistribution_ancestors(mesh.topology):
+        topology.topology_dm.setRefineLevel(level)
+
+
 def set_level(obj, hierarchy, level):
     """Attach hierarchy and level info to an object."""
-    setattr(obj.topological, "__level_info__", (hierarchy, level))
+    for topology in _redistribution_ancestors(obj.topological):
+        setattr(topology, "__level_info__", (hierarchy, level))
     return obj
 
 

@@ -379,6 +379,74 @@ def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
     return np.asarray(coarse_to_fine), np.asarray(fine_to_coarse)
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def preserved_points(PETSc.DM coarse_dm,
+                     PETSc.Section coarse_cell_numbering,
+                     PETSc.DM fine_dm,
+                     PETSc.Section fine_cell_numbering,
+                     np.ndarray coarse_to_fine_cells):
+    """Pair unrefined fine points with their coarse originals.
+
+    Adaptive refinement copies an untouched coarse cell into the fine mesh
+    without change. Its transitive closure therefore preserves the points
+    that the transfer operators can copy directly.
+    """
+    cdef:
+        PetscInt ncoarse, nfine, max_children, c, i, off, child
+        PetscInt cStart, cEnd, pStart, pEnd, coarse_size, fine_size
+        PetscInt *coarse_closure = NULL
+        PetscInt *fine_closure = NULL
+        PetscInt[::1] coarse_point, fine_point, fine_to_coarse
+        PetscInt[:, ::1] coarse_to_fine
+
+    coarse_to_fine = coarse_to_fine_cells
+    ncoarse = num_owned_cells(coarse_dm)
+    assert ncoarse == coarse_to_fine.shape[0]
+    max_children = coarse_to_fine.shape[1]
+    nfine = num_owned_cells(fine_dm)
+
+    # Both cell maps use Firedrake numbering, while closures use DMPlex
+    # point numbering. Invert each cell section before walking closures.
+    coarse_point = np.full(ncoarse, -1, dtype=IntType)
+    cStart, cEnd = coarse_dm.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, c, &off))
+        if 0 <= off < ncoarse:
+            coarse_point[off] = c
+    fine_point = np.full(nfine, -1, dtype=IntType)
+    cStart, cEnd = fine_dm.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
+        if 0 <= off < nfine:
+            fine_point[off] = c
+
+    pStart, pEnd = fine_dm.getChart()
+    fine_to_coarse = np.full(pEnd - pStart, -1, dtype=IntType)
+    for c in range(ncoarse):
+        child = coarse_to_fine[c, 0]
+        if child < 0 or (max_children > 1 and coarse_to_fine[c, 1] >= 0):
+            continue
+        if coarse_point[c] < 0 or fine_point[child] < 0:
+            continue
+        CHKERR(DMPlexGetTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
+                                          &coarse_size, &coarse_closure))
+        CHKERR(DMPlexGetTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
+                                          &fine_size, &fine_closure))
+        # A one-child cell that refinement changed has a different closure.
+        if coarse_size == fine_size:
+            for i in range(coarse_size):
+                # The closure interleaves a point with its orientation. Copy
+                # only points whose orientations match in both meshes.
+                if coarse_closure[2*i + 1] == fine_closure[2*i + 1]:
+                    fine_to_coarse[fine_closure[2*i] - pStart] = coarse_closure[2*i]
+        CHKERR(DMPlexRestoreTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
+                                              &coarse_size, &coarse_closure))
+        CHKERR(DMPlexRestoreTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
+                                              &fine_size, &fine_closure))
+    return np.asarray(fine_to_coarse)
+
+
 # Exposition:
 #
 # These next functions compute maps from coarse mesh cells to fine

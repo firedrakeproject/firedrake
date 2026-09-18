@@ -2,6 +2,8 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.mg.utils import transfer_node_subset
+from firedrake.utils import complex_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -384,94 +386,63 @@ def test_dg_injection_conserves_mass_extruded(degree):
         assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
 
 
+def _representable_expr(mesh, degree):
+    """Return an expression that a space of the given degree holds exactly."""
+    x = SpatialCoordinate(mesh)
+    if degree == 0:
+        return conditional(ge(x[0], 0), 1, 0)
+    return sum(xi ** degree for xi in x)
+
+
+def _copied_nodes(mh, V):
+    """Count the nodes that transfers copy rather than evaluate."""
+    copied = 0
+    for level in range(len(mh) - 1):
+        V_coarse = V.reconstruct(mesh=mh[level])
+        V_fine = V.reconstruct(mesh=mh[level + 1])
+        subset = transfer_node_subset(V_coarse, V_fine)
+        # A Subset's indices span the owned range. When no nodes are
+        # preserved, the node set also includes halo entries.
+        visited = min(len(subset.indices), V_fine.node_set.size)
+        copied += V_fine.node_set.size - visited
+    return mh[0].comm.allreduce(copied, MPI.SUM)
+
+
 @pytest.mark.parallel([1, 2, 4])
-def test_prolong_DG0(mh):
-    """Test prolongation with DG0."""
-    V_coarse = FunctionSpace(mh[0], "DG", 0)
-    V_fine = FunctionSpace(mh[-1], "DG", 0)
-    u_coarse = Function(V_coarse)
+@pytest.mark.parametrize("family, degree", [("DG", 0), ("CG", 1), ("CG", 2), ("CG", 3)])
+def test_transfers(mh, family, degree):
+    """Test prolongation, injection, and restriction on an adaptive hierarchy."""
+    V_coarse = FunctionSpace(mh[0], family, degree)
+    V_fine = FunctionSpace(mh[-1], family, degree)
+    expr_coarse = _representable_expr(mh[0], degree)
+    expr_fine = _representable_expr(mh[-1], degree)
+
+    # A hierarchy that leaves cells unchanged must copy their nodes during
+    # transfer instead of evaluating them with the kernel.
+    assert _copied_nodes(mh, V_coarse) > 0
+
+    u_coarse = Function(V_coarse).interpolate(expr_coarse)
     u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-    stepc = conditional(ge(xc, 0), 1, 0)
-    xf, *_ = SpatialCoordinate(V_fine.mesh())
-    stepf = conditional(ge(xf, 0), 1, 0)
-
-    u_coarse.interpolate(stepc)
-    assert errornorm(stepc, u_coarse) <= 1e-12
-
     prolong(u_coarse, u_fine)
-    assert errornorm(stepf, u_fine) <= 1e-12
+    assert errornorm(expr_fine, u_fine) <= 1e-12
 
-
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_CG1(mh, operator):
-    """Prolongation & Injection test for CG1"""
-    V_coarse = FunctionSpace(mh[0], "CG", 1)
-    V_fine = FunctionSpace(mh[-1], "CG", 1)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-    xf, *_ = SpatialCoordinate(V_fine.mesh())
-
-    if operator == "prolong":
-        u_coarse.interpolate(xc)
-        assert errornorm(xc, u_coarse) <= 1e-12
-
-        prolong(u_coarse, u_fine)
-        assert errornorm(xf, u_fine) <= 1e-12
-    if operator == "inject":
-        u_fine.interpolate(xf)
-        assert errornorm(xf, u_fine) <= 1e-12
-
-        inject(u_fine, u_coarse)
-        assert errornorm(xc, u_coarse) <= 1e-12
-
-
-@pytest.mark.parallel([1, 2, 4])
-def test_restrict_CG1(mh):
-    """Test restriction with CG1"""
-    V_coarse = FunctionSpace(mh[0], "CG", 1)
-    V_fine = FunctionSpace(mh[-1], "CG", 1)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-
-    u_coarse.interpolate(xc)
-    prolong(u_coarse, u_fine)
-
-    rf = assemble(conj(TestFunction(V_fine)) * dx)
-    rc = Cofunction(V_coarse.dual())
-    restrict(rf, rc)
-
+    r_fine = assemble(conj(TestFunction(V_fine)) * dx)
+    r_coarse = Cofunction(V_coarse.dual())
+    restrict(r_fine, r_coarse)
     assert np.allclose(
-        assemble(action(rc, u_coarse)),
-        assemble(action(rf, u_fine)),
+        assemble(action(r_coarse, u_coarse)),
+        assemble(action(r_fine, u_fine)),
         rtol=1e-12
     )
 
-
-@pytest.mark.parallel([1, 2, 4])
-def test_restrict_DG0(mh):
-    """Test restriction with DG0"""
-    V_coarse = FunctionSpace(mh[0], "DG", 0)
-    V_fine = FunctionSpace(mh[-1], "DG", 0)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-
-    u_coarse.interpolate(xc)
-    prolong(u_coarse, u_fine)
-
-    rf = assemble(conj(TestFunction(V_fine)) * dx)
-    rc = Cofunction(V_coarse.dual())
-    restrict(rf, rc)
-
-    assert np.allclose(
-        assemble(action(rc, u_coarse)),
-        assemble(action(rf, u_fine)),
-        rtol=1e-12
-    )
+    u_fine = Function(V_fine).interpolate(expr_fine)
+    u_injected = Function(V_coarse)
+    if family in {"DG", "DQ"} and complex_mode:
+        with pytest.raises(NotImplementedError):
+            inject(u_fine, u_injected)
+        return
+    inject(u_fine, u_injected)
+    assert errornorm(expr_coarse, u_injected) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])
