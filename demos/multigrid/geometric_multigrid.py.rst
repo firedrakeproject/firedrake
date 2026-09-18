@@ -17,7 +17,9 @@ the equations will be discretised.  To create a hierarchy, we use
 :func:`~.MeshHierarchy` to create a hierarchy of meshes, the resulting
 object remembers the relationships between them.  Currently, these
 hierarchies are constructed using regular bisection refinement, so we
-must create a coarse mesh. ::
+must create a coarse mesh.
+
+.. code-block:: python
 
   from firedrake import *
 
@@ -26,7 +28,9 @@ must create a coarse mesh. ::
 Now we will create the mesh hierarchy, providing the coarse mesh and
 the number of refinements we would like.  Here, we request four
 refinements, going from 128 cells on the coarse mesh to 32768 cells on
-the finest. ::
+the finest.
+
+.. code-block:: python
 
   hierarchy = MeshHierarchy(mesh, 4)
 
@@ -38,7 +42,9 @@ most transparent way to do this is to set up the problem on the finest
 mesh, Firedrake then manages the rediscretised operators by providing
 appropriate callbacks to PETSc.  In this way, we can control the
 behaviour of the solver entirely through runtime options.  So our next
-step is just to grab the finest mesh and define the problem.  ::
+step is just to grab the finest mesh and define the problem.
+
+.. code-block:: python
 
   mesh = hierarchy[-1]
 
@@ -52,7 +58,9 @@ step is just to grab the finest mesh and define the problem.  ::
   bcs = DirichletBC(V, zero(), (1, 2, 3, 4))
 
 For a forcing function, we will use a product of sines such that we
-know the exact solution and can compute an error. ::
+know the exact solution and can compute an error.
+
+.. code-block:: python
 
   x, y = SpatialCoordinate(mesh)
 
@@ -60,19 +68,25 @@ know the exact solution and can compute an error. ::
 
   L = f*v*dx
 
-The exact solution is::
+The exact solution is:
+
+.. code-block:: python
 
   exact = sin(pi*x)*tan(pi*x*0.25)*sin(pi*y)
 
 We'll demonstrate a few different sets of solver parameters, so let's define a
-function that takes in set of parameters and returns the solution ::
+function that takes in set of parameters and returns the solution:
+
+.. code-block:: python
 
   def run_solve(parameters):
       u = Function(V)
       solve(a == L, u, bcs=bcs, solver_parameters=parameters)
       return u
 
-and another to compute the error. ::
+and another to compute the error.
+
+.. code-block:: python
 
   def error(u):
       expect = Function(V).interpolate(exact)
@@ -82,7 +96,9 @@ Specifying the solver
 ~~~~~~~~~~~~~~~~~~~~~
 
 Let's start with our first test.  We'll confirm a working solve by
-using a direct method. ::
+using a direct method.
+
+.. code-block:: python
 
   u = run_solve({"ksp_type": "preonly", "pc_type": "lu"})
   print('LU solve error', error(u))
@@ -90,7 +106,9 @@ using a direct method. ::
 Next we'll use the conjugate gradient method preconditioned by a
 geometric multigrid V-cycle.  Firedrake automatically takes care of
 rediscretising the operator on coarse grids, and providing the number
-of levels to PETSc. ::
+of levels to PETSc.
+
+.. code-block:: python
 
   u = run_solve({"ksp_type": "cg", "pc_type": "mg"})
   print('MG V-cycle + CG error', error(u))
@@ -101,7 +119,9 @@ cycle, without the application of a Krylov accelerator.  In
 particular, for the Poisson equation with constant coefficients, a
 single full multigrid cycle with appropriately chosen smoothers achieves
 discretisation error.  As ever, PETSc allows us to configure the
-appropriate settings using solver parameters. ::
+appropriate settings using solver parameters.
+
+.. code-block:: python
 
   parameters = {
      "ksp_type": "preonly",
@@ -123,7 +143,9 @@ the configuration of the multigrid solver is somewhat more complex.
 This demonstrates how the multigrid functionality composes with the
 other aspects of solver configuration, like fieldsplit
 preconditioning.  We'll use Taylor-Hood elements and solve a problem
-with specified velocity inflow and outflow conditions. ::
+with specified velocity inflow and outflow conditions.
+
+.. code-block:: python
 
   mesh = RectangleMesh(15, 10, 1.5, 1)
 
@@ -159,7 +181,9 @@ with specified velocity inflow and outflow conditions. ::
   DirichletBC(Z.sub(0), zero(2), (3, 4))]
 
 First up, we'll use an algebraic preconditioner, with a direct solve,
-remembering to tell PETSc to use pivoting in the factorisation. ::
+remembering to tell PETSc to use pivoting in the factorisation.
+
+.. code-block:: python
 
   u = Function(Z)
   solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
@@ -172,7 +196,9 @@ Next we'll use a Schur complement solver, using geometric multigrid to
 invert the velocity block. The Schur complement is spectrally equivalent
 to the viscosity-weighted pressure mass matrix. Since the pressure mass
 matrix does not appear in the original form, we need to supply its
-bilinear form to the solver ourselves: ::
+bilinear form to the solver ourselves:
+
+.. code-block:: python
 
   class Mass(AuxiliaryOperatorPC):
 
@@ -212,7 +238,7 @@ approximations.
    coarse grid we would have to say ``"mat_type": "aij"``, rather than
    ``"mat_type": "nest"``.
 
-::
+.. code-block:: python
 
   parameters = {
         "ksp_type": "gcr",
@@ -253,7 +279,9 @@ approximations.
   u = Function(Z)
   solve(a == L, u, bcs=bcs, solver_parameters=parameters)
 
-Finally, we'll write the solution for visualisation with Paraview. ::
+Finally, we'll write the solution for visualisation with Paraview.
+
+.. code-block:: python
 
   u, p = u.subfunctions
   u.rename("Velocity")

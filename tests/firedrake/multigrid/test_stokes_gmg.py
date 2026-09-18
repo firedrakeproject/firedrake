@@ -65,17 +65,14 @@ def test_stokes_appctx_coarsening():
     mesh = mh[-1]
 
     DG = FunctionSpace(mesh, "DG", 0)
-    rg = RandomGenerator(PCG64(seed=123456789))
-    mu = rg.uniform(DG, 1.0, 2.0)
-    mu.rename("mu")
-    # Injection must carry a genuinely variable viscosity down the hierarchy,
-    # so check that the random sample does vary.
-    with mu.dat.vec_ro as v:
-        assert v.max()[1] - v.min()[1] > 0.5
+    x, y = SpatialCoordinate(mesh)
+    mu_expr = 1.5 + 0.4 * sin(2 * pi * x) * cos(2 * pi * y)
+
+    mu = Function(DG, name="mu")
+    mu.interpolate(mu_expr)
 
     solver = stokes_solver(mesh, mu)
     solver.solve()
-    assert solver.snes.ksp.getIterationNumber() < 40
 
     # Every coarse level must hold its own viscosity, injected from the level
     # above.
@@ -91,3 +88,5 @@ def test_stokes_appctx_coarsening():
         transfer.inject(fine_mu, expected)
         assert numpy.allclose(coarse_mu.dat.data_ro, expected.dat.data_ro)
         fine_mu = coarse_mu
+
+    assert solver.snes.ksp.getIterationNumber() < 40
