@@ -425,8 +425,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                         hooks["coarsen_callback"] = solving_utils._coarsen_function
                     appctx[key] = dmhooks.Hooked(value, **hooks)
                 else:
-                    # Leave unchanged for the moment, eventually this should be allowed
-                    # but error when someone tries to apply a hook.
                     warnings.warn(
                         f"Object with type {type(value).__name__} found in the "
                         "appctx. We don't know how to transform (e.g. refine or"
@@ -434,6 +432,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                         "yourself or consider passing the data via the solver parameters instead.",
                         FutureWarning,
                     )
+                    # Leave unchanged for the moment, eventually this should be allowed
+                    # but error when someone tries to apply a hook. I.e.
+                    #
+                    #   appctx[key] = dmhooks.Hooked(obj)
+                    appctx[key] = dmhooks.Hooked.identity(obj)
 
         if isinstance(problem.J, MatrixBase):
             solver_parameters.setdefault("mat_type", problem.J.mat_type)

@@ -367,10 +367,12 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
 
     problem = self(context._problem, self, coefficient_mapping=coefficient_mapping)
 
-    appctx = context._appctx
-    new_appctx = {}
-    for k, v in appctx.items():
-        new_appctx[k] = v.refine() if self is refine else v.coarsen()
+    if context._appctx is not None:
+        new_appctx = {}
+        for k, v in context._appctx.items():
+            new_appctx[k] = v.refine() if self is refine else v.coarsen()
+    else:
+        new_appctx = None
 
     # Get options prefix for current level
     parent_context = context

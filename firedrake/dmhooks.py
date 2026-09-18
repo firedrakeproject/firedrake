@@ -41,7 +41,7 @@ import dataclasses
 import weakref
 from collections.abc import Callable
 from functools import partial
-from typing import Any
+from typing import Any, Self
 
 import numpy
 
@@ -575,6 +575,10 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     dm.setCreateSubDM(create_subdm)
 
 
+def identity_callback(self):
+    return self
+
+
 @dataclasses.dataclass(frozen=True)
 class Hooked:
     """Class wrapping an object that can be passed through a solver stack.
@@ -590,8 +594,8 @@ class Hooked:
 
     """
     obj: Any
-    refine_callback: Callable | None = None
-    coarsen_callback: Callable | None = None
+    refine_callback: Callable[[Self], Self] | None = dataclasses.field(default=None, kw_only=True)
+    coarsen_callback: Callable[[Self], Self] | None = dataclasses.field(default=None, kw_only=True)
 
     def refine(self):
         if self.refine_callback is None:
@@ -602,3 +606,12 @@ class Hooked:
         if self.coarsen_callback is None:
             raise NotImplementedError("No implementation for 'coarsen_callback' found")
         return dataclasses.replace(self, obj=self.coarsen_callback(self.obj))
+
+    @classmethod
+    def identity(cls, obj):
+        """Return an object that always transforms into itself."""
+        return cls(
+            obj,
+            refine_callback=identity_callback,
+            coarsen_callback=identity_callback,
+        )
