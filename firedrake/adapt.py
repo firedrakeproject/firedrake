@@ -85,8 +85,8 @@ def refine_marked_elements(mesh, cell_marker):
     Returns
     -------
     MeshGeometry
-        The adaptively refined mesh, with ``adaptive_parent`` set to
-        ``mesh`` and ``adaptive_fine_to_coarse_points`` set to the DMPlex
+        The adaptively refined mesh, with ``_adaptive_parent`` set to
+        ``mesh`` and ``_adaptive_fine_to_coarse_points`` set to the DMPlex
         point of ``mesh`` that each of its DMPlex points was refined from.
 
     """
@@ -137,7 +137,7 @@ def refine_marked_elements(mesh, cell_marker):
             final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
                                             cg_field=not coordinates.finat_element.is_dg())
 
-    final_mesh.adaptive_parent = mesh
-    final_mesh.adaptive_fine_to_coarse_points = fine_to_coarse_points
+    final_mesh._adaptive_parent = mesh
+    final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
     _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh

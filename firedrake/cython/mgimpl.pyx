@@ -271,7 +271,10 @@ def transform_source_points(PETSc.DM dm):
 
     CHKERR(DMPlexGetTransform(dm.dm, &transform))
     if transform == NULL:
-        raise ValueError("The DMPlex did not save the transform that made it")
+        raise ValueError(
+            "The DMPlex did not save its transform; call setSaveTransform "
+            "before creating it so hierarchy point maps can be built"
+        )
     pStart, pEnd = dm.getChart()
     points = np.empty(pEnd - pStart, dtype=IntType)
     for p in range(pStart, pEnd):
@@ -322,7 +325,9 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
         `transform_source_points`.
     coarse_lgmap, fine_lgmap : PETSc.LGMap or None
         The point local-to-global maps of the unoverlapped coarse and fine
-        DMPlexes, as given by `create_lgmap`.
+        DMPlexes, as given by `create_lgmap`. These maps are ``None`` on a
+        serial communicator, where the overlapped and unoverlapped point
+        numberings are identical.
 
     Returns
     -------
@@ -332,7 +337,7 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
         point that only the overlap has.
 
     """
-    if fine_lgmap is None:
+    if coarse_mesh.comm.size == 1:
         # On one process there is no overlap, so the numberings agree.
         return fine_to_coarse_points
     pStart, pEnd = fine_mesh.topology_dm.getChart()

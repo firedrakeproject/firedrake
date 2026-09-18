@@ -2397,8 +2397,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.variable_layers = self.extruded and topology.variable_layers
         self._base_mesh = None  # this is set by extruded meshes in a later step
         # these are set by firedrake.adapt.refine_marked_elements
-        self.adaptive_parent = None
-        self.adaptive_fine_to_coarse_points = None
+        self._adaptive_parent = None
+        self._adaptive_fine_to_coarse_points = None
 
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
@@ -2980,8 +2980,8 @@ values from f.)"""
         -------
         MeshGeometry
             The adaptively refined mesh, recording this mesh as its
-            ``adaptive_parent`` and the DMPlex points relative to it as its
-            ``adaptive_fine_to_coarse_points``, ready to be passed to
+            ``_adaptive_parent`` and the DMPlex points relative to it as its
+            ``_adaptive_fine_to_coarse_points``, ready to be passed to
             :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
         """
         from firedrake.adapt import refine_marked_elements

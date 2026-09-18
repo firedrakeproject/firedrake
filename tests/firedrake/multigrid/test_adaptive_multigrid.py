@@ -157,14 +157,14 @@ def test_add_mesh_rejects_unrelated_mesh():
     mh = MeshHierarchy(UnitSquareMesh(2, 2))
 
     other = UnitSquareMesh(4, 4)
-    assert other.adaptive_parent is None
+    assert other._adaptive_parent is None
     with pytest.raises(ValueError):
         mh.add_mesh(other)
 
     markers = Function(FunctionSpace(other, "DG", 0))
     markers.dat.data_wo[:1] = 1
     foreign = other.refine_marked_elements(markers)
-    assert foreign.adaptive_parent is other
+    assert foreign._adaptive_parent is other
     with pytest.raises(ValueError):
         mh.add_mesh(foreign)
 
@@ -299,8 +299,7 @@ def test_adapt_preserves_mesh_metadata(degree):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_after_uniform_refinement(coarse_mesh, refine):
     """A hierarchy built by uniform refinement can be adaptively refined."""
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-    mh = MeshHierarchy(coarse_mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(coarse_mesh, refine)
     _assert_adapt_after_uniform_refinement(mh)
 
 
@@ -311,14 +310,12 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     Its plex numbers cells by refinement case, so its owned cells are
     interleaved with its halo cells, which the cell maps must not assume away.
     """
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-
     M = FunctionSpace(coarse_mesh, "DG", 0)
     markers = Function(M)
     markers.dat.data_wo[:1] = 1
     mesh = coarse_mesh.refine_marked_elements(markers)
 
-    mh = MeshHierarchy(mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(mesh, refine)
     assert len(mh) == refine + 1
     assert np.allclose(assemble(1*dx(mh[-1])), assemble(1*dx(coarse_mesh)))
 
