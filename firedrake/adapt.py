@@ -35,7 +35,7 @@ def _adapt_marked_cells(mesh, cell_marker):
         adapt_indicator = np.zeros(cell_marker.dat.data_ro_with_halos.shape, dtype=IntType)
         adapt_indicator[:ncoarse] = cell_marker.dat.data_ro.real > 0
         dmcommon.mark_points_with_function_array(
-            dm, cell_marker.function_space().dm.getSection(), 0,
+            dm, cell_marker.function_space().dm.getLocalSection(), 0,
             adapt_indicator, adapt_label, DM_ADAPT_REFINE,
         )
 

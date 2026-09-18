@@ -62,7 +62,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase, Vscalar,
         dtype = netgen_data.dtype
 
         sfBCInv = sf.createInverse()
-        section = Vscalar.dm.getDefaultSection()
+        section = Vscalar.dm.getLocalSection()
         vec = V.template_vec
         section0, vec0 = plex.distributeField(sfBCInv, section, vec)
         vec0.set(0)

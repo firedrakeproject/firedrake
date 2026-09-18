@@ -85,7 +85,7 @@ class ASMPatchPC(PCBase):
             # TinyASM wants local numbers, no need to translate
             tinyasm.SetASMLocalSubdomains(
                 asmpc, ises,
-                [W.dm.getDefaultSF() for W in V],
+                [W.dm.getSectionSF() for W in V],
                 [W.block_size for W in V],
                 sum(W.block_size * W.axes.local_size for W in V))
             asmpc.setUp()
@@ -382,7 +382,7 @@ def order_points(mesh_dm, points, ordering_type, prefix):
 def get_basemesh_nodes(W):
     raise NotImplementedError
     pstart, pend = W.mesh().topology_dm.getChart()
-    section = W.dm.getDefaultSection()
+    section = W.dm.getLocalSection()
     # location of first dof on an entity
     basemeshoff = numpy.empty(pend - pstart, dtype=utils.IntType)
     # number of dofs on this entity

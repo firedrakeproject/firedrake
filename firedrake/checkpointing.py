@@ -1433,7 +1433,7 @@ class CheckpointFile:
             dm.setPointSF(topology_dm.getPointSF())
             section = PETSc.Section().create(comm=tmesh.comm)
             section.setPermutation(perm)
-            dm.setSection(section)
+            dm.setLocalSection(section)
             base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
             sfXC = base_tmesh.sfXC
             topology_dm.setName(tmesh.name)
@@ -1572,7 +1572,7 @@ class CheckpointFile:
             topology_dm = tV.mesh()._base_mesh.topology_dm
             dm = PETSc.DMShell().create(tV.mesh().comm)
             dm.setPointSF(topology_dm.getPointSF())
-            dm.setSection(tV._base_mesh_section)
+            dm.setLocalSection(tV._base_mesh_section)
         else:
             dm = tV.dm
         dm.setName(self._generate_dm_name(*sd_key))

@@ -2583,7 +2583,7 @@ class MeshTopology(AbstractMeshTopology):
             plex.createLabel(label_name)
         plex.clearLabelStratum(label_name, label_value)
         label = plex.getLabel(label_name)
-        section = tV.dm.getSection()
+        section = tV.dm.getLocalSection()
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
 
@@ -4532,7 +4532,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension
     if parent_tdim > 0:
         reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
-        reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
+        reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getLocalSection(),
                                                                (topology.num_vertices(), parent_tdim),
                                                                reference_coord=True)
         reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
