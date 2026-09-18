@@ -164,7 +164,7 @@ class _SNESContext:
         Indicates the matrix type for the sparse blocks in the preconditioner
         if pmat_type='nest', ignored otherwise.
     appctx
-        (Deprecated) Any extra information used in the assembler.  For the
+        Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in ``"state"``.
     pre_jacobian_callback
         User-defined function called immediately before Jacobian assembly.
@@ -301,20 +301,6 @@ class _SNESContext:
         self._near_nullspace = None
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
-
-    @property
-    def appctx(self) -> dict:
-        # debugging
-        raise AssertionError("old api")
-
-        # Raise a 'DeprecationWarning' here instead of a 'FutureWarning' because
-        # this in an internal detail, not user facing
-        warnings.warn(
-            "'appctx' is now deprecated. Pass Python objects into the "
-            "PETSc options directly.",
-            DeprecationWarning,
-        )
-        return {} if self._appctx is None else self._appctx
 
     def get_python_option(
         self,

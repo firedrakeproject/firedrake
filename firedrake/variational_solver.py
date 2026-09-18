@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import ufl
-from itertools import chain
+import warnings
 from contextlib import ExitStack
+from itertools import chain
 from types import MappingProxyType
+
+import ufl
 from petsctools import OptionsManager, flatten_parameters
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
@@ -405,31 +407,33 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         solver_parameters = flatten_parameters(solver_parameters or {})
 
-        if appctx is None:
-            appctx = {}
+        if appctx is not None:
+            appctx = dict(appctx)
 
-        # The appctx is propagated throughout the full solver stack with entries
-        # getting coarsened, split etc along the way. We know how to do some basic
-        # things like refining a function on the same mesh, but anything more
-        # complex needs to be provided by users with the callbacks in place.
-        for key, value in appctx.items():
-            if isinstance(value, dmhooks.Hooked):
-                continue
-            elif isinstance(value, Function):
-                # If we hit a compatible function then we can add the hooks here
-                hooks = {}
-                if extract_domains(value) == extract_domains(problem.u):
-                    hooks["refine_callback"] = solving_utils._refine_function
-                    hooks["coarsen_callback"] = solving_utils._coarsen_function
-                appctx[key] = dmhooks.Hooked(value, **hooks)
-            else:
-                # Leave unchanged for the moment, this will eventually become an error
-                warnings.warn(
-                    f"Object with type {type(value).__name__} found in the "
-                    "appctx. Please either provide the necessary hooks yourself "
-                    "or consider passing the data via the solver parameters instead.",
-                    FutureWarning,
-                )
+            # The appctx is propagated throughout the full solver stack with entries
+            # getting coarsened, split etc along the way. We know how to do some basic
+            # things like refining a function on the same mesh, but anything more
+            # complex needs to be provided by users with the callbacks in place.
+            for key, value in appctx.items():
+                if isinstance(value, dmhooks.Hooked):
+                    continue
+                elif isinstance(value, Function):
+                    # If we hit a compatible function then we can add the hooks here
+                    hooks = {}
+                    if extract_domains(value) == extract_domains(problem.u):
+                        hooks["refine_callback"] = solving_utils._refine_function
+                        hooks["coarsen_callback"] = solving_utils._coarsen_function
+                    appctx[key] = dmhooks.Hooked(value, **hooks)
+                else:
+                    # Leave unchanged for the moment, eventually this should be allowed
+                    # but error when someone tries to apply a hook.
+                    warnings.warn(
+                        f"Object with type {type(value).__name__} found in the "
+                        "appctx. We don't know how to transform (e.g. refine or"
+                        " split) this. Please either provide the necessary hooks "
+                        "yourself or consider passing the data via the solver parameters instead.",
+                        FutureWarning,
+                    )
 
         if isinstance(problem.J, MatrixBase):
             solver_parameters.setdefault("mat_type", problem.J.mat_type)

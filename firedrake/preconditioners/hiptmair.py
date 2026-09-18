@@ -132,8 +132,7 @@ class HiptmairPC(TwoLevelPC):
     The H(div) auxiliary vector potential problem in H(curl) is singular for
     high-order.  This can be overcome by pertubing the problem by a multiple of
     the mass matrix. The scaling factor can be provided (defaulting to 0) by
-    providing a scalar in the application context, keyed on
-    ``"hiptmair_shift"``.
+    providing a scalar in the options database, keyed on ``"hiptmair_shift"``.
     """
 
     _prefix = "hiptmair_"
@@ -194,8 +193,7 @@ class HiptmairPC(TwoLevelPC):
 
         cdegree = max(as_tuple(celement.degree()))
         if formdegree > 1 and cdegree > 1:
-            # TODO: now things are prefixed the extra 'hiptmair_' is bad practice
-            shift = ctx.get_python_option(options_prefix, "hiptmair_shift", None)
+            shift = ctx.get_python_option(options_prefix, "shift", None)
             if shift is not None:
                 b = beta(test, shift * trial)
                 coarse_operator += ufl.Form(b.integrals_by_type("cell"))
