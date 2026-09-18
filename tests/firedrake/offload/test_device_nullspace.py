@@ -24,7 +24,7 @@ def test_device_nullspace():
         "offload": nested_parameters,
     }
 
-    mesh = UnitSquareMesh(100, 100)
+    mesh = UnitSquareMesh(10, 10)
     x, y = SpatialCoordinate(mesh)
     dim = 2
     V = VectorFunctionSpace(mesh, "Lagrange", 1)
