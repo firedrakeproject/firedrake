@@ -45,11 +45,14 @@ from pyop3.insn.base import (
 )
 
 from pyop3.compile.loopy import LoopyCodegenContext
+from pyop3.compile.gem import GemCodegenContext
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, pyop3.config)
 
-@pyop3.cache.memory_and_disk_cache(
+# FIXME: can't currently pickle things
+# @pyop3.cache.memory_and_disk_cache(
+@pyop3.cache.memory_cache(
     hashkey=_compile_static_hashkey,
     get_comm=lambda op, *a, **kw: op.comm,
 )
@@ -73,10 +76,10 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     else:
         cs_expr = (insn,)
 
-    if compiler_parameters.backend == "loopy": 
+    if compiler_parameters.backend == "loopy":
         make_context = LoopyCodegenContext
-    elif compiler_parameters.backend == "mlir": 
-        raise NotImplementedError("MLIR code generation is still being implemented.") 
+    elif compiler_parameters.backend == "gem":
+        make_context = GemCodegenContext
 
     context = make_context(
         named_terminal_buffer_intents=op.named_terminal_buffer_intents,
@@ -96,23 +99,25 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
-    translation_unit = context.finalize_kernel(function_name, compiler_parameters)
+    result = context.finalize_kernel(function_name, compiler_parameters)
+    del context  # the context is done, don't touch it again
 
     # Extra information needed by the code executor
-    kernel_name_to_buffer_view = utils.invert_mapping(context.kernel_names)
+    kernel_name_to_buffer_view = result.buffer_views
 
     # Replace buffers with their indices, dropping any temporaries. Also
     # match the calling order for the kernel.
+    # NOTE: The kernel_name_to_buffer_info attr can be figured out by the context at finalisation
     kernel_name_to_buffer_info = {}
     buffer_intents_by_index = {}
-    for kernel_arg in translation_unit.default_entrypoint.args:
-        buf_view = kernel_name_to_buffer_view[kernel_arg.name]
+    for kernel_arg_name in result.arguments:
+        buf_view = kernel_name_to_buffer_view[kernel_arg_name]
         buf_index = op.preprocessed_buffers.index(buf_view.buffer)
 
-        kernel_name_to_buffer_info[kernel_arg.name] = (buf_index, buf_view.nest_indices)
-        buffer_intents_by_index[buf_index] = context.buffer_intents[buf_view.buffer]
+        kernel_name_to_buffer_info[kernel_arg_name] = (buf_index, buf_view.nest_indices)
+        buffer_intents_by_index[buf_index] = result.buffer_intents[buf_view.buffer]
 
-    return translation_unit, kernel_name_to_buffer_info, buffer_intents_by_index
+    return result, kernel_name_to_buffer_info, buffer_intents_by_index
 
 @functools.singledispatch
 def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:
@@ -295,27 +300,14 @@ def _compile_array_assignment(
     for component in axis.components:
         new_paths = paths.copy()
         new_paths[-1] = paths[-1] | {axis.label: component.label}
-        
-        if axis_tree.linearize(new_paths[-1], partial=True).size == 0: 
-            continue
-        
-        elif component.size != 1:
-            iname = codegen_context.unique_name("i")
-            ext = codegen_context.register_extent(
-                component.size, 
-                iname_replace_maps[-1], 
-                loop_indices
-            )
-            codegen_context.add_domain(iname, ext)
-            new_maps = iname_replace_maps.copy()
-            new_maps[-1] = iname_replace_maps[-1] | {axis.label: codegen_context.var(iname)}
-            within_inames = {iname}
-        else:
-            new_maps = iname_replace_maps.copy()
-            new_maps[-1] = iname_replace_maps[-1] | {axis.label: 0}
-            within_inames = set()
 
-        with codegen_context.within_inames(within_inames):
+        if axis_tree.linearize(new_paths[-1], partial=True).size == 0:
+            continue
+
+        with codegen_context.enter_loop(component.size, iname_replace_maps[-1], loop_indices) as iname:
+            new_maps = iname_replace_maps.copy()
+            new_maps[-1] = iname_replace_maps[-1] | {axis.label: iname}
+
             if axis_tree.node_map[new_paths[-1]]:
                 _compile_array_assignment(
                     assignment, 
@@ -377,21 +369,10 @@ def _compile_loop(
 
         if axis_tree.linearize(path_, partial=True).size == 0:
             continue
-        elif component.size != 1:
-            iname = codegen_context.unique_name("i")
-            domain_var = codegen_context.register_extent(
-                component.size,
-                iname_map,
-                loop_indices
-            )
-            codegen_context.add_domain(iname, domain_var)
-            iname_replace_map_ = iname_map | {axis.label: codegen_context.var(iname)}
-            within_inames = frozenset({iname})
-        else:
-            iname_replace_map_ = iname_map | {axis.label: 0}
-            within_inames = set()
 
-        with codegen_context.within_inames(within_inames):
+        with codegen_context.enter_loop(component.size, iname_map, loop_indices) as iname:
+            iname_replace_map_ = iname_map | {axis.label: iname}
+
             if subaxis := axis_tree.node_map[path_]:
                 _compile_loop(
                     loop,
