@@ -264,29 +264,9 @@ for algebraic multigrid preconditioned GMRES.
               }
          }
 
-<<<<<<< HEAD
-And we're done with all the options.  All that's left is to solve the problem. ::
-||||||| b55249086
-And we're done with all the options.  All that's left is to solve the
-problem.  Recall that the PCD preconditioner needs to know where the
-velocity space lives in the velocity-pressure block, which we provide
-through the application context argument.  It also needs to know the
-Reynolds number, which defaults to 1.0, which happens to work for our
-problem setup.  We haven't added the Rayleigh or Prandtl numbers to
-the dictionary since our known preconditioners don't actually require
-them, although doing so would be quite easy.::
-=======
-And we're done with all the options.  All that's left is to solve the
-problem.  Recall that the PCD preconditioner needs to know where the
-velocity space lives in the velocity-pressure block, which we provide
-through the application context argument.  It also needs to know the
-Reynolds number, which defaults to 1.0, which happens to work for our
-problem setup.  We haven't added the Rayleigh or Prandtl numbers to
-the dictionary since our known preconditioners don't actually require
-them, although doing so would be quite easy.
+And we're done with all the options.  All that's left is to solve the problem.
 
 .. code-block:: python
->>>>>>> origin/main
 
   upT.assign(0)
 
