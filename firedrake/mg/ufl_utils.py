@@ -6,6 +6,7 @@ from functools import singledispatch, singledispatchmethod, partial
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
+from firedrake.dwr import DWRMarkingCallback
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -421,6 +422,9 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
 
     pmat_type = pmat_type or mat_type
     sub_pmat_type = sub_pmat_type or sub_mat_type
+
+    marking_callback = self(context._marking_callback, self, coefficient_mapping=coefficient_mapping)
+
     new_context = context.reconstruct(problem=problem,
                                       mat_type=mat_type,
                                       pmat_type=pmat_type,
@@ -428,6 +432,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       sub_pmat_type=sub_pmat_type,
                                       appctx=new_appctx,
                                       options_prefix=options_prefix,
+                                      marking_callback=marking_callback,
                                       )
     new_context._coefficient_mapping = coefficient_mapping
     attach_relative(self, new_context, context, reverse=True)
@@ -456,6 +461,24 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     new_context._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
     new_context.set_nullspace(new_context._near_nullspace, ises, transpose=False, near=True)
     return new_context
+
+
+@_reconstruct.register(DWRMarkingCallback)
+def reconstruct_dwr_marking_callback(callback, self, coefficient_mapping=None):
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    goal = self(callback.goal_functional, self, coefficient_mapping=coefficient_mapping)
+    exact_solution = self(callback.exact_solution, self, coefficient_mapping=coefficient_mapping)
+    primal = self(callback._primal, self, coefficient_mapping=coefficient_mapping)
+    new_callback = type(callback)(goal, exact_solution, primal=primal,
+                                  enrichment_degree=callback._enrichment_degree,
+                                  options_prefix=callback._options_prefix,
+                                  options=callback._options)
+    # The estimate that asked for this refinement is the most recent one, since
+    # no estimate covers the refined mesh yet. The convergence flag stays False,
+    # because this mesh is the one that the estimate called too coarse.
+    new_callback.error_estimate = callback.error_estimate
+    return new_callback
 
 
 @_reconstruct.register(firedrake.slate.AssembledVector)
@@ -575,6 +598,14 @@ def create_interpolation(dmc, dmf):
 
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
+
+    if V_c == V_f:
+        # An interpolation from a space into itself is the identity, and not a
+        # multigrid level transfer. PETSc's DMAdaptor asks for it when the
+        # adaptor hands back the same DM, unrefined.
+        size = V_c.dof_dset.layout_vec.getSizes()
+        mat = PETSc.Mat().createConstantDiagonal((size, size), 1.0, comm=dmc.comm)
+        return mat, None
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
