@@ -83,7 +83,7 @@ class ASMPatchPC(PCBase):
             # TinyASM wants local numbers, no need to translate
             tinyasm.SetASMLocalSubdomains(
                 asmpc, ises,
-                [W.dm.getDefaultSF() for W in V],
+                [W.dm.getSectionSF() for W in V],
                 [W.block_size for W in V],
                 sum(W.block_size * W.dof_dset.total_size for W in V))
             asmpc.setUp()
@@ -278,7 +278,7 @@ class ASMLinesmoothPC(ASMPatchPC):
             raise NotImplementedError("Not implemented for general mixed meshes")
         assert mesh.cell_set._extruded
         dm = mesh.topology_dm
-        section = V.dm.getDefaultSection()
+        section = V.dm.getLocalSection()
         # Obtain the codimensions to loop over from options, if present
         opts = PETSc.Options(self.prefix)
         codim_list = list(map(int, opts.getString("codims", "0, 1").split(",")))
@@ -338,7 +338,7 @@ def order_points(mesh_dm, points, ordering_type, prefix):
 
 def get_basemesh_nodes(W):
     pstart, pend = W.mesh().topology_dm.getChart()
-    section = W.dm.getDefaultSection()
+    section = W.dm.getLocalSection()
     # location of first dof on an entity
     basemeshoff = numpy.empty(pend - pstart, dtype=IntType)
     # number of dofs on this entity
