@@ -37,6 +37,8 @@ fieldsplit preconditioning, without having to set everything up in
 advance.
 """
 
+import collections
+import warnings
 import weakref
 import numpy
 from functools import partial
@@ -103,6 +105,49 @@ def set_function_space(dm, V):
     dm.setAttr("__fs_info__", info)
 
 
+# Bounded record of every stack operation below, oldest first. A DM's stacks
+# are touched a handful of times per solve. Recording them costs nothing, and
+# lets a broken stack report how it got that way.
+_attr_trace = collections.deque(maxlen=512)
+
+
+def _record(event, attr, dm, obj):
+    """Note one operation on a DM attribute stack.
+
+    Parameters
+    ----------
+    event : str
+        What happened, either ``"push"`` or ``"pop"``.
+    attr : str
+        Name of the DM attribute holding the stack.
+    dm : PETSc.DM
+        The DM the stack lives on.
+    obj : object
+        The object pushed or popped.
+
+    Returns
+    -------
+    None
+    """
+    stack = dm.getAttr(attr)
+    _attr_trace.append((event, attr, dm.handle, type(obj).__name__, id(obj),
+                        len(stack) if stack else 0))
+
+
+def format_attr_trace():
+    """Format the recorded history of DM attribute stack operations.
+
+    Returns
+    -------
+    str
+        One line per recorded operation, oldest first.
+    """
+    return "\n".join(
+        f"  {event:4s} {attr:18s} dm={handle:#x} {name}(id={ident:#x}) -> depth {depth}"
+        for event, attr, handle, name, ident, depth in _attr_trace
+    )
+
+
 # Attribute management on DMs. Since they are reused in multiple
 # places, use a stack.
 def push_attr(attr, dm, obj):
@@ -111,17 +156,21 @@ def push_attr(attr, dm, obj):
         stack = []
         dm.setAttr(attr, stack)
     stack.append(obj)
+    _record("push", attr, dm, obj)
 
 
 def pop_attr(attr, dm, match=None):
     stack = dm.getAttr(attr)
     if not stack:
+        _record("pop", attr, dm, None)
         return None
     obj = stack.pop()
     if match is not None and obj != match:
         stack.append(obj)
+        _record("pop", attr, dm, None)
         return None
     else:
+        _record("pop", attr, dm, obj)
         return obj
 
 
@@ -247,9 +296,21 @@ class add_hooks(object):
     def __exit__(self, typ, value, traceback):
         hooks = pop_attr("__setup_hooks__", self.dm)
         if self.first_time:
-            assert hooks is not None
+            expected = "the hooks pushed on entry"
+            broken = hooks is None
         else:
-            assert hooks == self.obj.setup_hooks
+            expected = self.obj.setup_hooks
+            broken = hooks != expected
+        if broken:
+            message = (f"Setup hooks for {self.obj} are gone from DM "
+                       f"{self.dm.handle:#x}: expected {expected}, found {hooks}.\n"
+                       f"DM attribute stack history:\n{format_attr_trace()}")
+            if typ is None:
+                raise RuntimeError(message)
+            # An exception is already on its way out, and it is the one worth
+            # seeing, so report the broken stack without replacing it.
+            warnings.warn(message, RuntimeWarning)
+            return
         hooks.teardown()
 
 
@@ -271,7 +332,6 @@ def get_transfer_manager(dm):
     appctx = get_appctx(dm)
     if appctx is None:
         # We're not in a solve, so all we can do is make a new one (not cached)
-        import warnings
         warnings.warn("Creating new TransferManager to transfer data to coarse grids. "
                       "This might be slow (you probably want to save it on an appctx)", RuntimeWarning)
         transfer = firedrake.TransferManager()
