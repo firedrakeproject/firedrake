@@ -169,6 +169,12 @@ def test_add_mesh_rejects_unrelated_mesh():
         mh.add_mesh(foreign)
 
 
+def test_hierarchy_rejects_partial_cell_maps():
+    mesh = UnitSquareMesh(1, 1)
+    with pytest.raises(ValueError, match="must be provided together"):
+        HierarchyBase((mesh,), coarse_to_fine_cells={}, fine_to_coarse_cells=None)
+
+
 @pytest.mark.parallel([1, 2, 4])
 def test_adapt_basic():
     nx = 1
