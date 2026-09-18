@@ -69,9 +69,7 @@ parameters["reorder_meshes"] = True
 # One of nest, aij, baij or matfree
 parameters["default_matrix_type"] = "aij"
 # One of aij or baij
-parameters["default_sub_matrix_type"] = "baij"
-
-parameters["type_check_safe_par_loops"] = False
+parameters["default_sub_matrix_type"] = "aij"
 
 parameters.add(Parameters("slate_compiler"))
 parameters["slate_compiler"]["optimise"] = True

@@ -343,7 +343,11 @@ class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
 
     def __str__(self) -> str:
         # TODO: doesn't show plex_indices
-        return f"{self.mesh.name}.iter('{self.integral_type}')"
+        if hasattr(self, "mesh"):
+            # with record_new this doesn't carry through (FIXME)
+            return f"{self.mesh.name}.iter('{self.integral_type}')"
+        else:
+            return super().__str__()
 
     @property
     def plex_indices(self) -> np.ndarray:

@@ -132,169 +132,169 @@ SNES iterations: {snes}; SNES converged reason: {snesreason}
 # We're ready to solve.
 
 # %%
-w.zero()
-solver = create_solver(solver_parameters)
-solver.solve()
-convergence(solver)
-
-# %% [markdown]
-# We can now have a look at the solution, using some simple builtin plotting that utilises matplotlib.
-
-# %%
-from firedrake.pyplot import streamplot
-
-u_h, p_h = w.subfunctions
-fig, axes = plt.subplots()
-streamlines = streamplot(u_h, resolution=1/30, seed=0, axes=axes)
-fig.colorbar(streamlines);
-
-# %% [markdown]
-# ## Configuring a better preconditioner
+# w.zero()
+# solver = create_solver(solver_parameters)
+# solver.solve()
+# convergence(solver)
 #
-# For this small problem, we can (and probably should) use a direct factorisation method. But what if the problem is too big? Then we need an iterative method, and an appropriate preconditioner.
+# # %% [markdown]
+# # We can now have a look at the solution, using some simple builtin plotting that utilises matplotlib.
 #
-# Let's try everyone's favourite, ILU(0).
-
-# %%
-solver_parameters = {
-    "mat_type": "aij",
-    "ksp_type": "gmres",
-    "ksp_gmres_modifiedgramschmidt": None,
-    "ksp_max_it": 2000,
-    "ksp_converged_reason": None,
-    "pc_type": "ilu"
-}
-
-# %%
-w.zero()
-solver = create_solver(solver_parameters)
-solver.solve()
-convergence(solver)
-
-# %% [markdown]
-# This is, unsurprisingly, bad. Fortunately, better options are available.
-
-# %% [markdown]
-# ### Block preconditioning
+# # %%
+# from firedrake.pyplot import streamplot
 #
-# Firedrake hooks up all the necessary machinery to access PETSc's [PCFIELDSPLIT](https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/) preconditioner. This provides mechanisms for building preconditioners based on block factorisations. The Stokes problem 
-# $$
-# \begin{align}
-#   \nu\int_\Omega \color{#800020}{\nabla u : \nabla v}\,\mathrm{d}x - \int_\Omega
-#   \color{#2A52BE}{p \nabla \cdot v}\,\mathrm{d}x
-#   &= \int_\Omega f \cdot v\,\mathrm{d}x, \\
-#   -\int_\Omega \color{#2A52BE}{\nabla \cdot u q} \,\mathrm{d}x&= 0
-# \end{align}
-# $$
-# is a block system with matrix
-# $$
-# \mathcal{A} = \begin{bmatrix} \color{#800020}{A} & \color{#2A52BE}{B^T} \\ \color{#2A52BE}{B} & 0 \end{bmatrix},
-# $$
+# u_h, p_h = w.subfunctions
+# fig, axes = plt.subplots()
+# streamlines = streamplot(u_h, resolution=1/30, seed=0, axes=axes)
+# fig.colorbar(streamlines);
 #
-# admitting a factorisation
+# # %% [markdown]
+# # ## Configuring a better preconditioner
+# #
+# # For this small problem, we can (and probably should) use a direct factorisation method. But what if the problem is too big? Then we need an iterative method, and an appropriate preconditioner.
+# #
+# # Let's try everyone's favourite, ILU(0).
 #
-# $$
-# \begin{bmatrix} I & 0 \\ \color{#2A52BE}{B} \color{#800020}{A}^{-1} & I\end{bmatrix}
-# \begin{bmatrix}\color{#800020}{A} & 0 \\ 0 & S\end{bmatrix}
-# \begin{bmatrix} I & \color{#800020}{A}^{-1} \color{#2A52BE}{B^T} \\ 0 & I\end{bmatrix},
-# $$
+# # %%
+# solver_parameters = {
+#     "mat_type": "aij",
+#     "ksp_type": "gmres",
+#     "ksp_gmres_modifiedgramschmidt": None,
+#     "ksp_max_it": 2000,
+#     "ksp_converged_reason": None,
+#     "pc_type": "ilu"
+# }
 #
-# with $S = -\color{#2A52BE}{B} \color{#800020}{A}^{-1} \color{#2A52BE}{B^T}$ the *Schur complement*.  This has an inverse
+# # %%
+# w.zero()
+# solver = create_solver(solver_parameters)
+# solver.solve()
+# convergence(solver)
 #
-# $$
-# \begin{bmatrix} I & -\color{#800020}{A}^{-1}\color{#2A52BE}{B^T} \\ 0 & I \end{bmatrix}
-# \begin{bmatrix} \color{#800020}{A}^{-1} & 0 \\ 0 & S^{-1}\end{bmatrix}
-# \begin{bmatrix} I & 0 \\ -\color{#2A52BE}{B}\color{#800020}{A}^{-1} & I\end{bmatrix}.
-# $$
+# # %% [markdown]
+# # This is, unsurprisingly, bad. Fortunately, better options are available.
 #
-# $S$ is never formed, so it's inverse is approximated using an iterative method.
-
-# %%
-exact_inverse_parameters = {
-    "ksp_type": "fgmres",
-    "pc_type": "fieldsplit",
-    "pc_fieldsplit_type": "schur",
-    "fieldsplit_0": {
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-    },
-    "fieldsplit_1": {
-        "ksp_type": "cg",
-        "ksp_rtol": 1e-8,
-        "pc_type": "none",
-    }
-}
-
-# %%
-w.zero()
-solver = create_solver(exact_inverse_parameters)
-solver.solve()
-convergence(solver)
-
-# %% [markdown]
-# This looks good, but we had to use an unpreconditioned Krylov method to invert $S$. To do better we need to provide either an approximation to $S$ or $S^{-1}$.
+# # %% [markdown]
+# # ### Block preconditioning
+# #
+# # Firedrake hooks up all the necessary machinery to access PETSc's [PCFIELDSPLIT](https://petsc.org/release/manualpages/PC/PCFIELDSPLIT/) preconditioner. This provides mechanisms for building preconditioners based on block factorisations. The Stokes problem 
+# # $$
+# # \begin{align}
+# #   \nu\int_\Omega \color{#800020}{\nabla u : \nabla v}\,\mathrm{d}x - \int_\Omega
+# #   \color{#2A52BE}{p \nabla \cdot v}\,\mathrm{d}x
+# #   &= \int_\Omega f \cdot v\,\mathrm{d}x, \\
+# #   -\int_\Omega \color{#2A52BE}{\nabla \cdot u q} \,\mathrm{d}x&= 0
+# # \end{align}
+# # $$
+# # is a block system with matrix
+# # $$
+# # \mathcal{A} = \begin{bmatrix} \color{#800020}{A} & \color{#2A52BE}{B^T} \\ \color{#2A52BE}{B} & 0 \end{bmatrix},
+# # $$
+# #
+# # admitting a factorisation
+# #
+# # $$
+# # \begin{bmatrix} I & 0 \\ \color{#2A52BE}{B} \color{#800020}{A}^{-1} & I\end{bmatrix}
+# # \begin{bmatrix}\color{#800020}{A} & 0 \\ 0 & S\end{bmatrix}
+# # \begin{bmatrix} I & \color{#800020}{A}^{-1} \color{#2A52BE}{B^T} \\ 0 & I\end{bmatrix},
+# # $$
+# #
+# # with $S = -\color{#2A52BE}{B} \color{#800020}{A}^{-1} \color{#2A52BE}{B^T}$ the *Schur complement*.  This has an inverse
+# #
+# # $$
+# # \begin{bmatrix} I & -\color{#800020}{A}^{-1}\color{#2A52BE}{B^T} \\ 0 & I \end{bmatrix}
+# # \begin{bmatrix} \color{#800020}{A}^{-1} & 0 \\ 0 & S^{-1}\end{bmatrix}
+# # \begin{bmatrix} I & 0 \\ -\color{#2A52BE}{B}\color{#800020}{A}^{-1} & I\end{bmatrix}.
+# # $$
+# #
+# # $S$ is never formed, so it's inverse is approximated using an iterative method.
 #
-# For the Stokes equations, [Silvester and Wathen (1993)](https://epubs.siam.org/doi/10.1137/0730031) show that $S \approx -\nu^{-1} Q$ is a good approximation, where $Q$ is the pressure mass matrix.
+# # %%
+# exact_inverse_parameters = {
+#     "ksp_type": "fgmres",
+#     "pc_type": "fieldsplit",
+#     "pc_fieldsplit_type": "schur",
+#     "fieldsplit_0": {
+#         "ksp_type": "preonly",
+#         "pc_type": "lu",
+#     },
+#     "fieldsplit_1": {
+#         "ksp_type": "cg",
+#         "ksp_rtol": 1e-8,
+#         "pc_type": "none",
+#     }
+# }
 #
-# Problem: $Q$ is not available as one of the blocks of $\mathcal{A}$.
-
-# %% [markdown]
-# PETSc's approach is to allow us to supply a _separate_ matrix to the solver which will be used to construct the preconditioner. So, we just need to additionally supply
+# # %%
+# w.zero()
+# solver = create_solver(exact_inverse_parameters)
+# solver.solve()
+# convergence(solver)
 #
-# $$
-# \mathcal{P} = \mathcal{A} + \begin{bmatrix} 0 & 0 \\ 0 & -\nu^{-1}Q\end{bmatrix} = \begin{bmatrix} \color{#800020}{A} & \color{#2A52BE}{B^T} \\ \color{#2A52BE}{B} & -\nu^{-1} Q \end{bmatrix},
-# $$
-# where $Q = \int_\Omega p q \,\mathrm{d}x$.
+# # %% [markdown]
+# # This looks good, but we had to use an unpreconditioned Krylov method to invert $S$. To do better we need to provide either an approximation to $S$ or $S^{-1}$.
+# #
+# # For the Stokes equations, [Silvester and Wathen (1993)](https://epubs.siam.org/doi/10.1137/0730031) show that $S \approx -\nu^{-1} Q$ is a good approximation, where $Q$ is the pressure mass matrix.
+# #
+# # Problem: $Q$ is not available as one of the blocks of $\mathcal{A}$.
 #
-# We will construct P by symbolically computing the derivative of the residual to get $\mathcal{A}$ and then subtracting $\nu^{-1} Q$.
-
-# %%
-trial = TrialFunction(W)
-_, p_t = split(trial)
-
-amat = lhs(derivative(F, w, trial))
-pmat = amat - 1/nu * p_t * q*dx
-
-# %% [markdown]
-# We can now pass this pmat form to `create_solver` and can configure an appropriate preconditioner.
-
-# %%
-pmat_parameters = {
-    "mat_type": "nest", # We only need the blocks
-    "snes_type": "ksponly",
-    "ksp_view": None,
-    "ksp_monitor_true_residual": None,
-    "ksp_max_it": 100,
-    "pc_type": "fieldsplit",
-    "pc_fieldsplit_type": "schur",
-    "fieldsplit_0": {
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-    },
-    "fieldsplit_1": {
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-    }
-}
-
-# %%
-w.zero()
-solver = create_solver(pmat_parameters, pmat=pmat)
-solver.solve()
-convergence(solver)
-
-
-# %% [markdown]
-# ### Providing auxiliary operators
+# # %% [markdown]
+# # PETSc's approach is to allow us to supply a _separate_ matrix to the solver which will be used to construct the preconditioner. So, we just need to additionally supply
+# #
+# # $$
+# # \mathcal{P} = \mathcal{A} + \begin{bmatrix} 0 & 0 \\ 0 & -\nu^{-1}Q\end{bmatrix} = \begin{bmatrix} \color{#800020}{A} & \color{#2A52BE}{B^T} \\ \color{#2A52BE}{B} & -\nu^{-1} Q \end{bmatrix},
+# # $$
+# # where $Q = \int_\Omega p q \,\mathrm{d}x$.
+# #
+# # We will construct P by symbolically computing the derivative of the residual to get $\mathcal{A}$ and then subtracting $\nu^{-1} Q$.
 #
-# An inconvenience here is that we must build $\mathcal{P}$, even though we only need $-\nu^{-1} Q$ in additional to $\mathcal{A}$ in the preconditioner.
+# # %%
+# trial = TrialFunction(W)
+# _, p_t = split(trial)
 #
-# Firedrake offers a facilities to build Python preconditioning objects, utilising petsc4py.
+# amat = lhs(derivative(F, w, trial))
+# pmat = amat - 1/nu * p_t * q*dx
 #
-# In this case, we can subclass the 
-# [AuxiliaryOperatorPC](https://www.firedrakeproject.org/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
-
-# %%
+# # %% [markdown]
+# # We can now pass this pmat form to `create_solver` and can configure an appropriate preconditioner.
+#
+# # %%
+# pmat_parameters = {
+#     "mat_type": "nest", # We only need the blocks
+#     "snes_type": "ksponly",
+#     "ksp_view": None,
+#     "ksp_monitor_true_residual": None,
+#     "ksp_max_it": 100,
+#     "pc_type": "fieldsplit",
+#     "pc_fieldsplit_type": "schur",
+#     "fieldsplit_0": {
+#         "ksp_type": "preonly",
+#         "pc_type": "lu",
+#     },
+#     "fieldsplit_1": {
+#         "ksp_type": "preonly",
+#         "pc_type": "lu",
+#     }
+# }
+#
+# # %%
+# w.zero()
+# solver = create_solver(pmat_parameters, pmat=pmat)
+# solver.solve()
+# convergence(solver)
+#
+#
+# # %% [markdown]
+# # ### Providing auxiliary operators
+# #
+# # An inconvenience here is that we must build $\mathcal{P}$, even though we only need $-\nu^{-1} Q$ in additional to $\mathcal{A}$ in the preconditioner.
+# #
+# # Firedrake offers a facilities to build Python preconditioning objects, utilising petsc4py.
+# #
+# # In this case, we can subclass the 
+# # [AuxiliaryOperatorPC](https://www.firedrakeproject.org/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
+#
+# # %%
 class MassMatrix(AuxiliaryOperatorPC):
     _prefix = "mass_"
     def form(self, pc, test, trial):
@@ -303,35 +303,35 @@ class MassMatrix(AuxiliaryOperatorPC):
         # Grab the definition of nu from the user application context (a dict)
         nu = self.get_appctx(pc)["nu"]
         return (-1/nu * test*trial*dx, bcs)
-
-
-# %% [markdown]
-# Now we just need to select parameters such that this Python preconditioner is used.
-
-# %%
-mass_parameters = {
-    "mat_type": "nest", # We only need the blocks
-    "ksp_view": None,
-    "pc_type": "fieldsplit",
-    "pc_fieldsplit_type": "schur",
-    "fieldsplit_0": {
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-    },
-    "fieldsplit_1": {
-        "ksp_type": "preonly",
-        "pc_type": "python",
-        "pc_python_type": "__main__.MassMatrix",
-        "mass_pc_type": "lu",
-    }
-}
-
-# %%
-appctx = {"nu": nu} # arbitrary user data that is available inside the user PC object
-w.zero()
-solver = create_solver(mass_parameters, appctx=appctx)
-solver.solve()
-convergence(solver)
+#
+#
+# # %% [markdown]
+# # Now we just need to select parameters such that this Python preconditioner is used.
+#
+# # %%
+# mass_parameters = {
+#     "mat_type": "nest", # We only need the blocks
+#     "ksp_view": None,
+#     "pc_type": "fieldsplit",
+#     "pc_fieldsplit_type": "schur",
+#     "fieldsplit_0": {
+#         "ksp_type": "preonly",
+#         "pc_type": "lu",
+#     },
+#     "fieldsplit_1": {
+#         "ksp_type": "preonly",
+#         "pc_type": "python",
+#         "pc_python_type": "__main__.MassMatrix",
+#         "mass_pc_type": "lu",
+#     }
+# }
+#
+# # %%
+# appctx = {"nu": nu} # arbitrary user data that is available inside the user PC object
+# w.zero()
+# solver = create_solver(mass_parameters, appctx=appctx)
+# solver.solve()
+# convergence(solver)
 
 # %% [markdown]
 # This performs identically to the previous approach, except that the preconditioning matrix is only built for the pressure space, and constructed "on demand".

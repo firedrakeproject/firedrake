@@ -96,11 +96,6 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
-    if sum(1 for intent in context.buffer_intents.values() if intent is not READ) == 0:
-        raise pyop3.exceptions.EffectlessComputationException(
-            "The generated kernel does not modify any global data, this may indicate that something has gone wrong"
-        )
-
     translation_unit = context.finalize_kernel(function_name, compiler_parameters)
 
     # Extra information needed by the code executor

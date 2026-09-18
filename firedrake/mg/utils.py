@@ -99,7 +99,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
-        if not Vc.comm.allreduce(bool(nonempty[:Vc.axes.owned.local_size].all()), op=MPI.LAND):
+        if not Vc.comm.allreduce(bool(nonempty[:Vc.axes.owned.local_size//Vc.block_size].all()), op=MPI.LAND):
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
         replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                   dtype=coarse_to_fine_nodes.dtype)

@@ -12,7 +12,7 @@ from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.cython.dmcommon import get_preallocation
 from firedrake.parloops import par_loop, READ, WRITE
-from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunctions
+from firedrake.ufl_expr import TestFunction, TrialFunction, TestFunctions, TrialFunctions
 from firedrake.utils import IntType, ScalarType
 from firedrake.pack import pack
 from firedrake.interpolation import interpolate
@@ -350,13 +350,6 @@ class FDMPC(PCBase):
             viewer.printfASCII("PC to apply inverse\n")
             self.pc.view(viewer)
 
-    # def destroy(self, pc):
-    #     if hasattr(self, "A"):
-    #         self.A.petscmat.destroy()
-    #     if hasattr(self, "pc"):
-    #         self.pc.getOperators()[-1].destroy()
-    #         self.pc.destroy()
-
     def condense(self, A, J, bcs, fcp, pc_type="icc"):
         """Construct block matrices used for matrix-free static condensation.
         The inversion of the interior-interior block is replaced with a local
@@ -384,6 +377,7 @@ class FDMPC(PCBase):
             A dict mapping pairs of function spaces to the preconditioner blocks
             ``[[inv(A00), A01], [A10, inv(S)]]``.
         """
+        raise NotImplementedError
         Smats = {}
         V = J.arguments()[0].function_space()
         V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
@@ -782,8 +776,9 @@ class FDMPC(PCBase):
                 )
                 self.assemblers.setdefault(key, assembler)
 
-        args = assembler.statements[0].arguments
-        assembler(**{args[0].name: op3.OpaqueTerminal(op3.PetscMatBuffer(A, comm=Vrow.comm))})
+        first_arg = assembler.statements[0].arguments[0]
+        arg_replace_map = {first_arg.name: op3.OpaqueTerminal(op3.PetscMatBuffer(A, comm=Vrow.comm))}
+        assembler(**arg_replace_map)
 
 
 class ElementKernel:
@@ -853,16 +848,20 @@ class ElementKernel:
             self.name,
             code,
             [
-                *self._kernel_args,
+                *self._kernel_args(addv),
                 *((iname, IntType, op3.READ) for iname in indices),
             ],
             preambles=[("20_petscblaslapack", "#include <petscblaslapack.h>"), ("50_preambles", "\n".join(preambles))],
         )
 
-    @property
-    def _kernel_args(self):
+    def _kernel_args(self, addv):
+        if addv == PETSc.InsertMode.ADD_VALUES:
+            intent = op3.INC
+        else:
+            assert addv == PETSc.InsertMode.INSERT_VALUES
+            intent = op3.WRITE
         return (
-            ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
+            ("A", op3.dtypes.OpaqueType("Mat"), intent),
             ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
         )
 
@@ -882,12 +881,14 @@ class TripleProductKernel(ElementKernel):
         self.product = partial(L.matMatMult, C, R)
         super().__init__(self.product(), name=name)
 
-    @property
-    def _kernel_args(self):
+    def _kernel_args(self, addv):
+        if addv == PETSc.InsertMode.ADD_VALUES:
+            intent = op3.INC
+        else:
+            assert addv == PETSc.InsertMode.INSERT_VALUES
+            intent = op3.WRITE
         return (
-            # FIXME: intent here should be OK to be WRITE but loopy was complaining
-            # ("A", op3.dtypes.OpaqueType("Mat"), op3.WRITE),
-            ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("A", op3.dtypes.OpaqueType("Mat"), intent),
             ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
             ("coefficients", ScalarType, op3.READ),
         )
@@ -929,11 +930,14 @@ class SchurComplementKernel(ElementKernel):
     def condense(self, result=None):
         return result
 
-    @property
-    def _kernel_args(self):
+    def _kernel_args(self, addv):
+        if addv == PETSc.InsertMode.ADD_VALUES:
+            intent = op3.INC
+        else:
+            assert addv == PETSc.InsertMode.INSERT_VALUES
+            intent = op3.WRITE
         return (
-            # FIXME: intent here should be OK to be WRITE but loopy was complaining
-            ("A", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("A", op3.dtypes.OpaqueType("Mat"), intent),
             ("B", op3.dtypes.OpaqueType("Mat"), op3.READ),
             ("A11", op3.dtypes.OpaqueType("Mat"), op3.READ),
             ("A10", op3.dtypes.OpaqueType("Mat"), op3.READ),
@@ -2006,7 +2010,9 @@ class PoissonFDMPC(FDMPC):
             result = cell_to_local(cell_index, result=result)
             return lgmap.apply(result, result=result)
 
-        cell_to_local, nel = extrude_node_map(Vrow.cell_node_map(), bsize=Vrow.block_size)
+        cell_to_local = extrude_node_map(Vrow.cell_node_list, bsize=Vrow.block_size)
+        nel = Vrow.mesh().cells.owned.local_size
+
         get_rindices = partial(cell_to_global, self.lgmaps[Vrow], cell_to_local)
         Afdm, Dfdm, bdof, axes_shifts = self.assemble_reference_tensor(Vrow)
 
@@ -2023,8 +2029,9 @@ class PoissonFDMPC(FDMPC):
         tdim = V.mesh().topological_dimension
         shift = axes_shifts * bsize
 
-        index_coef, _ = extrude_node_map((Gq or Bq).cell_node_map())
-        index_bc, _ = extrude_node_map(bcflags.cell_node_map())
+        index_coef = extrude_node_map((Gq or Bq).function_space().cell_node_list)
+
+        index_bc = extrude_node_map(bcflags.function_space().cell_node_list)
         flag2id = numpy.kron(numpy.eye(tdim, tdim, dtype=PETSc.IntType), [[1], [2]])
 
         # pshape is the shape of the DOFs in the tensor product
@@ -2503,51 +2510,21 @@ def extrude_node_map(node_map, bsize=1):
     """
     Construct a (possibly vector-valued) cell to node map from an un-extruded scalar map.
 
-    :arg node_map: a :class:`pyop2.Map` mapping entities to their local dofs, including ghost entities.
+    :arg node_map: a numpy array mapping entities to their local dofs, including ghost entities.
     :arg bsize: the block size
 
-    :returns: a 2-tuple with the cell to node map and the number of cells owned by this process
+    :returns: the cell to node map
     """
-    nel = node_map.values.shape[0]
-    if node_map.offset is None:
-        def _scalar_map(map_values, e, result=None):
-            if result is None:
-                result = numpy.empty_like(map_values[e])
-            numpy.copyto(result, map_values[e])
-            return result
+    def _scalar_map(map_values, e, result=None):
+        if result is None:
+            result = numpy.empty_like(map_values[e])
+        numpy.copyto(result, map_values[e])
+        return result
 
-        scalar_map = partial(_scalar_map, node_map.values_with_halo)
-    else:
-        layers = node_map.iterset.layers_array
-        if layers.shape[0] == 1:
-            def _scalar_map(map_values, offset, nelz, e, result=None):
-                if result is None:
-                    result = numpy.empty_like(offset)
-                numpy.copyto(result, offset)
-                result *= (e % nelz)
-                result += map_values[e // nelz]
-                return result
-
-            nelz = layers[0, 1]-layers[0, 0]-1
-            nel *= nelz
-            scalar_map = partial(_scalar_map, node_map.values_with_halo, node_map.offset, nelz)
-        else:
-            def _scalar_map(map_values, offset, to_base, to_layer, e, result=None):
-                if result is None:
-                    result = numpy.empty_like(offset)
-                numpy.copyto(result, offset)
-                result *= to_layer[e]
-                result += map_values[to_base[e]]
-                return result
-
-            nelz = layers[:, 1]-layers[:, 0]-1
-            nel = sum(nelz[:nel])
-            to_base = numpy.repeat(numpy.arange(node_map.values_with_halo.shape[0], dtype=node_map.offset.dtype), nelz)
-            to_layer = numpy.concatenate([numpy.arange(nz, dtype=node_map.offset.dtype) for nz in nelz])
-            scalar_map = partial(_scalar_map, node_map.values_with_halo, node_map.offset, to_base, to_layer)
+    scalar_map = partial(_scalar_map, node_map)
 
     if bsize == 1:
-        return scalar_map, nel
+        return scalar_map
 
     def vector_map(bsize, ibase, e, result=None):
         index = None
@@ -2557,8 +2534,8 @@ def extrude_node_map(node_map, bsize=1):
         index *= bsize
         return numpy.add.outer(index, ibase, out=result)
 
-    ibase = numpy.arange(bsize, dtype=node_map.values.dtype)
-    return partial(vector_map, bsize, ibase), nel
+    ibase = numpy.arange(bsize, dtype=PETSc.IntType)
+    return partial(vector_map, bsize, ibase)
 
 
 def cache_generate_code(kernel, comm):

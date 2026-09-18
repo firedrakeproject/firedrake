@@ -224,7 +224,7 @@ def _(dat: pyop3.expr.Dat, /) -> OrderedSet:
     if dat.transform:
         loop_indices |= collect_loop_index_vars(dat.transform)
 
-    for axis_tree in dat.axes.trees:
+    for axis_tree in pyop3.axis_tree.iter_axis_trees(dat.axes):
         for leaf_layout in axis_tree.leaf_subst_layouts.values():
             loop_indices |= collect_loop_index_vars(leaf_layout)
     return loop_indices
@@ -246,9 +246,9 @@ def _(mat: pyop3.expr.Mat, /) -> OrderedSet:
     if mat.transform:
         loop_indices |= collect_loop_index_vars(mat.transform)
 
-    for axess in [mat.row_axes, mat.column_axes]:
-        for axes in axess.trees:
-            for leaf_layout in axes.leaf_subst_layouts.values():
+    for axes in [mat.row_axes, mat.column_axes]:
+        for axis_tree in pyop3.axis_tree.iter_axis_trees(axes):
+            for leaf_layout in axis_tree.leaf_subst_layouts.values():
                 loop_indices |= collect_loop_index_vars(leaf_layout)
     return loop_indices
 
@@ -256,9 +256,10 @@ def _(mat: pyop3.expr.Mat, /) -> OrderedSet:
 @collect_loop_index_vars.register
 def _(reshape: pyop3.expr.ReshapeTensorTransform, /) -> OrderedSet:
     loop_indices = OrderedSet()
-    for axis_tree in reshape.axis_trees:
-        for leaf_layout in axis_tree.leaf_subst_layouts.values():
-            loop_indices |= collect_loop_index_vars(leaf_layout)
+    for axis_tree_like in reshape.axis_trees:
+        for axis_tree in pyop3.axis_tree.iter_axis_trees(axis_tree_like):
+            for leaf_layout in axis_tree.leaf_subst_layouts.values():
+                loop_indices |= collect_loop_index_vars(leaf_layout)
     if reshape.prev:
         loop_indices |= collect_loop_index_vars(reshape.prev)
     return loop_indices

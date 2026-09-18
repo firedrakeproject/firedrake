@@ -450,9 +450,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         else:
             return super(Cofunction, self).__str__()
 
-    def cell_node_map(self):
-        return self.function_space().cell_node_map()
-
 
 class RieszMap:
     """Return a map between dual and primal function spaces.

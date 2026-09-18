@@ -1,3 +1,4 @@
+import functools
 from functools import cached_property
 from collections.abc import Hashable, Mapping
 
@@ -6,7 +7,7 @@ from immutabledict import immutabledict as idict
 import pyop3.index_tree.tree
 import pyop3.record
 
-from .tree import LoopContextAwareAxisTreeLike
+from .tree import LoopContextAwareAxisTreeLike, AxisForest, AbstractAxisTree
 from pyop3.index_tree.tree import LoopIndex
 
 
@@ -75,3 +76,23 @@ class LoopContextSensitiveAxisTreeLike(
         return just_one(self.context_map.values())
 
 
+@functools.singledispatch
+def iter_axis_trees(obj):
+    utils.raise_missing_dispatch_handler(obj)
+
+
+@iter_axis_trees.register
+def _(tree: AbstractAxisTree):
+    yield tree
+
+
+@iter_axis_trees.register
+def _(forest: AxisForest):
+    for t in forest:
+        yield from iter_axis_trees(t)
+
+
+@iter_axis_trees.register
+def _(cs_trees: LoopContextSensitiveAxisTreeLike):
+    for t in cs_trees.trees.values():
+        yield from iter_axis_trees(t)

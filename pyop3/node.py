@@ -134,9 +134,15 @@ class Visitor(abc.ABC):
                 do_cache = False
             else:
                 cache_key = self.get_cache_key(node, *args, **kwargs)
-                if cache_key in self._visited_cache:
-                    return self._visited_cache[cache_key]
-                do_cache = True
+                try:
+                    hash(cache_key)
+                except TypeError:
+                    # node isn't hashable, cannot cache the result
+                    do_cache = False
+                else:
+                    if cache_key in self._visited_cache:
+                        return self._visited_cache[cache_key]
+                    do_cache = True
 
             result = self.process(node, *args, **kwargs)
             # Conditionally check if r is in result_cache, a memory optimization

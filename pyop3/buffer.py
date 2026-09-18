@@ -1036,9 +1036,11 @@ class PetscMatBuffer(ConcreteBuffer):
             # Inside an axis tree or similar, we aren't allowed to change buffers here
             return self
         else:
+            mat, _ = self._mat
             return (
                 type(self),
                 visitor.renamer.add_obj(self),
+                mat.type,
                 visitor(self.mat_spec),
                 self._constant,
             )

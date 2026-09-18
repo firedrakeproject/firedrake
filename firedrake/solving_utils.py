@@ -5,7 +5,7 @@ import numpy
 import pyop3 as op3
 import ufl
 
-from firedrake import dmhooks
+from firedrake import dmhooks, parameters
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
@@ -137,7 +137,7 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
-class _SNESContext(object):
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -515,7 +515,27 @@ class _SNESContext(object):
             name = V.name if len(V) == 1 else None
             field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
-            splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
+
+            if len(V) > 1:
+                mat_type = self.mat_type
+                sub_mat_type = self.sub_mat_type
+                pmat_type = self.pmat_type
+                sub_pmat_type = self.sub_pmat_type
+            else:
+                default_sub_mat_type = parameters.parameters["default_sub_matrix_type"]
+                mat_type = self.sub_mat_type or default_sub_mat_type
+                sub_mat_type = default_sub_mat_type
+                pmat_type = self.sub_pmat_type or default_sub_mat_type
+                sub_pmat_type = default_sub_mat_type
+
+            splits.append(self.reconstruct(
+                new_problem,
+                mat_type=mat_type,
+                sub_mat_type=sub_mat_type,
+                pmat_type=pmat_type,
+                sub_pmat_type=sub_pmat_type,
+                options_prefix=options_prefix,
+            ))
         return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
@@ -630,6 +650,7 @@ class _SNESContext(object):
             return A
 
         P = ctx._pjac.petscmat
+        print(A.type, P.type)
         return A, P
 
     @staticmethod

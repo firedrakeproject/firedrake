@@ -543,7 +543,6 @@ class CompiledCodeExecutor:
     def _default_buffers(self):
         return tuple(self.buffer_intents.keys())
 
-    # I THINK new_buffers should be changing but isn't...
     def __call__(self, new_buffers: Mapping[ConcreteBuffer, ConcreteBuffer]) -> None:
         """
         Notes
@@ -551,7 +550,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "maxq" in str(self):
+        # if "form00_cell_integral" in str(self):
         #     breakpoint()
         #     import pyop3.debug
         # pyop3.debug.maybe_breakpoint()
