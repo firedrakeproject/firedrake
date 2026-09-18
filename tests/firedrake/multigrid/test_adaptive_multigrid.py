@@ -104,7 +104,9 @@ def test_refine_marked_elements_is_local():
     markers.dat.data_wo[0] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
-    coarse_to_fine, _ = refined_mesh.adaptive_cell_maps
+    mh = MeshHierarchy(mesh)
+    mh.add_mesh(refined_mesh)
+    coarse_to_fine = mh.coarse_to_fine_cells[0]
 
     n_children = (coarse_to_fine >= 0).sum(axis=1)
     unmarked = np.ones(ncoarse, dtype=bool)
@@ -129,7 +131,10 @@ def test_refine_marked_elements_repeats(coarse_mesh):
         markers.dat.data_wo[:1] = n
 
         refined_mesh = mesh.refine_marked_elements(markers)
-        coarse_to_fine, fine_to_coarse = refined_mesh.adaptive_cell_maps
+        mh = MeshHierarchy(mesh)
+        mh.add_mesh(refined_mesh)
+        coarse_to_fine = mh.coarse_to_fine_cells[0]
+        fine_to_coarse = mh.fine_to_coarse_cells[1]
 
         assert coarse_to_fine.shape[0] == mesh.cell_set.size
         assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
@@ -155,14 +160,14 @@ def test_add_mesh_rejects_unrelated_mesh():
     mh = MeshHierarchy(UnitSquareMesh(2, 2))
 
     other = UnitSquareMesh(4, 4)
-    assert other.adaptive_parent is None
+    assert other._adaptive_parent is None
     with pytest.raises(ValueError):
         mh.add_mesh(other)
 
     markers = Function(FunctionSpace(other, "DG", 0))
     markers.dat.data_wo[:1] = 1
     foreign = other.refine_marked_elements(markers)
-    assert foreign.adaptive_parent is other
+    assert foreign._adaptive_parent is other
     with pytest.raises(ValueError):
         mh.add_mesh(foreign)
 
@@ -201,7 +206,7 @@ def test_adapt_basic():
     assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
 
 
-def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
+def test_CG1_native_transfers(coarse_mesh):
     mesh = coarse_mesh
     mh = MeshHierarchy(mesh)
 
@@ -240,11 +245,10 @@ def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
 
 
 def _assert_adapt_after_uniform_refinement(mh):
-    """Adaptively refine the finest level of the hierarchy ``mh``.
-
-    Mark a single cell and check that the cell maps of the new level are
-    sane. The ``test_adapt_after_uniform_*refinement`` tests share this
-    helper; they differ only in how they build ``mh``.
+    """Adaptively refine the finest level of the uniformly-refined hierarchy
+    ``mh`` by marking a single cell, and check that the cell maps of the level
+    this adds are sane. Shared by the ``test_adapt_after_uniform_*refinement``
+    tests, which only differ in how ``mh`` itself was built.
     """
     mesh = mh[-1]
     level = len(mh)
@@ -321,8 +325,7 @@ def test_adapt_preserves_mesh_metadata(degree):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_after_uniform_refinement(coarse_mesh, refine):
     """A hierarchy built by uniform refinement can be adaptively refined."""
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-    mh = MeshHierarchy(coarse_mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(coarse_mesh, refine)
     _assert_adapt_after_uniform_refinement(mh)
 
 
@@ -330,18 +333,15 @@ def test_adapt_after_uniform_refinement(coarse_mesh, refine):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     """An adaptively refined mesh can be uniformly refined into a hierarchy.
-
-    Its plex numbers cells by refinement case. This interleaves owned cells
-    with halo cells, and the cell maps must not assume otherwise.
+    Its plex numbers cells by refinement case, so its owned cells are
+    interleaved with its halo cells, which the cell maps must not assume away.
     """
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-
     M = FunctionSpace(coarse_mesh, "DG", 0)
     markers = Function(M)
     markers.dat.data_wo[:1] = 1
     mesh = coarse_mesh.refine_marked_elements(markers)
 
-    mh = MeshHierarchy(mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(mesh, refine)
     assert len(mh) == refine + 1
     assert np.allclose(assemble(1*dx(mh[-1])), assemble(1*dx(coarse_mesh)))
 
@@ -392,6 +392,114 @@ def test_dg_injection_conserves_mass(mh, family, degree):
 
     # Require at least one padded child row in the hierarchy.
     assert mh[0].comm.allreduce(padded, MPI.LOR)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("degree", [0, 1])
+def test_dg_injection_conserves_mass_extruded(degree):
+    """Test that DG injection should conserves mass globally on an extruded adaptive hierarchy."""
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
+    mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
+    assert mh[0].comm.allreduce(bool((mh.coarse_to_fine_cells[1] < 0).any()), MPI.LOR)
+
+    rg = RandomGenerator(PCG64(seed=0))
+    for level in range(len(mh) - 1):
+        u_fine = rg.uniform(FunctionSpace(mh[level + 1], "DG", degree))
+        u_coarse = Function(FunctionSpace(mh[level], "DG", degree))
+        inject(u_fine, u_coarse)
+        assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
+
+
+@pytest.mark.parallel([1, 2, 4])
+def test_prolong_DG0(mh):
+    """Test prolongation with DG0."""
+    V_coarse = FunctionSpace(mh[0], "DG", 0)
+    V_fine = FunctionSpace(mh[-1], "DG", 0)
+    u_coarse = Function(V_coarse)
+    u_fine = Function(V_fine)
+    xc, *_ = SpatialCoordinate(V_coarse.mesh())
+    stepc = conditional(ge(xc, 0), 1, 0)
+    xf, *_ = SpatialCoordinate(V_fine.mesh())
+    stepf = conditional(ge(xf, 0), 1, 0)
+
+    u_coarse.interpolate(stepc)
+    assert errornorm(stepc, u_coarse) <= 1e-12
+
+    prolong(u_coarse, u_fine)
+    assert errornorm(stepf, u_fine) <= 1e-12
+
+
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("operator", ["prolong", "inject"])
+def test_CG1(mh, operator):
+    """Prolongation & Injection test for CG1"""
+    V_coarse = FunctionSpace(mh[0], "CG", 1)
+    V_fine = FunctionSpace(mh[-1], "CG", 1)
+    u_coarse = Function(V_coarse)
+    u_fine = Function(V_fine)
+    xc, *_ = SpatialCoordinate(V_coarse.mesh())
+    xf, *_ = SpatialCoordinate(V_fine.mesh())
+
+    if operator == "prolong":
+        u_coarse.interpolate(xc)
+        assert errornorm(xc, u_coarse) <= 1e-12
+
+        prolong(u_coarse, u_fine)
+        assert errornorm(xf, u_fine) <= 1e-12
+    if operator == "inject":
+        u_fine.interpolate(xf)
+        assert errornorm(xf, u_fine) <= 1e-12
+
+        inject(u_fine, u_coarse)
+        assert errornorm(xc, u_coarse) <= 1e-12
+
+
+@pytest.mark.parallel([1, 2, 4])
+def test_restrict_CG1(mh):
+    """Test restriction with CG1"""
+    V_coarse = FunctionSpace(mh[0], "CG", 1)
+    V_fine = FunctionSpace(mh[-1], "CG", 1)
+    u_coarse = Function(V_coarse)
+    u_fine = Function(V_fine)
+    xc, *_ = SpatialCoordinate(V_coarse.mesh())
+
+    u_coarse.interpolate(xc)
+    prolong(u_coarse, u_fine)
+
+    rf = assemble(conj(TestFunction(V_fine)) * dx)
+    rc = Cofunction(V_coarse.dual())
+    restrict(rf, rc)
+
+    assert np.allclose(
+        assemble(action(rc, u_coarse)),
+        assemble(action(rf, u_fine)),
+        rtol=1e-12
+    )
+
+
+@pytest.mark.parallel([1, 2, 4])
+def test_restrict_DG0(mh):
+    """Test restriction with DG0"""
+    V_coarse = FunctionSpace(mh[0], "DG", 0)
+    V_fine = FunctionSpace(mh[-1], "DG", 0)
+    u_coarse = Function(V_coarse)
+    u_fine = Function(V_fine)
+    xc, *_ = SpatialCoordinate(V_coarse.mesh())
+
+    u_coarse.interpolate(xc)
+    prolong(u_coarse, u_fine)
+
+    rf = assemble(conj(TestFunction(V_fine)) * dx)
+    rc = Cofunction(V_coarse.dual())
+    restrict(rf, rc)
+
+    assert np.allclose(
+        assemble(action(rc, u_coarse)),
+        assemble(action(rf, u_fine)),
+        rtol=1e-12
+    )
 
 
 def _representable_expr(mesh, degree):

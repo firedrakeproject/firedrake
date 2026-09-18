@@ -13,6 +13,29 @@ from firedrake.cython import mgimpl as impl
 from firedrake.halo import _get_mtype
 
 
+def identity_node_map(V):
+    """Return the identity node map for a function space.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.WithGeometry
+        The function space whose node set supplies both map endpoints.
+
+    Returns
+    -------
+    pyop2.Map
+        A map from the nodes of ``V`` to themselves.
+
+    """
+    cache = V.mesh()._shared_data_cache["hierarchy_identity_node_map"]
+    key = (V.ufl_element(), V.boundary_set)
+    try:
+        return cache[key]
+    except KeyError:
+        values = numpy.arange(V.node_set.total_size, dtype=IntType).reshape(-1, 1)
+        return cache.setdefault(key, op2.Map(V.node_set, V.node_set, 1, values=values))
+
+
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
