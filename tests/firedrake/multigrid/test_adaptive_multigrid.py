@@ -412,96 +412,6 @@ def test_dg_injection_conserves_mass_extruded(degree):
         assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
 
 
-@pytest.mark.parallel([1, 2, 4])
-def test_prolong_DG0(mh):
-    """Test prolongation with DG0."""
-    V_coarse = FunctionSpace(mh[0], "DG", 0)
-    V_fine = FunctionSpace(mh[-1], "DG", 0)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-    stepc = conditional(ge(xc, 0), 1, 0)
-    xf, *_ = SpatialCoordinate(V_fine.mesh())
-    stepf = conditional(ge(xf, 0), 1, 0)
-
-    u_coarse.interpolate(stepc)
-    assert errornorm(stepc, u_coarse) <= 1e-12
-
-    prolong(u_coarse, u_fine)
-    assert errornorm(stepf, u_fine) <= 1e-12
-
-
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_CG1(mh, operator):
-    """Prolongation & Injection test for CG1"""
-    V_coarse = FunctionSpace(mh[0], "CG", 1)
-    V_fine = FunctionSpace(mh[-1], "CG", 1)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-    xf, *_ = SpatialCoordinate(V_fine.mesh())
-
-    if operator == "prolong":
-        u_coarse.interpolate(xc)
-        assert errornorm(xc, u_coarse) <= 1e-12
-
-        prolong(u_coarse, u_fine)
-        assert errornorm(xf, u_fine) <= 1e-12
-    if operator == "inject":
-        u_fine.interpolate(xf)
-        assert errornorm(xf, u_fine) <= 1e-12
-
-        inject(u_fine, u_coarse)
-        assert errornorm(xc, u_coarse) <= 1e-12
-
-
-@pytest.mark.parallel([1, 2, 4])
-def test_restrict_CG1(mh):
-    """Test restriction with CG1"""
-    V_coarse = FunctionSpace(mh[0], "CG", 1)
-    V_fine = FunctionSpace(mh[-1], "CG", 1)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-
-    u_coarse.interpolate(xc)
-    prolong(u_coarse, u_fine)
-
-    rf = assemble(conj(TestFunction(V_fine)) * dx)
-    rc = Cofunction(V_coarse.dual())
-    restrict(rf, rc)
-
-    assert np.allclose(
-        assemble(action(rc, u_coarse)),
-        assemble(action(rf, u_fine)),
-        rtol=1e-12
-    )
-
-
-@pytest.mark.parallel([1, 2, 4])
-def test_restrict_DG0(mh):
-    """Test restriction with DG0"""
-    V_coarse = FunctionSpace(mh[0], "DG", 0)
-    V_fine = FunctionSpace(mh[-1], "DG", 0)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-
-    u_coarse.interpolate(xc)
-    prolong(u_coarse, u_fine)
-
-    rf = assemble(conj(TestFunction(V_fine)) * dx)
-    rc = Cofunction(V_coarse.dual())
-    restrict(rf, rc)
-
-    assert np.allclose(
-        assemble(action(rc, u_coarse)),
-        assemble(action(rf, u_fine)),
-        rtol=1e-12
-    )
-
-
 def _representable_expr(mesh, degree):
     """An expression that a space of the given degree holds exactly on any mesh."""
     x = SpatialCoordinate(mesh)
@@ -569,9 +479,9 @@ def test_transfers(mh, family, degree):
     if family in {"DG", "DQ"} and complex_mode:
         with pytest.raises(NotImplementedError):
             inject(u_fine, u_injected)
-    else:
-        inject(u_fine, u_injected)
-        assert errornorm(expr_coarse, u_injected) <= 1e-12
+        return
+    inject(u_fine, u_injected)
+    assert errornorm(expr_coarse, u_injected) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])
