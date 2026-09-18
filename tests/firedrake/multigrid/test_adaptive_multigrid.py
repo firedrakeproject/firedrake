@@ -537,9 +537,9 @@ def test_transfers(mh, family, degree):
     if family in {"DG", "DQ"} and complex_mode:
         with pytest.raises(NotImplementedError):
             inject(u_fine, u_injected)
-    else:
-        inject(u_fine, u_injected)
-        assert errornorm(expr_coarse, u_injected) <= 1e-12
+        return
+    inject(u_fine, u_injected)
+    assert errornorm(expr_coarse, u_injected) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])

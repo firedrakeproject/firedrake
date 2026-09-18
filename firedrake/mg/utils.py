@@ -152,7 +152,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # only, so nothing reads them.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
-        if not nonempty[:Vc.node_set.size].all():
+        if not Vc.comm.allreduce(bool(nonempty[:Vc.node_set.size].all()), op=MPI.LAND):
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
         replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                   dtype=coarse_to_fine_nodes.dtype)
@@ -230,19 +230,16 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         fine_per_cell = Vf.finat_element.space_dimension()
         arity = fine_per_cell * ncell
         coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
-        values = numpy.full((iterset.size, ncell, fine_per_cell), -1, dtype=IntType)
-        owned_coarse_to_fine = coarse_to_fine[:iterset.size, :]
-        valid = owned_coarse_to_fine >= 0
-        values[valid, :] = Vf.cell_node_map().values[owned_coarse_to_fine[valid], :]
-        values = values.reshape(iterset.size, arity)
-
+        # The DG injection kernel skips the padded slots of a row, but PyOP2
+        # still reads through them. Fill each one with the row's first child.
+        children = coarse_to_fine[:iterset.size, :]
+        children = numpy.where(children >= 0, children, children[:, :1])
+        values = Vf.cell_node_map().values[children]
         if Vc.extruded:
-            off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([
-                numpy.where(values >= 0, values + off*i, -1) for i in range(level_ratio)
-            ])
-        else:
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
+            # Keep the layers of each child together, so that the children of
+            # a coarse cell come before its padded slots.
+            values = values[:, :, None, :] + numpy.arange(level_ratio)[:, None] * Vf.offset
+        coarse_to_fine_nodes[:iterset.size, :] = values.reshape(iterset.size, -1)
         offset = Vf.offset
         if offset is not None:
             offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
@@ -287,7 +284,7 @@ def coarse_cell_child_count(Vc, Vf):
     hierarchy = hierarchyf
     increment = Fraction(1, hierarchyf.refinements_per_level)
     if levelc + increment != levelf:
-        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+        raise ValueError(f"Can't map between level {levelc} and level {levelf}")
 
     key = (levelc, Vc.extruded and (Vf.mesh().layers, Vc.mesh().layers))
     cache = mesh._shared_data_cache["hierarchy_coarse_cell_child_count"]
