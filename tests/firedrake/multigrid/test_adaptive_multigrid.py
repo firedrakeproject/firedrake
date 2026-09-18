@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.cython import mgimpl
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -173,6 +174,23 @@ def test_hierarchy_rejects_partial_cell_maps():
     mesh = UnitSquareMesh(1, 1)
     with pytest.raises(ValueError, match="must be provided together"):
         HierarchyBase((mesh,), coarse_to_fine_cells={}, fine_to_coarse_cells=None)
+
+
+@pytest.mark.parallel([1, 2])
+def test_mesh_hierarchy_without_overlap_uses_local_point_maps():
+    dparams = {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+    transformed = []
+    mh = MeshHierarchy(
+        UnitSquareMesh(4, 4, distribution_parameters=dparams),
+        refinement_levels=1,
+        distribution_parameters=dparams,
+        callbacks=(lambda dm, level: None, lambda dm, level: transformed.append(dm)),
+    )
+
+    assert np.array_equal(
+        mh.fine_to_coarse_points[1],
+        mgimpl.transform_source_points(transformed[0]),
+    )
 
 
 @pytest.mark.parallel([1, 2, 4])

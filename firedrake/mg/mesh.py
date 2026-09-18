@@ -318,7 +318,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     # mesh_builder adds overlap to each DMPlex in place, so first read off
     # how the unoverlapped DMPlexes number and refine their points.
-    lgmaps = [impl.create_lgmap(dm) for dm in dms]
     points = [impl.transform_source_points(dm) for dm in dms[1:]]
 
     # Build a mesh for each level, adding overlap here.
@@ -339,6 +338,11 @@ def MeshHierarchy(mesh, refinement_levels=0,
             comm=mesh.comm,
         )
         meshes.append(fmesh)
+
+    num_halo_cells = meshes[0].comm.allreduce(
+        sum(m.cell_set.total_size - m.cell_set.size for m in meshes)
+    )
+    lgmaps = [None] * len(dms) if num_halo_cells == 0 else [impl.create_lgmap(dm) for dm in dms]
 
     if is_netgen:
         for i in range(1, len(meshes)):

@@ -325,9 +325,8 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
         `transform_source_points`.
     coarse_lgmap, fine_lgmap : PETSc.LGMap or None
         The point local-to-global maps of the unoverlapped coarse and fine
-        DMPlexes, as given by `create_lgmap`. These maps are ``None`` on a
-        serial communicator, where the overlapped and unoverlapped point
-        numberings are identical.
+        DMPlexes, as given by `create_lgmap`. These maps are ``None`` when
+        the hierarchy has no overlap or when it is serial.
 
     Returns
     -------
@@ -337,8 +336,9 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
         point that only the overlap has.
 
     """
-    if coarse_mesh.comm.size == 1:
-        # On one process there is no overlap, so the numberings agree.
+    if coarse_lgmap is None and fine_lgmap is None:
+        # Without overlap, the refined and final DMPlexes retain the same
+        # local point numbering, so no local-to-global translation is needed.
         return fine_to_coarse_points
     pStart, pEnd = fine_mesh.topology_dm.getChart()
     points = np.arange(pStart, pEnd, dtype=IntType)
