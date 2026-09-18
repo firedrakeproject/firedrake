@@ -51,6 +51,8 @@ def gmg_parameters(V, mat_type, max_it):
             "pc_python_type": "firedrake.HiptmairPC",
             "hiptmair_mg_levels": relax,
             "hiptmair_mg_coarse": potential,
+            "hiptmair_get_gradient": tabulate_exterior_derivative,
+            "hiptmair_get_curl": tabulate_exterior_derivative,
         },
     }
     return parameters
@@ -78,6 +80,8 @@ def pmg_parameters(V, mat_type, max_it):
         "pc_python_type": "firedrake.HiptmairPC",
         "hiptmair_mg_levels": asm(1),
         "hiptmair_mg_coarse": asm(0),
+        "hiptmair_get_gradient": tabulate_exterior_derivative,
+        "hiptmair_get_curl": tabulate_exterior_derivative,
     }
     return {
         "mat_type": mat_type,
@@ -124,10 +128,8 @@ def run_riesz_map(V, mat_type, max_it, solver_type="gmg"):
     L = inner(f, v) * dx
 
     bcs = [DirichletBC(V, u_exact, "on_boundary")]
-    appctx = {"get_gradient": tabulate_exterior_derivative,
-              "get_curl": tabulate_exterior_derivative}
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs, form_compiler_parameters={"mode": "vanilla"})
-    solver = LinearVariationalSolver(problem, solver_parameters=parameters, appctx=appctx)
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
     solver.solve()
     return errornorm(u_exact, uh)
 

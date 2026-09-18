@@ -32,18 +32,18 @@ def test_vi():
     u = Function(R)
     F = derivative(J(u)*dx, u)
 
+    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
           "deflated_snes_type": "vinewtonrsls",
           "deflated_snes_monitor": None,
           "deflated_snes_linesearch_type": "basic",
           "deflated_ksp_type": "preonly",
-          "deflated_pc_type": "lu"}
+          "deflated_pc_type": "lu",
+          "deflated_snes_deflation": deflation}
 
     problem = NonlinearVariationalProblem(F, u)
-    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
-    appctx = {"deflation": deflation}
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     lb = Function(R).interpolate(Constant(0))
     ub = Function(R).interpolate(Constant(100))
 

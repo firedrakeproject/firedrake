@@ -4,7 +4,7 @@ from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction
-from firedrake.dmhooks import get_function_space
+from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.utils import complex_mode
 from firedrake.interpolation import interpolate
 from ufl import grad, SpatialCoordinate
@@ -38,7 +38,7 @@ class HypreAMS(PCBase):
 
         petsctools.cite("Kolev2009")
         A, P = obj.getOperators()
-        appctx = self.get_appctx(obj)
+        ctx = get_appctx(obj.getDM())
         prefix = obj.getOptionsPrefix() or ""
         V = get_function_space(obj.getDM()).collapse()
         mesh = V.mesh()
@@ -57,8 +57,9 @@ class HypreAMS(PCBase):
         P1 = V.reconstruct(element=P1_element)
         VectorP1 = V.reconstruct(element=coords_element)
 
-        G_callback = appctx.get("get_gradient", None)
-        if G_callback is None:
+        try:
+            G_callback = ctx.get_python_option(prefix, "get_gradient")
+        except KeyError:
             try:
                 G = chop(assemble(interpolate(grad(TrialFunction(P1)), V)).petscmat)
             except NotImplementedError:

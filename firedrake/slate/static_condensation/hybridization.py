@@ -44,6 +44,8 @@ class HybridizationPC(SCBase):
 
         # Extract the problem context
         prefix = (pc.getOptionsPrefix() or "") + "hybridization_"
+        snes_ctx = dmhooks.get_appctx(pc.getDM())
+
         _, P = pc.getOperators()
         self.ctx = P.getPythonContext()
 
@@ -210,7 +212,7 @@ class HybridizationPC(SCBase):
         self._assemble_Srhs = get_assembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        form_assembler = get_assembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
+        form_assembler = get_assembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=snes_ctx._appctx)
         self.S = form_assembler.allocate()
         self._assemble_S = form_assembler.assemble
 
@@ -219,7 +221,7 @@ class HybridizationPC(SCBase):
 
         Smat = self.S.petscmat
 
-        nullspace = self.ctx.appctx.get("trace_nullspace", None)
+        nullspace = snes_ctx.get_python_option(prefix, "trace_nullspace", None)
         if nullspace is not None:
             nsp = nullspace(TraceSpace)
             Smat.setNullSpace(nsp.nullspace())
@@ -246,7 +248,7 @@ class HybridizationPC(SCBase):
         trace_ksp.setOperators(Smat, Smat)
 
         # Option to add custom monitor
-        monitor = self.ctx.appctx.get('custom_monitor', None)
+        monitor = snes_ctx.get_python_option(prefix, 'custom_monitor', None)
         if monitor:
             monitor.add_reconstructor(self.backward_substitution)
             trace_ksp.setMonitor(monitor)

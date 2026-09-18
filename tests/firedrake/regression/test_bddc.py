@@ -12,7 +12,8 @@ def rg():
 
 
 def bddc_params(mat_type="is", cellwise=False, adaptive=False,
-                use_divergence=None, use_gradient=None, corner_selection=None, debug=0):
+                use_divergence=None, use_gradient=None, corner_selection=None,
+                primal_markers=None, debug=0):
     chol = {
         "pc_type": "cholesky",
         "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
@@ -36,6 +37,8 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False,
     if corner_selection is not None:
         # defaults to True for H1 spaces
         sp["bddc_pc_bddc_corner_selection"] = corner_selection
+    if primal_markers is not None:
+        sp["bddc_primal_markers"] = primal_markers
 
     if adaptive:
         sp.update({
@@ -158,19 +161,21 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
         nsp = VectorSpaceBasis(basis)
         nsp.orthonormalize()
 
-    appctx = {}
     if threshold is not None:
-        appctx["primal_markers"] = get_primal_markers(mesh, threshold=threshold)
+        primal_markers = get_primal_markers(mesh, threshold=threshold)
+    else:
+        primal_markers = None
 
     uh = Function(V, name="solution")
     problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
 
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
-                           use_divergence=use_divergence, adaptive=adaptive)
+                           use_divergence=use_divergence, adaptive=adaptive,
+                           primal_markers=primal_markers)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
-                                     solver_parameters=sp, appctx=appctx)
+                                     solver_parameters=sp)
     solver.solve()
     uerr = Function(V).assign(uh - u_exact)
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
@@ -264,7 +269,7 @@ def test_bddc_cellwise_high_aspect_ratio(rg, family, degree):
     bcs = True
     mh = [corner_refined_mesh(nx) for nx in (10, 12)]
     # For these meshes it is better to set adaptive BDDC parameters,
-    # but here we just test the appctx["primal_markers"] interface
+    # but here we just test the bddc_primal_markers interface
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=True, threshold=2**6) for m in mh]
     assert (np.diff(sqrt_kappa) <= 0.1).all(), str(sqrt_kappa)
 

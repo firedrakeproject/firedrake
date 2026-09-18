@@ -106,7 +106,7 @@ class AuxiliaryOperatorSNES(SNESBase):
             nullspace=ctx._nullspace,
             transpose_nullspace=ctx._nullspace_T,
             near_nullspace=ctx._near_nullspace,
-            appctx=ctx.appctx,
+            appctx=ctx._appctx,
             options_prefix=prefix,
             pre_apply_bcs=ctx.pre_apply_bcs,
         )

@@ -10,6 +10,7 @@ a fieldsplit within another fieldsplit.
 """
 import pytest
 from firedrake import *
+import firedrake.dmhooks
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
@@ -26,8 +27,8 @@ class SchurApprox(AuxiliaryOperatorPC):
             q = 0.1
             return alphabar * q * ((q + 1)/(d + q) - 1)
 
-        ctx = self.get_appctx(pc)
-        d = split(ctx["state"])[0]
+        ctx = firedrake.dmhooks.get_appctx(pc.getDM())
+        d = split(ctx.state)[0]
         (u, p) = split(trial)
         (v, q) = split(test)
         K = (alpha(d) * inner(u, v)*dx
