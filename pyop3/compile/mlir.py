@@ -471,8 +471,12 @@ class MLIRCodegenContext(CodegenContext):
             ub = self._resolve_bound(stop)
             step = self._const_index(1)
 
-            for_op = scf.ForOp(lb, ub, step, [],
-                               Region(Block(arg_types=[iType])))
+            # for_op = scf.ForOp(lb, ub, step, [],
+                               # Region(Block(arg_types=[iType])))
+            for_op = scf.ParallelOp(
+                [lb], [ub], [step],
+                Region(Block(arg_types=[iType]))
+            )
             self.insert(for_op)
             for_ops.append(for_op)
 
@@ -487,7 +491,8 @@ class MLIRCodegenContext(CodegenContext):
         self._within_inames = orig_within_inames
         for for_op in zip(reversed(for_ops)):
             # scf.for bodies need a yield terminator.
-            self.insert(scf.YieldOp())
+            # self.insert(scf.YieldOp()) # Needed for ForOp
+            self.insert(scf.ReduceOp()) # Needed for ParallelOp
             self._builder_stack.pop()
             self.symbol_table.pop()
 
@@ -539,12 +544,6 @@ class MLIRCodegenContext(CodegenContext):
             new_arg = new_block.args[new_index]
             old_arg.replace_by(new_arg)
 
-        # Finally, add restrict to all arguments
-        func_op.arg_attrs = ArrayAttr([
-            DictionaryAttr({"llvm.noalias": UnitAttr()})
-            for _ in func_op.function_type.inputs
-        ])
-
         """
         In MLIR, the IR works with Regions -> Blocks -> Operations -> Blocks -> Regions...
         An Operation is attached to a Block and must be explicitly detached when moving.
@@ -559,11 +558,6 @@ class MLIRCodegenContext(CodegenContext):
         module = ModuleOp([func_op])
         if pyop3.config.debug_checks:
             module.verify()
-
-        # NOTE: Temporary while building
-        # with open("input.mlir", "w") as f: 
-        #     mlir_str = self.emit_mlir(module)
-        #     f.write(mlir_str)
         
         # TODO: This is temporary for prototyping 
         return {"module": module, "args": self.arguments, "name": f"_mlir_ciface_{function_name}"}

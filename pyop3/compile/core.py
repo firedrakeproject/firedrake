@@ -439,11 +439,14 @@ def _(exscan, loop_indices, codegen_context):
     iname_var = codegen_context.var(iname)
     iname_map = {exscan.scan_axis.label: codegen_context.var(iname)}
 
+    # TODO: Update this for general solution with MLIR
     lexpr = codegen_context.lower_expr(exscan.assignee, [iname_map], loop_indices, intent=RW)
     rexpr = lexpr + codegen_context.lower_expr(exscan.expression, [iname_map], loop_indices)
 
+    # NOTE: i.e we want: lexpr[i+1] = rexpr[i] + lexpr[i] 
     lexpr = pym.substitute(lexpr, {iname: iname_var+1})
     codegen_context.add_assignment(lexpr, rexpr)
+
 
 # NOTE: Make this overloaded function into class?
 @functools.singledispatch   

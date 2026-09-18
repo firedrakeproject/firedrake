@@ -845,4 +845,4 @@ def timer(description="Operation"):
     yield
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-    # print(f"{description}: {elapsed_time*1000:.4f} milliseconds")
+    print(f"{description}: {elapsed_time*1000:.4f} milliseconds")

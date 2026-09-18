@@ -677,7 +677,7 @@ class CompiledCodeExecutor:
 
         if pyop3.debug_flags.hit_assign:
             execution_time = end_time - start_time
-            print(f"Execution time: {execution_time * 1000:.2f} milliseconds")
+            # print(f"Execution time: {execution_time * 1000:.2f} milliseconds")
 
         # if "MatSetValues" in str(self) and "form" in str(self):
         #     buf = list(self.buffer_intents.keys())[0]
