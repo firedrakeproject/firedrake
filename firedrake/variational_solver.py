@@ -435,8 +435,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                     # Leave unchanged for the moment, eventually this should be allowed
                     # but error when someone tries to apply a hook. I.e.
                     #
-                    #   appctx[key] = dmhooks.Hooked(obj)
-                    appctx[key] = dmhooks.Hooked.identity(obj)
+                    #   appctx[key] = dmhooks.Hooked(value)
+                    #
+                    # instead of
+                    appctx[key] = dmhooks.Hooked.identity(value)
 
         if isinstance(problem.J, MatrixBase):
             solver_parameters.setdefault("mat_type", problem.J.mat_type)
