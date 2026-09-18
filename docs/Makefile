@@ -103,7 +103,7 @@ copy_notebooks:
 source/element_list.csv: source/element_list.py
 	cd source; python3 element_list.py
 
-source/team.rst: source/team2.py
+source/team.rst: source/team2.py source/team.ini
 	cd source; python3 team2.py; mv AUTHORS.rst ../..
 
 source/apt_deps.txt:

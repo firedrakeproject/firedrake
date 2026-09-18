@@ -519,6 +519,7 @@ class RieszMap:
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)
+                soln.zero()
                 solve()
                 output = Function(self._function_space)
                 output.assign(soln)
