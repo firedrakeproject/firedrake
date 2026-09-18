@@ -9,7 +9,6 @@ import math
 
 
 def nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=True):
-
     mesh = UnitSquareMesh(mesh_num, mesh_num)
 
     V = FunctionSpace(mesh, "CG", porder)
@@ -36,7 +35,6 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=True):
 
 
 def linear_poisson(solver_parameters, mesh_num, porder):
-
     mesh = UnitSquareMesh(mesh_num, mesh_num)
 
     V = FunctionSpace(mesh, "CG", porder)
@@ -189,6 +187,8 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
     bc4 = DirichletBC(W.sub(0), g, 4)
 
     solve(a == L, w, bcs=[bc2, bc3, bc4], solver_parameters=solver_parameters)
+
+    # print(w.dat.data)
 
     f = cos(2 * pi * x + pi / 3) * cos(2 * pi * y)
     g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])

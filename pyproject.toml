@@ -182,7 +182,6 @@ script-files = [
   "firedrake/scripts/firedrake-zenodo",
   "scripts/firedrake-check",
   "scripts/firedrake-run-split-tests",
-  "pyop2/scripts/spydump",
 ]
 
 [tool.setuptools.package-data]
@@ -196,11 +195,9 @@ firedrake = [
   "icons/*.png",
   "_check/**",
 ]
-pyop2 = [
-  "*.h",
-  "*.pxd",
+pyop3 = [
   "*.pyx",
-  "codegen/c/*.c",
+  "compile/*.c",
 ]
 
 [tool.cython-lint]

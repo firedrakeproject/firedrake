@@ -43,22 +43,6 @@ def _initialise_function(f, _f):
     f.project(_f, solver_parameters={"ksp_type": "cg", "pc_type": "jacobi", "ksp_rtol": 1.e-16})
 
 
-def _compute_random_layers(base):
-    V = VectorFunctionSpace(base, "DG", 0, dim=2)
-    f = Function(V)
-    dim = base.topology_dm.getCoordinateDim()
-    if dim == 1:
-        x, = SpatialCoordinate(base)
-        y = x * x
-    elif dim == 2:
-        x, y = SpatialCoordinate(base)
-    else:
-        raise NotImplementedError(f"Not for dim = {dim}")
-    f.interpolate(as_vector([2 + sin(x) + sin(y),
-                             7 + sin(5 * x)]))
-    return f.dat.data_with_halos.astype(IntType)
-
-
 def _get_mesh_and_V(params):
     cell_type, periodic, extruded, extruded_periodic, extruded_real, immersed, mixed = params
     if mixed:

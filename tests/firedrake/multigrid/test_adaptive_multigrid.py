@@ -1,7 +1,22 @@
+import gc
+
 import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+
+
+# pyop3 changes made the garbage collection dmhooks issue
+# from https://github.com/firedrakeproject/firedrake/issues/5421
+# happen frequently. Work around this by disabling the garbage collector
+# for all tests in this module.
+@pytest.fixture(autouse=True)
+def disable_gc(request):
+    was_enabled = gc.isenabled()
+    gc.disable()
+    yield
+    if was_enabled:
+        gc.enable()
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -76,8 +91,8 @@ def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
     coarse_to_fine = mh.coarse_to_fine_cells[0]
     fine_to_coarse = mh.fine_to_coarse_cells[1]
 
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+    assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
     assert (fine_to_coarse >= -1).all()
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
@@ -94,7 +109,7 @@ def test_refine_marked_elements_is_local():
     # regardless of marking.
     nx = 8
     mesh = UnitSquareMesh(nx, nx)
-    ncoarse = mesh.cell_set.size
+    ncoarse = mesh.cells.owned.local_size
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
@@ -128,14 +143,14 @@ def test_refine_marked_elements_repeats(coarse_mesh):
         refined_mesh = mesh.refine_marked_elements(markers)
         coarse_to_fine, fine_to_coarse = refined_mesh.adaptive_cell_maps
 
-        assert coarse_to_fine.shape[0] == mesh.cell_set.size
-        assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+        assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+        assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
         for coarse_cell, fine_cells in enumerate(coarse_to_fine):
             fine_cells = fine_cells[(fine_cells >= 0) & (fine_cells < fine_to_coarse.shape[0])]
             assert (fine_to_coarse[fine_cells, 0] == coarse_cell).all()
         assert np.allclose(assemble(1*dx(refined_mesh)), assemble(1*dx(mesh)))
 
-        ncells[n] = mesh.comm.allreduce(refined_mesh.cell_set.size)
+        ncells[n] = mesh.comm.allreduce(refined_mesh.cells.owned.local_size)
         max_children[n] = mesh.comm.allreduce(
             (coarse_to_fine >= 0).sum(axis=1).max(initial=0), op=MPI.MAX)
 
@@ -237,8 +252,8 @@ def _assert_adapt_after_uniform_refinement(mh):
     coarse_to_fine = mh.coarse_to_fine_cells[level - 1]
     fine_to_coarse = mh.fine_to_coarse_cells[level]
 
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+    assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
     # A rank may legitimately own zero local cells (e.g. more ranks than
     # coarse cells), leaving these arrays empty on that rank alone, so the
     # "some entry is valid" check must be collective, not per-rank.
@@ -321,8 +336,8 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     for level in range(refine):
         coarse_to_fine = mh.coarse_to_fine_cells[level]
         fine_to_coarse = mh.fine_to_coarse_cells[level + 1]
-        assert coarse_to_fine.shape == (mh[level].cell_set.size, nref)
-        assert fine_to_coarse.shape == (mh[level + 1].cell_set.size, 1)
+        assert coarse_to_fine.shape == (mh[level].cells.owned.local_size, nref)
+        assert fine_to_coarse.shape == (mh[level + 1].cells.owned.local_size, 1)
         # Uniform refinement splits every owned coarse cell into nref owned
         # fine cells, each of which points back at the cell it came from.
         assert (coarse_to_fine >= 0).all()
@@ -341,9 +356,9 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     for level in range(len(mh) - 1):
         coarse_mesh = mh[level]
         fine_mesh = mh[level + 1]
-        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cell_set.size]
+        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cells.owned.local_size]
         valid = children >= 0
-        assert (children[valid] < fine_mesh.cell_set.size).all()
+        assert (children[valid] < fine_mesh.cells.owned.local_size).all()
         # Adaptive refinement gives rows different child counts, so the map
         # should be padded with -1.
         padded |= bool((children < 0).any())
@@ -355,7 +370,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
         # Compute mass on each coarse cell
         W_coarse = FunctionSpace(coarse_mesh, "DG", 0)
         mass_coarse = assemble(inner(u_coarse, TestFunction(W_coarse)) * dx).dat.data_ro
-        mass_coarse = mass_coarse[:coarse_mesh.cell_set.size]
+        mass_coarse = mass_coarse[:coarse_mesh.cells.owned.local_size]
 
         W_fine = FunctionSpace(fine_mesh, "DG", 0)
         mass_per_child = assemble(inner(u_fine, TestFunction(W_fine)) * dx).dat.data_ro
