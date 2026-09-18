@@ -380,9 +380,13 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
     _, fine_points = get_entity_renumbering(fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell")
 
     parents = fine_to_coarse_points[fine_points[:nfine] + fStart]
-    # A submesh cell can be refined from a point that is not a coarse cell.
+    # The transform returns DMPlex point numbers, but cell kernels consume maps
+    # in Firedrake cell numbering. Reindex only parents in the coarse cell stratum.
     is_cell = (cStart <= parents) & (parents < cEnd)
     parents[is_cell] = coarse_cells[parents[is_cell] - cStart]
+
+    # A facet submesh extracted from parent-mesh interior facets can contain a
+    # refined facet whose parent is a volume cell, not a coarse submesh facet.
     parents[~is_cell | (parents >= ncoarse)] = -1
 
     fine = np.flatnonzero(parents >= 0).astype(IntType)
