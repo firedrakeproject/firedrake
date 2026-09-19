@@ -3,7 +3,6 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from pyop2.mpi import MPI
@@ -227,25 +226,6 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
-cdef PetscInt num_owned_cells(PETSc.DM dm) except? -1:
-    """Number of cells this rank owns, i.e. the number of Firedrake cell
-    numbers the DM's cell numbering hands out to non-ghost cells.
-
-    Parameters
-    ----------
-    dm : PETSc.DM
-        The DMPlex encapsulating the mesh topology, with its PyOP2 entity
-        classes already marked.
-
-    Returns
-    -------
-    PetscInt
-        The number of core plus owned cells.
-
-    """
-    return dmcommon.get_entity_classes(dm)[dm.getDimension(), 1]
-
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def transform_source_points(PETSc.DM dm):
@@ -362,14 +342,13 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
 
     Returns
     -------
-    coarse_to_fine : numpy.ndarray
-        For each owned coarse cell, the owned fine cells refined from it, in
+    coarse_to_fine_cells : numpy.ndarray
+        For each owned coarse cell, the owned fine cells obtained from it, in
         increasing order. Every row is as wide as the busiest coarse cell on
-        any process, so a coarse cell with fewer fine cells has its row
-        right-padded with -1.
-    fine_to_coarse : numpy.ndarray
-        A column with the owned coarse cell that each owned fine cell was
-        refined from, or -1 where there is none.
+        any process, so rows with fewer fine cells are right-padded with -1.
+    fine_to_coarse_cells : numpy.ndarray
+        For each owned fine cell, the owned coarse cell from which it was
+        obtained, or -1 when there is none.
 
     """
     ncoarse = coarse_mesh.cell_set.size
@@ -394,103 +373,10 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
     order = np.argsort(coarse, kind="stable")
     counts = np.bincount(coarse, minlength=ncoarse)
     width = coarse_mesh.comm.allreduce(int(counts.max(initial=0)), op=MPI.MAX)
-    coarse_to_fine = np.full((ncoarse, width), -1, dtype=IntType)
+    coarse_to_fine_cells = np.full((ncoarse, width), -1, dtype=IntType)
     columns = np.arange(len(order)) - np.repeat(np.cumsum(counts) - counts, counts)
-    coarse_to_fine[coarse[order], columns] = fine[order]
-    return coarse_to_fine, parents.reshape(-1, 1)
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def preserved_points(PETSc.DM coarse_dm,
-                     PETSc.Section coarse_cell_numbering,
-                     PETSc.DM fine_dm,
-                     PETSc.Section fine_cell_numbering,
-                     np.ndarray coarse_to_fine_cells):
-    """Pair unrefined fine points with their coarse originals.
-
-    Adaptive refinement copies an untouched coarse cell into the fine mesh
-    without change. It therefore preserves the cone of every point in that
-    cell, and so preserves the whole plex closure, point for point. Such a
-    cell has exactly one child. The right-padding of ``coarse_to_fine_cells``
-    with -1 identifies which cells these are.
-
-    Parameters
-    ----------
-    coarse_dm : PETSc.DM
-        The coarse mesh DMPlex.
-    coarse_cell_numbering : PETSc.Section
-        The cell numbering section of the coarse mesh.
-    fine_dm : PETSc.DM
-        The adaptively refined DMPlex.
-    fine_cell_numbering : PETSc.Section
-        The cell numbering section of the fine mesh.
-    coarse_to_fine_cells : numpy.ndarray
-        The Firedrake-numbered coarse-to-fine cell map.
-
-    Returns
-    -------
-    numpy.ndarray
-        An array over the chart of ``fine_dm``. For each fine point, it
-        holds the coarse point it was copied from, or -1 if refinement
-        changed that point.
-
-    """
-    cdef:
-        PetscInt ncoarse, nfine, max_children, c, i, off, child
-        PetscInt cStart, cEnd, pStart, pEnd, coarse_size, fine_size
-        PetscInt *coarse_closure = NULL
-        PetscInt *fine_closure = NULL
-        PetscInt[::1] coarse_point, fine_point, fine_to_coarse
-        PetscInt[:, ::1] coarse_to_fine
-
-    coarse_to_fine = coarse_to_fine_cells
-    ncoarse = num_owned_cells(coarse_dm)
-    assert ncoarse == coarse_to_fine.shape[0]
-    max_children = coarse_to_fine.shape[1]
-    nfine = num_owned_cells(fine_dm)
-
-    # Both cell maps are in Firedrake numbering, so invert each mesh's cell
-    # numbering section to get back to the plex points the closures live on.
-    coarse_point = np.full(ncoarse, -1, dtype=IntType)
-    cStart, cEnd = coarse_dm.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, c, &off))
-        if 0 <= off < ncoarse:
-            coarse_point[off] = c
-    fine_point = np.full(nfine, -1, dtype=IntType)
-    cStart, cEnd = fine_dm.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
-        if 0 <= off < nfine:
-            fine_point[off] = c
-
-    pStart, pEnd = fine_dm.getChart()
-    fine_to_coarse = np.full(pEnd - pStart, -1, dtype=IntType)
-    for c in range(ncoarse):
-        child = coarse_to_fine[c, 0]
-        if child < 0 or (max_children > 1 and coarse_to_fine[c, 1] >= 0):
-            continue
-        if coarse_point[c] < 0 or fine_point[child] < 0:
-            continue
-        CHKERR(DMPlexGetTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
-                                          &coarse_size, &coarse_closure))
-        CHKERR(DMPlexGetTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
-                                          &fine_size, &fine_closure))
-        # A one-child cell that refinement did change would have a closure
-        # of a different size. Skip it and let the transfer kernel handle it.
-        if coarse_size == fine_size:
-            for i in range(coarse_size):
-                # Each closure interleaves a point with its orientation. Copy
-                # a point only when its orientation matches in both meshes:
-                # only then do the two cells order their nodes the same way.
-                if coarse_closure[2*i + 1] == fine_closure[2*i + 1]:
-                    fine_to_coarse[fine_closure[2*i] - pStart] = coarse_closure[2*i]
-        CHKERR(DMPlexRestoreTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
-                                              &coarse_size, &coarse_closure))
-        CHKERR(DMPlexRestoreTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
-                                              &fine_size, &fine_closure))
-    return np.asarray(fine_to_coarse)
+    coarse_to_fine_cells[coarse[order], columns] = fine[order]
+    return coarse_to_fine_cells, parents.reshape(-1, 1)
 
 
 @cython.boundscheck(False)
