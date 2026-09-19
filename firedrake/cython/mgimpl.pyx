@@ -3,7 +3,6 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from pyop2.mpi import MPI
@@ -227,25 +226,6 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
-cdef PetscInt num_owned_cells(PETSc.DM dm) except? -1:
-    """Number of cells this rank owns, i.e. the number of Firedrake cell
-    numbers the DM's cell numbering hands out to non-ghost cells.
-
-    Parameters
-    ----------
-    dm : PETSc.DM
-        The DMPlex encapsulating the mesh topology, with its PyOP2 entity
-        classes already marked.
-
-    Returns
-    -------
-    PetscInt
-        The number of core plus owned cells.
-
-    """
-    return dmcommon.get_entity_classes(dm)[dm.getDimension(), 1]
-
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def transform_source_points(PETSc.DM dm):
@@ -362,14 +342,13 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
 
     Returns
     -------
-    coarse_to_fine : numpy.ndarray
-        For each owned coarse cell, the owned fine cells refined from it, in
+    coarse_to_fine_cells : numpy.ndarray
+        For each owned coarse cell, the owned fine cells obtained from it, in
         increasing order. Every row is as wide as the busiest coarse cell on
-        any process, so a coarse cell with fewer fine cells has its row
-        right-padded with -1.
-    fine_to_coarse : numpy.ndarray
-        A column with the owned coarse cell that each owned fine cell was
-        refined from, or -1 where there is none.
+        any process, so rows with fewer fine cells are right-padded with -1.
+    fine_to_coarse_cells : numpy.ndarray
+        For each owned fine cell, the owned coarse cell from which it was
+        obtained, or -1 when there is none.
 
     """
     ncoarse = coarse_mesh.cell_set.size
@@ -394,10 +373,10 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
     order = np.argsort(coarse, kind="stable")
     counts = np.bincount(coarse, minlength=ncoarse)
     width = coarse_mesh.comm.allreduce(int(counts.max(initial=0)), op=MPI.MAX)
-    coarse_to_fine = np.full((ncoarse, width), -1, dtype=IntType)
+    coarse_to_fine_cells = np.full((ncoarse, width), -1, dtype=IntType)
     columns = np.arange(len(order)) - np.repeat(np.cumsum(counts) - counts, counts)
-    coarse_to_fine[coarse[order], columns] = fine[order]
-    return coarse_to_fine, parents.reshape(-1, 1)
+    coarse_to_fine_cells[coarse[order], columns] = fine[order]
+    return coarse_to_fine_cells, parents.reshape(-1, 1)
 
 
 @cython.boundscheck(False)
