@@ -1458,7 +1458,7 @@ class CheckpointFile:
             dm.setPointSF(topology_dm.getPointSF())
             section = PETSc.Section().create(comm=tmesh.comm)
             section.setPermutation(tmesh._dm_renumbering)
-            dm.setSection(section)
+            dm.setLocalSection(section)
             base_tmesh = tmesh._base_mesh if isinstance(tmesh, ExtrudedMeshTopology) else tmesh
             sfXC = base_tmesh.sfXC
             topology_dm.setName(tmesh.name)
@@ -1467,10 +1467,10 @@ class CheckpointFile:
             nodes_per_entity, real_tensorproduct, block_size = sd_key
             # Don't cache if the section has been expanded by block_size
             if block_size == 1:
-                cached_section = get_global_numbering(tmesh, (nodes_per_entity, real_tensorproduct), global_numbering=dm.getSection())
-                if dm.getSection() is not cached_section:
+                cached_section = get_global_numbering(tmesh, (nodes_per_entity, real_tensorproduct), global_numbering=dm.getLocalSection())
+                if dm.getLocalSection() is not cached_section:
                     # The same section has already been cached.
-                    dm.setSection(cached_section)
+                    dm.setLocalSection(cached_section)
             self._function_load_utils[tmesh_key + sd_key] = (dm, gsf, lsf)
         return impl.FunctionSpace(tmesh, element)
 
@@ -1601,7 +1601,7 @@ class CheckpointFile:
             topology_dm = tV.mesh().topology_dm
             dm = PETSc.DMShell().create(tV.mesh().comm)
             dm.setPointSF(topology_dm.getPointSF())
-            dm.setSection(global_numbering)
+            dm.setLocalSection(global_numbering)
         else:
             dm = tV.dm
         dm.setName(self._generate_dm_name(*sd_key))

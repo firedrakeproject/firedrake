@@ -1692,7 +1692,7 @@ def facet_closure_nodes(V, sub_domain):
         with the given marker.
     """
     cdef:
-        PETSc.Section sec = V.dm.getSection()
+        PETSc.Section sec = V.dm.getLocalSection()
         PETSc.DM dm = V.mesh().topology_dm
         PetscInt nnodes, p, i, dof, offset, n, j, d
         np.ndarray points
@@ -4123,8 +4123,7 @@ def submesh_vertex_numbering(PETSc.SF point_sf,
     roots = np.full(nroots, -1, dtype=IntType)
     for p in range(ppStart, ppEnd):
         CHKERR(PetscSectionGetDof(parent_numbering.sec, p, &dof))
-        # A global section negates the dof and the offset of a point that
-        # this rank does not own, so compare and store their magnitudes.
+        # Points not owned by this rank carry complementary inverses.
         if cabs(dof) > 0:
             CHKERR(PetscSectionGetOffset(parent_numbering.sec, p, &offset))
             roots[p - ppStart] = cabs(offset)

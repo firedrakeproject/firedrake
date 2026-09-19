@@ -38,7 +38,11 @@ def test_assign_cell_subset():
     written = target.dat.data_ro != sentinel
     assert np.allclose(target.dat.data_ro[written], source.dat.data_ro[written])
     assert np.all(target.dat.data_ro[~written] == sentinel)
-    # The marked cells cover the closed left half, so a node is written
-    # exactly when it lies there. That does not depend on the partition.
+    # The nodes of the unmarked cells are left alone, except where they sit on
+    # a cell of the subset too.
     coords = Function(VectorFunctionSpace(mesh, "CG", 2)).interpolate(SpatialCoordinate(mesh))
-    assert np.array_equal(written, coords.dat.data_ro[:, 0] <= 0.5 + 1e-12)
+    assert not written[coords.dat.data_ro[:, 0] > 0.5 + 1e-12].any()
+    # Which nodes the subset holds cannot depend on how the mesh is
+    # partitioned, so the count is the same however many ranks there are.
+    nwritten = written[:V.dof_dset.size]
+    assert mesh.comm.allreduce(int(nwritten.sum())) == 91

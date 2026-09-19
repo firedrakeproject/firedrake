@@ -3,7 +3,6 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from pyop2.mpi import MPI
@@ -227,25 +226,6 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
-cdef PetscInt num_owned_cells(PETSc.DM dm) except? -1:
-    """Number of cells this rank owns, i.e. the number of Firedrake cell
-    numbers the DM's cell numbering hands out to non-ghost cells.
-
-    Parameters
-    ----------
-    dm : PETSc.DM
-        The DMPlex encapsulating the mesh topology, with its PyOP2 entity
-        classes already marked.
-
-    Returns
-    -------
-    PetscInt
-        The number of core plus owned cells.
-
-    """
-    return dmcommon.get_entity_classes(dm)[dm.getDimension(), 1]
-
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def transform_source_points(PETSc.DM dm):
@@ -271,7 +251,10 @@ def transform_source_points(PETSc.DM dm):
 
     CHKERR(DMPlexGetTransform(dm.dm, &transform))
     if transform == NULL:
-        raise ValueError("The DMPlex did not save the transform that made it")
+        raise ValueError(
+            "The DMPlex did not save its transform; call setSaveTransform "
+            "before creating it so hierarchy point maps can be built"
+        )
     pStart, pEnd = dm.getChart()
     points = np.empty(pEnd - pStart, dtype=IntType)
     for p in range(pStart, pEnd):
@@ -297,7 +280,7 @@ def compose_points(outer, inner):
 
     """
     points = np.full(inner.shape, -1, dtype=IntType)
-    found = inner >= 0
+    found = (inner >= 0) & (inner < outer.size)
     points[found] = outer[inner[found]]
     return points
 
@@ -322,7 +305,8 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
         `transform_source_points`.
     coarse_lgmap, fine_lgmap : PETSc.LGMap or None
         The point local-to-global maps of the unoverlapped coarse and fine
-        DMPlexes, as given by `create_lgmap`.
+        DMPlexes, as given by `create_lgmap`. These maps are ``None`` when
+        the hierarchy has no overlap or when it is serial.
 
     Returns
     -------
@@ -332,8 +316,9 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
         point that only the overlap has.
 
     """
-    if fine_lgmap is None:
-        # On one process there is no overlap, so the numberings agree.
+    if coarse_lgmap is None and fine_lgmap is None:
+        # Without overlap, the refined and final DMPlexes retain the same
+        # local point numbering, so no local-to-global translation is needed.
         return fine_to_coarse_points
     pStart, pEnd = fine_mesh.topology_dm.getChart()
     points = np.arange(pStart, pEnd, dtype=IntType)
@@ -357,14 +342,13 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
 
     Returns
     -------
-    coarse_to_fine : numpy.ndarray
-        For each owned coarse cell, the owned fine cells refined from it, in
+    coarse_to_fine_cells : numpy.ndarray
+        For each owned coarse cell, the owned fine cells obtained from it, in
         increasing order. Every row is as wide as the busiest coarse cell on
-        any process, so a coarse cell with fewer fine cells has its row
-        right-padded with -1.
-    fine_to_coarse : numpy.ndarray
-        A column with the owned coarse cell that each owned fine cell was
-        refined from, or -1 where there is none.
+        any process, so rows with fewer fine cells are right-padded with -1.
+    fine_to_coarse_cells : numpy.ndarray
+        For each owned fine cell, the owned coarse cell from which it was
+        obtained, or -1 when there is none.
 
     """
     ncoarse = coarse_mesh.cell_set.size
@@ -375,9 +359,13 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
     _, fine_points = get_entity_renumbering(fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell")
 
     parents = fine_to_coarse_points[fine_points[:nfine] + fStart]
-    # A submesh cell can be refined from a point that is not a coarse cell.
+    # The transform returns DMPlex point numbers, but cell kernels consume maps
+    # in Firedrake cell numbering. Reindex only parents in the coarse cell stratum.
     is_cell = (cStart <= parents) & (parents < cEnd)
     parents[is_cell] = coarse_cells[parents[is_cell] - cStart]
+
+    # A facet submesh extracted from parent-mesh interior facets can contain a
+    # refined facet whose parent is a volume cell, not a coarse submesh facet.
     parents[~is_cell | (parents >= ncoarse)] = -1
 
     fine = np.flatnonzero(parents >= 0).astype(IntType)
@@ -385,10 +373,10 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
     order = np.argsort(coarse, kind="stable")
     counts = np.bincount(coarse, minlength=ncoarse)
     width = coarse_mesh.comm.allreduce(int(counts.max(initial=0)), op=MPI.MAX)
-    coarse_to_fine = np.full((ncoarse, width), -1, dtype=IntType)
+    coarse_to_fine_cells = np.full((ncoarse, width), -1, dtype=IntType)
     columns = np.arange(len(order)) - np.repeat(np.cumsum(counts) - counts, counts)
-    coarse_to_fine[coarse[order], columns] = fine[order]
-    return coarse_to_fine, parents.reshape(-1, 1)
+    coarse_to_fine_cells[coarse[order], columns] = fine[order]
+    return coarse_to_fine_cells, parents.reshape(-1, 1)
 
 
 @cython.boundscheck(False)

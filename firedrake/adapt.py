@@ -33,7 +33,7 @@ def _adapt_marked_cells(mesh, cell_marker):
         adapt_indicator = np.zeros(cell_marker.dat.data_ro_with_halos.shape, dtype=IntType)
         adapt_indicator[:ncoarse] = cell_marker.dat.data_ro.real > 0
         dmcommon.mark_points_with_function_array(
-            dm, cell_marker.function_space().dm.getSection(), 0,
+            dm, cell_marker.function_space().dm.getLocalSection(), 0,
             adapt_indicator, adapt_label, DM_ADAPT_REFINE,
         )
 
@@ -64,6 +64,10 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
     target_mesh._distribution_parameters = dict(source_mesh._distribution_parameters)
     target_mesh._did_reordering = source_mesh._did_reordering
     target_mesh._tolerance = source_mesh.tolerance
+    if hasattr(source_mesh, "netgen_mesh") and not hasattr(target_mesh, "netgen_mesh"):
+        target_mesh.netgen_mesh = source_mesh.netgen_mesh
+    if hasattr(source_mesh, "netgen_flags") and not hasattr(target_mesh, "netgen_flags"):
+        target_mesh.netgen_flags = source_mesh.netgen_flags
 
 
 def _redistribute_adaptive_refined_mesh(coarse_mesh, refined_mesh, redistribute=True):
@@ -85,7 +89,7 @@ def _redistribute_adaptive_refined_mesh(coarse_mesh, refined_mesh, redistribute=
 
     """
     _copy_adaptive_refinement_metadata(coarse_mesh, refined_mesh)
-    if not (redistribute and refined_mesh.any_rank_is_empty):
+    if not (redistribute and refined_mesh.has_empty_rank):
         return refined_mesh
     redist_mesh = Submesh(refined_mesh, redistribute=True, name=refined_mesh.name)
     _copy_adaptive_refinement_metadata(refined_mesh, redist_mesh)
@@ -114,8 +118,8 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
     Returns
     -------
     MeshGeometry
-        The adaptively refined mesh, with ``adaptive_parent`` set to
-        ``mesh`` and ``adaptive_fine_to_coarse_points`` set to the DMPlex
+        The adaptively refined mesh, with ``_adaptive_parent`` set to
+        ``mesh`` and ``_adaptive_fine_to_coarse_points`` set to the DMPlex
         point of ``mesh`` that each of its DMPlex points was refined from.
 
     """
@@ -166,12 +170,11 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
             final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
                                             cg_field=not coordinates.finat_element.is_dg())
 
-    # _redistribute_adaptive_refined_mesh copies the construction metadata
-    # across, and may hand back a different mesh, so record the provenance on
-    # whichever mesh comes out of it.
+    # The redistribution step can return a different mesh, so record the
+    # refinement provenance on whichever mesh it returns.
     final_mesh = _redistribute_adaptive_refined_mesh(
         mesh, final_mesh, redistribute=redistribute
     )
-    final_mesh.adaptive_parent = mesh
-    final_mesh.adaptive_fine_to_coarse_points = fine_to_coarse_points
+    final_mesh._adaptive_parent = mesh
+    final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
     return final_mesh

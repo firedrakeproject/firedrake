@@ -79,6 +79,7 @@ _cells = {
 
 
 _supported_embedded_cell_types_and_gdims = [('interval', 2),
+                                            ('interval', 3),
                                             ('triangle', 3),
                                             ("quadrilateral", 3),
                                             ("interval * interval", 3)]
@@ -554,8 +555,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
 
         This is `None` whenever this mesh shares the parallel distribution of
         ``submesh_parent``, in which case the points of the two meshes are
-        related locally by ``topology_dm.getSubpointIS()``. Ask
-        `is_redistributed` rather than testing it.
+        related locally by ``topology_dm.getSubpointIS()``.
         """
         self.sfBC_orig = None
         # User comm
@@ -567,7 +567,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             self._add_overlap()
         if self.sfXB is not None:
             self.sfXC = sfXB.compose(self.sfBC) if self.sfBC else self.sfXB
-        if self.is_redistributed and self.sfBC:
+        if self.submesh_point_sf is not None and self.sfBC:
             # Push the parent points onto the redistributed plex.
             self.submesh_point_sf = self.submesh_point_sf.compose(self.sfBC)
         dmcommon.label_facets(self.topology_dm)
@@ -676,8 +676,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         return self.topology_dm
 
     @cached_property
-    def any_rank_is_empty(self) -> bool:
-        """Whether any rank of this mesh owns no cells. Collective."""
+    def has_empty_rank(self):
+        """Whether any rank of this mesh owns no cells."""
         with temp_internal_comm(self.comm) as icomm:
             return icomm.allreduce(self.cell_set.size == 0, op=MPI.LOR)
 
@@ -1012,11 +1012,6 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
                 break
         return c
 
-    @property
-    def is_redistributed(self) -> bool:
-        """Whether this mesh was repartitioned instead of taking its parent's distribution."""
-        return self.submesh_point_sf is not None
-
     def submesh_shares_distribution(self, other):
         """Return whether `self` and ``other`` are related and share their distribution.
 
@@ -1040,7 +1035,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             return False
         for mesh in (self, other):
             while mesh is not common:
-                if mesh.is_redistributed:
+                if mesh.submesh_point_sf is not None:
                     return False
                 mesh = mesh.submesh_parent
         return True
@@ -1299,7 +1294,7 @@ class MeshTopology(AbstractMeshTopology):
         entities exactly as the parent does.
         """
         numbering = self._vertex_numbering.createGlobalSection(self.topology_dm.getPointSF())
-        if not self.is_redistributed:
+        if self.submesh_point_sf is None:
             return numbering
         return dmcommon.submesh_vertex_numbering(
             self.submesh_point_sf,
@@ -1318,7 +1313,7 @@ class MeshTopology(AbstractMeshTopology):
         its own.
         """
         plex = self.topology_dm
-        if self.is_redistributed:
+        if self.submesh_point_sf is not None:
             return dmcommon.submesh_cell_orientations(
                 self.submesh_parent.topology_dm,
                 self.submesh_parent._cell_numbering,
@@ -1340,22 +1335,6 @@ class MeshTopology(AbstractMeshTopology):
         return cell_orientations
 
     @cached_property
-    def _inherits_parent_cell_closure(self) -> bool:
-        """Whether this mesh takes its cell closures from its submesh parent.
-
-        A quadrilateral submesh of a hexahedral mesh is the exception. Its
-        own closures must follow the orientation restriction that a
-        quadrilateral cell carries, which the hexahedral closures do not, so
-        working with the parent permutes the quadrature points instead.
-        """
-        if self.submesh_parent is None or self.is_redistributed:
-            return False
-        if len(self.submesh_parent.dm_cell_types) != 1:
-            return False
-        return not (self.submesh_parent.ufl_cell().cellname == "hexahedron"
-                    and self.ufl_cell().cellname == "quadrilateral")
-
-    @cached_property
     def cell_closure(self):
         """2D array of ordered cell closures
 
@@ -1370,7 +1349,15 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension
-        if self._inherits_parent_cell_closure:
+        if self.submesh_parent is not None and self.submesh_point_sf is None and \
+                not (self.submesh_parent.ufl_cell().cellname == "hexahedron" and cell.cellname == "quadrilateral") and \
+                len(self.submesh_parent.dm_cell_types) == 1:
+            # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
+            # inherit cell_closure from the hex mesh as the cell_closure
+            # must follow the special orientation restriction. This means
+            # that, when the quad submesh works with the parent hex mesh,
+            # quadrature points must be permuted (i.e. use the canonical
+            # quadrature point ordering based on the cone ordering).
             topology = FIAT.ufc_cell(cell).get_topology()
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
@@ -1628,7 +1615,7 @@ class MeshTopology(AbstractMeshTopology):
             plex.createLabel(label_name)
         plex.clearLabelStratum(label_name, label_value)
         label = plex.getLabel(label_name)
-        section = tV.dm.getSection()
+        section = tV.dm.getLocalSection()
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
 
@@ -1738,7 +1725,7 @@ class MeshTopology(AbstractMeshTopology):
         """
         if self.submesh_parent is None:
             raise RuntimeError("Must only be called on submesh")
-        if self.is_redistributed:
+        if self.submesh_point_sf is not None:
             raise NotImplementedError(
                 "Assembling or interpolating across a submesh and its parent "
                 "requires the two to share the same parallel distribution; use "
@@ -2506,8 +2493,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.variable_layers = self.extruded and topology.variable_layers
         self._base_mesh = None  # this is set by extruded meshes in a later step
         # these are set by firedrake.adapt.refine_marked_elements
-        self.adaptive_parent = None
-        self.adaptive_fine_to_coarse_points = None
+        self._adaptive_parent = None
+        self._adaptive_fine_to_coarse_points = None
 
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
@@ -3004,15 +2991,19 @@ values from f.)"""
     def init_cell_orientations(self, expr):
         """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
 
-        :arg expr: a UFL expression evaluated to produce a
-             reference normal direction.
+        Parameters
+        ----------
+        expr : ufl.core.expr.Expr
+            A UFL expression for the reference direction. This is a normal
+            direction, except for intervals embedded in 3D, where it is a
+            tangent direction because a curve in 3D has no unique normal.
 
         """
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
         if (self.ufl_cell().cellname, self.geometric_dimension) not in _supported_embedded_cell_types_and_gdims:
-            raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
+            raise NotImplementedError('Only implemented for intervals embedded in 2d or 3d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
             raise CellOrientationsRuntimeError("init_cell_orientations already called, did you mean to do so again?")
@@ -3027,7 +3018,9 @@ values from f.)"""
         x = ufl.SpatialCoordinate(self)
         f = function.Function(fs)
 
-        if self.topological_dimension == 1:
+        if self.topological_dimension == 1 and self.geometric_dimension == 3:
+            normal = ReferenceGrad(x)[:, 0]
+        elif self.topological_dimension == 1:
             normal = ufl.as_vector((-ReferenceGrad(x)[1, 0], ReferenceGrad(x)[0, 0]))
         else:  # self.topological_dimension == 2
             normal = ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])
@@ -3087,8 +3080,8 @@ values from f.)"""
         -------
         MeshGeometry
             The adaptively refined mesh, recording this mesh as its
-            ``adaptive_parent`` and the DMPlex points relative to it as its
-            ``adaptive_fine_to_coarse_points``, ready to be passed to
+            ``_adaptive_parent`` and the DMPlex points relative to it as its
+            ``_adaptive_fine_to_coarse_points``, ready to be passed to
             :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
         """
         from firedrake.adapt import refine_marked_elements
@@ -3196,7 +3189,7 @@ values from f.)"""
 
 
 @PETSc.Log.EventDecorator()
-def make_mesh_from_coordinates(coordinates, name, tolerance=0.5, submesh_parent=None):
+def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
     """Given a coordinate field build a new mesh, using said coordinate field.
 
     Parameters
@@ -3207,8 +3200,6 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5, submesh_parent=
         The name of the mesh.
     tolerance : numbers.Number
         The tolerance; see `Mesh`.
-    submesh_parent : MeshGeometry
-        The mesh this one is a submesh of, if any.
     comm: mpi4py.Intracomm
         Communicator.
 
@@ -3237,7 +3228,6 @@ def make_mesh_from_coordinates(coordinates, name, tolerance=0.5, submesh_parent=
     mesh._tolerance = tolerance
     mesh._did_reordering = orig_mesh._did_reordering
     mesh._distribution_parameters = orig_mesh._distribution_parameters
-    mesh.submesh_parent = submesh_parent
     return mesh
 
 
@@ -3374,7 +3364,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension
     if parent_tdim > 0:
         reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
-        reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
+        reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getLocalSection(),
                                                                (topology.num_vertices(), parent_tdim),
                                                                reference_coord=True)
         reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
@@ -3489,10 +3479,10 @@ def Mesh(meshfile, **kwargs):
         coordinates = meshfile
     else:
         coordinates = None
-    tolerance = kwargs.get("tolerance", 0.5)
     if coordinates is not None:
-        return make_mesh_from_coordinates(coordinates, name, tolerance=tolerance,
-                                          submesh_parent=kwargs.get("submesh_parent"))
+        return make_mesh_from_coordinates(coordinates, name)
+
+    tolerance = kwargs.get("tolerance", 0.5)
 
     utils._init()
 
@@ -4958,7 +4948,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         # Clear label stratum; this is a copy, so safe to change.
         plex1.clearLabelStratum(dmlabel_name, subid)
         dmlabel = plex1.getLabel(dmlabel_name)
-        section = f.topological.function_space().dm.getSection()
+        section = f.topological.function_space().dm.getLocalSection()
         dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
@@ -5033,23 +5023,17 @@ def _make_submesh_point_sf(plex, subplex):
 
     """
     pStart, pEnd = plex.getChart()
-    # Address every parent point on the rank that owns it, which the parent's
-    # own point SF records for its ghosts. Data reduced onto a ghost point
-    # would never reach the owner.
-    owners = np.empty((pEnd - pStart, 2), dtype=IntType)
-    owners[:, 0] = plex.comm.rank
-    owners[:, 1] = np.arange(pStart, pEnd, dtype=IntType)
-    if plex.isDistributed():
-        _, ghosts, ghost_owners = plex.getPointSF().getGraph()
-        owners[ghosts] = ghost_owners
+    subpStart, subpEnd = subplex.getChart()
+    remote = np.empty((subpEnd - subpStart, 2), dtype=IntType)
+    remote[:, 0] = plex.comm.rank
     with subplex.getSubpointIS() as subpoints:
-        remote = owners[subpoints]
+        remote[:, 1] = subpoints
     point_sf = PETSc.SF().create(comm=subplex.comm)
     point_sf.setGraph(pEnd - pStart, None, remote)
     return point_sf
 
 
-def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None, redistribute=False, distribution_parameters=None):
+def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ignore_halo=False, reorder=None, comm=None, redistribute=False):
     """Construct a submesh from a given mesh.
 
     Parameters
@@ -5086,10 +5070,6 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         A redistributed submesh can not be assembled or interpolated
         alongside its parent; use `~.Function.assign` to transfer data
         between the two.
-    distribution_parameters : dict | None
-        Options controlling the distribution of the submesh when
-        ``redistribute=True``. By default, the parent mesh's distribution
-        parameters are used with partitioning enabled.
 
     Returns
     -------
@@ -5163,6 +5143,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     >>> submesh = Submesh(mesh, redistribute=True)
 
     """
+    import firedrake.function as function
+
     if not isinstance(mesh, MeshGeometry):
         raise TypeError("Parent mesh must be a `MeshGeometry`")
     if isinstance(mesh.topology, ExtrudedMeshTopology):
@@ -5175,11 +5157,7 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         # Drop the parent halo so that every point of the submesh is owned
         # by exactly one rank before it is repartitioned.
         ignore_halo = True
-        if distribution_parameters is None:
-            distribution_parameters = dict(mesh._distribution_parameters,
-                                           partition=True)
-        else:
-            distribution_parameters = dict(distribution_parameters, partition=True)
+        distribution_parameters = dict(mesh._distribution_parameters, partition=True)
     else:
         distribution_parameters = DISTRIBUTION_PARAMETERS_NOOP
 
@@ -5200,6 +5178,11 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     dim = plex.getDimension()
     if subdim not in {dim, dim - 1}:
         raise NotImplementedError(f"Found submesh dim ({subdim}) and parent dim ({dim})")
+    if redistribute and subdim != dim:
+        # The two meshes must be made of the same cells. Only then are their
+        # entities oriented consistently, and only then do their nodes
+        # correspond.
+        raise NotImplementedError("Can only redistribute a submesh of co-dimension 0")
     if subdomain_id is None:
         if label_name is not None:
             raise ValueError("subdomain_id=None requires label_name=None.")
@@ -5212,11 +5195,6 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         elif subdim == dim - 1:
             label_name = dmcommon.FACE_SETS_LABEL
     subplex = dmcommon.submesh_create(plex, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
-    if redistribute and subplex.getDimension() != plex.getDimension():
-        # The two meshes must be made of the same cells. Only then are their
-        # entities oriented consistently, and only then do their nodes
-        # correspond.
-        raise NotImplementedError("Can only redistribute a submesh of co-dimension 0")
     if redistribute:
         # The point correspondence must be recorded before the submesh is
         # distributed, as distributing it discards the subpoint IS.
@@ -5251,62 +5229,21 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         # reports the parameters of the parent.
         submesh._distribution_parameters = mesh._distribution_parameters
 
-    if _plex_carries_parent_coordinates(mesh, submesh):
-        return submesh
-    return _submesh_with_transferred_coordinates(mesh, submesh, name)
-
-
-def _plex_carries_parent_coordinates(mesh, submesh):
-    """Whether the plex of ``submesh`` already holds the coordinates of ``mesh``.
-
-    Parameters
-    ----------
-    mesh : MeshGeometry
-        The parent mesh.
-    submesh : MeshGeometry
-        The submesh, on the coordinates its plex carries.
-
-    Returns
-    -------
-    bool
-        `False` when the parent is curved or periodic, and so keeps its
-        coordinates in a `~firedrake.function.Function` of its own.
-
-    """
-    if len(mesh.topology.dm_cell_types) > 1:
-        # Such a mesh carries no coordinate Function at all.
-        return True
-    # A submesh of lower dimension has a different cell than its parent, so
-    # the two coordinate elements are compared on the parent's cell.
-    plex_element = submesh.coordinates.ufl_element().reconstruct(cell=mesh.ufl_cell())
-    return mesh.coordinates.ufl_element() == plex_element
-
-
-def _submesh_with_transferred_coordinates(mesh, submesh, name):
-    """Rebuild a submesh on the coordinates of its parent.
-
-    Parameters
-    ----------
-    mesh : MeshGeometry
-        The parent mesh, whose coordinates its plex does not carry.
-    submesh : MeshGeometry
-        The submesh to rebuild.
-    name : str
-        Name of the new mesh.
-
-    Returns
-    -------
-    MeshGeometry
-        A submesh of ``mesh`` on the topology of ``submesh``, carrying the
-        coordinates of ``mesh`` restricted to it.
-
-    """
-    import firedrake.function as function
-
-    V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
-    coordinates = function.Function(V).assign(mesh.coordinates)
-    return Mesh(coordinates, name=name, submesh_parent=mesh,
-                tolerance=mesh.tolerance)
+    # A mesh with several cell types carries no coordinate Function, so its
+    # coordinates are always the ones the plex holds.
+    if len(mesh.topology.dm_cell_types) == 1:
+        # A submesh of lower dimension has a different cell than its parent, so
+        # the two coordinate elements are compared on the parent's cell.
+        plex_element = submesh.coordinates.ufl_element().reconstruct(cell=mesh.ufl_cell())
+        if mesh.coordinates.ufl_element() != plex_element:
+            # The parent coordinates are not carried by the plex (e.g. the parent
+            # is curved or periodic), so they must be transferred onto the submesh.
+            V = mesh.coordinates.function_space().reconstruct(mesh=submesh)
+            coordinates = function.Function(V).assign(mesh.coordinates)
+            submesh = Mesh(coordinates, name=name)
+            submesh.submesh_parent = mesh
+            submesh.tolerance = mesh.tolerance
+    return submesh
 
 
 def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl.FiniteElement) -> "CoordinatelessFunction":
@@ -5334,7 +5271,7 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
 
     (gdim,) = element.reference_value_shape
     coordinates_fs = functionspace.FunctionSpace(topology, element)
-    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                  (topology.num_vertices(), gdim))
     return function.CoordinatelessFunction(coordinates_fs,
                                            val=coordinates_data,
@@ -5461,11 +5398,6 @@ class MeshSequenceTopology:
         # A mesh sequence is never a submesh.
         self.submesh_parent = None
         self.submesh_point_sf = None
-
-    @property
-    def is_redistributed(self) -> bool:
-        """A mesh sequence is never a submesh, so it never has a distribution of its own."""
-        return False
 
     @property
     def topology(self):
