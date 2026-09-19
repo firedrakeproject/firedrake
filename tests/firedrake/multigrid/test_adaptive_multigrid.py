@@ -366,6 +366,8 @@ def test_dg_injection_conserves_mass(mh, family, degree):
 
     # Require at least one padded child row in the hierarchy.
     assert mh[0].comm.allreduce(padded, MPI.LOR)
+
+
 @pytest.mark.parallel([1, 2, 4])
 def test_prolong_DG0(mh):
     """Test prolongation with DG0."""
