@@ -280,7 +280,7 @@ def compose_points(outer, inner):
 
     """
     points = np.full(inner.shape, -1, dtype=IntType)
-    found = inner >= 0
+    found = (inner >= 0) & (inner < outer.size)
     points[found] = outer[inner[found]]
     return points
 
