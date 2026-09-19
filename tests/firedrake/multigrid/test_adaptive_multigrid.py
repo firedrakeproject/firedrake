@@ -366,6 +366,23 @@ def test_dg_injection_conserves_mass(mh, family, degree):
 
     # Require at least one padded child row in the hierarchy.
     assert mh[0].comm.allreduce(padded, MPI.LOR)
+@pytest.mark.parallel([1, 2, 4])
+def test_prolong_DG0(mh):
+    """Test prolongation with DG0."""
+    V_coarse = FunctionSpace(mh[0], "DG", 0)
+    V_fine = FunctionSpace(mh[-1], "DG", 0)
+    u_coarse = Function(V_coarse)
+    u_fine = Function(V_fine)
+    xc, *_ = SpatialCoordinate(V_coarse.mesh())
+    stepc = conditional(ge(xc, 0), 1, 0)
+    xf, *_ = SpatialCoordinate(V_fine.mesh())
+    stepf = conditional(ge(xf, 0), 1, 0)
+
+    u_coarse.interpolate(stepc)
+    assert errornorm(stepc, u_coarse) <= 1e-12
+
+    prolong(u_coarse, u_fine)
+    assert errornorm(stepf, u_fine) <= 1e-12
 
 
 @pytest.mark.skipcomplex
