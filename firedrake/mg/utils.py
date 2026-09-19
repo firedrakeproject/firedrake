@@ -363,8 +363,8 @@ def preserved_node_sf(Vc, Vf):
         if not Vc.comm.allreduce(bool(has_preserved_cells), op=MPI.LOR):
             return cache.setdefault(key, None)
         point_sf = _preserved_point_sf(Vc.mesh().topology, fine_to_coarse_points)
-        root_section = Vc.dm.getSection()
-        leaf_section = Vf.dm.getSection()
+        root_section = Vc.dm.getLocalSection()
+        leaf_section = Vf.dm.getLocalSection()
         # `distributeSection` creates a section for the points in the SF graph.
         # `createSectionSF` expects offsets for the full point chart, so pad
         # the returned root offsets with zeros.
