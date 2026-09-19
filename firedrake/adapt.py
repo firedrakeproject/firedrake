@@ -8,18 +8,12 @@ from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, Submesh, DISTRIBUTION_PARAMETERS_NOOP
-from firedrake.netgen import _transfer_high_order_coordinates
+from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
 from firedrake.petsc import PETSc
 
 
 # PETSc's DMAdaptFlag value requesting refinement, for the adapt label.
 DM_ADAPT_REFINE = 1
-
-# Label holding, on every cell, the number of the cell of the original mesh it
-# descends from. The refinement transform propagates labels from a cell to its
-# children, so this stays relative to the original mesh however many times we
-# refine.
-PARENT_LABEL = "_adaptive_dmplex_parent"
 
 ADAPT_LABEL = "_adaptive_dmplex_adapt"
 
@@ -28,6 +22,10 @@ def _adapt_marked_cells(mesh, cell_marker):
     """Refine the cells of ``mesh`` marked by ``cell_marker`` and return the refined DMPlex."""
     dm = mesh.topology_dm
     ncoarse = mesh.cell_set.size
+
+    # Save the transform, so that the refined DMPlex can tell which of its
+    # points came from which point of ``dm``.
+    dm.setSaveTransform()
 
     with PETSc.Log.Event("AdaptiveRefine: mark cells"):
         dm.createLabel(ADAPT_LABEL)
@@ -102,8 +100,9 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
     """Adaptively refine a mesh using a DG0 marking function.
 
     Positive integer marker values request repeated refinement of the
-    corresponding cells. Curved Netgen meshes are re-curved to the
-    original coordinate degree after refinement.
+    corresponding cells. The vertices of a Netgen mesh are snapped onto its
+    geometry after each round, and the coordinates are curved to their
+    original degree at the end.
 
     Parameters
     ----------
@@ -119,9 +118,9 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
     Returns
     -------
     MeshGeometry
-        The adaptively refined mesh, with ``adaptive_parent`` set to
-        ``mesh`` and ``adaptive_cell_maps`` set to the
-        ``(coarse_to_fine, fine_to_coarse)`` cell maps relative to it.
+        The adaptively refined mesh, with ``_adaptive_parent`` set to
+        ``mesh`` and ``_adaptive_fine_to_coarse_points`` set to the DMPlex
+        point of ``mesh`` that each of its DMPlex points was refined from.
 
     """
     with cell_marker.dat.vec_ro as v:
@@ -130,56 +129,52 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
     # so that a fresh mesh (with its own cell maps) is produced uniformly.
     num_refinements = max(int(np.rint(num_refinements)), 1)
 
-    coarse_dm = mesh.topology_dm
-    with PETSc.Log.Event("AdaptiveRefine: set_adaptive_parent_label"):
-        impl.set_adaptive_parent_label(coarse_dm, mesh._cell_numbering, PARENT_LABEL)
-
     current_mesh = mesh
     current_mark = cell_marker
-    try:
-        for ref in range(num_refinements):
-            new_dm = _adapt_marked_cells(current_mesh, current_mark)
-            with PETSc.Log.Event("AdaptiveRefine: Mesh()"):
-                current_mesh = Mesh(
-                    new_dm,
-                    dim=mesh.geometric_dimension,
-                    reorder=False,
-                    distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-                    comm=mesh.comm,
-                    tolerance=mesh.tolerance,
-                )
-            with PETSc.Log.Event("AdaptiveRefine: adaptive_parent_child_cell_maps"):
-                coarse_to_fine, fine_to_coarse = impl.adaptive_parent_child_cell_maps(
-                    coarse_dm, new_dm, current_mesh._cell_numbering, PARENT_LABEL
-                )
-            if ref < num_refinements - 1:
-                with PETSc.Log.Event("AdaptiveRefine: re-mark"):
-                    # A cell asking for n refinements stays marked until n rounds
-                    # have happened, so its descendants inherit n minus the number
-                    # of rounds so far.
-                    ancestor = fine_to_coarse[:, 0]
-                    refined = ancestor >= 0
-                    current_mark = Function(FunctionSpace(current_mesh, "DG", 0))
-                    current_mark.dat.data_wo[refined] = \
-                        cell_marker.dat.data_ro[ancestor[refined]] - (ref + 1)
-    finally:
-        # Ensure the temporary label is removed even if adaptation fails
-        coarse_dm.removeLabel(PARENT_LABEL)
+    fine_to_coarse_points = np.arange(*mesh.topology_dm.getChart(), dtype=IntType)
+    is_netgen = hasattr(mesh, "netgen_mesh")
+    for ref in range(num_refinements):
+        new_dm = _adapt_marked_cells(current_mesh, current_mark)
+        if is_netgen:
+            ngmesh = _snap_to_netgen(new_dm, mesh.netgen_mesh)
+        fine_to_coarse_points = impl.compose_points(
+            fine_to_coarse_points, impl.transform_source_points(new_dm))
+        with PETSc.Log.Event("AdaptiveRefine: Mesh()"):
+            current_mesh = Mesh(
+                new_dm,
+                dim=mesh.geometric_dimension,
+                reorder=False,
+                distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+                comm=mesh.comm,
+                tolerance=mesh.tolerance,
+            )
+        if is_netgen:
+            current_mesh.netgen_mesh = ngmesh
+            current_mesh.netgen_flags = mesh.netgen_flags
+        if ref < num_refinements - 1:
+            with PETSc.Log.Event("AdaptiveRefine: re-mark"):
+                # A cell asking for n refinements stays marked until n rounds
+                # have happened, so its descendants inherit n minus the number
+                # of rounds so far.
+                _, fine_to_coarse = impl.coarse_to_fine_cells(mesh, current_mesh, fine_to_coarse_points)
+                ancestor = fine_to_coarse[:, 0]
+                refined = ancestor >= 0
+                current_mark = Function(FunctionSpace(current_mesh, "DG", 0))
+                current_mark.dat.data_wo[refined] = \
+                    cell_marker.dat.data_ro[ancestor[refined]] - (ref + 1)
 
     final_mesh = current_mesh
-    if hasattr(mesh, "netgen_mesh"):
-        order = mesh.coordinates.function_space().ufl_element().degree()
-        if order > 1:
-            with PETSc.Log.Event("AdaptiveRefine: recurve netgen coords"):
-                final_mesh = _transfer_high_order_coordinates(mesh, final_mesh, order)
+    if is_netgen:
+        coordinates = mesh.coordinates.function_space()
+        with PETSc.Log.Event("AdaptiveRefine: recurve netgen coords"):
+            final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
+                                            cg_field=not coordinates.finat_element.is_dg())
 
-    final_mesh.topology_dm.removeLabel(PARENT_LABEL)
-    # _redistribute_adaptive_refined_mesh copies the construction metadata
-    # across, and may hand back a different mesh, so record the provenance on
-    # whichever mesh comes out of it.
+    # The redistribution step can return a different mesh, so record the
+    # refinement provenance on whichever mesh it returns.
     final_mesh = _redistribute_adaptive_refined_mesh(
         mesh, final_mesh, redistribute=redistribute
     )
-    final_mesh.adaptive_parent = mesh
-    final_mesh.adaptive_cell_maps = (coarse_to_fine, fine_to_coarse)
+    final_mesh._adaptive_parent = mesh
+    final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
     return final_mesh

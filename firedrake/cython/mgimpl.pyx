@@ -3,7 +3,6 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from pyop2.mpi import MPI
@@ -227,370 +226,157 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
-cdef PetscInt num_owned_cells(PETSc.DM dm) except? -1:
-    """Number of cells this rank owns, i.e. the number of Firedrake cell
-    numbers the DM's cell numbering hands out to non-ghost cells.
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def transform_source_points(PETSc.DM dm):
+    """Find the point that produced each point of a transformed DMPlex.
 
     Parameters
     ----------
     dm : PETSc.DM
-        The DMPlex encapsulating the mesh topology, with its PyOP2 entity
-        classes already marked.
-
-    Returns
-    -------
-    PetscInt
-        The number of core plus owned cells.
-
-    """
-    return dmcommon.get_entity_classes(dm)[dm.getDimension(), 1]
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def set_adaptive_parent_label(PETSc.DM coarse_dm,
-                              PETSc.Section coarse_cell_numbering,
-                              label_name):
-    """Seed each coarse cell's own Firedrake cell number onto a DMPlex label.
-
-    Must be called *before* refining ``coarse_dm``. Since the refinement
-    transform propagates labels from a cell to its children, every cell of
-    every subsequent refinement then carries the number of the coarse cell it
-    descends from, which `adaptive_parent_child_cell_maps` reads back.
-
-    Parameters
-    ----------
-    coarse_dm : PETSc.DM
-        The coarse, pre-refinement, mesh DMPlex.
-    coarse_cell_numbering : PETSc.Section
-        The coarse mesh's cell numbering section.
-    label_name : str
-        Name of the label to create on ``coarse_dm`` and populate with each
-        owned cell's Firedrake cell number. Any existing label of that name
-        is discarded.
-
-    """
-    cdef:
-        PetscInt ncoarse = num_owned_cells(coarse_dm)
-        PetscInt cStart, cEnd, c, off
-        DMLabel parent_label = NULL
-
-    if coarse_dm.hasLabel(label_name):
-        coarse_dm.removeLabel(label_name)
-    coarse_dm.createLabel(label_name)
-    label_name = label_name.encode()
-    CHKERR(DMGetLabel(coarse_dm.dm, <const char*>label_name, &parent_label))
-    cStart, cEnd = coarse_dm.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, c, &off))
-        if 0 <= off < ncoarse:
-            CHKERR(DMLabelSetValue(parent_label, c, off))
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def adaptive_parent_child_cell_maps(PETSc.DM coarse_dm,
-                                    PETSc.DM fine_dm,
-                                    PETSc.Section fine_cell_numbering,
-                                    label_name):
-    """Build Firedrake-numbered parent/child cell maps from a DMPlex label.
-
-    ``fine_dm`` must be a DMPlex obtained by refining, however many times, the
-    ``coarse_dm`` that `set_adaptive_parent_label` was seeded on.
-
-    Parameters
-    ----------
-    coarse_dm : PETSc.DM
-        The coarse, parent, mesh DMPlex.
-    fine_dm : PETSc.DM
-        The refined, child, mesh DMPlex.
-    fine_cell_numbering : PETSc.Section
-        The fine mesh's cell numbering section.
-    label_name : str
-        Name of the label on ``fine_dm``, propagated from
-        `set_adaptive_parent_label`, mapping each fine cell to its coarse
-        parent's Firedrake cell number.
-
-    Returns
-    -------
-    tuple of numpy.ndarray
-        The ``(coarse_to_fine, fine_to_coarse)`` Firedrake-numbered cell maps,
-        padded with -1 where a coarse cell has fewer children than the
-        busiest one.
-
-    """
-    cdef:
-        PetscInt ncoarse = num_owned_cells(coarse_dm)
-        PetscInt nfine = num_owned_cells(fine_dm)
-        PetscInt cStart, cEnd, c, off, parent, i, stratum_size, max_children
-        DMLabel parent_label = NULL
-        PETSc.PetscIS stratum_is = NULL
-        const PetscInt *stratum_points = NULL
-        PetscInt[::1] child_counts
-        PetscInt[:, ::1] coarse_to_fine
-        PetscInt[:, ::1] fine_to_coarse
-
-    label_name = label_name.encode()
-    CHKERR(DMGetLabel(fine_dm.dm, <const char*>label_name, &parent_label))
-    fine_to_coarse = np.full((nfine, 1), -1, dtype=IntType)
-    child_counts = np.zeros(ncoarse, dtype=IntType)
-    cStart, cEnd = fine_dm.getHeightStratum(0)
-    # Walking by stratum (coarse cell) resolves each one through PETSc's O(1)
-    # value -> stratum hash map and touches every fine cell exactly once, for
-    # O(nfine + ncoarse) overall.
-    for parent in range(ncoarse):
-        CHKERR(DMLabelGetStratumSize(parent_label, parent, &stratum_size))
-        if stratum_size <= 0:
-            continue
-        CHKERR(DMLabelGetStratumIS(parent_label, parent, &stratum_is))
-        CHKERR(ISGetIndices(stratum_is, &stratum_points))
-        for i in range(stratum_size):
-            c = stratum_points[i]
-            if not (cStart <= c < cEnd):
-                continue
-            CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
-            if not (0 <= off < nfine):
-                continue
-            fine_to_coarse[off, 0] = parent
-            child_counts[parent] += 1
-        CHKERR(ISRestoreIndices(stratum_is, &stratum_points))
-        CHKERR(ISDestroy(&stratum_is))
-
-    # coarse_to_fine is rectangular, so every coarse cell's row must be wide
-    # enough for its most prolific sibling. Different coarse cells can be
-    # refined a different number of times, so this varies by process; take
-    # the max across all ranks so the array shape agrees everywhere.
-    max_children = 0
-    for c in range(ncoarse):
-        if child_counts[c] > max_children:
-            max_children = child_counts[c]
-    max_children = fine_dm.comm.tompi4py().allreduce(max_children, op=MPI.MAX)
-    coarse_to_fine = np.full((ncoarse, max_children), -1, dtype=IntType)
-    # Re-walk the fine cells (in Firedrake order this time, via
-    # fine_to_coarse) appending each one to its parent's row. child_counts is
-    # reused as a per-parent write cursor, reset to zero first.
-    child_counts[:] = 0
-    for c in range(nfine):
-        parent = fine_to_coarse[c, 0]
-        if parent >= 0:
-            coarse_to_fine[parent, child_counts[parent]] = c
-            child_counts[parent] += 1
-
-    return np.asarray(coarse_to_fine), np.asarray(fine_to_coarse)
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def preserved_points(PETSc.DM coarse_dm,
-                     PETSc.Section coarse_cell_numbering,
-                     PETSc.DM fine_dm,
-                     PETSc.Section fine_cell_numbering,
-                     np.ndarray coarse_to_fine_cells):
-    """Pair unrefined fine points with their coarse originals.
-
-    Adaptive refinement copies an untouched coarse cell into the fine mesh
-    without change. Its transitive closure therefore preserves the points
-    that the transfer operators can copy directly.
-    """
-    cdef:
-        PetscInt ncoarse, nfine, max_children, c, i, off, child
-        PetscInt cStart, cEnd, pStart, pEnd, coarse_size, fine_size
-        PetscInt *coarse_closure = NULL
-        PetscInt *fine_closure = NULL
-        PetscInt[::1] coarse_point, fine_point, fine_to_coarse
-        PetscInt[:, ::1] coarse_to_fine
-
-    coarse_to_fine = coarse_to_fine_cells
-    ncoarse = num_owned_cells(coarse_dm)
-    assert ncoarse == coarse_to_fine.shape[0]
-    max_children = coarse_to_fine.shape[1]
-    nfine = num_owned_cells(fine_dm)
-
-    # Both cell maps use Firedrake numbering, while closures use DMPlex
-    # point numbering. Invert each cell section before walking closures.
-    coarse_point = np.full(ncoarse, -1, dtype=IntType)
-    cStart, cEnd = coarse_dm.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(coarse_cell_numbering.sec, c, &off))
-        if 0 <= off < ncoarse:
-            coarse_point[off] = c
-    fine_point = np.full(nfine, -1, dtype=IntType)
-    cStart, cEnd = fine_dm.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetOffset(fine_cell_numbering.sec, c, &off))
-        if 0 <= off < nfine:
-            fine_point[off] = c
-
-    pStart, pEnd = fine_dm.getChart()
-    fine_to_coarse = np.full(pEnd - pStart, -1, dtype=IntType)
-    for c in range(ncoarse):
-        child = coarse_to_fine[c, 0]
-        if child < 0 or (max_children > 1 and coarse_to_fine[c, 1] >= 0):
-            continue
-        if coarse_point[c] < 0 or fine_point[child] < 0:
-            continue
-        CHKERR(DMPlexGetTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
-                                          &coarse_size, &coarse_closure))
-        CHKERR(DMPlexGetTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
-                                          &fine_size, &fine_closure))
-        # A one-child cell that refinement changed has a different closure.
-        if coarse_size == fine_size:
-            for i in range(coarse_size):
-                # The closure interleaves a point with its orientation. Copy
-                # only points whose orientations match in both meshes.
-                if coarse_closure[2*i + 1] == fine_closure[2*i + 1]:
-                    fine_to_coarse[fine_closure[2*i] - pStart] = coarse_closure[2*i]
-        CHKERR(DMPlexRestoreTransitiveClosure(coarse_dm.dm, coarse_point[c], PETSC_TRUE,
-                                              &coarse_size, &coarse_closure))
-        CHKERR(DMPlexRestoreTransitiveClosure(fine_dm.dm, fine_point[child], PETSC_TRUE,
-                                              &fine_size, &fine_closure))
-    return np.asarray(fine_to_coarse)
-
-
-# Exposition:
-#
-# These next functions compute maps from coarse mesh cells to fine
-# mesh cells and provide a consistent vertex reordering of each fine
-# cell inside each coarse cell.  In parallel, this is somewhat
-# complicated because the DMs only provide information about
-# relationships between non-overlapped meshes, and we only have
-# overlapped meshes.  We there need to translate non-overlapped DM
-# numbering into overlapped-DM numbering and vice versa, as well as
-# translating between firedrake numbering and DM numbering.
-#
-# A picture is useful here to make things clearer.
-#
-# To translate between overlapped and non-overlapped DM points, we
-# need to go via global numbers (which don't change)
-#
-#      DM_orig<--.    ,-<--DM_new
-#         |      |    |      |
-#     L2G v  G2L ^    v L2G  ^ G2L
-#         |      |    |      |
-#         '-->-->Global-->---'
-#
-# Mapping between Firedrake numbering and DM numbering is carried out
-# by computing the section permutation `get_entity_renumbering` above.
-#
-#            .->-o2n->-.
-#      DM_new          Firedrake
-#            `-<-n2o-<-'
-#
-# Finally, coarse to fine maps are produced on the non-overlapped DM
-# and subsequently composed with the appropriate sequence of maps to
-# get to Firedrake numbering (and vice versa).
-#
-#     DM_orig_coarse
-#           |
-#           v coarse_to_fine_cells [coarse_cell = floor(fine_cell / 2**tdim)]
-#           |
-#      DM_orig_fine
-@cython.cdivision(True)
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
-    """Map the cells of a coarse mesh to those of its uniform refinement.
-
-    Parameters
-    ----------
-    mc : MeshGeometry
-        The coarse mesh.
-    mf : MeshGeometry
-        The fine mesh, obtained by uniformly refining the non-overlapped
-        plex of ``mc``.
-    clgmaps : tuple
-        The coarse ``(non-overlapped, overlapped)`` point local-to-global maps.
-    flgmaps : tuple
-        The fine ``(non-overlapped, overlapped)`` point local-to-global maps.
+        A DMPlex made by a transform, such as a refinement, of a DMPlex on
+        which ``setSaveTransform`` was called first.
 
     Returns
     -------
     numpy.ndarray
-        Map from each owned coarse cell to the fine cells it was split into.
-    numpy.ndarray
-        Map from each owned fine cell to the coarse cell it came from.
+        For each point of ``dm``, the point of the original DMPlex that
+        produced it.
 
-    Notes
-    -----
-    Three numberings of the same cells meet here:
-
-    1. Firedrake numbering, which lists owned cells before halo cells. The
-       returned maps are indexed by, and contain, these numbers.
-    2. Overlapped plex numbering, that of ``mesh.topology_dm``.
-       `get_entity_renumbering` translates between 1 and 2.
-    3. Non-overlapped plex numbering, that of the halo-free plex that was
-       refined. Only here does the parent relation hold: uniform refinement
-       splits cell ``p`` into cells ``p*nref`` to ``p*nref + nref - 1``.
-
-    Applying an overlapped local-to-global map and then a non-overlapped
-    global-to-local one translates between 2 and 3. Those two numberings are
-    genuinely different orders, not a common prefix plus a halo: a plex built
-    by ``DMPlexTransform`` (an adaptively refined one) numbers its cells by
-    refinement case, so its owned cells are interleaved with its halo cells.
     """
     cdef:
-        PETSc.DM cdm, fdm
-        PetscInt cStart, cEnd, c, dim, nref, ncoarse
-        PetscInt i, ccell, fcell, nfine
-        np.ndarray coarse_to_fine
-        np.ndarray fine_to_coarse
-        np.ndarray co2n, fn2o, idx, found, permuted
+        PETSc.PetscDMPlexTransform transform = NULL
+        PetscInt pStart, pEnd, p, source
+        PetscInt[::1] points
 
-    cdm = mc.topology_dm
-    fdm = mf.topology_dm
-    dim = cdm.getDimension()
-    nref = <PetscInt> 2 ** dim
-    ncoarse = mc.cell_set.size
-    nfine = mf.cell_set.size
-    # co2n: coarse overlapped plex cell -> coarse Firedrake cell
-    # fn2o: fine Firedrake cell -> fine overlapped plex cell
-    co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
-    _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
-    coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
-    fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
-    # Walk owned fine cells:
-    cStart, cEnd = 0, nfine
+    CHKERR(DMPlexGetTransform(dm.dm, &transform))
+    if transform == NULL:
+        raise ValueError(
+            "The DMPlex did not save its transform; call setSaveTransform "
+            "before creating it so hierarchy point maps can be built"
+        )
+    pStart, pEnd = dm.getChart()
+    points = np.empty(pEnd - pStart, dtype=IntType)
+    for p in range(pStart, pEnd):
+        CHKERR(DMPlexTransformGetSourcePoint(transform, p, NULL, NULL, &source, NULL))
+        points[p - pStart] = source
+    return np.asarray(points)
 
-    # In serial the overlapped and non-overlapped plexes are the same plex,
-    # so both maps already speak the numbering the parent relation holds in.
-    if mc.comm.size > 1:
-        # Cells are the leading points of a plex chart, so these point maps
-        # can be applied to cell numbers directly.
-        cno, co = clgmaps
-        fno, fo = flgmaps
-        # Rebase fn2o onto the fine non-overlapped plex, one map per arrow:
-        # fine Firedrake cell -> overlapped -> global -> non-overlapped.
-        fo.apply(fn2o, result=fn2o)
-        fn2o = fno.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
-        # Rebase co2n the same way, but here it is the *index* that changes
-        # numbering, not the value, so send every local coarse cell through
-        # the translation. MASK gives -1 for cells the non-overlapped plex
-        # does not have.
-        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
-        co.apply(idx, result=idx)
-        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.MASK)
-        # idx[i] is where overlapped cell i lands, so scatter rather than
-        # slice: the surviving cells need not be the leading ones.
-        found = idx >= 0
-        permuted = np.empty(found.sum(), dtype=PETSc.IntType)
-        permuted[idx[found]] = co2n[found]
-        co2n = permuted
 
-    for c in range(cStart, cEnd):
-        # Every owned fine cell exists on the non-overlapped plex.
-        fcell = fn2o[c]
-        assert 0 <= fcell < cEnd
+def compose_points(outer, inner):
+    """Compose two point maps.
 
-        # Uniform refinement numbers the nref children of a cell
-        # consecutively, so integer division recovers the parent.
-        ccell = co2n[fcell // nref]
-        assert 0 <= ccell < ncoarse
-        fine_to_coarse[c, 0] = ccell
-        for i in range(nref):
-            if coarse_to_fine[ccell, i] == -1:
-                coarse_to_fine[ccell, i] = c
-                break
-    return coarse_to_fine, fine_to_coarse
+    Parameters
+    ----------
+    outer : numpy.ndarray
+        The map to apply second.
+    inner : numpy.ndarray
+        The map to apply first, with -1 where it has no point.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``outer[inner]``, with -1 where ``inner`` has no point.
+
+    """
+    points = np.full(inner.shape, -1, dtype=IntType)
+    found = inner >= 0
+    points[found] = outer[inner[found]]
+    return points
+
+
+def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_points,
+                                     coarse_lgmap, fine_lgmap):
+    """Renumber a refinement of unoverlapped DMPlexes onto the DMPlexes of two meshes.
+
+    A hierarchy refines unoverlapped DMPlexes and adds overlap only when it
+    builds each mesh. The saved transform relates the points of the
+    unoverlapped DMPlexes, so this function carries both ends of the relation
+    over to the meshes through the global point numbers.
+
+    Parameters
+    ----------
+    coarse_mesh, fine_mesh : MeshGeometry
+        The coarse mesh, and the mesh built from the refinement of its
+        unoverlapped DMPlex.
+    fine_to_coarse_points : numpy.ndarray
+        For each point of the unoverlapped fine DMPlex, the point of the
+        unoverlapped coarse DMPlex that produced it, as given by
+        `transform_source_points`.
+    coarse_lgmap, fine_lgmap : PETSc.LGMap or None
+        The point local-to-global maps of the unoverlapped coarse and fine
+        DMPlexes, as given by `create_lgmap`. These maps are ``None`` when
+        the hierarchy has no overlap or when it is serial.
+
+    Returns
+    -------
+    numpy.ndarray
+        For each point of ``fine_mesh.topology_dm``, the point of
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1 for a
+        point that only the overlap has.
+
+    """
+    if coarse_lgmap is None and fine_lgmap is None:
+        # Without overlap, the refined and final DMPlexes retain the same
+        # local point numbering, so no local-to-global translation is needed.
+        return fine_to_coarse_points
+    pStart, pEnd = fine_mesh.topology_dm.getChart()
+    points = np.arange(pStart, pEnd, dtype=IntType)
+    create_lgmap(fine_mesh.topology_dm).apply(points, result=points)
+    points = fine_lgmap.applyInverse(points, PETSc.LGMap.MapMode.MASK)
+    points = compose_points(fine_to_coarse_points, points)
+    coarse_lgmap.apply(points, result=points)
+    return create_lgmap(coarse_mesh.topology_dm).applyInverse(points, PETSc.LGMap.MapMode.MASK)
+
+
+def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
+    """Build the cell maps between two meshes from the refinement of their points.
+
+    Parameters
+    ----------
+    coarse_mesh, fine_mesh : MeshGeometry
+        The coarse and fine meshes.
+    fine_to_coarse_points : numpy.ndarray
+        For each point of ``fine_mesh.topology_dm``, the point of
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1.
+
+    Returns
+    -------
+    coarse_to_fine_cells : numpy.ndarray
+        For each owned coarse cell, the owned fine cells obtained from it, in
+        increasing order. Every row is as wide as the busiest coarse cell on
+        any process, so rows with fewer fine cells are right-padded with -1.
+    fine_to_coarse_cells : numpy.ndarray
+        For each owned fine cell, the owned coarse cell from which it was
+        obtained, or -1 when there is none.
+
+    """
+    ncoarse = coarse_mesh.cell_set.size
+    nfine = fine_mesh.cell_set.size
+    cStart, cEnd = coarse_mesh.topology_dm.getHeightStratum(0)
+    fStart, _ = fine_mesh.topology_dm.getHeightStratum(0)
+    coarse_cells, _ = get_entity_renumbering(coarse_mesh.topology_dm, coarse_mesh._cell_numbering, "cell")
+    _, fine_points = get_entity_renumbering(fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell")
+
+    parents = fine_to_coarse_points[fine_points[:nfine] + fStart]
+    # The transform returns DMPlex point numbers, but cell kernels consume maps
+    # in Firedrake cell numbering. Reindex only parents in the coarse cell stratum.
+    is_cell = (cStart <= parents) & (parents < cEnd)
+    parents[is_cell] = coarse_cells[parents[is_cell] - cStart]
+
+    # A facet submesh extracted from parent-mesh interior facets can contain a
+    # refined facet whose parent is a volume cell, not a coarse submesh facet.
+    parents[~is_cell | (parents >= ncoarse)] = -1
+
+    fine = np.flatnonzero(parents >= 0).astype(IntType)
+    coarse = parents[fine]
+    order = np.argsort(coarse, kind="stable")
+    counts = np.bincount(coarse, minlength=ncoarse)
+    width = coarse_mesh.comm.allreduce(int(counts.max(initial=0)), op=MPI.MAX)
+    coarse_to_fine_cells = np.full((ncoarse, width), -1, dtype=IntType)
+    columns = np.arange(len(order)) - np.repeat(np.cumsum(counts) - counts, counts)
+    coarse_to_fine_cells[coarse[order], columns] = fine[order]
+    return coarse_to_fine_cells, parents.reshape(-1, 1)
 
 
 @cython.boundscheck(False)
