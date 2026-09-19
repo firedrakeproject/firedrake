@@ -438,6 +438,15 @@ def _copied_nodes(mh, V):
     return mh[0].comm.allreduce(copied, MPI.SUM)
 
 
+@pytest.mark.parallel([1, 2])
+def test_uniform_transfers_do_not_preserve_nodes():
+    mh = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    V_coarse = FunctionSpace(mh[0], "CG", 1)
+    V_fine = FunctionSpace(mh[1], "CG", 1)
+
+    assert transfer_node_subset(V_coarse, V_fine) is V_fine.node_set
+
+
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("family, degree", [("DG", 0), ("CG", 1), ("CG", 2), ("CG", 3)])
 def test_transfers(mh, family, degree):
