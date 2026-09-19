@@ -77,8 +77,8 @@ def _make_section_sf(point_sf, root_V, leaf_V):
     try:
         return cache[key]
     except KeyError:
-        root_section = root_V.dm.getSection()
-        leaf_section = leaf_V.dm.getSection()
+        root_section = root_V.dm.getLocalSection()
+        leaf_section = leaf_V.dm.getLocalSection()
         # `distributeSection` overwrites the section it is handed, so let it
         # build its own and only keep the root offsets it broadcasts.
         remote_offsets, distributed_section = point_sf.distributeSection(root_section)
