@@ -4,29 +4,16 @@ import numpy
 from fractions import Fraction
 from mpi4py import MPI
 from pyop2 import op2
-from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from firedrake.functionspacedata import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
 from firedrake.halo import _get_mtype
+from firedrake.petsc import PETSc
 
 
 def identity_node_map(V):
-    """Return the identity node map for a function space.
-
-    Parameters
-    ----------
-    V : firedrake.functionspaceimpl.WithGeometry
-        The function space whose node set supplies both map endpoints.
-
-    Returns
-    -------
-    pyop2.Map
-        A map from the nodes of ``V`` to themselves.
-
-    """
     cache = V.mesh()._shared_data_cache["hierarchy_identity_node_map"]
     key = (V.ufl_element(), V.boundary_set)
     try:
@@ -64,8 +51,8 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
-        fine_to_coarse_cells = hierarchy.fine_to_coarse_cells[levelf]
-        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse_cells)
+        fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
+        fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
         return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
                                              fine_to_coarse_nodes.shape[1],
                                              values=fine_to_coarse_nodes))
@@ -99,8 +86,8 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
-        coarse_to_fine_cells = hierarchy.coarse_to_fine_cells[levelc]
-        coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine_cells)
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
         # op2.Map cannot hold the -1 that pads a short row, so fill each
         # padded slot with a real entry from its own row. The injection
         # kernel picks the candidate that matches the coarse node's physical
@@ -149,15 +136,15 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
         else:
             level_ratio = 1
-        coarse_to_fine_cells = hierarchy.coarse_to_fine_cells[levelc]
-        _, ncell = coarse_to_fine_cells.shape
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        _, ncell = coarse_to_fine.shape
         iterset = Vc.mesh().cell_set
         fine_per_cell = Vf.finat_element.space_dimension()
         arity = fine_per_cell * ncell
         coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
         # The DG injection kernel skips the padded slots of a row, but PyOP2
         # still reads through them. Fill each one with the row's first child.
-        children = coarse_to_fine_cells[:iterset.size, :]
+        children = coarse_to_fine[:iterset.size, :]
         children = numpy.where(children >= 0, children, children[:, :1])
         values = Vf.cell_node_map().values[children]
         if Vc.extruded:
@@ -177,12 +164,12 @@ def coarse_cell_child_count(
     Vc: firedrake.functionspaceimpl.WithGeometry,
     Vf: firedrake.functionspaceimpl.WithGeometry,
 ) -> op2.Dat:
-    """Count the fine cells obtained from each coarse cell.
+    """Count the fine cells that each coarse cell was refined into.
 
-    Each row of ``HierarchyBase.coarse_to_fine_cells`` is wide enough for the
-    busiest coarse cell, so most rows contain padding. The DG injection kernel
-    uses this count to stop after each coarse cell's children and ignore that
-    padding.
+    A row of `HierarchyBase.coarse_to_fine_cells` is as wide as the busiest
+    coarse cell's count, so its width overstates how many children most cells
+    have. The DG injection kernel reads this count to stop at a coarse cell's
+    own children, and so leaves the padding alone.
 
     Parameters
     ----------
@@ -195,8 +182,8 @@ def coarse_cell_child_count(
     -------
     pyop2.types.dat.Dat
         One count per cell of ``Vc``'s mesh, over that mesh's cell set. Halo
-        counts remain zero because ``par_loop`` visits only core and owned
-        cells.
+        cells are left at zero: a par_loop visits the core and owned parts
+        only, so the kernel never reads them.
 
     """
     mesh = Vc.mesh()
@@ -221,16 +208,149 @@ def coarse_cell_child_count(
             level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
         else:
             level_ratio = 1
-        coarse_to_fine_cells = hierarchy.coarse_to_fine_cells[levelc]
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         iterset = mesh.cell_set
         counts = numpy.zeros(iterset.total_size, dtype=IntType)
-        # When the mesh is extruded, each child of a coarse base cell produces
-        # ``level_ratio`` cells.
-        counts[:iterset.size] = (coarse_to_fine_cells[:iterset.size] >= 0).sum(axis=1) * level_ratio
-        # Each layer shares its base-cell count. An ExtrudedSet stores no data
-        # itself, so store the counts on its base set.
+        # Each child of a coarse cell becomes level_ratio cells once extruded.
+        counts[:iterset.size] = (coarse_to_fine[:iterset.size] >= 0).sum(axis=1) * level_ratio
+        # A count belongs to a base cell, and every layer of that cell shares
+        # it. An ExtrudedSet holds no data of its own, so hang the counts off
+        # the base set that it was built on.
         dset = op2.DataSet(iterset.parent if Vc.extruded else iterset, 1)
         return cache.setdefault(key, op2.Dat(dset, counts, dtype=IntType))
+
+
+def physical_node_locations(V):
+    element = V.ufl_element()
+    if V.value_shape:
+        assert isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
+        element = element.sub_elements[0]
+    mesh = V.mesh()
+    # This is a defaultdict, so the first time we access the key we
+    # get a fresh dict for the cache.
+    cache = mesh.geometric_shared_data_cache["hierarchy_physical_node_locations"]
+    key = (element, V.boundary_set)
+    try:
+        return cache[key]
+    except KeyError:
+        Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension))
+
+        # FIXME: This is unsafe for DG coordinates and CG target spaces.
+        locations = firedrake.assemble(firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc))
+        return cache.setdefault(key, locations)
+
+
+def transfer_mesh(mesh):
+    """Return the mesh that grid transfer operates on.
+
+    A redistributed mesh has no cell maps relating it to the coarse mesh.
+    Transfers therefore go through the mesh it was redistributed from. The
+    values are then assigned across the two.
+
+    Parameters
+    ----------
+    mesh : firedrake.mesh.MeshGeometry
+        A mesh in a `HierarchyBase`.
+
+    Returns
+    -------
+    firedrake.mesh.MeshGeometry
+        ``mesh`` itself, or the mesh it was redistributed from.
+
+    """
+    return mesh.submesh_parent if mesh.submesh_point_sf is not None else mesh
+
+
+def _redistribution_ancestors(topology):
+    """Yield a mesh topology together with the topologies it was redistributed from.
+
+    The transfer operators work on the mesh a redistributed mesh came from,
+    so both must carry the same multigrid level.
+
+    Parameters
+    ----------
+    topology : firedrake.mesh.AbstractMeshTopology
+        The topology to start from.
+
+    Yields
+    ------
+    firedrake.mesh.AbstractMeshTopology
+        ``topology``, then each mesh topology it was redistributed from, in
+        order.
+
+    """
+    yield topology
+    while topology.submesh_point_sf is not None:
+        topology = topology.submesh_parent
+        yield topology
+
+
+def set_dm_refine_level(mesh, level):
+    """Set the refinement level of a mesh and of the meshes it was redistributed from.
+
+    Parameters
+    ----------
+    mesh : firedrake.mesh.MeshGeometry
+        The mesh to set the refinement level of.
+    level : int
+        The refinement level to set.
+
+    """
+    for topology in _redistribution_ancestors(mesh.topology):
+        topology.topology_dm.setRefineLevel(level)
+
+
+def set_level(obj, hierarchy, level):
+    """Attach hierarchy and level info to an object.
+
+    Parameters
+    ----------
+    obj : firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
+        The object to attach the hierarchy and level info to.
+    hierarchy : HierarchyBase
+        The hierarchy ``obj`` belongs to.
+    level : Fraction
+        The level of ``obj`` in ``hierarchy``.
+
+    Returns
+    -------
+    firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
+        ``obj``, unchanged.
+
+    """
+    for topology in _redistribution_ancestors(obj.topological):
+        setattr(topology, "__level_info__", (hierarchy, level))
+    return obj
+
+
+def get_level(obj):
+    """Try and obtain hierarchy and level info from an object.
+
+    If no level info is available, return ``None, None``."""
+    try:
+        return getattr(obj.topological, "__level_info__")
+    except AttributeError:
+        return None, None
+
+
+def has_level(obj):
+    """Does the provided object have level info?"""
+    return hasattr(obj.topological, "__level_info__")
+
+
+def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):
+    """Construct a cache key for node maps"""
+    _, levelf = get_level(Vf.mesh())
+    _, levelc = get_level(Vc.mesh())
+
+    if needs_coarse_entity_dofs:
+        key = entity_dofs_key(Vc.finat_element.entity_dofs())
+    else:
+        key = ()
+    key += entity_dofs_key(Vf.finat_element.entity_dofs())
+    key += (levelc, levelf)
+    key += (Vc.boundary_set, Vf.boundary_set)
+    return key
 
 
 def _preserved_point_sf(coarse_mesh, fine_to_coarse_points):
@@ -421,7 +541,7 @@ def restrict_preserved_nodes(fine_dual, coarse_dual):
     section_sf = preserved_node_sf(coarse_V, fine_dual.function_space())
     if section_sf is None:
         return
-    buffer = type(coarse_dual)(coarse_V)
+    buffer = firedrake.Function(coarse_V)
     mtype, _ = _get_mtype(buffer.dat)
     source = fine_dual.dat.data_ro
     target = buffer.dat.data_wo_with_halos
@@ -432,136 +552,3 @@ def restrict_preserved_nodes(fine_dual, coarse_dual):
     buffer.dat.local_to_global_begin(op2.INC)
     buffer.dat.local_to_global_end(op2.INC)
     coarse_dual.dat.data[...] += buffer.dat.data_ro
-
-
-def physical_node_locations(V):
-    element = V.ufl_element()
-    if V.value_shape:
-        assert isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement))
-        element = element.sub_elements[0]
-    mesh = V.mesh()
-    # This is a defaultdict, so the first time we access the key we
-    # get a fresh dict for the cache.
-    cache = mesh.geometric_shared_data_cache["hierarchy_physical_node_locations"]
-    key = (element, V.boundary_set)
-    try:
-        return cache[key]
-    except KeyError:
-        Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension))
-
-        # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.assemble(firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc))
-        return cache.setdefault(key, locations)
-
-
-def transfer_mesh(mesh):
-    """Return the mesh that grid transfer operates on.
-
-    A redistributed mesh has no cell maps relating it to the coarse mesh.
-    Transfers therefore go through the mesh it was redistributed from. The
-    values are then assigned across the two.
-
-    Parameters
-    ----------
-    mesh : firedrake.mesh.MeshGeometry
-        A mesh in a `HierarchyBase`.
-
-    Returns
-    -------
-    firedrake.mesh.MeshGeometry
-        ``mesh`` itself, or the mesh it was redistributed from.
-
-    """
-    return mesh.submesh_parent if mesh.submesh_point_sf is not None else mesh
-
-
-def _redistribution_ancestors(topology):
-    """Yield a mesh topology together with the topologies it was redistributed from.
-
-    The transfer operators work on the mesh a redistributed mesh came from,
-    so both must carry the same multigrid level.
-
-    Parameters
-    ----------
-    topology : firedrake.mesh.AbstractMeshTopology
-        The topology to start from.
-
-    Yields
-    ------
-    firedrake.mesh.AbstractMeshTopology
-        ``topology``, then each mesh topology it was redistributed from, in
-        order.
-
-    """
-    yield topology
-    while topology.submesh_point_sf is not None:
-        topology = topology.submesh_parent
-        yield topology
-
-
-def set_dm_refine_level(mesh, level):
-    """Set the refinement level of a mesh and of the meshes it was redistributed from.
-
-    Parameters
-    ----------
-    mesh : firedrake.mesh.MeshGeometry
-        The mesh to set the refinement level of.
-    level : int
-        The refinement level to set.
-
-    """
-    for topology in _redistribution_ancestors(mesh.topology):
-        topology.topology_dm.setRefineLevel(level)
-
-
-def set_level(obj, hierarchy, level):
-    """Attach hierarchy and level info to an object.
-
-    Parameters
-    ----------
-    obj : firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
-        The object to attach the hierarchy and level info to.
-    hierarchy : HierarchyBase
-        The hierarchy ``obj`` belongs to.
-    level : Fraction
-        The level of ``obj`` in ``hierarchy``.
-
-    Returns
-    -------
-    firedrake.mesh.MeshGeometry or firedrake.functionspaceimpl.WithGeometry
-        ``obj``, unchanged.
-
-    """
-    for topology in _redistribution_ancestors(obj.topological):
-        setattr(topology, "__level_info__", (hierarchy, level))
-    return obj
-
-
-def get_level(obj):
-    """Try and obtain hierarchy and level info from an object.
-
-    If no level info is available, return ``None, None``."""
-    try:
-        return getattr(obj.topological, "__level_info__")
-    except AttributeError:
-        return None, None
-
-
-def has_level(obj):
-    """Does the provided object have level info?"""
-    return hasattr(obj.topological, "__level_info__")
-
-
-def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):
-    """Construct a cache key for node maps"""
-    _, levelf = get_level(Vf.mesh())
-    _, levelc = get_level(Vc.mesh())
-
-    if needs_coarse_entity_dofs:
-        key = entity_dofs_key(Vc.finat_element.entity_dofs())
-    else:
-        key = ()
-    key += entity_dofs_key(Vf.finat_element.entity_dofs())
-    key += (levelc, levelf)
-    key += (Vc.boundary_set, Vf.boundary_set)
-    return key
