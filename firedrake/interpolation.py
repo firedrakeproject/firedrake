@@ -351,8 +351,13 @@ class Interpolator(abc.ABC):
         self._check_mat_type(mat_type)
 
         if mat_type == "matfree" and self.rank == 2:
+            Vrow, Vcol = (arg.function_space() for arg in self.interpolate_args)
+            if bcs is None:
+                bcs = ()
+            row_bcs = [bc for bc in bcs if bc.parent_function_space.topological == Vrow.topological]
+            col_bcs = [bc for bc in bcs if bc.parent_function_space.topological == Vcol.topological]
             ctx = ImplicitMatrixContext(
-                self.ufl_interpolate, row_bcs=bcs, col_bcs=bcs,
+                self.ufl_interpolate, row_bcs=row_bcs, col_bcs=col_bcs,
             )
             return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
 

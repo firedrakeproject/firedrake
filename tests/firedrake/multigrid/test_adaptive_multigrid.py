@@ -2,8 +2,8 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
-from firedrake.mg.utils import (coarse_cell_to_fine_node_map, transfer_mesh,
-                                transfer_node_subset)
+from firedrake.mg.utils import transfer_mesh, transfer_node_subset
+from firedrake.cython import mgimpl
 from firedrake.utils import complex_mode
 
 
@@ -36,9 +36,8 @@ def _linear_expr(mesh):
 def coarse_mesh(request):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesher = request.param
-    # Big enough that refining part of it leaves untouched cells behind.
-    # The transfers copy those cells' nodes instead of evaluating them.
-    # It also gives a coarse cell's child count a wide range.
+    # Big enough that refining part of it leaves untouched cells behind, and
+    # that a coarse cell's child count varies widely across the mesh.
     if mesher == "firedrake-square":
         return UnitSquareMesh(4, 4, distribution_parameters=dparams)
     elif mesher == "firedrake-cube":
@@ -105,7 +104,9 @@ def test_refine_marked_elements_is_local():
     markers.dat.data_wo[0] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
-    coarse_to_fine, _ = refined_mesh.adaptive_cell_maps
+    mh = MeshHierarchy(mesh)
+    mh.add_mesh(refined_mesh)
+    coarse_to_fine = mh.coarse_to_fine_cells[0]
 
     n_children = (coarse_to_fine >= 0).sum(axis=1)
     unmarked = np.ones(ncoarse, dtype=bool)
@@ -119,10 +120,8 @@ def test_refine_marked_elements_is_local():
 
 @pytest.mark.parallel([1, 2])
 def test_refine_marked_elements_repeats(coarse_mesh):
-    """A marker value of n refines the marked cells n times.
-
-    The cell maps reach all the way from the original mesh to the
-    n-times-refined one."""
+    """A marker value of n refines the marked cells n times, and the cell maps
+    reach all the way from the original mesh to the n-times-refined one."""
     mesh = coarse_mesh
     ncells = {}
     max_children = {}
@@ -132,7 +131,10 @@ def test_refine_marked_elements_repeats(coarse_mesh):
         markers.dat.data_wo[:1] = n
 
         refined_mesh = mesh.refine_marked_elements(markers)
-        coarse_to_fine, fine_to_coarse = refined_mesh.adaptive_cell_maps
+        mh = MeshHierarchy(mesh)
+        mh.add_mesh(refined_mesh)
+        coarse_to_fine = mh.coarse_to_fine_cells[0]
+        fine_to_coarse = mh.fine_to_coarse_cells[1]
 
         assert coarse_to_fine.shape[0] == mesh.cell_set.size
         assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
@@ -153,22 +155,44 @@ def test_refine_marked_elements_repeats(coarse_mesh):
 
 def test_add_mesh_rejects_unrelated_mesh():
     """Cell maps are only meaningful relative to the mesh they were built
-    against. Refuse a mesh refined from anything but the finest level,
-    instead of silently recording it with maps that belong to another
-    mesh."""
+    against, so a mesh refined from anything but the finest level is refused
+    rather than silently recorded with somebody else's maps."""
     mh = MeshHierarchy(UnitSquareMesh(2, 2))
 
     other = UnitSquareMesh(4, 4)
-    assert other.adaptive_parent is None
+    assert other._adaptive_parent is None
     with pytest.raises(ValueError):
         mh.add_mesh(other)
 
     markers = Function(FunctionSpace(other, "DG", 0))
     markers.dat.data_wo[:1] = 1
     foreign = other.refine_marked_elements(markers)
-    assert foreign.adaptive_parent is other
+    assert foreign._adaptive_parent is other
     with pytest.raises(ValueError):
         mh.add_mesh(foreign)
+
+
+def test_hierarchy_rejects_partial_cell_maps():
+    mesh = UnitSquareMesh(1, 1)
+    with pytest.raises(ValueError, match="must be provided together"):
+        HierarchyBase((mesh,), coarse_to_fine_cells={}, fine_to_coarse_cells=None)
+
+
+@pytest.mark.parallel([1, 2])
+def test_mesh_hierarchy_without_overlap_uses_local_point_maps():
+    dparams = {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+    transformed = []
+    mh = MeshHierarchy(
+        UnitSquareMesh(4, 4, distribution_parameters=dparams),
+        refinement_levels=1,
+        distribution_parameters=dparams,
+        callbacks=(lambda dm, level: None, lambda dm, level: transformed.append(dm)),
+    )
+
+    assert np.array_equal(
+        mh.fine_to_coarse_points[1],
+        mgimpl.transform_source_points(transformed[0]),
+    )
 
 
 @pytest.mark.parallel([1, 2, 4])
@@ -182,7 +206,7 @@ def test_adapt_basic():
     assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
 
 
-def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
+def test_CG1_native_transfers(coarse_mesh):
     mesh = coarse_mesh
     mh = MeshHierarchy(mesh)
 
@@ -221,11 +245,10 @@ def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
 
 
 def _assert_adapt_after_uniform_refinement(mh):
-    """Adaptively refine the finest level of the hierarchy ``mh``.
-
-    Mark a single cell and check that the cell maps of the new level are
-    sane. The ``test_adapt_after_uniform_*refinement`` tests share this
-    helper; they differ only in how they build ``mh``.
+    """Adaptively refine the finest level of the uniformly-refined hierarchy
+    ``mh`` by marking a single cell, and check that the cell maps of the level
+    this adds are sane. Shared by the ``test_adapt_after_uniform_*refinement``
+    tests, which only differ in how ``mh`` itself was built.
     """
     mesh = mh[-1]
     level = len(mh)
@@ -271,10 +294,9 @@ def test_adapt_after_uniform_netgen_refinement():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", [1, 2])
 def test_adapt_preserves_mesh_metadata(degree):
-    """Adaptive refinement carries mesh metadata to the refined mesh.
-
-    It copies the Netgen geometry, flags, and construction parameters, so
-    the refined mesh can itself be refined again."""
+    """Adaptive refinement carries the Netgen geometry and flags, and the mesh
+    construction parameters, over to the refined mesh, so that the refined
+    mesh can itself be refined again."""
     from netgen.geom2d import CSG2d, Circle
     geo = CSG2d()
     geo.Add(Circle(center=(0, 0), radius=1.0, bc="circle"))
@@ -303,8 +325,7 @@ def test_adapt_preserves_mesh_metadata(degree):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_after_uniform_refinement(coarse_mesh, refine):
     """A hierarchy built by uniform refinement can be adaptively refined."""
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-    mh = MeshHierarchy(coarse_mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(coarse_mesh, refine)
     _assert_adapt_after_uniform_refinement(mh)
 
 
@@ -312,18 +333,15 @@ def test_adapt_after_uniform_refinement(coarse_mesh, refine):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     """An adaptively refined mesh can be uniformly refined into a hierarchy.
-
-    Its plex numbers cells by refinement case. This interleaves owned cells
-    with halo cells, and the cell maps must not assume otherwise.
+    Its plex numbers cells by refinement case, so its owned cells are
+    interleaved with its halo cells, which the cell maps must not assume away.
     """
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-
     M = FunctionSpace(coarse_mesh, "DG", 0)
     markers = Function(M)
     markers.dat.data_wo[:1] = 1
     mesh = coarse_mesh.refine_marked_elements(markers)
 
-    mh = MeshHierarchy(mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(mesh, refine)
     assert len(mh) == refine + 1
     assert np.allclose(assemble(1*dx(mh[-1])), assemble(1*dx(coarse_mesh)))
 
@@ -339,6 +357,59 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
         assert (fine_to_coarse >= 0).all()
         parents = np.arange(coarse_to_fine.shape[0]).reshape(-1, 1)
         assert (fine_to_coarse[coarse_to_fine, 0] == parents).all()
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
+def test_dg_injection_conserves_mass(mh, family, degree):
+    """Test that DG injection conserves mass locally on every coarse cell."""
+    rg = RandomGenerator(PCG64(seed=0))
+    padded = False
+    for level in range(len(mh) - 1):
+        coarse_mesh = mh[level]
+        fine_mesh = mh[level + 1]
+        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cell_set.size]
+        valid = children >= 0
+        assert (children[valid] < fine_mesh.cell_set.size).all()
+        # Adaptive refinement gives rows different child counts, so the map
+        # should be padded with -1.
+        padded |= bool((children < 0).any())
+
+        u_fine = rg.uniform(FunctionSpace(fine_mesh, family, degree))
+        u_coarse = Function(FunctionSpace(coarse_mesh, family, degree))
+        inject(u_fine, u_coarse)
+
+        # Compute mass on each coarse cell
+        W_coarse = FunctionSpace(coarse_mesh, "DG", 0)
+        mass_coarse = assemble(inner(u_coarse, TestFunction(W_coarse)) * dx).dat.data_ro
+        mass_coarse = mass_coarse[:coarse_mesh.cell_set.size]
+
+        W_fine = FunctionSpace(fine_mesh, "DG", 0)
+        mass_per_child = assemble(inner(u_fine, TestFunction(W_fine)) * dx).dat.data_ro
+        mass_fine = np.where(valid, mass_per_child[children], 0).sum(axis=1)
+        assert np.allclose(mass_coarse, mass_fine, rtol=1e-12, atol=1e-14)
+
+    # Require at least one padded child row in the hierarchy.
+    assert mh[0].comm.allreduce(padded, MPI.LOR)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("degree", [0, 1])
+def test_dg_injection_conserves_mass_extruded(degree):
+    """Test that DG injection should conserves mass globally on an extruded adaptive hierarchy."""
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
+    mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
+    assert mh[0].comm.allreduce(bool((mh.coarse_to_fine_cells[1] < 0).any()), MPI.LOR)
+
+    rg = RandomGenerator(PCG64(seed=0))
+    for level in range(len(mh) - 1):
+        u_fine = rg.uniform(FunctionSpace(mh[level + 1], "DG", degree))
+        u_coarse = Function(FunctionSpace(mh[level], "DG", degree))
+        inject(u_fine, u_coarse)
+        assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
 
 
 def _representable_expr(mesh, degree):
@@ -365,135 +436,6 @@ def _copied_nodes(mh, V):
         visited = min(len(subset.indices), V_fine.node_set.size)
         copied += V_fine.node_set.size - visited
     return mh[0].comm.allreduce(copied, MPI.SUM)
-
-
-def _coarse_cell_integrals(mh, level, u_coarse, u_fine):
-    """Integrate a coarse and a fine function over each owned coarse cell.
-
-    Both returned arrays hold one entry per owned cell of ``mh[level]``. The
-    first is the integral of ``u_coarse`` over that cell. The second is the
-    integral of ``u_fine`` over that cell's fine children.
-    """
-    coarse_mesh = mh[level]
-    fine_mesh = mh[level + 1]
-
-    # A DG0 test function integrates over one cell per entry.
-    W_coarse = FunctionSpace(coarse_mesh, "DG", 0)
-    mass_coarse = assemble(TestFunction(W_coarse) * u_coarse * dx).dat.data_ro
-    W_fine = FunctionSpace(fine_mesh, "DG", 0)
-    mass_per_child = assemble(TestFunction(W_fine) * u_fine * dx).dat.data_ro
-
-    # Refinement acts on each rank's own plex, so the children of an owned
-    # coarse cell are owned fine cells. Summing the owned children of each
-    # owned coarse cell therefore needs no halo exchange.
-    children = mh.coarse_to_fine_cells[level][:coarse_mesh.cell_set.size]
-    valid = children >= 0
-    assert (children[valid] < fine_mesh.cell_set.size).all()
-    mass_fine = np.where(valid, mass_per_child[children], 0).sum(axis=1)
-    return mass_coarse[:coarse_mesh.cell_set.size], mass_fine
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
-def test_dg_injection_conserves_mass(mh, family, degree):
-    """DG injection conserves mass on every coarse cell.
-
-    Injection into a DG space is a cellwise L2 projection. Every DG space
-    holds the constants. Test that projection against the constant 1, and
-    the integral of the injected function over a coarse cell must equal the
-    integral of the fine function over that cell's children.
-
-    A random fine function makes this test bite. The step function that
-    `test_DG0` injects is constant on a unit domain. Injecting a constant
-    only checks that the children's volumes add up to the coarse cell's
-    volume. It passes even when the kernel integrates over the wrong set
-    of children.
-    """
-    padded = False
-    for level in range(len(mh) - 1):
-        # A coarse cell that the refinement left alone has one child, and a
-        # refined one has several. The macro-cell map pads the short rows.
-        # Only the levels that leave some cells alone exercise that padding.
-        padded |= bool((mh.coarse_to_fine_cells[level] < 0).any())
-
-        V_coarse = FunctionSpace(mh[level], family, degree)
-        V_fine = FunctionSpace(mh[level + 1], family, degree)
-
-        u_fine = Function(V_fine)
-        rng = np.random.default_rng(42 + mh[0].comm.rank)
-        u_fine.dat.data_wo[:] = rng.standard_normal(u_fine.dat.data_wo.shape)
-
-        u_coarse = Function(V_coarse)
-        inject(u_fine, u_coarse)
-
-        mass_coarse, mass_fine = _coarse_cell_integrals(mh, level, u_coarse, u_fine)
-        assert np.allclose(mass_coarse, mass_fine, rtol=1e-12, atol=1e-14)
-
-    # The padded rows are the point of this test. A hierarchy that refines
-    # every cell of every level says nothing about them.
-    assert mh[0].comm.allreduce(padded, MPI.LOR)
-
-
-def _poison_padding(mh, level, Vc, Vf):
-    """Point every padded slot of the macro-cell map at a real child.
-
-    ``coarse_cell_to_fine_node_map`` pads each coarse cell's row of children
-    out to the width of the busiest cell on the level. This overwrites that
-    padding with a copy of the row's first real child. Reading a padded slot
-    then integrates over a genuine, non-degenerate cell, and counts it twice.
-
-    Returns the number of slots it overwrote.
-    """
-    children = mh.coarse_to_fine_cells[level][:mh[level].cell_set.size]
-    valid = children >= 0
-    # Rows carry different numbers of children, so the padded slots do not
-    # form a rectangle. Address them as a flat list of (row, slot) pairs.
-    rows, slots = np.nonzero(~valid & valid.any(axis=1)[:, None])
-    first = valid.argmax(axis=1)
-
-    poisoned = 0
-    for V in (Vf, Vf.mesh().coordinates.function_space()):
-        cmap = coarse_cell_to_fine_node_map(Vc, V)
-        values = cmap.values[:mh[level].cell_set.size]
-        values = values.reshape(children.shape[0], children.shape[1], -1)
-        values[rows, slots] = values[rows, first[rows]]
-        poisoned += len(rows)
-    return poisoned
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
-def test_dg_injection_ignores_padded_children(mh, family, degree):
-    """DG injection never reads the padding of the macro-cell map.
-
-    The kernel integrates over a fixed number of child slots per coarse
-    cell, and adaptive refinement gives different coarse cells different
-    numbers of children. The kernel must stop at each cell's own children.
-
-    Point the padding at a real child, so that reading it would integrate
-    over that child a second time. Mass conservation still holds only if the
-    kernel leaves the padding alone. A kernel that runs to the full width
-    fails here, whether the padding holds a duplicate child or the -1 that
-    `op2.Map` reads out of bounds.
-    """
-    level = len(mh) - 2
-    V_coarse = FunctionSpace(mh[level], family, degree)
-    V_fine = FunctionSpace(mh[level + 1], family, degree)
-
-    poisoned = _poison_padding(mh, level, V_coarse, V_fine)
-    assert mh[0].comm.allreduce(poisoned, MPI.SUM) > 0
-
-    u_fine = Function(V_fine)
-    rng = np.random.default_rng(7 + mh[0].comm.rank)
-    u_fine.dat.data_wo[:] = rng.standard_normal(u_fine.dat.data_wo.shape)
-
-    u_coarse = Function(V_coarse)
-    inject(u_fine, u_coarse)
-
-    mass_coarse, mass_fine = _coarse_cell_integrals(mh, level, u_coarse, u_fine)
-    assert np.allclose(mass_coarse, mass_fine, rtol=1e-12, atol=1e-14)
 
 
 @pytest.mark.parallel([1, 2, 4])

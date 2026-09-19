@@ -1,7 +1,8 @@
 # Core build dependencies (adapted from pyproject.toml)
 Cython>=3.0
 firedrake-rtree>=2026.2.0
-libsupermesh>=2026.0
+# TODO RELEASE
+libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main
 mpi4py>3; python_version >= '3.13'
 mpi4py; python_version < '3.13'
 numpy
@@ -9,6 +10,7 @@ pkgconfig
 petsctools
 pybind11
 setuptools>=77.0.3
+rtree
 
 # Transitive build dependencies
 hatchling

@@ -3,7 +3,6 @@ import warnings
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
-
 from pyop2.datatypes import IntType
 
 import petsctools
@@ -13,7 +12,7 @@ from functools import cached_property
 from firedrake import utils
 from firedrake.cython import dmcommon
 from firedrake.cython import mgimpl as impl
-from .utils import set_level, set_dm_refine_level
+from .utils import set_level, set_dm_refine_level, transfer_mesh
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
@@ -41,17 +40,27 @@ class HierarchyBase(object):
     meshes :
         List of meshes (coarse to fine).
     coarse_to_fine_cells :
-        List of numpy arrays for each level pair, mapping each coarse cell
-        into fine cells it intersects.
+        Optional list of numpy arrays for each level pair, mapping each coarse
+        cell into fine cells it intersects. Every row is as wide as the
+        busiest coarse cell's count, so a coarse cell with fewer fine cells
+        has its row right-padded with -1. Omit this and
+        ``fine_to_coarse_cells`` together to derive both maps from
+        ``fine_to_coarse_points``.
     fine_to_coarse_cells :
-        List of numpy arrays for each level pair, mapping each fine cell into
-        coarse cells it intersects.
+        Optional list of numpy arrays for each level pair, mapping each fine
+        cell into coarse cells it intersects. Omit this and
+        ``coarse_to_fine_cells`` together to derive both maps from
+        ``fine_to_coarse_points``.
     refinements_per_level :
         Number of mesh refinements each multigrid level should "see".
     nested :
         Is this mesh hierarchy nested?
     redistribute :
         Redistribute adaptively refined meshes that have empty ranks?
+    fine_to_coarse_points :
+        Dict of numpy arrays for each level that was refined from the level
+        below it, mapping each DMPlex point to the coarse DMPlex point that it
+        was refined from, or to -1.
 
     Notes
     -----
@@ -59,16 +68,29 @@ class HierarchyBase(object):
     using `MeshHierarchy`, `ExtrudedMeshHierarchy`, or `NonNestedHierarchy`.
 
     """
-    def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                 refinements_per_level=1, nested=False, redistribute=True):
+    def __init__(self, meshes, coarse_to_fine_cells=None, fine_to_coarse_cells=None,
+                 refinements_per_level=1, nested=False,
+                 fine_to_coarse_points=None, redistribute=True):
         petsctools.cite("Mitchell2016")
         self._meshes = list(meshes)
         self.meshes = self._meshes[::refinements_per_level]
-        self.coarse_to_fine_cells = coarse_to_fine_cells
-        self.fine_to_coarse_cells = fine_to_coarse_cells
         self.refinements_per_level = refinements_per_level
         self.nested = nested
         self.redistribute = redistribute
+        self.fine_to_coarse_points = dict(fine_to_coarse_points or {})
+        if (coarse_to_fine_cells is None) != (fine_to_coarse_cells is None):
+            raise ValueError("coarse_to_fine_cells and fine_to_coarse_cells must be provided together")
+        if coarse_to_fine_cells is None:
+            coarse_to_fine_cells = {}
+            fine_to_coarse_cells = {Fraction(0, 1): None}
+            for i, (coarse, fine) in enumerate(zip(self._meshes[:-1], self._meshes[1:])):
+                c2f, f2c = impl.coarse_to_fine_cells(
+                    transfer_mesh(coarse), transfer_mesh(fine),
+                    self.fine_to_coarse_points[Fraction(i+1, refinements_per_level)])
+                coarse_to_fine_cells[Fraction(i, refinements_per_level)] = c2f
+                fine_to_coarse_cells[Fraction(i+1, refinements_per_level)] = f2c
+        self.coarse_to_fine_cells = coarse_to_fine_cells
+        self.fine_to_coarse_cells = fine_to_coarse_cells
         for level, m in enumerate(meshes):
             set_level(m, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
@@ -125,9 +147,13 @@ class HierarchyBase(object):
         if self.refinements_per_level != 1:
             raise NotImplementedError("Cannot add a mesh to a hierarchy with "
                                       "refinements_per_level > 1")
+        fine_to_coarse_points = None
+        if mesh._adaptive_parent is self[-1]:
+            fine_to_coarse_points = mesh._adaptive_fine_to_coarse_points
         if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
-            if mesh.adaptive_parent is self[-1]:
-                coarse_to_fine_cells, fine_to_coarse_cells = mesh.adaptive_cell_maps
+            if fine_to_coarse_points is not None:
+                coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
+                    self[-1], transfer_mesh(mesh), fine_to_coarse_points)
             elif self.nested:
                 raise ValueError("Expecting a mesh adaptively refined from the finest "
                                  "level of this hierarchy, or explicit cell maps")
@@ -136,9 +162,10 @@ class HierarchyBase(object):
         self._meshes.append(mesh)
         self.meshes.append(mesh)
         set_level(mesh, self, level)
-        mesh.topology_dm.setRefineLevel(level)
+        set_dm_refine_level(mesh, level)
         self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
         self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
+        self.fine_to_coarse_points[Fraction(level, 1)] = fine_to_coarse_points
         return mesh
 
     def adapt(self, eta, theta: float):
@@ -187,7 +214,7 @@ class HierarchyBase(object):
 
 def MeshHierarchy(mesh, refinement_levels=0,
                   refinements_per_level=1,
-                  netgen_flags=False,
+                  netgen_flags=None,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
                   mesh_builder=firedrake.Mesh, nested=True,
@@ -205,10 +232,13 @@ def MeshHierarchy(mesh, refinement_levels=0,
     refinements_per_level : int
         the number of refinements for each level in the hierarchy.
         Adaptive refinement only supports one refinement per level.
-    netgen_flags : bool, dict
-        either a bool or a dictionary containing options for Netgen.
-        If not False the hierachy is constructed using ngsPETSc, if
-        None hierarchy constructed in a standard manner.
+    netgen_flags : dict or None
+        Options for a mesh generated by Netgen. If ``mesh`` was generated by
+        Netgen and this value is ``None``, the hierarchy reuses its Netgen
+        flags. The vertices of each refined mesh are snapped onto the Netgen
+        geometry. The ``"degree"`` option sets the degree of the curved
+        coordinates, either as an integer or as a sequence with one entry per
+        level in the hierarchy. The ``"cg"`` option sets their continuity.
     distribution_parameters : dict
         options controlling mesh distribution, see :py:func:`.Mesh`
         for details.  If ``None``, use the same distribution
@@ -241,15 +271,27 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     """
 
-    if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
+    nlevels = refinement_levels + 1
+    is_netgen = hasattr(mesh, "netgen_mesh")
+    if netgen_flags is not None and not isinstance(netgen_flags, dict):
+        raise TypeError("netgen_flags must be a dictionary or None")
+    if netgen_flags is not None and not is_netgen:
+        raise RuntimeError("Cannot pass netgen_flags to a mesh that was not generated by Netgen.")
+    if is_netgen:
         utils.check_netgen_installed()
-        from firedrake.mg.netgen import NetgenHierarchy
+        from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
+        if netgen_flags is None:
+            netgen_flags = mesh.netgen_flags
+        degree = netgen_flags.get("degree", 1)
+        if isinstance(degree, int):
+            degree = (degree,) * nlevels
+        if len(degree) != nlevels:
+            raise ValueError(f"Expecting one coordinate degree per level in the hierarchy ({nlevels}), "
+                             f"got {len(degree)}.")
+        cg_field = netgen_flags.get("cg")
+        ngmeshes = [mesh.netgen_mesh]
+        mesh = _curve_netgen_mesh(mesh, degree[0], cg_field=cg_field)
 
-        if hasattr(mesh, "netgen_mesh"):
-            return NetgenHierarchy(mesh, refinement_levels, flags=netgen_flags)
-        else:
-            raise RuntimeError("Cannot create a NetgenHierarchy from a mesh that has not been generated by\
-                                Netgen.")
     if callbacks is not None:
         before, after = callbacks
     else:
@@ -262,24 +304,28 @@ def MeshHierarchy(mesh, refinement_levels=0,
         parameters.update(mesh._distribution_parameters)
     parameters["partition"] = False
 
-    # Refine an unoverlapped plex at each level, and redistribute the
-    # refined mesh whenever refining alone would leave empty ranks. Keeping
-    # the refined plex unoverlapped means that overlap only ever needs to be
-    # added once, by mesh_builder below.
+    # Refine one level at a time. Redistribute a level before refining the
+    # next one, so that each cell map uses the numbering of the mesh that the
+    # transfer operators receive.
     cdm = mesh.topology_dm
     if refinement_levels > 0:
         cdm = make_unoverlapped_dm(cdm)
-    lgmaps = [(impl.create_lgmap(cdm), impl.create_lgmap(mesh.topology_dm))]
     meshes = [mesh]
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
+    coarse_to_fine_cells = {}
+    fine_to_coarse_cells = {Fraction(0, 1): None}
+    fine_to_coarse_points = {}
     for i in range(refinement_levels*refinements_per_level):
         cdm.setRefinementUniform(True)
         if i % refinements_per_level == 0:
             before(cdm, i)
+        cdm.setSaveTransform()
         rdm = cdm.refine()
+        source_points = impl.transform_source_points(rdm)
         if i % refinements_per_level == 0:
             after(rdm, i)
+        if is_netgen:
+            ngmesh = _snap_to_netgen(rdm, mesh.netgen_mesh)
+            ngmeshes.append(ngmesh)
         # Fix up coords if refining embedded circle or sphere
         if hasattr(mesh, '_radius'):
             # FIXME, really we need some CAD-like representation
@@ -290,9 +336,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
-        # The cell maps relate the refined mesh to the mesh it was refined
-        # from, so they must be built before it is redistributed.
-        rlgmap = impl.create_lgmap(rdm)
         fmesh = mesh_builder(
             rdm,
             dim=mesh.geometric_dimension,
@@ -300,55 +343,105 @@ def MeshHierarchy(mesh, refinement_levels=0,
             reorder=reorder,
             comm=mesh.comm,
         )
-        flgmaps = (rlgmap, impl.create_lgmap(fmesh.topology_dm))
-        c2f, f2c = impl.coarse_to_fine_cells(meshes[-1], fmesh, lgmaps[-1], flgmaps)
-        coarse_to_fine_cells.append(c2f)
-        fine_to_coarse_cells.append(f2c)
+        if is_netgen:
+            fmesh.netgen_mesh = ngmesh
+            fmesh.netgen_flags = netgen_flags
+            level, remainder = divmod(i + 1, refinements_per_level)
+            if remainder == 0:
+                fmesh = _curve_netgen_mesh(fmesh, degree[level], cg_field=cg_field)
+
+        num_halo_cells = (meshes[-1].cell_set.total_size - meshes[-1].cell_set.size
+                          + fmesh.cell_set.total_size - fmesh.cell_set.size)
+        no_halo_cells = mesh.comm.allreduce(num_halo_cells) == 0
+        if no_halo_cells:
+            coarse_lgmap = fine_lgmap = None
+        else:
+            coarse_lgmap = impl.create_lgmap(cdm)
+            fine_lgmap = impl.create_lgmap(rdm)
+        points = impl.overlapped_fine_to_coarse_points(
+            meshes[-1], fmesh, source_points,
+            coarse_lgmap, fine_lgmap
+        )
+        coarse_to_fine, fine_to_coarse = impl.coarse_to_fine_cells(
+            meshes[-1], fmesh, points
+        )
+        level = Fraction(i, refinements_per_level)
+        next_level = Fraction(i + 1, refinements_per_level)
+        coarse_to_fine_cells[level] = coarse_to_fine
+        fine_to_coarse_cells[next_level] = fine_to_coarse
+        fine_to_coarse_points[next_level] = points
 
         if redistribute and fmesh.has_empty_rank:
             fmesh = firedrake.Submesh(fmesh, redistribute=True)
         cdm = make_unoverlapped_dm(fmesh.topology_dm)
-        lgmaps.append((impl.create_lgmap(cdm), impl.create_lgmap(fmesh.topology_dm)))
         meshes.append(fmesh)
 
     for i, m in enumerate(meshes):
         # Firedrake counts multigrid levels, PETSc counts refinements
         set_dm_refine_level(m, i)
 
-    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
-                                for i, c2f in enumerate(coarse_to_fine_cells))
-    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
-                                for i, f2c in enumerate(fine_to_coarse_cells))
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level, nested=nested,
+    return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
+                         nested=nested, fine_to_coarse_points=fine_to_coarse_points,
+                         coarse_to_fine_cells=coarse_to_fine_cells,
+                         fine_to_coarse_cells=fine_to_coarse_cells,
                          redistribute=redistribute)
 
 
-def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_ratio=2, layers=None,
-                          kernel=None, extrusion_type='uniform', gdim=None,
-                          mesh_builder=firedrake.ExtrudedMesh):
+def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
+                          height: float,
+                          base_layer: int = -1,
+                          refinement_ratio: int = 2,
+                          layers: Sequence[int] | None = None,
+                          kernel=None,
+                          extrusion_type: str = 'uniform',
+                          periodic: bool = False,
+                          gdim: int | None = None,
+                          mesh_builder=firedrake.ExtrudedMesh
+                          ) -> HierarchyBase:
     """Build a hierarchy of extruded meshes by extruding a hierarchy of meshes.
 
-    :arg base_hierarchy: the unextruded base mesh hierarchy to extrude.
-    :arg height: the height of the domain to extrude to. This is in contrast
-       to the extrusion routines, which take in layer_height, the height of
-       an individual layer. This is because when refining in the extruded
-       dimension, the height of an individual layer will vary.
-    :arg base_layer: the number of layers to use the extrusion of the coarsest
-       grid.
-    :arg refinement_ratio: the ratio by which base_layer should be increased
-       on every refinement. refinement_ratio = 2 means standard uniform
-       refinement. refinement_ratio = 1 means to not refine in the extruded
-       dimension, i.e. the multigrid hierarchy will use semicoarsening.
-    :arg layers: as an alternative to specifying base_layer and refinement_ratio,
-       one may specify directly the number of layers to be used by each level
-       in the extruded hierarchy. This option cannot be combined with base_layer
-       and refinement_ratio. Note that the ratio of successive entries in this
-       iterable must be an integer for the multigrid transfer operators to work.
-    :arg mesh_builder: function used to turn a ``Mesh`` into an
-       extruded mesh. Used by pyadjoint.
+    Parameters
+    ----------
+    base_hierarchy : HierarchyBase
+        The unextruded base mesh hierarchy to extrude.
+    height : float
+        The height of the domain to extrude to. This is in contrast to the
+        extrusion routines, which take ``layer_height``, the height of an
+        individual layer. The height of an individual layer varies when the
+        hierarchy is refined in the extruded dimension.
+    base_layer : int
+        The number of layers to use for the coarsest grid.
+    refinement_ratio : int
+        The ratio by which to increase ``base_layer`` at every refinement. A
+        value of 2 gives standard uniform refinement, and a value of 1 does
+        not refine in the extruded dimension, which gives a semicoarsened
+        hierarchy.
+    layers : Sequence[int] or None
+        An alternative to specifying ``base_layer`` and ``refinement_ratio``.
+        This sequence gives the number of layers at each level in the
+        extruded hierarchy. Do not combine this option with ``base_layer`` and
+        ``refinement_ratio``. The ratio of successive entries must be an
+        integer for the multigrid transfer operators to work.
+    kernel : pyop2.op2.Kernel or None
+        An optional kernel that computes the coordinates of the extruded mesh.
+    extrusion_type : str
+        The algorithm that computes the extruded coordinates. Supported
+        values include ``"uniform"``, ``"radial"``,
+        ``"radial_hedgehog"``, and ``"custom"``.
+    periodic : bool
+        Whether to identify the top and bottom boundaries of each extruded
+        mesh. Periodic extrusion requires a constant number of layers.
+    gdim : int or None
+        The number of spatial dimensions in the resulting mesh. This value is
+        used only when ``kernel`` is provided.
+    mesh_builder : collections.abc.Callable
+        The function that turns a ``Mesh`` into an extruded mesh. This is used
+        by pyadjoint.
 
-    See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
+    Returns
+    -------
+    HierarchyBase
+        The hierarchy of extruded meshes.
     """
     if not isinstance(base_hierarchy, HierarchyBase):
         raise ValueError("Expecting a HierarchyBase, not a %r" % type(base_hierarchy))
@@ -366,6 +459,7 @@ def ExtrudedMeshHierarchy(base_hierarchy, height, base_layer=-1, refinement_rati
     meshes = [mesh_builder(m, layer, kernel=kernel,
                            layer_height=height/layer,
                            extrusion_type=extrusion_type,
+                           periodic=periodic,
                            gdim=gdim)
               for (m, layer) in zip(base_hierarchy._meshes, layers)]
 
@@ -501,27 +595,24 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
                                 comm=comm)
               for mesh in parent_hierarchy._meshes]
 
-    lgmaps_with_overlap = []
-    for i, m in enumerate(meshes):
-        lgmaps_with_overlap.append(impl.create_lgmap(m.topology_dm))
-        m.topology_dm.setRefineLevel(i)
-    lgmaps_without_overlap = lgmaps_with_overlap
-    lgmaps = [
-        (no, o) for no, o in zip(lgmaps_without_overlap, lgmaps_with_overlap)
-    ]
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
-                                                  zip(lgmaps[:-1], lgmaps[1:])):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
-        coarse_to_fine_cells.append(c2f)
-        fine_to_coarse_cells.append(f2c)
-
     refinements_per_level = parent_hierarchy.refinements_per_level
-    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
-                                for i, c2f in enumerate(coarse_to_fine_cells))
-    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
-                                for i, f2c in enumerate(fine_to_coarse_cells))
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level=refinements_per_level,
-                         nested=parent_hierarchy.nested)
+    fine_to_coarse_points = {}
+    for i, (coarse, fine) in enumerate(zip(meshes[:-1], meshes[1:])):
+        level = Fraction(i+1, refinements_per_level)
+        parent_points = parent_hierarchy.fine_to_coarse_points.get(level)
+        if parent_points is None:
+            raise ValueError("SubmeshHierarchy requires a hierarchy whose DMPlex "
+                             f"points on level {level} are refined from the level below")
+        # A submesh point is a point of its parent. Refine it in the parent,
+        # then look for the result among the points of the coarse submesh.
+        coarse_subpoints = coarse.topology_dm.getSubpointIS().indices
+        parent_to_coarse = np.full(parent_hierarchy._meshes[i].topology_dm.getChart()[1], -1, dtype=IntType)
+        parent_to_coarse[coarse_subpoints] = np.arange(len(coarse_subpoints), dtype=IntType)
+        points = impl.compose_points(parent_points, fine.topology_dm.getSubpointIS().indices)
+        fine_to_coarse_points[level] = impl.compose_points(parent_to_coarse, points)
+
+    for i, m in enumerate(meshes):
+        m.topology_dm.setRefineLevel(i)
+    return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
+                         nested=parent_hierarchy.nested,
+                         fine_to_coarse_points=fine_to_coarse_points)
