@@ -1,12 +1,14 @@
 
 import numpy
 import collections
+import functools
 
 from ufl import as_tensor, as_vector, split
 from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
-from ufl.algorithms.map_integrands import map_integrand_dags
+import ufl.classes
+from ufl.algorithms.map_integrands import map_integrands
 from ufl.algorithms import expand_derivatives
-from ufl.corealg.map_dag import MultiFunction, map_expr_dags
+from ufl.corealg.dag_traverser import DAGTraverser
 
 from pyop2 import MixedDat
 from pyop2.utils import as_tuple
@@ -26,41 +28,37 @@ def subspace(V, indices):
     return W.collapse()
 
 
-class ExtractSubBlock(MultiFunction):
+class IndexInliner(DAGTraverser):
+
+    """Inline fixed index of list tensors."""
+
+    @functools.singledispatchmethod
+    def process(self, o):
+        return self.reuse_if_untouched(o)
+
+    @process.register(ufl.classes.MultiIndex)
+    def _(self, o):
+        return o
+
+    @process.register(ufl.classes.Indexed)
+    @DAGTraverser.postorder
+    def _(self, o, child, multiindex):
+        indices = multiindex.indices()
+        if isinstance(child, ListTensor) and all(isinstance(i, FixedIndex) for i in indices):
+            if len(indices) == 1:
+                return child[indices[0]]
+            elif len(indices) == len(child.ufl_operands) and all(k == int(i) for k, i in enumerate(indices)):
+                return child
+            else:
+                return ListTensor(*(child[i] for i in indices))
+        return self.reuse_if_untouched(o)
+
+
+class ExtractSubBlock(DAGTraverser):
 
     """Extract a sub-block from a form."""
 
-    class IndexInliner(MultiFunction):
-        """Inline fixed index of list tensors"""
-        expr = MultiFunction.reuse_if_untouched
-
-        def multi_index(self, o):
-            return o
-
-        def indexed(self, o, child, multiindex):
-            indices = multiindex.indices()
-            if isinstance(child, ListTensor) and all(isinstance(i, FixedIndex) for i in indices):
-                if len(indices) == 1:
-                    return child[indices[0]]
-                elif len(indices) == len(child.ufl_operands) and all(k == int(i) for k, i in enumerate(indices)):
-                    return child
-                else:
-                    return ListTensor(*(child[i] for i in indices))
-            return self.expr(o, child, multiindex)
-
-    @property
-    def index_inliner(self):
-        """Return an IndexInliner multifunction.
-
-        This is a property so that the IndexInliner is not created on import.
-        This is a workaround for issues in Irksome caused by the UFL typecode
-        system.
-        """
-        try:
-            return self._index_inliner
-        except AttributeError:
-            type(self)._index_inliner = self.IndexInliner()
-        return self._index_inliner
+    index_inliner = IndexInliner()
 
     def _subspace_argument(self, a):
         return type(a)(subspace(a.function_space(), self.blocks[a.number()]),
@@ -82,6 +80,9 @@ class ExtractSubBlock(MultiFunction):
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
+        # The result depends on self.blocks, so do not reuse results from a previous split.
+        self._visited_cache.clear()
+        self._result_cache.clear()
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -90,25 +91,31 @@ class ExtractSubBlock(MultiFunction):
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
-        f = map_integrand_dags(self, form)
+        f = map_integrands(self, form)
         if expand_derivatives(f).empty():
             # Get ZeroBaseForm with the right shape
             f = ZeroBaseForm(tuple(map(self._subspace_argument, form.arguments())))
         return f
 
-    expr = MultiFunction.reuse_if_untouched
+    @functools.singledispatchmethod
+    def process(self, o):
+        return self.reuse_if_untouched(o)
 
-    def multi_index(self, o):
+    @process.register(ufl.classes.MultiIndex)
+    def _(self, o):
         return o
 
-    def expr_list(self, o, *operands):
+    @process.register(ufl.classes.ExprList)
+    def _(self, o):
         # Inline list tensor indexing.
         # This fixes a problem where we extract a subblock from
         # derivative(foo, ...) and end up with the "Argument" looking like
         # [v_0, v_2, v_3][1, 2]
-        return self.expr(o, *map_expr_dags(self.index_inliner, operands))
+        return self.index_inliner(self.reuse_if_untouched(o))
 
-    def coefficient_derivative(self, o, expr, coefficients, arguments, cds):
+    @process.register(ufl.classes.CoefficientDerivative)
+    @DAGTraverser.postorder
+    def _(self, o, expr, coefficients, arguments, cds):
         argument, = arguments
         if (isinstance(argument, Zero)
             or (isinstance(argument, ListTensor)
@@ -118,10 +125,11 @@ class ExtractSubBlock(MultiFunction):
             # propagate a zero in that case.
             return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
         else:
-            return self.reuse_if_untouched(o, expr, coefficients, arguments, cds)
+            return self.reuse_if_untouched(o)
 
+    @process.register(ufl.classes.Argument)
     @PETSc.Log.EventDecorator()
-    def argument(self, o):
+    def _(self, o):
         V = o.function_space()
 
         if len(V) == 1:
@@ -145,7 +153,8 @@ class ExtractSubBlock(MultiFunction):
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
 
-    def coargument(self, o):
+    @process.register(ufl.classes.Coargument)
+    def _(self, o):
         V = o.function_space()
 
         if len(V) == 1:
@@ -156,7 +165,8 @@ class ExtractSubBlock(MultiFunction):
         W = subspace(V, indices)
         return Coargument(W, number=o.number(), part=o.part())
 
-    def cofunction(self, o):
+    @process.register(ufl.classes.Cofunction)
+    def _(self, o):
         V = o.function_space()
 
         if len(V) == 1:
@@ -171,7 +181,8 @@ class ExtractSubBlock(MultiFunction):
         else:
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
-    def matrix(self, o):
+    @process.register(ufl.classes.Matrix)
+    def _(self, o):
         from firedrake.bcs import DirichletBC, EquationBCSplit
         from firedrake.matrix import AssembledMatrix
 
@@ -226,10 +237,13 @@ class ExtractSubBlock(MultiFunction):
 
         return AssembledMatrix(form or tuple(args), submat, tuple(bcs))
 
-    def zero_base_form(self, o):
+    @process.register(ufl.classes.ZeroBaseForm)
+    def _(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))
 
-    def interpolate(self, o, operand):
+    @process.register(ufl.classes.Interpolate)
+    @DAGTraverser.postorder
+    def _(self, o, operand):
         if isinstance(operand, Zero):
             return self(ZeroBaseForm(o.arguments()))
 
