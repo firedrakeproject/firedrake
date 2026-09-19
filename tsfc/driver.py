@@ -73,7 +73,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
             form, form.ufl_element(), parameters=parameters,
             name=f"{prefix}_cell_integral",
         )
-        return [kernel]
+        return [] if kernel is None else [kernel]
 
     assert isinstance(form, Form)
 

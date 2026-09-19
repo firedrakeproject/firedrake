@@ -19,6 +19,18 @@ def test_constant():
     assert np.allclose(1.0, f.dat.data)
 
 
+def test_zero_expression():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    c = Constant(2.0)
+
+    f = Function(V).assign(1)
+    f.interpolate((c * y).dx(0))
+
+    assert np.allclose(f.dat.data_ro, 0.0)
+
+
 def test_function():
     m = UnitTriangleMesh()
     x = SpatialCoordinate(m)

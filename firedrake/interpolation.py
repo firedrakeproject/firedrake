@@ -779,10 +779,13 @@ class SameMeshInterpolator(Interpolator):
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
                                        needs_zeroing=needs_zeroing, access=access)
+        assemble_kwargs = {}
         # DirichletBC needs to know now whether it can interpolate its value,
         # so it can project instead when it can't.
         if isinstance(assembler, ParloopFormAssembler):
             assembler.compile()
+            needs_zeroing |= access is op2.WRITE and not assembler.local_kernels
+            assemble_kwargs["needs_zeroing"] = needs_zeroing
 
         copy_input = None
         copy_output = None
@@ -804,7 +807,7 @@ class SameMeshInterpolator(Interpolator):
                 self._update_weighted_dual_arg()
             if copy_input is not None:
                 copy_input()
-            result = assembler.assemble(tensor=assembler_tensor)
+            result = assembler.assemble(tensor=assembler_tensor, **assemble_kwargs)
             if copy_output is not None:
                 copy_output()
             if isinstance(result, MatrixBase):
