@@ -85,7 +85,7 @@ class HierarchyBase(object):
             fine_to_coarse_cells = {Fraction(0, 1): None}
             for i, (coarse, fine) in enumerate(zip(self._meshes[:-1], self._meshes[1:])):
                 c2f, f2c = impl.coarse_to_fine_cells(
-                    transfer_mesh(coarse), transfer_mesh(fine),
+                    coarse, transfer_mesh(fine),
                     self.fine_to_coarse_points[Fraction(i+1, refinements_per_level)])
                 coarse_to_fine_cells[Fraction(i, refinements_per_level)] = c2f
                 fine_to_coarse_cells[Fraction(i+1, refinements_per_level)] = f2c
@@ -305,14 +305,12 @@ def MeshHierarchy(mesh, refinement_levels=0,
     parameters["partition"] = False
 
     # Refine one level at a time. Redistribute a level before refining the
-    # next one, so that each cell map uses the numbering of the mesh that the
+    # next one, so that each point map uses the numbering of the mesh that the
     # transfer operators receive.
     cdm = mesh.topology_dm
     if refinement_levels > 0:
         cdm = make_unoverlapped_dm(cdm)
     meshes = [mesh]
-    coarse_to_fine_cells = {}
-    fine_to_coarse_cells = {Fraction(0, 1): None}
     fine_to_coarse_points = {}
     for i in range(refinement_levels*refinements_per_level):
         cdm.setRefinementUniform(True)
@@ -362,13 +360,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
             meshes[-1], fmesh, source_points,
             coarse_lgmap, fine_lgmap
         )
-        coarse_to_fine, fine_to_coarse = impl.coarse_to_fine_cells(
-            meshes[-1], fmesh, points
-        )
-        level = Fraction(i, refinements_per_level)
         next_level = Fraction(i + 1, refinements_per_level)
-        coarse_to_fine_cells[level] = coarse_to_fine
-        fine_to_coarse_cells[next_level] = fine_to_coarse
         fine_to_coarse_points[next_level] = points
 
         if redistribute and fmesh.has_empty_rank:
@@ -382,8 +374,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
                          nested=nested, fine_to_coarse_points=fine_to_coarse_points,
-                         coarse_to_fine_cells=coarse_to_fine_cells,
-                         fine_to_coarse_cells=fine_to_coarse_cells,
                          redistribute=redistribute)
 
 
