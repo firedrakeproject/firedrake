@@ -155,6 +155,10 @@ runs:
           exit 1
         fi
 
+        : # DROP BEFORE MERGE: install the UFL branch used by FEniCS/ufl#516
+        pip install -v --ignore-installed --no-deps \
+          git+https://github.com/firedrakeproject/ufl.git@pbrubeck/comparison-checker-dag-traverser
+
         pip install --verbose $EXTRA_PIP_FLAGS \
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
