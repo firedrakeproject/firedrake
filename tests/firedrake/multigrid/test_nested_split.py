@@ -54,7 +54,6 @@ import pytest
                               "fieldsplit_1_ksp_type": "preonly",
                               "fieldsplit_1_pc_type": "bjacobi",
                               "fieldsplit_1_sub_pc_type": "ilu"}])
-@pytest.mark.skipcomplex
 def test_nested_split_multigrid(parameters):
     mesh = UnitSquareMesh(10, 10)
 

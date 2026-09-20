@@ -64,7 +64,7 @@ def setup_poisson_3D():
 
     # Define the variational forms
     a = dot(sigma, tau) * dx(degree=8) + (inner(u, div(tau)) + inner(div(sigma), v)) * dx(degree=6)
-    L = -f*v*dx(degree=8)
+    L = -inner(f, v)*dx(degree=8)
     return a, L, W
 
 
