@@ -114,7 +114,7 @@ class BlockJacobi {
             PetscFunctionBegin;
             for(size_t p=0; p<dofsPerBlock.size(); p++) {
                 dof = dofsPerBlock[p].size();
-                auto dofmap = dofsPerBlock[p];
+                const auto& dofmap = dofsPerBlock[p];
                 PetscCall(MatDenseGetArrayRead(localmats[p],&matvalues));
                 for(int j=0; j<dof; j++)
                     workb[j] = b[dofmap[j]];

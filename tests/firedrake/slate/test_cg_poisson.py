@@ -35,8 +35,8 @@ def run_CG_problem(r, degree, quads=False):
     # Formulate the CG method in UFL
     u = sum(TrialFunctions(V))
     v = sum(TestFunctions(V))
-    a = inner(grad(v), grad(u)) * dx
-    L = inner(v, f) * dx
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(f, v) * dx
 
     params = {
         "ksp_type": "preonly",

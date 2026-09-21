@@ -6,7 +6,8 @@ import math
 # model, while hypre and ilu are accurate enough to serve as a reference.
 pc_types = ("gamg",
             "jacobi",
-            pytest.param("hypre", marks=pytest.mark.skiphypre),
+            pytest.param("hypre", marks=(pytest.mark.skiphypre,
+                                         pytest.mark.skipcomplex)),
             "ilu")
 
 
