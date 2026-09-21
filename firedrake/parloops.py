@@ -250,6 +250,13 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
+    # Ensure that the dict args passed in are consistently ordered
+    # (sorted by the string key).
+    sorted_args = collections.OrderedDict()
+    for k in sorted(args.keys()):
+        sorted_args[k] = args[k]
+    args = sorted_args
+
     meshes = []
     for func, _ in args.values():
         meshes.extend(extract_domains(func))

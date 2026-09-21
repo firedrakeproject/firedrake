@@ -122,7 +122,7 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
         assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.subfunctions)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_dict_order_parallel():
     mesh = UnitIntervalMesh(10)
     d = Function(FunctionSpace(mesh, "DG", 0))
@@ -150,7 +150,7 @@ def test_dict_order_parallel():
     """
     par_loop((domain, instructions), dx, arg)
 
-    assert np.allclose(d.dat.data, consts[10].dat.data)
+    assert np.allclose(d.dat.data_ro, consts[10].dat.data_ro)
 
 
 @pytest.mark.parametrize('idx', [0, 1])
