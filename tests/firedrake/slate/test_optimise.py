@@ -31,9 +31,11 @@ def T_hyb(mesh, dg):
     w, q, gammar = TestFunctions(W)
     n = FacetNormal(mesh)
 
-    return Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx
-                  + lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS
-                  + lambdar*gammar*ds)
+    return Tensor(inner(u, w)*dx + inner(p, q)*dx
+                  - inner(p, div(w))*dx + inner(div(u), q)*dx
+                  + inner(lambdar('+'), jump(w, n=n))*dS
+                  + inner(jump(u, n=n), gammar('+'))*dS
+                  + inner(lambdar, gammar)*ds)
 
 
 @pytest.fixture
@@ -136,11 +138,13 @@ def TC_non_symm(mesh, dg):
     n = FacetNormal(mesh)
     u = split(w)[0]
     un = abs(dot(u('+'), n('+')))
-    jump_v = v('+')*n('+') + v('-')*n('-')
+    jump_v = conj(v('+'))*n('+') + conj(v('-'))*n('-')
     jump_T = T('+')*n('+') + T('-')*n('-')
     x, y = SpatialCoordinate(mesh)
 
-    T = Tensor(-dot(u*T, grad(v))*dx + (dot(u('+'), jump_v)*avg(T))*dS + dot(v, dot(u, n)*T)*ds + 0.5*un*dot(jump_T, jump_v)*dS)
+    T = Tensor(-dot(u*T, grad(conj(v)))*dx + (dot(u('+'), jump_v)*avg(T))*dS
+               + dot(dot(u, n)*T, conj(v))*ds
+               + 0.5*un*dot(jump_T, jump_v)*dS)
     C = AssembledVector(Function(dg[2]).interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2)))
     return T, C
 

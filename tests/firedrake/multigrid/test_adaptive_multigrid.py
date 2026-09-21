@@ -357,7 +357,6 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
         assert (fine_to_coarse[coarse_to_fine, 0] == parents).all()
 
 
-@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
 def test_dg_injection_conserves_mass(mh, family, degree):
@@ -392,7 +391,6 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     assert mh[0].comm.allreduce(padded, MPI.LOR)
 
 
-@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("degree", [0, 1])
 def test_dg_injection_conserves_mass_extruded(degree):
