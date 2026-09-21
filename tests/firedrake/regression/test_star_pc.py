@@ -5,8 +5,8 @@ from firedrake.petsc import PETSc, DEFAULT_DIRECT_SOLVER
 
 
 @pytest.fixture(params=["scalar",
-                        pytest.param("vector", marks=pytest.mark.skipcomplexnoslate),
-                        pytest.param("mixed", marks=pytest.mark.skipcomplexnoslate)])
+                        "vector",
+                        "mixed"])
 def problem_type(request):
     return request.param
 
