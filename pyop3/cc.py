@@ -513,6 +513,7 @@ class MLIRCompiler(Compiler):
     # TODO: Better way to do this - depends on these strings matching. Very silly 
     _mlir_opt_flags = MLIR_OPT_PASSES[str(get_current_device())]
     _cflags = ("-fPIC",)
+    # TODO: Add the MLIR/LLVM binary wheel. Requires linking for CUDA/AMD runtime binary
     _ldflags = ("-shared", "-L$LLVM/lib")
 
     _optflags = ("-O3", "-ffast-math",)
