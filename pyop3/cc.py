@@ -513,7 +513,7 @@ class MLIRCompiler(Compiler):
     # TODO: Better way to do this - depends on these strings matching. Very silly 
     _mlir_opt_flags = MLIR_OPT_PASSES[str(get_current_device())]
     _cflags = ("-fPIC",)
-    _ldflags = ("-shared", "-L/home/sam/Documents/llvm-project/build/lib")
+    _ldflags = ("-shared", "-L$LLVM/lib")
 
     _optflags = ("-O3", "-ffast-math",)
     _debugflags = ("-O0", "-g")
