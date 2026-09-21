@@ -289,7 +289,7 @@ class InvalidConfigurationError(Exception):
     pass
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass(frozen=True)
 class Arch:
     name: str
     """Name of the configuration.
@@ -389,7 +389,7 @@ class Arch:
         print_and_stop(" ".join(env_items))
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass(frozen=True)
 class RetiredArch(Arch):
     """A configuration that Firedrake used to test but no longer does.
 
@@ -406,7 +406,7 @@ class RetiredArch(Arch):
     """
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass(frozen=True)
 class CommunityArch(Arch):
     maintainer: str
     """Name of the person or team maintaining a particular arch."""
