@@ -3966,6 +3966,125 @@ def create_halo_exchange_sf(PETSc.DM dm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
+    """Create and complete a depth-labelled cohesive surface.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The parent DMPlex.
+    label_name : str
+        The name of the parent label that marks the surface facets.
+    subdomain_id : int
+        The value in ``label_name`` that marks the surface facets.
+
+    Returns
+    -------
+    PETSc.DMLabel
+        A new label that marks the surface and its closure by point depth.
+    """
+    cdef:
+        PETSc.DMLabel source_label
+        PETSc.DMLabel cohesive_label
+        PETSc.IS facets
+        DMLabel source = NULL
+        DMLabel cohesive = NULL
+        PetscInt nfacets, nselected, i, facet, depth, closure_index, closure_point
+        PetscInt closure_size, support_size, chart_start, chart_end
+        const PetscInt *facet_indices = NULL
+        PetscInt *closure = NULL
+        np.ndarray ridge_counts
+
+    source_label = dm.getLabel(label_name)
+    source = <DMLabel>source_label.dmlabel
+    if source == NULL:
+        raise ValueError(f"Mesh has no label named {label_name!r}")
+
+    facets = source_label.getStratumIS(subdomain_id)
+    if facets.iset == NULL:
+        raise ValueError(f"Label {label_name!r} has no stratum {subdomain_id}")
+    CHKERR(ISGetSize(facets.iset, &nfacets))
+    CHKERR(ISGetIndices(facets.iset, &facet_indices))
+    chart_start, chart_end = dm.getChart()
+    ridge_counts = np.zeros(chart_end - chart_start, dtype=IntType)
+
+    cohesive_label = PETSc.DMLabel().create("brokenmesh", comm=dm.comm)
+    cohesive = <DMLabel>cohesive_label.dmlabel
+    nselected = 0
+    for i in range(nfacets):
+        facet = facet_indices[i]
+        CHKERR(DMPlexGetPointDepth(dm.dm, facet, &depth))
+        if depth != dm.getDimension() - 1:
+            continue
+        CHKERR(DMPlexGetSupportSize(dm.dm, facet, &support_size))
+        if support_size < 1 or support_size > 2:
+            CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
+            raise ValueError(f"Gamma facet {facet} has {support_size} incident cells")
+        nselected += 1
+        CHKERR(DMPlexGetTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+        for closure_index in range(closure_size):
+            closure_point = closure[2 * closure_index]
+            CHKERR(DMPlexGetPointDepth(dm.dm, closure_point, &depth))
+            CHKERR(DMLabelSetValue(cohesive, closure_point, depth))
+            if depth == dm.getDimension() - 2:
+                ridge_counts[closure_point - chart_start] += 1
+        CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+    CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
+    if nselected == 0:
+        raise ValueError("BrokenMesh requires a codimension-one label")
+    for closure_point in range(chart_start, chart_end):
+        if ridge_counts[closure_point - chart_start] > 2:
+            raise ValueError(f"Gamma has a junction at point {closure_point}")
+
+    CHKERR(DMPlexOrientLabel(dm.dm, cohesive))
+    CHKERR(DMPlexLabelCohesiveComplete(dm.dm, cohesive, NULL, 1, PETSC_FALSE, NULL))
+    return cohesive_label
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def transform_source_point_map(PETSc.DM child,
+                               PETSc.DMPlexTransform transform):
+    """Return source points for a filtered transform output.
+
+    Parameters
+    ----------
+    child : PETSc.DM
+        A DMPlex filtered from the transform output.
+    transform : PETSc.DMPlexTransform
+        The transform that produced the unfiltered output.
+
+    Returns
+    -------
+    numpy.ndarray
+        The source point for each point in ``child``. Repeated source points
+        are retained because a cohesive transform duplicates points.
+    """
+    cdef:
+        PETSc.IS child_subpoints
+        const PetscInt *child_points = NULL
+        PetscInt child_start, child_end, child_point, transformed_point
+        PetscInt source_point, replica
+        np.ndarray source_points
+
+    child_subpoints = child.getSubpointIS()
+    if child_subpoints.iset == NULL:
+        raise ValueError("The filtered DMPlex has no subpoint map")
+    CHKERR(ISGetIndices(child_subpoints.iset, &child_points))
+    child_start, child_end = child.getChart()
+    source_points = np.empty(child_end - child_start, dtype=IntType)
+    for child_point in range(child_start, child_end):
+        transformed_point = child_points[child_point - child_start]
+        CHKERR(DMPlexTransformGetSourcePoint(
+            transform.tr, transformed_point, NULL, NULL,
+            &source_point, &replica))
+        source_points[child_point - child_start] = source_point
+    CHKERR(ISRestoreIndices(child_subpoints.iset, &child_points))
+    return source_points
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def submesh_create(PETSc.DM dm,
                    subdim,
                    label_name,

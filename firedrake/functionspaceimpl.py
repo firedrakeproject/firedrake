@@ -798,7 +798,23 @@ class FunctionSpace:
         if source_mesh is self.mesh():
             return self_map
         else:
-            return op2.ComposedMap(self_map, composed_map)
+            if composed_map.arity == 1:
+                return op2.ComposedMap(self_map, composed_map)
+            if self_map.offset is not None or self_map.offset_quotient is not None:
+                raise NotImplementedError("One-to-many maps are not supported for extruded meshes")
+            entity_map = composed_map.values_with_halo
+            valid = entity_map != op2.Map.VALUE_UNDEFINED
+            safe_entity_map = numpy.maximum(entity_map, 0)
+            node_map = self_map.values_with_halo[safe_entity_map]
+            node_map[~valid, :] = op2.Map.VALUE_UNDEFINED
+            node_map = node_map.reshape((composed_map.iterset.total_size, -1))
+            return op2.Map(
+                composed_map.iterset,
+                self_map.toset,
+                node_map.shape[1],
+                node_map,
+                f"{self_map.name}_composed",
+            )
 
     def cell_node_map(self):
         r"""Return the :class:`pyop2.types.map.Map` from cels to

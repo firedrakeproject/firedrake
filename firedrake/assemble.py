@@ -1908,7 +1908,8 @@ def _as_global_kernel_arg_interior_facet(_, self):
         return op2.DatKernelArg((2,))
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
-        assert integral_type == "interior_facet"
+        if integral_type not in ("interior_facet", "exterior_facet"):
+            raise ValueError(f"Expected a facet map, got {integral_type}")
         return op2.DatKernelArg((2,), m._global_kernel_arg)
 
 
@@ -1941,7 +1942,8 @@ def _(_, self):
         return op2.DatKernelArg((2,))
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
-        assert integral_type == "interior_facet"
+        if integral_type not in ("interior_facet", "exterior_facet"):
+            raise ValueError(f"Expected a facet map, got {integral_type}")
         return op2.DatKernelArg((2,), m._global_kernel_arg)
 
 
@@ -2254,10 +2256,15 @@ def _as_parloop_arg_interior_facet(_, self):
     mesh = next(self._active_interior_facets)
     if mesh is self._mesh:
         m = None
+        facet_dat = mesh.interior_facets.local_facet_dat
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
-        assert integral_type == "interior_facet"
-    return op2.DatParloopArg(mesh.interior_facets.local_facet_dat, m)
+        if integral_type not in ("interior_facet", "exterior_facet"):
+            raise ValueError(f"Expected a facet map, got {integral_type}")
+        facet_dat = (mesh.interior_facets.local_facet_dat
+                     if integral_type == "interior_facet"
+                     else mesh.exterior_facets.local_facet_dat)
+    return op2.DatParloopArg(facet_dat, m)
 
 
 @_as_parloop_arg.register(kernel_args.OrientationsCellKernelArg)
@@ -2287,10 +2294,15 @@ def _(_, self):
     mesh = next(self._active_orientations_interior_facet)
     if mesh is self._mesh:
         m = None
+        orientation_dat = mesh.interior_facets.local_facet_orientation_dat
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
-        assert integral_type == "interior_facet"
-    return op2.DatParloopArg(mesh.interior_facets.local_facet_orientation_dat, m)
+        if integral_type not in ("interior_facet", "exterior_facet"):
+            raise ValueError(f"Expected a facet map, got {integral_type}")
+        orientation_dat = (mesh.interior_facets.local_facet_orientation_dat
+                           if integral_type == "interior_facet"
+                           else mesh.exterior_facets.local_facet_orientation_dat)
+    return op2.DatParloopArg(orientation_dat, m)
 
 
 @_as_parloop_arg.register(CellFacetKernelArg)
