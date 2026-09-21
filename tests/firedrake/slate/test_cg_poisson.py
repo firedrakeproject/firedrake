@@ -88,6 +88,34 @@ def run_CG_problem(r, degree, quads=False, pc_type="scpc"):
     v = sum(TestFunctions(V))
     a = inner(grad(u), grad(v)) * dx
     L = inner(f, v) * dx
+
+    params = {
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "mat_type": "matfree",
+        "pc_python_type": "firedrake.SCPC",
+        "pc_sc_eliminate_fields": "0",
+        "condensed_field": {
+            "mat_type": "aij",
+            "ksp_monitor": None,
+            "ksp_type": "cg",
+            "ksp_rtol": 1E-10,
+            "ksp_atol": 0E-10,
+            "ksp_norm_type": "natural",
+            "pc_type": "mg",
+            "mg_levels": {
+                "ksp_type": "chebyshev",
+                "pc_type": "python",
+                "pc_python_type": "firedrake.ASMStarPC",
+                "pc_star_construct_dim": 0,
+                "pc_star_sub_sub_pc_type": "cholesky",
+                "pc_star_sub_sub_pc_factor_mat_solver_type": "petsc"},
+            "mg_coarse": {
+                "ksp_type": "preonly",
+                "pc_type": "redundant",
+                "redundant_pc_type": "cholesky",
+                "redundant_pc_factor_mat_solver_type": "mumps"}}}
+
     bcs = DirichletBC(V.sub(1), 0, "on_boundary")
 
     aP = None

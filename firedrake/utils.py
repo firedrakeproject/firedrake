@@ -24,9 +24,6 @@ IntType_c = as_cstr(IntType)
 
 complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
 
-# Remove this (and update test suite) when Slate supports complex mode.
-SLATE_SUPPORTS_COMPLEX = False
-
 
 @cache
 def get_device_type() -> str | None:
