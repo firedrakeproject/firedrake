@@ -19,7 +19,6 @@ from firedrake.slate.slac.optimise import optimise
 from firedrake import tsfc_interface
 from firedrake.logging import logger
 from firedrake.parameters import parameters
-from firedrake.utils import complex_mode
 from gem import impero_utils
 from itertools import chain
 
@@ -101,8 +100,6 @@ def compile_expression(slate_expr, compiler_parameters=None):
 
     Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
     """
-    if complex_mode:
-        raise NotImplementedError("SLATE doesn't work in complex mode yet")
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
 

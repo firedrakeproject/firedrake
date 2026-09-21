@@ -552,8 +552,6 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
-    if complex_mode:
-        raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
     macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
     macro_builder._entity_ids = {Vf.mesh(): (0,)}
