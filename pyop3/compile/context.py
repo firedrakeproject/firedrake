@@ -1,9 +1,14 @@
-from abc import ABC, abstractmethod
-from typing import Any, List, Dict, Tuple
-import numbers
+import abc
+import dataclasses
 import functools
+import numbers
+import os
+from abc import ABC, abstractmethod
+from functools import cached_property
+from typing import Any, List, Dict, Tuple, Self
 
 import numpy as np
+import petsctools
 from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
@@ -36,8 +41,59 @@ from pyop3.insn.base import (
 )
 
 
-class CodegenResult(ABC):
-    pass
+class Executable:
+    """A callable function.
+
+    Parameters
+    ----------
+    code:
+        The computation to be performed.
+    comm
+        The communicator.
+
+    Notes
+    -----
+    This class is intentionally distinct from `CompiledCodeExecutor` because
+    the executable may be reused by multiple executors (for instance if the
+    buffers are changed) and we want to reuse the work needed to generate
+    the function pointer.
+
+    """
+    _comm: MPI.Comm
+    include_dirs: tuple
+    lib_dirs: tuple
+    libs: tuple
+
+    def __init__(self, *, _comm=None, include_dirs=(), lib_dirs=(), libs=()):
+        self._comm = _comm
+        self.include_dirs = include_dirs
+        self.lib_dirs = lib_dirs
+        self.libs = libs
+
+    # This dance is needed because we want to disk cache this object but also want to attach
+    # collective semantics to it once loaded
+    @property
+    def comm(self) -> MPI.Comm:
+        assert self._comm is not None
+        return self._comm
+
+    def with_comm(self, comm) -> Self:
+        assert self._comm is None
+        return dataclasses.replace(self, _comm=comm)
+
+    def __call__(self, *args: Any) -> None:
+        assert self.comm is not None
+        self._callable(*args)
+
+    @property
+    @abc.abstractmethod
+    def _callable(self):
+        pass
+
+    @staticmethod
+    @abc.abstractmethod
+    def as_callable_arg(buffer_view):
+        pass
 
 
 class CodegenContext(ABC):
@@ -47,9 +103,10 @@ class CodegenContext(ABC):
     Class designed solely for use in codegen.py, as an interface to specific backends.
     """
 
-    def __init__(self, *, named_terminal_buffer_intents, propagate_negatives: bool, mask_array_accesses: bool) -> None:
+    def __init__(self, *, named_terminal_buffer_intents, comm: MPI.Comm, propagate_negatives: bool, mask_array_accesses: bool) -> None:
         # buffer (from original inputs) -> intent
         self.named_terminal_buffer_intents = named_terminal_buffer_intents
+        self.comm = comm
         self.propagate_negatives = propagate_negatives
         self.mask_array_accesses = mask_array_accesses
 

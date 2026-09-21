@@ -47,8 +47,8 @@ from pyop3.insn.base import (
 from pyop3.compile.loopy import LoopyCodegenContext
 from pyop3.compile.gem import GemCodegenContext
 
-def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
-    return (op.disk_cache_key, compiler_parameters, pyop3.config)
+def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters, cc_options) -> Hashable:
+    return (op.disk_cache_key, compiler_parameters, cc_options, pyop3.config)
 
 # FIXME: can't currently pickle things
 # @pyop3.cache.memory_and_disk_cache(
@@ -56,7 +56,8 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
     hashkey=_compile_static_hashkey,
     get_comm=lambda op, *a, **kw: op.comm,
 )
-def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
+# TODO: put cc_options inside compiler_parameters
+def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters, cc_options) -> tuple:
     """Compile the operation without regard for specific data values.
 
     This function is therefore suitable for disk caching.
@@ -83,6 +84,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
 
     context = make_context(
         named_terminal_buffer_intents=op.named_terminal_buffer_intents,
+        comm=op.comm,
         propagate_negatives=compiler_parameters.propagate_negatives,
         mask_array_accesses=compiler_parameters.mask_array_accesses,
     )
@@ -99,25 +101,22 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
-    result = context.finalize_kernel(function_name, compiler_parameters)
+    executable, arguments, buffer_intents = context.finalize_kernel(function_name, compiler_parameters, cc_options)
     del context  # the context is done, don't touch it again
-
-    # Extra information needed by the code executor
-    kernel_name_to_buffer_view = result.buffer_views
 
     # Replace buffers with their indices, dropping any temporaries. Also
     # match the calling order for the kernel.
     # NOTE: The kernel_name_to_buffer_info attr can be figured out by the context at finalisation
     kernel_name_to_buffer_info = {}
     buffer_intents_by_index = {}
-    for kernel_arg_name in result.arguments:
-        buf_view = kernel_name_to_buffer_view[kernel_arg_name]
+    for kernel_arg_name in arguments.keys():
+        buf_view = arguments[kernel_arg_name]
         buf_index = op.preprocessed_buffers.index(buf_view.buffer)
 
         kernel_name_to_buffer_info[kernel_arg_name] = (buf_index, buf_view.nest_indices)
-        buffer_intents_by_index[buf_index] = result.buffer_intents[buf_view.buffer]
+        buffer_intents_by_index[buf_index] = buffer_intents[buf_view.buffer]
 
-    return result, kernel_name_to_buffer_info, buffer_intents_by_index
+    return executable, kernel_name_to_buffer_info, buffer_intents_by_index
 
 @functools.singledispatch
 def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:

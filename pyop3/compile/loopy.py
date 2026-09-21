@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import abc
 import contextlib
+import ctypes
 import dataclasses
 import functools
 import numbers
 import os
+from functools import cached_property
 from typing import Any
 
 import loopy as lp
 import numpy as np
+import petsctools
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
@@ -45,7 +48,7 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.compile.context import CodegenContext, CodegenResult
+from pyop3.compile.context import CodegenContext, Executable
 
 # TODO: import other way around?
 from pyop3.compile.transform import (
@@ -59,15 +62,119 @@ LOOPY_TARGET = lp.CWithGNULibcTarget()
 LOOPY_LANG_VERSION = (2018, 2)
 
 
-@dataclasses.dataclass(frozen=True)
-class LoopyCodegenResult(CodegenResult):
-    translation_unit: lp.TranslationUnit
-    buffer_views: Mapping
-    buffer_intents: Mapping
+@dataclasses.dataclass
+class LoopyExecutable(Executable):
 
-    @property
-    def arguments(self):
+    translation_unit: lp.TranslationUnit
+    petsc_events: tuple
+
+    def __init__(self, translation_unit, petsc_events=(), **kwargs):
+        self.translation_unit = translation_unit
+        self.petsc_events = petsc_events
+        super().__init__(**kwargs)
+
+    @cached_property
+    def _callable(self) -> collections.abc.Callable[[int, ...], None]:
+        """Compile the code and return a function pointer."""
+        # ideally move this logic somewhere else
+        cppargs = (
+            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
+            *(f"-I{incdir}" for incdir in self.include_dirs),
+        )
+        ldargs = (
+            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
+            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
+            "-lpetsc",
+            "-lm",
+            *(f"-L{libdir}" for libdir in self.lib_dirs),
+            *(f"-l{lib}" for lib in self.libs),
+        )
+
+        # NOTE: no - instead of this inspect the compiler parameters!!!
+        # TODO: Make some sort of function in config.py
+        if "LIKWID_MODE" in os.environ:
+            cppargs += ("-DLIKWID_PERFMON",)
+            ldargs += ("-llikwid",)
+
+        dll = pyop3.cc.load(self._device_code, "c", cppargs, ldargs, comm=self.comm)
+
+        for event in self.petsc_events:
+            # Create the event in python and then set in the shared library to avoid
+            # allocating memory over and over again in the C kernel.
+            ctypes.c_int.in_dll(dll, f"id_{event}").value = PETSc.Log.Event(event).id
+
+        func = getattr(dll, "pyop3_loop")
+        func.argtypes = self.arg_ctypes
+        func.restype = None
+        return func
+
+    @cached_property
+    def _device_code(self):
+        return _loopy_to_c_string(self)
+
+
+    @cached_property
+    def arguments(self):  # arg_names
+        breakpoint()
         return tuple(a.name for a in self.translation_unit.default_entrypoint.args)
+
+    @cached_property
+    def arg_ctypes(self):
+        return tuple(
+            _cast_loopy_arg_to_ctypes_type(a)
+            for a in self.translation_unit.default_entrypoint.args
+        )
+
+    @functools.singledispatchmethod
+    @staticmethod
+    def as_callable_arg(handle: Any, /) -> int:
+        utils.raise_missing_dispatch_handler(handle)
+
+    @as_callable_arg.register
+    @staticmethod
+    def _(arr: np.ndarray, /) -> int:
+        return arr.ctypes.data
+
+    @as_callable_arg.register
+    @staticmethod
+    def _(mat: PETSc.Mat, /) -> int:
+        assert mat.type != PETSc.Mat.Type.PYTHON, \
+            "Python-type mats should be unpacked by now"
+        return mat.handle
+
+
+# TODO: This should probably get folded into '_compile_static', otherwise we
+# have to get the translation unit from cache, hash it, then get the thing
+# we actually want from the cache.
+@pyop3.cache.memory_cache(
+    hashkey=lambda ex: utils._loopy_key_builder(ex.translation_unit),
+    get_comm=lambda ex: ex.comm,
+)
+@pyop3.cache.disk_only_cache(
+    hashkey=lambda ex: utils._loopy_key_builder(ex.translation_unit),
+    get_comm=lambda ex: ex.comm,
+    bcast=True,
+)
+def _loopy_to_c_string(executable: LoopyExecutable) -> str:
+    return lp.generate_code_v2(executable.translation_unit).device_code()
+
+
+@functools.singledispatch
+def _cast_loopy_arg_to_ctypes_type(obj: Any, /) -> type:
+    utils.raise_missing_dispatch_handler(obj)
+
+
+@_cast_loopy_arg_to_ctypes_type.register
+def _(arg: lp.ArrayArg, /) -> type:
+    return ctypes.c_voidp
+
+
+@_cast_loopy_arg_to_ctypes_type.register
+def _(arg: lp.ValueArg, /) -> type:
+    if isinstance(arg.dtype, pyop3.dtypes.OpaqueType):
+        return ctypes.c_voidp
+    else:
+        return np.ctypeslib.as_ctypes_type(arg.dtype)
 
 
 class LoopyCodegenContext(CodegenContext):
@@ -357,7 +464,7 @@ class LoopyCodegenContext(CodegenContext):
     def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None) -> pym.Expression:
         return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self)
 
-    def finalize_kernel(self, function_name, compiler_parameters):
+    def finalize_kernel(self, function_name, compiler_parameters, cc_options):
         preambles = [
             ("20_debug", "#include <stdio.h>"),  # dont always inject
             ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
@@ -395,8 +502,17 @@ class LoopyCodegenContext(CodegenContext):
             entrypoint = with_attach_debugger(entrypoint)
         translation_unit = translation_unit.with_kernel(entrypoint)
 
-        return LoopyCodegenResult(
-            translation_unit.with_kernel(entrypoint),
+        if compiler_parameters.add_petsc_event:
+            petsc_events = (loopy_code.default_entrypoint.name,)
+        else:
+            petsc_events = ()
+
+        return (
+            LoopyExecutable(
+                translation_unit.with_kernel(entrypoint),
+                petsc_events=petsc_events,
+                **cc_options,
+            ),
             utils.invert_mapping(self.kernel_names),
             self.buffer_intents,
         )

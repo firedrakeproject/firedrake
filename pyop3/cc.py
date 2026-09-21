@@ -86,11 +86,11 @@ MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").j
 
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerOptions:
-    include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
-    lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
-    libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    include_dirs: tuple[str, ...] = ()
+    lib_dirs: tuple[str, ...] = ()
+    libs: tuple[str, ...] = ()
 
     def __add__(self, other, /) -> Self:
         if not isinstance(other, CompilerOptions):
@@ -101,6 +101,16 @@ class CompilerOptions:
             lib_dirs=self.lib_dirs+other.lib_dirs,
             libs=self.libs+other.libs,
         )
+
+    # {{{ enable unpacking with **
+
+    def keys(self, /):
+        return (f.name for f in dataclasses.fields(self))
+
+    def __getitem__(self, key, /) -> Any:
+        return getattr(self, key)
+
+    # }}}
 
 
 def set_default_compiler(compiler):

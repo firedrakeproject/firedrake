@@ -6,6 +6,7 @@ import dataclasses
 import functools
 import numbers
 import os
+from functools import cached_property
 from typing import Any
 
 from gem import gem
@@ -44,7 +45,7 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.compile.context import CodegenContext, CodegenResult
+from pyop3.compile.context import CodegenContext, Executable
 
 
 @dataclasses.dataclass(frozen=True)
@@ -54,11 +55,18 @@ class GemAssignment:
     mode: Literal["write", "inc"]
 
 
-@dataclasses.dataclass(frozen=True)
-class GemCodegenResult(CodegenResult):
-    instructions: tuple[GemAssignment, ...]
-    buffer_views: Mapping
-    buffer_intents: Mapping
+@dataclasses.dataclass
+class GemExecutable(Executable):
+
+    instructions: tuple
+
+    def __init__(self, instructions, **kwargs):
+        self.instructions = instructions
+        super().__init__(**kwargs)
+
+    @cached_property
+    def _callable(self):
+        raise NotImplementedError("This is where we need to work next")
 
     @property
     def arguments(self):
@@ -208,12 +216,14 @@ class GemCodegenContext(CodegenContext):
     def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None) -> pym.Expression:
         return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self)
 
-    def finalize_kernel(self, function_name, compiler_parameters):
-        arg_names = tuple(name for name in self.kernel_names.values())
-        return GemCodegenResult(
-            self.instructions,
+    def finalize_kernel(self, function_name, compiler_parameters, cc_options):
+        return (
+            GemExecutable(
+                self.instructions,
+                **cc_options,
+            ),
             utils.invert_mapping(self.kernel_names),
-            self.buffer_intents
+            self.buffer_intents,
         )
 
 

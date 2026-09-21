@@ -12,8 +12,6 @@ from functools import cached_property
 from typing import Any
 
 import cachetools
-import loopy as lp
-import loopy.tools
 import numpy as np
 import petsctools
 from immutabledict import immutabledict as idict
@@ -220,7 +218,6 @@ class InstructionExecutionContext:
                 executor.executable,
                 new_kernel_name_to_buffer_info,
                 new_buffer_intents,
-                executor.comm,
             )
 
         return executor
@@ -235,7 +232,7 @@ class InstructionExecutionContext:
         make_cache=lambda: cachetools.LRUCache(100),
     )
     def _compile(self) -> CompiledCodeExecutor:
-        from pyop3.insn.visitors import collect_compiler_options
+        from pyop3.insn.visitors import collect_cc_options
         from pyop3.compile.core import _compile_static
 
         # Preprocess the instruction. This is an expensive operation so we
@@ -263,22 +260,14 @@ class InstructionExecutionContext:
         assert num_buffers == len(self.preprocessed_buffers)
 
         compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
-        loopy_code, kernel_name_to_buffer_info, buffer_intents = \
-            _compile_static(self, compiler_parameters)
 
-        extra_compiler_options = collect_compiler_options(self._preprocessed)
+        extra_cc_options = collect_cc_options(self._preprocessed)
 
-        if compiler_parameters.add_petsc_event:
-            petsc_events = (loopy_code.default_entrypoint.name,)
-        else:
-            petsc_events = ()
+        executable, kernel_name_to_buffer_info, buffer_intents = \
+            _compile_static(self, compiler_parameters, extra_cc_options)
 
-        executable = Executable(
-            loopy_code,
-            self.comm,
-            extra_compiler_options=extra_compiler_options,
-            petsc_events=petsc_events,
-        )
+        # attach comm to the executable
+        executable = executable.with_comm(self.comm)
 
         # replace buffer indices with the real things
         kernel_name_to_buffer_views = {}
@@ -291,7 +280,7 @@ class InstructionExecutionContext:
             self.preprocessed_buffers[buffer_index]: intent
             for buffer_index, intent in buffer_intents.items()
         })
-        executor = CompiledCodeExecutor(executable, kernel_name_to_buffer_views, buffer_intents, self.comm)
+        executor = CompiledCodeExecutor(executable, kernel_name_to_buffer_views, buffer_intents)
 
         arg_index_to_buffer_map = {
             i: self._extract_buffers(arg)
@@ -434,77 +423,6 @@ class InstructionExecutionContext:
         return tuple(buf for submat in agg_mat.submats.flatten() for buf in self._extract_buffers(submat))
 
 
-@dataclasses.dataclass(frozen=True)
-class Executable:
-    """A callable function.
-
-    Parameters
-    ----------
-    code:
-        The computation to be performed.
-    comm
-        The communicator.
-
-    Notes
-    -----
-    This class is intentionally distinct from `CompiledCodeExecutor` because
-    the executable may be reused by multiple executors (for instance if the
-    buffers are changed) and we want to reuse the work needed to generate
-    the function pointer.
-
-    """
-    code: lp.TranslationUnit
-    comm: MPI.Comm
-    extra_compiler_options: pyop3.cc.CompilerOptions = dataclasses.field(
-        default=pyop3.cc.CompilerOptions(), kw_only=True
-    )
-    petsc_events: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
-
-    def __call__(self, *args: int) -> None:
-        self._callable(*args)
-
-    @cached_property
-    def _callable(self) -> collections.abc.Callable[[int, ...], None]:
-        """Compile the code and return a function pointer."""
-        # ideally move this logic somewhere else
-        cppargs = (
-            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-            *(f"-I{incdir}" for incdir in self.extra_compiler_options.include_dirs),
-        )
-        ldargs = (
-            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
-            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
-            "-lpetsc",
-            "-lm",
-            *(f"-L{libdir}" for libdir in self.extra_compiler_options.lib_dirs),
-            *(f"-l{lib}" for lib in self.extra_compiler_options.libs),
-        )
-
-        # NOTE: no - instead of this inspect the compiler parameters!!!
-        # TODO: Make some sort of function in config.py
-        if "LIKWID_MODE" in os.environ:
-            cppargs += ("-DLIKWID_PERFMON",)
-            ldargs += ("-llikwid",)
-
-        dll = pyop3.cc.load(self._device_code, "c", cppargs, ldargs, comm=self.comm)
-
-        for event in self.petsc_events:
-            # Create the event in python and then set in the shared library to avoid
-            # allocating memory over and over again in the C kernel.
-            ctypes.c_int.in_dll(dll, f"id_{event}").value = PETSc.Log.Event(event).id
-
-        func = getattr(dll, "pyop3_loop")
-        func.argtypes = [
-            cast_loopy_arg_to_ctypes_type(arg) for arg in self.code.translation_unit.default_entrypoint.args
-        ]
-        func.restype = None
-        return func
-
-    @cached_property
-    def _device_code(self):
-        return _loopy_to_c_string(self.code, self.comm)
-
-
 class CompiledCodeExecutor:
     """Class that executes compiled code.
 
@@ -532,12 +450,14 @@ class CompiledCodeExecutor:
         executable: Executable,
         kernel_name_to_buffer_info,
         buffer_intents,
-        comm: MPI.Comm,
     ):
         self.executable = executable
         self.kernel_name_to_buffer_info = kernel_name_to_buffer_info
         self.buffer_intents = buffer_intents
-        self.comm = comm
+
+    @property
+    def comm(self):
+        return self.executable.comm
 
     @cached_property
     def _default_buffers(self):
@@ -564,7 +484,7 @@ class CompiledCodeExecutor:
                 for orig_buffer, intent in self.buffer_intents.items()
             }
             exec_arguments = [
-                self._handle_to_pointer(
+                self.executable.as_callable_arg(
                     buf_view.record_new(
                         buffer=new_buffers.get(buf_view.buffer, buf_view.buffer)
                     ).handle
@@ -692,50 +612,9 @@ class CompiledCodeExecutor:
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
         return tuple(
-            self._handle_to_pointer(buffer_view.handle)
+            self.executable.as_callable_arg(buffer_view.handle)
             for buffer_view in self.kernel_name_to_buffer_info.values()
         )
-
-    @functools.singledispatchmethod
-    def _handle_to_pointer(self, handle: Any, /) -> int:
-        utils.raise_missing_dispatch_handler(handle)
-
-    # not used because we pass the handle in already
-    # @_as_exec_argument.register
-    # def _(self, opaque: pyop3.expr.OpaqueTerminal):
-    #     return opaque.handle
-
-    @_handle_to_pointer.register
-    def _(self, arr: np.ndarray, /) -> int:
-        return arr.ctypes.data
-
-    try:
-        import cupy as cp
-
-        @_handle_to_pointer.register(cp.ndarray)
-        def _(self, arr: cp.ndarray, /) -> int:
-            # NOTE: This gives a pointer to a GPU memory address.
-            # Loopy cannot work with GPU so this will lead to a segfault. 
-            raise MemoryError("Segfault will occur if you pass a CuPy GPU pointer to Loopy/C code")
-    except ImportError:
-        pass
-
-    @_handle_to_pointer.register
-    def _(self, mat: PETSc.Mat, /) -> int:
-        # Sometime the matrix is in an invalid state and we cannot return a handle.
-        # This happens for example when reusing a loop that initially used a
-        # preallocator matrix. Once used the preallocator matrix is no longer in a
-        # valid state. This is generally fine though because when we compute things
-        # we replace this matrix with a fully allocated one. We therefore pass a
-        # None here and check things later.
-        if not mat:
-            assert False, "old code"
-        #     return None
-
-        assert mat.type != PETSc.Mat.Type.PYTHON, \
-            "Python-type mats should be unpacked by now"
-
-        return mat.handle
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
@@ -837,30 +716,3 @@ class CompiledCodeExecutor:
         # TODO: We need all communication to happen before we begin computing, but if
         # we have multiple matrices we can at least overlap their communication.
         return begin_insns+end_insns, (), (), finalizers
-
-
-@functools.singledispatch
-def cast_loopy_arg_to_ctypes_type(obj: Any) -> type:
-    utils.raise_missing_dispatch_handler(obj)
-
-
-@cast_loopy_arg_to_ctypes_type.register(lp.ArrayArg)
-def _(arg: lp.ArrayArg) -> type:
-    return ctypes.c_voidp
-
-
-@cast_loopy_arg_to_ctypes_type.register(lp.ValueArg)
-def _(arg: lp.ValueArg):
-    if isinstance(arg.dtype, pyop3.dtypes.OpaqueType):
-        return ctypes.c_voidp
-    else:
-        return np.ctypeslib.as_ctypes_type(arg.dtype)
-
-
-# TODO: This should probably get folded into '_compile_static', otherwise we
-# have to get the translation unit from cache, hash it, then get the thing
-# we actually want from the cache.
-@pyop3.cache.memory_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu.translation_unit))
-@pyop3.cache.disk_only_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu.translation_unit), bcast=True)
-def _loopy_to_c_string(tu: lp.TranslationUnit, comm: MPI.Comm) -> str:
-    return lp.generate_code_v2(tu.translation_unit).device_code()

@@ -423,5 +423,5 @@ class CompilerOptionsCollector(NodeVisitor):
         return sum(visited["statements"], pyop3.cc.CompilerOptions())
 
 
-def collect_compiler_options(insn: pyop3.insn.Instruction) -> pyop3.cc.CompilerOptions:
+def collect_cc_options(insn: pyop3.insn.Instruction) -> pyop3.cc.CompilerOptions:
     return CompilerOptionsCollector()(insn)
