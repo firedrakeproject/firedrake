@@ -8,7 +8,7 @@ import numbers
 import os
 from typing import Any
 
-from gem import gem, impero
+from gem import gem
 import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
@@ -48,8 +48,15 @@ from pyop3.compile.context import CodegenContext, CodegenResult
 
 
 @dataclasses.dataclass(frozen=True)
+class GemAssignment:
+    lhs: gem.Node
+    rhs: gem.Node
+    mode: Literal["write", "inc"]
+
+
+@dataclasses.dataclass(frozen=True)
 class GemCodegenResult(CodegenResult):
-    instructions: tuple[impero.Node, ...]
+    instructions: tuple[GemAssignment, ...]
     buffer_views: Mapping
     buffer_intents: Mapping
 
@@ -93,7 +100,7 @@ class GemCodegenContext(CodegenContext):
             case _:
                 raise NotImplementedError
 
-        insn = impero.Assignment(assignee, expression, mode)
+        insn = GemAssignment(assignee, expression, mode)
         self._add_instruction(insn)
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:

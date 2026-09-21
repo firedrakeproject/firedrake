@@ -413,7 +413,7 @@ def _(exscan, loop_indices, codegen_context):
     codegen_context.add_domain(iname, domain_var)
 
     iname_var = codegen_context.var(iname)
-    iname_map = {exscan.scan_axis.label: codegen_context.var(iname)}
+    iname_map = {exscan.scan_axis.label: iname}
 
     lexpr = codegen_context.lower_expr(exscan.assignee, [iname_map], loop_indices, intent=RW)
     rexpr = lexpr + codegen_context.lower_expr(exscan.expression, [iname_map], loop_indices)

@@ -493,9 +493,9 @@ class Executable:
             # allocating memory over and over again in the C kernel.
             ctypes.c_int.in_dll(dll, f"id_{event}").value = PETSc.Log.Event(event).id
 
-        func = getattr(dll, self.code.default_entrypoint.name)
+        func = getattr(dll, "pyop3_loop")
         func.argtypes = [
-            cast_loopy_arg_to_ctypes_type(arg) for arg in self.code.default_entrypoint.args
+            cast_loopy_arg_to_ctypes_type(arg) for arg in self.code.translation_unit.default_entrypoint.args
         ]
         func.restype = None
         return func

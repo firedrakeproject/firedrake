@@ -476,12 +476,15 @@ def _(cond: pyop3.expr.Conditional, /, *args, **kwargs) -> pym.Expression:
 
 @_lower_expr.register(pyop3.expr.AxisVar)
 def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
-    return pym.var(utils.just_one(iname_maps)[axis_var.axis.label])
+    active_indices = utils.just_one(iname_maps)
+    iname = active_indices[axis_var.axis.label]
+    return pym.var(iname)
 
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)
 def _(loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
-    return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
+    iname = loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
+    return pym.var(iname)
 
 
 @_lower_expr.register(pyop3.expr.ScalarBufferExpression)
