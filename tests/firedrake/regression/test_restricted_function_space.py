@@ -50,7 +50,7 @@ def compare_function_space_assembly(function_space, restricted_function_space,
     normal_fs_matrix_reduced = np.delete(normal_fs_matrix_reduced, delete_rows,
                                          axis=1)
 
-    restricted_values = restricted_fs_matrix.M.as_array("ro", regions={"owned", "unconstrained"})
+    restricted_values = restricted_fs_matrix.M.values
     assert np.allclose(normal_fs_matrix_reduced, restricted_values)
 
 

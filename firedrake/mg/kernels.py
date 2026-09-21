@@ -274,14 +274,9 @@ def prolong_matrix_kernel(Vc, Vf):
     """
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
-    if Vc.mesh().extruded:
-        assert Vf.mesh().extruded
-        level_ratio = (Vc.mesh().layers - 1) // (Vf.mesh().layers - 1)
-    else:
-        level_ratio = 1
     if levelf <= levelc:
         raise ValueError("Can only build hierarchy interpolation matrices from coarse to fine spaces")
-    ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1] * level_ratio
+    ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     coordinates = Vc.mesh().coordinates
     key = (("prolong_matrix", ncandidate)
            + (Vf.block_size,)
@@ -304,13 +299,7 @@ def prolong_matrix_kernel(Vc, Vf):
         local_tensor_size = row_dim * source_stencil_inc
         cell_tensor_size = row_dim * source_cell_inc
 
-        kernel_code = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong_matrix(PetscScalar *A, const PetscScalar *X, const PetscScalar *Xc
-                                                %(cell_orient)s%(cell_sizes)s)
-        {
+        kernel_code = """
             PetscScalar Xref[%(tdim)d];
             PetscScalar B[%(cell_tensor_size)d];
             int cell = -1;
@@ -354,18 +343,15 @@ def prolong_matrix_kernel(Vc, Vf):
                 }
             }
             const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
-            pyop2_kernel_evaluate(%(kernel_args)s);
+            pyop3_kernel_evaluate(%(kernel_args)s);
             for (int i = 0; i < %(row_dim)d; i++) {
                 for (int j = 0; j < %(source_cell_inc)d; j++) {
                     A[i*%(source_stencil_inc)d + cell*%(source_cell_inc)d + j] =
                         B[i*%(source_cell_inc)d + j];
                 }
             }
-        }
         """ % {"to_reference": str(to_reference_kernel),
                "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
-               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
                "kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
                "ncandidate": ncandidate,
                "row_dim": row_dim,
@@ -378,10 +364,26 @@ def prolong_matrix_kernel(Vc, Vf):
                "Xc_cell_inc": coords_element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong_matrix")
-        transfer_kernel.oriented = kernel.oriented
-        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
-        return cache.setdefault(key, transfer_kernel)
+        kernel_args = [
+            ("A", ScalarType, op3.INC),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append("co", ScalarType, op3.READ),
+        if kernel.needs_cell_sizes:
+            kernel_args.append("cs", ScalarType, op3.READ),
+
+        transfer_kernel = op3.Function.from_c_string(
+            "pyop3_kernel_prolong_matrix",
+            kernel_code,
+            kernel_args,
+            preambles=[
+                ("20_to_reference_kernel", str(to_reference_kernel)),
+                ("20_eval", evaluate_code),
+            ],
+        )
+        return cache.setdefault(key, (transfer_kernel, kernel.oriented, kernel.needs_cell_sizes))
 
 
 def restrict_kernel(Vf, Vc):

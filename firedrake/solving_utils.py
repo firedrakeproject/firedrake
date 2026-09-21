@@ -516,17 +516,17 @@ class _SNESContext:
             field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
 
-            if len(V) > 1:
-                mat_type = self.mat_type
-                sub_mat_type = self.sub_mat_type
-                pmat_type = self.pmat_type
-                sub_pmat_type = self.sub_pmat_type
-            else:
+            if self.mat_type == "nest":
                 default_sub_mat_type = parameters.parameters["default_sub_matrix_type"]
                 mat_type = self.sub_mat_type or default_sub_mat_type
                 sub_mat_type = default_sub_mat_type
                 pmat_type = self.sub_pmat_type or default_sub_mat_type
                 sub_pmat_type = default_sub_mat_type
+            else:
+                mat_type = self.mat_type
+                sub_mat_type = self.sub_mat_type
+                pmat_type = self.pmat_type
+                sub_pmat_type = self.sub_pmat_type
 
             splits.append(self.reconstruct(
                 new_problem,

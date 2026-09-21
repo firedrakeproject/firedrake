@@ -3,7 +3,7 @@ from fractions import Fraction
 import pyop3 as op3
 
 from firedrake import ufl_expr, dmhooks
-from firedrake.assemble import assemble
+from firedrake.assemble import assemble, modified_lgmaps
 from firedrake.interpolation import interpolate
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -358,41 +358,38 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     if levelc + Fraction(1, hierarchy.refinements_per_level) != levelf:
         raise ValueError("Only implemented on consecutive levels")
 
-    row_map = utils.identity_node_map(Vrow)
-    col_map = utils.fine_node_to_coarse_node_map(Vrow, Vcol)
-    sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                            [(row_map, col_map, None)],
-                            name=f"{Vrow.name}_{Vcol.name}_hierarchy_interpolation_sparsity",
-                            nest=False,
-                            block_sparse=False)
-    mat = op2.Mat(sparsity)
+    mat = op3.Mat.empty(Vrow.axes, Vcol.axes)
 
     lgmaps = None
     if bcs:
         row_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vrow)]
         col_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vcol)]
         if row_bcs or col_bcs:
-            lgmaps = [(Vrow.local_to_global_map(row_bcs), Vcol.local_to_global_map(col_bcs))]
+            lgmaps = (Vrow.lgmap(row_bcs), Vcol.lgmap(col_bcs))
 
-    kernel = kernels.prolong_matrix_kernel(Vcol, Vrow)
+    kernel, oriented, needs_cell_sizes = kernels.prolong_matrix_kernel(Vcol, Vrow)
     node_locations = utils.physical_node_locations(Vrow)
     source_mesh = Vcol.mesh()
     source_coords = source_mesh.coordinates
-    compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vrow, u.function_space())
+
+    n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+    compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vrow, u.function_space())(n)
+
     kernel_args = [
-        mat(op2.INC, (row_map, col_map), lgmaps=lgmaps),
-        node_locations.dat(op2.READ),
-        source_coords.dat(op2.READ, compose_map(source_coords)),
+        mat[n, utils.fine_node_to_coarse_node_map(Vrow, Vcol)(n)],
+        node_locations.dat[n],
+        source_coords.dat[compose_map(source_coords)],
     ]
-    if kernel.oriented:
+    if oriented:
         co = source_mesh.cell_orientations()
-        kernel_args.append(co.dat(op2.READ, compose_map(co)))
-    if kernel.needs_cell_sizes:
+        kernel_args.append(co.dat[compose_map(co)])
+    if needs_cell_sizes:
         cs = source_mesh.cell_sizes
-        kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
-    source_coords.dat.global_to_local_begin(op2.READ)
-    source_coords.dat.global_to_local_end(op2.READ)
-    op2.par_loop(kernel, Vrow.node_set, *kernel_args)
+        kernel_args.append(cs.dat[compose_map(cs)])
+    source_coords.dat.assemble()
+
+    with modified_lgmaps(mat, lgmaps):
+        op3.loop(n, kernel(*kernel_args), eager=True)
     mat.assemble()
     result = mat.handle
 

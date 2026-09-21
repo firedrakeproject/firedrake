@@ -426,8 +426,8 @@ def test_bcs_mixed_real():
     A = assemble(a, bcs=bc)
 
     label0, label1 = V._labels
-    assert np.allclose(A.M[label0, label1].values, [[0.00], [0.25], [0.25], [0.00]])
-    assert np.allclose(A.M[label1, label0].values, [[0.00, 0.25, 0.25, 0.00]])
+    assert np.allclose(A.M[label0, label1].values.ravel(), [0., 0.25, 0.25, 0.])
+    assert np.allclose(A.M[label1, label0].values.ravel(), [0., 0.25, 0.25, 0.])
 
 
 def test_bcs_mixed_real_vector():
@@ -443,12 +443,9 @@ def test_bcs_mixed_real_vector():
 
     label0, label1 = V._labels
     assert np.allclose(
-        A.M[label0, label1].values, [[[0.25], [0.], [0.25], [0.25], [0.25], [0.25], [0.25], [0.]]]
+        A.M[label0, label1].values.ravel(), [0.25, 0., 0.25, 0.25, 0.25, 0.25, 0.25, 0.]
     )
-    assert np.allclose(
-        A.M[label1, label0].values,
-        [[0.25, 0., 0.25, 0.25, 0.25, 0.25, 0.25, 0.]]
-    )
+    assert np.allclose(A.M[label1, label0].values.ravel(), [0.25, 0., 0.25, 0.25, 0.25, 0.25, 0.25, 0.])
 
 
 def test_homogeneous_bc_residual():

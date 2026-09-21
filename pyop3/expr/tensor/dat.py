@@ -196,15 +196,6 @@ class Dat(Tensor):
         with self.vec_ro as v:
             return v.max()
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
-        from pyop3.expr.visitors import evaluate_arraywise
-
-        other_eval = evaluate_arraywise(other)
-        if mode == "write":
-            self.data_wo[...] = other_eval
-        else:
-            self.data_rw[...] += other_eval
-
     # }}}
 
     # {{{ constructors
@@ -393,11 +384,6 @@ class Dat(Tensor):
         return self.buffer.dtype
 
     @property
-    def data_ro(self) -> np.ndarray:
-        """Return a read-only view of the data stored by the dat."""
-        return self.as_array("ro")
-
-    @property
     def data_ro_with_halos(self):
         """Return a read-only view of the data stored by the dat.
 
@@ -405,11 +391,6 @@ class Dat(Tensor):
 
         """
         return self.as_array("ro", include_ghosts=True)
-
-    @property
-    def data_wo(self) -> np.ndarray:
-        """Return a write-only view of the data stored by the dat."""
-        return self.as_array("wo")
 
     @property
     def data_wo_with_halos(self):
@@ -421,11 +402,6 @@ class Dat(Tensor):
         return self.as_array("wo", include_ghosts=True)
 
     @property
-    def data_rw(self) -> np.ndarray:
-        """Return a modifiable view of the data stored by the dat."""
-        return self.as_array("rw")
-
-    @property
     def data_rw_with_halos(self) -> np.ndarray:
         """Return a modifiable view of the data stored by the dat.
 
@@ -433,11 +409,6 @@ class Dat(Tensor):
 
         """
         return self.as_array("rw", include_ghosts=True)
-
-    # TODO: eventually deprecate this
-    @property
-    def data(self):
-        return self.data_rw
 
     # TODO: eventually deprecate this
     @property
