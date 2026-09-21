@@ -79,6 +79,7 @@ _cells = {
 
 
 _supported_embedded_cell_types_and_gdims = [('interval', 2),
+                                            ('interval', 3),
                                             ('triangle', 3),
                                             ("quadrilateral", 3),
                                             ("interval * interval", 3)]
@@ -1561,7 +1562,7 @@ class MeshTopology(AbstractMeshTopology):
             plex.createLabel(label_name)
         plex.clearLabelStratum(label_name, label_value)
         label = plex.getLabel(label_name)
-        section = tV.dm.getSection()
+        section = tV.dm.getLocalSection()
         array = tf.dat.data_ro_with_halos.real.astype(IntType)
         dmcommon.mark_points_with_function_array(plex, section, height, array, label, label_value)
 
@@ -2950,15 +2951,19 @@ values from f.)"""
     def init_cell_orientations(self, expr):
         """Compute and initialise meth:`cell_orientations` relative to a specified orientation.
 
-        :arg expr: a UFL expression evaluated to produce a
-             reference normal direction.
+        Parameters
+        ----------
+        expr : ufl.core.expr.Expr
+            A UFL expression for the reference direction. This is a normal
+            direction, except for intervals embedded in 3D, where it is a
+            tangent direction because a curve in 3D has no unique normal.
 
         """
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
         if (self.ufl_cell().cellname, self.geometric_dimension) not in _supported_embedded_cell_types_and_gdims:
-            raise NotImplementedError('Only implemented for intervals embedded in 2d and triangles and quadrilaterals embedded in 3d')
+            raise NotImplementedError('Only implemented for intervals embedded in 2d or 3d and triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
             raise CellOrientationsRuntimeError("init_cell_orientations already called, did you mean to do so again?")
@@ -2973,7 +2978,9 @@ values from f.)"""
         x = ufl.SpatialCoordinate(self)
         f = function.Function(fs)
 
-        if self.topological_dimension == 1:
+        if self.topological_dimension == 1 and self.geometric_dimension == 3:
+            normal = ReferenceGrad(x)[:, 0]
+        elif self.topological_dimension == 1:
             normal = ufl.as_vector((-ReferenceGrad(x)[1, 0], ReferenceGrad(x)[0, 0]))
         else:  # self.topological_dimension == 2
             normal = ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])
@@ -3313,7 +3320,7 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
     parent_tdim = topology._parent_mesh.ufl_cell().topological_dimension
     if parent_tdim > 0:
         reference_coordinates_fs = functionspace.VectorFunctionSpace(topology, "DG", 0, dim=parent_tdim)
-        reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getDefaultSection(),
+        reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getLocalSection(),
                                                                (topology.num_vertices(), parent_tdim),
                                                                reference_coord=True)
         reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
@@ -4896,7 +4903,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         # Clear label stratum; this is a copy, so safe to change.
         plex1.clearLabelStratum(dmlabel_name, subid)
         dmlabel = plex1.getLabel(dmlabel_name)
-        section = f.topological.function_space().dm.getSection()
+        section = f.topological.function_space().dm.getLocalSection()
         dmcommon.mark_points_with_function_array(plex, section, height, f.dat.data_ro_with_halos.real.astype(IntType), dmlabel, subid)
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
@@ -4931,7 +4938,7 @@ def SubDomainData(geometric_expr):
     The result can be attached as the subdomain_data field of a
     :class:`ufl.Measure`. For example:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         x = mesh.coordinates
         sd = SubDomainData(x[0] < 0.5)
@@ -5106,7 +5113,7 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
 
     (gdim,) = element.reference_value_shape
     coordinates_fs = functionspace.FunctionSpace(topology, element)
-    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getDefaultSection(),
+    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                  (topology.num_vertices(), gdim))
     return function.CoordinatelessFunction(coordinates_fs,
                                            val=coordinates_data,

@@ -856,7 +856,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         Parameters
@@ -865,16 +865,12 @@ class FunctionSpace:
             If provided, mask out those dofs which match the BC nodes.
         lgmap: PETSc.LGMap
             The base local-to-global map, which might be partially masked.
-        mat_type: str
-            The matrix assembly type. This is required as different matrix types
-            handle the LGMap differently for MixedFunctionSpace.
 
         Note
         ----
             For a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace` the returned
             LGMap will be the scalar one, unless the bcs are imposed on a particular component.
-            For a :class:`MixedFunctionSpace` the returned LGMap is unblocked,
-            unless mat_type == "is".
+            For a :class:`MixedFunctionSpace` the returned LGMap is unblocked.
 
         Returns
         -------
@@ -905,16 +901,11 @@ class FunctionSpace:
                 bsize = lgmap.getBlockSize()
                 assert bsize == self.block_size
         else:
-            # MatBlock case, the LGMap is implementation dependent
+            # MatBlock case, the LGMap is already unrolled
             bsize = lgmap.getBlockSize()
             assert bsize == self.block_size
-            if mat_type == "is":
-                indices = lgmap.indices.copy()
-                unblocked = False
-            else:
-                # LGMap is already unrolled
-                indices = lgmap.block_indices.copy()
-                unblocked = True
+            indices = lgmap.block_indices.copy()
+            unblocked = True
         nodes = []
         for bc in bcs:
             if bc.function_space().component is not None:
@@ -1025,7 +1016,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.dof_dset, self.ufl_element(),
                      self.boundary_set))
 
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
@@ -1282,7 +1273,7 @@ class MixedFunctionSpace(object):
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -1530,6 +1521,6 @@ class RealFunctionSpace(FunctionSpace):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
 
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0
         return None
