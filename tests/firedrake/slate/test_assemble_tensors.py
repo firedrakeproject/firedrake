@@ -145,7 +145,7 @@ def test_assemble_vector_into_tensor(mesh):
 def test_assemble_scalar_multiplication(mesh):
     V = FunctionSpace(mesh, "DG", 1)
     v = TestFunction(V)
-    tensor = Tensor(v * dx)
+    tensor = Tensor(conj(v) * dx)
     reference = assemble(tensor).dat.data
 
     for scalar in (0, 0.5, 2):
