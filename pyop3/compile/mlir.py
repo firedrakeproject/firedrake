@@ -386,7 +386,6 @@ class MLIRCodegenContext(CodegenContext):
         loop_indices,
         *, 
         intent,
-        buffer_store: bool = False 
     ) -> SSAValue | None:
         """ 
         Returns an SSAValue for a LoadOp from a buffer or None from a StoreOp
@@ -406,11 +405,7 @@ class MLIRCodegenContext(CodegenContext):
             # idx = indices[-1]  # only the final index has meaning
             # is_negative = pym.primitives.Comparison(idx, "<", 0)
             # return pym.primitives.If(is_negative, -1, subscript)
-        
-        if buffer_store:
-            raise NotImplementedError("To implement. Increasingly think not necessary")
-        else:
-            memref_op_ssa = memref.LoadOp.get(self.symbol_table[buffer_view], offset_ssa)
+        memref_op_ssa = memref.LoadOp.get(self.symbol_table[buffer_view], offset_ssa)
         
         self.insert(memref_op_ssa)
         return memref_op_ssa.results[0]
@@ -518,7 +513,6 @@ class MLIRCodegenContext(CodegenContext):
             expr, 
             iname_maps=[inames], 
             loop_indices=loop_indices,
-            buffer_store=False
         )
         self.symbol_table.define(extent_name.name, rhs_ssa) 
         return extent_name
@@ -578,7 +572,6 @@ class MLIRCodegenContext(CodegenContext):
             paths=None,
             is_index=None,
             target_type=None,
-            buffer_store: bool = False,
             **kwargs
     ) -> SSAValue:
         return _lower_expr(
@@ -590,7 +583,6 @@ class MLIRCodegenContext(CodegenContext):
             is_index=is_index,
             target_type=target_type,
             context=self, 
-            buffer_store=buffer_store
         )
 
 @functools.singledispatch
@@ -623,10 +615,6 @@ def align_binops(e, /, iname_maps, loop_indices, *, context, is_index, target_ty
     if is_index:
         lhs = context._to_index(lhs)
         rhs = context._to_index(rhs)
-    # elif e.a.dtype != e.b.dtype:
-    #     pass
-        # extend whichever necessary.
-        # should both be of same type family (i.e. float32 + float64, or int32 + int64) 
         
     return lhs, rhs
 
@@ -723,20 +711,20 @@ def _(loop_var, /, iname_maps, loop_indices, *, context, **kwargs) -> SSAValue:
     return loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
 
 @_lower_expr.register(pyop3.expr.ScalarBufferExpression)
-def _(expr, /, iname_maps, loop_indices, *, intent, context, buffer_store, **kwargs) -> SSAValue:
+def _(expr, /, iname_maps, loop_indices, *, intent, context, **kwargs) -> SSAValue:
     return context.lower_buffer_access(expr.buffer_view, [0],
-                                       iname_maps, loop_indices, intent=intent, buffer_store=buffer_store)
+                                       iname_maps, loop_indices, intent=intent)
 
 
 @_lower_expr.register(pyop3.expr.LinearDatBufferExpression)
-def _(expr, /, iname_maps, loop_indices, *, intent, context, buffer_store, **kwargs) -> SSAValue:
+def _(expr, /, iname_maps, loop_indices, *, intent, context, **kwargs) -> SSAValue:
     return context.lower_buffer_access(expr.buffer_view, [expr.layout],
-                                       iname_maps, loop_indices, intent=intent, buffer_store=buffer_store)
+                                       iname_maps, loop_indices, intent=intent)
 
 
 @_lower_expr.register(pyop3.expr.NonlinearDatBufferExpression)
-def _(expr, /, iname_maps, loop_indices, *, intent, paths, context, buffer_store, **kwargs) -> SSAValue:
+def _(expr, /, iname_maps, loop_indices, *, intent, paths, context, **kwargs) -> SSAValue:
     path = utils.just_one(paths)
     return context.lower_buffer_access(expr.buffer_view, [expr.layouts[path]],
-                                       iname_maps, loop_indices, intent=intent, buffer_store=buffer_store)
+                                       iname_maps, loop_indices, intent=intent)
     

@@ -1527,6 +1527,16 @@ def _(mat: PETSc.Mat, /):
 def _(array: np.ndarray, /) -> np.ndarray:
     return array
 
+try:
+    import cupy as cp
+    
+    @_extract_handle.register(cp.ndarray)
+    def _(array: cp.ndarray, /) -> cp.ndarray:
+        return array 
+
+except ImportError:
+    pass
+
 
 @pyop3.record.frozenrecord()
 class IndexedBuffer(pyop3.obj.Object):

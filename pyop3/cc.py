@@ -68,9 +68,9 @@ from pyop3.cache import (
 from pyop3.exceptions import CompilationException
 from pyop3.log import INFO, debug, progress, warning
 
-# TODO: Sam testing 
-import contextlib
 import time
+
+from pyop3.device import get_current_device
 
 def _check_hashes(x, y, datatype):
     """MPI reduction op to check if code hashes differ across ranks."""
@@ -88,17 +88,41 @@ _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
 # NOTE: Basic mlir-opt passes. Further optimisations can be made in future.
-MLIR_OPT_PASSES = (
-    "--cse",
-    "--canonicalize",
-    "--convert-scf-to-cf",
-    "--convert-cf-to-llvm",
-    "--convert-func-to-llvm",
-    "--finalize-memref-to-llvm",
-    "--convert-arith-to-llvm",
-    "--convert-index-to-llvm",
-    "--reconcile-unrealized-casts",
-)
+MLIR_OPT_PASSES = {
+    "CPU": (
+        "--cse",
+        "--canonicalize",
+        "--convert-scf-to-cf",
+        "--convert-cf-to-llvm",
+        "--convert-func-to-llvm",
+        "--finalize-memref-to-llvm",
+        "--convert-arith-to-llvm",
+        "--convert-index-to-llvm",
+        "--reconcile-unrealized-casts",
+    ),
+    "CudaGPU": (
+        "--scf-parallel-loop-tiling=parallel-loop-tile-sizes=128 no-min-max-bounds=true",
+        "--canonicalize",
+        "--cse",
+        "--gpu-map-parallel-loops",
+        "--convert-parallel-loops-to-gpu",
+        "--gpu-kernel-outlining",
+        "--nvvm-attach-target=chip=sm_89 features=+ptx80 O=3", # NOTE: Hardware arch information. Need more information.
+        "--convert-scf-to-cf",
+        "--expand-strided-metadata",
+        "--lower-affine",
+        "--convert-gpu-to-nvvm",
+        "--convert-nvvm-to-llvm",
+        "--convert-index-to-llvm",
+        "--convert-arith-to-llvm",
+        "--convert-cf-to-llvm",
+        "--finalize-memref-to-llvm",
+        "--convert-func-to-llvm",
+        "--gpu-to-llvm",
+        "--reconcile-unrealized-casts",
+        "--gpu-module-to-binary",
+    )
+}
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True)
@@ -486,11 +510,12 @@ class MLIRCompiler(Compiler):
     _mlir_translate = None
     _cc = None
 
-    _mlir_opt_flags = MLIR_OPT_PASSES
+    # TODO: Better way to do this - depends on these strings matching. Very silly 
+    _mlir_opt_flags = MLIR_OPT_PASSES[str(get_current_device())]
     _cflags = ("-fPIC",)
-    _ldflags = ("-shared",)
+    _ldflags = ("-shared", "-L/home/sam/Documents/llvm-project/build/lib")
 
-    _optflags = ("-O3",)
+    _optflags = ("-O3", "-ffast-math",)
     _debugflags = ("-O0", "-g")
 
     @property
@@ -502,18 +527,13 @@ class MLIRCompiler(Compiler):
         return self._mlir_translate or shutil.which("mlir-translate") or "mlir-translate"
 
     @property
-    def opt(self):
-        return shutil.which("opt")
-
-    @property
     def cc(self):
-        return self._cc or shutil.which("clang") or "clang"
+        return self._cc or shutil.which("clang++") or "clang++"
 
     @property
     def mlir_opt_flags(self) -> tuple[str, ...]:
         return (
-            *self._mlir_opt_flags,
-            # *self._extra_compiler_flags, # NOTE: Ignoring this as it adds include library flags 
+            *MLIR_OPT_PASSES[str(get_current_device())],
             *getattr(pyop3.config, "extra_mlir_opt_flags", ()),
         )
 
@@ -521,7 +541,8 @@ class MLIRCompiler(Compiler):
     def cflags(self) -> tuple[str, ...]:
         return (
             *self._cflags,
-            *(self._debugflags if self._debug else self._optflags),
+            # *(self._debugflags if self._debug else self._optflags),
+            *self._debugflags,
         )
 
 
@@ -717,24 +738,11 @@ def make_so(compiler, code, extension, comm):
                     with timer("mlir-translate"):
                         _run(translate_cmd, logfile, errfile, step="Translating", filemode="a")
 
-                    # llvm -> opt llvm 
-                    # optname = filename.with_suffix(".ll")
-                    # opt_cmd = (
-                    #     compiler.opt,
-                    #     "-O3",
-                    #     "-mcpu=native",
-                    #     str(llname),
-                    #     '-o', str(optname),
-                    # )
-                    # with timer("opt"):
-                    #     _run(opt_cmd, logfile, errfile, step="Optimising", filemode="a")
-
                     # llvm -> shared library
                     # NOTE: How can I guarantee this is clang??
                     cc = (
                         (compiler.cc,) + compiler.cflags + ("-march=native",)
-                        + ("-ffast-math",)
-                        + (str(llname),) + compiler.ldflags
+                        + (str(llname),) + compiler.ldflags + ("-lmlir_cuda_runtime",)
                         + ('-o', str(soname))
                     )
                     with timer("clang"):
@@ -839,7 +847,7 @@ def clear_compiler_disk_cache(prompt=False):
             print("Not removing cached libraries")
 
 
-@contextlib.contextmanager
+@contextmanager
 def timer(description="Operation"):
     start_time = time.perf_counter()
     yield

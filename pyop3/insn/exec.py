@@ -30,7 +30,6 @@ from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
-import time 
 import pyop3.debug_flags
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -477,6 +476,7 @@ class Executable:
             ldargs += ("-llikwid",)
 
         # TODO: This is just temporary for prototyping and results - software eng to come
+        # For sure influenced by Connor's change on `CodegenResult` 
         if self.compiler_parameters.backend == "mlir": 
             cast_arg_to_ctype_type = cast_memref_arg_to_ctype_type
             extension = "mlir"
@@ -491,13 +491,10 @@ class Executable:
             func_name = self.code.default_entrypoint.name
             device_code = self._device_code
 
-        start_time = time.perf_counter()
         dll = pyop3.cc.load(device_code, extension, cppargs, ldargs, comm=self.comm)
-        end_time = time.perf_counter()
 
         if pyop3.debug_flags.hit_assign:
-            compilation_time = end_time - start_time
-            print(f"Compilation time: {compilation_time * 1000:.2f} milliseconds")
+            print(f"Hit assign and compiled")
     
         for event in self.petsc_events:
             # Create the event in python and then set in the shared library to avoid
@@ -671,13 +668,7 @@ class CompiledCodeExecutor:
             bcast()
 
         # Now all the data is correct, compute!
-        start_time = time.perf_counter()
         self.executable(*exec_arguments)
-        end_time = time.perf_counter()
-
-        if pyop3.debug_flags.hit_assign:
-            execution_time = end_time - start_time
-            # print(f"Execution time: {execution_time * 1000:.2f} milliseconds")
 
         # if "MatSetValues" in str(self) and "form" in str(self):
         #     buf = list(self.buffer_intents.keys())[0]
@@ -715,9 +706,22 @@ class CompiledCodeExecutor:
     @cached_property
     def _default_exec_arguments(self):
         if self.executable.compiler_parameters.backend == "mlir":
+
+            # At this point, I would like to pass numpy instead of gpu for the extents.
+            # The first two buffers - WITHOUT GENERIC GUARANTEE - are the extents
+            # This has so many issues it is ungodly
+            # handles[0].get assumes cupy array, which means GPU assumption
+            handles = [buffer_view.handle for buffer_view in self.kernel_name_to_buffer_info.values()]
+            handles[0] = np.array(handles[0].get())
+            handles[1] = np.array(handles[1].get())
+
+            # return tuple(
+            #     Memref.from_array(buffer_view.handle)
+            #     for buffer_view in self.kernel_name_to_buffer_info.values()
+            # )
             return tuple(
-                Memref.from_array(buffer_view.handle)
-                for buffer_view in self.kernel_name_to_buffer_info.values()
+                    Memref.from_array(handle)
+                    for handle in handles
             )
         return tuple(
             self._handle_to_pointer(buffer_view.handle)
@@ -905,6 +909,8 @@ def cast_memref_arg_to_ctype_type(arg: Any) -> type:
     The object will be a flat 1-D array. 
 
     The dtype will be a numpy dtype.
+
+    I would also like a flag that says if it is a CPU or GPU buffer 
     """
     rank = 1 if arg.shape is None else len(arg.shape)
     return ctypes.POINTER(Memref.ctype(rank, np.dtype(arg.dtype)))
@@ -958,11 +964,29 @@ class Memref:
         MemRefCType.__name__ = f"MemRefCType_{np.dtype(dtype).name}_{rank}d"
         return MemRefCType
 
+    @functools.singledispatchmethod
     @classmethod
-    def from_array(cls, array: np.ndarray, *, rank: int | None = None):
-        """Wrap a numpy array, taking shape/strides from the array itself."""
+    def from_array(cls, array: Any, *, rank: int | None = None):
+        raise NotImplementedError("No casting for array of this type.")
+
+    @from_array.register(np.ndarray)
+    @classmethod
+    def _(cls, array: np.ndarray, *, rank: int | None = None):
+        """Wrap a numpy array, taking shape/strides from the array itself"""
         shape = array.shape if rank is None or rank == array.ndim else (array.size,)
         return cls._build(array.ctypes.data, shape, np.dtype(array.dtype))
+    
+    try:
+        import cupy as cp
+        @from_array.register(cp.ndarray)
+        @classmethod
+        def _(cls, array: cp.ndarray, *, rank: int | None = None):
+            """Wrap a CuPy array, taking shape/strides from the array itself"""
+            shape = array.shape if rank is None or rank == array.ndim else (array.size,)
+            return cls._build(array.data.ptr, shape, np.dtype(array.dtype))
+
+    except ImportError:
+        pass 
 
     @classmethod
     def from_pointer(cls, address: int, shape, dtype):

@@ -4,6 +4,9 @@ import numbers
 import functools
 import numpy as np
 
+# TODO: Need optional
+import cupy as cp
+
 import pymbolic as pym
 from immutabledict import immutabledict as idict
 
@@ -239,7 +242,7 @@ class CodegenContext(ABC):
 
             # Extract the underlying data as that is what we need to generate code
             handle = buffer_view.handle
-            if isinstance(handle, np.ndarray):
+            if isinstance(handle, (np.ndarray, cp.ndarray)):
                 if isinstance(handle.dtype, np.dtypes.IntDType):
                     name_in_kernel = self.unique_name("idat")
                 else:
