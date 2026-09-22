@@ -326,20 +326,17 @@ form and hand it over.
 
   problem = NonlinearVariationalProblem(F, u, bcs, Jp=riesz, objective=E)
 
-Three Krylov methods in PETSc accept a trust-region radius from ``newtontr``
-and let us select the norm in which they measure the step: ``nash``, ``stcg`` and
-``gltr``. They are conjugate gradient methods, so they need a symmetric
-positive definite preconditioner. The Jacobian cannot supply one here, because
-it is indefinite wherever :math:`|u| < 1/\sqrt{3}`, while the Riesz map is
-positive definite everywhere. The option
+CG-like Krylov methods in PETSc accept a trust-region radius from ``newtontr``
+and let us select the norm in which they measure the step. Note that these KSP
+methods need a symmetric positive definite preconditioner. The Jacobian cannot 
+supply one here, because it is indefinite wherever :math:`|u| < 1/\sqrt{3}`, 
+while the Riesz map is positive definite everywhere. The option
 ``ksp_cg_dtype: preconditioned`` makes them measure the length of their
 iterate in :math:`\|\cdot\|_M`, and they stop as soon as that length reaches
 the boundary of the trust region (``CONVERGED_STEP_LENGTH``), or as soon as
 they meet a direction of negative curvature (``CONVERGED_NEG_CURVE``). Either
 outcome saves the work of solving a Newton system to a tolerance that the
-trust region discards. PETSc passes the radius to the Krylov solver only
-while ``snes_tr_fallback_type`` keeps its default value ``newton``, so we
-leave that option alone.
+trust region discards.
 
 .. code-block:: python
 
@@ -376,21 +373,12 @@ The solver converges in 14 iterations:
 While the region is small compared with the Newton step, ``gltr`` reaches the
 boundary and reports ``CONVERGED_STEP_LENGTH``. Close to the solution the
 Newton step lies inside the region, so the Krylov solver runs to its own
-tolerance instead, and seven iterations of it are enough because the Riesz map
-is also a good preconditioner for the Jacobian.
+tolerance instead, and seven iterations of it are enough.
 
 We factorise the Riesz map with a direct method, which one dimension permits.
-In two or three dimensions, replace ``pc_type: cholesky`` with an algebraic
-multigrid method such as ``hypre`` or ``gamg``: the Riesz map is a Laplacian
-with a mass term, which is the class of operator that those methods handle
-best.
-
-One detail deserves attention. ``newtontr`` measures the accepted step itself
-as well, and for that it uses the norm that ``snes_tr_norm_type`` selects, which
-offers the 1-, 2- and infinity-norms of the coefficient vector only. It scales
-a step that is too long in that norm back to the boundary, and the monitor
-prints the same quantity as the update norm. The Riesz norm therefore governs
-the Krylov solve, while the 2-norm governs this last safeguard.
+In two or three dimensions, replace ``pc_type: cholesky`` with an efficient
+preconditioner. Note that if the preconditioner is spectrally equivalent to 
+the Reisz map, a PREONLY KSP is sufficient.
 
 To close, let's check the free energy at the starting guess and at the
 computed solution, and confirm that we have found the same solution as the
@@ -430,13 +418,6 @@ by a sharp transition layer of width :math:`O(\sqrt{\epsilon})`:
 .. image:: allen_cahn.png
     :align: center
     :width: 60%
-
-A few remarks on other options. When the Newton step falls outside the trust
-region, ``newtontr`` scales it back to the boundary by default; the option
-``snes_tr_fallback_type`` can instead select the Cauchy point (``cauchy``),
-or the dogleg path between the Cauchy point and the Newton step
-(``dogleg``). All three work for this problem, but only the default keeps
-the trust-region radius available to the Krylov solver, as we saw above.
 
 This demo can be found as a script in :demo:`trust_region_allen_cahn.py <trust_region_allen_cahn.py>`.
 
