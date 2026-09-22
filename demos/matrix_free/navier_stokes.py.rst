@@ -105,7 +105,9 @@ with PCD.
 This preconditioner requires information about the the problem that
 is not easily accessible from the bilinear form. Specifically, we need
 the Reynolds number and which part of the mixed velocity-pressure space
-the velocity corresponds to. ::
+the velocity corresponds to.
+
+.. code-block:: python
 
                "fieldsplit_1_pcd_Re": Re,
                "fieldsplit_1_pcd_velocity_space": 0,

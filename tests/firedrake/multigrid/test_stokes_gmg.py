@@ -80,7 +80,7 @@ def test_stokes_appctx_coarsening():
     fine_mu = mu
     for level in reversed(range(len(mh) - 1)):
         ctx = ctx._coarse
-        coarse_mu = ctx._appctx["mu"].obj
+        coarse_mu = ctx.appctx["mu"].obj
         assert coarse_mu.function_space().mesh() is mh[level]
 
         expected = Function(coarse_mu.function_space())

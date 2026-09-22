@@ -105,7 +105,7 @@ class PCDPC(PCBase):
         self.Kksp = Kksp
 
         Re = snes_ctx.get_python_option(prefix, "Re", 1.0)
-        velid = int(snes_ctx.get_python_option(prefix, "velocity_space"))
+        velid = opts.getInt(f"{prefix}velocity_space")
 
         u0 = split(snes_ctx.state)[velid]
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx

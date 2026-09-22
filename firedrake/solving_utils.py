@@ -240,7 +240,7 @@ class _SNESContext:
 
         self.state = state if state is not None else self._x
 
-        self._appctx = appctx
+        self.appctx = appctx or {}
         self.matfree = matfree
         self.pmatfree = pmatfree
         self.F = problem.F
@@ -335,29 +335,23 @@ class _SNESContext:
             value = opts[option]
         except KeyError:
             # not in the options database - try the old, unprefixed approach
-            if self._appctx is not None:
-                try:
-                    value = self._appctx[option]
-                except KeyError:
-                    if default is not _missing:
-                        value = default
-                    else:
-                        raise KeyError
-                else:
-                    if not isinstance(value, dmhooks.Hooked):
-                        warnings.warn(
-                            "Passing arbitrary Python objects to preconditioners via the 'appctx' kwarg "
-                            "is now deprecated. Either pass the objects into the PETSc options "
-                            "directly or specify hooks instead.",
-                            FutureWarning,
-                        )
-                    else:
-                        value = value.obj
-            else:
+            try:
+                value = self.appctx[option]
+            except KeyError:
                 if default is not _missing:
                     value = default
                 else:
                     raise KeyError
+            else:
+                if not isinstance(value, dmhooks.Hooked):
+                    warnings.warn(
+                        "Passing arbitrary Python objects to preconditioners via the 'appctx' kwarg "
+                        "is now deprecated. Either pass the objects into the PETSc options "
+                        "directly or specify hooks instead.",
+                        FutureWarning,
+                    )
+                else:
+                    value = value.obj
         return value
 
     def reconstruct(self,
@@ -391,7 +385,7 @@ class _SNESContext:
         default_options = dict(
             sub_mat_type=self.sub_mat_type,
             sub_pmat_type=self.sub_pmat_type,
-            appctx=self._appctx,
+            appctx=self.appctx,
             options_prefix=self.options_prefix,
             transfer_manager=self.transfer_manager,
             pre_jacobian_callback=self._pre_jacobian_callback,
@@ -725,7 +719,7 @@ class _SNESContext:
         from firedrake.assemble import get_assembler
         return get_assembler(self.J, bcs=self.bcs_J, form_compiler_parameters=self.fcp,
                              mat_type=self.mat_type, sub_mat_type=self.sub_mat_type,
-                             options_prefix=self.options_prefix, appctx=self._appctx)
+                             options_prefix=self.options_prefix, appctx=self.appctx)
 
     @cached_property
     def _jac(self):
@@ -745,7 +739,7 @@ class _SNESContext:
         if self.mat_type != self.pmat_type or self._problem.Jp is not None:
             return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp,
                                  mat_type=self.pmat_type, sub_mat_type=self.sub_pmat_type,
-                                 options_prefix=self.options_prefix, appctx=self._appctx)
+                                 options_prefix=self.options_prefix, appctx=self.appctx)
         else:
             return self._assembler_jac
 
@@ -777,7 +771,9 @@ def _transfer_function(
     function: Function,
     mode: Literal["refine", "coarsen"],
 ) -> Function:
-    from firedrake.mg.ufl_utils import refine, coarsen
+    from firedrake.mg.ufl_utils import refine
+
+    coarsen = dmhooks.get_ctx_coarsener(function.function_space().dm)
 
     V = function.function_space()
     Vnew = refine(V, refine) if mode == "refine" else coarsen(V, coarsen)
