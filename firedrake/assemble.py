@@ -1707,8 +1707,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
-                    raise NotImplementedError
-                    self._apply_bcs_mat_real_block(mat, V.index, j, component, bc.node_set)
+                    j = spaces[1]._labels[j]
+                    self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set, "row")
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
             raise AssertionError

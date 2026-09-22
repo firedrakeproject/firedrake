@@ -119,12 +119,11 @@ def _pack_dat_nonmixed(
     packed_topological_axes, depth = _pack_dat_nonmixed_topological(dat.axes, loop_index, space)
     packed_dat = dat.with_axes(packed_topological_axes)
 
-    if _needs_static_permutation(space.finat_element):
-        # For high order elements the DoFs for the different topological entities are
-        # interleaved. We therefore need to reshape the dat to a 'nodal' view in
-        # order to permute the nodes.
-        packed_nodal_axes = _pack_dat_nonmixed_nodal(packed_topological_axes, space, depth)
-        packed_dat = packed_dat.reshape(packed_nodal_axes, _allow_indexed=True)
+    # For high order elements the DoFs for the different topological entities are
+    # interleaved. We therefore need to reshape the dat to a 'nodal' view in
+    # order to permute the nodes.
+    packed_nodal_axes = _pack_dat_nonmixed_nodal(packed_topological_axes, space, depth)
+    packed_dat = packed_dat.reshape(packed_nodal_axes, _allow_indexed=True)
 
     return packed_dat
 
@@ -250,14 +249,14 @@ def transform_packed_cell_closure_mat(
         column_depth=column_depth,
     )
 
-    if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
-        rnodal_axis_tree, rnodal_axis = _packed_nodal_axes(packed_mat.row_axes, row_space, row_depth)
-        cnodal_axis_tree, cnodal_axis = _packed_nodal_axes(packed_mat.column_axes, column_space, column_depth)
-        packed_mat = packed_mat.reshape(rnodal_axis_tree, cnodal_axis_tree)
+    # if _needs_static_permutation(row_space.finat_element) or _needs_static_permutation(column_space.finat_element):
+    rnodal_axis_tree, rnodal_axis = _packed_nodal_axes(packed_mat.row_axes, row_space, row_depth)
+    cnodal_axis_tree, cnodal_axis = _packed_nodal_axes(packed_mat.column_axes, column_space, column_depth)
+    packed_mat = packed_mat.reshape(rnodal_axis_tree, cnodal_axis_tree)
 
-        row_dof_perm_slice = _static_node_permutation_slice(rnodal_axis, row_space, row_depth)
-        column_dof_perm_slice = _static_node_permutation_slice(cnodal_axis, column_space, column_depth)
-        packed_mat = packed_mat[row_dof_perm_slice, column_dof_perm_slice]
+    row_dof_perm_slice = _static_node_permutation_slice(rnodal_axis, row_space, row_depth)
+    column_dof_perm_slice = _static_node_permutation_slice(cnodal_axis, column_space, column_depth)
+    packed_mat = packed_mat[row_dof_perm_slice, column_dof_perm_slice]
 
     return packed_mat
 
