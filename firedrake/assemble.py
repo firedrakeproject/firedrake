@@ -1386,7 +1386,7 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 mat_type = "rvec"
             else:
                 mat_type = "cvec"
-    elif mat_type is not None:
+    elif mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
 
     if sub_mat_type is None:
