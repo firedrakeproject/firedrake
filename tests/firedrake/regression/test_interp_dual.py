@@ -3,6 +3,8 @@ import numpy as np
 from firedrake import *
 from firedrake.utils import complex_mode
 from firedrake.matrix import MatrixBase
+from firedrake.assemble import BaseFormAssembler
+from firedrake.petsc import PETSc
 import ufl
 
 
@@ -286,6 +288,61 @@ def test_solve_interp_u(mesh):
                                           "ksp_type": "cg",
                                           "pc_type": "none"})
     assert np.allclose(u.dat.data, u2.dat.data)
+
+
+@pytest.mark.parallel([1, 3])
+def test_solve_interp_hessian():
+    # Fit a field to observations at a point cloud, regularised with a Laplacian term:
+    #   J(u) = 1/2 sum_k |u(x_k) - p_k|^2 + alpha/2 |grad(u)|^2
+    # The Hessian of the data term is I^T M I, with I the interpolation matrix from V
+    # into the vertex-only mesh and M the mass matrix of the vertex-only mesh.
+    mesh = UnitSquareMesh(5, 5)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    points = np.array([[0.1, 0.2], [0.5, 0.5], [0.9, 0.7], [0.3, 0.8]])
+    vom = VertexOnlyMesh(mesh, points)
+    P = FunctionSpace(vom, "DG", 0)
+    p_obs = assemble(interpolate(1.0 + x + 2 * y, P))
+
+    alpha = Constant(1e-2)
+    u = Function(V)
+    E = 0.5 * (interpolate(u, P) - p_obs)**2 * dx(vom)
+    R = 0.5 * alpha * inner(grad(u), grad(u)) * dx
+    J = E + R
+    F = derivative(J, u)
+    H = derivative(F, u)
+
+    # -- Symbolic Hessian against explicit matrix products
+    I = assemble(interpolate(TrialFunction(V), P)).petscmat
+    M = assemble(inner(TrialFunction(P), TestFunction(P)) * dx).petscmat
+    H_ref = assemble(derivative(derivative(R, u), u)).petscmat
+    H_ref.axpy(1.0, M.ptap(I))
+    H_diff = assemble(H).petscmat.copy()
+    H_diff.axpy(-1.0, H_ref)
+    assert H_diff.norm() < 1e-12 * H_ref.norm()
+
+    # -- The nested derivative agrees with the derivative of the expanded residual
+    F_expanded = BaseFormAssembler.preprocess_base_form(F)
+    H_diff = assemble(derivative(F_expanded, u)).petscmat.copy()
+    H_diff.axpy(-1.0, H_ref)
+    assert H_diff.norm() < 1e-12 * H_ref.norm()
+
+    # -- Solve the minimisation problem with the assembled Hessian
+    solve(F == 0, u, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    with assemble(F).dat.vec_ro as residual:
+        assert residual.norm() < 1e-10
+
+    # -- Reference solve of (H_R + I^T M I) u = I^T p_obs with explicit matrices
+    u_ref = Function(V)
+    with u_ref.dat.vec as uv, p_obs.dat.vec_ro as pv:
+        rhs = uv.duplicate()
+        I.multTranspose(pv, rhs)
+        ksp = PETSc.KSP().create(comm=mesh.comm)
+        ksp.setOperators(H_ref)
+        ksp.setType("preonly")
+        ksp.getPC().setType("lu")
+        ksp.solve(rhs, uv)
+    assert np.allclose(u.dat.data_ro, u_ref.dat.data_ro)
 
 
 @pytest.fixture(params=[("DG", 1, "CG", 2),

@@ -447,6 +447,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             in a post-order fashion.
         """
         if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+            # Only the output matrix uses the requested allocation integral types.
+            # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
+            allocation_integral_types = self._allocation_integral_types if expr is self._form else None
             if args and self._mat_type != "matfree":
                 # Retrieve the Form's children
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
@@ -463,7 +466,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
                                              options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
-                                             allocation_integral_types=self.allocation_integral_types)
+                                             allocation_integral_types=allocation_integral_types)
             else:
                 raise AssertionError
             return assembler.assemble(tensor=tensor)
@@ -883,8 +886,8 @@ class BaseFormAssembler(AbstractFormAssembler):
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
         original_expr = expr
-        if mat_type != "matfree":
-            # Don't expand derivatives if `mat_type` is 'matfree'
+        if mat_type != "matfree" or len(expr.arguments()) < 2:
+            # Don't expand derivatives of a 2-form if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
