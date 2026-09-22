@@ -3993,7 +3993,7 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
         PetscInt closure_size, support_size, chart_start, chart_end
         const PetscInt *facet_indices = NULL
         PetscInt *closure = NULL
-        np.ndarray ridge_counts
+        PetscInt[::1] ridge_counts
 
     source_label = dm.getLabel(label_name)
     source = <DMLabel>source_label.dmlabel
@@ -4065,7 +4065,7 @@ def transform_source_point_map(PETSc.DM child,
         const PetscInt *child_points = NULL
         PetscInt child_start, child_end, child_point, transformed_point
         PetscInt source_point, replica
-        np.ndarray source_points
+        PetscInt[::1] source_points
 
     child_subpoints = child.getSubpointIS()
     if child_subpoints.iset == NULL:
@@ -4080,7 +4080,7 @@ def transform_source_point_map(PETSc.DM child,
             &source_point, &replica))
         source_points[child_point - child_start] = source_point
     CHKERR(ISRestoreIndices(child_subpoints.iset, &child_points))
-    return source_points
+    return np.asarray(source_points)
 
 
 @cython.boundscheck(False)

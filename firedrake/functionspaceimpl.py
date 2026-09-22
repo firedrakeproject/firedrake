@@ -785,7 +785,7 @@ class FunctionSpace:
             self_map = self.cell_node_map()
         elif target_integral_type == "interior_facet_horiz":
             self_map = self.cell_node_map()
-        elif target_integral_type == "exterior_facet":
+        elif target_integral_type in ("exterior_facet", "broken_facet"):
             self_map = self.exterior_facet_node_map()
         elif target_integral_type == "exterior_facet_vert":
             self_map = self.exterior_facet_node_map()

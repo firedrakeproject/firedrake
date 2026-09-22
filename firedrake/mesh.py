@@ -1068,7 +1068,10 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
         Returns
         -------
         tuple
-            `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
+            Tuple of `op2.ComposedMap` from ``base_mesh`` to ``self`` and
+            the target integral type. A parent interior-facet map can have
+            the private target type ``"broken_facet"`` when it maps to two
+            exterior facets created by :func:`BrokenMesh`.
 
         """
         raise NotImplementedError(f"Not implemented for {type(self)}")
@@ -1806,6 +1809,10 @@ class MeshTopology(AbstractMeshTopology):
             else:
                 raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
+            if (base_integral_type == "interior_facet"
+                    and integral_type == "exterior_facet"
+                    and composed_map.arity == 2):
+                integral_type = "broken_facet"
             return composed_map, integral_type
 
     @cached_property
@@ -5074,7 +5081,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     return submesh
 
 
-def BrokenMesh(mesh: MeshGeometry, label_name: str, subdomain_id: int,
+def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
+               label_name: str | None = None,
                name: str | None = None, reorder: bool | None = None) -> MeshGeometry:
     """Construct the mesh obtained by opening a labelled surface.
 
@@ -5082,10 +5090,11 @@ def BrokenMesh(mesh: MeshGeometry, label_name: str, subdomain_id: int,
     ----------
     mesh : MeshGeometry
         Parent mesh.
-    label_name : str
-        Name of the label that marks the surface facets.
     subdomain_id : int
         Value in ``label_name`` that marks the surface facets.
+    label_name : str | None
+        Name of the label that marks the surface facets. Defaults to the
+        parent mesh facet label.
     name : str | None
         Name of the broken mesh. Defaults to ``mesh.name + "_broken"``.
     reorder : bool | None
@@ -5100,14 +5109,16 @@ def BrokenMesh(mesh: MeshGeometry, label_name: str, subdomain_id: int,
     Notes
     -----
     The returned mesh is related to ``mesh`` through the generic
-    :attr:`MeshGeometry.submesh_parent` relation. The surface itself can be
-    constructed independently with :func:`Submesh` from ``mesh``. In parallel,
+    ``submesh_parent`` relation. The surface itself can be constructed
+    independently with :func:`Submesh` from ``mesh``. In parallel,
     ``mesh`` must use ``RIDGE`` or ``VERTEX`` overlap so that both cells
     incident to every labelled facet are visible in the inherited halo.
     """
     if not isinstance(mesh, MeshGeometry):
         raise TypeError("Parent mesh must be a `MeshGeometry`")
-    if not isinstance(label_name, str):
+    if label_name is None:
+        label_name = dmcommon.FACE_SETS_LABEL
+    elif not isinstance(label_name, str):
         raise TypeError(f"label_name must be a string: got {label_name!r}")
     if not isinstance(subdomain_id, numbers.Integral):
         raise TypeError(f"subdomain_id must be an integer: got {subdomain_id!r}")

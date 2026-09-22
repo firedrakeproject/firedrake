@@ -32,7 +32,7 @@ def broken_mesh():
         conditional(lt(abs(y - 0.5), 1.0e-12), 1, 0)
     )
     parent = RelabeledMesh(mesh, [marker], [1])
-    return parent, BrokenMesh(parent, "Face Sets", 1, reorder=False)
+    return parent, BrokenMesh(parent, 1, reorder=False)
 
 
 @pytest.mark.parallel(nprocs=[1, 2])
@@ -50,6 +50,8 @@ def test_broken_mesh_dof_section():
     parent_map = broken.submesh_child_exterior_facet_parent_interior_facet_map.values.ravel()
     parent_map = parent_map[parent_map >= 0]
     assert len(parent_map) > len(np.unique(parent_map))
+    _, integral_type = broken.topology.trans_mesh_entity_map(parent.topology, "interior_facet", 1, None)
+    assert integral_type == "broken_facet"
     parent_side_map = broken.submesh_parent_interior_facet_child_exterior_facet_map
     gamma_indices = parent.measure_set("interior_facet", 1).indices
     assert parent_side_map.arity == 2
