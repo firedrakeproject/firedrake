@@ -7,7 +7,7 @@ import functools
 import numbers
 from collections.abc import Hashable, Iterable, Mapping
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 from mpi4py import MPI
@@ -1200,29 +1200,32 @@ class PetscMatBuffer(ConcreteBuffer):
     def zero(self) -> None:
         self.mat.zeroEntries()
 
-    def zero(self) -> None:
-        self.mat.zeroEntries()
-
     # }}}
 
     # {{{ state tracking
 
     def maybe_flush_assemble(self, insert_mode: PETSc.InsertMode) -> None:
+        """Prepare the matrix for a particular insert mode."""
         self.maybe_flush_assemble_begin(insert_mode)
         self.maybe_flush_assemble_end(insert_mode)
 
     def maybe_flush_assemble_begin(self, insert_mode: PETSc.InsertMode) -> None:
-        assert insert_mode in {
-            PETSc.InsertMode.INSERT_VALUES, PETSc.InsertMode.ADD_VALUES
-        }
-        valid_modes = {insert_mode, PETSc.InsertMode.NOT_SET_VALUES}
-        if self.insert_mode not in valid_modes:
-            self.assemble_begin(final=False)
+        assert insert_mode in {PETSc.InsertMode.INSERT_VALUES, PETSc.InsertMode.ADD_VALUES}
+
+        if self.insert_mode not in {insert_mode, PETSc.InsertMode.NOT_SET_VALUES}:
+            zero_ghosts = insert_mode == PETSc.InsertMode.ADD_VALUES
+            self._petscmat_assemble(
+                self.mat, self.insert_mode, final=False, mode="begin", zero_ghosts=zero_ghosts
+            )
 
     def maybe_flush_assemble_end(self, insert_mode: PETSc.InsertMode) -> None:
-        valid_modes = {insert_mode, PETSc.InsertMode.NOT_SET_VALUES}
-        if self.insert_mode not in valid_modes:
-            self.assemble_end(final=False)
+        assert insert_mode in {PETSc.InsertMode.INSERT_VALUES, PETSc.InsertMode.ADD_VALUES}
+
+        if self.insert_mode not in {insert_mode, PETSc.InsertMode.NOT_SET_VALUES}:
+            zero_ghosts = insert_mode == PETSc.InsertMode.ADD_VALUES
+            self._petscmat_assemble(
+                self.mat, self.insert_mode, final=False, mode="end", zero_ghosts=zero_ghosts
+            )
         self.insert_mode = insert_mode
 
     def assemble(self, *, final: bool = True) -> None:
@@ -1230,21 +1233,65 @@ class PetscMatBuffer(ConcreteBuffer):
         self.assemble_end(final=final)
 
     def assemble_begin(self, *, final: bool = True) -> None:
-        if final:
-            assembly_type = PETSc.Mat.AssemblyType.FINAL
-        else:
-            assembly_type = PETSc.Mat.AssemblyType.FLUSH
-        self.mat.assemblyBegin(assembly_type)
+        self._petscmat_assemble(self.mat, self.insert_mode, final=final, mode="begin")
 
     def assemble_end(self, *, final: bool = True) -> None:
         # TODO: It would be nice to assert that assemble_begin has been
         # called first (and with the same value for 'final')
-        if final:
-            assembly_type = PETSc.Mat.AssemblyType.FINAL
-        else:
-            assembly_type = PETSc.Mat.AssemblyType.FLUSH
-        self.mat.assemblyEnd(assembly_type)
+        self._petscmat_assemble(self.mat, self.insert_mode, final=final, mode="end")
         self.insert_mode = PETSc.InsertMode.NOT_SET_VALUES
+
+    @classmethod
+    def _petscmat_assemble(
+        cls,
+        mat: PETSc.Mat,
+        insert_mode: PETSc.InsertMode,
+        *,
+        final: bool,
+        mode: Literal["begin", "end"],
+        zero_ghosts: bool = False,
+    ) -> None:
+        if mat.type == PETSc.Mat.Type.NEST:
+            for i, j in np.ndindex(mat.getNestSize()):
+                submat = mat.getNestSubMatrix(i, j)
+                cls._petscmat_assemble(submat, insert_mode, final=final, mode=mode, zero_ghosts=zero_ghosts)
+
+        elif mat.type == PETSc.Mat.Type.PYTHON:
+            ctx = mat.getPythonContext()
+            if isinstance(ctx, DensePythonMatContext):
+                match insert_mode:
+                    case PETSc.InsertMode.NOT_SET_VALUES:
+                        return
+                    case PETSc.InsertMode.INSERT_VALUES:
+                        reduction = MPI.REPLACE
+                    case PETSc.InsertMode.ADD_VALUES:
+                        reduction = MPI.SUM
+                    case _:
+                        raise AssertionError
+
+                if mode == "begin":
+                    ctx.buffer.reduce_leaves_to_roots_begin(reduction)
+                    ctx.buffer.reduce_leaves_to_roots_end(reduction)
+
+                    if zero_ghosts:
+                        ctx.buffer[ctx.buffer.sf.ileaf] = 0
+                    else:
+                        ctx.buffer.broadcast_roots_to_leaves_begin()
+                else:  # "end"
+                    if not zero_ghosts:
+                        ctx.buffer.broadcast_roots_to_leaves_end()
+            else:
+                raise NotImplementedError
+
+        else:
+            if final:
+                assembly_type = PETSc.Mat.AssemblyType.FINAL
+            else:
+                assembly_type = PETSc.Mat.AssemblyType.FLUSH
+            if mode == "begin":
+                mat.assemblyBegin(assembly_type)
+            else:  # end
+                mat.assemblyEnd(assembly_type)
 
     @property
     def state(self) -> int:
