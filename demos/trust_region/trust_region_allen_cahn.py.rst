@@ -21,22 +21,22 @@ solving the linear system
 
 .. math::
 
-  \grad F(u)s = -F(u),
+  \nabla F(u)s = -F(u),
 
 and then uses a line search to decide how far to move along :math:`s`. The
 line search trusts the *direction* :math:`s` completely and only questions
-its length. This is a problem if :math:`\grad F(u)` is indefinite, because then the
+its length. This is a problem if :math:`\nabla F(u)` is indefinite, because then the
 Newton direction need not be a descent direction for any sensible merit
 function, and no choice of step length will help.
 
 Trust-region methods turn this around. Suppose that :math:`F` is the gradient
-of some objective functional :math:`E`, so that solving :math:`F(u) = 0` is
-the same as finding a critical point of :math:`E`. At the current iterate
-:math:`u_k`, we build a quadratic model of the objective
+of some objective functional :math:`E`, i.e., :math:`F = \nabla E` so that 
+solving :math:`F(u) = 0` is the same as finding a critical point of :math:`E`. 
+At the current iterate :math:`u_k`, we build a quadratic model of the objective
 
 .. math::
 
-  m_k(s) = E(u_k) + \langle F(u_k), s\rangle + \frac{1}{2}\langle \grad F(u_k)s, s\rangle,
+  m_k(s) = E(u_k) + \langle F(u_k), s\rangle + \frac{1}{2}\langle \nabla F(u_k)s, s\rangle,
 
 and we only trust this model within a ball of radius :math:`\delta_k` around
 :math:`u_k`. The step is chosen to (approximately) minimise the model inside
@@ -44,9 +44,11 @@ the ball,
 
 .. math::
 
-  s_k = \operatorname{arg\,min}_{\|s\| \le \Delta_k} m_k(s).
+  s_k = \operatorname{arg\,min}_{\|s\| \le \delta_k} m_k(s).
 
-If the Newton step lies inside the ball, and :math:`\grad F(u_k)` is positive
+The norm in that constraint is a choice, and the last part of this demo shows
+how to make it a norm of the function space rather than of the coefficient
+vector. If the Newton step lies inside the ball, and :math:`\nabla F(u_k)` is positive
 definite, then this is just the Newton step. Otherwise the constraint will 
 be active and somehow we need to bring back the step to the boundary of the
 trust region - a variety of techniques are available to do this. Having 
@@ -83,7 +85,7 @@ steady-state Allen-Cahn equation
 
 on an interval with Dirichlet boundary conditions :math:`u = +1` on the left
 and :math:`u = -1` on the right, adapted from this `Chebfun example`_. The
-Jacobian :math:`\grad F(u) = -\epsilon\Delta + 3u^2 - 1` is indefinite wherever
+Jacobian :math:`\nabla F(u) = -\epsilon\Delta + 3u^2 - 1` is indefinite wherever
 :math:`|u| < 1/\sqrt{3}`, and our initial guess crosses this region.
 
 .. _Chebfun example: https://www.chebfun.org/examples/ode-nonlin/AllenCahn.html
@@ -107,12 +109,12 @@ the right.
   Q = FunctionSpace(mesh, "CG", 1)
 
   x, = SpatialCoordinate(mesh)
-  u_1 = Constant(1)
-  u_2 = Constant(-1)
+  u_left = Constant(1)
+  u_right = Constant(-1)
   Lx = Constant(lx)
-  initial_guess = (1 - x / Lx) * u_1 + x / Lx * u_2
+  initial_guess = (1 - x / Lx) * u_left + x / Lx * u_right
 
-  bcs = [DirichletBC(Q, u_1, [1]), DirichletBC(Q, u_2, [2])]
+  bcs = [DirichletBC(Q, u_left, [1]), DirichletBC(Q, u_right, [2])]
 
   u = Function(Q)
   u.interpolate(initial_guess)
@@ -125,17 +127,16 @@ functional
   E(u) = \int_\Omega\left(\frac{\epsilon}{2}|\nabla u|^2 + \frac{1}{4}(1 - u^2)^2\right)dx,
 
 which is the objective that the trust-region method will work with. The
-residual form ``F`` below is exactly ``derivative(E, u)``; we write it out
-by hand for clarity.
+residual is the derivative of the energy with respect to :math:`u`, so we ask
+UFL for it with :func:`derivative <ufl.formoperators.derivative>` instead of
+writing it out by hand.
 
 .. code-block:: python
 
-  v = TestFunction(Q)
   E = (0.5 * eps * inner(grad(u), grad(u)) + 0.25 * (1 - u**2) ** 2) * dx
-  # F is the derivative of E with respect to u
-  F = (eps * inner(grad(u), grad(v)) + inner(u**3 - u, v)) * dx
+  F = derivative(E, u)
 
-We will compare three solver configurations on the same initial guess, so
+We will compare four solver configurations on the same initial guess, so
 let's write a small helper that resets the solution, builds a solver, and
 reports whether it converged.
 
@@ -180,11 +181,11 @@ The residual decreases for a while, stagnates, and eventually blows up:
       2 SNES Function norm 1.667065795962e+01, Update norm 1.176574164754e+01
       3 SNES Function norm 4.864679262673e+00, Update norm 7.726248724551e+00
        ...
-     25 SNES Function norm 5.282073156221e-02, Update norm 5.009282164824e+00
-     26 SNES Function norm 5.280237868269e-02, Update norm 5.006938407260e+00
-     27 SNES Function norm 1.098413882605e+00, Update norm 5.004329322449e+00
-     28 SNES Function norm 1.082944223701e+00, Update norm 1.953946154564e+01
-     29 SNES Function norm 6.520280085065e+03, Update norm 1.139806962723e+02
+     25 SNES Function norm 5.282073156207e-02, Update norm 5.009282164808e+00
+     26 SNES Function norm 5.280237868254e-02, Update norm 5.006938407243e+00
+     27 SNES Function norm 1.098413882568e+00, Update norm 5.004329322429e+00
+     28 SNES Function norm 1.082944223669e+00, Update norm 1.953946154641e+01
+     29 SNES Function norm 6.520280040842e+03, Update norm 1.139806960158e+02
       Nonlinear firedrake_0_ solve did not converge due to DIVERGED_DTOL iterations 29
 
 The most naive thing we can do is swap ``newtonls`` for ``newtontr`` and
@@ -196,7 +197,7 @@ of iterations.
 
   trust_region_parameters = {
       "snes_type": "newtontr",
-      "snes_monitor": "::ascii_info_detail",
+      "snes_monitor": "::ascii_info_detail", # will print update norm and objective if available
       "snes_converged_reason": None,
       "snes_tr_delta0": 10,
       "snes_tr_eta1": 1e-4,
@@ -204,7 +205,7 @@ of iterations.
       "snes_tr_eta3": 0.75,
       "snes_tr_t1": 0.25,
       "snes_tr_t2": 2.0,
-      "snes_rtol": 1e-14,
+      "snes_rtol": 1e-10,
       "snes_max_it": 50,
   }
   solve_from_initial_guess(problem, trust_region_parameters)
@@ -220,7 +221,7 @@ iterations the residual norm gets stuck around :math:`6 \times 10^{-2}`:
       3 SNES Function norm 2.002076026776e-01, Update norm 6.250000000000e-01
        ...
      17 SNES Function norm 5.996729819388e-02, Update norm 6.250000000000e-01
-     18 SNES Function norm 5.996668429798e-02, Update norm 3.906250000000e-02
+     18 SNES Function norm 5.996668429797e-02, Update norm 3.906250000000e-02
      19 SNES Function norm 5.994135807406e-02, Update norm 3.906250000000e-02
      20 SNES Function norm 5.994120407289e-02, Update norm 9.765625000000e-03
        ...
@@ -230,17 +231,18 @@ iterations the residual norm gets stuck around :math:`6 \times 10^{-2}`:
 
 What went wrong? We never told the solver what :math:`E` is. When no
 objective is available, PETSc falls back to the least-squares merit function
-:math:`\tfrac{1}{2}\|F(u)\|^2`, whose gradient is :math:`\grad F(u)^T F(u)` and
-whose quadratic model uses :math:`\grad F(u)^T \grad F(u)` as the Hessian. That is a
+:math:`\tfrac{1}{2}\|F(u)\|^2`, whose gradient is not :math:`F(u)`, but rather
+:math:`(\nabla F(u))^\top F(u)` and
+whose quadratic model uses :math:`(\nabla F(u)^\top) (\nabla F(u))` as the Hessian. That is a
 perfectly reasonable thing to do for a generic nonlinear system, but it
-changes the landscape completely. The model Hessian :math:`\grad F^T \grad F` is
+changes the landscape completely. The model Hessian :math:`(\nabla F^\top) (\nabla F)` is
 always positive semi-definite. This is known as the Gauss-Newton model which is
 not the exact Hessian of :math:`\tfrac{1}{2}\|F(u)\|^2`. The solver never sees the 
 negative curvature of :math:`E` nor that of :math:`\tfrac{1}{2}\|F(u)\|^2` and never 
 takes the steepest-descent escape route that an energy-based model would take in the 
 indefinite region. Instead it wanders onto a plateau of the least-squares merit function: 
 at the point where it gets stuck, the residual is far from zero, but its gradient
-:math:`\grad F^T F` is an order of magnitude smaller, the Jacobian still has
+:math:`(\nabla F^T) F` is an order of magnitude smaller, the Jacobian still has
 plenty of negative eigenvalues, and the free energy has barely moved from its
 initial value (1.20 against 1.33). The update norms show the trust-region
 radius collapsing from 0.625 to :math:`2.4 \times 10^{-3}` as one step
@@ -275,9 +277,9 @@ Now we converge, and rather quickly too:
      10 SNES Function norm 8.025942302287e-02, Update norm 1.250000000000e+00, Objective 7.278316762349e-02
      11 SNES Function norm 1.596066953836e-02, Update norm 5.834392932045e-01, Objective 5.440037354320e-02
      12 SNES Function norm 9.414487930991e-04, Update norm 1.245139054084e-01, Objective 5.338137747864e-02
-     13 SNES Function norm 5.469381033400e-06, Update norm 9.069899380893e-03, Objective 5.337711690817e-02
-     14 SNES Function norm 2.021560274777e-10, Update norm 5.428626753025e-05, Objective 5.337711676007e-02
-     15 SNES Function norm 1.109217520924e-16, Update norm 2.004309482617e-09, Objective 5.337711676007e-02
+     13 SNES Function norm 5.469381033393e-06, Update norm 9.069899380893e-03, Objective 5.337711690817e-02
+     14 SNES Function norm 2.021560354754e-10, Update norm 5.428626753018e-05, Objective 5.337711676007e-02
+     15 SNES Function norm 1.107993449979e-16, Update norm 2.004309562588e-09, Objective 5.337711676007e-02
       Nonlinear firedrake_2_ solve converged due to CONVERGED_FNORM_RELATIVE iterations 15
 
 There is a lot to read off this output. The objective decreases
@@ -292,9 +294,103 @@ does not print) and then re-expanded, hence the sequence
 :math:`0.3125, 0.625, 1.25, 2.5` of radii that differ by the factors
 :math:`t_1 = 1/4` and :math:`t_2 = 2`. Finally, once we get close enough to
 the solution, the Newton step falls inside the region, the ordinary Newton
-iteration takes over, and we see the quadratic convergence in the last four
+iteration takes over, and we see the superlinear convergence in the last four
 iterations. The initial radius is not critical: with PETSc's default of
-:math:`\Delta_0 = 0.2` the solver takes 17 iterations instead of 15.
+:math:`\delta_0 = 0.2` the solver takes 16 iterations instead of 15.
+
+Up to here the solver has measured the step with the Euclidean norm of its
+coefficient vector. That number says little about the function that the
+coefficients represent: it changes with the mesh and with the element family,
+and it gives the same weight to every degree of freedom. A radius of 10
+therefore means something different on every mesh that we run on.
+
+A norm of the function space itself avoids this. The free energy tells us
+which one suits the problem, because the weighted :math:`H^1` norm
+
+.. math::
+
+  \|s\|_M^2 = \int_\Omega\left(\epsilon|\nabla s|^2 + s^2\right)dx
+
+controls both terms of :math:`E`. The matrix :math:`M` of that inner product
+is the Riesz map of the space, and a Krylov method can measure its iterate
+in :math:`\|\cdot\|_M` once we give it :math:`M` as the preconditioner.
+Firedrake assembles a preconditioning operator from any bilinear form that we
+pass as the ``Jp`` argument of the problem, so we write the inner product as a
+form and hand it over.
+
+.. code-block:: python
+
+  v = TestFunction(Q)
+  w = TrialFunction(Q)
+  riesz = (eps * inner(grad(w), grad(v)) + inner(w, v)) * dx
+
+  problem = NonlinearVariationalProblem(F, u, bcs, Jp=riesz, objective=E)
+
+Three Krylov methods in PETSc accept a trust-region radius from ``newtontr``
+and let us select the norm in which they measure the step: ``nash``, ``stcg`` and
+``gltr``. They are conjugate gradient methods, so they need a symmetric
+positive definite preconditioner. The Jacobian cannot supply one here, because
+it is indefinite wherever :math:`|u| < 1/\sqrt{3}`, while the Riesz map is
+positive definite everywhere. The option
+``ksp_cg_dtype: preconditioned`` makes them measure the length of their
+iterate in :math:`\|\cdot\|_M`, and they stop as soon as that length reaches
+the boundary of the trust region (``CONVERGED_STEP_LENGTH``), or as soon as
+they meet a direction of negative curvature (``CONVERGED_NEG_CURVE``). Either
+outcome saves the work of solving a Newton system to a tolerance that the
+trust region discards. PETSc passes the radius to the Krylov solver only
+while ``snes_tr_fallback_type`` keeps its default value ``newton``, so we
+leave that option alone.
+
+.. code-block:: python
+
+  riesz_parameters = {
+      **trust_region_parameters,
+      "ksp_type": "gltr",
+      "ksp_cg_dtype": "preconditioned",
+      "ksp_converged_reason": None,
+      "pc_type": "cholesky",
+  }
+  solve_from_initial_guess(problem, riesz_parameters)
+
+The solver converges in 14 iterations:
+
+.. code-block:: console
+
+      0 SNES Function norm 2.439229081145e-01, Update norm 0.000000000000e+00, Objective 1.333933333333e+00
+        Linear firedrake_3_ solve converged due to CONVERGED_STEP_LENGTH iterations 1
+      1 SNES Function norm 2.384239943166e-01, Update norm 5.518362503885e-01, Objective 1.212941477173e+00
+      2 SNES Function norm 2.256022486570e-01, Update norm 1.250000000000e+00, Objective 9.235187057427e-01
+      3 SNES Function norm 1.676900806601e-01, Update norm 2.500000000000e+00, Objective 4.780679623930e-01
+       ...
+     10 SNES Function norm 8.912580515679e-02, Update norm 1.250000000000e+00, Objective 7.343857218231e-02
+        Linear firedrake_3_ solve converged due to CONVERGED_RTOL iterations 7
+     11 SNES Function norm 1.234054337548e-02, Update norm 4.391846226160e-01, Objective 5.385308934751e-02
+        Linear firedrake_3_ solve converged due to CONVERGED_RTOL iterations 7
+     12 SNES Function norm 4.361898450791e-04, Update norm 7.657092592890e-02, Objective 5.337773035259e-02
+        Linear firedrake_3_ solve converged due to CONVERGED_RTOL iterations 7
+     13 SNES Function norm 6.408170999954e-07, Update norm 2.843775961968e-03, Objective 5.337711676137e-02
+        Linear firedrake_3_ solve converged due to CONVERGED_RTOL iterations 7
+     14 SNES Function norm 2.474784829874e-12, Update norm 4.108920640742e-06, Objective 5.337711676007e-02
+      Nonlinear firedrake_3_ solve converged due to CONVERGED_FNORM_RELATIVE iterations 14
+
+While the region is small compared with the Newton step, ``gltr`` reaches the
+boundary and reports ``CONVERGED_STEP_LENGTH``. Close to the solution the
+Newton step lies inside the region, so the Krylov solver runs to its own
+tolerance instead, and seven iterations of it are enough because the Riesz map
+is also a good preconditioner for the Jacobian.
+
+We factorise the Riesz map with a direct method, which one dimension permits.
+In two or three dimensions, replace ``pc_type: cholesky`` with an algebraic
+multigrid method such as ``hypre`` or ``gamg``: the Riesz map is a Laplacian
+with a mass term, which is the class of operator that those methods handle
+best.
+
+One detail deserves attention. ``newtontr`` measures the accepted step itself
+as well, and for that it uses the norm that ``snes_tr_norm_type`` selects, which
+offers the 1-, 2- and infinity-norms of the coefficient vector only. It scales
+a step that is too long in that norm back to the boundary, and the monitor
+prints the same quantity as the update norm. The Riesz norm therefore governs
+the Krylov solve, while the 2-norm governs this last safeguard.
 
 To close, let's check the free energy at the starting guess and at the
 computed solution, and confirm that we have found the same solution as the
@@ -339,13 +435,8 @@ A few remarks on other options. When the Newton step falls outside the trust
 region, ``newtontr`` scales it back to the boundary by default; the option
 ``snes_tr_fallback_type`` can instead select the Cauchy point (``cauchy``),
 or the dogleg path between the Cauchy point and the Newton step
-(``dogleg``). All three work for this problem. We have used Firedrake's
-default direct solver for the Newton system, which is fine in one
-dimension. For large problems, the trust-region radius is also passed down
-to Krylov solvers that understand it, such as ``ksp_type: cg`` which then 
-stop as soon as their iterate leaves the region (reported as 
-``CONVERGED_STEP_LENGTH``) rather than solving the Newton system to a 
-tolerance that the trust region will throw away anyway.
+(``dogleg``). All three work for this problem, but only the default keeps
+the trust-region radius available to the Krylov solver, as we saw above.
 
 This demo can be found as a script in :demo:`trust_region_allen_cahn.py <trust_region_allen_cahn.py>`.
 
