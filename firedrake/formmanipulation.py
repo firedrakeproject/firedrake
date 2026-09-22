@@ -1,9 +1,10 @@
 
 import numpy
 import collections
+from collections.abc import Iterable
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Expr, Form, Interpolate, Zero, FixedIndex, ListTensor, ZeroBaseForm
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -13,6 +14,7 @@ from pyop2.utils import as_tuple
 
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
+from firedrake.functionspaceimpl import WithGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import Coargument
 
@@ -29,6 +31,12 @@ def subspace(V, indices):
 class ExtractSubBlock(MultiFunction):
 
     """Extract a sub-block from a form."""
+
+    def __init__(self):
+        super().__init__()
+        self._arg_cache = {}
+        self.blocks = {}
+        self._splitting_interpolate = False
 
     class IndexInliner(MultiFunction):
         """Inline fixed index of list tensors"""
@@ -82,6 +90,9 @@ class ExtractSubBlock(MultiFunction):
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
+        # An outermost Interpolate splits into a smaller Interpolate, while one
+        # inside an integrand must keep the value shape its neighbours expect.
+        self._splitting_interpolate = isinstance(form, Interpolate)
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -229,9 +240,38 @@ class ExtractSubBlock(MultiFunction):
     def zero_base_form(self, o):
         return ZeroBaseForm(tuple(map(self, o.arguments())))
 
+    def _zero_interpolate(self, o: Interpolate) -> ZeroBaseForm | Zero:
+        """Result of an Interpolate whose operand or target block is Zero."""
+        if self._splitting_interpolate:
+            return self(ZeroBaseForm(o.arguments()))
+        return Zero(o.ufl_shape)
+
+    @staticmethod
+    def _select_components(V: WithGeometry, indices: tuple, operand: Expr) -> list:
+        """Flatten the sub-blocks of ``operand`` whose subspace is in ``indices``."""
+        components = []
+        cur = 0
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(operand[k] for k in range(cur, cur + Vi.value_size))
+            cur += Vi.value_size
+        return components
+
+    @staticmethod
+    def _embed_components(V: WithGeometry, indices: tuple, values: Iterable) -> list:
+        """Embed ``values`` into V's full shape, zero outside ``indices``."""
+        values = iter(values)
+        components = []
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(next(values) for _ in range(Vi.value_size))
+            else:
+                components.extend(Zero() for _ in range(Vi.value_size))
+        return components
+
     def interpolate(self, o, operand):
         if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()))
+            return self._zero_interpolate(o)
 
         dual_arg, _ = o.argument_slots()
         if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
@@ -249,18 +289,21 @@ class ExtractSubBlock(MultiFunction):
         W = sub_dual_arg.function_space()
 
         # Unflatten the expression into the target shape
-        cur = 0
-        components = []
-        for i, Vi in enumerate(V):
-            if i in indices:
-                components.extend(operand[i] for i in range(cur, cur+Vi.value_size))
-            cur += Vi.value_size
-
+        components = self._select_components(V, indices, operand)
         operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()))
+            return self._zero_interpolate(o)
 
-        return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
+        interpolation = o._ufl_expr_reconstruct_(operand, sub_dual_arg)
+        if self._splitting_interpolate:
+            return interpolation
+
+        # Inside an integrand the block is one part of a wider expression, so
+        # pad it back out to V's value shape with zeros.
+        interpolation_components = ((interpolation[j] for j in numpy.ndindex(interpolation.ufl_shape))
+                                    if interpolation.ufl_shape else iter((interpolation,)))
+        components = self._embed_components(V, indices, interpolation_components)
+        return as_tensor(numpy.reshape(components, V.value_shape))
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
