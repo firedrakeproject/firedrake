@@ -145,6 +145,9 @@ runs:
           pip install --no-build-isolation --no-deps \
             "$PETSC_DIR"/"$PETSC_ARCH"/externalpackages/git.slepc/src/binding/slepc4py
           pip install --no-deps git+https://github.com/NGSolve/ngsPETSc.git netgen-mesher netgen-occt
+          : # DROP BEFORE MERGE
+          pip install -v --ignore-installed --no-deps \
+            git+https://github.com/NGSolve/ngsPETSc.git@pbrubeck/local-plex-regions
 
           : # We have to pass '--no-build-isolation' to use a custom petsc4py
           EXTRA_PIP_FLAGS='--no-build-isolation'
