@@ -115,11 +115,7 @@ def test_macro_grid_transfer(hierarchy, space, degrees, variant, transfer_type):
     if not hierarchy.nested and transfer_type == "injection":
         pytest.skip("Not implemented")
     if transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(hierarchy, space, degrees, variant)
-        else:
-            run_injection(hierarchy, space, degrees, variant)
+        run_injection(hierarchy, space, degrees, variant)
     elif transfer_type == "restriction":
         run_restriction(hierarchy, space, degrees, variant)
     elif transfer_type == "prolongation":

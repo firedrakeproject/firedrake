@@ -131,10 +131,10 @@ class HybridizationPC(SCBase):
         sigma = TrialFunctions(V_d)[self.vidx]
 
         if mesh_unique.cell_set._extruded:
-            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_h
-                     + gammar('+') * ufl.jump(sigma, n=n) * ufl.dS_v)
+            Kform = (ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS_h
+                     + ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS_v)
         else:
-            Kform = (gammar('+') * ufl.jump(sigma, n=n) * ufl.dS)
+            Kform = ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS
 
         # Here we deal with boundaries. If there are Neumann
         # conditions (which should be enforced strongly for
@@ -161,7 +161,7 @@ class HybridizationPC(SCBase):
             extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
             neumann_subdomains = neumann_subdomains - extruded_neumann_subdomains
 
-            integrand = gammar * ufl.dot(sigma, n)
+            integrand = ufl.inner(ufl.dot(sigma, n), gammar)
             measures = []
             trace_subdomains = []
             if mesh_unique.cell_set._extruded:
