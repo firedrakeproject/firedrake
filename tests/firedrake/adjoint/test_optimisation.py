@@ -6,7 +6,7 @@ import numpy as np
 from ufl.duals import is_primal
 from firedrake import *
 from firedrake.adjoint import *
-from pyadjoint import Block, MinimizationProblem, TAOSolver, get_working_tape
+from pyadjoint import Block, MinimizationProblem, get_working_tape
 from pyadjoint.optimization.tao_solver import PETScVecInterface
 import petsctools
 

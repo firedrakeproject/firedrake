@@ -4,9 +4,8 @@ from functools import partial
 import firedrake as fd
 from firedrake.adjoint import (
     Control, L2TransformedFunctional, MinimizationProblem, ReducedFunctional,
-    continue_annotation, pause_annotation, minimize)
+    TAOSolver, continue_annotation, pause_annotation, minimize)
 import numpy as np
-from pyadjoint import TAOSolver
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest
 import ufl
