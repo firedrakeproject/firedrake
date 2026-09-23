@@ -343,15 +343,8 @@ class _SNESContext:
                 else:
                     raise KeyError
             else:
-                if not isinstance(value, dmhooks.Hooked):
-                    warnings.warn(
-                        "Passing arbitrary Python objects to preconditioners via the 'appctx' kwarg "
-                        "is now deprecated. Either pass the objects into the PETSc options "
-                        "directly or specify hooks instead.",
-                        FutureWarning,
-                    )
-                else:
-                    value = value.obj
+                assert isinstance(value, dmhooks.Hooked)
+                value = value.obj
         return value
 
     def reconstruct(self,

@@ -257,6 +257,7 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
         if self is refine:
             new = firedrake.solving_utils._refine_function(expr)
         else:
+            assert self is coarsen
             new = firedrake.solving_utils._coarsen_function(expr)
         coefficient_mapping[expr] = new
     return new

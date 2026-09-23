@@ -313,8 +313,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         Solver parameters to pass to PETSc.
         This should be a dict mapping PETSc options to values.
     appctx
-        (Deprecated) A dictionary containing application
-        context that is passed to the preconditioner if matrix-free.
+        A dictionary containing objects that are carried through the solver.
+        The appctx can be accessed using the function
+        :func:`get_appctx <firedrake.preconditioners.base.PCBase.get_appctx>`
+        inside of a Python preconditioner.
+        Entries in the appctx must have the right set of hooks to be passed
+        through the solver. Some types (e.g. :class:`~.Function`) will have
+        default hooks attached implicitly, but other objects should be
+        wrapped in a :class:`firedrake.dmhooks.Hooked` object.
     options_prefix
         an optional prefix used to distinguish
         PETSc options.  If not provided a unique prefix will be
@@ -429,7 +435,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                         f"Object with type {type(value).__name__} found in the "
                         "appctx. We don't know how to transform (e.g. refine or"
                         " split) this. Please either provide the necessary hooks "
-                        "yourself or consider passing the data via the solver parameters instead.",
+                        "yourself by wrapping the object in a "
+                        "firedrake.dmhooks.Hooked object, or consider passing the"
+                        " data via the solver parameters. For now this object will "
+                        "be passed as-is through the solver stack, but this will "
+                        "eventually error.",
                         FutureWarning,
                     )
                     # Leave unchanged for the moment, eventually this should be allowed

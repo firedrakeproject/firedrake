@@ -37,6 +37,10 @@ class BDDCPC(PCBase):
     - ``'bddc_pc_bddc_neumann'`` to set sub-KSPs on subdomains excluding corners,
     - ``'bddc_pc_bddc_dirichlet'`` to set sub-KSPs on subdomain interiors,
     - ``'bddc_pc_bddc_coarse'`` to set the coarse solver KSP.
+
+    This PC also inspects optional callbacks that can be passed in the solver parameter
+    dictionary (i.e. not on the command line):
+
     - ``'bddc_get_discrete_gradient'`` for 3D problems in H(curl), this is a callable that
       provide the arguments (a Mat tabulating the gradient of the auxiliary H1 space) and
       keyword arguments supplied to ``PETSc.PC.setBDDCDiscreteGradient``.

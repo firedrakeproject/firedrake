@@ -1,4 +1,5 @@
 import abc
+from typing import Any
 
 import petsctools
 from firedrake.petsc import PETSc
@@ -113,8 +114,9 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         return a, bcs
 
     @staticmethod
-    def get_appctx(obj):
-        return get_appctx(obj.getDM()).appctx
+    def get_appctx(obj) -> dict[str, Any]:
+        # unpack hooks
+        return {k: v.obj for k, v in get_appctx(obj.getDM()).appctx.items()}
 
     @staticmethod
     def new_snes_ctx(
