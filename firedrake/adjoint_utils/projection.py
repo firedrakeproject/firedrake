@@ -46,3 +46,39 @@ def annotate_project(project):
         return output
 
     return wrapper
+
+
+class ProjectorMixin:
+    @staticmethod
+    def _ad_annotate_project(project):
+        @wraps(project)
+        def wrapper(self, *args, **kwargs):
+            """Annotate the projection performed by a (possibly reused)
+            Projector, so that repeatedly calling ``project`` tapes one
+            ProjectBlock per call against the current value of the source.
+
+            To disable the annotation, just pass :py:data:`annotate=False`."""
+            ad_block_tag = kwargs.pop("ad_block_tag", None)
+            annotate = annotate_tape(kwargs)
+            if annotate:
+                bcs = self.bcs or []
+                output = self.target
+                V = output.function_space()
+                # The block is created before projecting because the output
+                # might also be an input that needs checkpointing.
+                if isinstance(self.source, function.Function) and extract_unique_domain(self.source) != V.mesh():
+                    block = SupermeshProjectBlock(self.source, V, output, bcs, ad_block_tag=ad_block_tag)
+                else:
+                    block = ProjectBlock(self.source, V, output, bcs, ad_block_tag=ad_block_tag)
+                tape = get_working_tape()
+                tape.add_block(block)
+
+            with stop_annotating():
+                output = project(self, *args, **kwargs)
+
+            if annotate:
+                block.add_output(output.create_block_variable())
+
+            return output
+
+        return wrapper

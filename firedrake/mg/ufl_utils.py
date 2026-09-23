@@ -126,7 +126,7 @@ def coarsen_formsum(form, self, coefficient_mapping=None):
 @coarsen.register(firedrake.DirichletBC)
 def coarsen_bc(bc, self, coefficient_mapping=None):
     V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
-    val = self(bc.function_arg, self, coefficient_mapping=coefficient_mapping)
+    val = self(bc._original_arg, self, coefficient_mapping=coefficient_mapping)
     subdomain = bc.sub_domain
 
     return type(bc)(V, val, subdomain)
