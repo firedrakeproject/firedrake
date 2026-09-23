@@ -843,9 +843,42 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         #
         # and only have 6 entries instead of 9. For the following to work we have
         # to blow this out to a 9 entry array including the repeats.
+        # A single-cell quad periodic in both directions has only four
+        # unique entities in its transitive closure:
+        #
+        #     3--1--3
+        #     |     |
+        #     2  0  2   (vertical and horizontal periodicity)
+        #     |     |
+        #     3--1--3
+        #
+        # Blow this out to the nine-entry quadrilateral closure by
+        # repeating the two edges and the single vertex.
+
+
         if nclosure == 4:
-            raise NotImplementedError("Single-cell periodic quad meshes are "
-                                      "not supported")
+            horiz_periodicity, vert_periodicity = _get_periodicity(plex)
+            (_, horiz_unit_periodic) = horiz_periodicity
+            (_, vert_unit_periodic) = vert_periodicity
+
+            assert horiz_unit_periodic
+            assert vert_unit_periodic
+
+            closure_tmp[2*0] = closure[2*0]
+
+            closure_tmp[2*1] = closure[2*1]
+            closure_tmp[2*2] = closure[2*2]
+            closure_tmp[2*3] = closure[2*1]
+            closure_tmp[2*4] = closure[2*2]
+
+            closure_tmp[2*5] = closure[2*3]
+            closure_tmp[2*6] = closure[2*3]
+            closure_tmp[2*7] = closure[2*3]
+            closure_tmp[2*8] = closure[2*3]
+
+            nclosure = 9
+            for i in range(9):
+                closure[2*i] = closure_tmp[2*i]
         elif nclosure == 6:
             horiz_periodicity, vert_periodicity = _get_periodicity(plex)
             (_, horiz_unit_periodic) = horiz_periodicity
