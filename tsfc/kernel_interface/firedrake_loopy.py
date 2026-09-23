@@ -127,11 +127,12 @@ class KernelBuilderBase(_KernelBuilderBase):
         # Cell orientation
         self._cell_orientations = {}
         for i, domain in enumerate(domains):
-            integral_type = self._domain_integral_type_map[domain]
-            if integral_type is None:
-                # See comment in prepare_coefficient.
-                self._cell_orientations[domain] = None
-            elif integral_type.startswith("interior_facet"):
+            try:
+                integral_type = self._domain_integral_type_map[domain]
+            except KeyError:
+                # skip unused domain
+                continue
+            if integral_type.startswith("interior_facet"):
                 cell_orientations = gem.Variable(f"cell_orientations_{i}", (2,), dtype=gem.uint_type)
                 self._cell_orientations[domain] = (gem.Indexed(cell_orientations, (0,)),
                                                    gem.Indexed(cell_orientations, (1,)))
@@ -157,6 +158,9 @@ class KernelBuilderBase(_KernelBuilderBase):
         """
         self._cell_sizes = {}
         for i, domain in enumerate(domains):
+            if domain not in self._domain_integral_type_map:
+                # skip unused domain
+                continue
             if domain.ufl_cell().topological_dimension > 0:
                 # Can't create P1 since only P0 is a valid finite element if
                 # topological_dimension is 0 and the concept of "cell size"
@@ -326,13 +330,13 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self._entity_numbers = {}
         self._entity_ids = {}
         for i, domain in enumerate(domains):
+            try:
+                integral_type = self.integral_data_info.domain_integral_type_map[domain]
+            except KeyError:
+                # skip unused domain
+                continue
             fiat_cell = as_fiat_cell(domain.ufl_cell())
-            integral_type = self.integral_data_info.domain_integral_type_map[domain]
-            if integral_type is None:
-                # Set placeholder for unused domain.
-                entity_ids = None
-            else:
-                _, entity_ids = lower_integral_type(fiat_cell, integral_type)
+            _, entity_ids = lower_integral_type(fiat_cell, integral_type)
             self._entity_ids[domain] = entity_ids
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 facet = gem.Variable(f'facet_{i}', (1,), dtype=gem.uint_type)
@@ -359,7 +363,11 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         """
         self._entity_orientations = {}
         for i, domain in enumerate(domains):
-            integral_type = self.integral_data_info.domain_integral_type_map[domain]
+            try:
+                integral_type = self.integral_data_info.domain_integral_type_map[domain]
+            except KeyError:
+                # skip unused domain
+                continue
             variable_name = f"entity_orientations_{i}"
             if integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 o = gem.Variable(variable_name, (1,), dtype=gem.uint_type)
