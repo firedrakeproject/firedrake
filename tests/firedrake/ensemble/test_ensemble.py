@@ -6,7 +6,7 @@ from pytest_mpi.parallel_assert import parallel_assert
 
 max_ncpts = 2
 
-ncpts = [pytest.param(i, id="%d_components" % (i))
+ncpts = [pytest.param(i, id=f"{i}_components")
          for i in range(1, max_ncpts + 1)]
 
 min_root = 1
@@ -15,7 +15,7 @@ roots = [None] + [i for i in range(min_root, max_root + 1)]
 
 roots = []
 roots.extend([pytest.param(None, id="root_none")])
-roots.extend([pytest.param(i, id="root_%d" % (i))
+roots.extend([pytest.param(i, id=f"root_{i}")
               for i in range(min_root, max_root + 1)])
 
 blocking = [pytest.param(True, id="blocking"),

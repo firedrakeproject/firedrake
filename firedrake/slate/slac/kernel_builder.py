@@ -291,7 +291,7 @@ class LocalLoopyKernelBuilder:
                 indices = self.bag.index_creator(self.shape(slate_tensor))
                 inames = {var.name for var in indices}
                 var = pym.Subscript(pym.Variable(loopy_tensor.name), indices)
-                inits.append(loopy.Assignment(var, "0.", id="init%d" % len(inits),
+                inits.append(loopy.Assignment(var, "0.", id=f"init{len(inits)}",
                                               within_inames=frozenset(inames)))
 
             else:
@@ -319,7 +319,7 @@ class LocalLoopyKernelBuilder:
                     name = names[i] if ismixed else names
                     var = pym.Subscript(pym.Variable(loopy_tensor.name), offset_index)
                     c = pym.Subscript(pym.Variable(name), indices)
-                    inits.append(loopy.Assignment(var, c, id="init%d" % len(inits),
+                    inits.append(loopy.Assignment(var, c, id=f"init{len(inits)}",
                                                   within_inames=frozenset(inames)))
                     offset += shp
 
@@ -428,7 +428,7 @@ class LocalLoopyKernelBuilder:
                     inames_dep = []
 
                     if integral_type not in self.supported_integral_types:
-                        raise ValueError("Integral type '%s' not recognized" % integral_type)
+                        raise ValueError(f"Integral type '{integral_type}' not recognized")
 
                     # Prepare lhs and args for call to tsfc kernel
                     output_var = pym.Variable(loopy_tensor.name)
@@ -462,7 +462,7 @@ class LocalLoopyKernelBuilder:
                     elif self.is_integral_type(integral_type, "layer_integral"):
                         predicates = self.layer_integral_predicates(slate_tensor, integral_type)
                     else:
-                        raise ValueError("Unhandled integral type {}".format(integral_type))
+                        raise ValueError(f"Unhandled integral type {integral_type}")
 
                     # rename the kernel so we don't get clashes with different subdomains
                     loopy_kernel = kinfo.kernel.code.callables_table[kinfo.kernel.name].subkernel

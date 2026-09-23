@@ -68,11 +68,11 @@ def test_store_load_parallel(mesh, fs, degree, dumpfile):
 @pytest.mark.parallel(nprocs=2)
 def test_serial_checkpoint_parallel_load_fails(f, dumpfile):
     # Write on COMM_SELF (size == 1)
-    with DumbCheckpoint("%s.%d" % (dumpfile, f.comm.rank),
+    with DumbCheckpoint(f"{dumpfile}.{f.comm.rank}",
                         mode=FILE_CREATE, comm=COMM_SELF) as chk:
         chk.store(f)
     # Make sure it's written, and broadcast rank-0 name to all processes
-    fname = f.comm.bcast("%s.0" % dumpfile, root=0)
+    fname = f.comm.bcast(f"{dumpfile}.0", root=0)
     with pytest.raises(ValueError):
         with DumbCheckpoint(fname, mode=FILE_READ, comm=f.comm) as chk:
             # Written on 1 process, loading on 2 should raise ValueError
@@ -133,7 +133,7 @@ def test_multiple_timesteps(f, dumpfile):
 
 
 def test_new_file(f, dumpfile):
-    custom_name = "%s_custom" % dumpfile
+    custom_name = f"{dumpfile}_custom"
     with DumbCheckpoint(dumpfile, single_file=False, mode=FILE_CREATE) as chk:
         chk.store(f)
         chk.new_file()
@@ -141,7 +141,7 @@ def test_new_file(f, dumpfile):
         chk.new_file(name=custom_name)
         chk.store(f)
 
-    with DumbCheckpoint("%s_1" % dumpfile, mode=FILE_READ) as chk:
+    with DumbCheckpoint(f"{dumpfile}_1", mode=FILE_READ) as chk:
         g = Function(f.function_space(), name=f.name())
         chk.load(g)
         assert np.allclose(g.dat.data_ro, f.dat.data_ro)

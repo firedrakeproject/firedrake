@@ -167,7 +167,7 @@ class ModifiedTerminalMixin(object):
     terminals."""
 
     def unexpected(self, o):
-        assert False, "Not expected %r at this stage." % o
+        assert False, f"Not expected {o!r} at this stage."
 
     # global derivates should have been pulled back
     grad = unexpected
@@ -248,7 +248,7 @@ def _simplify_abs(o, self, in_abs):
     When ``in_abs`` we must return a non-negative value, potentially
     by wrapping the returned node with ``Abs``.
     """
-    raise AssertionError("UFL node expected, not %s" % type(o))
+    raise AssertionError(f"UFL node expected, not {type(o)}")
 
 
 @_simplify_abs.register(Expr)

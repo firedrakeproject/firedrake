@@ -164,10 +164,10 @@ def compile_element(expression, coordinates, parameters=None):
     }
     # if maps are the same, only need to pass one of them
     if coordinates.cell_node_map() == coefficient.cell_node_map():
-        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map" % code
+        code["wrapper_map_args"] = f"{code['IntType']} const *__restrict__ coords_map"
         code["map_args"] = "f->coords_map"
     else:
-        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
+        code["wrapper_map_args"] = f"{code['IntType']} const *__restrict__ coords_map, {code['IntType']} const *__restrict__ f_map"
         code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """

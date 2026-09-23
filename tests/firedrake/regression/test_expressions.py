@@ -421,7 +421,7 @@ def test_assign_complex_value(cg1):
 
 
 @pytest.mark.parametrize('value', [10, -10],
-                         ids=lambda v: "(f = %d)" % v)
+                         ids=lambda v: f"(f = {v})")
 @pytest.mark.parametrize('expr', ['f', '2*f'])
 def test_math_functions(expr, value):
     mesh = UnitSquareMesh(2, 2)

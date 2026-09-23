@@ -92,14 +92,14 @@ kernel_vanilla, = compile_form(a, parameters={"mode": "vanilla"})
 # TSFC also lets us estimate the number of FLOPs performed by the kernel:
 
 # %%
-print("Local assembly FLOPs with vanilla mode is {0:.3g}".format(kernel_vanilla.flop_count))
+print(f"Local assembly FLOPs with vanilla mode is {kernel_vanilla.flop_count:.3g}")
 
 # %% [markdown]
 # The default optimisation mode in TSFC is *spectral*, which applies sum factorisation to determine the tensor contraction order, and at each level, apply *argument factorisation* \[3\] to rearrange the expression using associative and distributive laws. Since *spectral* is the default mode, we do not need to specify it in the parameters.
 
 # %%
 kernel_spectral, = compile_form(a)
-print("Local assembly FLOPs with spectral mode is {0:.3g}".format(kernel_spectral.flop_count))
+print(f"Local assembly FLOPs with spectral mode is {kernel_spectral.flop_count:.3g}")
 
 # %% [markdown]
 # This is a 43x reduction in FLOPs. Not bad, but there's opportunity to do better. For spectral elements, if we use the Gauss–Lobatto–Legendre (GLL) quadrature scheme, which has quadrature points collated with the Lagrange basis function nodes, then we know that the basis function tabulation is an indentity matrix. TSFC and FInAT can further simplify the loop structure of the local assembly kernels. This reduces the complexity to $O(p^5)$.
@@ -145,7 +145,7 @@ a_gll = dot(grad(u), grad(v)) *dx(scheme=gll_quadrature_rule)
 
 # %%
 kernel_gll, = compile_form(a_gll)
-print("Local assembly FLOPs with GLL quadrature is {0:.3g}".format(kernel_gll.flop_count))
+print(f"Local assembly FLOPs with GLL quadrature is {kernel_gll.flop_count:.3g}")
 
 # %% [markdown]
 # This is a further 10x reduction in FLOPs.
@@ -184,7 +184,7 @@ for mode in modes:
     ax.plot(ps, flops[mode], label=mode)
 x = numpy.linspace(1, 32, 100)
 for p, style, offset in zip([5,7,9], ['-.','--',':'], [10, 3, 5]):
-    ax.plot(x, numpy.power(x, p)*offset, label=r"$p^{0}$".format(p), color='grey', linestyle=style)
+    ax.plot(x, numpy.power(x, p)*offset, label=rf"$p^{p}$", color='grey', linestyle=style)
 ax.legend(loc='upper left');
 
 # %% [markdown]
@@ -212,7 +212,7 @@ for mode in modes:
     ax.plot(ps_curl, flops_curl[mode], label=mode)
 x = numpy.linspace(1, 16, 100)
 for p, style, offset in zip([5,7,9], ['-.','--',':'], [800,40,60]):
-    ax.plot(x, numpy.power(x, p)*offset, label=r"$p^{0}$".format(p), color='grey', linestyle=style)
+    ax.plot(x, numpy.power(x, p)*offset, label=rf"$p^{p}$", color='grey', linestyle=style)
 ax.legend(loc='upper left');
 
 # %% [markdown]

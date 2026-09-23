@@ -471,10 +471,10 @@ class FunctionSpaceData(object):
         return not self.__eq__(other)
 
     def __repr__(self):
-        return "FunctionSpaceData(%r, %r)" % (self.mesh, self.node_set)
+        return f"FunctionSpaceData({self.mesh!r}, {self.node_set!r})"
 
     def __str__(self):
-        return "FunctionSpaceData(%s, %s)" % (self.mesh, self.node_set)
+        return f"FunctionSpaceData({self.mesh}, {self.node_set})"
 
     @PETSc.Log.EventDecorator()
     def boundary_nodes(self, V, sub_domain):
@@ -512,7 +512,7 @@ class FunctionSpaceData(object):
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           entity_node_list,
-                          ("%s_"+name) % (V.name),
+                          f"{V.name}_{name}",
                           offset=offset,
                           offset_quotient=offset_quotient)
 
@@ -534,8 +534,7 @@ def get_shared_data(mesh, ufl_element, boundary_set=None):
         data.
     """
     if not isinstance(mesh, mesh_mod.AbstractMeshTopology):
-        raise ValueError("%s is not an AbstractMeshTopology" % mesh)
+        raise ValueError(f"{mesh} is not an AbstractMeshTopology")
     if not isinstance(ufl_element, finat.ufl.finiteelement.FiniteElementBase):
-        raise ValueError("Can't create function space data from a %s" %
-                         type(ufl_element))
+        raise ValueError(f"Can't create function space data from a {type(ufl_element)}")
     return FunctionSpaceData(mesh, ufl_element, boundary_set)

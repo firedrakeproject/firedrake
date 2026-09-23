@@ -103,7 +103,7 @@ class GenericSolveBlock(Block):
             rhs_string = ufl2unicode(self.rhs)
         except AttributeError:
             rhs_string = str(self.rhs)
-        return "solve({} = {})".format(lhs_string, rhs_string)
+        return f"solve({lhs_string} = {rhs_string})"
 
     def _create_F_form(self):
         # Process the equation forms, replacing values with checkpoints,

@@ -267,13 +267,13 @@ def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
                     "transpose_nullspace", "near_nullspace", "options_prefix",
                     "pre_apply_bcs"]
+    valid_kwargs_string = ", ".join(f"'{kw}'" for kw in valid_kwargs)
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
-            raise RuntimeError("Illegal keyword argument '%s'; valid keywords are %s" %
-                               (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
+            raise RuntimeError(f"Illegal keyword argument '{kwarg}'; valid keywords are {valid_kwargs_string}")
 
     P = kwargs.get("P", None)
     bcs = kwargs.get("bcs", None)
@@ -295,11 +295,11 @@ def _extract_args(*args, **kwargs):
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
                     "options_prefix", "appctx", "restrict", "pre_apply_bcs"]
+    valid_kwargs_string = ", ".join(f"'{kw}'" for kw in valid_kwargs)
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
-            raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
-                               are %s" % (kwarg, ", ".join("'%s'" % kwarg
-                                          for kwarg in valid_kwargs)))
+            raise RuntimeError(f"Illegal keyword argument '{kwarg}'; valid keywords "
+                               f"are {valid_kwargs_string}")
 
     # Extract equation
     if not len(args) >= 2:
@@ -352,8 +352,8 @@ def _extract_bcs(bcs):
         return (bcs, )
     else:
         if not isinstance(bcs, (tuple, list)):
-            raise TypeError("bcs must be BCBase, EquationBC, tuple, or list, not '%s'." % type(bcs).__name__)
+            raise TypeError(f"bcs must be BCBase, EquationBC, tuple, or list, not '{type(bcs).__name__}'.")
     for bc in bcs:
         if not isinstance(bc, (BCBase, EquationBC)):
-            raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)
+            raise TypeError(f"Provided boundary condition is a '{type(bc).__name__}', not a BCBase")
     return bcs

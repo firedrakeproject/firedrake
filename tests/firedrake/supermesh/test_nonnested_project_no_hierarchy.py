@@ -9,7 +9,7 @@ spaces = [("CG", 1), ("CG", 2), ("DG", 0), ("DG", 1)]
 
 
 @pytest.fixture(params=[(c, f) for c, f in product(spaces, spaces) if c[1] <= f[1]],
-                ids=lambda x: "%s%s-%s%s" % (*x[0], *x[1]))
+                ids=lambda x: f"{x[0][0]}{x[0][1]}-{x[1][0]}{x[1][1]}")
 def pairs(request):
     return request.param
 

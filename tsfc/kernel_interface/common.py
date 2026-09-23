@@ -356,8 +356,7 @@ def set_quad_rule(params, cell, integral_type, functions):
         params["quadrature_rule"] = quad_rule
 
     if not isinstance(quad_rule, AbstractQuadratureRule):
-        raise ValueError("Expected to find a QuadratureRule object, not a %s" %
-                         type(quad_rule))
+        raise ValueError(f"Expected to find a QuadratureRule object, not a {type(quad_rule)}")
 
 
 def get_index_ordering(quadrature_indices, return_variables):
@@ -404,14 +403,14 @@ def lower_integral_type(fiat_cell, integral_type):
         integration_dim = dim
     elif integral_type in ['exterior_facet', 'interior_facet']:
         if isinstance(fiat_cell, TensorProductCell):
-            raise ValueError("{} integral cannot be used with a TensorProductCell; need to distinguish between vertical and horizontal contributions.".format(integral_type))
+            raise ValueError(f"{integral_type} integral cannot be used with a TensorProductCell; need to distinguish between vertical and horizontal contributions.")
         integration_dim = dim - 1
     elif integral_type == 'vertex':
         integration_dim = 0
     elif integral_type in vert_facet_types + horiz_facet_types:
         # Extrusion case
         if not isinstance(fiat_cell, TensorProductCell):
-            raise ValueError("{} integral requires a TensorProductCell.".format(integral_type))
+            raise ValueError(f"{integral_type} integral requires a TensorProductCell.")
         basedim, extrdim = dim
         assert extrdim == 1
 
@@ -420,7 +419,7 @@ def lower_integral_type(fiat_cell, integral_type):
         elif integral_type in horiz_facet_types:
             integration_dim = (basedim, 0)
     else:
-        raise NotImplementedError("integral type %s not supported" % integral_type)
+        raise NotImplementedError(f"integral type {integral_type} not supported")
 
     if integral_type == 'exterior_facet_bottom':
         entity_ids = [0]
@@ -452,7 +451,7 @@ def pick_mode(mode):
     elif mode == "tensor":
         import tsfc.tensor as m
     else:
-        raise ValueError("Unknown mode: {}".format(mode))
+        raise ValueError(f"Unknown mode: {mode}")
     return m
 
 

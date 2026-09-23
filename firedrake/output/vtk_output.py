@@ -189,7 +189,7 @@ def get_topology(coordinates):
         pass
     elif cells.get((cell, nonLinear)) is None:
         # Never reached, but let's be safe.
-        raise ValueError("Unhandled cell type %r" % cell)
+        raise ValueError(f"Unhandled cell type {cell!r}")
 
     # Repeat up the column
     num_cells = mesh.cell_set.size
@@ -290,8 +290,8 @@ def write_array_descriptor(f, ofunction, offset=None, parallel=False, real=False
         if parallel:
             f.write(
                 (
-                    '<PDataArray Name="%s" type="%s" '
-                    'NumberOfComponents="%s" />' % (name, typ, ncmp)
+                    f'<PDataArray Name="{name}" type="{typ}" '
+                    f'NumberOfComponents="{ncmp}" />'
                 ).encode("ascii")
             )
         else:
@@ -301,10 +301,10 @@ def write_array_descriptor(f, ofunction, offset=None, parallel=False, real=False
             nbytes += 4 + array.nbytes  # 4 is for the array size (uint32)
             f.write(
                 (
-                    '<DataArray Name="%s" type="%s" '
-                    'NumberOfComponents="%s" '
+                    f'<DataArray Name="{name}" type="{typ}" '
+                    f'NumberOfComponents="{ncmp}" '
                     'format="appended" '
-                    'offset="%d" />\n' % (name, typ, ncmp, offset)
+                    f'offset="{offset}" />\n'
                 ).encode("ascii")
             )
     return nbytes
@@ -322,23 +322,23 @@ def active_field_attributes(ofunctions):
             continue
         ranks.add(rank)
         if rank == 0:
-            s += ' Scalars="%s"' % name
+            s += f' Scalars="{name}"'
         elif rank == 1:
-            s += ' Vectors="%s"' % name
+            s += f' Vectors="{name}"'
         elif rank == 2:
-            s += ' Tensors="%s"' % name
+            s += f' Tensors="{name}"'
     return s.encode("ascii")
 
 
 def get_vtu_name(basename, rank, size):
     if size == 1:
-        return "%s.vtu" % basename
+        return f"{basename}.vtu"
     else:
-        return "%s_%s.vtu" % (basename, rank)
+        return f"{basename}_{rank}.vtu"
 
 
 def get_pvtu_name(basename):
-    return "%s.pvtu" % basename
+    return f"{basename}.pvtu"
 
 
 def get_array(function):
@@ -366,7 +366,7 @@ def get_array(function):
                 mode="constant",
             )
     else:
-        raise ValueError("Can't write data with shape %s" % (shape,))
+        raise ValueError(f"Can't write data with shape {shape}")
     return array
 
 
@@ -515,7 +515,7 @@ class VTKFile:
                 extract_unique_domain(function), max_elem, shape=shape
             )
         else:
-            raise ValueError("Unsupported shape %s" % (shape,))
+            raise ValueError(f"Unsupported shape {shape}")
         if isinstance(function, Function):
             output = Function(V)
         else:
@@ -558,7 +558,7 @@ class VTKFile:
 
         cell = mesh.topology.ufl_cell()
         if (cell, True) not in cells and (cell, False) not in cells:
-            raise ValueError("Unhandled cell type %r" % cell)
+            raise ValueError(f"Unhandled cell type {cell!r}")
 
         if self._fnames is not None:
             if tuple(f.name() for f in functions) != self._fnames:
@@ -632,8 +632,8 @@ class VTKFile:
 
             f.write(
                 (
-                    '<Piece NumberOfPoints="%d" '
-                    'NumberOfCells="%d">\n' % (num_points, num_cells)
+                    f'<Piece NumberOfPoints="{num_points}" '
+                    f'NumberOfCells="{num_cells}">\n'
                 ).encode("ascii")
             )
             f.write(b"<Points>\n")
@@ -647,7 +647,7 @@ class VTKFile:
             offset += write_array_descriptor(f, types, offset=offset)
             f.write(b"</Cells>\n")
 
-            f.write(b"<PointData%s>\n" % active_field_attributes(functions))
+            f.write(b"<PointData" + active_field_attributes(functions) + b">\n")
             for function in functions:
                 offset += write_array_descriptor(f, function, offset=offset)
             f.write(b"</PointData>\n")
@@ -692,7 +692,7 @@ class VTKFile:
             write_array_descriptor(f, types, parallel=True)
             f.write(b"</PCells>\n")
 
-            f.write(b"<PPointData%s>\n" % active_field_attributes(functions))
+            f.write(b"<PPointData" + active_field_attributes(functions) + b">\n")
             for function in functions:
                 write_array_descriptor(f, function, parallel=True)
             f.write(b"</PPointData>\n")
@@ -704,7 +704,7 @@ class VTKFile:
                     get_vtu_name(basename, rank, size),
                     os.path.dirname(self.vtu_basename),
                 )
-                f.write(('<Piece Source="%s" />\n' % vtu_name).encode("ascii"))
+                f.write((f'<Piece Source="{vtu_name}" />\n').encode("ascii"))
 
             f.write(b"</PUnstructuredGrid>\n")
             f.write(b"</VTKFile>\n")
@@ -735,7 +735,7 @@ class VTKFile:
                 f.seek(-len(self._footer), 2)
                 # Write new dataset name
                 f.write(
-                    ('<DataSet timestep="%s" ' 'file="%s" />\n' % (time, vtu)).encode(
+                    (f'<DataSet timestep="{time}" ' f'file="{vtu}" />\n').encode(
                         "ascii"
                     )
                 )

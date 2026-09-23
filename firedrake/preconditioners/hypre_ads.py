@@ -26,7 +26,7 @@ class HypreADS(PCBase):
         formdegree = V.finat_element.formdegree
         degree = max(as_tuple(V.ufl_element().degree()))
         if formdegree != 2 or degree != 1:
-            raise ValueError("Hypre ADS requires lowest order RT elements! (not %s of degree %d)" % (family, degree))
+            raise ValueError(f"Hypre ADS requires lowest order RT elements! (not {family} of degree {degree})")
 
         # Get the auxiliary Nedelec and Lagrange spaces and the coordinate space
         cell = V.ufl_element().cell

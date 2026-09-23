@@ -522,7 +522,7 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
             if type(coefficient.ufl_element()) is MixedElement:
                 raise NotImplementedError("Sorry, not for mixed.")
             self.coefficients.append(coefficient)
-            self.kernel_args.append(self._coefficient(coefficient, "macro_w_%d" % (i, )))
+            self.kernel_args.append(self._coefficient(coefficient, f"macro_w_{i}"))
 
     def set_coordinates(self, domain):
         """Prepare the coordinate field.

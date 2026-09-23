@@ -27,7 +27,7 @@ URL or DOI, and impose clean formatting.""",
             if "archiveprefix" in entry and entry["archiveprefix"] == "arXiv":
                 entry["url"] = "https://arxiv.org/abs/" + entry["eprint"]
             else:
-                raise ValueError("%s in bibliograpy %s\n has no url and no DOI.\n" % (entry["ID"], filename))
+                raise ValueError(f"{entry['ID']} in bibliograpy {filename}\n has no url and no DOI.\n")
 
     bibtex_format = bibtexparser.BibtexFormat()
     bibtex_format.indent = '  '     # indent entries with 2 spaces instead of one
@@ -41,7 +41,7 @@ URL or DOI, and impose clean formatting.""",
     if args.validate:
         with open(filename) as bibtex_file:
             if processed != bibtex_file.read():
-                raise ValueError("%s would be changed by firedrake-preprocess-bibtex. Please preprocess it and commit the result" % filename)
+                raise ValueError(f"{filename} would be changed by firedrake-preprocess-bibtex. Please preprocess it and commit the result")
 
     else:
         with open(filename, 'w') as bibfile:

@@ -235,7 +235,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     # Create arguments
     data = list(args)
     for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
-        name = "t%d" % i
+        name = f"t{i}"
         if isinstance(temp, gem.Constant):
             data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
@@ -301,7 +301,7 @@ def statement(tree, ctx):
     :arg ctx: miscellaneous code generation data
     :returns: list of loopy instructions
     """
-    raise AssertionError("cannot generate loopy from %s" % type(tree))
+    raise AssertionError(f"cannot generate loopy from {type(tree)}")
 
 
 @statement.register(imp.Block)
@@ -409,7 +409,7 @@ def expression(expr, ctx, top=False):
 
 @singledispatch
 def _expression(expr, ctx):
-    raise AssertionError("cannot generate expression from %s" % type(expr))
+    raise AssertionError(f"cannot generate expression from {type(expr)}")
 
 
 @_expression.register(gem.Failure)

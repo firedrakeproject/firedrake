@@ -45,7 +45,7 @@ class PointexprOperator(AbstractExternalOperator):
             raise TypeError("Expecting a FunctionType pointwise expression")
         expr_shape = operator_data["func"](*operands).ufl_shape
         if expr_shape != function_space.value_shape:
-            raise ValueError("The dimension does not match with the dimension of the function space %s" % function_space)
+            raise ValueError(f"The dimension does not match with the dimension of the function space {function_space}")
 
     @property
     def expr(self):

@@ -143,7 +143,7 @@ def _extract_function_space(x: Union[float, Function]) -> Union[WithGeometry, No
     elif isinstance(x, float):
         return None
     else:
-        raise ValueError("Cannot infer the function space of %s" % x)
+        raise ValueError(f"Cannot infer the function space of {x}")
 
 
 def to_jax(x: Union[Function, Constant], gather: Optional[bool] = False, batched: Optional[bool] = False, **kwargs) -> "jax.Array":
@@ -187,7 +187,7 @@ def to_jax(x: Union[Function, Constant], gather: Optional[bool] = False, batched
             kwargs['dtype'] = jnp.double
         return jnp.array(x, **kwargs)
     else:
-        raise ValueError("Cannot convert %s to a JAX tensor" % str(type(x)))
+        raise ValueError(f"Cannot convert {str(type(x))} to a JAX tensor")
 
 
 def from_jax(x: "jax.Array", V: Optional[WithGeometry] = None) -> Union[Function, Constant]:

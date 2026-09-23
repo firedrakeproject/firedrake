@@ -179,18 +179,18 @@ class DumbCheckpoint:
             if self._single:
                 if self._made_file:
                     raise ValueError("Can't call new_file without name with 'single_file'")
-                name = "%s.h5" % (self._basename)
+                name = f"{self._basename}.h5"
                 self._made_file = True
             else:
-                name = "%s_%s.h5" % (self._basename, self._fidx)
+                name = f"{self._basename}_{self._fidx}.h5"
             self._fidx += 1
         else:
-            name = "%s.h5" % name
+            name = f"{name}.h5"
 
         import os
         exists = os.path.exists(name)
         if self.mode == FILE_READ and not exists:
-            raise IOError("File '%s' does not exist, cannot be opened for reading" % name)
+            raise IOError(f"File '{name}' does not exist, cannot be opened for reading")
         mode = self.mode
         if mode == FILE_UPDATE and not exists:
             mode = FILE_CREATE
@@ -199,8 +199,7 @@ class DumbCheckpoint:
         if self.mode == FILE_READ:
             nprocs = self.read_attribute("/", "nprocs")
             if nprocs != self.comm.size:
-                raise ValueError("Process mismatch: written on %d, have %d" %
-                                 (nprocs, self.comm.size))
+                raise ValueError(f"Process mismatch: written on {nprocs}, have {self.comm.size}")
         else:
             self.write_attribute("/", "nprocs", self.comm.size)
 
@@ -236,7 +235,7 @@ class DumbCheckpoint:
         If a timestep is set, this incorporates the current timestep
         index.  See :meth:`.set_timestep`."""
         if self._time is not None:
-            return "/fields/%d" % self._tidx
+            return f"/fields/{self._tidx}"
         return "/fields"
 
     def _write_timestep_attr(self, group):
@@ -310,7 +309,7 @@ class DumbCheckpoint:
         try:
             self.h5file[obj].attrs[name] = val
         except KeyError:
-            raise AttributeError("Object '%s' not found" % obj)
+            raise AttributeError(f"Object '{obj}' not found")
 
     def read_attribute(self, obj, name, default=None):
         r"""Read an HDF5 attribute on a specified data object.
@@ -326,7 +325,7 @@ class DumbCheckpoint:
         except KeyError:
             if default is not None:
                 return default
-            raise AttributeError("Attribute '%s' on '%s' not found" % (name, obj))
+            raise AttributeError(f"Attribute '{name}' on '{obj}' not found")
 
     def has_attribute(self, obj, name):
         r"""Check for existance of an HDF5 attribute on a specified data object.
@@ -385,7 +384,7 @@ class HDF5File:
 
         exists = os.path.exists(filename)
         if file_mode == 'r' and not exists:
-            raise IOError("File '%s' does not exist, cannot be opened for reading" % filename)
+            raise IOError(f"File '{filename}' does not exist, cannot be opened for reading")
 
         # Create the directory if necessary
         dirname = os.path.dirname(filename)
@@ -403,8 +402,7 @@ class HDF5File:
         if file_mode == 'r':
             nprocs = self.attributes('/')['nprocs']
             if nprocs != self.comm.size:
-                raise ValueError("Process mismatch: written on %d, have %d" %
-                                 (nprocs, self.comm.size))
+                raise ValueError(f"Process mismatch: written on {nprocs}, have {self.comm.size}")
         else:
             self.attributes('/')['nprocs'] = self.comm.size
 
@@ -456,7 +454,7 @@ class HDF5File:
             raise ValueError("Can only store functions")
 
         if timestamp is not None:
-            suffix = "/%.15e" % timestamp
+            suffix = f"/{timestamp:.15e}"
             path = path + suffix
 
         with function.dat.vec_ro as v:
@@ -484,7 +482,7 @@ class HDF5File:
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only load functions")
         if timestamp is not None:
-            suffix = "/%.15e" % timestamp
+            suffix = f"/{timestamp:.15e}"
             path = path + suffix
 
         with function.dat.vec_wo as v:
@@ -518,10 +516,10 @@ def _generate_function_space_name(V):
         elem = Vsub.ufl_element()
         if isinstance(elem, finat.ufl.RestrictedElement):
             # RestrictedElement.shortstr() contains '<>|{}'.
-            elem_name = "RestrictedElement(%s,%s)" % (elem.sub_element().shortstr(), elem.restriction_domain())
+            elem_name = f"RestrictedElement({elem.sub_element().shortstr()},{elem.restriction_domain()})"
         elif isinstance(elem, finat.ufl.EnrichedElement):
             # EnrichedElement.shortstr() contains '<>+'.
-            elem_name = "EnrichedElement(%s)" % ",".join(e.shortstr() for e in elem._elements)
+            elem_name = f"EnrichedElement({','.join(e.shortstr() for e in elem._elements)})"
         else:
             elem_name = elem.shortstr()
             elem_name = elem_name.replace('?', 'None')
@@ -1935,5 +1933,5 @@ class CheckpointFile:
                 return self.create_group(name)
             grp = _self[name]
             if not isinstance(grp, h5py.Group):
-                raise TypeError("Incompatible object (%s) already exists" % grp.__class__.__name__)
+                raise TypeError(f"Incompatible object ({grp.__class__.__name__}) already exists")
             return grp

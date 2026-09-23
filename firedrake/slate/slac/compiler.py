@@ -97,7 +97,7 @@ def compile_expression(slate_expr, compiler_parameters=None):
     Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
     """
     if not isinstance(slate_expr, slate.TensorBase):
-        raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
+        raise ValueError(f"Expecting a `TensorBase` object, not {type(slate_expr)}")
 
     # Update default parameters with passed parameters
     # The deepcopy is needed because parameters is a nested dict
@@ -202,7 +202,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     # Cache the resulting kernel
     # Slate kernels are never split, so indicate that with None in the index slot.
     idx = tuple([None]*slate_expr.rank)
-    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    logger.info("\033[1;37;32mcompile_slate_expression finished in %g seconds.\033[0m", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
 

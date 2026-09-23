@@ -104,7 +104,7 @@ class FDMPC(PCBase):
         # if isinstance(J, firedrake.slate.TensorBase) and use_static_condensation:
         #     J = J.children[0].form
         if not isinstance(J, ufl.Form):
-            raise ValueError("Expecting a ufl.Form, not a %r" % type(J))
+            raise ValueError(f"Expecting a ufl.Form, not a {type(J)!r}")
 
         # Transform the problem into the space with FDM shape functions
         V = J.arguments()[-1].function_space()
@@ -835,7 +835,7 @@ class ElementKernel:
                     return PETSC_SUCCESS;
                 }""")
         code += self.code % dict(self.rules, name=self.name,
-                                 indices=", ".join("const PetscInt *restrict %s" % s for s in indices),
+                                 indices=", ".join(f"const PetscInt *restrict {s}" for s in indices),
                                  rows=indices[0], cols=indices[-1], addv=addv)
         return op2.Kernel(code, self.name)
 
@@ -1241,19 +1241,19 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         cache[key] = (matmult_struct, matmult_call, ctx_struct, ctx_pack)
 
     if matshell:
-        matmult_struct += dedent("""
-            static PetscErrorCode %(prefix)s(Mat A, Vec X, Vec Y) {
+        matmult_struct += dedent(f"""
+            static PetscErrorCode {prefix}(Mat A, Vec X, Vec Y) {{
                 PetscScalar **appctx, *y;
                 const PetscScalar *x;
                 PetscCall(MatShellGetContext(A, &appctx));
                 PetscCall(VecZeroEntries(Y));
                 PetscCall(VecGetArray(Y, &y));
                 PetscCall(VecGetArrayRead(X, &x));
-                %(matmult_call)s
+                {matmult_call("x", "y")}
                 PetscCall(VecRestoreArrayRead(X, &x));
                 PetscCall(VecRestoreArray(Y, &y));
                 return PETSC_SUCCESS;
-            }""" % {"prefix": prefix, "matmult_call": matmult_call("x", "y")})
+            }}""")
     return matmult_struct, matmult_call, ctx_struct, ctx_pack
 
 
@@ -1922,7 +1922,7 @@ class PoissonFDMPC(FDMPC):
         try:
             _, line_elements, shifts = get_permutation_to_nodal_elements(V)
         except ValueError:
-            raise ValueError("FDMPC does not support the element %s" % V.ufl_element())
+            raise ValueError(f"FDMPC does not support the element {V.ufl_element()}")
 
         line_elements, = line_elements
         axes_shifts, = shifts
@@ -2317,7 +2317,7 @@ def get_piola_tensor(mapping, domain):
         sign = ufl.diag(ufl.as_tensor([-1]+[1]*(tdim-1)))
         return ufl.Jacobian(domain)*sign/ufl.JacobianDeterminant(domain)
     else:
-        raise NotImplementedError("Unsupported element mapping %s" % mapping)
+        raise NotImplementedError(f"Unsupported element mapping {mapping}")
 
 
 def pull_axis(x, pshape, idir):
@@ -2539,7 +2539,7 @@ def extrude_node_map(node_map, bsize=1):
 def cache_generate_code(kernel, comm):
     _cachedir = os.environ.get('PYOP2_CACHE_DIR',
                                os.path.join(tempfile.gettempdir(),
-                                            'pyop2-cache-uid%d' % os.getuid()))
+                                            f'pyop2-cache-uid{os.getuid()}'))
 
     key = kernel.cache_key[0]
     shard, disk_key = key[:2], key[2:]
@@ -2645,7 +2645,7 @@ def get_permutation_to_nodal_elements(V):
     finat_element = V.finat_element
     expansion = expand_element(finat_element)
     if expansion.space_dimension() != finat_element.space_dimension():
-        raise ValueError("Failed to decompose %s into tensor products" % V.ufl_element())
+        raise ValueError(f"Failed to decompose {V.ufl_element()} into tensor products")
 
     nodal_elements = []
     terms = expansion.elements if hasattr(expansion, "elements") else [expansion]
@@ -2653,7 +2653,7 @@ def get_permutation_to_nodal_elements(V):
         factors = term.factors if hasattr(term, "factors") else (term,)
         fiat_factors = tuple(e.fiat_equivalent for e in reversed(factors))
         if not all(e.is_nodal() for e in fiat_factors):
-            raise ValueError("Failed to decompose %s into nodal elements" % V.ufl_element())
+            raise ValueError(f"Failed to decompose {V.ufl_element()} into nodal elements")
         nodal_elements.append(fiat_factors)
 
     shapes = [tuple(e.space_dimension() for e in factors) for factors in nodal_elements]

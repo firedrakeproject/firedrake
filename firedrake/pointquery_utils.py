@@ -50,12 +50,12 @@ def src_locate_cell(mesh, tolerance=None):
 
 
 def dX_norm_square(topological_dimension):
-    return " + ".join("PetscRealPart(dX[{0}])*PetscRealPart(dX[{0}])".format(i)
+    return " + ".join(f"PetscRealPart(dX[{i}])*PetscRealPart(dX[{i}])"
                       for i in range(topological_dimension))
 
 
 def X_isub_dX(topological_dimension):
-    return "\n".join("\tX[{0}] -= dX[{0}];".format(i)
+    return "\n".join(f"\tX[{i}] -= dX[{i}];"
                      for i in range(topological_dimension))
 
 
@@ -91,7 +91,7 @@ def inside_check(fiat_cell, eps, X="X"):
         otherwise.
     """
     dim = fiat_cell.get_spatial_dimension()
-    point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
+    point = tuple(sympy.Symbol(f"PetscRealPart({X}[{i}])") for i in range(dim))
     return ccode(fiat_cell.contains_point(point, epsilon=eps))
 
 
@@ -117,7 +117,7 @@ def celldist_l1_c_expr(fiat_cell, X="X"):
         A string of C code.
     """
     dim = fiat_cell.get_spatial_dimension()
-    point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
+    point = tuple(sympy.Symbol(f"PetscRealPart({X}[{i}])") for i in range(dim))
     return ccode(fiat_cell.distance_to_point_l1(point))
 
 

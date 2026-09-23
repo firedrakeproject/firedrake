@@ -15,7 +15,7 @@ def cell(request):
 
 
 @pytest.fixture(params=[1, 2],
-                ids=lambda x: "P%d-coords" % x)
+                ids=lambda x: f"P{x}-coords")
 def coord_degree(request):
     return request.param
 

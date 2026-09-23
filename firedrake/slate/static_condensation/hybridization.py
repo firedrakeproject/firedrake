@@ -102,7 +102,7 @@ class HybridizationPC(SCBase):
 
         shapes = (V[self.vidx].finat_element.space_dimension(),
                   V[self.vidx].block_size)
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        domain = f"{{[i,j]: 0 <= i < {shapes[0]} and 0 <= j < {shapes[1]}}}"
         instructions = """
         for i, j
             w[i,j] = w[i,j] + 1

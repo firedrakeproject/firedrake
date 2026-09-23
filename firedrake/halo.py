@@ -139,7 +139,7 @@ class Halo(op2.Halo):
 
     @PETSc.Log.EventDecorator()
     def local_to_global_begin(self, dat, insert_mode):
-        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
+        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, f"{insert_mode} LtoG not supported"
         if self.comm.size == 1:
             return
         complex_type = complex_mode and dat.dtype == ScalarType
@@ -156,7 +156,7 @@ class Halo(op2.Halo):
 
     @PETSc.Log.EventDecorator()
     def local_to_global_end(self, dat, insert_mode):
-        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, "%s LtoG not supported" % insert_mode
+        assert insert_mode in {op2.INC, op2.MIN, op2.MAX}, f"{insert_mode} LtoG not supported"
         if self.comm.size == 1:
             return
         complex_type = complex_mode and dat.dtype == ScalarType

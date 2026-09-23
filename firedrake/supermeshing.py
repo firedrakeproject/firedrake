@@ -230,60 +230,70 @@ each supermesh cell.
 
     to_reference_kernel = to_reference_coordinates(mesh_A.coordinates.ufl_element())
 
-    supermesh_kernel_str = """
+    evaluate_S = generate_code_v2(kernel_S.ast).device_code()
+    evaluate_A = generate_code_v2(kernel_A.ast).device_code()
+    evaluate_B = generate_code_v2(kernel_B.ast).device_code()
+    kernel_args_S = _make_kernel_args(kernel_S, V_S.finat_element, "physical_node_location", *dummy_args, "simplex_S", "reference_node_location")
+    kernel_args_A = _make_kernel_args(kernel_A, V_A.finat_element, "&R_AS[i][j]", *dummy_args, "coeffs_A", "reference_nodes_A[j]")
+    kernel_args_B = _make_kernel_args(kernel_B, V_B.finat_element, "&R_BS[i][j]", *dummy_args, "coeffs_B", "reference_nodes_B[j]")
+    to_reference = str(to_reference_kernel)
+    libsupermesh_simplex_measure = "libsupermesh_triangle_area" if dim == 2 else "libsupermesh_tetrahedron_volume"
+    libsupermesh_intersect_simplices = "libsupermesh_intersect_tris_real" if dim == 2 else "libsupermesh_intersect_tets_real"
+
+    supermesh_kernel_str = f"""
     #include "libsupermesh-c.h"
     #include <petsc.h>
-    %(to_reference)s
-    %(evaluate_S)s
-    %(evaluate_A)s
-    %(evaluate_B)s
-#define complex_mode %(complex_mode)s
+    {to_reference}
+    {evaluate_S}
+    {evaluate_A}
+    {evaluate_B}
+#define complex_mode {int(complex_mode)}
 
-    #define PrintInfo(...) do { if (PetscLogPrintInfo) printf(__VA_ARGS__); } while (0)
-    #define FPrintInfo(...) do { if (PetscLogPrintInfo) fprintf(stderr, __VA_ARGS__); } while (0)
+    #define PrintInfo(...) do {{ if (PetscLogPrintInfo) printf(__VA_ARGS__); }} while (0)
+    #define FPrintInfo(...) do {{ if (PetscLogPrintInfo) fprintf(stderr, __VA_ARGS__); }} while (0)
     static void print_array(PetscScalar *arr, int d)
-    {
+    {{
         for(int j=0; j<d; j++)
-            FPrintInfo("%%+.2f ", arr[j]);
-    }
+            FPrintInfo("%+.2f ", arr[j]);
+    }}
     static void print_coordinates(PetscScalar *simplex, int d)
-    {
+    {{
         for(int i=0; i<d+1; i++)
-        {
+        {{
             PrintInfo("\t");
             print_array(&simplex[d*i], d);
             PrintInfo("\\n");
-        }
-    }
+        }}
+    }}
 #if complex_mode
     static void seperate_real_and_imag(PetscScalar *simplex, double *real_simplex, double *imag_simplex, int d)
-    {
+    {{
         for(int i=0; i<d+1; i++)
-        {
+        {{
             for(int j=0; j<d; j++)
-            {
+            {{
                 real_simplex[d*i+j] = creal(simplex[d*i+j]);
                 imag_simplex[d*i+j] = cimag(simplex[d*i+j]);
-            }
-        }
-    }
+            }}
+        }}
+    }}
     static void merge_back_to_simplex(PetscScalar* simplex, double* real_simplex, double* imag_simplex, int d)
-    {
+    {{
         print_coordinates(simplex,d);
         for(int i=0; i<d+1; i++)
-        {
+        {{
             for(int j=0; j<d; j++)
-            {
+            {{
                 simplex[d*i+j] = real_simplex[d*i+j]+imag_simplex[d*i+j]*_Complex_I;
-            }
-        }
-    }
+            }}
+        }}
+    }}
 #endif
     int supermesh_kernel(PetscScalar* simplex_A, PetscScalar* simplex_B, PetscScalar* simplices_C,  PetscScalar* nodes_A,  PetscScalar* nodes_B,  PetscScalar* M_SS, PetscScalar* outptr, int num_ele)
-    {
-#define d %(dim)s
-#define num_nodes_A %(num_nodes_A)s
-#define num_nodes_B %(num_nodes_B)s
+    {{
+#define d {dim}
+#define num_nodes_A {num_nodes_A}
+#define num_nodes_B {num_nodes_B}
 
         double simplex_ref_measure;
         PrintInfo("simplex_A coordinates\\n");
@@ -297,8 +307,8 @@ each supermesh cell.
 
         PetscScalar R_AS[num_nodes_A][num_nodes_A];
         PetscScalar R_BS[num_nodes_B][num_nodes_B];
-        PetscScalar coeffs_A[%(num_nodes_A)s] = {0.};
-        PetscScalar coeffs_B[%(num_nodes_B)s] = {0.};
+        PetscScalar coeffs_A[{num_nodes_A}] = {{0.}};
+        PetscScalar coeffs_B[{num_nodes_B}] = {{0.}};
 
         PetscScalar reference_nodes_A[num_nodes_A][d];
         PetscScalar reference_nodes_B[num_nodes_B][d];
@@ -315,36 +325,36 @@ each supermesh cell.
         double imag_simplices_C[num_elements*d*(d+1)];
         for (int ii=0; ii<num_elements*d*(d+1); ++ii) imag_simplices_C[ii] = 0.;
 
-        %(libsupermesh_intersect_simplices)s(real_simplex_A, real_simplex_B, real_simplices_C, &num_elements);
+        {libsupermesh_intersect_simplices}(real_simplex_A, real_simplex_B, real_simplices_C, &num_elements);
 
         merge_back_to_simplex(simplex_A, real_simplex_A, imag_simplex_A, d);
         merge_back_to_simplex(simplex_B, real_simplex_B, imag_simplex_B, d);
         for(int s=0; s<num_elements; s++)
-        {
+        {{
             PetscScalar* simplex_C = &simplices_C[s * d * (d+1)];
             double* real_simplex_C = &real_simplices_C[s * d * (d+1)];
             double* imag_simplex_C = &imag_simplices_C[s * d * (d+1)];
             merge_back_to_simplex(simplex_C, real_simplex_C, imag_simplex_C, d);
-        }
+        }}
 #else
-        %(libsupermesh_intersect_simplices)s(simplex_A, simplex_B, simplices_C, &num_elements);
+        {libsupermesh_intersect_simplices}(simplex_A, simplex_B, simplices_C, &num_elements);
 #endif
-        PrintInfo("Supermesh consists of %%i elements\\n", num_elements);
+        PrintInfo("Supermesh consists of %i elements\\n", num_elements);
 
         // would like to do this
-        //PetscScalar MAB[%(num_nodes_A)s][%(num_nodes_B)s] = (PetscScalar (*)[%(num_nodes_B)s])outptr;
+        //PetscScalar MAB[{num_nodes_A}][{num_nodes_B}] = (PetscScalar (*)[{num_nodes_B}])outptr;
         // but have to do this instead because we don't grok C
         PetscScalar (*MAB)[num_nodes_A] = (PetscScalar (*)[num_nodes_A])outptr;
         PetscScalar (*MSS)[num_nodes_A] = (PetscScalar (*)[num_nodes_A])M_SS; // note the underscore
 
-        for ( int i = 0; i < num_nodes_B; i++ ) {
-            for (int j = 0; j < num_nodes_A; j++) {
+        for ( int i = 0; i < num_nodes_B; i++ ) {{
+            for (int j = 0; j < num_nodes_A; j++) {{
                 MAB[i][j] = 0.0;
-            }
-        }
+            }}
+        }}
 
         for(int s=0; s<num_elements; s++)
-        {
+        {{
             PetscScalar* simplex_S = &simplices_C[s * d * (d+1)];
             double simplex_S_measure;
 #if complex_mode
@@ -352,44 +362,44 @@ each supermesh cell.
             double imag_simplex_S[d*(d+1)];
             seperate_real_and_imag(simplex_S, real_simplex_S, imag_simplex_S, d);
 
-            %(libsupermesh_simplex_measure)s(real_simplex_S, &simplex_S_measure);
+            {libsupermesh_simplex_measure}(real_simplex_S, &simplex_S_measure);
 
             merge_back_to_simplex(simplex_S, real_simplex_S, imag_simplex_S, d);
 #else
-            %(libsupermesh_simplex_measure)s(simplex_S, &simplex_S_measure);
+            {libsupermesh_simplex_measure}(simplex_S, &simplex_S_measure);
 #endif
-            PrintInfo("simplex_S coordinates with measure %%f\\n", simplex_S_measure);
+            PrintInfo("simplex_S coordinates with measure %f\\n", simplex_S_measure);
             print_coordinates(simplex_S, d);
 
             PrintInfo("Start mapping nodes for V_A\\n");
             PetscScalar physical_nodes_A[num_nodes_A][d];
-            for(int n=0; n < num_nodes_A; n++) {
+            for(int n=0; n < num_nodes_A; n++) {{
                 PetscScalar* reference_node_location = &nodes_A[n*d];
                 PetscScalar* physical_node_location = physical_nodes_A[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
+                pyop2_kernel_evaluate_kernel_S({kernel_args_S});
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
                 print_array(physical_node_location, d);
                 PrintInfo("\\n");
-            }
+            }}
             PrintInfo("Start mapping nodes for V_B\\n");
             PetscScalar physical_nodes_B[num_nodes_B][d];
-            for(int n=0; n < num_nodes_B; n++) {
+            for(int n=0; n < num_nodes_B; n++) {{
                 PetscScalar* reference_node_location = &nodes_B[n*d];
                 PetscScalar* physical_node_location = physical_nodes_B[n];
                 for (int j=0; j < d; j++) physical_node_location[j] = 0.0;
-                pyop2_kernel_evaluate_kernel_S(%(kernel_args_S)s);
+                pyop2_kernel_evaluate_kernel_S({kernel_args_S});
                 PrintInfo("\\tNode ");
                 print_array(reference_node_location, d);
                 PrintInfo(" mapped to ");
                 print_array(physical_node_location, d);
                 PrintInfo("\\n");
-            }
+            }}
             PrintInfo("==========================================================\\n");
             PrintInfo("Start pulling back dof from S into reference space for A.\\n");
-            for(int n=0; n < num_nodes_A; n++) {
+            for(int n=0; n < num_nodes_A; n++) {{
                 for(int i=0; i<d; i++) reference_nodes_A[n][i] = 0.;
                 to_reference_coords_kernel(reference_nodes_A[n], physical_nodes_A[n], simplex_A);
                 PrintInfo("Pulling back ");
@@ -397,9 +407,9 @@ each supermesh cell.
                 PrintInfo(" to ");
                 print_array(reference_nodes_A[n], d);
                 PrintInfo("\\n");
-            }
+            }}
             PrintInfo("Start pulling back dof from S into reference space for B.\\n");
-            for(int n=0; n < num_nodes_B; n++) {
+            for(int n=0; n < num_nodes_B; n++) {{
                 for(int i=0; i<d; i++) reference_nodes_B[n][i] = 0.;
                 to_reference_coords_kernel(reference_nodes_B[n], physical_nodes_B[n], simplex_B);
                 PrintInfo("Pulling back ");
@@ -407,59 +417,45 @@ each supermesh cell.
                 PrintInfo(" to ");
                 print_array(reference_nodes_B[n], d);
                 PrintInfo("\\n");
-            }
+            }}
 
             PrintInfo("Start evaluating basis functions of V_A at dofs for V_A on S\\n");
-            for(int i=0; i<num_nodes_A; i++) {
+            for(int i=0; i<num_nodes_A; i++) {{
                 coeffs_A[i] = 1.;
-                for(int j=0; j<num_nodes_A; j++) {
+                for(int j=0; j<num_nodes_A; j++) {{
                     R_AS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_A(%(kernel_args_A)s);
-                }
+                    pyop2_kernel_evaluate_kernel_A({kernel_args_A});
+                }}
                 print_array(R_AS[i], num_nodes_A);
                 PrintInfo("\\n");
                 coeffs_A[i] = 0.;
-            }
+            }}
             PrintInfo("Start evaluating basis functions of V_B at dofs for V_B on S\\n");
-            for(int i=0; i<num_nodes_B; i++) {
+            for(int i=0; i<num_nodes_B; i++) {{
                 coeffs_B[i] = 1.;
-                for(int j=0; j<num_nodes_B; j++) {
+                for(int j=0; j<num_nodes_B; j++) {{
                     R_BS[i][j] = 0.;
-                    pyop2_kernel_evaluate_kernel_B(%(kernel_args_B)s);
-                }
+                    pyop2_kernel_evaluate_kernel_B({kernel_args_B});
+                }}
                 print_array(R_BS[i], num_nodes_B);
                 PrintInfo("\\n");
                 coeffs_B[i] = 0.;
-            }
+            }}
             PrintInfo("Start doing the matmatmat mult\\n");
 
-            for ( int i = 0; i < num_nodes_B; i++ ) {
-                for (int j = 0; j < num_nodes_A; j++) {
-                    for ( int k = 0; k < num_nodes_B; k++) {
-                        for ( int l = 0; l < num_nodes_A; l++) {
+            for ( int i = 0; i < num_nodes_B; i++ ) {{
+                for (int j = 0; j < num_nodes_A; j++) {{
+                    for ( int k = 0; k < num_nodes_B; k++) {{
+                        for ( int l = 0; l < num_nodes_A; l++) {{
                             MAB[i][j] += (simplex_S_measure/simplex_ref_measure) * R_BS[i][k] * MSS[k][l] * R_AS[j][l];
-                        }
-                    }
-                }
-            }
-        }
+                        }}
+                    }}
+                }}
+            }}
+        }}
         return num_elements;
-    }
-    """ % {
-        "evaluate_S": generate_code_v2(kernel_S.ast).device_code(),
-        "evaluate_A": generate_code_v2(kernel_A.ast).device_code(),
-        "evaluate_B": generate_code_v2(kernel_B.ast).device_code(),
-        "kernel_args_S": _make_kernel_args(kernel_S, V_S.finat_element, "physical_node_location", *dummy_args, "simplex_S", "reference_node_location"),
-        "kernel_args_A": _make_kernel_args(kernel_A, V_A.finat_element, "&R_AS[i][j]", *dummy_args, "coeffs_A", "reference_nodes_A[j]"),
-        "kernel_args_B": _make_kernel_args(kernel_B, V_B.finat_element, "&R_BS[i][j]", *dummy_args, "coeffs_B", "reference_nodes_B[j]"),
-        "to_reference": str(to_reference_kernel),
-        "num_nodes_A": num_nodes_A,
-        "num_nodes_B": num_nodes_B,
-        "libsupermesh_simplex_measure": "libsupermesh_triangle_area" if dim == 2 else "libsupermesh_tetrahedron_volume",
-        "libsupermesh_intersect_simplices": "libsupermesh_intersect_tris_real" if dim == 2 else "libsupermesh_intersect_tets_real",
-        "dim": dim,
-        "complex_mode": 1 if complex_mode else 0
-    }
+    }}
+    """
 
     libsupermesh_dir = pathlib.Path(libsupermesh.get_include()).parent.absolute()
     dirs = petsctools.get_petsc_dirs() + (libsupermesh_dir,)

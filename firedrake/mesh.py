@@ -198,8 +198,7 @@ class _Facets(object):
         # Dat indicating which local facet of each adjacent cell corresponds
         # to the current facet.
         self.local_facet_dat = op2.Dat(dset, local_facet_number, np.uintc,
-                                       "%s_%s_local_facet_number" %
-                                       (self.mesh.name, self.kind))
+                                       f"{self.mesh.name}_{self.kind}_local_facet_number")
 
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
@@ -231,7 +230,7 @@ class _Facets(object):
             return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
         elif not (integral_type.startswith("exterior_")
                   or integral_type.startswith("interior_")):
-            raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
+            raise ValueError(f"Don't know how to construct measure for '{integral_type}'")
         if subdomain_id == "everywhere":
             return self.set
         if subdomain_id == "otherwise":
@@ -262,7 +261,7 @@ class _Facets(object):
             # check that the given markers are valid
             if len(set(markers).difference(valid_markers)) > 0:
                 invalid = set(markers).difference(valid_markers)
-                raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
+                raise LookupError(f"{invalid} are not a valid markers (not in {self.unique_markers})")
 
             # build a list of indices corresponding to the subsets selected by
             # markers
@@ -921,7 +920,7 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             return self.interior_facets.measure_set(integral_type, subdomain_id,
                                                     all_integer_subdomain_ids)
         else:
-            raise ValueError("Unknown integral type '%s'" % integral_type)
+            raise ValueError(f"Unknown integral type '{integral_type}'")
 
     @abc.abstractmethod
     def mark_entities(self, tf, label_value, label_name=None):
@@ -1177,7 +1176,7 @@ class MeshTopology(AbstractMeshTopology):
             self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
             self._grown_halos = True
         else:
-            raise ValueError("Unknown overlap type %r" % overlap_type)
+            raise ValueError(f"Unknown overlap type {overlap_type!r}")
 
     def _mark_entity_classes(self):
         dmcommon.mark_entity_classes(self.topology_dm)
@@ -1302,7 +1301,7 @@ class MeshTopology(AbstractMeshTopology):
             closureSize = sum([len(ents) for _, ents in topology.items()])
             return dmcommon.create_cell_closure(plex, cell_numbering, closureSize)
         else:
-            raise NotImplementedError("Cell type '%s' not supported." % cell)
+            raise NotImplementedError(f"Cell type '{cell}' not supported.")
 
     @cached_property
     def entity_orientations(self):
@@ -1321,7 +1320,7 @@ class MeshTopology(AbstractMeshTopology):
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
+            raise ValueError(f"Unknown facet type '{kind}'")
 
         dm = self.topology_dm
         facets, classes, set_ = getattr(self, "_" + kind + "_facet_numbers_classes_set")
@@ -1366,7 +1365,7 @@ class MeshTopology(AbstractMeshTopology):
 
     def _facet_numbers_classes_set(self, kind):
         if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
+            raise ValueError(f"Unknown facet type '{kind}'")
         # Can not call target.{interior, exterior}_facets.facets
         # if target is a mixed cell mesh (cell_closure etc. can not be defined),
         # so directly call dmcommon.get_facets_by_class.
@@ -1876,7 +1875,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
+            raise ValueError(f"Unknown facet type '{kind}'")
         label = f"{kind}_facets"
         base = getattr(self._base_mesh, label)
         layers = self.entity_layers(1, label)
@@ -2159,7 +2158,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         `VertexOnlyMeshTopology` have no facets.
         """
         if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
+            raise ValueError(f"Unknown facet type '{kind}'")
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
     @cached_property  # TODO: Recalculate if mesh moves
@@ -3422,8 +3421,7 @@ def Mesh(meshfile, **kwargs):
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, user_comm)
         else:
-            raise RuntimeError("Mesh file %s has unknown format '%s'."
-                               % (meshfile, ext[1:]))
+            raise RuntimeError(f"Mesh file {meshfile} has unknown format '{ext[1:]}'.")
         plex.setName(_generate_default_mesh_topology_name(name))
     # Create mesh topology
     submesh_parent = kwargs.get("submesh_parent", None)

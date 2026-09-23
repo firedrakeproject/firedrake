@@ -24,7 +24,7 @@ def sanitise_input(v, V):
     elif isinstance(v, ufl.classes.Expr):
         return v
     else:
-        raise ValueError("Can't project from source object %r" % v)
+        raise ValueError(f"Can't project from source object {v!r}")
 
 
 def create_output(V, name=None):
@@ -33,7 +33,7 @@ def create_output(V, name=None):
     elif isinstance(V, function.Function):
         return V
     else:
-        raise ValueError("Can't project into target object %r" % V)
+        raise ValueError(f"Can't project into target object {V!r}")
 
 
 def check_meshes(source, target):
@@ -44,8 +44,7 @@ def check_meshes(source, target):
     if target_mesh is None:
         raise ValueError("Target space must have a mesh")
     if source_mesh.ufl_cell() != target_mesh.ufl_cell():
-        raise ValueError("Mismatching cells in source (%r) and target (%r) meshes" %
-                         (source_mesh.ufl_cell(), target_mesh.ufl_cell()))
+        raise ValueError(f"Mismatching cells in source ({source_mesh.ufl_cell()!r}) and target ({target_mesh.ufl_cell()!r}) meshes")
     return source_mesh, target_mesh
 
 
@@ -342,8 +341,7 @@ def Projector(
     source = sanitise_input(v, target.function_space())
     source_mesh, target_mesh = check_meshes(source, target)
     if source.ufl_shape != target.ufl_shape:
-        raise ValueError("Shape mismatch between source %s and target %s in project" %
-                         (source.ufl_shape, target.ufl_shape))
+        raise ValueError(f"Shape mismatch between source {source.ufl_shape} and target {target.ufl_shape} in project")
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
         return Assigner(source, target)
     elif source_mesh == target_mesh:
@@ -358,7 +356,7 @@ def Projector(
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
         if not isinstance(source, function.Function) or source.ufl_element().family() == "Real":
-            raise NotImplementedError("Only for source Functions, not %s" % type(source))
+            raise NotImplementedError(f"Only for source Functions, not {type(source)}")
         return SupermeshProjector(
             source, target, bcs=bcs, solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,

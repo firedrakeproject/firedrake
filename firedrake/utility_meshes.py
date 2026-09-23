@@ -2240,7 +2240,7 @@ def OctahedralSphereMesh(
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
     if hemisphere not in {"both", "north", "south"}:
-        raise ValueError("Unhandled hemisphere '%s'" % hemisphere)
+        raise ValueError(f"Unhandled hemisphere '{hemisphere}'")
     # vertices of an octahedron of radius 1
     vertices = np.array(
         [
@@ -2972,7 +2972,7 @@ def CylinderMesh(
         rotation = np.asarray([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.double)
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
-        raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
+        raise ValueError(f"Unknown longitudinal direction '{longitudinal_direction}'")
 
     plex = plex_from_cell_list(
         2, cells, vertices, comm, _generate_default_mesh_topology_name(name)
