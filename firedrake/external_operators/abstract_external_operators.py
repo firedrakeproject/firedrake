@@ -119,12 +119,12 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
             raise ValueError("Expecting `assemble_method` to take `(derivs, args)`, where `derivs` can be a derivative multi-index or an integer and `args` is a tuple")
         if isinstance(derivs, int):
             if derivs < 0:
-                raise ValueError("Expecting a nonnegative integer and not %s" % str(derivs))
+                raise ValueError(f"Expecting a nonnegative integer and not {str(derivs)}")
         else:
             if not all(isinstance(d, int) for d in derivs) or any(d < 0 for d in derivs):
-                raise ValueError("Expecting a derivative multi-index with nonnegative indices and not %s" % str(derivs))
+                raise ValueError(f"Expecting a derivative multi-index with nonnegative indices and not {str(derivs)}")
         if any((not isinstance(a, int) and a is not None) for a in args) or any(isinstance(a, int) and a < 0 for a in args):
-            raise ValueError("Expecting an argument tuple with nonnegative integers or None objects and not %s" % str(args))
+            raise ValueError(f"Expecting an argument tuple with nonnegative integers or None objects and not {str(args)}")
 
         # Set the registry
         registry = (derivs, args)
@@ -183,8 +183,9 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
                 #  => This is useful for arbitrary operators where the number of operators is unknwon a priori.
                 assemble = assembly_registry[(sum(key[0]), key[1])]
             except KeyError:
-                raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
-                                           + ' has an implementation for %s !') % (type(self).__name__, str(key)))
+                raise NotImplementedError(
+                    f"The problem considered requires that your external operator class `{type(self).__name__}`"
+                    f" has an implementation for {key} !")
 
         # -- Assemble -- #
         result = assemble(self, assembly_opts=assembly_opts)
@@ -259,12 +260,10 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
 
     def __repr__(self):
         "Default repr string construction for AbstractExternalOperator."
-        r = "%s(%s; %s; %s; derivatives=%s; operator_data=%s)" % (type(self).__name__,
-                                                                  ", ".join(repr(op) for op in self.ufl_operands),
-                                                                  repr(self.ufl_function_space()),
-                                                                  ", ".join(repr(arg) for arg in self.argument_slots()),
-                                                                  repr(self.derivatives),
-                                                                  repr(self.operator_data))
+        r = (f"{type(self).__name__}({', '.join(repr(op) for op in self.ufl_operands)}; "
+             f"{self.ufl_function_space()!r}; "
+             f"{', '.join(repr(arg) for arg in self.argument_slots())}; "
+             f"derivatives={self.derivatives!r}; operator_data={self.operator_data!r})")
         return r
 
 

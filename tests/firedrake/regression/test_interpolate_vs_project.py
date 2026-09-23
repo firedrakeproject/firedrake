@@ -22,7 +22,7 @@ def mesh(request):
                         ("N1curl", 2, VectorFunctionSpace),
                         ("N1div", 2, VectorFunctionSpace),
                         ("Regge", 1, FunctionSpace)],
-                ids=lambda x: "%s(%s%s)" % (x[2].__name__, x[0], x[1]))
+                ids=lambda x: f"{x[2].__name__}({x[0]}{x[1]})")
 def V(request, mesh):
     space, degree, typ = request.param
     return typ(mesh, space, degree)

@@ -254,9 +254,9 @@ class MixedVectorSpaceBasis(object):
                 continue
             # Must be indexed function space
             if i != basis.index:
-                raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
+                raise RuntimeError(f"FunctionSpace with index {basis.index} cannot appear at position {i}")
             if basis.parent != function_space:
-                raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
+                raise RuntimeError(f"FunctionSpace with index {basis.index} does not have {function_space} as a parent")
         self._bases = bases
         self._nullspace = None
 
@@ -374,8 +374,7 @@ class MixedVectorSpaceBasis(object):
             if rows != cols:
                 raise RuntimeError("Can only apply nullspace to square operator")
             if rows != len(self):
-                raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
-                                   (rows, cols, len(self)))
+                raise RuntimeError(f"Shape of matrix ({rows}, {cols}) does not match size of nullspace {len(self)}")
             # Hang the expanded nullspace on the big matrix
             self._apply_monolithic(matrix, transpose=transpose, near=near)
             return

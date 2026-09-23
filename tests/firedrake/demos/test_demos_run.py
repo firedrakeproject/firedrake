@@ -104,9 +104,9 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
     rst_file = f"{DEMO_DIR}/{demo_dir}/{demo_name}.py.rst"
 
     # Check if we need to generate any meshes
-    geos = glob.glob("%s/*.geo" % dirname(rst_file))
+    geos = glob.glob(f"{dirname(rst_file)}/*.geo")
     for geo in geos:
-        name = "%s.msh" % splitext(basename(geo))[0]
+        name = f"{splitext(basename(geo))[0]}.msh"
         if os.path.exists(name):
             # No need to generate if it's already there
             continue

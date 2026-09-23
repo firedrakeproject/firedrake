@@ -208,7 +208,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
 
     # Check that we get a Form
     if not isinstance(form, Form):
-        raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
+        raise RuntimeError(f"Unable to convert object to a UFL form: {repr(form)}")
 
     if parameters is None:
         parameters = default_parameters["form_compiler"].copy()

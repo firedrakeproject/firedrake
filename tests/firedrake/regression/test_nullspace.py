@@ -179,7 +179,7 @@ def test_near_nullspace(tmpdir):
 
     w1 = Function(V)
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
-        'ksp_monitor': "ascii:%s:" % w_nns_log,
+        'ksp_monitor': f"ascii:{w_nns_log}:",
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
@@ -187,7 +187,7 @@ def test_near_nullspace(tmpdir):
 
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
-        'ksp_monitor': "ascii:%s:" % wo_nns_log,
+        'ksp_monitor': f"ascii:{wo_nns_log}:",
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,

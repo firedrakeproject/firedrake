@@ -54,5 +54,5 @@ def test_l2_conv(params):
 def test_l2_conv_parallel():
     from mpi4py import MPI
     l2_conv = run_convergence_test()
-    print('[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv)
+    print(f'[{MPI.COMM_WORLD.rank}]', 'convergence rate:', l2_conv)
     assert (l2_conv > 2.8).all()

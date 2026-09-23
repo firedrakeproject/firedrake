@@ -74,9 +74,9 @@ class ModifiedTerminal(object):
 
     def __str__(self):
         s = []
-        s += ["terminal:           {0}".format(self.terminal)]
-        s += ["local_derivatives:  {0}".format(self.local_derivatives)]
-        s += ["restriction:        {0}".format(self.restriction)]
+        s += [f"terminal:           {self.terminal}"]
+        s += [f"local_derivatives:  {self.local_derivatives}"]
+        s += [f"restriction:        {self.restriction}"]
         return '\n'.join(s)
 
 
@@ -131,10 +131,10 @@ def analyse_modified_terminal(expr):
             t, = t.ufl_operands
 
         elif t._ufl_terminal_modifiers_:
-            raise ValueError("Missing handler for terminal modifier type %s, object is %s." % (type(t), repr(t)))
+            raise ValueError(f"Missing handler for terminal modifier type {type(t)}, object is {repr(t)}.")
 
         else:
-            raise ValueError("Unexpected type %s object %s." % (type(t), repr(t)))
+            raise ValueError(f"Unexpected type {type(t)} object {repr(t)}.")
 
     # Make reference_value true or false
     if reference_value is None:

@@ -116,6 +116,6 @@ def transform_integrals(integrals):
             transformed_integrals.setdefault(it_btm, list()).append(bottom_it)
 
         else:
-            raise ValueError("Integral type: %s not recognized!" % it_type)
+            raise ValueError(f"Integral type: {it_type} not recognized!")
 
     return transformed_integrals

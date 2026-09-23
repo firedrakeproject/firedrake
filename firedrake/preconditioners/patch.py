@@ -749,7 +749,7 @@ class PlaneSmoother(object):
         sentinel = object()
         sweeps = PETSc.Options(prefix).getString("pc_patch_construct_ps_sweeps", default=sentinel)
         if sweeps == sentinel:
-            raise ValueError("Must set %spc_patch_construct_ps_sweeps" % prefix)
+            raise ValueError(f"Must set {prefix}pc_patch_construct_ps_sweeps")
 
         patches = []
         import re
@@ -761,7 +761,7 @@ class PlaneSmoother(object):
                 try:
                     axis = context.appctx[sweep_split[0]]
                 except KeyError:
-                    raise KeyError("PlaneSmoother axis key %s not provided" % sweep_split[0])
+                    raise KeyError(f"PlaneSmoother axis key {sweep_split[0]} not provided")
 
             dir = {'+': +1, '-': -1}[sweep_split[1]]
             # Either use equispaced bins for relaxation or get from appctx
@@ -773,7 +773,7 @@ class PlaneSmoother(object):
                     divisions = context.appctx[sweep_split[2]]
                     entities = self.sort_entities(dm, axis, dir, divisions=divisions)
                 except KeyError:
-                    raise KeyError("PlaneSmoother division key %s not provided" % sweep_split[2:])
+                    raise KeyError(f"PlaneSmoother division key {sweep_split[2:]} not provided")
 
             for patch in entities:
                 if not patch:
@@ -794,7 +794,7 @@ class PatchBase(PCSNESBase):
         if ctx is None:
             raise ValueError("No context found on form")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r" % ctx)
+            raise ValueError(f"Don't know how to get form from {ctx!r}")
 
         J, bcs = self.form(obj)
         V = J.arguments()[0].function_space()
@@ -976,9 +976,9 @@ class PatchBase(PCSNESBase):
     def user_construction_op(self, obj, *args, **kwargs):
         prefix = obj.getOptionsPrefix() or ""
         sentinel = object()
-        usercode = PETSc.Options(prefix).getString("%s_patch_construct_python_type" % self._objectname, default=sentinel)
+        usercode = PETSc.Options(prefix).getString(f"{self._objectname}_patch_construct_python_type", default=sentinel)
         if usercode == sentinel:
-            raise ValueError("Must set %s%s_patch_construct_python_type" % (prefix, self._objectname))
+            raise ValueError(f"Must set {prefix}{self._objectname}_patch_construct_python_type")
 
         (modname, funname) = usercode.rsplit('.', 1)
         mod = __import__(modname)

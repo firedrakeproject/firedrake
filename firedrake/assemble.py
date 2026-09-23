@@ -185,7 +185,7 @@ def get_assembler(form, *args, **kwargs):
         elif len(form.arguments()) == 2:
             return TwoFormAssembler(form, *args, **kwargs)
         else:
-            raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
+            raise ValueError(f'Expecting a 0-, 1-, or 2-form: got {form}')
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
         return ExprAssembler(form)

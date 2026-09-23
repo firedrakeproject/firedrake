@@ -126,13 +126,12 @@ def check_snes_convergence(snes):
             reason = "unknown reason (petsc4py enum incomplete?), try with -snes_converged_reason and -ksp_converged_reason"
     if r < 0:
         if inner:
-            msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
-                  (snes.getKSP().getIterationNumber(), reason)
+            msg = f"Inner linear solve failed to converge after {snes.getKSP().getIterationNumber()} iterations with reason: {reason}"
         else:
             msg = reason
-        raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
+        raise ConvergenceError(f"""Nonlinear solve failed to converge after {snes.getIterationNumber()} nonlinear iterations.
 Reason:
-   %s""" % (snes.getIterationNumber(), msg))
+   {msg}""")
 
 
 class _SNESContext(object):

@@ -26,20 +26,20 @@ __all__ = ["LinearVariationalProblem",
 
 def check_pde_args(F, J, Jp, E=None):
     if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
-        raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
+        raise TypeError(f"Provided residual is a '{type(F).__name__}', not a BaseForm or Slate Tensor")
     if len(F.arguments()) != 1:
         raise ValueError("Provided residual is not a linear form")
     if not isinstance(J, (ufl.BaseForm, slate.slate.TensorBase)):
-        raise TypeError("Provided Jacobian is a '%s', not a BaseForm or Slate Tensor" % type(J).__name__)
+        raise TypeError(f"Provided Jacobian is a '{type(J).__name__}', not a BaseForm or Slate Tensor")
     if len(J.arguments()) != 2:
         raise ValueError("Provided Jacobian is not a bilinear form")
     if Jp is not None and not isinstance(Jp, (ufl.BaseForm, slate.slate.TensorBase)):
-        raise TypeError("Provided preconditioner is a '%s', not a BaseForm or Slate Tensor" % type(Jp).__name__)
+        raise TypeError(f"Provided preconditioner is a '{type(Jp).__name__}', not a BaseForm or Slate Tensor")
     if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
     if E is not None:
         if not isinstance(E, (ufl.BaseForm, slate.slate.TensorBase)):
-            raise TypeError("Provided objective is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
+            raise TypeError(f"Provided objective is a '{type(F).__name__}', not a BaseForm or Slate Tensor")
         if len(E.arguments()) != 0:
             raise ValueError("Provided objective is not a 0-form")
 
@@ -83,7 +83,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.u = u
 
         if not isinstance(self.u, Function):
-            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
+            raise TypeError(f"Provided solution is a '{type(self.u).__name__}', not a Function")
 
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.

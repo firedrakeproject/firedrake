@@ -530,7 +530,7 @@ class Label(object):
             new_labels.update({self.label: self.value})
             return Term(target.form, new_labels)
         else:
-            raise ValueError("Unable to label %s" % target)
+            raise ValueError(f"Unable to label {target}")
 
     def remove(self, target: Union[Term, LabelledForm]):
         """Remove a label from a term or labelled form.
@@ -560,7 +560,7 @@ class Label(object):
             except KeyError:
                 return target
         else:
-            raise ValueError("Unable to unlabel %s" % target)
+            raise ValueError(f"Unable to unlabel {target}")
 
     def update_value(self, target: Union[Term, LabelledForm], new: Any):
         """Update the label of a term or labelled form.
@@ -593,7 +593,7 @@ class Label(object):
             except KeyError:
                 return target
         else:
-            raise ValueError("Unable to relabel %s" % target)
+            raise ValueError(f"Unable to relabel {target}")
 
 
 # ---------------------------------------------------------------------------- #

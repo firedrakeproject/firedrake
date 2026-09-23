@@ -37,21 +37,21 @@ def info_red(message, *args, **kwargs):
     ''' Write info message in red.
 
     :arg message: the message to be printed. '''
-    info(RED % message, *args, **kwargs)
+    info(f"\033[1;37;31m{message}\033[0m", *args, **kwargs)
 
 
 def info_green(message, *args, **kwargs):
     ''' Write info message in green.
 
     :arg message: the message to be printed. '''
-    info(GREEN % message, *args, **kwargs)
+    info(f"\033[1;37;32m{message}\033[0m", *args, **kwargs)
 
 
 def info_blue(message, *args, **kwargs):
     ''' Write info message in blue.
 
     :arg message: the message to be printed. '''
-    info(BLUE % message, *args, **kwargs)
+    info(f"\033[1;37;34m{message}\033[0m", *args, **kwargs)
 
 
 def set_log_handlers(handlers=None, comm=COMM_WORLD):

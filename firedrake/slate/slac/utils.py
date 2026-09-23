@@ -42,7 +42,7 @@ def slate_to_gem(expression, options):
 
 @singledispatch
 def _slate2gem(expr, self):
-    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+    raise AssertionError(f"Cannot handle terminal type: {type(expr)}")
 
 
 @_slate2gem.register(sl.Tensor)

@@ -19,10 +19,10 @@ __all__ = ["prolong", "restrict", "inject", "assemble_prolongation_aij"]
 def check_arguments(coarse, fine, needs_dual=False):
     if is_dual(coarse) != needs_dual:
         expected_type = Cofunction if needs_dual else Function
-        raise TypeError("Coarse argument is a %s, not a %s" % (type(coarse).__name__, expected_type.__name__))
+        raise TypeError(f"Coarse argument is a {type(coarse).__name__}, not a {expected_type.__name__}")
     if is_dual(fine) != needs_dual:
         expected_type = Cofunction if needs_dual else Function
-        raise TypeError("Fine argument is a %s, not a %s" % (type(fine).__name__, expected_type.__name__))
+        raise TypeError(f"Fine argument is a {type(fine).__name__}, not a {expected_type.__name__}")
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())

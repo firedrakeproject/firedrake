@@ -74,7 +74,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         self.comm = function_space.comm
         self._function_space = function_space
         self.uid = _new_uid(self.comm)
-        self._name = name or 'function_%d' % self.uid
+        self._name = name or f"function_{self.uid}"
         self._label = "a function"
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
@@ -112,7 +112,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     def subfunctions(self):
         r"""Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`.FunctionSpace`."""
-        return tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
+        return tuple(CoordinatelessFunction(fs, dat, name=f"{self.name()}[{i}]")
                      for i, (fs, dat) in
                      enumerate(zip(self.function_space(), self.dat)))
 
@@ -630,7 +630,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         elif len(arg.shape) == 1 and gdim == 1:
             arg = arg.reshape(-1, 1)
         else:
-            raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
+            raise ValueError(f"Point dimension ({arg.shape[-1]}) does not match geometric dimension ({gdim}).")
 
         # Check if we have got the same points on each process
         with mpi.temp_internal_comm(self.comm) as icomm:

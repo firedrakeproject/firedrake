@@ -61,7 +61,7 @@ def find_sub_block(iset, ises, comm):
                 break
         if icomm.allreduce(len(target_indices), op=MPI.SUM) > 0:
             # We didn't manage to hoover up all the target indices, not a match
-            raise LookupError("Unable to find %s in %s" % (iset, ises))
+            raise LookupError(f"Unable to find {iset} in {ises}")
     return found
 
 
@@ -345,8 +345,7 @@ class ImplicitMatrixContext:
         typ = viewer.getType()
         if typ != PETSc.Viewer.Type.ASCII:
             return
-        viewer.printfASCII("Firedrake matrix-free operator %s\n" %
-                           type(self).__name__)
+        viewer.printfASCII(f"Firedrake matrix-free operator {type(self).__name__}\n")
 
     def getInfo(self, mat, info=None):
         memory = self._x.dat.nbytes + self._y.dat.nbytes
@@ -367,7 +366,7 @@ class ImplicitMatrixContext:
                 gmem = icomm.allreduce(memory, op=MPI.MAX)
             return {"memory": gmem}
         else:
-            raise ValueError("Unknown info type %s" % info)
+            raise ValueError(f"Unknown info type {info}")
 
     # Now, to enable fieldsplit preconditioners, we need to enable submatrix
     # extraction for our custom matrix type.  Note that we are splitting UFL

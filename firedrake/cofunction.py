@@ -70,7 +70,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         self.comm = V.comm
         self._function_space = V
         self.uid = utils._new_uid(self.comm)
-        self._name = name or 'cofunction_%d' % self.uid
+        self._name = name or f"cofunction_{self.uid}"
         self._label = "a cofunction"
 
         if isinstance(val, Cofunction):

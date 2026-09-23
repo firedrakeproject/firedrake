@@ -15,7 +15,7 @@ def mesh(request):
     elif cell == quadrilateral:
         return UnitSquareMesh(1, 1, quadrilateral=True)
     else:
-        raise ValueError("%s cell not recognized" % cell)
+        raise ValueError(f"{cell} cell not recognized")
 
 
 @pytest.fixture(scope='module', params=['cg1', 'cg2', 'dg0', 'dg1'])

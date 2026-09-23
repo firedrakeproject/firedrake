@@ -51,9 +51,9 @@ def test_volume(stepdata):
     except ImportError:
         pytest.skip(reason="OpenCascade unavailable, skipping test")
 
-    print("True volume for %s: %s" % (os.path.basename(stepfile), v_true))
+    print(f"True volume for {os.path.basename(stepfile)}: {v_true}")
     err = compute_err(mh, v_true)
-    print("Volume errors: %s" % err)
+    print(f"Volume errors: {err}")
 
     for pair in zip(err, err[1:]):
         assert pair[0] > pair[1]
@@ -70,8 +70,8 @@ def test_area(order):
         pytest.skip(reason="OpenCascade unavailable, skipping test")
     from math import pi
     a_true = pi/4
-    print("True ara for %s: %s" % (os.path.basename(stepfile), a_true))
+    print(f"True ara for {os.path.basename(stepfile)}: {a_true}")
     err = compute_err(mh, a_true)
-    print("Area errors: %s" % err)
+    print(f"Area errors: {err}")
     for pair in zip(err, err[1:]):
         assert pair[0] > pair[1]

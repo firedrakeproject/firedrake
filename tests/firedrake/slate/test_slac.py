@@ -18,7 +18,7 @@ def mesh(request):
     elif cell == quadrilateral:
         return UnitSquareMesh(1, 1, quadrilateral=True)
     else:
-        raise ValueError("%s cell not recognized" % cell)
+        raise ValueError(f"{cell} cell not recognized")
 
 
 @pytest.fixture(scope='module', params=['dg0', 'dg1'])
@@ -45,7 +45,7 @@ def tensor(V, int_type, request):
         u = TrialFunction(V)
         v = TestFunction(V)
     else:
-        raise ValueError("Not recognized parameter: %s" % request.param)
+        raise ValueError(f"Not recognized parameter: {request.param}")
 
     measure = {"cell": dx,
                "interior_facet": dS,

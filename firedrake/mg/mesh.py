@@ -375,7 +375,7 @@ def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
         The hierarchy of extruded meshes.
     """
     if not isinstance(base_hierarchy, HierarchyBase):
-        raise ValueError("Expecting a HierarchyBase, not a %r" % type(base_hierarchy))
+        raise ValueError(f"Expecting a HierarchyBase, not a {type(base_hierarchy)!r}")
     if any(m.cell_set._extruded for m in base_hierarchy):
         raise ValueError("Meshes in base hierarchy must not be extruded")
 

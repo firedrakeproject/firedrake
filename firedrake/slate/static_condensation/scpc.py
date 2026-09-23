@@ -79,7 +79,7 @@ class SCPC(SCBase):
 
         shapes = (Vc.finat_element.space_dimension(),
                   np.prod(Vc.shape))
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        domain = f"{{[i,j]: 0 <= i < {shapes[0]} and 0 <= j < {shapes[1]}}}"
         instructions = """
         for i, j
             w[i,j] = w[i,j] + 1

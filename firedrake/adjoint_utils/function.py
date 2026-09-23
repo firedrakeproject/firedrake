@@ -273,7 +273,7 @@ class FunctionMixin(FloatingType):
                             + firedrake.inner(firedrake.grad(self), firedrake.grad(other)))*firedrake.dx)
         else:
             raise NotImplementedError(
-                "Unknown Riesz representation %s" % riesz_representation)
+                f"Unknown Riesz representation {riesz_representation}")
 
     @staticmethod
     def _ad_assign_numpy(dst, src, offset):

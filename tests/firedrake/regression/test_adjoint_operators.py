@@ -526,7 +526,7 @@ def test_ioperator_replay(op, order, power):
     elif op == 'isub':
         t -= s
     else:
-        raise ValueError("Operator '{:s}' not recognised".format(op))
+        raise ValueError(f"Operator '{op:s}' not recognised")
 
     # Construct some nontrivial reduced functional
     f = lambda X: X**power

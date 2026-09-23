@@ -86,7 +86,7 @@ class PMGBase(PCSNESBase):
         if ctx is None:
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r" % ctx)
+            raise ValueError(f"Don't know how to get form from {ctx!r}")
         fcp = ctx._problem.form_compiler_parameters
         mode = fcp.get("mode", "spectral") if fcp is not None else "spectral"
 
