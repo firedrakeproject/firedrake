@@ -886,9 +886,10 @@ class BaseFormAssembler(AbstractFormAssembler):
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
         original_expr = expr
-        if mat_type != "matfree" or len(expr.arguments()) < 2:
-            # Don't expand derivatives of a 2-form if `mat_type` is 'matfree'
+        if mat_type != "matfree" or (isinstance(expr, ufl.form.Form) and len(expr.arguments()) < 2 and expr.base_form_operators()):
+            # Don't expand derivatives if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
+            # The DAG traversal assembles the base form operators of a 0-form or 1-form, so it needs the derivatives expanded.
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
