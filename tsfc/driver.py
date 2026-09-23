@@ -14,6 +14,7 @@ from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
+from gem.optimise import constant_fold_zero
 from gem.unconcatenate import unconcatenate
 
 import finat
@@ -346,6 +347,11 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     else:
         coordinate_mapping = None
     evaluation, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
+    evaluation, = constant_fold_zero([evaluation])
+
+    # Index splitting cache, shared by every unconcatenate() call below so
+    # that a Concatenate index is always split the same way.
+    concatenate_cache = {}
 
     unconcatenate_cache = {}
 
@@ -379,8 +385,6 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     return_expr = gem.Indexed(gem.reshape(return_var, return_shape), return_indices)
     return_expr, = gem.optimise.remove_componenttensors([return_expr])
 
-    # TODO: one should apply some GEM optimisations as in assembly,
-    # but we don't for now.
     evaluation, = impero_utils.preprocess_gem([evaluation])
     pairs = unconcatenate([(return_expr, evaluation)], cache=unconcatenate_cache)
     pairs = [(variable, gem.optimise.contraction(expression))

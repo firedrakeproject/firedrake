@@ -163,12 +163,12 @@ runs:
         firedrake-clean
         pip list
 
-    - name: "DROP BEFORE MERGE: install FIAT from firedrakeproject/fiat#268"
+    - name: "DROP BEFORE MERGE: install FIAT from firedrakeproject/fiat#274"
       shell: bash
       run: |
         . venv/bin/activate
         pip install --verbose --no-build-isolation --no-deps --force-reinstall \
-          git+https://github.com/firedrakeproject/fiat.git@pbrubeck/fix/dual-enriched
+          git+https://github.com/firedrakeproject/fiat.git@pbrubeck/tensor-facet-quadrature
         pip list | grep -i fiat
 
     - name: Run firedrake-check
