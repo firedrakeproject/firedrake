@@ -3,6 +3,7 @@ import warnings
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
+import pyop2
 from pyop2.datatypes import IntType
 
 import petsctools
@@ -344,9 +345,10 @@ def MeshHierarchy(mesh, refinement_levels=0,
         )
         meshes.append(fmesh)
 
-    num_halo_cells = meshes[0].comm.allreduce(
-        sum(m.cell_set.total_size - m.cell_set.size for m in meshes)
-    )
+    with pyop2.mpi.temp_internal_comm(meshes[0].comm) as icomm:
+        num_halo_cells = icomm.allreduce(
+            sum(m.cell_set.total_size - m.cell_set.size for m in meshes)
+        )
     if num_halo_cells == 0:
         lgmaps = [None] * len(dms)
 
