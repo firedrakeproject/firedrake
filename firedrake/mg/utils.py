@@ -13,10 +13,7 @@ from firedrake.cython import mgimpl as impl
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
-    if len(Vf) > 1:
-        raise NotImplementedError
-        assert len(Vf) == len(Vc)
-        return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
+    assert len(Vf) == len(Vc) == 1
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -55,10 +52,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
-    if len(Vf) > 1:
-        raise NotImplementedError
-        assert len(Vf) == len(Vc)
-        return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
+    assert len(Vf) == len(Vc) == 1
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -111,10 +105,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
-    if len(Vf) > 1:
-        raise NotImplementedError
-        assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+    assert len(Vf) == len(Vc) == 1
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -159,6 +150,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return cache.setdefault(key, node_map)
 
 
+#NOTE: doesn't need spaces, just meshes
 def coarse_cell_child_count(
     Vc: firedrake.functionspaceimpl.WithGeometry,
     Vf: firedrake.functionspaceimpl.WithGeometry,

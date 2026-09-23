@@ -106,10 +106,6 @@ def prolong(coarse, fine):
             cs = source_mesh.cell_sizes
             kernel_args.append(cs.dat[compose_map(cs)])
 
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        for d in [coarse, coarse_coords]:
-            d.dat.assemble()
         op3.loop(n, kernel(*kernel_args), eager=True)
 
         if needs_quadrature:
@@ -191,11 +187,9 @@ def restrict(fine_dual, coarse_dual):
             cs = source_mesh.cell_sizes
             kernel_args.append(cs.dat[compose_map(cs)])
 
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        coarse_coords.dat.assemble()
         op3.loop(n, kernel(*kernel_args), eager=True)
         fine_dual = coarse_dual
+
     return coarse_dual
 
 
@@ -205,6 +199,7 @@ def inject(fine, coarse):
     check_arguments(coarse, fine)
     Vf = fine.function_space()
     Vc = coarse.function_space()
+
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
@@ -276,10 +271,6 @@ def inject(fine, coarse):
                 cs = source_mesh.cell_sizes
                 kernel_args.append(cs.dat[compose_map(cs)])
 
-            # Have to do this, because the node set core size is not right for
-            # this expanded stencil
-            for d in [fine, fine_coords]:
-                d.dat.assemble()
             op3.loop(n, kernel(*kernel_args), eager=True)
         else:
             c = Vc.mesh().cells.owned.iter()
@@ -287,10 +278,6 @@ def inject(fine, coarse):
             coarse_coords = Vc.mesh().coordinates
             fine_coords = Vf.mesh().coordinates
 
-            # Have to do this, because the node set core size is not right for
-            # this expanded stencil
-            for d in [fine, fine_coords]:
-                d.dat.buffer.assemble()
             op3.loop(
                 c,
                 kernel(
@@ -308,6 +295,7 @@ def inject(fine, coarse):
             new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
+
     return coarse
 
 
@@ -386,7 +374,6 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     if needs_cell_sizes:
         cs = source_mesh.cell_sizes
         kernel_args.append(cs.dat[compose_map(cs)])
-    source_coords.dat.assemble()
 
     with modified_lgmaps(mat, lgmaps):
         op3.loop(n, kernel(*kernel_args), eager=True)

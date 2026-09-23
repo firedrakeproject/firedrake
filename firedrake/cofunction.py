@@ -245,7 +245,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         # This is because assign uses 'cofunc.dat.data_wo' which assumes
         # that all entries are modified and hence any pending reductions
         # are skippable.
-        if subset is not Ellipsis:
+        # Subfunctions also count as subset assignments.
+        if subset is not Ellipsis or self.function_space().parent:
             self.dat.buffer.sync_roots()
 
         expr = ufl.as_ufl(expr)

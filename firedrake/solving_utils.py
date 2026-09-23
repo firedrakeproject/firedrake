@@ -652,7 +652,6 @@ class _SNESContext:
             return A
 
         P = ctx._pjac.petscmat
-        print(A.type, P.type)
         return A, P
 
     @staticmethod

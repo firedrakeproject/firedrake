@@ -476,10 +476,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         subset = parse_subset(subset)
         # Complete any pending reductions if we are doing subset assignment.
-        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # This is because assign uses 'func.dat.data_wo' which assumes
         # that all entries are modified and hence any pending reductions
         # are skippable.
-        if subset is not Ellipsis:
+        # Subfunctions also count as subset assignments.
+        if subset is not Ellipsis or self.function_space().parent:
             self.dat.buffer.sync_roots()
 
         if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):

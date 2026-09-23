@@ -315,12 +315,13 @@ class TransferManager(object):
         _, ylevel = get_level(y.function_space().mesh())
         if ufl.duals.is_dual(x):
             if xlevel > ylevel:
-                return self.restrict(x, y)
-            return y.interpolate(x)
+                self.restrict(x, y)
+            else:
+                y.interpolate(x)
         elif xlevel < ylevel:
-            return self.prolong(x, y)
+            self.prolong(x, y)
         else:
-            return self.inject(x, y)
+            self.inject(x, y)
 
     def prolong(self, uc, uf):
         """Prolong a function.
