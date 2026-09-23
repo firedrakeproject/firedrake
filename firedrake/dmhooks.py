@@ -625,8 +625,8 @@ class Hooked:
         """Return an object that always transforms into itself."""
         return cls(
             obj,
-            refine_callback=self._identity_callback,
-            coarsen_callback=self._identity_callback,
+            refine_callback=cls._identity_callback,
+            coarsen_callback=cls._identity_callback,
         )
 
     @staticmethod

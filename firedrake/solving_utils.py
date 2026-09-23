@@ -1,5 +1,4 @@
 import typing
-import warnings
 from itertools import chain
 from typing import Any, Literal
 
