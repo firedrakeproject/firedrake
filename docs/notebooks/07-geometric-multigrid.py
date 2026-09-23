@@ -218,7 +218,7 @@ parameters = {
     "fieldsplit_1_aux_pc_type": "icc",
 }
 
-solver = create_solver(parameters, "fieldsplit_1_")
+solver = create_solver(parameters, mass_pc_prefix="fieldsplit_1_")
 solver.solve()
 
 # %% [markdown]
@@ -257,7 +257,7 @@ parameters = {
       "mg_levels_fieldsplit_1_aux_pc_type": "icc",
 }
 
-solver = create_solver(parameters, "mg_levels_fieldsplit_1_")
+solver = create_solver(parameters, mass_pc_prefix="mg_levels_fieldsplit_1_")
 solver.solve()
 
 
@@ -345,7 +345,7 @@ parameters = {
     "fieldsplit_1_aux_pc_type": "icc",
 }
 
-solver = create_solver(parameters, "fieldsplit_1_")
+solver = create_solver(parameters, mass_pc_prefix="fieldsplit_1_")
 solver.solve()
 
 # %%
