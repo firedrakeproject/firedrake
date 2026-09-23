@@ -271,12 +271,14 @@ def compose_points(outer, inner):
     outer : numpy.ndarray
         The map to apply second.
     inner : numpy.ndarray
-        The map to apply first, with -1 where it has no point.
+        The map to apply first. Negative or out-of-range entries mean that
+        the corresponding point has no parent.
 
     Returns
     -------
     numpy.ndarray
-        ``outer[inner]``, with -1 where ``inner`` has no point.
+        ``outer[inner]``, with -1 where the input or composed map has no
+        corresponding point.
 
     """
     points = np.full(inner.shape, -1, dtype=IntType)
@@ -302,7 +304,8 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
     fine_to_coarse_points : numpy.ndarray
         For each point of the unoverlapped fine DMPlex, the point of the
         unoverlapped coarse DMPlex that produced it, as given by
-        `transform_source_points`.
+        `transform_source_points`. This is a DMPlex point map; it does not use
+        Firedrake cell numbering.
     coarse_lgmap, fine_lgmap : PETSc.LGMap or None
         The point local-to-global maps of the unoverlapped coarse and fine
         DMPlexes, as given by `create_lgmap`. These maps are ``None`` when
@@ -312,8 +315,11 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
     -------
     numpy.ndarray
         For each point of ``fine_mesh.topology_dm``, the point of
-        ``coarse_mesh.topology_dm`` that it was refined from, or -1 for a
-        point that only the overlap has.
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1 when the
+        corresponding parent point is not present in the coarse local DMPlex.
+        The result remains in DMPlex point numbering; `coarse_to_fine_cells`
+        composes it with the Firedrake cell numberings when it builds cell
+        maps.
 
     """
     if coarse_lgmap is None and fine_lgmap is None:
@@ -338,17 +344,22 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
         The coarse and fine meshes.
     fine_to_coarse_points : numpy.ndarray
         For each point of ``fine_mesh.topology_dm``, the point of
-        ``coarse_mesh.topology_dm`` that it was refined from, or -1.
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1 when no
+        corresponding coarse point exists. This map uses DMPlex point
+        numbering.
 
     Returns
     -------
     coarse_to_fine_cells : numpy.ndarray
         For each owned coarse cell, the owned fine cells obtained from it, in
-        increasing order. Every row is as wide as the busiest coarse cell on
-        any process, so rows with fewer fine cells are right-padded with -1.
+        increasing order, using Firedrake cell numbering. Every row is as
+        wide as the busiest coarse cell on any process, so rows with fewer
+        fine cells are right-padded with -1.
     fine_to_coarse_cells : numpy.ndarray
         For each owned fine cell, the owned coarse cell from which it was
-        obtained, or -1 when there is none.
+        obtained, using Firedrake cell numbering, or -1 when there is no
+        corresponding coarse cell. This can occur when a facet submesh
+        contains a fine facet inside a coarse volume cell.
 
     """
     ncoarse = coarse_mesh.cell_set.size
@@ -359,13 +370,14 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
     _, fine_points = get_entity_renumbering(fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell")
 
     parents = fine_to_coarse_points[fine_points[:nfine] + fStart]
-    # The transform returns DMPlex point numbers, but cell kernels consume maps
-    # in Firedrake cell numbering. Reindex only parents in the coarse cell stratum.
+    # The point map uses DMPlex numbering, but cell kernels consume maps in
+    # Firedrake cell numbering. Reindex only parents in the coarse cell stratum.
     is_cell = (cStart <= parents) & (parents < cEnd)
     parents[is_cell] = coarse_cells[parents[is_cell] - cStart]
 
-    # A facet submesh extracted from parent-mesh interior facets can contain a
-    # refined facet whose parent is a volume cell, not a coarse submesh facet.
+    # A facet submesh that includes interior facets can contain a fine facet
+    # inside a coarse volume cell. Its source is a coarse volume cell, which
+    # is not a cell in the coarse facet submesh, so keep its parent as -1.
     parents[~is_cell | (parents >= ncoarse)] = -1
 
     fine = np.flatnonzero(parents >= 0).astype(IntType)

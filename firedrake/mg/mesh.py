@@ -40,15 +40,18 @@ class HierarchyBase(object):
     meshes :
         List of meshes (coarse to fine).
     coarse_to_fine_cells :
-        Optional list of numpy arrays for each level pair, mapping each coarse
-        cell into fine cells it intersects. Every row is as wide as the
-        busiest coarse cell's count, so a coarse cell with fewer fine cells
-        has its row right-padded with -1. Omit this and
+        Optional dictionary of numpy arrays keyed by level pair, mapping each
+        coarse cell to its fine children. Every row is as wide as the busiest
+        coarse cell's count, so a coarse cell with fewer fine cells has its
+        row right-padded with -1. These entries are padding, not missing
+        fine-cell parents. Omit this and
         ``fine_to_coarse_cells`` together to derive both maps from
         ``fine_to_coarse_points``.
     fine_to_coarse_cells :
-        Optional list of numpy arrays for each level pair, mapping each fine
-        cell into coarse cells it intersects. Omit this and
+        Optional dictionary of numpy arrays keyed by level, mapping each fine
+        cell to its coarse parent cell. A value of -1 means that the fine cell
+        has no corresponding coarse cell, as can happen in a nonnested
+        submesh hierarchy. Omit this and
         ``coarse_to_fine_cells`` together to derive both maps from
         ``fine_to_coarse_points``.
     refinements_per_level :
@@ -57,8 +60,9 @@ class HierarchyBase(object):
         Is this mesh hierarchy nested?
     fine_to_coarse_points :
         Dict of numpy arrays for each level that was refined from the level
-        below it, mapping each DMPlex point to the coarse DMPlex point that it
-        was refined from, or to -1.
+        below it. Each array maps fine DMPlex points to their coarse DMPlex
+        source points, or to -1 when no corresponding coarse point is present.
+        Cell maps derived from this point map follow Firedrake cell numbering.
 
     Notes
     -----
@@ -583,8 +587,10 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
         if parent_points is None:
             raise ValueError("SubmeshHierarchy requires a hierarchy whose DMPlex "
                              f"points on level {level} are refined from the level below")
-        # A submesh point is a point of its parent. Refine it in the parent,
-        # then look for the result among the points of the coarse submesh.
+        # Map fine submesh points through the parent hierarchy, then translate
+        # them into coarse-submesh numbering. A source outside the coarse
+        # submesh remains -1; for example, a new interior facet can have a
+        # coarse volume cell as its source.
         coarse_subpoints = coarse.topology_dm.getSubpointIS().indices
         parent_to_coarse = np.full(parent_hierarchy._meshes[i].topology_dm.getChart()[1], -1, dtype=IntType)
         parent_to_coarse[coarse_subpoints] = np.arange(len(coarse_subpoints), dtype=IntType)
