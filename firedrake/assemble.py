@@ -1909,8 +1909,9 @@ def _as_global_kernel_arg_interior_facet(_, self):
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
         if integral_type not in ("interior_facet", "broken_facet"):
-            raise ValueError(f"Expected a facet map, got {integral_type}")
-        return op2.DatKernelArg((2,), m._global_kernel_arg)
+            raise ValueError(f"Expected an interior or broken facet map, got {integral_type}")
+        # The two sides of the facet are split across the map arity.
+        return op2.DatKernelArg((2 // m.arity,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(kernel_args.OrientationsCellKernelArg)
@@ -1943,8 +1944,9 @@ def _(_, self):
     else:
         m, integral_type = mesh.topology.trans_mesh_entity_map(self._mesh.topology, self._integral_type, self._subdomain_id, self._all_integer_subdomain_ids)
         if integral_type not in ("interior_facet", "broken_facet"):
-            raise ValueError(f"Expected a facet map, got {integral_type}")
-        return op2.DatKernelArg((2,), m._global_kernel_arg)
+            raise ValueError(f"Expected an interior or broken facet map, got {integral_type}")
+        # The two sides of the facet are split across the map arity.
+        return op2.DatKernelArg((2 // m.arity,), m._global_kernel_arg)
 
 
 @_as_global_kernel_arg.register(CellFacetKernelArg)
@@ -2264,7 +2266,7 @@ def _as_parloop_arg_interior_facet(_, self):
         elif integral_type == "broken_facet":
             facet_dat = mesh.exterior_facets.local_facet_dat
         else:
-            raise ValueError(f"Expected a facet map, got {integral_type}")
+            raise ValueError(f"Expected an interior or broken facet map, got {integral_type}")
     return op2.DatParloopArg(facet_dat, m)
 
 
@@ -2303,7 +2305,7 @@ def _(_, self):
         elif integral_type == "broken_facet":
             orientation_dat = mesh.exterior_facets.local_facet_orientation_dat
         else:
-            raise ValueError(f"Expected a facet map, got {integral_type}")
+            raise ValueError(f"Expected an interior or broken facet map, got {integral_type}")
     return op2.DatParloopArg(orientation_dat, m)
 
 

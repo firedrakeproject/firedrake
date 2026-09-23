@@ -100,6 +100,7 @@ cdef extern from "petscdmlabel.h" nogil:
 
 cdef extern from "petscdmplex.h" nogil:
     PetscErrorCode DMPlexOrientLabel(PETSc.PetscDM, DMLabel)
+    PetscErrorCode DMPlexOrientPoint(PETSc.PetscDM, PetscInt, PetscInt)
     PetscErrorCode DMPlexLabelCohesiveComplete(PETSc.PetscDM, DMLabel, DMLabel, PetscInt, PetscBool, PETSc.PetscDM)
 
 cdef extern from "petscdmplextransform.h" nogil:

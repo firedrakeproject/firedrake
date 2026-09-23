@@ -1259,7 +1259,7 @@ class MeshTopology(AbstractMeshTopology):
 
         cell = self.ufl_cell()
         assert tdim == cell.topological_dimension
-        if self.submesh_parent is not None and self.submesh_parent_point_map is None and \
+        if self.submesh_parent is not None and \
                 not (self.submesh_parent.ufl_cell().cellname == "hexahedron" and cell.cellname == "quadrilateral") and \
                 len(self.submesh_parent.dm_cell_types) == 1:
             # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
@@ -1275,6 +1275,7 @@ class MeshTopology(AbstractMeshTopology):
             return dmcommon.submesh_create_cell_closure(
                 plex,
                 self.submesh_parent.topology_dm,
+                self._submesh_get_point_map(),
                 cell_numbering,
                 self.submesh_parent._cell_numbering,
                 self.submesh_parent.cell_closure,
