@@ -327,12 +327,12 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
         # local point numbering, so no local-to-global translation is needed.
         return fine_to_coarse_points
     pStart, pEnd = fine_mesh.topology_dm.getChart()
-    points = np.arange(pStart, pEnd, dtype=IntType)
-    create_lgmap(fine_mesh.topology_dm).apply(points, result=points)
-    points = fine_lgmap.applyInverse(points, PETSc.LGMap.MapMode.MASK)
-    points = compose_points(fine_to_coarse_points, points)
-    coarse_lgmap.apply(points, result=points)
-    return create_lgmap(coarse_mesh.topology_dm).applyInverse(points, PETSc.LGMap.MapMode.MASK)
+    fine_points = np.arange(pStart, pEnd, dtype=IntType)
+    create_lgmap(fine_mesh.topology_dm).apply(fine_points, result=fine_points)
+    fine_points = fine_lgmap.applyInverse(fine_points, PETSc.LGMap.MapMode.MASK)
+    coarse_points = compose_points(fine_to_coarse_points, fine_points)
+    coarse_lgmap.apply(coarse_points, result=coarse_points)
+    return create_lgmap(coarse_mesh.topology_dm).applyInverse(coarse_points, PETSc.LGMap.MapMode.MASK)
 
 
 def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
