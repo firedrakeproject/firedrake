@@ -78,10 +78,10 @@ fi
 if [ $num_procs = 1 ]; then
     # Cannot use mpiexec -n 1 because this can sometimes hang with
     # OpenMPI at MPI_Finalize
-    pytest_exec="python3 -m pytest"
+    pytest_exec="python3 -X faulthandler -m pytest"
 else
     # Set '--bind-to none' so we don't end up pinning MPI jobs to the same cores
-    pytest_exec="mpiexec -n ${num_procs} --bind-to none python3 -m pytest"
+    pytest_exec="mpiexec -n ${num_procs} --bind-to none python3 -X faulthandler -m pytest"
 fi
 pytest_cmd="${pytest_exec} -v \
             --splits ${num_jobs} --group {#} \

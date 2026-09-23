@@ -113,21 +113,6 @@ class Mat(Tensor):
     def _full_str(self) -> str:
         return f"{self.name}[?, ?]"
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
-        # TODO: This is a generic property of axis trees
-        is_unindexed = all(
-            ax.buffer_size(include_ghosts=True) == ax.unindexed.buffer_size(include_ghosts=True)
-            for ax in [self.row_axes, self.column_axes]
-        )
-        if is_unindexed and other == 0:
-            if mode == "write":
-                self.buffer.zero()
-            else:
-                # inc-ing zero means to do nothing
-                pass
-        else:
-            raise NotImplementedError("Matrix assignment needs special consideration")
-
     # }}}
 
     # {{{ factory methods
@@ -281,23 +266,34 @@ class Mat(Tensor):
         buffer = sparsity.buffer.materialize()
         return cls(sparsity.row_axes, sparsity.column_axes, buffer, **kwargs)
 
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+        try:
+            # In some cases mat.data_XX is allowed. For example for read-only access
+            # or if the mat is a MATPYTHON and thus holds a buffer
+            super()._array_assign(other, mode)
+        except pyop3.exceptions.InvalidArrayAccessException:
+            # TODO: This is a generic property of axis trees
+            is_unindexed = all(
+                ax.buffer_size(include_ghosts=True) == ax.unindexed.buffer_size(include_ghosts=True)
+                for ax in [self.row_axes, self.column_axes]
+            )
+            if is_unindexed and other == 0:
+                if mode == "write":
+                    self.buffer.zero()
+                else:
+                    # inc-ing zero means to do nothing
+                    pass
+            else:
+                raise NotImplementedError("Matrix assignment needs special consideration")
 
     # TODO: better to have .data? but global vs local?
     @property
     def values(self):
+        if self.comm.size > 1:
+            raise RuntimeError("Only valid in serial")
         return self.as_array("ro")
 
     def as_array(self, mode):
-        assert mode == "ro"
-        if self.comm.size > 1:
-            raise RuntimeError("Only valid in serial")
-
-        if self.row_axes.local_size * self.column_axes.local_size > 1e6:
-            raise ValueError(
-                "Printing a dense matrix with more than 1 million "
-                "entries is not allowed"
-            )
-
         self.assemble()
 
         if isinstance(self.buffer, pyop3.buffer.PetscMatBuffer):
@@ -315,13 +311,51 @@ class Mat(Tensor):
 
             if mat.type == PETSc.Mat.Type.PYTHON:
                 context = mat.getPythonContext()
-                return mat.getPythonContext().data_ro
+                if isinstance(context, pyop3.buffer.DensePythonMatContext):
+                    match context.mode:
+                        case "row":
+                            row_indices = slice(None)
+                            column_indices = column_axes.buffer_slice(include_ghosts=True)
+                        case "column":
+                            row_indices = row_axes.buffer_slice(include_ghosts=True)
+                            column_indices = slice(None)
+                        case _:
+                            raise AssertionError
+
+                    match mode:
+                        case "ro":
+                            array = mat.getPythonContext().buffer.data_ro
+                        case "rw":
+                            array = mat.getPythonContext().buffer.data_rw
+                        case "wo":
+                            array = mat.getPythonContext().buffer.data_wo
+                        case _:
+                            raise AssertionError
+
+                    return self._array_view(array, row_indices, column_indices, mode)
+                else:
+                    raise NotImplementedError
             else:
+                assert mode == "ro"
                 row_indices = row_axes.buffer_slice(include_ghosts=True)
                 column_indices = column_axes.buffer_slice(include_ghosts=True)
                 return mat[row_indices, column_indices]
         else:
             raise NotImplementedError
+
+    @staticmethod
+    def _array_view(array, row_indices, column_indices, mode):
+        block_shape = ()  # for now
+
+        if mode == "ro" or all(isinstance(idxs, slice) for idxs in [row_indices, column_indices]):
+            # Either using a view or readonly, safe to use numpy indexing as
+            # writeback issues are not relevant
+            array = array[row_indices, column_indices]
+            # trick to get around a numpy error for zero sized things
+            shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
+            return array.reshape(shape, copy=False)
+        else:
+            return pyop3.arrayref.ArrayReference(array, (row_indices, column_indices), block_shape)
 
     # For PyOP2 compatibility
     @property

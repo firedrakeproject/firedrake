@@ -126,3 +126,5 @@ class InvalidExpressionException(Pyop3Exception):
     pass
 
 
+class InvalidArrayAccessException(Pyop3Exception):
+    """Exception raised when a data structure cannot be viewed as an array."""

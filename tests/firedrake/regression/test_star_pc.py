@@ -5,8 +5,8 @@ from firedrake.petsc import PETSc, DEFAULT_DIRECT_SOLVER
 
 
 @pytest.fixture(params=["scalar",
-                        pytest.param("vector", marks=pytest.mark.skipcomplexnoslate),
-                        pytest.param("mixed", marks=pytest.mark.skipcomplexnoslate)])
+                        "vector",
+                        "mixed"])
 def problem_type(request):
     return request.param
 
@@ -117,8 +117,6 @@ def test_star_equivalence(problem_type, backend):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
-        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
-
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]
@@ -289,8 +287,6 @@ def test_vanka_equivalence(problem_type):
                        "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
 
     elif problem_type == "mixed":
-        pytest.skip(reason="PCPatch+mixed needs PETSc fixes")
-
         base = UnitSquareMesh(5, 5, distribution_parameters=distribution_parameters, quadrilateral=True)
         mh = MeshHierarchy(base, 1, distribution_parameters=distribution_parameters)
         mesh = mh[-1]

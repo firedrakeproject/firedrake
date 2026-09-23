@@ -119,6 +119,25 @@ class Tensor(TerminalExpression, abc.ABC):
     def dtype(self) -> np.dtype:
         return self.buffer.dtype
 
+    @property
+    def data_ro(self) -> np.ndarray:
+        """Return a read-only view of the data stored by the dat."""
+        return self.as_array("ro")
+
+    @property
+    def data_wo(self) -> np.ndarray:
+        """Return a write-only view of the data stored by the dat."""
+        return self.as_array("wo")
+    @property
+    def data_rw(self) -> np.ndarray:
+        """Return a modifiable view of the data stored by the dat."""
+        return self.as_array("rw")
+
+    # TODO: eventually deprecate this
+    @property
+    def data(self):
+        return self.data_rw
+
     @PETSc.Log.EventDecorator()
     def assign(
         self,
@@ -233,9 +252,14 @@ class Tensor(TerminalExpression, abc.ABC):
 
         return Assignment(assignee, other, mode)
 
-    @abc.abstractmethod
     def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
-        pass
+        from pyop3.expr.visitors import evaluate_arraywise
+
+        other_eval = evaluate_arraywise(other)
+        if mode == "write":
+            self.data_wo[...] = other_eval
+        else:
+            self.data_rw[...] += other_eval
 
     @PETSc.Log.EventDecorator()
     def zero(self, **kwargs) -> pyop3.insn.Assignment | None:

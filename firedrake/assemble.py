@@ -1378,17 +1378,16 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
         _is_real_space(V) for arg in arguments for V in arg.function_space()
     )
 
-    if mat_type is None:
-        if has_real_subspace:
-            if is_mixed(test_space) or is_mixed(trial_space):
-                mat_type = "nest"
-            else:
-                if _is_real_space(test_space):
-                    mat_type = "rvec"
-                else:
-                    mat_type = "cvec"
+    if has_real_subspace:
+        if is_mixed(test_space) or is_mixed(trial_space):
+            mat_type = "nest"
         else:
-            mat_type = parameters.parameters["default_matrix_type"]
+            if _is_real_space(test_space):
+                mat_type = "rvec"
+            else:
+                mat_type = "cvec"
+    elif mat_type is None:
+        mat_type = parameters.parameters["default_matrix_type"]
 
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
@@ -1689,32 +1688,42 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # Walk through row blocks associated with index.
             for j, s in enumerate(space):
                 if j != V.index and _is_real_space(s):
-                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], V.index, j, component, bc.node_set)
+                    j = spaces[0]._labels[j]
+                    self._apply_bcs_mat_real_block(
+                        mat,
+                        index,
+                        j,
+                        component,
+                        bc.node_set,
+                        "row",
+                    )
             # Walk through col blocks associated with index.
             for i, s in enumerate(space):
                 if i != V.index and _is_real_space(s):
-                    self._apply_bcs_mat_real_block(mat, spaces[0].nodal_axes[index], spaces[1].nodal_axes[index], i, V.index, component, bc.node_set)
+                    i = spaces[1]._labels[i]
+                    self._apply_bcs_mat_real_block(
+                        mat, i, index, component, bc.node_set, "column")
 
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
-                    raise NotImplementedError
-                    self._apply_bcs_mat_real_block(mat, V.index, j, component, bc.node_set)
+                    j = spaces[1]._labels[j]
+                    self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set, "row")
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
             raise AssertionError
 
     @staticmethod
-    def _apply_bcs_mat_real_block(op2tensor, row_axes, column_axes, i, j, component, node_set):
-        dat = op2tensor.handle.getNestSubMatrix(i, j).getPythonContext().dat
-
+    def _apply_bcs_mat_real_block(mat, i, j, component, node_set, mode):
+        real_idx = (node_set,)
         if component is not None:
-            selector = []
-            for i, c in enumerate(component):
-                selector.append(op3.ScalarIndex(f"dim{i}", None, c))
-            dat = dat[*selector]
+            real_idx += component
 
-        dat[node_set].zero(eager=True)
+        match mode:
+            case "row":
+                mat[(i, *real_idx), j].zero(eager=True)
+            case "column":
+                mat[i, (j, *real_idx)].zero(eager=True)
 
     def _check_tensor(self, tensor):
         if tensor.a.arguments() != self._form.arguments():

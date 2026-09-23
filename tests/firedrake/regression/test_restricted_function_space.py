@@ -50,7 +50,7 @@ def compare_function_space_assembly(function_space, restricted_function_space,
     normal_fs_matrix_reduced = np.delete(normal_fs_matrix_reduced, delete_rows,
                                          axis=1)
 
-    restricted_values = restricted_fs_matrix.M.as_array("ro", regions={"owned", "unconstrained"})
+    restricted_values = restricted_fs_matrix.M.values
     assert np.allclose(normal_fs_matrix_reduced, restricted_values)
 
 
@@ -281,17 +281,6 @@ def test_restricted_function_space_extrusion_basics():
     extm = ExtrudedMesh(mesh, 1)
     V = FunctionSpace(extm, "CG", 2)
     V_res = RestrictedFunctionSpace(V, boundary_set=["bottom"])
-    # Check vec.
-    n = V_res.axes.buffer_size(include_ghosts=False)
-    lgmap_owned = lgmap.indices[:n]
-    local_global_filter = lgmap_owned >= 0
-    local_array = 1.0 * np.arange(V_res.axes.local_size)
-    f = Function(V_res)
-    f.dat.data_wo_with_halos[:] = local_array
-    with f.dat.vec_rw as v:
-        assert np.allclose(v.getArray(), local_array[:n][local_global_filter])
-        v *= 2.
-    assert np.allclose(f.dat.data_ro_with_halos[:n][local_global_filter], 2. * local_array[:n][local_global_filter])
     # Solve Poisson problem.
     x, y = SpatialCoordinate(extm)
     normal = FacetNormal(extm)

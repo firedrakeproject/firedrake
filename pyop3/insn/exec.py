@@ -470,7 +470,7 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "form00_cell_integral" in str(self):
+        # if "prolong" in str(self):
         #     breakpoint()
         #     import pyop3.debug
         # pyop3.debug.maybe_breakpoint()
