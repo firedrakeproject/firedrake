@@ -353,20 +353,17 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     # that a Concatenate index is always split the same way.
     concatenate_cache = {}
 
+    unconcatenate_cache = {}
+
     # Compute the action against the dual argument
     if isinstance(dual_arg, ufl.Cofunction):
         gem_dual = builder.coefficient_map[dual_arg]
         if complex_mode:
             evaluation = gem.MathFunction('conj', evaluation)
-        # The basis indices are about to be contracted away, so any
-        # Concatenate node expressing the block structure of the dual basis
-        # must be split now: unconcatenate() can only split along indices
-        # that are still free in the assignment.  This is the same pattern
-        # as coefficient evaluation in tsfc.fem.
         dual_expr, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
         summands = [gem.IndexSum(gem.Product(expr, var), var.index_ordering())
                     for var, expr in unconcatenate([(dual_expr, evaluation)],
-                                                   cache=concatenate_cache)]
+                                                   cache=unconcatenate_cache)]
         evaluation = gem.optimise.make_sum(summands)
         basis_indices = ()
     else:
@@ -389,14 +386,10 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     return_expr, = gem.optimise.remove_componenttensors([return_expr])
 
     evaluation, = impero_utils.preprocess_gem([evaluation])
-    pairs = unconcatenate([(return_expr, evaluation)], cache=concatenate_cache)
-    # Contract each block once the Concatenate nodes are gone.  An H(div) or
-    # H(curl) element selects the component each block maps to with a Delta,
-    # and only here, with the blocks separated, do those Deltas meet pairwise
-    # and cancel the pairs that map to different components.
+    pairs = unconcatenate([(return_expr, evaluation)], cache=unconcatenate_cache)
     pairs = [(variable, gem.optimise.contraction(expression))
              for variable, expression in pairs]
-    impero_c = impero_utils.compile_gem(pairs, return_indices, remove_zeros=True)
+    impero_c = impero_utils.compile_gem(pairs, return_indices)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements([evaluation])

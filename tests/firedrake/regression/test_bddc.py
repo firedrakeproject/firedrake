@@ -292,6 +292,9 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
 
 
+@pytest.mark.skipcomplex(
+    reason="Adaptive BDDC's sub-Schur factorization assumes SPD matrices, unsupported for complex Hermitian systems"
+)
 @pytest.mark.parallel(3)
 @pytest.mark.parametrize("family,degree,cellwise", [("CG", 2, False), ("GN", 1, False), ("MTW", 1, False)])
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):

@@ -132,7 +132,7 @@ sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 rtree_ = ExternalDependency(
     include_dirs=[firedrake_rtree.get_include()],
     extra_link_args=[firedrake_rtree.get_lib_filename()],
-    runtime_library_dirs=[
+    runtime_library_dirs=[firedrake_rtree.get_lib()] + [
         os.path.join(dir, "firedrake_rtree") for dir in sitepackage_dirs
     ],
 )
@@ -146,7 +146,7 @@ rtree_ = ExternalDependency(
 libsupermesh_ = ExternalDependency(
     include_dirs=[libsupermesh.get_include()],
     library_dirs=[str(Path(libsupermesh.get_library()).parent)],
-    runtime_library_dirs=[
+    runtime_library_dirs=[str(Path(libsupermesh.get_library()).parent)] + [
         os.path.join(dir, "libsupermesh", "lib") for dir in sitepackage_dirs
     ],
     libraries=["supermesh"],

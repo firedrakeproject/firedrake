@@ -5,7 +5,7 @@ import numpy as np
 import ctypes
 import cython
 from libc.stddef cimport size_t
-from libc.stdint cimport uintptr_t, uint32_t
+from libc.stdint cimport uintptr_t, uint32_t, int64_t
 
 cdef extern from "rtree-capi.h":
     ctypedef enum RTreeError:
@@ -20,7 +20,7 @@ cdef extern from "rtree-capi.h":
         RTreeH **tree,
         const double *mins,
         const double *maxs,
-        const size_t *ids,
+        const int64_t *ids,
         size_t n,
         uint32_t dim
     )
@@ -53,7 +53,7 @@ cdef class RTree(object):
 @cython.wraparound(False)
 def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
                     np.ndarray[np.float64_t, ndim=2, mode="c"] coords_max,
-                    np.ndarray[np.npy_uintp, ndim=1, mode="c"] ids = None):
+                    np.ndarray[np.int64_t, ndim=1, mode="c"] ids = None):
     """Builds rtree from two arrays of shape (n, dim) containing the coordinates
     of the lower and upper corners of n axis-aligned bounding boxes, and an
     optional array of shape (n,) containing integer ids for each box.
@@ -76,24 +76,24 @@ def build_from_aabb(np.ndarray[np.float64_t, ndim=2, mode="c"] coords_min,
     cdef:
         RTreeH* rtree
         size_t n
-        size_t dim
+        uint32_t dim
         RTreeError err
 
     if coords_min.shape[0] != coords_max.shape[0] or coords_min.shape[1] != coords_max.shape[1]:
         raise ValueError("coords_min and coords_max must have the same shape")
 
-    n = <size_t>coords_min.shape[0]
-    dim = <size_t>coords_min.shape[1]
+    n = coords_min.shape[0]
+    dim = coords_min.shape[1]
     if ids is None:
-        ids = np.arange(n, dtype=np.uintp)
-    elif ids.shape[0] != n:
+        ids = np.arange(n, dtype=np.int64)
+    elif <size_t>ids.shape[0] != n:
         raise ValueError("Mismatch between number of boxes and number of ids")
 
     err = rtree_bulk_load(
         &rtree,
         <const double*>coords_min.data,
         <const double*>coords_max.data,
-        <const size_t*>ids.data,
+        <const int64_t*>ids.data,
         n,
         dim
     )

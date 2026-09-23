@@ -146,7 +146,7 @@ ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 RUN git clone --branch ${BRANCH} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
     && pip cache purge || exit; \
-    if [ ${BRANCH} == "main" ]; then \
+    if [ ${BRANCH} = "main" ]; then \
       pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
       && pip install --verbose -r /opt/firedrake/requirements-build.txt \
       && pip install --verbose --no-build-isolation \
@@ -157,7 +157,7 @@ RUN git clone --branch ${BRANCH} \
       pip install --verbose --no-binary h5py \
         --editable '/opt/firedrake[docker]' || exit; \
     fi; \
-    if [ ${BRANCH} == "main" ]; then \
+    if [ ${BRANCH} = "main" ]; then \
       for pkg in \
          "git+https://github.com/dolfin-adjoint/pyadjoint.git#egg=pyadjoint-ad" \
          "git+https://github.com/firedrakeproject/fiat.git#egg=firedrake-fiat" \

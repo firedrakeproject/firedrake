@@ -8,7 +8,7 @@ class P1PC(PMGPC):
     def coarsen_element(self, ele):
         if super().max_degree(ele) <= self.coarse_degree:
             raise ValueError
-        return super().reconstruct_degree(ele, self.coarse_degree)
+        return ele.reconstruct(degree=self.coarse_degree)
 
 
 class P1SNES(PMGSNES):
@@ -16,7 +16,7 @@ class P1SNES(PMGSNES):
     def coarsen_element(self, ele):
         if super().max_degree(ele) <= self.coarse_degree:
             raise ValueError
-        return super().reconstruct_degree(ele, self.coarse_degree)
+        return ele.reconstruct(degree=self.coarse_degree)
 
 
 class LORPC(PMGPC):
@@ -33,6 +33,6 @@ class LORPC(PMGPC):
             iso_variant = f"iso({degree})"
         else:
             iso_variant = f"{variant},iso({degree})"
-        cele = super().reconstruct_degree(ele, self.coarse_degree)
+        cele = ele.reconstruct(degree=self.coarse_degree)
         cele = cele.reconstruct(variant=iso_variant)
         return cele
