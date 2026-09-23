@@ -91,13 +91,15 @@ def test_broken_mesh_standard_spaces_and_cross_mesh_trace():
 GAMMA = 99
 
 
-def cracked_cube(crack_length, n=2):
+def cracked_cube(crack_length, n=2, hexahedral=False):
     """Return a unit cube, the crack Γ = {z = 1/2, x < crack_length}, and the cube broken along Γ."""
-    mesh = UnitCubeMesh(n, n, n, distribution_parameters={
+    mesh = UnitCubeMesh(n, n, n, hexahedral=hexahedral, distribution_parameters={
         "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
     x, _, z = SpatialCoordinate(mesh)
     on_gamma = And(lt(abs(z - 0.5), 1e-12), lt(x, crack_length))
-    marker = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+    # mark_entities marks hexahedral facets with Q2, and simplicial facets with HDiv Trace.
+    marker_element = ("Q", 2) if hexahedral else ("HDiv Trace", 0)
+    marker = Function(FunctionSpace(mesh, *marker_element))
     marker.interpolate(conditional(on_gamma, 1, 0))
     mesh = RelabeledMesh(mesh, [marker], [GAMMA])
     gamma = Submesh(mesh, mesh.topological_dimension - 1, GAMMA)
@@ -105,16 +107,18 @@ def cracked_cube(crack_length, n=2):
 
 
 @pytest.mark.parallel(nprocs=[1, 3])
-@pytest.mark.parametrize("element,trace_element", [
-    (("CG", 1), ("CG", 1)),
-    (("CG", 3), ("CG", 3)),
-    (("RT", 1), ("DG", 0)),
-    (("RT", 3), ("DG", 2)),
-    (("N1curl", 2), ("N1curl", 2)),
+@pytest.mark.parametrize("hexahedral,element,trace_element", [
+    (False, ("CG", 1), ("CG", 1)),
+    (False, ("CG", 3), ("CG", 3)),
+    (False, ("RT", 1), ("DG", 0)),
+    (False, ("RT", 3), ("DG", 2)),
+    (False, ("N1curl", 2), ("N1curl", 2)),
+    (True, ("Q", 1), ("Q", 1)),
+    (True, ("Q", 3), ("Q", 3)),
 ])
-def test_broken_mesh_duplicates_trace(element, trace_element):
+def test_broken_mesh_duplicates_trace(hexahedral, element, trace_element):
     """Cutting the cube in two duplicates every dof of the trace space on Γ."""
-    mesh, gamma, broken = cracked_cube(crack_length=1)
+    mesh, gamma, broken = cracked_cube(crack_length=1, hexahedral=hexahedral)
     V = FunctionSpace(mesh, *element)
     V_broken = FunctionSpace(broken, *element)
     V_trace = FunctionSpace(gamma, *trace_element)
@@ -122,11 +126,12 @@ def test_broken_mesh_duplicates_trace(element, trace_element):
 
 
 @pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("hexahedral", [False, True])
 @pytest.mark.parametrize("degree", [1, 3])
-def test_broken_mesh_crack_tip_is_not_split(degree):
+def test_broken_mesh_crack_tip_is_not_split(degree, hexahedral):
     """The n edges of the crack tip {x = z = 1/2} carry n * degree + 1 nodes that are not duplicated."""
     n = 2
-    mesh, gamma, broken = cracked_cube(crack_length=0.5, n=n)
+    mesh, gamma, broken = cracked_cube(crack_length=0.5, n=n, hexahedral=hexahedral)
     V = FunctionSpace(mesh, "CG", degree)
     V_broken = FunctionSpace(broken, "CG", degree)
     V_trace = FunctionSpace(gamma, "CG", degree)
@@ -144,15 +149,17 @@ def polynomials(mesh, degree, shape):
 
 
 @pytest.mark.parallel(nprocs=[1, 3])
-@pytest.mark.parametrize("family,degree,k", [
-    ("CG", 2, 2),
-    ("CG", 3, 3),
-    ("RT", 1, 0),
-    ("RT", 3, 2),
+@pytest.mark.parametrize("hexahedral,family,degree,k", [
+    (False, "CG", 2, 2),
+    (False, "CG", 3, 3),
+    (False, "RT", 1, 0),
+    (False, "RT", 3, 2),
+    (True, "Q", 2, 2),
+    (True, "Q", 3, 3),
 ])
-def test_broken_mesh_jump(family, degree, k):
+def test_broken_mesh_jump(hexahedral, family, degree, k):
     """Across Γ, u = p below and u = q above has the jump p - q, for p and q of degree k."""
-    mesh, gamma, broken = cracked_cube(crack_length=1)
+    mesh, gamma, broken = cracked_cube(crack_length=1, hexahedral=hexahedral)
     V = FunctionSpace(broken, family, degree)
     below = Function(FunctionSpace(broken, "DG", 0))
     below.interpolate(conditional(lt(SpatialCoordinate(broken)[2], 0.5), 1, 0))

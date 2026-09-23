@@ -1644,7 +1644,21 @@ class MeshTopology(AbstractMeshTopology):
     def submesh_parent_interior_facet_child_exterior_facet_map(self):
         _self_numbers, _, _self_set = self._exterior_facet_numbers_classes_set
         _parent_numbers, _, _parent_set = self.submesh_parent._interior_facet_numbers_classes_set
-        return self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
+        facet_map = self._submesh_make_entity_entity_map(_parent_set, _self_set, _parent_numbers, _self_numbers, False)
+        if facet_map.arity == 1:
+            return facet_map
+        # A BrokenMesh has a child facet on each side of a parent facet. Each
+        # child facet goes in the slot of the parent cell on its side. Then the
+        # "+" and "-" sides of the two meshes agree.
+        values = facet_map.values_with_halo
+        rows, slots = np.nonzero(values >= 0)
+        children = values[rows, slots]
+        child_cells = self.exterior_facets.facet_cell[children, 0]
+        parent_cells = self.submesh_child_cell_parent_cell_map.values_with_halo[child_cells, 0]
+        sides = (parent_cells == self.submesh_parent.interior_facets.facet_cell[rows, 1]).astype(IntType)
+        ordered = np.full_like(values, -1)
+        ordered[rows, sides] = children
+        return op2.Map(_parent_set, _self_set, facet_map.arity, ordered, facet_map.name)
 
     @cached_property
     def submesh_parent_interior_facet_child_interior_facet_map(self):
