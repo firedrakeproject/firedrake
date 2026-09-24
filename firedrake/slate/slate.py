@@ -180,7 +180,7 @@ class TensorBase(BaseForm):
             else:
                 raise ValueError("Unhandled type %r" % type(op))
             hashdata.append(data + (op.prec, ))
-        hashdata = "".join("%s" % (s, ) for s in hashdata)
+        hashdata = "".join(f"{s}" for s in hashdata)
         return hashlib.sha512(hashdata.encode("utf-8")).hexdigest()
 
     @abstractproperty
@@ -1341,16 +1341,16 @@ class ScalarMul(UnaryOp):
     def __repr__(self):
         """Return the Slate representation of the scalar multiplication."""
         tensor, = self.operands
-        return "%s(%r, %r)" % (type(self).__name__, self.scalar, tensor)
+        return f"{type(self).__name__}({self.scalar!r}, {tensor!r})"
 
     def _output_string(self, prec=None):
         """Create a string representation of the scalar multiplication."""
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
-            par = lambda x: "(%s)" % x
+            par = lambda x: f"({x})"
         tensor, = self.operands
-        result = "%s * %s" % (self.scalar, tensor._output_string(prec=self.prec))
+        result = f"{self.scalar} * {tensor._output_string(prec=self.prec)}"
         return par(result)
 
 
@@ -1424,8 +1424,7 @@ class Add(BinaryOp):
             # a pre-existing, already-initialised operand (B or A) unchanged.
             return
         if A.shape != B.shape:
-            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
-                             % (A.shape, B.shape))
+            raise ValueError(f"Illegal op on a {A.shape}-tensor with a {B.shape}-tensor.")
 
         assert all(space_equivalence(fsA, fsB) for fsA, fsB in
                    zip(A.arg_function_spaces, B.arg_function_spaces)), (
@@ -1471,8 +1470,7 @@ class Mul(BinaryOp):
         if self._initialised:
             return
         if A.shape[-1] != B.shape[0]:
-            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
-                             % (A.shape, B.shape))
+            raise ValueError(f"Illegal op on a {A.shape}-tensor with a {B.shape}-tensor.")
 
         fsA = A.arg_function_spaces[-1]
         fsB = B.arg_function_spaces[0]
