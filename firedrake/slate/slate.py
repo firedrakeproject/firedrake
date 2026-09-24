@@ -133,7 +133,7 @@ class TensorBase(BaseForm):
 
         Mirrors :class:`~ufl.form.Form`.
         """
-        BaseForm.__init__(self)
+        super().__init__()
         self._hash = None
         self._cache = {}
 
