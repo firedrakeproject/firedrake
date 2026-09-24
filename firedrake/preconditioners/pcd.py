@@ -46,7 +46,7 @@ class PCDPC(PCBase):
     """
     def initialize(self, pc):
         from firedrake import (TrialFunction, TestFunction, dx, inner,
-                               grad, split, Constant, parameters)
+                               grad, Constant, parameters)
         from firedrake.assemble import assemble, get_assembler
         if pc.getType() != "python":
             raise ValueError("Expecting PC type python")
