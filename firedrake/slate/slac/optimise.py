@@ -89,11 +89,25 @@ def _push_block_distributive(expr, self, indices):
 @_push_block.register(Factorization)
 @_push_block.register(Inverse)
 @_push_block.register(Solve)
-@_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())))
     return Block(expr, indices) if indices else expr
+
+
+@_push_block.register(Mul)
+def _push_block_mul(expr, self, indices):
+    """Pushes matrix blocks through products when their indices permit it."""
+    if indices and len(indices) == 2 and all(operand.rank == 2 for operand in expr.operands):
+        A, B = expr.operands
+        row, col = indices
+        full_col_A = tuple(range(len(A.arguments()[1].function_space())))
+        full_row_B = tuple(range(len(B.arguments()[0].function_space())))
+        A = self(Block(A, (row, full_col_A)), ())
+        B = self(Block(B, (full_row_B, col)), ())
+        return type(expr)(A, B)
+
+    return _push_block_stop(expr, self, indices)
 
 
 @_push_block.register(Tensor)

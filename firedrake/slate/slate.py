@@ -686,23 +686,6 @@ class Block(TensorBase):
                              for req, own in zip(indices, tensor._indices))
             return Block(wrapped, composed)
 
-        if not tensor.terminal:
-            if isinstance(tensor, Add):
-                A, B = tensor.operands
-                return Block(A, indices) + Block(B, indices)
-            if isinstance(tensor, Transpose):
-                A, = tensor.operands
-                return Block(A, indices[::-1]).T
-            if isinstance(tensor, ScalarMul):
-                A, = tensor.operands
-                return ScalarMul(tensor.scalar, Block(A, indices))
-            if isinstance(tensor, Mul) and len(indices) == 2 and tensor.operands[0].rank == 2 and tensor.operands[1].rank == 2:
-                A, B = tensor.operands
-                row, col = indices
-                full_col_A = tuple(range(len(A.arguments()[1].function_space())))
-                full_row_B = tuple(range(len(B.arguments()[0].function_space())))
-                return Block(A, (row, full_col_A)) * Block(B, (full_row_B, col))
-
         return super().__new__(cls)
 
     def __init__(self, tensor, indices):
