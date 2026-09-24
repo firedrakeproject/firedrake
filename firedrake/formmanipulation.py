@@ -4,8 +4,11 @@ import collections
 import functools
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
-import ufl.classes
+from ufl.classes import (
+    Form, Zero, FixedIndex, ListTensor, ZeroBaseForm, BaseForm, 
+    Action, Adjoint, Expr, CoefficientDerivative, Indexed,
+    MultiIndex, ExprList, Argument, Matrix, Interpolate, FormSum,
+)
 from ufl.algorithms.map_integrands import map_integrands
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.dag_traverser import DAGTraverser
@@ -35,7 +38,7 @@ class IndexInliner(DAGTraverser):
     def process(self, o):
         return self.reuse_if_untouched(o)
 
-    @process.register(ufl.classes.Indexed)
+    @process.register(Indexed)
     @DAGTraverser.postorder
     def _(self, o, child, multiindex):
         indices = multiindex.indices()
@@ -55,47 +58,89 @@ class ExtractSubBlock(DAGTraverser):
 
     index_inliner = IndexInliner()
 
-    def _subspace_argument(self, a):
-        return type(a)(subspace(a.function_space(), self.blocks[a.number()]),
+    def _subspace_argument(self, a, blocks):
+        indices = self.selection(blocks, a.number())
+        if indices is None or len(a.function_space()) == 1:
+            return a
+        return type(a)(subspace(a.function_space(), indices),
                        a.number(), part=a.part())
 
-    def selection(blocks, number):
+    @staticmethod
+    def selection(blocks: tuple, number: int) -> tuple | None:
         return blocks[number] if number < len(blocks) else None
+
+    @PETSc.Log.EventDecorator()
+    def split(self, form: BaseForm, argument_indices: tuple) -> BaseForm:
+        """Extract the selected argument blocks.
+
+        Parameters
+        ----------
+        form
+            Form to split.
+        argument_indices
+            Field indices for each argument. An entry can be an integer,
+            an iterable of integers, or None to retain the argument.
+
+        Returns
+        -------
+        ufl.classes.BaseForm
+            Form on the selected subspaces.
+        """
+        return self(form, blocks=tuple(as_tuple(i) for i in argument_indices))
 
     @functools.singledispatchmethod
     def process(self, o, *, blocks):
         return super().process(o, blocks=blocks)
 
-    @process.register(ufl.classes.Expr)
+    @process.register(Expr)
     def _(self, o, *, blocks):
         return self.reuse_if_untouched(o, blocks=blocks)
 
-    @process.register(ufl.classes.Form)
+    @process.register(Form)
     def _(self, o, *, blocks):
-        return map_integrands(partial(self, blocks=blocks), o)
+        form = map_integrands(functools.partial(self, blocks=blocks), o)
+        # TODO find a way to distinguish empty Forms avoiding expand_derivatives
+        if expand_derivatives(form).empty():
+            return self(ZeroBaseForm(o.arguments()), blocks=blocks)
+        return form
 
-    @process.register(ufl.classes.Adjoint)
+    @process.register(Adjoint)
     def _(self, o, *, blocks):
+        # Adjoint: swap rows and columns before splitting the operand
         rows = self.selection(blocks, 0)
         cols = self.selection(blocks, 1)
         operand = self(o.form(), blocks=(cols, rows))
+        if operand == 0:
+            return self(ZeroBaseForm(o.arguments()), blocks=blocks)
         return Adjoint(operand)
 
-    @process.register(ufl.classes.MultiIndex)
-    def _(self, o):
+    @process.register(Action)
+    def _(self, o, *, blocks):
+        # Action: preserve the contracted argument before splitting the operand
+        operands = []
+        for operand, contracted in zip(o.ufl_operands, (-1, 0)):
+            if isinstance(operand, BaseForm):
+                number = operand.arguments()[contracted].number()
+                fields = tuple(None if i == number else field for i, field in enumerate(blocks))
+                operand = self(operand, blocks=fields)
+            operands.append(operand)
+        return Action(*operands)
+
+    @process.register(MultiIndex)
+    def _(self, o, *, blocks):
         return o
 
-    @process.register(ufl.classes.ExprList)
-    def _(self, o, *operands):
+    @process.register(ExprList)
+    def _(self, o, *, blocks):
         # Inline list tensor indexing.
         # This fixes a problem where we extract a subblock from
         # derivative(foo, ...) and end up with the "Argument" looking like
         # [v_0, v_2, v_3][1, 2]
-        return self.index_inliner(self.reuse_if_untouched(o))
+        return self.index_inliner(self.reuse_if_untouched(o, blocks=blocks))
 
-    @process.register(ufl.classes.CoefficientDerivative)
+    @process.register(CoefficientDerivative)
     @DAGTraverser.postorder
-    def _(self, o, expr, coefficients, arguments, cds):
+    def _(self, o, expr, coefficients, arguments, cds, *, blocks):
         argument, = arguments
         if (isinstance(argument, Zero)
             or (isinstance(argument, ListTensor)
@@ -105,23 +150,19 @@ class ExtractSubBlock(DAGTraverser):
             # propagate a zero in that case.
             return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
         else:
-            return self.reuse_if_untouched(o)
-    
-    @process.register(ufl.classes.Argument)
+            return self.reuse_if_untouched(o, blocks=blocks)
+
+    @process.register(Argument)
     @PETSc.Log.EventDecorator()
-    def _(self, o):
+    def _(self, o, *, blocks):
         V = o.function_space()
 
-        if len(V) == 1:
+        indices = self.selection(blocks, o.number())
+        if indices is None or len(V) == 1:
             # Not on a mixed space, just return ourselves.
             return o
 
-        if o in self._arg_cache:
-            return self._arg_cache[o]
-
-        indices = self.blocks[o.number()]
-
-        a = self._subspace_argument(o)
+        a = self._subspace_argument(o, blocks)
         asplit = (a, ) if len(indices) == 1 else split(a)
 
         args = []
@@ -131,38 +172,38 @@ class ExtractSubBlock(DAGTraverser):
                 args.extend(asub[j] for j in numpy.ndindex(asub.ufl_shape))
             else:
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
-        return self._arg_cache.setdefault(o, as_vector(args))
-    
-    @process.register(ufl.classes.Argument)
-    def _(self, o):
+        return as_vector(args)
+
+    @process.register(Coargument)
+    def _(self, o, *, blocks):
         V = o.function_space()
 
-        if len(V) == 1:
+        indices = self.selection(blocks, o.number())
+        if indices is None or len(V) == 1:
             # Not on a mixed space, just return ourselves.
             return o
 
-        indices = self.blocks[o.number()]
         W = subspace(V, indices)
         return Coargument(W, number=o.number(), part=o.part())
 
-    @process.register(ufl.classes.Argument)
-    def _(self, o):
+    @process.register(Cofunction)
+    def _(self, o, *, blocks):
         V = o.function_space()
 
-        if len(V) == 1:
+        indices = self.selection(blocks, 0)
+        if indices is None or len(V) == 1:
             # Not on a mixed space, just return ourselves.
             return o
 
         # We only need the test space for Cofunction
-        indices = self.blocks[0]
         W = subspace(V, indices)
         if len(W) == 1:
             return Cofunction(W, val=o.dat[indices[0]])
         else:
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
-    @process.register(ufl.classes.Matrix)
-    def _(self, o):
+    @process.register(Matrix)
+    def _(self, o, *, blocks):
         from firedrake.bcs import DirichletBC, EquationBCSplit
         from firedrake.matrix import AssembledMatrix
 
@@ -172,9 +213,9 @@ class ExtractSubBlock(DAGTraverser):
         for a in o.arguments():
             V = a.function_space()
             iset = PETSc.IS()
-            if a.number() in self.blocks:
-                fields = self.blocks[a.number()]
-                asplit = self._subspace_argument(a)
+            fields = self.selection(blocks, a.number())
+            if fields is not None:
+                asplit = self._subspace_argument(a, blocks)
                 for f in fields:
                     fset = V.dof_dset.field_ises[f]
                     iset = iset.expand(fset)
@@ -205,7 +246,7 @@ class ExtractSubBlock(DAGTraverser):
                 W = W.parent
 
             number = spaces.index(W)
-            field = self.blocks[number]
+            field = argument_indices[number]
             V = args[number].function_space()
             if isinstance(bc, DirichletBC):
                 bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, use_split=True)
@@ -217,15 +258,15 @@ class ExtractSubBlock(DAGTraverser):
 
         return AssembledMatrix(form or tuple(args), submat, tuple(bcs))
 
-    @process.register(ufl.classes.ZeroBaseForm)
-    def _(self, o):
-        return ZeroBaseForm(tuple(map(self, o.arguments())))
+    @process.register(ZeroBaseForm)
+    def _(self, o, *, blocks):
+        return ZeroBaseForm(tuple(self._subspace_argument(a, blocks) for a in o.arguments()))
 
-    @process.register(ufl.classes.Interpolate)
+    @process.register(Interpolate)
     @DAGTraverser.postorder
-    def _(self, o, operand):
+    def _(self, o, operand, *, blocks):
         if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()))
+            return self(ZeroBaseForm(o.arguments()), blocks=blocks)
 
         dual_arg, _ = o.argument_slots()
         if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
@@ -235,11 +276,13 @@ class ExtractSubBlock(DAGTraverser):
         if not isinstance(dual_arg, Coargument):
             raise NotImplementedError(f"I do not know how to split an Interpolate with a {type(dual_arg).__name__}.")
 
-        indices = self.blocks[dual_arg.number()]
+        indices = self.selection(blocks, dual_arg.number())
+        if indices is None:
+            return o._ufl_expr_reconstruct_(operand, dual_arg)
         V = dual_arg.function_space()
 
         # Split the target (dual) argument
-        sub_dual_arg = self(dual_arg)
+        sub_dual_arg = self(dual_arg, blocks=blocks)
         W = sub_dual_arg.function_space()
 
         # Unflatten the expression into the target shape
@@ -252,7 +295,7 @@ class ExtractSubBlock(DAGTraverser):
 
         operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()))
+            return self(ZeroBaseForm(o.arguments()), blocks=blocks)
 
         return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
 
