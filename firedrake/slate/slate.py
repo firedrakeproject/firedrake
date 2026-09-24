@@ -700,7 +700,7 @@ class Block(TensorBase):
         self._indices = indices
         self._initialised = True
 
-    def reconstruct(self, *, tensor=None, indices=None):
+    def reconstruct(self, tensor=None, *, indices=None):
         """Reconstruct this block with a replacement tensor or indices."""
         tensor = self.operands[0] if tensor is None else tensor
         indices = self._indices if indices is None else indices
