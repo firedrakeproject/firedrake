@@ -491,8 +491,7 @@ def reconstruct_slate_tensor(tensor, self, coefficient_mapping=None):
 
 @_reconstruct.register(firedrake.slate.TensorOp)
 def reconstruct_slate_tensor_op(tensor, self, coefficient_mapping=None):
-    children = tuple(self(c, self, coefficient_mapping=coefficient_mapping)
-                     for c in tensor.children)
+    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
     return tensor.reconstruct(*children)
 
 
