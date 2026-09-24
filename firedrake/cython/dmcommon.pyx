@@ -3989,18 +3989,13 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
         PETSc.IS facets
         DMLabel source = NULL
         DMLabel cohesive = NULL
-        PETSc.DM unoverlapped
-        PETSc.DMLabel unoverlapped_label
-        PetscInt nfacets, nselected, i, j, facet, depth, closure_index, closure_point
-        PetscInt closure_size, chart_start, chart_end, cone_size, dim
+        PETSc.DM oriented
+        PETSc.DMLabel oriented_label
+        PetscInt nfacets, nselected, i, facet, depth, closure_index, closure_point
+        PetscInt closure_size, chart_start, chart_end, dim
         const PetscInt *facet_indices = NULL
-        const PetscInt *cone = NULL
-        const PetscInt *cone_ornt = NULL
-        const PetscInt *subcone = NULL
-        const PetscInt *subcone_ornt = NULL
         PetscInt *closure = NULL
-        const PetscInt[::1] subpoints
-        PetscInt[::1] ridge_counts, flipped, flipped_facets
+        PetscInt[::1] ridge_counts
 
     source_label = dm.getLabel(label_name)
     source = <DMLabel>source_label.dmlabel
@@ -4048,49 +4043,27 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
         raise ValueError("Gamma has a junction")
 
     # Orient the facets of the surface consistently, so that the surface has
-    # a well-defined positive side. DMPlexOrientLabel fails when the mesh
-    # overlap gives several ranks a copy of the same facet, so the surface is
-    # oriented on the mesh without its overlap. The filter copies the label.
+    # a well-defined positive side. DMPlexOrientLabel changes cones, so the
+    # label is oriented and completed on a copy, which keeps the parent
+    # unchanged. The filter copies the label.
     dim = dm.getDimension()
-    unoverlapped = submesh_create(dm, dim, "depth", dim, PETSC_TRUE)
+    oriented = submesh_create(dm, dim, "depth", dim, PETSC_FALSE)
     dm.removeLabel(cohesive_label_name)
-    unoverlapped_label = unoverlapped.getLabel(cohesive_label_name)
-    CHKERR(DMPlexOrientLabel(unoverlapped.dm, <DMLabel>unoverlapped_label.dmlabel))
-
-    # DMPlexOrientLabel flips a facet if its cone differs from the parent cone.
-    subpoints = unoverlapped.getSubpointIS().indices
-    flipped_array = np.zeros(chart_end - chart_start, dtype=IntType)
-    flipped = flipped_array
-    facets = unoverlapped_label.getStratumIS(dim - 1)
-    nfacets = 0
-    if facets.iset != NULL:
-        CHKERR(ISGetSize(facets.iset, &nfacets))
-        CHKERR(ISGetIndices(facets.iset, &facet_indices))
-    for i in range(nfacets):
-        facet = subpoints[facet_indices[i]]
-        CHKERR(DMPlexGetConeSize(dm.dm, facet, &cone_size))
-        CHKERR(DMPlexGetCone(dm.dm, facet, &cone))
-        CHKERR(DMPlexGetConeOrientation(dm.dm, facet, &cone_ornt))
-        CHKERR(DMPlexGetCone(unoverlapped.dm, facet_indices[i], &subcone))
-        CHKERR(DMPlexGetConeOrientation(unoverlapped.dm, facet_indices[i], &subcone_ornt))
-        for j in range(cone_size):
-            if subpoints[subcone[j]] != cone[j] or subcone_ornt[j] != cone_ornt[j]:
-                flipped[facet - chart_start] = 1
-                break
-    if facets.iset != NULL:
-        CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
-    # The owner of each facet decides whether its halo copies are flipped.
-    unit = MPI._typedict[np.dtype(IntType).char]
-    owner_flipped = flipped_array.copy()
-    dm.getPointSF().bcastBegin(unit, owner_flipped, flipped_array, MPI.REPLACE)
-    dm.getPointSF().bcastEnd(unit, owner_flipped, flipped_array, MPI.REPLACE)
-    flipped_facets = np.flatnonzero(flipped_array).astype(IntType)
-    for i in range(flipped_facets.shape[0]):
-        CHKERR(DMPlexOrientPoint(dm.dm, flipped_facets[i] + chart_start, -1))
+    oriented_label = oriented.getLabel(cohesive_label_name)
+    CHKERR(DMPlexOrientLabel(oriented.dm, <DMLabel>oriented_label.dmlabel))
     # Mark every point that touches the surface with the side it lies on.
     # With a NULL boundary label, PETSc finds the points on the crack tip,
     # which are not duplicated.
-    CHKERR(DMPlexLabelCohesiveComplete(dm.dm, cohesive, NULL, 1, PETSC_FALSE, NULL))
+    CHKERR(DMPlexLabelCohesiveComplete(oriented.dm, <DMLabel>oriented_label.dmlabel,
+                                       NULL, 1, PETSC_FALSE, NULL))
+
+    # The copy has every point of the parent, so the subpoint map carries the
+    # label back to the parent.
+    subpoints = oriented.getSubpointIS().indices
+    cohesive_label = PETSc.DMLabel().create(cohesive_label_name)
+    for value in oriented_label.getValueIS().indices:
+        stratum = subpoints[oriented_label.getStratumIS(value).indices]
+        cohesive_label.insertIS(PETSc.IS().createGeneral(stratum, comm=PETSc.COMM_SELF), value)
     return cohesive_label
 
 

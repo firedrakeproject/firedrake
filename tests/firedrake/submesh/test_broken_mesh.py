@@ -106,6 +106,30 @@ def cracked_cube(crack_length, n=2, hexahedral=False):
     return mesh, gamma, BrokenMesh(mesh, GAMMA)
 
 
+def plex_cones(mesh):
+    """Return the cone and the cone orientation of every point of the mesh DMPlex."""
+    plex = mesh.topology_dm
+    return [(plex.getCone(p).tolist(), plex.getConeOrientation(p).tolist())
+            for p in range(*plex.getChart())]
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_broken_mesh_keeps_parent_cones():
+    """Orienting Γ to break the mesh does not change the cones of the parent DMPlex.
+
+    Some facets of the disk mesh on Γ = {x = 0} are not oriented consistently.
+    """
+    mesh = UnitDiskMesh(3, distribution_parameters={
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+    x, _ = SpatialCoordinate(mesh)
+    marker = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+    marker.interpolate(conditional(lt(abs(x), 1e-12), 1, 0))
+    mesh = RelabeledMesh(mesh, [marker], [GAMMA])
+    cones = plex_cones(mesh)
+    BrokenMesh(mesh, GAMMA)
+    assert plex_cones(mesh) == cones
+
+
 @pytest.mark.parallel(nprocs=[1, 3])
 @pytest.mark.parametrize("hexahedral,element,trace_element", [
     (False, ("CG", 1), ("CG", 1)),
