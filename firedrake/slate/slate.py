@@ -463,7 +463,7 @@ class AssembledVector(TensorBase):
                             type(function))
 
     def reconstruct(self, form):
-        """Reconstructs this TensorBase with new operands."""
+        """Reconstructs this assembled vector with new operands."""
         if form == 0:
             form = Tensor(ZeroBaseForm(self.arg_function_spaces))
         return as_slate(form)
@@ -877,7 +877,7 @@ class Factorization(TensorBase):
         self.decomposition = decomposition
 
     def reconstruct(self, tensor, decomposition=None):
-        """Reconstructs this TensorBase with new operands."""
+        """Reconstructs this factorization with new operands."""
         return Factorization(tensor, decomposition=decomposition or self.decomposition)
 
     @cached_property
@@ -988,7 +988,7 @@ class Tensor(TensorBase):
         self.diagonal = diagonal
 
     def reconstruct(self, form, diagonal=None):
-        """Reconstructs this TensorBase with new operands."""
+        """Reconstructs this Tensor with new operands."""
         return Tensor(form, diagonal=diagonal or self.diagonal)
 
     @cached_property
