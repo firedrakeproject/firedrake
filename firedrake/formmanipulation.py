@@ -89,6 +89,12 @@ class ExtractSubBlock(DAGTraverser):
         ufl.classes.BaseForm
             Form on the selected subspaces.
         """
+        args = form.arguments()
+        if len(args) == 0:
+            # Functional can't be split
+            return form
+        if all(len(a.function_space()) == 1 for a in args):
+            return form
         return self(form, blocks=tuple(as_tuple(i) for i in argument_indices))
 
     @functools.singledispatchmethod
