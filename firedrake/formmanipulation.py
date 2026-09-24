@@ -126,6 +126,11 @@ class ExtractSubBlock(DAGTraverser):
             operands.append(operand)
         return Action(*operands)
 
+    @process.register(FormSum)
+    @DAGTraverser.postorder
+    def _(self, o, *components, blocks):
+        return FormSum(*zip(components, o.weights()))
+
     @process.register(MultiIndex)
     def _(self, o, *, blocks):
         return o
