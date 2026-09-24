@@ -12,6 +12,7 @@ temperature.
 
 .. code-block:: python
 
+  import os
   from firedrake import *
 
   if os.getenv("FIREDRAKE_CI") == "1":
