@@ -247,6 +247,20 @@ def test_streamplot():
 
 
 @pytest.mark.skipplot
+def test_streamplot_line_collection_kwargs():
+    mesh = UnitSquareMesh(10, 10)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    x = SpatialCoordinate(mesh)
+    v = x - Constant((.5, .5))
+    function = assemble(interpolate(2 * as_vector((-v[1], v[0])), V))
+
+    axes = plt.subplots()[1]
+    lines = streamplot(function, axes=axes, seed=0, rasterized=True, zorder=5)
+    assert lines.get_rasterized()
+    assert lines.get_zorder() == 5
+
+
+@pytest.mark.skipplot
 def test_plotting_vector_field():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)

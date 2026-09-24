@@ -812,7 +812,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
 
     cmap = plt.get_cmap(kwargs.pop("cmap", None))
 
-    collection = LineCollection(points, cmap=cmap, norm=norm, linewidth=widths)
+    collection = LineCollection(points, cmap=cmap, norm=norm, linewidth=widths,
+                                **kwargs)
     collection.set_array(speeds)
     axes.add_collection(collection)
 
