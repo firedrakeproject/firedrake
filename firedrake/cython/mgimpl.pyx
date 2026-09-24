@@ -353,13 +353,16 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
     coarse_to_fine_cells : numpy.ndarray
         For each owned coarse cell, the owned fine cells obtained from it, in
         increasing order, using Firedrake cell numbering. Every row is as
-        wide as the busiest coarse cell on any process, so rows with fewer
-        fine cells are right-padded with -1.
+        wide as the busiest coarse cell on any process. After adaptive
+        refinement, a coarse cell that was not refined has fewer children,
+        so its row is right-padded with -1. Here -1 is only padding.
     fine_to_coarse_cells : numpy.ndarray
         For each owned fine cell, the owned coarse cell from which it was
-        obtained, using Firedrake cell numbering, or -1 when there is no
-        corresponding coarse cell. This can occur when a facet submesh
-        contains a fine facet inside a coarse volume cell.
+        obtained, using Firedrake cell numbering. Here -1 marks a fine cell
+        that has no parent in the coarse mesh. This happens in a
+        `SubmeshHierarchy` that contains interior facets. A fine facet inside
+        a coarse cell comes from that volume cell, which is not a cell of the
+        coarse submesh.
 
     """
     ncoarse = coarse_mesh.cell_set.size

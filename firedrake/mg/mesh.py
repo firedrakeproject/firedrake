@@ -43,18 +43,18 @@ class HierarchyBase(object):
     coarse_to_fine_cells :
         Optional dictionary of numpy arrays keyed by level pair, mapping each
         coarse cell to its fine children. Every row is as wide as the busiest
-        coarse cell's count, so a coarse cell with fewer fine cells has its
-        row right-padded with -1. These entries are padding, not missing
-        fine-cell parents. Omit this and
-        ``fine_to_coarse_cells`` together to derive both maps from
-        ``fine_to_coarse_points``.
+        coarse cell's count. After adaptive refinement, a coarse cell that
+        was not refined has fewer children, so its row is right-padded with
+        -1. Here -1 is only padding. Omit this and ``fine_to_coarse_cells``
+        together to derive both maps from ``fine_to_coarse_points``.
     fine_to_coarse_cells :
         Optional dictionary of numpy arrays keyed by level, mapping each fine
-        cell to its coarse parent cell. A value of -1 means that the fine cell
-        has no corresponding coarse cell, as can happen in a nonnested
-        submesh hierarchy. Omit this and
-        ``coarse_to_fine_cells`` together to derive both maps from
-        ``fine_to_coarse_points``.
+        cell to its coarse parent cell. Here -1 marks a fine cell that has
+        no parent in the coarse mesh. This happens in a `SubmeshHierarchy`
+        that contains interior facets. A fine facet inside a coarse cell
+        comes from that volume cell, which is not a cell of the coarse
+        submesh. Omit this and ``coarse_to_fine_cells`` together to derive
+        both maps from ``fine_to_coarse_points``.
     refinements_per_level :
         Number of mesh refinements each multigrid level should "see".
     nested :
@@ -572,6 +572,16 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
     -------
     HierarchyBase
         The submesh hierarchy.
+
+    Notes
+    -----
+    A facet submesh that contains interior facets, such as the skeleton
+    obtained with ``subdim=tdim-1`` and ``subdomain_id=None``, is only
+    partially nested. A fine facet inside a coarse cell has no parent in the
+    coarse submesh.
+    Injection is still possible, because the fine children of each coarse
+    facet cover it. `prolong` and `restrict` raise `NotImplementedError`
+    when a fine node lies only on facets without a parent.
 
     """
     meshes = [firedrake.Submesh(mesh,

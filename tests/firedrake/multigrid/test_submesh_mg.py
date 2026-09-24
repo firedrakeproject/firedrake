@@ -168,3 +168,60 @@ def test_submesh_gmg(solver_type):
     err_lam = errornorm(lam_exact, lam_h) / norm(lam_exact)
     assert err_u < 2e-2, f"Volume error too large: {err_u}"
     assert err_lam < 4e-3, f"Surface error too large: {err_lam}"
+
+
+# ---------------------------------------------------------------------------
+# Skeleton submesh hierarchy: fine facets inside a coarse cell have no parent
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def skeleton_hierarchy():
+    mh = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    return SubmeshHierarchy(mh, subdim=1, subdomain_id=None)
+
+
+def test_skeleton_submesh_hierarchy_construction(skeleton_hierarchy):
+    smh = skeleton_hierarchy
+    assert len(smh) == 2
+    # Each coarse facet has two fine children, so no row is padded
+    assert (smh.coarse_to_fine_cells[0] >= 0).all()
+    # The fine facets inside a coarse cell have no parent
+    assert (smh.fine_to_coarse_cells[1] < 0).any()
+
+
+@pytest.mark.parametrize("family,degree", [("CG", 1), ("CG", 2), ("DG", 0), ("DG", 1)])
+def test_skeleton_submesh_hierarchy_inject(skeleton_hierarchy, family, degree):
+    smh = skeleton_hierarchy
+    Vc = FunctionSpace(smh[0], family, degree)
+    Vf = FunctionSpace(smh[1], family, degree)
+    expr = lambda mesh: sum(SpatialCoordinate(mesh)) ** degree
+    uf = Function(Vf).interpolate(expr(smh[1]))
+    uc = Function(Vc)
+    inject(uf, uc)
+    assert errornorm(expr(smh[0]), uc) < 1E-12
+
+
+def test_skeleton_submesh_hierarchy_prolong_vertices(skeleton_hierarchy):
+    # Every fine vertex lies on a fine facet that has a parent
+    smh = skeleton_hierarchy
+    Vc = FunctionSpace(smh[0], "CG", 1)
+    Vf = FunctionSpace(smh[1], "CG", 1)
+    expr = lambda mesh: sum(SpatialCoordinate(mesh))
+    uc = Function(Vc).interpolate(expr(smh[0]))
+    uf = Function(Vf)
+    prolong(uc, uf)
+    assert errornorm(expr(smh[1]), uf) < 1E-12
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family,degree", [("CG", 2), ("DG", 0)])
+@pytest.mark.parametrize("transfer", ["prolong", "restrict"])
+def test_skeleton_submesh_hierarchy_orphaned_nodes(skeleton_hierarchy, family, degree, transfer):
+    smh = skeleton_hierarchy
+    Vc = FunctionSpace(smh[0], family, degree)
+    Vf = FunctionSpace(smh[1], family, degree)
+    with pytest.raises(NotImplementedError):
+        if transfer == "prolong":
+            prolong(Function(Vc), Function(Vf))
+        else:
+            restrict(Cofunction(Vf.dual()), Cofunction(Vc.dual()))
