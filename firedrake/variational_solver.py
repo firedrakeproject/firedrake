@@ -315,7 +315,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     appctx
         A dictionary containing objects that are carried through the solver.
         The appctx can be accessed using the function
-        :func:`get_appctx <firedrake.preconditioners.base.PCBase.get_appctx>`
+        :meth:`get_appctx <firedrake.preconditioners.base.PCBase.get_appctx>`
         inside of a Python preconditioner.
         Entries in the appctx must have the right set of hooks to be passed
         through the solver. Some types (e.g. :class:`~.Function`) will have

@@ -7,7 +7,7 @@ import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, add_hook)
+                               get_parent, add_hook, get_ctx_coarsener)
 
 from . import utils
 
@@ -257,7 +257,7 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
         if self is refine:
             new = firedrake.solving_utils._refine_function(expr)
         else:
-            assert self is coarsen
+            assert self is get_ctx_coarsener(expr.function_space().dm)
             new = firedrake.solving_utils._coarsen_function(expr)
         coefficient_mapping[expr] = new
     return new
