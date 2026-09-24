@@ -11,7 +11,7 @@ from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
-from collections.abc import Collection
+from collections.abc import Sequence
 from numbers import Number
 from pathlib import Path
 from immutabledict import immutabledict as idict
@@ -483,7 +483,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         if subset is not Ellipsis or self.function_space().parent:
             self.dat.buffer.sync_roots()
 
-        if self.ufl_element().family() == "Real" and isinstance(expr, (Number, Collection)):
+        if self.ufl_element().family() == "Real" and isinstance(expr, Number | Sequence):
             self.dat.data_wo_with_halos[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)

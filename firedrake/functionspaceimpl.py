@@ -2377,8 +2377,24 @@ class RealFunctionSpace(FunctionSpace):
                 assert dim_ndofs == 0
         assert ndofs is not None
 
+        # A nasty footgun for the Real space occurs if we try to create it
+        # storing the global value on a rank where the mesh is actually empty
+        # (this can happen for sparse vertex-only meshes). If this happens
+        # then parloops will never visit the value on the rank where the data
+        # resides, and will only modify the value where the data is ghost.
+        # Depending on the access descriptor (esp. WRITE) this can mean that
+        # the data is never actually modified.
+        # To get us out of this hole we designate the rank owning the data as
+        # the one with the greatest number of cells (any number is fine
+        # provided it's >0). If we have no cells anywhere then we will raise
+        # an error because that doesn't make sense.
+        with op3.mpi.temp_internal_comm(self.comm) as icomm:
+            max_ncells, root = icomm.allreduce((self.mesh().cells.owned.local_size, icomm.rank), MPI.MAXLOC)
+        if max_ncells == 0:
+            raise NotImplementedError("Cannot create a Real function space on a totally empty mesh")
+
         dof_axis = op3.Axis(
-            op3.AxisComponent(ndofs, None, sf=op3.single_star_sf(self.comm, ndofs)),
+            op3.AxisComponent(ndofs, None, sf=op3.single_star_sf(self.comm, ndofs, root=root)),
             "dof"
         )
         constraints = [AxisConstraint(dof_axis)]

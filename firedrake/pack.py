@@ -486,11 +486,6 @@ def _static_node_permutation_slice(nodal_axis, space: WithGeometry, depth) -> tu
 
 
 def _packed_nodal_axes(packed_axes: op3.AxisTree, space, depth):
-    # We can sometimes get axis forests here but the axis tree (shaped of the
-    # packed data) will be the same
-    if isinstance(packed_axes, op3.AxisForest):
-        packed_axes = utils.single_valued(t.materialize() for t in packed_axes)
-
     # involved way to get num_nodes
     permutation = _node_permutation_from_element(space.finat_element)
 
@@ -498,7 +493,9 @@ def _packed_nodal_axes(packed_axes: op3.AxisTree, space, depth):
     outer_axes = []
     outer_path = idict()
     for _ in range(depth):
-        outer_axis = packed_axes.node_map[outer_path]
+        # We can sometimes get axis forests here but the outer axis tree
+        # will be the same
+        outer_axis = utils.single_valued(t.node_map[outer_path] for t in packed_axes.trees)
         assert len(outer_axis.components) == 1
         outer_axes.append(outer_axis)
         outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
