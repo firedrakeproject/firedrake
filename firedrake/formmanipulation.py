@@ -5,9 +5,9 @@ import functools
 
 from ufl import as_tensor, as_vector, split
 from ufl.classes import (
-    Form, Zero, FixedIndex, ListTensor, ZeroBaseForm, BaseForm,
-    Action, Adjoint, Expr, CoefficientDerivative, Indexed,
-    MultiIndex, ExprList, Argument, Matrix, Interpolate, FormSum,
+    Form, Zero, ListTensor, ZeroBaseForm, BaseForm, Action, Adjoint,
+    Expr, CoefficientDerivative, MultiIndex, Argument, Matrix,
+    Interpolate, FormSum,
 )
 from ufl.algorithms.map_integrands import map_integrands
 from ufl.algorithms import expand_derivatives
@@ -31,39 +31,15 @@ def subspace(V, indices):
     return W.collapse()
 
 
-class IndexInliner(DAGTraverser):
-    """Inline fixed index of list tensors"""
-
-    @functools.singledispatchmethod
-    def process(self, o):
-        return self.reuse_if_untouched(o)
-
-    @process.register(Indexed)
-    @DAGTraverser.postorder
-    def _(self, o, child, multiindex):
-        indices = multiindex.indices()
-        if isinstance(child, ListTensor) and all(isinstance(i, FixedIndex) for i in indices):
-            if len(indices) == 1:
-                return child[indices[0]]
-            elif len(indices) == len(child.ufl_operands) and all(k == int(i) for k, i in enumerate(indices)):
-                return child
-            else:
-                return ListTensor(*(child[i] for i in indices))
-        return self.reuse_if_untouched(o)
-
-
 class ExtractSubBlock(DAGTraverser):
 
     """Extract a sub-block from a form."""
-
-    index_inliner = IndexInliner()
 
     def _subspace_argument(self, a, blocks):
         indices = self.select_block(blocks, a.number())
         if indices is None or len(a.function_space()) == 1:
             return a
-        return type(a)(subspace(a.function_space(), indices),
-                       a.number(), part=a.part())
+        return Argument.reconstruct(a, function_space=subspace(a.function_space(), indices))
 
     @staticmethod
     def select_block(blocks: tuple, number: int) -> tuple | None:
@@ -76,7 +52,7 @@ class ExtractSubBlock(DAGTraverser):
         Parameters
         ----------
         form
-            The Form to split.
+            The form to split.
         argument_indices
             Indices of test and trial spaces to extract.
             This should be 0-, 1-, or 2-tuple (whose length is the
@@ -126,14 +102,16 @@ class ExtractSubBlock(DAGTraverser):
     @process.register(Action)
     def _(self, o, blocks):
         # Action: preserve the contracted argument before splitting the operand
-        operands = []
-        for operand, contracted in zip(o.ufl_operands, (-1, 0)):
-            if isinstance(operand, BaseForm):
-                number = operand.arguments()[contracted].number()
-                fields = tuple(None if i == number else field for i, field in enumerate(blocks))
-                operand = self(operand, blocks=fields)
-            operands.append(operand)
-        return Action(*operands)
+        left, right = o.ufl_operands
+        if isinstance(left, BaseForm):
+            contracted_arg_num = left.arguments()[-1].number()
+            fields = tuple(None if i == contracted_arg_num else field for i, field in enumerate(blocks))
+            left = self(left, blocks=fields)
+        if isinstance(right, BaseForm):
+            contracted_arg_num = right.arguments()[0].number()
+            fields = tuple(None if i == contracted_arg_num else field for i, field in enumerate(blocks))
+            right = self(right, blocks=fields)
+        return Action(left, right)
 
     @process.register(FormSum)
     @DAGTraverser.postorder
@@ -143,14 +121,6 @@ class ExtractSubBlock(DAGTraverser):
     @process.register(MultiIndex)
     def _(self, o, blocks):
         return o
-
-    @process.register(ExprList)
-    def _(self, o, blocks):
-        # Inline list tensor indexing.
-        # This fixes a problem where we extract a subblock from
-        # derivative(foo, ...) and end up with the "Argument" looking like
-        # [v_0, v_2, v_3][1, 2]
-        return self.index_inliner(self.reuse_if_untouched(o, blocks=blocks))
 
     @process.register(CoefficientDerivative)
     @DAGTraverser.postorder
