@@ -14,7 +14,11 @@ temperature.
 
   from firedrake import *
 
-  N = 128
+  if os.getenv("FIREDRAKE_CI") == "1":
+      # trick to speed up the Firedrake test suite
+      N = 16
+  else:
+      N = 128
 
   M = UnitSquareMesh(N, N)
 
@@ -246,7 +250,7 @@ them, although doing so would be quite easy.
                         "pcd_Kp_ksp_type": "preonly",
                         "pcd_Kp_pc_type": "hypre",
                         "pcd_Fp_mat_type": "aij",
-                        "pcd_velocity_space": 0,
+                        "pcd_velocity_space": u,
                    }
                },
 

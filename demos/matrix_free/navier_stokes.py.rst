@@ -6,9 +6,14 @@ example is that of a lid-driven cavity.
 
 .. code-block:: python
 
+  import os
   from firedrake import *
 
-  N = 64
+  if os.getenv("FIREDRAKE_CI") == "1":
+      # trick to speed up the Firedrake test suite
+      N = 8
+  else:
+      N = 64
 
   M = UnitSquareMesh(N, N)
 
@@ -110,7 +115,7 @@ the velocity corresponds to.
 .. code-block:: python
 
                "fieldsplit_1_pcd_Re": Re,
-               "fieldsplit_1_pcd_velocity_space": 0,
+               "fieldsplit_1_pcd_velocity_space": u,
 
 We now need to configure the mass and stiffness solvers in the PCD
 preconditioner.  For this example, we will just invert them with LU,

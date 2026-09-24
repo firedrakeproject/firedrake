@@ -186,9 +186,9 @@ class _SNESContext:
     pre_apply_bcs
         If `False`, the problem is linearised around the initial guess before
         imposing the boundary conditions.
-    state
-        The current guess of the outermost problem. If `None` then detected
-        from ``problem``.
+    _state
+        (Deprecated) The current guess of the outermost problem. If `None` then
+        detected from ``problem``.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -209,7 +209,7 @@ class _SNESContext:
                  options_prefix: str | None = None,
                  transfer_manager=None,
                  pre_apply_bcs: bool = True,
-                 state: Function | None = None):
+                 _state: Function | None = None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -236,8 +236,7 @@ class _SNESContext:
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
         self._x = problem.u_restrict
-
-        self.state = state if state is not None else self._x
+        self._state = _state if _state is not None else self._x
 
         self.appctx = appctx or {}
         self.matfree = matfree
@@ -386,7 +385,7 @@ class _SNESContext:
             post_function_callback=self._post_function_callback,
             pre_apply_bcs=self.pre_apply_bcs,
             marking_callback=self._marking_callback,
-            state=self.state,
+            _state=self._state,
         )
         for k, v in default_options.items():
             if kwargs.get(k) is None:

@@ -1,3 +1,8 @@
+import numbers
+import warnings
+
+import petsctools
+
 import firedrake.dmhooks
 from firedrake.preconditioners.base import PCBase
 from firedrake.petsc import PETSc
@@ -31,8 +36,7 @@ class PCDPC(PCBase):
     :math:`F_p` requires both the Reynolds number and the current
     velocity.  You must provide these with options using the glbaol
     option ``Re`` for the Reynolds number and the prefixed option
-    ``pcd_velocity_space`` which should be the index into the full
-    space that gives velocity field.
+    ``pcd_velocity_space`` which should be the velocity function.
 
     .. note::
 
@@ -68,7 +72,7 @@ class PCDPC(PCBase):
         # Regularisation to avoid having to think about nullspaces.
         stiffness = inner(grad(p), grad(q))*dx + Constant(1e-6)*p*q*dx
 
-        opts = PETSc.Options()
+        opts = petsctools.Options()
         # we're inverting Mp and Kp, so default them to assembled.
         # Fp only needs its action, so default it to mat-free.
         # These can of course be overridden.
@@ -105,9 +109,16 @@ class PCDPC(PCBase):
         self.Kksp = Kksp
 
         Re = snes_ctx.get_python_option(prefix, "Re", 1.0)
-        velid = opts.getInt(f"{prefix}velocity_space")
 
-        u0 = split(snes_ctx.state)[velid]
+        u0 = opts[f"{prefix}velocity_space"]
+        if isinstance(u0, numbers.Integral):
+            warnings.warn(
+                "Passing the velocity space index is now deprecated. Pass the "
+                "actual velocity field instead",
+                FutureWarning,
+            )
+            u0 = snes_ctx._state.subfunctions[u0]
+
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
         self.Re = Re
