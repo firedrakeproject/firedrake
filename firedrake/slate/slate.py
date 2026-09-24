@@ -690,9 +690,6 @@ class Block(TensorBase):
             if isinstance(tensor, Add):
                 A, B = tensor.operands
                 return Block(A, indices) + Block(B, indices)
-            if isinstance(tensor, Negative):
-                A, = tensor.operands
-                return -Block(A, indices)
             if isinstance(tensor, Transpose):
                 A, = tensor.operands
                 return Block(A, indices[::-1]).T
@@ -1302,8 +1299,6 @@ class ScalarMul(UnaryOp):
             return Tensor(ZeroBaseForm(tensor.arguments()))
         elif scalar == 1:
             return tensor
-        elif scalar == -1 and cls is ScalarMul:
-            return Negative(tensor)
         return UnaryOp.__new__(cls)
 
     def __init__(self, scalar, tensor):
@@ -1359,25 +1354,9 @@ class ScalarMul(UnaryOp):
         return par(result)
 
 
-class Negative(ScalarMul):
-    """Abstract Slate class representing the negation of a tensor object."""
-
-    def __new__(cls, tensor):
-        return super().__new__(cls, -1, tensor)
-
-    def __init__(self, tensor, _tensor=None):
-        """Initialise the negation node."""
-        super(Negative, self).__init__(-1, tensor if _tensor is None else _tensor)
-
-    def _output_string(self, prec=None):
-        """Create a string representation of the negation."""
-        if prec is None or self.prec >= prec:
-            par = lambda x: x
-        else:
-            par = lambda x: "(%s)" % x
-
-        tensor, = self.operands
-        return par("-%s" % tensor._output_string(prec=self.prec))
+def Negative(tensor):
+    """Return the negation of a Slate tensor."""
+    return ScalarMul(-1, tensor)
 
 
 class BinaryOp(TensorOp):

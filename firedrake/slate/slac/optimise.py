@@ -79,7 +79,6 @@ def _push_block_scalar_mul(expr, self, indices):
 
 
 @_push_block.register(Add)
-@_push_block.register(Negative)
 @_push_block.register(DiagonalTensor)
 @_push_block.register(Reciprocal)
 def _push_block_distributive(expr, self, indices):
@@ -144,7 +143,6 @@ def _push_diag(expr, self, diag):
 
 @_push_diag.register(Transpose)
 @_push_diag.register(Add)
-@_push_diag.register(Negative)
 def _push_diag_distributive(expr, self, diag):
     """Distributes the DiagonalTensors into these nodes"""
     return type(expr)(*map(self, expr.children, repeat(diag)))
@@ -255,7 +253,6 @@ def _drop_double_transpose_transpose(expr, self):
         return type(expr)(*map(self, expr.children))
 
 
-@_drop_double_transpose.register(Negative)
 @_drop_double_transpose.register(Add)
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
@@ -298,7 +295,6 @@ def _push_mul_vector(expr, self, state):
     return expr
 
 
-@_push_mul.register(Negative)
 @_push_mul.register(Add)
 def _push_mul_distributive(expr, self, state):
     """Distribute the multiplication into the children of the expression. """

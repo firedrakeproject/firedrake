@@ -348,8 +348,7 @@ def test_scalar_multiplication():
     assert ScalarMul(1, b) is b
     assert ScalarMul(-1, b) == -b
     assert isinstance(ScalarMul(2, b), UnaryOp)
-    assert isinstance(-b, Negative)
-    assert issubclass(Negative, ScalarMul)
+    assert isinstance(-b, ScalarMul)
     assert 2 * b == ScalarMul(2, b)
     assert b * 0.5 == ScalarMul(0.5, b)
 
