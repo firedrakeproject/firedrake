@@ -5,7 +5,7 @@ import functools
 
 from ufl import as_tensor, as_vector, split
 from ufl.classes import (
-    Form, Zero, FixedIndex, ListTensor, ZeroBaseForm, BaseForm, 
+    Form, Zero, FixedIndex, ListTensor, ZeroBaseForm, BaseForm,
     Action, Adjoint, Expr, CoefficientDerivative, Indexed,
     MultiIndex, ExprList, Argument, Matrix, Interpolate, FormSum,
 )
@@ -71,14 +71,18 @@ class ExtractSubBlock(DAGTraverser):
 
     @PETSc.Log.EventDecorator()
     def split(self, form: BaseForm, argument_indices: tuple) -> BaseForm:
-        """Extract the selected argument blocks.
+        """Split a form.
 
         Parameters
         ----------
         form
-            Form to split.
+            The Form to split.
         argument_indices
-            Field indices for each argument.
+            Indices of test and trial spaces to extract.
+            This should be 0-, 1-, or 2-tuple (whose length is the
+            same as the number of arguments as the ``form``) whose
+            entries are either an integer index, or else an iterable
+            of indices.
 
         Returns
         -------
