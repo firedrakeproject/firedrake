@@ -109,7 +109,9 @@ additional tags to your PR. Specifically:
 
 * If you are submitting a PR that does not target the ``release`` or ``main``
   branches then either the ``base:release`` or ``base:main`` tag must be applied
-  so the correct 'base' build is used (e.g. which version of PETSc is built).
+  so the correct 'base' build is used (e.g. which version of PETSc is built). This can
+  occur for example when submitting a stack of PRs that target each other's branches.
+  In that case the tag needs to match the final target branch.
 * Add ``ci:macos``, ``ci:complex``, ``ci:int64``, ``ci:gpu`` if your PR touches
   code that affects macOS installations, complex mode, int64 builds of PETSc, or
   GPU code respectively.
