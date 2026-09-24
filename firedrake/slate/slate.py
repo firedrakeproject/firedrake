@@ -1371,7 +1371,7 @@ class BinaryOp(TensorOp):
     :arg B: a :class:`~.firedrake.slate.TensorBase` object.
     """
 
-    def reconstruct(self, *, A=None, B=None):
+    def reconstruct(self, A=None, B=None):
         """Reconstruct this binary operation with replacement operands."""
         old_A, old_B = self.operands
         A = old_A if A is None else A
