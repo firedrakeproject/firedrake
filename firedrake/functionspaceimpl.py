@@ -1330,8 +1330,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
             return self
 
     def __repr__(self):
-        return f"RestrictedFunctionSpace({str(self.function_space)!r}, " \
-               f"name={self.name!r}, boundary_set={self.boundary_set!r})"
+        return RestrictedFunctionSpace.__repr__(self)
 
     def __str__(self):
         return self.__repr__()
