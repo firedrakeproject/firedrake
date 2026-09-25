@@ -38,6 +38,7 @@ advance.
 """
 
 import collections
+import gc
 import warnings
 import weakref
 import numpy
@@ -109,6 +110,27 @@ def set_function_space(dm, V):
 # are touched a handful of times per solve. Recording them costs nothing, and
 # lets a broken stack report how it got that way.
 _attr_trace = collections.deque(maxlen=512)
+_callback_trace = collections.deque(maxlen=128)
+
+
+def _stack_snapshot(stack):
+    """Capture identifying information for a PETSc Python-attribute stack.
+
+    Parameters
+    ----------
+    stack : list or None
+        The value returned by :meth:`PETSc.DM.getAttr`.
+
+    Returns
+    -------
+    tuple
+        The stack identity, depth, and the identities of its entries.
+    """
+    if stack is None:
+        return None, 0, ()
+    return id(stack), len(stack), tuple(
+        (type(obj).__name__, id(obj)) for obj in stack
+    )
 
 
 def _record(event, attr, dm, obj):
@@ -130,8 +152,30 @@ def _record(event, attr, dm, obj):
     None
     """
     stack = dm.getAttr(attr)
-    _attr_trace.append((event, attr, dm.handle, type(obj).__name__, id(obj),
-                        len(stack) if stack else 0))
+    stack_id, depth, _ = _stack_snapshot(stack)
+    _attr_trace.append((event, attr, dm.handle, id(dm), type(obj).__name__, id(obj),
+                        stack_id, depth, gc.get_count()))
+
+
+def record_callback(solver, dm):
+    """Record the DM state observed at a PETSc solver callback.
+
+    Parameters
+    ----------
+    solver : PETSc.SNES or PETSc.KSP
+        The solver making the callback.
+    dm : PETSc.DM
+        The DM returned by the solver.
+
+    Returns
+    -------
+    None
+    """
+    appctx = _stack_snapshot(dm.getAttr("__appctx__"))
+    setup_hooks = _stack_snapshot(dm.getAttr("__setup_hooks__"))
+    _callback_trace.append((type(solver).__name__, solver.handle,
+                            solver.getOptionsPrefix(), dm.handle, id(dm),
+                            appctx, setup_hooks, gc.get_count()))
 
 
 def format_attr_trace():
@@ -143,8 +187,26 @@ def format_attr_trace():
         One line per recorded operation, oldest first.
     """
     return "\n".join(
-        f"  {event:4s} {attr:18s} dm={handle:#x} {name}(id={ident:#x}) -> depth {depth}"
-        for event, attr, handle, name, ident, depth in _attr_trace
+        f"  {event:4s} {attr:18s} dm={handle:#x} wrapper={dm_id:#x} "
+        f"{name}(id={ident:#x}) stack={stack_id!r} -> depth {depth} gc={counts}"
+        for event, attr, handle, dm_id, name, ident, stack_id, depth, counts in _attr_trace
+    )
+
+
+def format_callback_trace():
+    """Format the recorded PETSc callback state.
+
+    Returns
+    -------
+    str
+        One line per callback, oldest first.
+    """
+    return "\n".join(
+        f"[DEBUG-5421] {solver_type}={solver_handle:#x} prefix={prefix!r} "
+        f"dm={dm_handle:#x} wrapper={dm_id:#x} appctx={appctx!r} "
+        f"setup_hooks={setup_hooks!r} gc={counts}"
+        for solver_type, solver_handle, prefix, dm_handle, dm_id,
+        appctx, setup_hooks, counts in _callback_trace
     )
 
 

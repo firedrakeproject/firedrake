@@ -154,12 +154,14 @@ def _callback_appctx(solver):
         If the solver's DM carries no application context.
     """
     dm = solver.getDM()
+    dmhooks.record_callback(solver, dm)
     ctx = dmhooks.get_appctx(dm)
     if ctx is None:
         raise RuntimeError(
             f"No application context on DM {dm.handle:#x} of "
             f"{type(solver).__name__} '{solver.getOptionsPrefix()}'.\n"
-            f"DM attribute stack history:\n{dmhooks.format_attr_trace()}")
+            f"DM attribute stack history:\n{dmhooks.format_attr_trace()}\n"
+            f"PETSc callback history:\n{dmhooks.format_callback_trace()}")
     return ctx
 
 
