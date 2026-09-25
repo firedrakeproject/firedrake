@@ -2385,13 +2385,11 @@ class RealFunctionSpace(FunctionSpace):
         # Depending on the access descriptor (esp. WRITE) this can mean that
         # the data is never actually modified.
         # To get us out of this hole we designate the rank owning the data as
-        # the one with the greatest number of cells (any number is fine
-        # provided it's >0). If we have no cells anywhere then we will raise
-        # an error because that doesn't make sense.
+        # the one with the greatest number of cells. If the mesh is globally
+        # empty then we do allow the data to live on an empty rank because
+        # the data should not ever be reachable.
         with op3.mpi.temp_internal_comm(self.comm) as icomm:
             max_ncells, root = icomm.allreduce((self.mesh().cells.owned.local_size, icomm.rank), MPI.MAXLOC)
-        if max_ncells == 0:
-            raise NotImplementedError("Cannot create a Real function space on a totally empty mesh")
 
         dof_axis = op3.Axis(
             op3.AxisComponent(ndofs, None, sf=op3.single_star_sf(self.comm, ndofs, root=root)),

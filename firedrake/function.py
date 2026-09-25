@@ -11,7 +11,7 @@ from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
-from collections.abc import Sequence
+from collections.abc import Collection
 from numbers import Number
 from pathlib import Path
 from immutabledict import immutabledict as idict
@@ -207,13 +207,13 @@ class CoordinatelessFunction(ufl.Coefficient):
         ):
             self.dat.assemble()
             with op3.mpi.temp_internal_comm(self.comm) as icomm:
-                if icomm.rank == 0:
-                    value = icomm.bcast(self.dat.data_ro.item())
+                # We have to be clever here because the data can live on any rank
+                data = self.dat.data_ro
+                if len(data) == 0:
+                    value = -np.inf
                 else:
-                    # touch to make sure state tracking is consistent
-                    self.dat.data_ro
-                    value = icomm.bcast(None)
-            return float(value)
+                    value = data.item()
+                return float(icomm.allreduce(value, MPI.MAX))
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 
@@ -483,7 +483,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         if subset is not Ellipsis or self.function_space().parent:
             self.dat.buffer.sync_roots()
 
-        if self.ufl_element().family() == "Real" and isinstance(expr, Number | Sequence):
+        if self.ufl_element().family() == "Real" and isinstance(expr, Number | Collection):
             self.dat.data_wo_with_halos[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)

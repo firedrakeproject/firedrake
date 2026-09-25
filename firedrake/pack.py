@@ -501,7 +501,9 @@ def _packed_nodal_axes(packed_axes: op3.AxisTree, space, depth):
         outer_path = outer_path | {outer_axis.label: outer_axis.component.label}
 
     nodal_axis = op3.Axis(permutation.size, "packed_nodes")
-    nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis, *space.shape])
+    nodal_axis_tree = op3.AxisTree.from_iterable([*outer_axes, nodal_axis])
+    for i, dim in enumerate(space.shape):
+        nodal_axis_tree = nodal_axis_tree.add_axis(None, op3.Axis(dim, f"packed_dim_{i}"))
     return nodal_axis_tree, nodal_axis
 
 

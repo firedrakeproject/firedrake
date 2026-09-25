@@ -454,7 +454,13 @@ class _SNESContext:
             # anyway.
             # So we pull it apart and will make a new function on the
             # subspace that shares data.
-            slice_ = [problem.u_restrict.function_space()._labels[i] for i in field]
+            if len(field) == 1:
+                # result unmixed
+                i, = field
+                slice_ = problem.u_restrict.function_space()._labels[i]
+            else:
+                # result remains mixed
+                slice_ = [problem.u_restrict.function_space()._labels[i] for i in field]
             val = problem.u_restrict.dat[slice_]
             subu = Function(V, val=val)
             if len(field) == 1:
