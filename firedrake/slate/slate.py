@@ -47,7 +47,7 @@ from tsfc.ufl_utils import extract_firedrake_constants
 
 
 __all__ = ['TensorBase', 'AssembledVector', 'Block', 'Factorization', 'Tensor',
-           'Inverse', 'Transpose', 'Negative',
+           'Inverse', 'Transpose',
            'Add', 'Mul', 'ScalarMul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
            'Reciprocal']
 
@@ -361,7 +361,7 @@ class TensorBase(BaseForm):
     def __sub__(self, other):
         try:
             other = as_slate(other)
-            return Add(self, Negative(other))
+            return Add(self, -other)
         except TypeError:
             return NotImplemented
 
@@ -395,7 +395,7 @@ class TensorBase(BaseForm):
             return NotImplemented
 
     def __neg__(self):
-        return Negative(self)
+        return ScalarMul(-1, self)
 
     def __eq__(self, other):
         """Determines whether two TensorBase objects are equal using their
@@ -1336,11 +1336,6 @@ class ScalarMul(UnaryOp):
         tensor, = self.operands
         result = f"{self.scalar} * {tensor._output_string(prec=self.prec)}"
         return par(result)
-
-
-def Negative(tensor):
-    """Return the negation of a Slate tensor."""
-    return ScalarMul(-1, tensor)
 
 
 class BinaryOp(TensorOp):
