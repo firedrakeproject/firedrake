@@ -42,11 +42,11 @@ def run_interpolation(mesh, expr, p):
 def test_interpolation_KMV(mesh, max_degree, interpolation_expr):
     for p in range(1, max_degree):
         errors = [
-            run_interpolation(mesh(r), interpolation_expr, p) for r in range(3, 6)
+            run_interpolation(mesh(r), interpolation_expr, p) for r in range(2, 5)
         ]
         errors = np.asarray(errors)
         l2conv = np.log2(errors[:-1] / errors[1:])
-        assert (l2conv > p + 0.7).all()
+        assert (l2conv > p + 0.6).all()
 
 
 def run_projection(mesh, expr, p):

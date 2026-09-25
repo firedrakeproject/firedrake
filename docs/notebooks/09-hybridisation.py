@@ -93,7 +93,12 @@ help(CubedSphereMesh)
 # So now we need to specify the number of refinements (say 4). Let's also set the mesh `degree` to be cubic. With this choice of coordinate space, we can better resolve the actual curvature of the sphere using bendy quadrilateral elements:
 
 # %%
-mesh = CubedSphereMesh(radius=R0, refinement_level=4, degree=3)
+# Use a coarser mesh when running CI tests.
+import os
+if os.getenv("FIREDRAKE_CI") == "1":
+    mesh = CubedSphereMesh(radius=R0, refinement_level=2, degree=3)
+else:
+    mesh = CubedSphereMesh(radius=R0, refinement_level=4, degree=3)
 
 # %% [markdown]
 # And now we just initialize the global normals on this mesh:

@@ -64,7 +64,12 @@ set_log_level(ERROR)
 # We can create a hexahedral mesh by extruding a quadrilateral mesh.
 
 # %%
-mesh = ExtrudedMesh(UnitSquareMesh(10, 10, quadrilateral=True), 10)
+# Setup for faster test execution.
+import os
+if os.getenv("FIREDRAKE_CI") == "1":
+    mesh = ExtrudedMesh(UnitSquareMesh(2, 2, quadrilateral=True), 2)
+else:
+    mesh = ExtrudedMesh(UnitSquareMesh(10, 10, quadrilateral=True), 10)
 
 # %% [markdown]
 # Let's choose the continuous Lagrange element of degree 5 as our function space.
@@ -160,6 +165,10 @@ import numpy
 # %%
 flops = defaultdict(list)
 ps = range(1, 33)  # polynomial degrees
+
+if os.getenv("FIREDRAKE_CI") == "1":
+    ps = [1, 2, 4, 8]
+
 modes = {
     'gll': {'mode': 'spectral', 'variant': 'spectral', 'rule': gauss_lobatto_legendre_cube_rule},
     'spectral': {'mode': 'spectral', 'variant': None, 'rule': lambda *args: None},
@@ -194,6 +203,10 @@ ax.legend(loc='upper left');
 # This might take some time to run
 flops_curl = defaultdict(list)
 ps_curl = range(1, 17)
+
+if os.getenv("FIREDRAKE_CI") == "1":
+    ps_curl = [1, 2, 4]
+
 for p in ps_curl:
     for mode in modes:
         element = FiniteElement('NCE', mesh.ufl_cell(), degree=p, variant=modes[mode]['variant'])
