@@ -19,6 +19,8 @@
 
 __all__ = ["solve"]
 
+import warnings
+
 import ufl
 
 import firedrake.linear_solver as ls
@@ -202,30 +204,36 @@ def _solve_varproblem(*args, **kwargs):
 def _la_solve(A, x, b, **kwargs):
     r"""Solve a linear algebra problem.
 
-    :arg A: the assembled bilinear form, a :class:`.Matrix`.
-    :arg x: the :class:`.Function` to write the solution into.
-    :arg b: the :class:`.Function` defining the right hand side values.
-    :kwarg P: an optional :class:`~.MatrixBase` to construct any
-         preconditioner from; if none is supplied ``A`` is
-         used to construct the preconditioner.
-    :kwarg solver_parameters: optional solver parameters.
-    :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
-         :class:`.MixedVectorSpaceBasis`) spanning the null space of
-         the operator.
-    :kwarg transpose_nullspace: as for the nullspace, but used to
-         make the right hand side consistent.
-    :kwarg near_nullspace: as for the nullspace, but used to add
-         the near nullspace.
-    :kwarg options_prefix: an optional prefix used to distinguish
-         PETSc options.  If not provided a unique prefix will be
-         created.  Use this option if you want to pass options
-         to the solver from the command line in addition to
-         through the ``solver_parameters`` dict.
-    :kwarg appctx: an optional :class:`dict` of user data made available to
-         Python-type preconditioners and to matrix-free operators.  The appctx
-         can also be given as an ``"appctx"`` entry of ``solver_parameters``,
-         which is the older route; the keyword argument wins when both are
-         given.
+    Parameters
+    ----------
+    A : firedrake.matrix.Matrix
+        The assembled bilinear form.
+    x : firedrake.function.Function
+        The Function to write the solution into.
+    b : firedrake.cofunction.Cofunction
+        The Cofunction defining the right hand side values.
+    P : firedrake.matrix.MatrixBase
+        An optional operator to construct any preconditioner from; if none is
+        supplied ``A`` is used to construct the preconditioner.
+    solver_parameters : dict
+        Optional solver parameters to pass to PETSc.
+    nullspace : firedrake.nullspace.VectorSpaceBasis or firedrake.nullspace.MixedVectorSpaceBasis
+        An optional basis spanning the null space of the operator.
+    transpose_nullspace : firedrake.nullspace.VectorSpaceBasis or firedrake.nullspace.MixedVectorSpaceBasis
+        As for the nullspace, but used to make the right hand side consistent.
+    near_nullspace : firedrake.nullspace.VectorSpaceBasis or firedrake.nullspace.MixedVectorSpaceBasis
+        As for the nullspace, but used to add the near nullspace.
+    options_prefix : str
+        An optional prefix used to distinguish PETSc options. If not provided a
+        unique prefix will be created. Use this option if you want to pass
+        options to the solver from the command line in addition to through the
+        ``solver_parameters`` dict.
+    appctx : dict
+        An optional dictionary of user data made available to Python-type
+        preconditioners and to matrix-free operators.
+    pre_apply_bcs : bool
+        Whether the boundary conditions are applied to the right hand side
+        before the solve.
 
     .. note::
 
@@ -252,12 +260,6 @@ def _la_solve(A, x, b, **kwargs):
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
-    if appctx is None:
-        # Before `appctx` was a keyword argument of this code path, the only way
-        # to reach the preconditioners from `solve(A, x, b, ...)` was to put the
-        # appctx inside the solver parameters. Keep reading it from there so that
-        # existing code works. The keyword argument wins when both are given.
-        appctx = solver_parameters.get("appctx", {})
     solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
@@ -287,11 +289,27 @@ def _extract_linear_solver_args(*args, **kwargs):
     nullspace_T = kwargs.get("transpose_nullspace", None)
     near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
-    # `None` (and not `{}`) marks "no appctx given here", so that the caller can
-    # tell an omitted appctx from an empty one and fall back to the older route
-    # of passing the appctx inside `solver_parameters`.
-    appctx = kwargs.get("appctx", None)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
+
+    appctx = kwargs.get("appctx", None)
+    if "appctx" in solver_parameters:
+        if appctx is not None:
+            raise ValueError(
+                "appctx was given both as a keyword argument and as an 'appctx' "
+                "entry of solver_parameters; pass it as the keyword argument only"
+            )
+        # For backwards compatibility. The entry is removed from a copy of the
+        # dict so that the parameters handed to PETSc hold solver options only,
+        # and the caller's own dict is left as it was.
+        warnings.warn(
+            "Passing the appctx inside solver_parameters is deprecated and will "
+            "be removed, please pass it as the 'appctx' keyword argument instead",
+            FutureWarning
+        )
+        solver_parameters = dict(solver_parameters)
+        appctx = solver_parameters.pop("appctx")
+    if appctx is None:
+        appctx = {}
 
     return (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
             options_prefix, appctx, pre_apply_bcs)

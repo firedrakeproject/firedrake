@@ -433,26 +433,27 @@ def test_la_solve_appctx_kwarg(mass_system):
 
 
 def test_la_solve_appctx_in_solver_parameters(mass_system):
-    """The older route, an ``"appctx"`` entry of ``solver_parameters``, still works."""
+    """An ``"appctx"`` entry of ``solver_parameters`` still works, with a warning."""
     A, x, b = mass_system
     AppctxRecorderPC.seen.clear()
+    parameters = {**_recorder_parameters, "appctx": {"value": 42}}
 
-    solve(A, x, b,
-          solver_parameters={**_recorder_parameters, "appctx": {"value": 42}})
+    with pytest.warns(FutureWarning, match="appctx inside solver_parameters"):
+        solve(A, x, b, solver_parameters=parameters)
 
     assert AppctxRecorderPC.seen[0]["value"] == 42
     assert np.allclose(x.dat.data_ro, 1.0)
+    # The appctx is removed from a copy, so the caller's own dict still has it.
+    assert parameters["appctx"] == {"value": 42}
 
 
-def test_la_solve_appctx_kwarg_wins(mass_system):
-    """When the appctx is given both ways, the keyword argument is used."""
+def test_la_solve_appctx_given_twice(mass_system):
+    """Giving the appctx both ways is a mistake, so it raises."""
     A, x, b = mass_system
-    AppctxRecorderPC.seen.clear()
 
-    solve(A, x, b, appctx={"value": 42},
-          solver_parameters={**_recorder_parameters, "appctx": {"value": 7}})
-
-    assert AppctxRecorderPC.seen[0]["value"] == 42
+    with pytest.raises(ValueError, match="both as a keyword argument"):
+        solve(A, x, b, appctx={"value": 42},
+              solver_parameters={**_recorder_parameters, "appctx": {"value": 7}})
 
 
 def test_la_solve_rejects_unknown_kwarg(mass_system):
