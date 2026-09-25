@@ -9,7 +9,6 @@ from dataclasses import asdict, dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
-from ufl.argument import Coargument as UFLCoargument
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.duals import is_dual
@@ -136,14 +135,9 @@ class Interpolate(UFLInterpolate):
     function_space = UFLInterpolate.ufl_function_space
 
     def _ufl_expr_reconstruct_(
-            self, expr: Expr, v: WithGeometry | BaseForm | None = None,
-            argument_slots: tuple[BaseForm, Expr] | None = None, **interp_data
+            self, expr: Expr, v: WithGeometry | BaseForm | None = None, **interp_data
     ):
         interp_data = interp_data or asdict(self.options)
-        v, expr = argument_slots or (v, expr)
-        if type(v) is UFLCoargument:
-            # UFL differentiates the dual slot with a new Coargument, which has no Firedrake function space.
-            v = Argument(self.target_space.dual(), v.number())
         return UFLInterpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
 
     @property
