@@ -721,14 +721,15 @@ class Block(TensorBase):
         return self.operands
 
     def _ufl_expr_reconstruct_(self, *operands):
-        if self._has_ufl_form:
+        if len(operands) == 0:
+            return self
+        elif self._has_ufl_form:
             mapping = {old: new for old, new in zip(self.ufl_operands, operands) if old is not new}
             if not mapping:
                 return self
             return as_slate(replace(self.form, mapping))
-        if len(operands) == 0:
-            return self
-        return self.reconstruct(*operands)
+        else:
+            return self.reconstruct(*operands)
 
     @cached_property
     def terminal(self):

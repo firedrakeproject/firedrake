@@ -129,7 +129,9 @@ def test_collapsed_subspace_argument_hash(restrict):
         P = FunctionSpace(mesh, Vsub.ufl_element())
         if Vsub.boundary_set:
             P = RestrictedFunctionSpace(P, boundary_set=Vsub.boundary_set)
-        assert W == P and hash(W) == hash(P)
+        assert W == P
+        assert repr(W) == repr(P)
+        assert hash(W) == hash(P)
 
         u, w = TrialFunction(P), TrialFunction(W)
         assert u == w and hash(u) == hash(w)
