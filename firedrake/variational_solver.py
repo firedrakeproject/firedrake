@@ -281,7 +281,11 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
             J = J.a
         F = ufl_expr.action(J, u)
-        if isinstance(F, slate.slate.TensorBase) and not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+        if (
+            isinstance(F, slate.slate.TensorBase)
+            and L != 0
+            and not isinstance(L, (ufl.Form, slate.slate.TensorBase))
+        ):
             # Slate expressions should not combine with assembled Cofunctions
             # because assemble(AssembledVector(L)) repeats element summation on L
             F = ufl.FormSum((F, 1), (L, -1))
@@ -432,6 +436,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+        ctx.set_snes(self.snes)
 
         self._ctx = ctx
         self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()

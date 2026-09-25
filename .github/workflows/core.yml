@@ -118,6 +118,18 @@ jobs:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
+      # Check that the Dockerfile is using the latest Ubuntu version.
+      # The version is hardcoded into the Dockerfile so that the OS
+      # for each release is fixed.
+      - name: Check Dockerfile Ubuntu version
+        run: |
+          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
+          docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          if [ "$docker_version" != "$latest_version" ]; then
+            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
+            exit 1
+          fi
+
       - name: Install Firedrake
         id: install
         uses: ./firedrake-repo/.github/actions/install
@@ -308,8 +320,7 @@ jobs:
         include: ${{ fromJSON(needs.gen_linux_extra_matrix.outputs.matrix) }}
     runs-on: [self-hosted, Linux, gpu]
     container:
-      # TODO: set to 'ubuntu:latest' for GPU case
-      image: ${{ case(matrix.gpu == 'cuda', 'ubuntu:noble', 'ubuntu:latest') }}
+      image: ubuntu:latest
       options: --gpus all
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
@@ -519,7 +530,7 @@ jobs:
           ref: ${{ inputs.source_ref }}
 
       - name: Validate single source of truth
-        run: ./firedrake-repo/scripts/check-config
+        run: ./firedrake-repo/scripts/check-config ${{ inputs.base_ref }}
 
       # Check that the Dockerfile is using the latest Ubuntu version.
       # The version is hardcoded into the Dockerfile so that the OS
