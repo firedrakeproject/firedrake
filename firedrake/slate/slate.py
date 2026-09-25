@@ -741,6 +741,8 @@ class Block(TensorBase):
         """Splits the function space and stores the component
         spaces determined by the indices.
         """
+        from firedrake.formmanipulation import subspace
+
         tensor, = self.operands
         return tuple(type(a)(subspace(a.function_space(), self._blocks[i]),
                              a.number(), part=a.part())
@@ -977,6 +979,8 @@ class Tensor(TensorBase):
     @cached_property
     def _subblock_extractor(self):
         """Returns the traverser that extracts this tensor's subblocks."""
+        from firedrake.formmanipulation import ExtractSubBlock
+
         return ExtractSubBlock()
 
     @property
@@ -1625,6 +1629,3 @@ precedences = [
 for level, group in enumerate(precedences):
     for tensor in group:
         tensor.prec = level
-
-
-from firedrake.formmanipulation import ExtractSubBlock, subspace
