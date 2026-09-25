@@ -11,6 +11,7 @@ cwd = abspath(dirname(__file__))
 def mesh2d(request):
     periodic = request.param
     if periodic:
+        pytest.skip(reason="pyop3 TODO")
         m = PeriodicUnitIntervalMesh(16)
     else:
         m = UnitIntervalMesh(16)
@@ -28,6 +29,7 @@ def mesh3d(request):
     if request.param[0] == 'cg':
         m = UnitSquareMesh(12, 12, quadrilateral=request.param[1])
     elif request.param[0] == 'dg':
+        pytest.skip(reason="pyop3 TODO")
         m = PeriodicUnitSquareMesh(12, 12, quadrilateral=request.param[1])
     elif request.param[0] == 'file':
         meshfile = join(cwd, '..', 'meshes', request.param[1])

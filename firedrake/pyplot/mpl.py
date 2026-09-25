@@ -23,6 +23,7 @@ from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
+from firedrake.cython import dmcommon
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
@@ -175,32 +176,6 @@ def _entity_node_list(cell, dimension):
     return nodes
 
 
-def _extrude(nodes, offset, num_layers):
-    r"""Replicate the entities of the bottom layer up the columns of an extruded mesh
-
-    Parameters
-    ----------
-    nodes : numpy.ndarray
-        Array of shape ``(num_entities, num_nodes_per_entity)`` of node numbers
-        in the bottom layer.
-    offset : int or numpy.ndarray
-        Increment in node number between successive layers. This broadcasts
-        against ``nodes``.
-    num_layers : int
-        Number of layers of cells in the extruded mesh.
-
-    Returns
-    -------
-    numpy.ndarray
-        Array of shape ``(num_entities * num_layers, num_nodes_per_entity)``.
-        The entities of each column come out contiguous.
-    """
-    nodes = np.asarray(nodes)
-    offset = np.broadcast_to(offset, nodes.shape)
-    layers = np.arange(num_layers).reshape(1, -1, 1)
-    return (nodes[:, None, :] + offset[:, None, :] * layers).reshape(-1, nodes.shape[-1])
-
-
 @PETSc.Log.EventDecorator()
 def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes | None = None, **kwargs) -> matplotlib.collections.PathCollection:
     r"""Plot a 2D or 3D :func:`.VertexOnlyMesh` as a scatter plot.
@@ -315,22 +290,18 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     # vertical dimensions. The horizontal facets bound the bottom and top of
     # each column of cells, so there are none unless the mesh is extruded.
     if mesh.extruded:
-        cell_dim, facet_dim, horiz_facet_dim = (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
+        cell_dim, vert_facet_dim, horiz_facet_dim = (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
     else:
-        cell_dim, facet_dim, horiz_facet_dim = tdim, tdim - 1, None
-    num_layers = mesh.layers - 1 if mesh.extruded else 1
+        cell_dim, facet_dim = tdim, tdim-1
 
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
-    cell_node_map = coordinates.cell_node_map()
-    cell_nodes = cell_node_map.values_with_halo
+    cell_nodes = coordinates.function_space().cell_node_list
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
         idx = _entity_node_list(cell, cell_dim)[0]
         cells = cell_nodes[:, idx]
-        if mesh.extruded:
-            cells = _extrude(cells, cell_node_map.offset[idx], num_layers)
         vertices = coords[cells]
 
         interior_kw["edgecolors"] = interior_kw.get("edgecolors", "k")
@@ -342,36 +313,49 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
     # Add colored lines/polygons for the boundary facets. Each facet is drawn
     # from the nodes of the cell it belongs to that lie on it.
-    facet_node_list = _entity_node_list(cell, facet_dim)
 
-    exterior_facets = mesh.exterior_facets
-    node_map = coordinates.exterior_facet_node_map()
-    selection = facet_node_list[exterior_facets.local_facet_dat.data_ro_with_halos]
-    exterior_faces = np.take_along_axis(node_map.values_with_halo, selection, axis=1)
-    if mesh.extruded:
-        exterior_faces = _extrude(exterior_faces, node_map.offset[selection], num_layers)
-
-    # The bottom and top of an extruded mesh are not facets of the base mesh,
-    # so they are drawn from the cells of the lowest and highest layer instead.
-    # A periodic extrusion identifies the two, leaving no boundary there.
-    horizontal_markers = ["bottom", "top"] if (mesh.extruded
-                                               and not mesh.extruded_periodic) else []
+    markers = list(mesh.facet_markers)
+    if mesh.extruded and not mesh.extruded_periodic:
+        markers += ["bottom", "top"]
 
     def marker_faces(marker):
-        if marker in horizontal_markers:
-            layer = 0 if marker == "bottom" else num_layers - 1
-            idx = _entity_node_list(cell, horiz_facet_dim)[horizontal_markers.index(marker)]
-            return cell_nodes[:, idx] + layer * cell_node_map.offset[idx]
-
-        indices = exterior_facets.subset(int(marker)).indices
         if mesh.extruded:
-            # Every facet of the base mesh was extruded into `num_layers`
-            # facets lying consecutively in the array.
-            indices = (num_layers * indices[:, None]
-                       + np.arange(num_layers)).reshape(-1)
-        return exterior_faces[indices, :]
+            if marker == "top":
+                facet_type = "exterior_facet_top"
+                local_exterior_facet_nums = np.full(mesh.exterior_facets_top.local_size, 1, dtype=int)
+                facet_dim = horiz_facet_dim
+            elif marker == "bottom":
+                facet_type = "exterior_facet_bottom"
+                local_exterior_facet_nums = np.full(mesh.exterior_facets_top.local_size, 0, dtype=int)
+                facet_dim = horiz_facet_dim
+            else:
+                facet_type = "exterior_facet_vert"
+                local_exterior_facet_nums = mesh.exterior_facet_vert_local_facet_indices.data_ro.ravel()
+                facet_dim = vert_facet_dim
+        else:
+            facet_type = "exterior_facet"
+            local_exterior_facet_nums = mesh.exterior_facet_local_facet_indices.data_ro.ravel()
+            facet_dim = tdim - 1
 
-    markers = list(exterior_facets.unique_markers) + horizontal_markers
+        # Identify the nodes per exterior facet iteration entry (i.e. cell) that
+        # correspond to the exterior facets
+        node_map = coordinates.function_space()._iterset_to_node_map_dat(facet_type).data_ro
+        local_facet_selector = _entity_node_list(cell, facet_dim)
+        facet_selector = local_facet_selector[local_exterior_facet_nums]
+        exterior_facet_nodes_per_exterior_facet = np.take_along_axis(node_map, facet_selector, axis=1)
+
+        # Now filter to only have ones that match the marker
+        if marker in {"top", "bottom"}:
+            # these markers don't have subsets
+            subset_indices = Ellipsis
+        else:
+            subset_plex_indices_is = mesh.iter(facet_type, int(marker)).plex_indices_is
+            subset_indices = dmcommon.section_offsets(
+                mesh._plex_to_entity_numbering_sec(facet_type), subset_plex_indices_is
+            ).indices
+
+        return exterior_facet_nodes_per_exterior_facet[subset_indices]
+
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
@@ -1170,9 +1154,7 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        # TODO: What do we do with variable layers?
-        num_layers = 1 if mesh.layers is None else mesh.layers - 1
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
@@ -1198,16 +1180,11 @@ class FunctionPlotter:
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
-        if mesh.extruded:
-            cell_node_list = _extrude(cell_node_list, Q.cell_node_map().offset,
-                                      mesh.layers - 1)
         data = function.dat.data_ro_with_halos[cell_node_list]
-        if function.ufl_shape == ():
-            vec_length = 1
-        else:
-            vec_length = function.ufl_shape[0]
 
-        if vec_length == 1:
+        # Match the indices of the einsum
+        if len(data.shape) == 2:
             data = np.reshape(data, data.shape + (1,))
+        assert len(data.shape) == 3
 
         return np.einsum("ijk, jl->ilk", data, elem).reshape(-1)

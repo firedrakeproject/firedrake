@@ -91,7 +91,7 @@ def test_extruded_periodic_1_layer():
     assert np.allclose(A.M.values, np.array([[1. / 5., 2. / 15.], [2. / 15., 8. / 15]], dtype=ScalarType))
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_extruded_periodic_poisson():
     n = 64
     mesh = UnitIntervalMesh(n)
@@ -111,7 +111,7 @@ def test_extruded_periodic_poisson():
     assert sqrt(assemble(inner(sol - exact, sol - exact) * dx)) < 1.e-7
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_extruded_periodic_annulus():
     m = 5  # num. element in radial direction
     n = 7  # num. element in circumferential direction

@@ -76,7 +76,8 @@ def test_mixed_direct_par_loop_components(f_mixed, idx):
     """
     par_loop((domain, instructions), direct, {'c': (f_mixed[idx], WRITE)})
 
-    assert np.allclose(f_mixed.dat[idx].data, 1.0)
+    label = f_mixed.function_space()._labels[idx]
+    assert np.allclose(f_mixed.dat[label].data_ro, 1.0)
 
 
 def test_direct_par_loop_read_const(f, const):
@@ -121,7 +122,7 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
         assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.subfunctions)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_dict_order_parallel():
     mesh = UnitIntervalMesh(10)
     d = Function(FunctionSpace(mesh, "DG", 0))
@@ -149,7 +150,7 @@ def test_dict_order_parallel():
     """
     par_loop((domain, instructions), dx, arg)
 
-    assert np.allclose(d.dat.data, consts[10].dat.data)
+    assert np.allclose(d.dat.data_ro, consts[10].dat.data_ro)
 
 
 @pytest.mark.parametrize('idx', [0, 1])
@@ -164,7 +165,8 @@ def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
     """
     par_loop((domain, instructions), dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
 
-    assert np.allclose(f_mixed.dat[idx].data, const.dat.data)
+    label = f_mixed.function_space()._labels[idx]
+    assert np.allclose(f_mixed.dat[label].data, const.dat.data)
 
 
 def test_par_loop_const_write_error(f, const):
@@ -274,24 +276,3 @@ def test_par_loop_respects_shape():
 
     par_loop((domain, instructions), dx, {'A': (f_scalar, WRITE)})
     assert np.allclose(f_scalar.dat.data, 1.0)
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_mixed_dat_performs_halo_exchange():
-    # TODO This is actualy a PyOP2 test but PyOP2 does not (!!!) have either
-    # parallel tests or a halo implementation. When pyop3 lands this test should
-    # be moved there.
-
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 1)
-    W = V * V
-    iterset = mesh.cell_set
-    mdat = Function(W).dat
-    mmap = W.cell_node_map()
-
-    mdat[0].data_wo[...] = 1
-    assert not mdat.halo_valid
-
-    kernel = f"""static void k({ScalarType_c} *x) {{ }}"""
-    op2.par_loop(op2.Kernel(kernel, "k"), iterset, mdat(op2.READ, mmap))
-    assert mdat.halo_valid

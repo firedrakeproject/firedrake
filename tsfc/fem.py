@@ -43,7 +43,7 @@ from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             TSFCConstantMixin, entity_avg, one_times,
                             preprocess_expression, simplify_abs)
 
-from pyop2.caching import serial_cache
+from pyop3.cache import serial_cache
 
 
 class ContextBase(ProxyKernelInterface):

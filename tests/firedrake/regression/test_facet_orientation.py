@@ -45,7 +45,7 @@ def run_consistent_facet_orientation(mesh_thunk, variant="equispaced", **kwargs)
     """
     par_loop((domain, instructions), dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
 
-    assert np.allclose(q.dat.data, 0.0)
+    assert np.allclose(q.dat.data_ro, 0.0)
 
 
 @pytest.mark.parametrize('mesh_thunk', meshes)

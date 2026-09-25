@@ -1,6 +1,6 @@
 from pyadjoint.reduced_functional import AbstractReducedFunctional, ReducedFunctional
 from pyadjoint.enlisting import Enlist
-from pyop2.mpi import MPI
+from pyop3.mpi import MPI
 
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
