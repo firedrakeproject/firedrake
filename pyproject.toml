@@ -28,8 +28,7 @@ dependencies = [
   # TODO RELEASE
   "firedrake-rtree @ git+https://github.com/firedrakeproject/firedrake-rtree@main",
   "immutabledict",
-  # TODO RELEASE
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
+  "libsupermesh>=2026.1",
   "loopy>2024.1",
   "numpy",
   "packaging",
@@ -39,7 +38,7 @@ dependencies = [
   "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2026.4.0",
+  "pyadjoint-ad>=2026.9.0",
   "pycparser",
   "pytools[siphash]",
   "requests",
@@ -78,13 +77,16 @@ check = [
   "pytest",
 ]
 docs = [
-  "bibtexparser",
+  "bibtexparser>=2",
   "ipykernel",  # kernel for executing the tutorial notebooks
   "ipympl",  # %matplotlib widget backend used by the tutorial notebooks
   "jupytext",  # convert the .py tutorial notebooks to .ipynb
   "matplotlib",  # needed to resolve API
   "nbsphinx",  # execute and render the tutorial notebooks
+  "networkx",  # draw the pyadjoint tape in the adjoint tutorial notebook
   "numpydoc",
+  "pdf2image",  # render the drawn tape (needs poppler)
+  "pygraphviz",  # networkx's graphviz layout (needs the graphviz headers)
   "pylit",
   "sphinx",
   "sphinx-autobuild",
@@ -124,8 +126,7 @@ ci = [
   "networkx",
   "ngsPETSc>=0.2.0",
   "pdf2image",
-  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
-  # "pygraphviz",
+  "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",
@@ -145,8 +146,7 @@ docker = [  # Used in firedrake-vanilla container
   "nbval",
   "networkx",
   "pdf2image",
-  # TODO: restore this (see https://github.com/firedrakeproject/firedrake/issues/5106)
-  # "pygraphviz",
+  "pygraphviz",
   "pylit",
   "pytest",
   "pytest-order",

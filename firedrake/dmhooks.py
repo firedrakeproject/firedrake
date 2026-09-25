@@ -554,7 +554,7 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     if sf is not None:
         dm.setPointSF(sf)
     if section is not None:
-        dm.setDefaultSection(section)
+        dm.setLocalSection(section)
 
     # Multilevel hierarchies
     dm.setRefine(refine)
