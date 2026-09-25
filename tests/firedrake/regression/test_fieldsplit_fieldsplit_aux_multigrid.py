@@ -28,7 +28,7 @@ class SchurApprox(AuxiliaryOperatorPC):
             return alphabar * q * ((q + 1)/(d + q) - 1)
 
         ctx = firedrake.dmhooks.get_appctx(pc.getDM())
-        d = split(ctx.state)[0]
+        d = split(ctx._state)[0]
         (u, p) = split(trial)
         (v, q) = split(test)
         K = (alpha(d) * inner(u, v)*dx

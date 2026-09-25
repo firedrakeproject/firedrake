@@ -304,8 +304,13 @@ class _SNESContext:
     ) -> Any:
         """Return a Python object from either the options database or appctx.
 
-        This is a temporary method to facilitate the deprecation process for
-        the appctx.
+        This function first checks the options database for the prefixed option.
+        If the retrieved value is not a string then it is returned. If it is a
+        string then the value is assumed to be a key in the appctx, and the
+        appctx is subsequently searched.
+
+        For backwards compatibility, if the option is not in the options database
+        then the unprefixed option is then directly searched for in the appctx.
 
         Parameters
         ----------
@@ -329,9 +334,14 @@ class _SNESContext:
 
         """
         opts = petsctools.Options(prefix)
-        try:
+
+        if option in opts:
             value = opts[option]
-        except KeyError:
+
+            if isinstance(value, str):
+                # value is a key into the appctx
+                value = self.appctx[value].obj
+        else:
             # not in the options database - try the old, unprefixed approach
             try:
                 value = self.appctx[option]
@@ -339,10 +349,11 @@ class _SNESContext:
                 if default is not _missing:
                     value = default
                 else:
-                    raise KeyError
+                    raise KeyError(f"{option} not found in the options database or appctx")
             else:
                 assert isinstance(value, dmhooks.Hooked)
                 value = value.obj
+
         return value
 
     def reconstruct(self,
