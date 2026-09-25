@@ -11,7 +11,6 @@ from ufl.classes import (
 )
 from ufl.algorithms.map_integrands import map_integrands
 from ufl.algorithms.analysis import has_type
-from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.dag_traverser import DAGTraverser
 
