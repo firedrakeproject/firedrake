@@ -1,5 +1,7 @@
 from firedrake import *
+from firedrake.vertexonly_mutation import VertexOnlyMeshMutator
 import pytest
+from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
 from mpi4py import MPI
 
