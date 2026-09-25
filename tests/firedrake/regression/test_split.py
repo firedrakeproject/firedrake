@@ -129,7 +129,7 @@ def test_split_coefficient_not_argument():
 
 @pytest.mark.parallel([1, 3])
 def test_split_adjoint_action():
-    V = FunctionSpace(UnitIntervalMesh(3), "CG", 1)
+    V = FunctionSpace(UnitSquareMesh(4, 4), "CG", 1)
     W = V * V
     u, _ = TrialFunctions(W)
     c = Cofunction(V.dual()).assign(1)
@@ -149,7 +149,7 @@ def test_split_adjoint_action():
 
 @pytest.mark.parallel([1, 3])
 def test_split_action_composition():
-    mesh = UnitIntervalMesh(3)
+    mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
     Q = FunctionSpace(mesh, "CG", 2)
     W = V * Q

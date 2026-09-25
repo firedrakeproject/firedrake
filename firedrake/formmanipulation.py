@@ -244,7 +244,7 @@ class ExtractSubBlock(DAGTraverser):
 
     @process.register(ZeroBaseForm)
     def _(self, o, blocks):
-        return ZeroBaseForm(tuple(self._subspace_argument(a, blocks) for a in o.arguments()))
+        return ZeroBaseForm(self._subspace_argument(a, blocks) for a in o.arguments())
 
     @process.register(Interpolate)
     @DAGTraverser.postorder
