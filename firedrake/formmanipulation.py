@@ -20,7 +20,11 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
-from firedrake.slate.slate import Block, TensorBase, as_slate
+from firedrake.slate.slate import (
+    Add, AssembledVector, Block, BlockAssembledVector, DiagonalTensor,
+    Factorization, Inverse, Mul, Reciprocal, ScalarMul, Solve, Tensor,
+    TensorBase, Transpose, as_slate,
+)
 from firedrake.ufl_expr import Coargument
 
 
@@ -80,6 +84,10 @@ class ExtractSubBlock(DAGTraverser):
 
         return self(form, blocks=tuple(as_tuple(i) for i in argument_indices))
 
+    def push(self, expression):
+        """Push Slate blocks through an expression."""
+        return self(expression, blocks=())
+
     @functools.singledispatchmethod
     def process(self, o, blocks):
         return super().process(o, blocks=blocks)
@@ -96,11 +104,67 @@ class ExtractSubBlock(DAGTraverser):
             return self(ZeroBaseForm(o.arguments()), blocks=blocks)
         return form
 
+    @process.register(Transpose)
+    def _(self, o, blocks):
+        if not blocks:
+            return o
+        return Transpose(*(self(child, blocks=blocks[::-1]) for child in o.children))
+
+    @process.register(ScalarMul)
+    def _(self, o, blocks):
+        tensor, = o.children
+        return ScalarMul(o.scalar, self(tensor, blocks=blocks))
+
+    @process.register(Add)
+    @process.register(DiagonalTensor)
+    @process.register(Reciprocal)
+    def _(self, o, blocks):
+        return type(o)(*(self(child, blocks=blocks) for child in o.children))
+
+    @process.register(Factorization)
+    @process.register(Inverse)
+    @process.register(Solve)
+    def _(self, o, blocks):
+        expression = type(o)(*(self(child, blocks=()) for child in o.children))
+        return Block(expression, blocks) if blocks else expression
+
+    @process.register(Mul)
+    def _(self, o, blocks):
+        if blocks and len(blocks) == 2 and all(operand.rank == 2 for operand in o.operands):
+            A, B = o.operands
+            row, col = blocks
+            full_col_A = tuple(range(len(A.arguments()[1].function_space())))
+            full_row_B = tuple(range(len(B.arguments()[0].function_space())))
+            A = self(Block(A, (row, full_col_A)), blocks=())
+            B = self(Block(B, (full_row_B, col)), blocks=())
+            return type(o)(A, B)
+
+        expression = type(o)(*(self(child, blocks=()) for child in o.children))
+        return Block(expression, blocks) if blocks else expression
+
+    @process.register(Tensor)
+    def _(self, o, blocks):
+        return Tensor(Block(o, blocks).form) if blocks else o
+
+    @process.register(AssembledVector)
+    def _(self, o, blocks):
+        return BlockAssembledVector(o._function, o, blocks) if blocks else o
+
+    @process.register(Block)
+    def _(self, o, blocks):
+        if blocks:
+            reindexed = tuple(
+                big[slice(small[0], small[-1] + 1)]
+                for big, small in zip(o._indices, blocks)
+            )
+        else:
+            reindexed = o._indices
+        child, = o.children
+        return self(child, blocks=reindexed)
+
     @process.register(TensorBase)
     def _(self, o, blocks):
-        from firedrake.slate.slac.optimise import push_block
-
-        return push_block(Block(o, blocks))
+        return super().process(o, blocks=blocks)
 
     @process.register(Adjoint)
     def _(self, o, blocks):

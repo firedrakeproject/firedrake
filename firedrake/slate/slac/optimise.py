@@ -1,6 +1,7 @@
 from gem.node import MemoizerArg
 from functools import singledispatch
 from itertools import repeat
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.slate.slate import *
 from collections import namedtuple
 from firedrake.ufl_expr import adjoint
@@ -29,7 +30,7 @@ def optimise(expression, parameters):
     Returns: An optimised Slate expression
     """
     # 0) Block optimisation
-    expression = push_block(expression)
+    expression = ExtractSubBlock().push(expression)
 
     # 1) DiagonalTensor optimisation
     expression = push_diag(expression)
@@ -42,99 +43,6 @@ def optimise(expression, parameters):
     expression = drop_double_transpose(expression)
 
     return expression
-
-
-def push_block(expression):
-    """Executes a Slate compiler optimisation pass.
-    The optimisation is achieved by pushing blocks from the outside to the inside of an expression.
-    Without the optimisation the local TSFC kernels are assembled first
-    and then the result of the assembly kernel gets indexed in the Slate kernel
-    (and further linear algebra operations maybe done on it).
-    The optimisation pass essentially changes the order of assembly and indexing.
-
-    :arg expression: A (potentially unoptimised) Slate expression.
-
-    Returns: An optimised Slate expression, where Blocks are terminal whereever possible.
-    """
-    mapper = MemoizerArg(_push_block)
-    ret = mapper(expression, ())
-    return ret
-
-
-@singledispatch
-def _push_block(expr, self, indices):
-    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
-
-
-@_push_block.register(Transpose)
-def _push_block_transpose(expr, self, indices):
-    """Indices of the Blocks are transposed if Block is pushed into a Transpose."""
-    return Transpose(*map(self, expr.children, repeat(indices[::-1]))) if indices else expr
-
-
-@_push_block.register(ScalarMul)
-def _push_block_scalar_mul(expr, self, indices):
-    tensor, = expr.children
-    return ScalarMul(expr.scalar, self(tensor, indices))
-
-
-@_push_block.register(Add)
-@_push_block.register(DiagonalTensor)
-@_push_block.register(Reciprocal)
-def _push_block_distributive(expr, self, indices):
-    """Distributes Blocks for these nodes"""
-    return type(expr)(*map(self, expr.children, repeat(indices)))
-
-
-@_push_block.register(Factorization)
-@_push_block.register(Inverse)
-@_push_block.register(Solve)
-def _push_block_stop(expr, self, indices):
-    """Blocks cannot be pushed further into this set of nodes."""
-    expr = type(expr)(*map(self, expr.children, repeat(tuple())))
-    return Block(expr, indices) if indices else expr
-
-
-@_push_block.register(Mul)
-def _push_block_mul(expr, self, indices):
-    """Pushes matrix blocks through products when their indices permit it."""
-    if indices and len(indices) == 2 and all(operand.rank == 2 for operand in expr.operands):
-        A, B = expr.operands
-        row, col = indices
-        full_col_A = tuple(range(len(A.arguments()[1].function_space())))
-        full_row_B = tuple(range(len(B.arguments()[0].function_space())))
-        A = self(Block(A, (row, full_col_A)), ())
-        B = self(Block(B, (full_row_B, col)), ())
-        return type(expr)(A, B)
-
-    return _push_block_stop(expr, self, indices)
-
-
-@_push_block.register(Tensor)
-def _push_block_tensor(expr, self, indices):
-    """Turns a Block on a Tensor into a Tensor of an indexed form."""
-    return Tensor(Block(expr, indices).form) if indices else expr
-
-
-@_push_block.register(AssembledVector)
-def _push_block_assembled_vector(expr, self, indices):
-    """Turns a Block on an AssembledVector into the  specialized node BlockAssembledVector."""
-    return BlockAssembledVector(expr._function, expr, indices) if indices else expr
-
-
-@_push_block.register(Block)
-def _push_block_block(expr, self, indices):
-    """Inlines Blocks into each other.
-    Note that the indices are inlined from the ouside.
-    Example: If we have got the Slate expression A.blocks[:3,:3].blocks[0,0], we encounter the (0,0)-blocks first.
-    The first time round the indices are empty and the (0,0) are in expr._indices.
-    The second time round, (0,0) is stored in indices and the slices are in expr._indices.
-    So in the following line we basically say indices = ((0,1,2)[0], (0,1,2)[0])
-    """
-    reindexed = tuple(big[slice(small[0], small[-1]+1)] for big, small in zip(expr._indices, indices))
-    indices = expr._indices if not indices else reindexed
-    block, = map(self, expr.children, repeat(indices))
-    return block
 
 
 def push_diag(expression):
