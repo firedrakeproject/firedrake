@@ -3,7 +3,7 @@ from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction
-from firedrake.dmhooks import get_function_space
+from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.preconditioners.hypre_ams import chop
 from firedrake.interpolation import interpolate
 from finat.ufl import FiniteElement, TensorElement, VectorElement
@@ -17,7 +17,7 @@ class HypreADS(PCBase):
     def initialize(self, obj):
         from firedrake.assemble import assemble
         A, P = obj.getOperators()
-        appctx = self.get_appctx(obj)
+        ctx = get_appctx(obj.getDM())
         prefix = obj.getOptionsPrefix() or ""
         V = get_function_space(obj.getDM()).collapse()
         mesh = V.mesh()
@@ -41,8 +41,9 @@ class HypreADS(PCBase):
         P1 = V.reconstruct(element=P1_element)
         VectorP1 = V.reconstruct(element=coords_element)
 
-        G_callback = appctx.get("get_gradient", None)
-        if G_callback is None:
+        try:
+            G_callback = ctx.get_python_option(prefix, "get_gradient")
+        except KeyError:
             try:
                 G = chop(assemble(interpolate(grad(TrialFunction(P1)), NC1)).petscmat)
             except NotImplementedError:
@@ -50,8 +51,9 @@ class HypreADS(PCBase):
                 G = tabulate_exterior_derivative(P1, NC1)
         else:
             G = G_callback(P1, NC1)
-        C_callback = appctx.get("get_curl", None)
-        if C_callback is None:
+        try:
+            C_callback = ctx.get_python_option(prefix, "get_curl")
+        except KeyError:
             try:
                 C = chop(assemble(interpolate(curl(TrialFunction(NC1)), V)).petscmat)
             except NotImplementedError:

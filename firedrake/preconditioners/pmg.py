@@ -246,15 +246,7 @@ class PMGBase(PCSNESBase):
         fine_to_coarse_map[fu] = cu
 
         # Coarsen the appctx: the user might want to provide solution-dependent expressions and forms
-        cappctx = dict(fctx.appctx)
-        for key in cappctx:
-            val = cappctx[key]
-            if isinstance(val, dict):
-                cappctx[key] = self.coarsen_quadrature(val, fdeg, cdeg)
-            elif isinstance(val, ufl.Form):
-                cappctx[key] = _coarsen_form(val, fine_to_coarse_map)
-            elif isinstance(val, ufl.classes.Expr):
-                cappctx[key] = ufl.replace(val, fine_to_coarse_map)
+        cappctx = {k: v.coarsen() for k, v in fctx.appctx.items()}
 
         # Coarsen the _SNESContext
         cctx = fctx.reconstruct(cproblem, mat_type, pmat_type,

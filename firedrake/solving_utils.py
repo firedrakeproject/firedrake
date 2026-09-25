@@ -1,7 +1,9 @@
 import typing
 from itertools import chain
+from typing import Any, Literal
 
 import numpy
+import petsctools
 import ufl
 
 from pyop2 import op2
@@ -135,7 +137,11 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
-class _SNESContext(object):
+_missing = object()
+"""Sentinel value used as a default for when 'None' is potentially meaningful."""
+
+
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -180,6 +186,9 @@ class _SNESContext(object):
     pre_apply_bcs
         If `False`, the problem is linearised around the initial guess before
         imposing the boundary conditions.
+    _state
+        (Deprecated) The current guess of the outermost problem. If `None` then
+        detected from ``problem``.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -199,7 +208,8 @@ class _SNESContext(object):
                  marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 _state: Function | None = None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -226,18 +236,9 @@ class _SNESContext(object):
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
         self._x = problem.u_restrict
+        self._state = _state if _state is not None else self._x
 
-        if appctx is None:
-            appctx = {}
-        # A split context will already get the full state.
-        # TODO, a better way of doing this.
-        # Now we don't have a temporary state inside the snes
-        # context we could just require the user to pass in the
-        # full state on the outside.
-        appctx.setdefault("state", self._x)
-        appctx.setdefault("form_compiler_parameters", self.fcp)
-
-        self.appctx = appctx
+        self.appctx = appctx or {}
         self.matfree = matfree
         self.pmatfree = pmatfree
         self.F = problem.F
@@ -295,6 +296,66 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
+    def get_python_option(
+        self,
+        prefix: str,
+        option: str,
+        default: Any = _missing,
+    ) -> Any:
+        """Return a Python object from either the options database or appctx.
+
+        This function first checks the options database for the prefixed option.
+        If the retrieved value is not a string then it is returned. If it is a
+        string then the value is assumed to be a key in the appctx, and the
+        appctx is subsequently searched.
+
+        For backwards compatibility, if the option is not in the options database
+        then the unprefixed option is then directly searched for in the appctx.
+
+        Parameters
+        ----------
+        prefix
+            The options prefix.
+        option
+            The option name.
+        default
+            Default value if option is not found. If unspecified then a
+            `KeyError` is raised.
+
+        Returns
+        -------
+        Any
+            The object referred to by ``option``.
+
+        Raises
+        ------
+        KeyError
+            If ``option`` is not found and ``default`` is unspecified.
+
+        """
+        opts = petsctools.Options(prefix)
+
+        if option in opts:
+            value = opts[option]
+
+            if isinstance(value, str):
+                # value is a key into the appctx
+                value = self.appctx[value].obj
+        else:
+            # not in the options database - try the old, unprefixed approach
+            try:
+                value = self.appctx[option]
+            except KeyError:
+                if default is not _missing:
+                    value = default
+                else:
+                    raise KeyError(f"{option} not found in the options database or appctx")
+            else:
+                assert isinstance(value, dmhooks.Hooked)
+                value = value.obj
+
+        return value
+
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
                     mat_type: str | None = None,
@@ -335,6 +396,7 @@ class _SNESContext(object):
             post_function_callback=self._post_function_callback,
             pre_apply_bcs=self.pre_apply_bcs,
             marking_callback=self._marking_callback,
+            _state=self._state,
         )
         for k, v in default_options.items():
             if kwargs.get(k) is None:
@@ -697,3 +759,38 @@ class _SNESContext(object):
     @cached_property
     def _F(self):
         return Cofunction(self.F.arguments()[0].function_space().dual())
+
+
+def _refine_function(function) -> Function:
+    return _transfer_function(function, "refine")
+
+
+def _coarsen_function(function) -> Function:
+    return _transfer_function(function, "coarsen")
+
+
+def _transfer_function(
+    function: Function,
+    mode: Literal["refine", "coarsen"],
+) -> Function:
+    from firedrake.mg.ufl_utils import refine
+
+    coarsen = dmhooks.get_ctx_coarsener(function.function_space().dm)
+
+    V = function.function_space()
+    Vnew = refine(V, refine) if mode == "refine" else coarsen(V, coarsen)
+
+    name = function.name()
+    if name is not None:
+        try:
+            name, prev_level = name.split("_level_")
+        except ValueError:
+            prev_level = 0
+        level_inc = 1 if mode == "refine" else -1
+        level = int(prev_level) + level_inc
+        name = f"{name}_level_{level}"
+
+    new_func = Function(Vnew, name=name)
+    manager = dmhooks.get_transfer_manager(V.dm)
+    manager.transfer(function, new_func)
+    return new_func
