@@ -129,39 +129,67 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     return permutation
 
 
-def _transfer_high_order_coordinates(coarse_mesh, fine_mesh, order):
-    """Transfer high-order coordinates from a Netgen geometry to a refined mesh.
+def _snap_to_netgen(plex: PETSc.DMPlex, geometry: "ngm.Mesh") -> "ngm.Mesh":
+    """Project the boundary vertices of a refined DMPlex onto a Netgen geometry.
 
-    ``fine_mesh`` is a straight-edged (order 1) refinement of ``coarse_mesh``.
-    This rebuilds its Netgen mesh from ``coarse_mesh``'s geometry and curves
-    it to the requested ``order``, so that the curved fine mesh follows the
-    same underlying CAD geometry as the coarse one, rather than just
-    interpolating the coarse mesh's straight-edged coordinates.
+    A refined DMPlex must be snapped before it is refined again, so that each
+    level subdivides a mesh that already lies on the geometry.
 
     Parameters
     ----------
-    coarse_mesh : MeshGeometry
-        The coarse mesh, carrying the Netgen geometry to curve against.
-    fine_mesh : MeshGeometry
-        A straight-edged refinement of ``coarse_mesh``. Its Netgen attributes
-        are set here, as they are required to curve it.
+    plex
+        A DMPlex with linear coordinates. Its coordinates are modified in place.
+    geometry
+        The Netgen mesh of the coarse mesh.
+
+    Returns
+    -------
+    netgen.meshing.Mesh
+        The Netgen mesh of the local part of ``plex``.
+
+    """
+    ngmesh = createNetgenMesh(plex, geometry)
+    coordinates = plex.getCoordinatesLocal()
+    coordinates.array[:] = ngmesh.Coordinates().reshape(-1)
+    plex.setCoordinatesLocal(coordinates)
+    return ngmesh
+
+
+def _curve_netgen_mesh(mesh, order, cg_field=None):
+    """Curve the coordinates of a mesh that has a Netgen mesh.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        A mesh with Netgen attributes.
     order : int
-        The polynomial order of the curved coordinate field.
+        The polynomial degree of the curved coordinates.
+    cg_field : bool
+        Whether the curved coordinates are continuous. Defaults to the
+        continuity of the coordinates of ``mesh``.
 
     Returns
     -------
     MeshGeometry
-        A mesh sharing ``fine_mesh``'s topology, with coordinates curved to
-        ``order`` against ``coarse_mesh``'s geometry.
+        A mesh that shares the topology of ``mesh``.
 
     """
-    fine_mesh.netgen_mesh = createNetgenMesh(fine_mesh.topology_dm, coarse_mesh.netgen_mesh)
-    fine_mesh.netgen_flags = getattr(coarse_mesh, "netgen_flags", {})
-    cg_field = not coarse_mesh.coordinates.function_space().finat_element.is_dg()
-    curved_coordinates = fine_mesh.curve_field(order=order, cg_field=cg_field)
-    curved_mesh = firedrake.Mesh(curved_coordinates, name=fine_mesh.name)
-    curved_mesh.netgen_mesh = fine_mesh.netgen_mesh
-    curved_mesh.netgen_flags = fine_mesh.netgen_flags
+    if order == mesh.coordinates.function_space().ufl_element().degree():
+        return mesh
+    coordinates = mesh.curve_field(order=order, cg_field=cg_field)
+    curved_mesh = firedrake.Mesh(coordinates,
+                                 name=mesh.name,
+                                 reorder=None,
+                                 perm_is=mesh._dm_renumbering,
+                                 distribution_parameters=firedrake.mesh.DISTRIBUTION_PARAMETERS_NOOP,
+                                 tolerance=mesh.tolerance,
+                                 comm=mesh.comm)
+    curved_mesh.netgen_mesh = mesh.netgen_mesh
+    curved_mesh.netgen_flags = mesh.netgen_flags
+    curved_mesh.sfBC = mesh.sfBC
+    curved_mesh.sfBC_orig = mesh.sfBC_orig
+    curved_mesh._distribution_parameters = mesh._distribution_parameters
+    curved_mesh._did_reordering = mesh._did_reordering
     return curved_mesh
 
 
