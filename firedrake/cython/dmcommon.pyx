@@ -3966,6 +3966,151 @@ def create_halo_exchange_sf(PETSc.DM dm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
+    """Create and complete a depth-labelled cohesive surface.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The parent DMPlex.
+    label_name : str
+        The name of the parent label that marks the surface facets.
+    subdomain_id : int
+        The value in ``label_name`` that marks the surface facets.
+
+    Returns
+    -------
+    PETSc.DMLabel
+        A new label that marks the surface and its closure by point depth.
+    """
+    cdef:
+        PETSc.DMLabel source_label
+        PETSc.DMLabel cohesive_label
+        PETSc.IS facets
+        DMLabel source = NULL
+        DMLabel cohesive = NULL
+        PETSc.DM oriented
+        PETSc.DMLabel oriented_label
+        PetscInt nfacets, nselected, i, facet, depth, closure_index, closure_point
+        PetscInt closure_size, chart_start, chart_end, dim
+        const PetscInt *facet_indices = NULL
+        PetscInt *closure = NULL
+        PetscInt[::1] ridge_counts
+
+    source_label = dm.getLabel(label_name)
+    source = <DMLabel>source_label.dmlabel
+    if source == NULL:
+        raise ValueError(f"Mesh has no label named {label_name!r}")
+
+    # A rank that does not see the surface has no stratum.
+    facets = source_label.getStratumIS(subdomain_id)
+    nfacets = 0
+    if facets.iset != NULL:
+        CHKERR(ISGetSize(facets.iset, &nfacets))
+        CHKERR(ISGetIndices(facets.iset, &facet_indices))
+    chart_start, chart_end = dm.getChart()
+    ridge_counts = np.zeros(chart_end - chart_start, dtype=IntType)
+
+    # DMPlexLabelCohesiveComplete expects each surface point to be marked
+    # with its depth.
+    cohesive_label_name = "firedrake_cohesive_label"
+    dm.createLabel(cohesive_label_name)
+    cohesive_label = dm.getLabel(cohesive_label_name)
+    cohesive = <DMLabel>cohesive_label.dmlabel
+    nselected = 0
+    for i in range(nfacets):
+        facet = facet_indices[i]
+        CHKERR(DMPlexGetPointDepth(dm.dm, facet, &depth))
+        if depth != dm.getDimension() - 1:
+            continue
+        nselected += 1
+        CHKERR(DMPlexGetTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+        for closure_index in range(closure_size):
+            closure_point = closure[2 * closure_index]
+            CHKERR(DMPlexGetPointDepth(dm.dm, closure_point, &depth))
+            CHKERR(DMLabelSetValue(cohesive, closure_point, depth))
+            if depth == dm.getDimension() - 2:
+                ridge_counts[closure_point - chart_start] += 1
+        CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+    if facets.iset != NULL:
+        CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
+    comm = dm.comm.tompi4py()
+    if comm.allreduce(nselected, op=MPI.SUM) == 0:
+        dm.removeLabel(cohesive_label_name)
+        raise ValueError("BrokenMesh requires a codimension-one label")
+    if comm.allreduce(np.max(ridge_counts, initial=0) > 2, op=MPI.LOR):
+        dm.removeLabel(cohesive_label_name)
+        raise ValueError("Gamma has a junction")
+
+    # Orient the facets of the surface consistently, so that the surface has
+    # a well-defined positive side. DMPlexOrientLabel changes cones, so the
+    # label is oriented and completed on a copy, which keeps the parent
+    # unchanged. The filter copies the label.
+    dim = dm.getDimension()
+    oriented = submesh_create(dm, dim, "depth", dim, PETSC_FALSE)
+    dm.removeLabel(cohesive_label_name)
+    oriented_label = oriented.getLabel(cohesive_label_name)
+    CHKERR(DMPlexOrientLabel(oriented.dm, <DMLabel>oriented_label.dmlabel))
+    # Mark every point that touches the surface with the side it lies on.
+    # With a NULL boundary label, PETSc finds the points on the crack tip,
+    # which are not duplicated.
+    CHKERR(DMPlexLabelCohesiveComplete(oriented.dm, <DMLabel>oriented_label.dmlabel,
+                                       NULL, 1, PETSC_FALSE, NULL))
+
+    # The copy has every point of the parent, so the subpoint map carries the
+    # label back to the parent.
+    subpoints = oriented.getSubpointIS().indices
+    cohesive_label = PETSc.DMLabel().create(cohesive_label_name)
+    for value in oriented_label.getValueIS().indices:
+        stratum = subpoints[oriented_label.getStratumIS(value).indices]
+        cohesive_label.insertIS(PETSc.IS().createGeneral(stratum, comm=PETSc.COMM_SELF), value)
+    return cohesive_label
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def transform_source_point_map(PETSc.DM child,
+                               PETSc.DMPlexTransform transform):
+    """Return source points for a filtered transform output.
+
+    Parameters
+    ----------
+    child : PETSc.DM
+        A DMPlex filtered from the transform output.
+    transform : PETSc.DMPlexTransform
+        The transform that produced the unfiltered output.
+
+    Returns
+    -------
+    numpy.ndarray
+        The source point for each point in ``child``. Repeated source points
+        are retained because a cohesive transform duplicates points.
+    """
+    cdef:
+        PETSc.IS child_subpoints
+        const PetscInt *child_points = NULL
+        PetscInt child_start, child_end, child_point, transformed_point
+        PetscInt source_point, replica
+        PetscInt[::1] source_points
+
+    child_subpoints = child.getSubpointIS()
+    if child_subpoints.iset == NULL:
+        raise ValueError("The filtered DMPlex has no subpoint map")
+    CHKERR(ISGetIndices(child_subpoints.iset, &child_points))
+    child_start, child_end = child.getChart()
+    source_points = np.empty(child_end - child_start, dtype=IntType)
+    for child_point in range(child_start, child_end):
+        transformed_point = child_points[child_point - child_start]
+        CHKERR(DMPlexTransformGetSourcePoint(
+            transform.tr, transformed_point, NULL, NULL,
+            &source_point, &replica))
+        source_points[child_point - child_start] = source_point
+    CHKERR(ISRestoreIndices(child_subpoints.iset, &child_points))
+    return np.asarray(source_points)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def submesh_create(PETSc.DM dm,
                    subdim,
                    label_name,
@@ -4249,6 +4394,7 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
 def submesh_create_cell_closure(
     PETSc.DM subdm,
     PETSc.DM dm,
+    PetscInt[::1] subpoints,
     PETSc.Section subcell_numbering,
     PETSc.Section cell_numbering,
     np.ndarray cell_closure,
@@ -4262,6 +4408,9 @@ def submesh_create_cell_closure(
         The subdm.
     dm : PETSc.DM
         The parent dm.
+    subpoints : numpy.ndarray
+        The parent point of each subdm point. A parent point can appear more
+        than once, but only once in the closure of each subcell.
     subcell_numbering : PETSc.Section
         The cell_numbering of the submesh.
     cell_numbering : PETSc.Section
@@ -4273,8 +4422,6 @@ def submesh_create_cell_closure(
 
     """
     cdef:
-        PETSc.IS subpoint_is
-        const PetscInt *subpoint_indices = NULL
         PetscInt *subpoint_indices_inv = NULL
         PetscInt dim, subdim
         PetscInt subpStart, subpEnd, subp, subcStart, subcEnd, subc, subcell
@@ -4292,8 +4439,6 @@ def submesh_create_cell_closure(
     get_height_stratum(subdm.dm, 0, &subcStart, &subcEnd)
     get_chart(dm.dm, &pStart, &pEnd)
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
-    subpoint_is = subdm.getSubpointIS()
-    CHKERR(ISGetIndices(subpoint_is.iset, &subpoint_indices))
     CHKERR(PetscMalloc1(pEnd - pStart, &subpoint_indices_inv))
     for p in range(pStart, pEnd):
         subpoint_indices_inv[p - pStart] = -1
@@ -4301,7 +4446,7 @@ def submesh_create_cell_closure(
     nclosure = cell_closure.shape[1]
     nsubclosure = subcell_closure.shape[1]
     for subc in range(subcStart, subcEnd):
-        c = subpoint_indices[subc]
+        c = subpoints[subc]
         if subdim == dim:
             pass
         elif subdim == dim - 1:
@@ -4316,7 +4461,7 @@ def submesh_create_cell_closure(
         get_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
         for subcl in range(nsubclosure):
             subp = subclosure[2*subcl]
-            p = subpoint_indices[subp]
+            p = subpoints[subp]
             subpoint_indices_inv[p - pStart] = subp  # set to non-negative subp.
         subcl = 0
         for cl in range(nclosure):
@@ -4329,11 +4474,10 @@ def submesh_create_cell_closure(
             raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
         for subcl in range(nsubclosure):
             subp = subclosure[2*subcl]
-            p = subpoint_indices[subp]
+            p = subpoints[subp]
             subpoint_indices_inv[p - pStart] = -1  # set back to -1.
         restore_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
     CHKERR(PetscFree(subpoint_indices_inv))
-    CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
     return subcell_closure
 
 

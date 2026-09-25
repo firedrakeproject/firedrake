@@ -105,6 +105,9 @@ runs:
         fi
 
         cd petsc
+        : # DROP BEFORE MERGE: Test PETSc's pbrubeck/orient-label-overlap branch.
+        git fetch --depth 1 origin pbrubeck/orient-label-overlap
+        git checkout --detach FETCH_HEAD
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
