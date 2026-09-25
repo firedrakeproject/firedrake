@@ -23,7 +23,6 @@ from collections import OrderedDict, namedtuple, defaultdict
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
-from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TestFunction
 from firedrake.utils import unique
@@ -1642,3 +1641,6 @@ precedences = [
 for level, group in enumerate(precedences):
     for tensor in group:
         tensor.prec = level
+
+
+from firedrake.formmanipulation import ExtractSubBlock, subspace

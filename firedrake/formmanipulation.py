@@ -20,7 +20,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
-from firedrake import slate
+from firedrake.slate.slate import Block, TensorBase, as_slate
 from firedrake.ufl_expr import Coargument
 
 
@@ -74,13 +74,9 @@ class ExtractSubBlock(DAGTraverser):
         if all(len(a.function_space()) == 1 for a in args):
             return form
 
-        if isinstance(form, FormSum) and has_type(form, slate.slate.TensorBase):
-            # A Slate component cannot be traversed as a UFL DAG, so recover the
-            # equivalent Slate expression and take a Block of that instead.
-            form = slate.slate.as_slate(form)
-
-        if isinstance(form, slate.slate.TensorBase):
-            return slate.push_block(slate.slate.Block(form, tuple(self.blocks[i] for i in range(form.rank))))
+        if isinstance(form, FormSum) and has_type(form, TensorBase):
+            # Convert a UFL sum that contains Slate components into Slate.
+            form = as_slate(form)
 
         return self(form, blocks=tuple(as_tuple(i) for i in argument_indices))
 
@@ -99,6 +95,12 @@ class ExtractSubBlock(DAGTraverser):
         if expand_derivatives(form).empty():
             return self(ZeroBaseForm(o.arguments()), blocks=blocks)
         return form
+
+    @process.register(TensorBase)
+    def _(self, o, blocks):
+        from firedrake.slate.slac.optimise import push_block
+
+        return push_block(Block(o, blocks))
 
     @process.register(Adjoint)
     def _(self, o, blocks):

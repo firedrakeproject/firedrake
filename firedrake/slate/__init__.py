@@ -6,4 +6,3 @@ from firedrake.slate.slate import (  # noqa: F401
 from firedrake.slate.static_condensation import (  # noqa: F401
     HybridizationPC, SchurComplementBuilder, SCPC
 )
-from firedrake.slate.slac.optimise import push_block  # noqa: F401
