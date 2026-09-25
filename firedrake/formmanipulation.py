@@ -10,6 +10,8 @@ from ufl.classes import (
     Interpolate, FormSum,
 )
 from ufl.algorithms.map_integrands import map_integrands
+from ufl.algorithms.analysis import has_type
+from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.dag_traverser import DAGTraverser
 
@@ -19,6 +21,7 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
+from firedrake import slate
 from firedrake.ufl_expr import Coargument
 
 
@@ -71,6 +74,15 @@ class ExtractSubBlock(DAGTraverser):
             return form
         if all(len(a.function_space()) == 1 for a in args):
             return form
+
+        if isinstance(form, FormSum) and has_type(form, slate.slate.TensorBase):
+            # A Slate component cannot be traversed as a UFL DAG, so recover the
+            # equivalent Slate expression and take a Block of that instead.
+            form = slate.slate.as_slate(form)
+
+        if isinstance(form, slate.slate.TensorBase):
+            return slate.push_block(slate.slate.Block(form, tuple(self.blocks[i] for i in range(form.rank))))
+
         return self(form, blocks=tuple(as_tuple(i) for i in argument_indices))
 
     @functools.singledispatchmethod
