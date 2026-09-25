@@ -765,7 +765,7 @@ class Block(TensorBase):
         assert tensor.terminal
         if not tensor.assembled:
             # turns a Block on a Tensor into an indexed ufl form
-            return ExtractSubBlock().split(tensor.form, self._indices)
+            return tensor._subblock_extractor.split(tensor.form, self._indices)
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
@@ -973,6 +973,11 @@ class Tensor(TensorBase):
     def reconstruct(self, form, diagonal=None):
         """Reconstructs this Tensor with new operands."""
         return Tensor(form, diagonal=diagonal or self.diagonal)
+
+    @cached_property
+    def _subblock_extractor(self):
+        """Returns the traverser that extracts this tensor's subblocks."""
+        return ExtractSubBlock()
 
     @property
     def ufl_operands(self):
