@@ -9,7 +9,8 @@ import os
 from functools import cached_property
 from typing import Any
 
-from gem import gem
+import gem
+import gem.impero
 import numpy as np
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
@@ -48,13 +49,6 @@ from pyop3.insn.base import (
 from pyop3.compile.context import CodegenContext, Executable
 
 
-@dataclasses.dataclass(frozen=True)
-class GemAssignment:
-    lhs: gem.Node
-    rhs: gem.Node
-    mode: Literal["write", "inc"]
-
-
 @dataclasses.dataclass
 class GemExecutable(Executable):
 
@@ -66,6 +60,7 @@ class GemExecutable(Executable):
 
     @cached_property
     def _callable(self):
+        impero = gem.impero_utils.compile_gem(self.instructions, ())
         raise NotImplementedError("This is where we need to work next")
 
     @property
@@ -74,6 +69,9 @@ class GemExecutable(Executable):
 
 
 class GemCodegenContext(CodegenContext):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     def arg(self, name, dtype, shape):
         # wrong abstraction I think?
@@ -108,11 +106,10 @@ class GemCodegenContext(CodegenContext):
             case _:
                 raise NotImplementedError
 
-        insn = GemAssignment(assignee, expression, mode)
+        insn = gem.impero.Assignment(assignee, expression, mode)
         self._add_instruction(insn)
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
-        raise NotImplementedError
         # If multiple temporaries with the same initializer are used then they
         # can be shared.
         can_reuse = initializer is not None and read_only
@@ -122,20 +119,31 @@ class GemCodegenContext(CodegenContext):
                 return self._reusable_temporaries[key]
 
         name_in_kernel = self.unique_name(prefix)
-        arg = lp.TemporaryVariable(
-            name_in_kernel,
-            dtype=dtype,
-            shape=shape,
-            initializer=initializer,
-            read_only=read_only,
-            address_space=lp.AddressSpace.LOCAL,
-        )
+        arg = gem.Variable(name_in_kernel, shape, dtype=dtype, data=initializer)
         self._arguments.append(arg)
 
         if can_reuse:
             self._reusable_temporaries[key] = name_in_kernel
 
         return name_in_kernel
+
+    def add_function_call(self, call, loop_indices):
+        # TODO: lower_expr should know what to do with unindexed buffers - they are gem.Variables
+        # not gem.Indexeds
+        gem_args = [
+            self.lower_buffer_access(arg, None, [{}], loop_indices=loop_indices, intent=intent)
+            for arg, intent in zip(call.arguments, call.function.intents, strict=True)
+        ]
+
+        gem_var_replace_map = {
+            kernel_arg_name: gem_expr
+            for kernel_arg_name, gem_expr in zip(call.function.code[1], gem_args, strict=True)
+        }
+        for insn in call.function.code[0]:
+            lhs, rhs = insn
+            new_lhs = gem.replace_variables(lhs, gem_var_replace_map)
+            new_rhs = gem.replace_variables(rhs, gem_var_replace_map)
+            self._add_instruction((new_lhs, new_rhs))
 
     @contextlib.contextmanager
     def enter_loop(self, size, replace_map, loop_indices):
@@ -146,10 +154,6 @@ class GemCodegenContext(CodegenContext):
         gem_size = self.lower_expr(size, [replace_map], loop_indices)
         index = gem.Index(extent=gem_size)
         yield index
-
-    # this isn't needed for non-loopy
-    def set_temporary_shapes(self, shapes):
-        self._temporary_shapes = shapes
 
     def lower_buffer_access(
         self,
@@ -169,19 +173,22 @@ class GemCodegenContext(CodegenContext):
         if isinstance(buffer, PetscMatBuffer):
             buffer = buffer_view.denested.getPythonContext().buffer
 
-        multiindex = tuple(
-            self.lower_expr(layout, [iname_map], loop_indices)
-            for layout, iname_map in zip(layouts, iname_maps, strict=True)
-        )
-
         var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
 
-        # TODO: Unify these types
-        if all(isinstance(i, gem.IndexBase) and isinstance(i.extent, numbers.Integral) for i in multiindex):
-            # simple expressions can use existing gem types
-            return gem.Indexed(var, multiindex)
+        if layouts is None:
+            return var
         else:
-            return gem.Gather(var, multiindex)
+            multiindex = tuple(
+                self.lower_expr(layout, [iname_map], loop_indices)
+                for layout, iname_map in zip(layouts, iname_maps, strict=True)
+            )
+
+            # TODO: Unify these types
+            if all(isinstance(i, gem.IndexBase) and isinstance(i.extent, numbers.Integral) or isinstance(i, numbers.Integral) for i in multiindex):
+                # simple expressions can use existing gem types
+                return gem.Indexed(var, multiindex)
+            else:
+                return gem.Gather(var, multiindex)
 
     # NOTE: This could probably be refactored
     def add_leaf_assignment(

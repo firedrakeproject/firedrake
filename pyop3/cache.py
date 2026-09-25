@@ -275,6 +275,7 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
     # TODO: singledispatch
     @property
     def maxsize(self) -> int:
+        import cachetools  # try to fix gc error
         if isinstance(self.cache, cachetools.Cache):
             return self.cache.maxsize
         else:

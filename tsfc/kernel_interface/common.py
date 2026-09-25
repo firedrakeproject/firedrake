@@ -193,7 +193,7 @@ class KernelBuilderMixin(object):
         for var, rep in zip(self.return_variables, reps):
             mode_irs[mode].setdefault(var, []).append(rep)
 
-    def compile_gem(self, ctx):
+    def compile_gem(self, ctx, to_impero: bool = True):
         """Compile gem representation of integrals to impero_c.
 
         :arg ctx: the context containing the gem representation of integrals.
@@ -230,13 +230,17 @@ class KernelBuilderMixin(object):
         # Extract Variables that are actually used
         active_variables = gem.extract_type(expressions, gem.Variable)
         # Construct ImperoC
-        assignments = list(zip(return_variables, expressions))
-        index_ordering = get_index_ordering(ctx['quadrature_indices'], return_variables)
-        try:
-            impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
-        except impero_utils.NoopError:
-            impero_c = None
-        return impero_c, oriented, needs_cell_sizes, tabulations, active_variables
+        assignments = tuple(zip(return_variables, expressions))
+
+        if to_impero:
+            index_ordering = get_index_ordering(ctx['quadrature_indices'], return_variables)
+            try:
+                ast = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
+            except impero_utils.NoopError:
+                ast = None
+        else:
+            ast = assignments
+        return ast, oriented, needs_cell_sizes, tabulations, active_variables
 
     def fem_config(self):
         """Return a dictionary used with fem.compile_ufl.

@@ -180,9 +180,9 @@ class CodegenContext(ABC):
     def add_subkernel(self, subkernel) -> None:
         pass
 
-    @abstractmethod
-    def set_temporary_shapes(self, shapes) -> None:
-        pass
+    # FIXME, bad API but it is context-dependent
+    def set_temporary_shapes(self, shapes):
+        self._temporary_shapes = shapes
 
     @abstractmethod
     def lower_expr(self, expr, iname_maps, loop_indices, 

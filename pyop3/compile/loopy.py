@@ -246,12 +246,16 @@ class LoopyCodegenContext(CodegenContext):
         self._add_instruction(cinsn)
         self._last_insn_id = insn.id
 
-    def add_function_call(self, code, args, prefix="insn"): 
+    def add_function_call(self, call, loop_indices): 
+        args = [(arg, spec) for arg, spec in zip(call.arguments, call.argspec, strict=True)]
+
+        code = call.function.code
+
         input_refs = []
         output_refs = []
         loopy_args = code.default_entrypoint.args
         for loopy_arg, (arg, spec) in zip(loopy_args, args, strict=True):
-            name_in_kernel = self.add_buffer(arg.buffer_view, spec.intent)
+            name_in_kernel = self.add_buffer(arg, spec.intent)
             if isinstance(loopy_arg, lp.ArrayArg):
                 # array arguments to an inner kernel require all strides to be defined
                 indices = []
@@ -284,7 +288,7 @@ class LoopyCodegenContext(CodegenContext):
         insn = lp.CallInstruction(
             assignees,
             expression,
-            id=self._name_generator(prefix),
+            id=self._name_generator("call"),
             within_inames=self._within_inames,
             within_inames_is_final=True,
             depends_on=self._depends_on,
@@ -293,6 +297,9 @@ class LoopyCodegenContext(CodegenContext):
 
         self._add_instruction(insn)
         self._last_insn_id = insn.id
+
+        subkernel = code.with_entrypoints(frozenset())
+        self.add_subkernel(subkernel)
 
     def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
         # If multiple temporaries with the same initializer are used then they
@@ -345,10 +352,6 @@ class LoopyCodegenContext(CodegenContext):
         self._within_inames |= {iname}
         yield iname
         self._within_inames = orig_within_inames
-
-    # FIXME, bad API but it is context-dependent
-    def set_temporary_shapes(self, shapes):
-        self._temporary_shapes = shapes
 
     def lower_buffer_access(
         self,
@@ -507,13 +510,18 @@ class LoopyCodegenContext(CodegenContext):
         else:
             petsc_events = ()
 
+        kernel_name_to_buffer_map = utils.invert_mapping(self.kernel_names)
+        sorted_kernel_names = {}
+        for key in sorted(kernel_name_to_buffer_map.keys()):
+            sorted_kernel_names[key] = kernel_name_to_buffer_map[key]
+
         return (
             LoopyExecutable(
                 translation_unit.with_kernel(entrypoint),
                 petsc_events=petsc_events,
                 **cc_options,
             ),
-            utils.invert_mapping(self.kernel_names),
+            sorted_kernel_names,
             self.buffer_intents,
         )
 
@@ -594,13 +602,13 @@ def _(cond: pyop3.expr.Conditional, /, *args, **kwargs) -> pym.Expression:
 def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
     active_indices = utils.just_one(iname_maps)
     iname = active_indices[axis_var.axis.label]
-    return pym.var(iname)
+    return pym.var(iname) if iname is not None else 0
 
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)
 def _(loop_var: pyop3.expr.LoopIndexVar, /, iname_maps, loop_indices, *args, **kwargs) -> pym.Expression:
     iname = loop_indices[(loop_var.loop_index.id, loop_var.axis.label)]
-    return pym.var(iname)
+    return pym.var(iname) if iname is not None else 0
 
 
 @_lower_expr.register(pyop3.expr.ScalarBufferExpression)

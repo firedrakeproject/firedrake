@@ -406,7 +406,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, ctx, log=False):
+    def construct_kernel(self, name, ctx, backend="loopy", log=False):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -417,7 +417,10 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         :arg log: bool if the Kernel should be profiled with Log events
         :returns: :class:`Kernel` object
         """
-        impero_c, _, _, tabulations, active_variables = self.compile_gem(ctx)
+        assert backend in {"loopy", "gem"}
+        to_impero = backend == "loopy"
+
+        impero_c, _, _, tabulations, active_variables = self.compile_gem(ctx, to_impero=to_impero)
         if impero_c is None:
             return self.construct_empty_kernel(name)
         info = self.integral_data_info
@@ -527,9 +530,14 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
             args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
         index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
-        ast, event_name = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
-                                         self.scalar_type, name, index_names, log=log)
-        flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
+        if to_impero:
+            ast, event_name = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
+                                             self.scalar_type, name, index_names, log=log)
+            flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
+        else:
+            ast = impero_c
+            event_name = "ANYTHING"
+            flop_count = 666
         return Kernel(ast=ast,
                       arguments=tuple(args),
                       integral_type=info.integral_type,

@@ -110,6 +110,9 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     kernel_name_to_buffer_info = {}
     buffer_intents_by_index = {}
     for kernel_arg_name in arguments.keys():
+        # hack
+        if kernel_arg_name.startswith("t_"):
+            continue
         buf_view = arguments[kernel_arg_name]
         buf_index = op.preprocessed_buffers.index(buf_view.buffer)
 
@@ -150,10 +153,7 @@ def _(
 
 @_compile.register(StandaloneCalledFunction)
 def _(call, loop_indices, codegen_context):
-    args = [(arg, spec) for arg, spec in zip(call.arguments, call.argspec, strict=True)]
-    codegen_context.add_function_call(call.function.code, args)
-    subkernel = call.function.code.with_entrypoints(frozenset())
-    codegen_context.add_subkernel(subkernel)
+    codegen_context.add_function_call(call, loop_indices)
 
 @_compile.register(NonEmptyArrayAssignment)
 def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_context: CodegenContext):
@@ -450,15 +450,20 @@ def _(assignment: AbstractAssignment, /) -> idict:
 
 @_collect_temporary_shapes.register
 def _(call: StandaloneCalledFunction):
-    return idict(
-        {
-            arg.buffer: lp_arg.shape
-            for lp_arg, arg in zip(
-                call.function.code.default_entrypoint.args, call.arguments, strict=True
-            )
-            if isinstance(lp_arg, lp.ArrayArg)
-        }
-    )
+    import loopy as lp
+
+    if isinstance(call.function.code, lp.TranslationUnit):
+        return idict(
+            {
+                arg.buffer: lp_arg.shape
+                for lp_arg, arg in zip(
+                    call.function.code.default_entrypoint.args, call.arguments, strict=True
+                )
+                if isinstance(lp_arg, lp.ArrayArg)
+            }
+        )
+    else:
+        return idict()
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:

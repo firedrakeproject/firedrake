@@ -343,6 +343,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     def _(self, tern: pyop3.expr.TernaryOperator, /, **kwargs) -> idict:
         return utils.merge_dicts(self(x, **kwargs) for x in tern.operands)
 
+    @process.register(pyop3.buffer.IndexedBuffer)
     @process.register(pyop3.expr.AxisVar)
     @process.register(pyop3.expr.LoopIndexVar)
     @process.register(pyop3.expr.Scalar)

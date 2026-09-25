@@ -129,13 +129,17 @@ class TSFCKernel:
 
             events = (kernel.event,)
 
-            ast = kernel.ast
-            if parameters.get("add_likwid_markers", False):
-                from pyop3.compile.transform import add_likwid_markers
+            if parameters.get("backend", "loopy") == "loopy":
+                ast = kernel.ast
+                if parameters.get("add_likwid_markers", False):
+                    from pyop3.compile.transform import add_likwid_markers
 
-                ep = add_likwid_markers(ast.default_entrypoint)
-                ast = ast.with_kernel(ep)
-            ast = ast.with_entrypoints(kernel.name)
+                    ep = add_likwid_markers(ast.default_entrypoint)
+                    ast = ast.with_kernel(ep)
+                ast = ast.with_entrypoints(kernel.name)
+            else:
+                arg_names = tuple(a.loopy_arg.name for a in kernel.arguments)
+                ast = (kernel.ast, arg_names)
 
             # pyop3_kernel = as_pyop3_local_kernel(ast, kernel.name,
             #                                      len(kernel.arguments),

@@ -228,11 +228,13 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             else:
                 raise NotImplementedError(f"Intent {intent} not handled")
 
-            materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
+            # materialized_arg = LinearDatBufferExpression(local_tensor.buffer, 0)
+            materialized_arg = pyop3.buffer.IndexedBuffer(local_tensor.buffer, ())
         elif isinstance(func_arg, pyop3.expr.OpaqueTerminal):
             materialized_arg = func_arg
         else:
-            materialized_arg = LinearDatBufferExpression(func_arg.buffer, 0)
+            # materialized_arg = LinearDatBufferExpression(func_arg.buffer, 0)
+            materialized_arg = pyop3.buffer.IndexedBuffer(func_arg.buffer, ())
 
         bare_func_args.append(materialized_arg)
         pack_insns.extend(arg_pack_insns)

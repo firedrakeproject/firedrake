@@ -379,28 +379,29 @@ class Function(pyop3.obj.Object):
     _compiler_options: pyop3.cc.CompilerOptions
 
     def get_disk_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            utils._loopy_key_builder(self.code),
-            self._access_descrs,
-        )
+        if isinstance(self.code, lp.TranslationUnit):
+            code_hash = utils._loopy_key_builder(self.code)
+        else:
+            code_hash = self.code
+        return (type(self), code_hash, self._access_descrs)
 
     get_instruction_executor_cache_key = get_disk_cache_key
 
     def __init__(
         self,
-        loopy_kernel,
+        code,
         access_descrs,
         *,
         include_dirs: Iterable[str] = (),
         lib_dirs: Iterable[str] = (),
         libs: Iterable[str] = (),
     ):
-        lpy_args = loopy_kernel.default_entrypoint.args
-        if len(lpy_args) != len(access_descrs):
-            raise ValueError("Wrong number of access descriptors given")
+        if isinstance(code, lp.TranslationUnit):
+            lpy_args = code.default_entrypoint.args
+            if len(lpy_args) != len(access_descrs):
+                raise ValueError("Wrong number of access descriptors given")
+            code = fix_intents(code, access_descrs)
 
-        loopy_kernel = fix_intents(loopy_kernel, access_descrs)
         access_descrs = tuple(access_descrs)
 
         compiler_options = pyop3.cc.CompilerOptions(
@@ -409,7 +410,7 @@ class Function(pyop3.obj.Object):
             libs=tuple(libs),
         )
 
-        object.__setattr__(self, "code", loopy_kernel)
+        object.__setattr__(self, "code", code)
         object.__setattr__(self, "_access_descrs", access_descrs)
         object.__setattr__(self, "_compiler_options", compiler_options)
 
@@ -503,12 +504,17 @@ class Function(pyop3.obj.Object):
 
     @property
     def argspec(self):
-        spec = []
-        for access, arg in zip(
-            self._access_descrs, self.code.default_entrypoint.args, strict=True
-        ):
-            shape = arg.shape if not isinstance(arg, lp.ValueArg) else ()
-            spec.append(ArgumentSpec(access, arg.dtype, shape))
+        if isinstance(self.code, lp.TranslationUnit):
+            spec = []
+            for access, arg in zip(
+                self._access_descrs, self.code.default_entrypoint.args, strict=True
+            ):
+                shape = arg.shape if not isinstance(arg, lp.ValueArg) else ()
+                spec.append(ArgumentSpec(access, arg.dtype, shape))
+        else:
+            spec = []
+            for access, arg in zip(self._access_descrs, self.code[1], strict=True):
+                spec.append(ArgumentSpec(access, "TODO DTYPE", "TODO SHAPE"))
         return tuple(spec)
 
     @property
@@ -602,7 +608,8 @@ class CalledFunction(AbstractCalledFunction):
                     f"PETSc mats can only be accessed using WRITE or INC, not {intent}"
                 )
 
-        function = self._fixup_function_argument_shapes(function, arguments)
+        if isinstance(function.code, lp.TranslationUnit):
+            function = self._fixup_function_argument_shapes(function, arguments)
         arguments = tuple(arguments)
         object.__setattr__(self, "function", function)
         object.__setattr__(self, "_arguments", arguments)

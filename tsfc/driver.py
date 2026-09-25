@@ -180,7 +180,7 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
-    return builder.construct_kernel(kernel_name, ctx, parameters["add_petsc_events"])
+    return builder.construct_kernel(kernel_name, ctx, parameters.get("backend", "loopy"), parameters["add_petsc_events"])
 
 
 def validate_domains(form):
