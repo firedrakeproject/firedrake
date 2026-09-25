@@ -765,7 +765,7 @@ class Block(TensorBase):
         assert tensor.terminal
         if not tensor.assembled:
             # turns a Block on a Tensor into an indexed ufl form
-            return tensor.block(self._indices)
+            return ExtractSubBlock().split(tensor.form, self._indices)
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
@@ -973,27 +973,6 @@ class Tensor(TensorBase):
     def reconstruct(self, form, diagonal=None):
         """Reconstructs this Tensor with new operands."""
         return Tensor(form, diagonal=diagonal or self.diagonal)
-
-    @cached_property
-    def _block_cache(self):
-        """Cache of `ExtractSubBlock`-split forms, keyed by the requested
-        argument indices. Shared by every `Block` wrapping this Tensor, so
-        that independently-constructed `Block`s selecting the same indices
-        (e.g. via `Block.__new__`'s pushdown through `Mul`/`Add`, or via
-        repeated reconstruction across MG coarsening levels) always resolve
-        to the identical split Form/Arguments, rather than each minting its
-        own via a fresh `ExtractSubBlock().split()`/`.collapse()` call."""
-        return {}
-
-    def block(self, indices):
-        """Returns the `ExtractSubBlock`-split form for `indices`, memoized
-        on this Tensor so repeated requests for the same indices are
-        identical, not merely equal."""
-        cache = self._block_cache
-        try:
-            return cache[indices]
-        except KeyError:
-            return cache.setdefault(indices, ExtractSubBlock().split(self.form, indices))
 
     @property
     def ufl_operands(self):
