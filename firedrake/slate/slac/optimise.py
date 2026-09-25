@@ -30,7 +30,7 @@ def optimise(expression, parameters):
     Returns: An optimised Slate expression
     """
     # 0) Block optimisation
-    expression = ExtractSubBlock().push(expression)
+    expression = push_block(expression)
 
     # 1) DiagonalTensor optimisation
     expression = push_diag(expression)
@@ -43,6 +43,11 @@ def optimise(expression, parameters):
     expression = drop_double_transpose(expression)
 
     return expression
+
+
+def push_block(expression: TensorBase) -> TensorBase:
+    """Propagate Slate block extractions through an expression."""
+    return ExtractSubBlock()(expression, blocks=())
 
 
 def push_diag(expression):
