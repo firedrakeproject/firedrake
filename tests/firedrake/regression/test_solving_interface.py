@@ -443,8 +443,10 @@ def test_la_solve_appctx_in_solver_parameters(mass_system):
 
     assert AppctxRecorderPC.seen[0]["value"] == 42
     assert np.allclose(x.dat.data_ro, 1.0)
-    # The appctx is removed from a copy, so the caller's own dict still has it.
-    assert parameters["appctx"] == {"value": 42}
+    # The appctx is removed from a copy, so the caller's own dict still has the
+    # entry. Only the "value" key is checked: the solver adds its own keys
+    # ("state", "form_compiler_parameters") to whatever appctx it is given.
+    assert parameters["appctx"]["value"] == 42
 
 
 def test_la_solve_appctx_given_twice(mass_system):
