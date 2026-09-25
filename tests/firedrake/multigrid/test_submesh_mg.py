@@ -174,16 +174,26 @@ def test_submesh_gmg(solver_type):
 # Skeleton submesh hierarchy: fine facets inside a coarse cell have no parent
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(params=(2, 3))
+def base_mesh(request):
+    dim = request.param
+    if dim == 2:
+        return UnitSquareMesh(2, 2)
+    return UnitCubeMesh(2, 2, 2)
+
+
 @pytest.fixture
-def skeleton_hierarchy():
-    mh = MeshHierarchy(UnitSquareMesh(2, 2), 1)
-    return SubmeshHierarchy(mh, subdim=1, subdomain_id=None)
+def skeleton_hierarchy(base_mesh):
+    mh = MeshHierarchy(base_mesh, 1)
+    return SubmeshHierarchy(mh,
+                            subdim=base_mesh.topological_dimension - 1,
+                            subdomain_id=None)
 
 
 def test_skeleton_submesh_hierarchy_construction(skeleton_hierarchy):
     smh = skeleton_hierarchy
     assert len(smh) == 2
-    # Each coarse facet has two fine children, so no row is padded
+    # Each coarse facet has fine children, so no row is padded.
     assert (smh.coarse_to_fine_cells[0] >= 0).all()
     # The fine facets inside a coarse cell have no parent
     assert (smh.fine_to_coarse_cells[1] < 0).any()
