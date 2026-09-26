@@ -301,52 +301,39 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 def action(form, coefficient, derivatives_expanded=None):
     """Compute the action of a form on a coefficient.
 
-    :arg form: A UFL form, or a Slate tensor.
+    :arg form: A UFL form.
     :arg coefficient: The :class:`~.Function` to act on.
     :returns: a symbolic expression for the action.
     """
-    if isinstance(form, firedrake.slate.TensorBase):
-        if form.rank == 0:
-            raise ValueError("Can't take action of rank-0 tensor")
-        return form * coefficient
-    else:
-        return ufl.action(form, coefficient, derivatives_expanded=derivatives_expanded)
+    return ufl.action(form, coefficient, derivatives_expanded=derivatives_expanded)
 
 
 @PETSc.Log.EventDecorator()
 def adjoint(form, reordered_arguments=None, derivatives_expanded=None):
     """Compute the adjoint of a form.
 
-    :arg form: A UFL form, or a Slate tensor.
+    :arg form: A UFL form.
     :arg reordered_arguments: arguments to use when creating the
-       adjoint.  Ignored if form is a Slate tensor.
+       adjoint.
 
-    If the form is a slate tensor, this just returns its transpose.
-    Otherwise, given a bilinear form, compute the adjoint form by
-    changing the ordering (number) of the test and trial functions.
+    Given a bilinear form, compute the adjoint form by changing the ordering
+    (number) of the test and trial functions.
 
     By default, new Argument objects will be created with opposite
     ordering. However, if the adjoint form is to be added to other
     forms later, their arguments must match.  In that case, the user
     must provide a tuple reordered_arguments=(u2,v2).
     """
-    if isinstance(form, firedrake.slate.TensorBase):
-        if reordered_arguments is not None:
-            firedrake.warning("Ignoring arguments for adjoint of Slate tensor.")
-        if form.rank != 2:
-            raise ValueError("Expecting rank-2 tensor")
-        return form.T
-    else:
-        if len(form.arguments()) != 2:
-            raise ValueError("Expecting bilinear form")
-        # ufl.adjoint creates new Arguments if no reordered_arguments is
-        # given.  To avoid that, always pass reordered_arguments with
-        # firedrake.Argument objects.
-        if reordered_arguments is None:
-            v, u = form.arguments()
-            reordered_arguments = (u.reconstruct(number=v.number()),
-                                   v.reconstruct(number=u.number()))
-        return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
+    if len(form.arguments()) != 2:
+        raise ValueError("Expecting bilinear form")
+    # ufl.adjoint creates new Arguments if no reordered_arguments is
+    # given.  To avoid that, always pass reordered_arguments with
+    # firedrake.Argument objects.
+    if reordered_arguments is None:
+        v, u = form.arguments()
+        reordered_arguments = (u.reconstruct(number=v.number()),
+                               v.reconstruct(number=u.number()))
+    return ufl.adjoint(form, reordered_arguments, derivatives_expanded=derivatives_expanded)
 
 
 @PETSc.Log.EventDecorator()

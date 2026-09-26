@@ -5,6 +5,10 @@ class FiredrakeException(Exception):
     """Base class for all Firedrake exceptions."""
 
 
+class SlateConversionError(FiredrakeException):
+    """Raised when an expression cannot be converted into a Slate tensor."""
+
+
 class ConvergenceError(FiredrakeException):
     """Error raised when a solver fails to converge."""
 

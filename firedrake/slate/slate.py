@@ -25,6 +25,7 @@ from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
 from firedrake.formmanipulation import ExtractSubBlock, subspace
+from firedrake.exceptions import SlateConversionError
 from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TestFunction
 from firedrake.utils import unique
@@ -350,47 +351,45 @@ class TensorBase(BaseForm):
         if isinstance(other, numbers.Number) and other == 0:
             # Adding zero is a no-op, as for a ufl.BaseForm, so that a sum can start from 0.
             return self
-        if isinstance(other, Cofunction):
-            # Keep assembled cofunctions in a UFL FormSum so that their
-            # element contributions are not assembled a second time.
-            return FormSum((self, 1), (other, 1))
         try:
             other = as_slate(other)
             return Add(self, other)
-        except TypeError:
+        except SlateConversionError:
+            if isinstance(other, BaseForm):
+                return BaseForm.__add__(self, other)
             return NotImplemented
 
     def __radd__(self, other):
         if isinstance(other, numbers.Number) and other == 0:
             return self
-        if isinstance(other, Cofunction):
-            return FormSum((other, 1), (self, 1))
         # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
             return other + self
-        except TypeError:
+        except SlateConversionError:
+            if isinstance(other, BaseForm):
+                return BaseForm.__radd__(self, other)
             return NotImplemented
 
     def __sub__(self, other):
-        if isinstance(other, Cofunction):
-            return FormSum((self, 1), (other, -1))
         try:
             other = as_slate(other)
             return Add(self, -other)
-        except TypeError:
+        except SlateConversionError:
+            if isinstance(other, BaseForm):
+                return BaseForm.__sub__(self, other)
             return NotImplemented
 
     def __rsub__(self, other):
-        if isinstance(other, Cofunction):
-            return FormSum((other, 1), (self, -1))
         # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
             other = as_slate(other)
             return other - self
-        except TypeError:
+        except SlateConversionError:
+            if isinstance(other, BaseForm):
+                return BaseForm.__rsub__(self, other)
             return NotImplemented
 
     def __mul__(self, other):
@@ -1637,7 +1636,7 @@ def as_slate(F):
         return F
     elif isinstance(F, (Form, ZeroBaseForm)):
         return Tensor(F)
-    elif isinstance(F, (Function, Cofunction)):
+    elif isinstance(F, Function):
         return AssembledVector(F)
     elif isinstance(F, FormSum):
         return functools.reduce(
@@ -1645,7 +1644,7 @@ def as_slate(F):
             (w * as_slate(c)
              for c, w in zip(F.components(), F.weights())))
     else:
-        raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
+        raise SlateConversionError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
 
 
 class SlateRestructurer(DAGTraverser):
@@ -1703,16 +1702,16 @@ class SlateRestructurer(DAGTraverser):
                 and len(left.arguments()) == 2
                 and self.is_slate_compatible(left)
                 and self.is_slate_compatible(right)):
-            from firedrake.ufl_expr import action
-            return action(as_slate(left), right)
+            return as_slate(left) * right
         return self.reconstruct(o, left, right)
 
     @process.register(ufl.Adjoint)
     @DAGTraverser.postorder
     def adjoint(self, o, form):
         if isinstance(form, TensorBase):
-            from firedrake.ufl_expr import adjoint
-            return adjoint(form)
+            if form.rank != 2:
+                raise ValueError("Expecting rank-2 tensor")
+            return form.T
         return self.reconstruct(o, form)
 
     @staticmethod
@@ -1727,8 +1726,6 @@ class SlateRestructurer(DAGTraverser):
     @staticmethod
     def is_slate_compatible(expr: ufl.form.BaseForm) -> bool:
         """Return whether ``expr`` can be represented by Slate."""
-        # Cofunctions are already assembled. Keep them in UFL FormSums so
-        # that their element contributions are not assembled a second time.
         if isinstance(expr, (ufl.ZeroBaseForm, Function)):
             return True
         if isinstance(expr, (ufl.form.Form, TensorBase)):
