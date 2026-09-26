@@ -344,6 +344,19 @@ def test_solve_interp_hessian():
         ksp.solve(rhs, uv)
     assert np.allclose(u.dat.data_ro, u_ref.dat.data_ro)
 
+    # -- The matrix-free Hessian applies the interpolation operator to a Function,
+    # instead of assembling it into an intermediate matrix.
+    w = Function(V).interpolate(cos(x) * sin(y))
+    Hw_ref = Function(V.dual())
+    with w.dat.vec_ro as wv, Hw_ref.dat.vec as rv:
+        H_ref.mult(wv, rv)
+    for expr in (H, BaseFormAssembler.preprocess_base_form(H)):
+        H_matfree = assemble(expr, mat_type="matfree")
+        Hw = Function(V.dual())
+        with w.dat.vec_ro as wv, Hw.dat.vec as v:
+            H_matfree.petscmat.mult(wv, v)
+        assert np.allclose(Hw.dat.data_ro, Hw_ref.dat.data_ro)
+
 
 @pytest.fixture(params=[("DG", 1, "CG", 2),
                         ("DG", 0, "RT", 1),
