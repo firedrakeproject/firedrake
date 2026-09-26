@@ -162,14 +162,14 @@ def get_assembler(form, *args, **kwargs):
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     fc_params = kwargs.get('form_compiler_parameters', None)
-    if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
-        # If not assembling a matrix, internal BaseForm nodes are matfree by default
-        # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
-        default_mat_type = "matfree" if len(form.arguments()) < 2 else None
-        mat_type = kwargs.get('mat_type', default_mat_type)
+    mat_type = kwargs.get('mat_type', None)
+    if (isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed
+            and not _is_matrix_free(form, kwargs.get('mat_type'), kwargs.get('diagonal', False))):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
-        form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+        # A matrix-free 2-form is left alone, because its action is preprocessed instead.
+        form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type,
+                                                      form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
@@ -355,15 +355,20 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._weight = weight
         self._allocation_integral_types = allocation_integral_types
 
+    @cached_property
+    def _matrix_free_assembler(self):
+        return MatrixFreeAssembler(self._form, bcs=self._bcs,
+                                   form_compiler_parameters=self._form_compiler_params,
+                                   options_prefix=self._options_prefix,
+                                   appctx=self._appctx)
+
     def allocate(self):
         rank = len(self._form.arguments())
         if rank == 2 and not self._diagonal:
             if isinstance(self._form, MatrixBase):
                 return self._form
             elif self._mat_type == "matfree":
-                return MatrixFreeAssembler(self._form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
-                                           options_prefix=self._options_prefix,
-                                           appctx=self._appctx).allocate()
+                return self._matrix_free_assembler.allocate()
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
@@ -422,6 +427,9 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
+        if _is_matrix_free(self._form, self._mat_type, self._diagonal):
+            return self._matrix_free_assembler.assemble(tensor=tensor)
+
         def visitor(e, *operands):
             t = tensor if e is self._form else None
             # Deal with 2-form bcs inside the visitor
@@ -447,7 +455,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             in a post-order fashion.
         """
         if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-            if args and self._mat_type != "matfree":
+            # Only the output matrix uses the requested allocation integral types.
+            # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
+            allocation_integral_types = self._allocation_integral_types if expr is self._form else None
+            if args:
                 # Retrieve the Form's children
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
                 # Substitute the base form operators by their output
@@ -463,7 +474,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
                                              options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
-                                             allocation_integral_types=self.allocation_integral_types)
+                                             allocation_integral_types=allocation_integral_types)
             else:
                 raise AssertionError
             return assembler.assemble(tensor=tensor)
@@ -886,7 +897,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         if mat_type != "matfree":
             # Don't expand derivatives if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
-            expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
+            expr = BaseFormAssembler.expand_derivatives_ufl_subtrees(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
@@ -899,38 +910,50 @@ class BaseFormAssembler(AbstractFormAssembler):
         return expr
 
     @staticmethod
-    def expand_derivatives_form(form, fc_params):
-        """Expand derivatives of ufl.BaseForm objects
-        :arg form: a :class:`~ufl.classes.BaseForm`
-        :arg fc_params:: Dictionary of parameters to pass to the form compiler.
+    def expand_derivatives_ufl_subtrees(expr: ufl.form.BaseForm, fc_params: dict | None) -> ufl.form.BaseForm:
+        """Expand derivatives in subtrees that need assembly traversal.
 
-        :returns: The resulting preprocessed :class:`~ufl.classes.BaseForm`.
-        This function preprocess the form, mainly by expanding the derivatives, in order to determine
-        if we are dealing with a :class:`~ufl.classes.Form` or another :class:`~ufl.classes.BaseForm` object.
-        This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
-        we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
+        Parameters
+        ----------
+        expr : ufl.form.BaseForm
+            The form whose derivatives are expanded where direct compilation is not possible.
+        fc_params : dict or None
+            Optional parameters to pass to the form compiler.
+
+        Returns
+        -------
+        ufl.form.BaseForm
+            The form with derivatives expanded in subtrees that need base-form traversal.
+
+        Notes
+        -----
+        A tree with no base-form operands is left unchanged so that its compiler can expand
+        derivatives while it compiles the tree. The recursive traversal treats opaque base-form
+        leaves uniformly, without depending on their concrete implementation. Other nodes are
+        expanded after their operands, using the appropriate UFL derivative algorithm for the
+        node type.
         """
-        if isinstance(form, ufl.form.Form):
+        operands = BaseFormAssembler.base_form_operands(expr)
+        new_operands = [BaseFormAssembler.expand_derivatives_ufl_subtrees(op, fc_params)
+                        for op in operands]
+        if any(new is not old for new, old in zip(new_operands, operands)):
+            return BaseFormAssembler.reconstruct_node_from_operands(expr, new_operands)
+        if not operands:
+            return expr
+
+        if isinstance(expr, ufl.form.Form):
             from firedrake.parameters import parameters as default_parameters
             from tsfc.parameters import is_complex
 
-            if fc_params is None:
-                fc_params = default_parameters["form_compiler"].copy()
-            else:
-                # Override defaults with user-specified values
-                _ = fc_params
-                fc_params = default_parameters["form_compiler"].copy()
-                fc_params.update(_)
+            form_compiler_parameters = default_parameters["form_compiler"].copy()
+            if fc_params is not None:
+                form_compiler_parameters.update(fc_params)
 
-            complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
+            complex_mode = (form_compiler_parameters
+                            and is_complex(form_compiler_parameters.get("scalar_type")))
+            return ufl.algorithms.preprocess_form(expr, complex_mode)
 
-            return ufl.algorithms.preprocess_form(form, complex_mode)
-        # We also need to expand derivatives for `ufl.BaseForm` objects that are not `ufl.Form`
-        # Example: `Action(A, derivative(B, f))`, where `A` is a `ufl.BaseForm` and `B` can
-        # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
-        # containing derivatives is not supported anymore but might be needed if the expression
-        # in question is within a `ufl.BaseForm` object.
-        return ufl.algorithms.ad.expand_derivatives(form)
+        return ufl.algorithms.ad.expand_derivatives(expr)
 
 
 class FormAssembler(AbstractFormAssembler):
@@ -1314,6 +1337,41 @@ def TwoFormAssembler(form, *args, **kwargs):
         return ExplicitMatrixAssembler(form, *args, mat_type=mat_type, sub_mat_type=sub_mat_type, **kwargs)
 
 
+def _is_matrix_free(form, mat_type, diagonal=False):
+    """Return whether the evaluation of ``form`` is delayed to a matrix-free action.
+
+    Parameters
+    ----------
+    form : ufl.form.BaseForm or slate.TensorBase
+        The form that is being assembled.
+    mat_type : str or None
+        The requested PETSc matrix type.
+    diagonal : bool
+        Whether only the diagonal of a 2-form is requested.
+
+    Returns
+    -------
+    bool
+        Whether assembly of ``form`` must be deferred to an `ImplicitMatrix`.
+
+    Notes
+    -----
+    A matrix-free 2-form has no value that the assembler can compute. Assembly wraps
+    such a form in an `ImplicitMatrix`, which assembles the action of the form on a
+    Function each time PETSc applies the matrix. The work that the assembler would
+    otherwise do to the form, in particular expanding its derivatives, is therefore
+    done to that action instead.
+
+    A `ufl.core.base_form_operator.BaseFormOperator` is excluded, because it is a leaf
+    that carries its own matrix-free representation, so the assembler has no children
+    to defer.
+
+    """
+    return (mat_type == "matfree" and not diagonal
+            and len(form.arguments()) == 2
+            and not isinstance(form, (MatrixBase, ufl.core.base_form_operator.BaseFormOperator)))
+
+
 def _get_mat_type(mat_type, sub_mat_type, arguments):
     """Validate the matrix types provided by the user and set any that are
     undefined to default values.
@@ -1565,25 +1623,21 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         return tensor
 
 
-class MatrixFreeAssembler(FormAssembler):
+class MatrixFreeAssembler(AbstractFormAssembler):
     """Stub class wrapping matrix-free assembly.
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBase
-        2-form.
+    form : ufl.form.BaseForm or slate.TensorBase
+        2-form. The form is never compiled here, so it can be any `ufl.form.BaseForm`
+        whose action a surrounding `ImplicitMatrixContext` can assemble.
 
     Notes
     -----
-    See `FormAssembler` and `assemble` for descriptions of the other parameters.
+    See `AbstractFormAssembler` and `assemble` for descriptions of the other parameters.
 
     """
 
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        return
-
-    @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None,
                  options_prefix=None, appctx=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
