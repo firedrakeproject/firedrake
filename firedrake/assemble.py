@@ -31,8 +31,7 @@ from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKe
 from firedrake.utils import ScalarType, assert_empty, tuplify
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, SparsityFormatError
-from functools import cached_property, singledispatchmethod
-from ufl.corealg.dag_traverser import DAGTraverser
+from functools import cached_property
 
 from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 
@@ -917,23 +916,23 @@ class BaseFormAssembler(AbstractFormAssembler):
 
         The derivatives are expanded first in each subtree that is pure UFL, see
         `expand_derivatives_ufl_subtrees`. The Slate compiler expands the derivatives of
-        the forms inside a Slate tensor itself. The Slate subtrees are then normalized, see
-        `SlateSubtreeNormalizer`. The expansion comes first, because only an expanded form
+        the forms inside a Slate tensor itself. The Slate subtrees are then restructured, see
+        `slate.restructure_slate_base_forms`. The expansion comes first, because only an expanded form
         shows which base form operators must be evaluated before it can be compiled. The
-        Slate subtrees are normalized again after the restructuring, because the
+        Slate subtrees are restructured again after the restructuring, because the
         restructuring can make more forms that can be compiled.
 
         """
         original_expr = expr
         expr = BaseFormAssembler.expand_derivatives_ufl_subtrees(expr, form_compiler_parameters)
-        expr = BaseFormAssembler.normalize_slate_base_forms(expr)
+        expr = slate.restructure_slate_base_forms(expr)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
             # Restructuring turns the action of a form on a function into a form,
             # which can then join a Slate subtree.
-            expr = BaseFormAssembler.normalize_slate_base_forms(expr)
+            expr = slate.restructure_slate_base_forms(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
@@ -987,18 +986,18 @@ class BaseFormAssembler(AbstractFormAssembler):
         return ufl.algorithms.ad.expand_derivatives(form)
 
     @staticmethod
-    def normalize_slate_base_forms(expr: ufl.form.BaseForm) -> ufl.form.BaseForm:
-        """Collect each maximal Slate-compatible subtree of a `ufl.form.BaseForm` into one Slate tensor.
+    def restructure_slate_base_forms(expr: ufl.form.BaseForm) -> ufl.form.BaseForm:
+        """Restructure each maximal Slate-compatible subtree of a `ufl.form.BaseForm` into one Slate tensor.
 
         Parameters
         ----------
         expr : ufl.form.BaseForm
-            The form to normalize.
+            The form to restructure.
 
         Returns
         -------
         ufl.form.BaseForm
-            The normalized form. It is ``expr`` itself if ``expr`` contains no Slate tensor.
+            The restructured form. It is ``expr`` itself if ``expr`` contains no Slate tensor.
 
         Notes
         -----
@@ -1007,7 +1006,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         can be compiled, see `is_compilable`.
 
         """
-        return SlateSubtreeNormalizer()(expr)
+        return slate.restructure_slate_base_forms(expr)
 
     @staticmethod
     def expand_derivatives_ufl_subtrees(expr: ufl.form.BaseForm, fc_params: dict | None) -> ufl.form.BaseForm:
@@ -1033,7 +1032,8 @@ class BaseFormAssembler(AbstractFormAssembler):
 
         """
         operands = BaseFormAssembler.base_form_operands(expr)
-        new_operands = [BaseFormAssembler.expand_derivatives_ufl_subtrees(op, fc_params) for op in operands]
+        new_operands = [BaseFormAssembler.expand_derivatives_ufl_subtrees(op, fc_params)
+                        for op in operands]
         if any(new is not old for new, old in zip(new_operands, operands)):
             return BaseFormAssembler.reconstruct_node_from_operands(expr, new_operands)
         if not operands:
@@ -1065,137 +1065,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         """
         return (isinstance(expr, (ufl.form.Form, slate.TensorBase))
                 and not BaseFormAssembler.base_form_operands(expr))
-
-class SlateSubtreeNormalizer(DAGTraverser):
-    """Collect each maximal Slate-compatible subtree of a `ufl.form.BaseForm` into one Slate tensor.
-
-    The traversal visits the `ufl.FormSum`, `ufl.Action`, and `ufl.Adjoint` nodes in
-    postorder. In a `ufl.FormSum` that has a Slate component, the components that
-    `slate.as_slate` can convert are collected into one Slate tensor. The other components
-    stay in the `ufl.FormSum` next to that tensor. An `ufl.Action` or an `ufl.Adjoint`
-    that has a Slate operand is replaced by the equivalent Slate expression if each of
-    its operands can be converted. Otherwise, the node keeps its UFL type and only its
-    operands are normalized, so the `BaseFormAssembler` evaluates the Slate and UFL
-    operands separately.
-
-    Notes
-    -----
-    A `slate.TensorBase` is returned unchanged. Its operands form a Slate DAG, which the
-    generic UFL algorithms cannot interpret, so the traversal does not descend into it.
-    A node that has no Slate operand is also returned unchanged. This keeps the delayed
-    evaluation of pure UFL forms, in particular of matrix-free forms.
-
-    """
-
-    @singledispatchmethod
-    def process(self, o):
-        return super().process(o)
-
-    @process.register(ufl.form.BaseForm)
-    @process.register(ufl.classes.Expr)
-    def base_form(self, o):
-        # A Form, a Coefficient, an assembled tensor, or a base form operator is a leaf of the BaseForm DAG.
-        return o
-
-    @process.register(slate.TensorBase)
-    def slate_tensor(self, o):
-        return o
-
-    @process.register(ufl.FormSum)
-    @DAGTraverser.postorder
-    def form_sum(self, o, *components):
-        if all(new is old for new, old in zip(components, o.components())):
-            new = o
-        else:
-            # The FormSum constructor flattens a component that is itself a FormSum.
-            new = BaseFormAssembler.reconstruct_node_from_operands(o, components)
-        if not isinstance(new, ufl.FormSum):
-            return new
-        terms = list(zip(new.components(), new.weights()))
-        slate_terms = [(c, w) for c, w in terms if self.is_slate_compatible_term(c, w)]
-        if not any(isinstance(c, slate.TensorBase) for c, _ in slate_terms):
-            return new
-        slate_part = slate.as_slate(ufl.FormSum(*slate_terms))
-        if len(slate_terms) == len(terms):
-            return slate_part
-        other_terms = [(c, w) for c, w in terms if not self.is_slate_compatible_term(c, w)]
-        return ufl.FormSum((slate_part, 1), *other_terms)
-
-    @process.register(ufl.Action)
-    @DAGTraverser.postorder
-    def action(self, o, left, right):
-        if (any(isinstance(op, slate.TensorBase) for op in (left, right))
-                and len(left.arguments()) == 2
-                and self.is_slate_compatible(left) and self.is_slate_compatible(right)):
-            return firedrake.ufl_expr.action(slate.as_slate(left), right)
-        return self.reconstruct(o, left, right)
-
-    @process.register(ufl.Adjoint)
-    @DAGTraverser.postorder
-    def adjoint(self, o, form):
-        if isinstance(form, slate.TensorBase):
-            return firedrake.ufl_expr.adjoint(form)
-        return self.reconstruct(o, form)
-
-    @staticmethod
-    def reconstruct(o, *operands):
-        """Reconstruct ``o`` with new operands, or return ``o`` if the operands are unchanged."""
-        if all(new is old for new, old in zip(operands, o.ufl_operands)):
-            return o
-        return o._ufl_expr_reconstruct_(*operands)
-
-    @staticmethod
-    def is_slate_compatible(expr: ufl.form.BaseForm) -> bool:
-        """Return whether ``expr`` can be converted into a Slate tensor.
-
-        Parameters
-        ----------
-        expr : ufl.form.BaseForm
-            The expression to inspect.
-
-        Returns
-        -------
-        bool
-            Whether `slate.as_slate` can represent ``expr``.
-
-        Notes
-        -----
-        A `ufl.Form` or a `slate.TensorBase` is compatible if it can be compiled, see
-        `BaseFormAssembler.is_compilable`. The Slate compiler cannot evaluate a base form
-        operator that the form compiler does not handle inside the form kernel. A
-        `ufl.FormSum` is compatible if each of its components is compatible and each of
-        its weights is a constant.
-
-        """
-        if isinstance(expr, (ufl.ZeroBaseForm, firedrake.Function, firedrake.Cofunction)):
-            return True
-        if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-            return BaseFormAssembler.is_compilable(expr)
-        if isinstance(expr, ufl.FormSum):
-            return all(SlateSubtreeNormalizer.is_slate_compatible_term(c, w)
-                       for c, w in zip(expr.components(), expr.weights()))
-        return False
-
-    @staticmethod
-    def is_slate_compatible_term(component: ufl.form.BaseForm, weight) -> bool:
-        """Return whether a weighted component of a `ufl.FormSum` can be converted into a Slate tensor.
-
-        Parameters
-        ----------
-        component : ufl.form.BaseForm
-            The component of the sum.
-        weight : numbers.Number or ufl.constantvalue.ConstantValue or ufl.core.expr.Expr
-            The weight of the component.
-
-        Returns
-        -------
-        bool
-            Whether ``weight`` is a constant and ``component`` can be converted.
-
-        """
-        return (isinstance(weight, (numbers.Number, ufl.constantvalue.ConstantValue))
-                and SlateSubtreeNormalizer.is_slate_compatible(component))
-
 
 class FormAssembler(AbstractFormAssembler):
     """Form assembler.

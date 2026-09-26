@@ -20,6 +20,7 @@ import numbers
 import operator
 from collections import OrderedDict, namedtuple, defaultdict
 
+import ufl
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
@@ -51,7 +52,8 @@ from tsfc.ufl_utils import extract_firedrake_constants
 __all__ = ['TensorBase', 'AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose',
            'Add', 'Mul', 'ScalarMul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
-           'Reciprocal']
+           'Reciprocal', 'SlateRestructurer', 'restructure_slate_base_forms',
+           'apply_slate_derivatives']
 
 # BlockFunction description type
 BlockFunction = namedtuple('BlockFunction', ['split_function', 'indices', 'orig_function'])
@@ -1635,6 +1637,107 @@ def as_slate(F):
         raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
 
 
+class SlateRestructurer(DAGTraverser):
+    """Restructure maximal Slate-compatible subtrees into Slate tensors.
+
+    The traversal visits UFL base-form operators in postorder. A form sum that
+    contains a Slate-compatible component collects all such components into a
+    single Slate tensor. Actions and adjoints become Slate operations when all
+    of their operands can be represented by Slate; otherwise, their restructured
+    operands remain in the original UFL node.
+
+    Slate tensors are leaves of this traversal. Their operands form a Slate DAG
+    that this UFL-oriented traversal must not visit.
+    """
+
+    @singledispatchmethod
+    def process(self, o):
+        return super().process(o)
+
+    @process.register(ufl.form.BaseForm)
+    @process.register(ufl.classes.Expr)
+    def base_form(self, o):
+        # Forms, coefficients, assembled tensors, and base-form operators are
+        # leaves of the base-form DAG.
+        return o
+
+    @process.register(TensorBase)
+    def slate_tensor(self, o):
+        return o
+
+    @process.register(ufl.FormSum)
+    @DAGTraverser.postorder
+    def form_sum(self, o, *components):
+        if all(new is old for new, old in zip(components, o.components())):
+            new = o
+        else:
+            # The FormSum constructor flattens a component that is itself a FormSum.
+            new = self.reconstruct(o, *components)
+        if not isinstance(new, ufl.FormSum):
+            return new
+        terms = list(zip(new.components(), new.weights()))
+        slate_terms = [(c, w) for c, w in terms if self.is_slate_compatible_term(c, w)]
+        if not any(isinstance(c, TensorBase) for c, _ in slate_terms):
+            return new
+        slate_part = as_slate(ufl.FormSum(*slate_terms))
+        if len(slate_terms) == len(terms):
+            return slate_part
+        other_terms = [(c, w) for c, w in terms if not self.is_slate_compatible_term(c, w)]
+        return ufl.FormSum((slate_part, 1), *other_terms)
+
+    @process.register(ufl.Action)
+    @DAGTraverser.postorder
+    def action(self, o, left, right):
+        if (any(isinstance(op, TensorBase) for op in (left, right))
+                and len(left.arguments()) == 2
+                and self.is_slate_compatible(left)
+                and self.is_slate_compatible(right)):
+            from firedrake.ufl_expr import action
+            return action(as_slate(left), right)
+        return self.reconstruct(o, left, right)
+
+    @process.register(ufl.Adjoint)
+    @DAGTraverser.postorder
+    def adjoint(self, o, form):
+        if isinstance(form, TensorBase):
+            from firedrake.ufl_expr import adjoint
+            return adjoint(form)
+        return self.reconstruct(o, form)
+
+    @staticmethod
+    def reconstruct(o, *operands):
+        """Reconstruct ``o`` with restructured operands when they changed."""
+        if all(new is old for new, old in zip(operands, o.ufl_operands)):
+            return o
+        if isinstance(o, ufl.FormSum):
+            return ufl.FormSum(*zip(operands, o.weights()))
+        return o._ufl_expr_reconstruct_(*operands)
+
+    @staticmethod
+    def is_slate_compatible(expr: ufl.form.BaseForm) -> bool:
+        """Return whether ``expr`` can be represented by Slate."""
+        if isinstance(expr, (ufl.ZeroBaseForm, Function, Cofunction)):
+            return True
+        if isinstance(expr, (ufl.form.Form, TensorBase)):
+            from firedrake.assemble import BaseFormAssembler
+            return BaseFormAssembler.is_compilable(expr)
+        if isinstance(expr, ufl.FormSum):
+            return all(SlateRestructurer.is_slate_compatible_term(c, w)
+                       for c, w in zip(expr.components(), expr.weights()))
+        return False
+
+    @staticmethod
+    def is_slate_compatible_term(component: ufl.form.BaseForm, weight) -> bool:
+        """Return whether a weighted component can be represented by Slate."""
+        return (isinstance(weight, (numbers.Number, ufl.constantvalue.ConstantValue))
+                and SlateRestructurer.is_slate_compatible(component))
+
+
+def restructure_slate_base_forms(expr: ufl.form.BaseForm) -> ufl.form.BaseForm:
+    """Restructure maximal Slate-compatible subtrees into Slate tensors."""
+    return SlateRestructurer()(expr)
+
+
 class SlateDerivative(DAGTraverser):
     """Differentiate a `ufl.form.BaseForm` that has Slate tensors with respect to a coefficient.
 
@@ -1758,12 +1861,10 @@ def apply_slate_derivatives(tensor, coefficient, argument=None,
 
     Notes
     -----
-    The Slate subtrees of ``tensor`` are first collected into Slate tensors, see
-    `firedrake.assemble.SlateSubtreeNormalizer`. This turns the action and the adjoint of
-    a Slate tensor into Slate operations, which have derivative rules.
+    The Slate subtrees of ``tensor`` are first collected into Slate tensors. This turns the
+    action and the adjoint of a Slate tensor into Slate operations, which have derivative rules.
     """
-    from firedrake.assemble import BaseFormAssembler
-    tensor = BaseFormAssembler.normalize_slate_base_forms(tensor)
+    tensor = restructure_slate_base_forms(tensor)
     return SlateDerivative(coefficient, argument, coefficient_derivatives)(tensor)
 
 
