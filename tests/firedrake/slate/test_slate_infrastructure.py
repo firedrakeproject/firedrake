@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.slate.slate import ScalarMul, TensorBase, UnaryOp, as_slate
+from ufl.equation import Equation
 from ufl.form import FormSum
 import math
 
@@ -222,6 +223,9 @@ def test_equality_relations(function_space):
     A = Tensor(inner(u, v) * dx)
     B = Tensor(inner(grad(u), grad(v)) * dx)
 
+    assert isinstance(A == B, Equation)
+    assert not A == 0
+    assert ScalarMul(0, A) == 0
     assert A == Tensor(inner(u, v) * dx)
     assert B != A
     assert B * f != A * f
@@ -229,6 +233,15 @@ def test_equality_relations(function_space):
     assert A*B != B*A
     assert B.T != B.inv
     assert A != -A
+
+
+def test_assembled_vector_reconstruct(function_space):
+    function = Function(function_space)
+    tensor = AssembledVector(function)
+
+    reconstructed = tensor.reconstruct(function)
+
+    assert reconstructed.form is function
 
 
 def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):

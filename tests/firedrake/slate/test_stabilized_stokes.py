@@ -66,10 +66,8 @@ def run_stabilized_stokes(r, degree, quads):
         "fieldsplit_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
     }
     z = Function(Z)
-    L = 0
-    problem = LinearVariationalProblem(A, L, z, aP=aP, bcs=bcs)
-    solver = LinearVariationalSolver(problem, solver_parameters=solver_parameters)
-    solver.solve()
+    F = action(A, z)
+    solve(F == 0, z, bcs=bcs, Jp=aP, solver_parameters=solver_parameters)
 
     u = z.subfunctions[0]
     return norm(div(u))

@@ -407,17 +407,18 @@ class TensorBase(BaseForm):
         return ScalarMul(-1, self)
 
     def __eq__(self, other):
-        """Determines whether two TensorBase objects are equal using their
-        associated keys.
-        """
-        if isinstance(other, (int, float)) and other == 0:
-            if isinstance(self, Tensor):
-                return isinstance(self.form, ZeroBaseForm) or self.form.empty()
-            return False
-        return self._key == other._key
+        if self.empty() and isinstance(other, numbers.Number) and other == 0:
+            return True
+        return super().__eq__(other)
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        if self.empty() and isinstance(other, numbers.Number) and other == 0:
+            return False
+        return super().__ne__(other)
+
+    def equals(self, other):
+        """Return whether ``other`` is structurally equal to this tensor."""
+        return isinstance(other, TensorBase) and self._key == other._key
 
     @cached_property
     def _hash_id(self):
@@ -1284,10 +1285,10 @@ class ScalarMul(UnaryOp):
 
     def __new__(cls, scalar, tensor):
         scalar = cls._scalar_value(scalar)
-        if tensor == 0:
-            return tensor
         if not isinstance(tensor, TensorBase):
             raise TypeError("Can only scale Slate tensors.")
+        if tensor == 0:
+            return tensor
         if scalar == 0:
             return Tensor(ZeroBaseForm(tensor.arguments()))
         elif scalar == 1:
@@ -1764,9 +1765,9 @@ class SlateDerivative(DAGTraverser):
     def assembled_vector(self, o):
         if self.coefficient not in o.coefficients():
             return Tensor(ZeroBaseForm(o.arguments()))
-        raise NotImplementedError(
-            "Differentiation of an assembled Slate vector is not implemented."
-        )
+        # The direction is consumed by ``mul`` when this vector is the right
+        # operand of a Slate action.
+        return self.argument
 
     @process.register(TensorBase)
     def slate_node(self, o):
@@ -1804,6 +1805,9 @@ class SlateDerivative(DAGTraverser):
     @process.register(Mul)
     @DAGTraverser.postorder
     def mul(self, o, left, right):
+        if (isinstance(o.operands[1], AssembledVector)
+                and self.coefficient in o.operands[1].coefficients()):
+            return left * o.operands[1] + o.operands[0]
         return left * o.operands[1] + o.operands[0] * right
 
     @process.register(ScalarMul)
