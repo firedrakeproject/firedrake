@@ -4,7 +4,6 @@ from ufl.duals import is_dual
 from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
-from ufl.algorithms.analysis import has_type
 from ufl.domain import as_domain
 import firedrake
 from firedrake import function, cofunction
@@ -230,9 +229,6 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 
     See also :func:`ufl.derivative`.
     """
-    if has_type(form, firedrake.slate.TensorBase):
-        from firedrake.slate.slate import apply_slate_derivatives
-        return apply_slate_derivatives(form, u, du, coefficient_derivatives)
     try:
         args = form.arguments()
     except AttributeError:

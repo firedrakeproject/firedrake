@@ -1675,6 +1675,18 @@ class SlateRestructurer(DAGTraverser):
     def slate_tensor(self, o):
         return o
 
+    @process.register(ufl.classes.BaseFormDerivative)
+    @DAGTraverser.postorder
+    def base_form_derivative(self, o, base_form, coefficients, arguments, coefficient_derivatives):
+        if not has_type(base_form, TensorBase):
+            return self.reconstruct(o, base_form, coefficients, arguments, coefficient_derivatives)
+
+        coefficient = coefficients[0] if len(coefficients) == 1 else tuple(coefficients)
+        argument = arguments[0] if len(arguments) == 1 else tuple(arguments)
+        coefficient_derivatives = coefficient_derivatives.ufl_operands
+        coefficient_derivatives = dict(zip(coefficient_derivatives[::2], coefficient_derivatives[1::2]))
+        return apply_slate_derivatives(base_form, coefficient, argument, coefficient_derivatives)
+
     @process.register(ufl.FormSum)
     @DAGTraverser.postorder
     def form_sum(self, o, *components):

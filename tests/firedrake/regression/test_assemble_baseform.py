@@ -479,6 +479,19 @@ def test_preprocess_delays_tsfc_derivative():
     assert BaseFormAssembler.preprocess_base_form(expr) is expr
 
 
+def test_preprocess_delays_slate_derivative():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V).interpolate(1 + SpatialCoordinate(mesh)[0])
+    v = TestFunction(V)
+    form = u**2 * v * dx
+
+    expr = derivative(Tensor(form), u)
+    assert isinstance(expr, ufl.classes.BaseFormDerivative)
+    assert isinstance(BaseFormAssembler.preprocess_base_form(expr), TensorBase)
+    assert_matrix_equal(assemble(expr), [(1, derivative(form, u))])
+
+
 def test_restructure_slate_pure_ufl_unchanged(slate_forms):
     V, mass, stiffness, w = slate_forms
     expr = ufl.Action(FormSum((mass, 1), (stiffness, 1)), w)
