@@ -937,7 +937,10 @@ class BaseFormAssembler(AbstractFormAssembler):
         new_operands = [BaseFormAssembler.expand_derivatives_ufl_subtrees(op, fc_params)
                         for op in operands]
         if any(new is not old for new, old in zip(new_operands, operands)):
-            return BaseFormAssembler.reconstruct_node_from_operands(expr, new_operands)
+            # Continue expanding after rebuilding the parent.  Some base-form
+            # operators are opaque to `reconstruct_node_from_operands`, but their
+            # own derivative nodes can still be expanded by UFL.
+            expr = BaseFormAssembler.reconstruct_node_from_operands(expr, new_operands)
         if not operands:
             return expr
 
