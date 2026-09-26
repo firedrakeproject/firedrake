@@ -379,10 +379,19 @@ def test_as_slate_cofunction_requires_dg_space():
     mesh = UnitSquareMesh(1, 1)
     cg = Cofunction(FunctionSpace(mesh, "CG", 1).dual())
     dg = Cofunction(FunctionSpace(mesh, "DG", 1).dual())
+    v = TestFunction(FunctionSpace(mesh, "DG", 1))
+    tensor = Tensor(v * dx)
 
     with pytest.raises(SlateConversionError):
         as_slate(cg)
     assert isinstance(as_slate(dg), AssembledVector)
+
+    restructured = SlateRestructurer()(FormSum((tensor, 1), (dg, 1)))
+    assert isinstance(restructured, TensorBase)
+    assert restructured == tensor + as_slate(dg)
+
+    assert tensor.__mul__(cg) is NotImplemented
+    assert tensor.__rmul__(cg) is NotImplemented
 
 
 def test_scalar_multiplication():

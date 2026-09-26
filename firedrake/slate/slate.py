@@ -398,7 +398,7 @@ class TensorBase(BaseForm):
         try:
             other = as_slate(other)
             return Mul(self, other)
-        except TypeError:
+        except SlateConversionError:
             return NotImplemented
 
     def __rmul__(self, other):
@@ -409,7 +409,7 @@ class TensorBase(BaseForm):
         try:
             other = as_slate(other)
             return other * self
-        except TypeError:
+        except SlateConversionError:
             return NotImplemented
 
     def __neg__(self):
@@ -1740,7 +1740,8 @@ class SlateRestructurer(DAGTraverser):
     @staticmethod
     def is_slate_compatible(expr: ufl.form.BaseForm) -> bool:
         """Return whether ``expr`` can be represented by Slate."""
-        if isinstance(expr, (ufl.ZeroBaseForm, Function)):
+        if (isinstance(expr, (ufl.ZeroBaseForm, Function))
+                or (isinstance(expr, Cofunction) and expr.function_space().finat_element.is_dg())):
             return True
         if isinstance(expr, (ufl.form.Form, TensorBase)):
             from firedrake.assemble import BaseFormAssembler
