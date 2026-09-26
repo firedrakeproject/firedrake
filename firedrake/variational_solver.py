@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
 
-from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+from firedrake import dmhooks, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
@@ -14,7 +14,7 @@ from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import as_ufl, replace, Form
+from ufl import as_ufl, replace
 from functools import cached_property
 from collections.abc import Callable
 
@@ -25,21 +25,21 @@ __all__ = ["LinearVariationalProblem",
 
 
 def check_pde_args(F, J, Jp, E=None):
-    if not isinstance(F, (ufl.BaseForm, slate.slate.TensorBase)):
-        raise TypeError("Provided residual is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
+    if not isinstance(F, ufl.BaseForm):
+        raise TypeError(f"Provided residual is a '{type(F).__name__}', not a BaseForm")
     if len(F.arguments()) != 1:
         raise ValueError("Provided residual is not a linear form")
-    if not isinstance(J, (ufl.BaseForm, slate.slate.TensorBase)):
-        raise TypeError("Provided Jacobian is a '%s', not a BaseForm or Slate Tensor" % type(J).__name__)
+    if not isinstance(J, ufl.BaseForm):
+        raise TypeError(f"Provided Jacobian is a '{type(J).__name__}', not a BaseForm")
     if len(J.arguments()) != 2:
         raise ValueError("Provided Jacobian is not a bilinear form")
-    if Jp is not None and not isinstance(Jp, (ufl.BaseForm, slate.slate.TensorBase)):
-        raise TypeError("Provided preconditioner is a '%s', not a BaseForm or Slate Tensor" % type(Jp).__name__)
+    if Jp is not None and not isinstance(Jp, ufl.BaseForm):
+        raise TypeError(f"Provided preconditioner is a '{type(Jp).__name__}', not a BaseForm")
     if Jp is not None and len(Jp.arguments()) != 2:
         raise ValueError("Provided preconditioner is not a bilinear form")
     if E is not None:
-        if not isinstance(E, (ufl.BaseForm, slate.slate.TensorBase)):
-            raise TypeError("Provided objective is a '%s', not a BaseForm or Slate Tensor" % type(F).__name__)
+        if not isinstance(E, ufl.BaseForm):
+            raise TypeError(f"Provided objective is a '{type(E).__name__}', not a BaseForm")
         if len(E.arguments()) != 0:
             raise ValueError("Provided objective is not a 0-form")
 
@@ -106,7 +106,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
-            if isinstance(F, Form):
+            if isinstance(F, ufl.Form):
                 F_arg, = F.arguments()
                 self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
             else:
@@ -145,12 +145,12 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         return self.u_restrict.function_space().dm
 
     def rediscretise(self,
-                     F: ufl.BaseForm | slate.TensorBase | None = None,
+                     F: ufl.BaseForm | None = None,
                      u: Function | None = None,
                      bcs: list[DirichletBC | EquationBC] | None = None,
-                     J: ufl.BaseForm | slate.TensorBase | None = None,
-                     Jp: ufl.BaseForm | slate.TensorBase | None = None,
-                     objective: ufl.BaseForm | slate.TensorBase | None = None,
+                     J: ufl.BaseForm | None = None,
+                     Jp: ufl.BaseForm | None = None,
+                     objective: ufl.BaseForm | None = None,
                      form_compiler_parameters: dict | None = None,
                      is_linear: bool | None = None,
                      coefficient_mapping: dict | None = None,
@@ -256,9 +256,9 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                                            form_compiler_parameters=form_compiler_parameters)
 
     @staticmethod
-    def compute_bc_lifting(J: ufl.BaseForm | slate.TensorBase,
+    def compute_bc_lifting(J: ufl.BaseForm,
                            u: Function,
-                           L: ufl.BaseForm | slate.TensorBase | 0 = 0):
+                           L: ufl.BaseForm | 0 = 0):
         """Compute the residual after lifting DirichletBCs.
 
         Parameters
@@ -272,12 +272,12 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
         Return
         ------
-        F : ufl.BaseForm | slate.TensorBase
+        F : ufl.BaseForm
             The residual J*u-L after lifting DirichletBCs.
         """
         if isinstance(J, MatrixBase) and J.has_bcs:
             # Extract the full form without bcs
-            if not isinstance(J.a, (ufl.BaseForm, slate.slate.TensorBase)):
+            if not isinstance(J.a, ufl.BaseForm):
                 raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
             J = J.a
         F = ufl_expr.action(J, u)
@@ -606,11 +606,11 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         """
         # In the linear case, the Jacobian is the equation LHS (J=a).
         # Jacobian is checked in superclass, but let's check L here.
-        if isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
+        if isinstance(L, ufl.BaseForm):
             if len(L.arguments()) != 1 and not L.empty():
                 raise ValueError("Provided RHS is not a linear form")
         elif L != 0:
-            raise TypeError(f"Provided RHS is a '{type(L).__name__}', not a Form or Slate Tensor")
+            raise TypeError(f"Provided RHS is a '{type(L).__name__}', not a BaseForm")
         F = self.compute_bc_lifting(a, u, L=L)
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs=bcs, J=a, Jp=aP,

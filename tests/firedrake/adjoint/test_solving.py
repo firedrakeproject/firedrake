@@ -2,6 +2,7 @@ import pytest
 
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.adjoint_utils.blocks.solving import GenericSolveBlock
 from numpy.testing import assert_approx_equal
 
 
@@ -40,6 +41,17 @@ def test_linear_problem(rg):
     assert_approx_equal(rf(f), J0)
     assert rf.tape.recompute_count == 1
     _test_adjoint(J, f, rg)
+
+
+def test_slate_linear_solve_block():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    block = GenericSolveBlock(Tensor(inner(u, v) * dx), Tensor(v * dx), Function(V), None)
+
+    assert block.linear
 
 
 @pytest.mark.skipcomplex

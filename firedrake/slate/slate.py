@@ -23,6 +23,7 @@ from collections import OrderedDict, namedtuple, defaultdict
 import ufl
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
+from finat.ufl import MixedElement
 
 from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.exceptions import SlateConversionError
@@ -55,6 +56,17 @@ __all__ = ['TensorBase', 'AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Add', 'Mul', 'ScalarMul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
            'Reciprocal', 'SlateRestructurer',
            'apply_slate_derivatives']
+
+
+def _is_dg_cofunction(expr):
+    """Return whether a Cofunction belongs to a discontinuous scalar space."""
+    if not isinstance(expr, Cofunction):
+        return False
+    function_space = expr.function_space().topological
+    return (not isinstance(function_space.ufl_element(), MixedElement)
+            and function_space.finat_element is not None
+            and function_space.finat_element.is_dg())
+
 
 # BlockFunction description type
 BlockFunction = namedtuple('BlockFunction', ['split_function', 'indices', 'orig_function'])
@@ -1638,7 +1650,7 @@ def as_slate(F):
         return Tensor(F)
     elif isinstance(F, Function):
         return AssembledVector(F)
-    elif isinstance(F, Cofunction) and F.function_space().finat_element.is_dg():
+    elif _is_dg_cofunction(F):
         return AssembledVector(F)
     elif isinstance(F, FormSum):
         return functools.reduce(
@@ -1740,8 +1752,7 @@ class SlateRestructurer(DAGTraverser):
     @staticmethod
     def is_slate_compatible(expr: ufl.form.BaseForm) -> bool:
         """Return whether ``expr`` can be represented by Slate."""
-        if (isinstance(expr, (ufl.ZeroBaseForm, Function))
-                or (isinstance(expr, Cofunction) and expr.function_space().finat_element.is_dg())):
+        if isinstance(expr, (ufl.ZeroBaseForm, Function)) or _is_dg_cofunction(expr):
             return True
         if isinstance(expr, (ufl.form.Form, TensorBase)):
             from firedrake.assemble import BaseFormAssembler

@@ -4,6 +4,19 @@ from firedrake import *
 import numpy as np
 
 
+def test_equation_bcs_accept_slate_forms():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    J = Tensor(inner(u, v) * ds(1))
+    L = Tensor(v * ds(1))
+
+    bc = EquationBC(J == L, Function(V), 1)
+
+    assert bc.is_linear
+
+
 def test_equation_bcs_direct_assemble_one_form():
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)

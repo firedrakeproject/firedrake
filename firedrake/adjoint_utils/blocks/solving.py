@@ -1,7 +1,8 @@
 import numpy
 import ufl
-from ufl.domain import extract_domains, extract_unique_domain
+from ufl.domain import extract_unique_domain
 from ufl import replace
+from ufl.core.base_form_operator import BaseFormOperator
 from ufl.formatting.ufl2unicode import ufl2unicode
 from enum import Enum
 
@@ -38,6 +39,8 @@ class GenericSolveBlock(Block):
 
     def __init__(self, lhs, rhs, func, bcs, *args, **kwargs):
         super().__init__(ad_block_tag=kwargs.pop('ad_block_tag', None))
+        from firedrake.ufl_expr import extract_domains as extract_firedrake_domains
+
         self.adj_cb = kwargs.pop("adj_cb", None)
         self.adj_bdy_cb = kwargs.pop("adj_bdy_cb", None)
         self.adj2_cb = kwargs.pop("adj2_cb", None)
@@ -61,7 +64,7 @@ class GenericSolveBlock(Block):
         if bcs is not None:
             self.bcs = Enlist(bcs)
 
-        if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
+        if isinstance(self.lhs, ufl.BaseForm) and isinstance(self.rhs, ufl.BaseForm):
             self.linear = True
             for c in self.rhs.coefficients():
                 self.add_dependency(c, no_duplicates=True)
@@ -75,14 +78,14 @@ class GenericSolveBlock(Block):
             self.add_dependency(bc, no_duplicates=True)
 
         try:  # add all meshes as dependency
-            for mesh in extract_domains(self.lhs):
+            for mesh in extract_firedrake_domains(self.lhs):
                 self.add_dependency(mesh, no_duplicates=True)
         except AttributeError:
             pass
 
         if isinstance(self.rhs, ufl.BaseForm):
             # add all meshes as dependency
-            for mesh in extract_domains(self.rhs):
+            for mesh in extract_firedrake_domains(self.rhs):
                 self.add_dependency(mesh, no_duplicates=True)
 
         self._init_solver_parameters(args, kwargs)
@@ -275,7 +278,7 @@ class GenericSolveBlock(Block):
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
-        if isinstance(dFdm, ufl.Form):
+        if isinstance(dFdm, ufl.BaseForm) and not isinstance(dFdm, BaseFormOperator):
             dFdm = firedrake.adjoint(dFdm)
             dFdm = firedrake.action(dFdm, adj_sol)
         else:

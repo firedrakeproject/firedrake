@@ -2,8 +2,9 @@
 import numpy
 import collections
 
-from ufl import as_tensor, as_vector, split
-from ufl.classes import Form, Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl import BaseForm, as_tensor, as_vector, split
+from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.core.base_form_operator import BaseFormOperator
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -14,7 +15,6 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
-from firedrake import slate
 from firedrake.ufl_expr import Coargument
 
 
@@ -80,6 +80,8 @@ class ExtractSubBlock(MultiFunction):
 
         Returns a new :class:`ufl.classes.Form` on the selected subspace.
         """
+        from firedrake import slate
+
         args = form.arguments()
         self._arg_cache = {}
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
@@ -206,7 +208,7 @@ class ExtractSubBlock(MultiFunction):
             args.append(asplit)
             argument_indices.append(fields)
 
-        if isinstance(o.a, Form):
+        if isinstance(o.a, BaseForm) and not isinstance(o.a, BaseFormOperator):
             form = self.split(o.a, argument_indices=argument_indices)
             if isinstance(form, ZeroBaseForm):
                 return form

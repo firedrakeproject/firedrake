@@ -17,7 +17,7 @@ from pyop2.mpi import temp_internal_comm
 from pyop2.utils import as_tuple
 
 import firedrake
-from firedrake import ufl_expr, slate, solving
+from firedrake import ufl_expr, solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
@@ -508,15 +508,13 @@ class EquationBC(object):
             self.Jp_eq_J = Jp is None and all([bc.Jp_eq_J for bc in bcs])
 
             # linear
-            if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
+            if isinstance(eq.lhs, ufl.BaseForm) and isinstance(eq.rhs, ufl.BaseForm):
                 J = eq.lhs
                 L = eq.rhs
                 Jp = Jp or J
                 if L == 0 or L.empty():
                     F = ufl_expr.action(J, u)
                 else:
-                    if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
-                        raise TypeError("Provided BC RHS is a '%s', not a BaseForm or Slate Tensor" % type(L).__name__)
                     if len(L.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
                     F = ufl_expr.action(J, u) - L

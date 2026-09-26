@@ -9,7 +9,6 @@ from pyop2.types.mat import _GlobalMatPayload, _DatMatPayload
 from firedrake.petsc import PETSc
 from firedrake.bcs import DirichletBC
 from firedrake.matrix_free import ImplicitMatrixContext
-from firedrake.slate import slate
 
 __all__ = ("MatrixBase", "Matrix", "ImplicitMatrix", "AssembledMatrix")
 
@@ -53,7 +52,8 @@ class MatrixBase(ufl.Matrix):
     ----------
     a
         A UFL BaseForm (with two arguments) that this MatrixBase represents,
-        or a tuple of the arguments it represents, or a slate TensorBase.
+        or a tuple of the arguments it represents. Slate tensors are UFL
+        BaseForms and are included in the first case.
     bcs
         An optional iterable of boundary conditions to apply to this :class:`MatrixBase`.
         Empty tuple by default.
@@ -63,7 +63,7 @@ class MatrixBase(ufl.Matrix):
 
     def __init__(
         self,
-        a: ufl.BaseForm | slate.TensorBase | tuple[ufl.Argument | ufl.Coargument, ufl.Argument | ufl.Coargument],
+        a: ufl.BaseForm | tuple[ufl.Argument | ufl.Coargument, ufl.Argument | ufl.Coargument],
         bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
     ):
@@ -72,12 +72,12 @@ class MatrixBase(ufl.Matrix):
             self.a = None
             test, trial = a
             arguments = a
-        elif isinstance(a, ufl.BaseForm | slate.TensorBase):
+        elif isinstance(a, ufl.BaseForm):
             self.a = a
             test, trial = a.arguments()
             arguments = None
         else:
-            raise TypeError(f"'a' must be a UFL BaseForm, slate TensorBase, or tuple of arguments, not {type(a).__name__}.")
+            raise TypeError(f"'a' must be a UFL BaseForm or tuple of arguments, not {type(a).__name__}.")
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
