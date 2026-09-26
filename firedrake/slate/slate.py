@@ -54,7 +54,7 @@ from tsfc.ufl_utils import extract_firedrake_constants
 __all__ = ['TensorBase', 'AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose',
            'Add', 'Mul', 'ScalarMul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
-           'Reciprocal', 'SlateRestructurer',
+           'Reciprocal', 'apply_slate_restructuring',
            'apply_slate_derivatives']
 
 
@@ -361,7 +361,6 @@ class TensorBase(BaseForm):
 
     def __add__(self, other):
         if isinstance(other, numbers.Number) and other == 0:
-            # Adding zero is a no-op, as for a ufl.BaseForm, so that a sum can start from 0.
             return self
         try:
             other = as_slate(other)
@@ -1662,17 +1661,7 @@ def as_slate(F):
 
 
 class SlateRestructurer(DAGTraverser):
-    """Restructure maximal Slate-compatible subtrees into Slate tensors.
-
-    The traversal visits UFL base-form operators in postorder. A form sum that
-    contains a Slate-compatible component collects all such components into a
-    single Slate tensor. Actions and adjoints become Slate operations when all
-    of their operands can be represented by Slate; otherwise, their restructured
-    operands remain in the original UFL node.
-
-    Slate tensors are leaves of this traversal. Their operands form a Slate DAG
-    that this UFL-oriented traversal must not visit.
-    """
+    """Restructure Slate-compatible subtrees into Slate tensors."""
 
     @singledispatchmethod
     def process(self, o):
@@ -1742,7 +1731,7 @@ class SlateRestructurer(DAGTraverser):
 
     @staticmethod
     def reconstruct(o, *operands):
-        """Reconstruct ``o`` with restructured operands when they changed."""
+        """Reconstruct ``o`` if its operands changed."""
         if all(new is old for new, old in zip(operands, o.ufl_operands)):
             return o
         if isinstance(o, ufl.FormSum):
@@ -1770,12 +1759,7 @@ class SlateRestructurer(DAGTraverser):
 
 
 class SlateDerivative(DAGTraverser):
-    """Differentiate a `ufl.form.BaseForm` that has Slate tensors with respect to a coefficient.
-
-    The Slate nodes are differentiated with their own rules. A `ufl.FormSum` distributes
-    the derivative over its components, so a sum can have both Slate and UFL components.
-    A UFL operand that has no Slate tensor is differentiated by `firedrake.derivative`.
-    """
+    """Differentiate forms that contain Slate tensors."""
 
     def __init__(self, coefficient, argument, coefficient_derivatives):
         super().__init__()
@@ -1872,33 +1856,15 @@ class SlateDerivative(DAGTraverser):
         return DiagonalTensor(operand)
 
 
+def apply_slate_restructuring(expr: ufl.form.BaseForm) -> ufl.form.BaseForm:
+    """Restructure Slate-compatible subtrees in ``expr``."""
+    return SlateRestructurer()(expr)
+
+
 def apply_slate_derivatives(tensor, coefficient, argument=None,
                             coefficient_derivatives=None):
-    """Apply coefficient derivatives to a `ufl.form.BaseForm` that has Slate tensors.
-
-    Parameters
-    ----------
-    tensor : ufl.form.BaseForm
-        The expression to differentiate. It is a Slate tensor, or it has Slate tensors
-        as operands.
-    coefficient : firedrake.Function or firedrake.Constant
-        The coefficient with respect to which the expression is differentiated.
-    argument : ufl.Argument, optional
-        The direction in which to differentiate.
-    coefficient_derivatives : dict, optional
-        Explicit derivatives for coefficients that occur in the expression.
-
-    Returns
-    -------
-    ufl.form.BaseForm
-        The directional derivative of ``tensor``.
-
-    Notes
-    -----
-    The Slate subtrees of ``tensor`` are first collected into Slate tensors. This turns the
-    action and the adjoint of a Slate tensor into Slate operations, which have derivative rules.
-    """
-    tensor = SlateRestructurer()(tensor)
+    """Apply Slate-aware coefficient differentiation to ``tensor``."""
+    tensor = apply_slate_restructuring(tensor)
     return SlateDerivative(coefficient, argument, coefficient_derivatives)(tensor)
 
 

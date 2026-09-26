@@ -900,8 +900,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         ----------
         expr : ufl.form.BaseForm
             The form to normalise.
-        mat_type : str or None
-            The requested PETSc matrix type.
         form_compiler_parameters : dict
             Optional parameters to pass to the TSFC and/or Slate compilers.
 
@@ -921,7 +919,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         The derivatives are expanded first in each subtree that is pure UFL, see
         `expand_derivatives_ufl_subtrees`. The Slate compiler expands the derivatives of
         the forms inside a Slate tensor itself. The Slate subtrees are then restructured, see
-        `slate.SlateRestructurer`. The expansion comes first, because only an expanded form
+        `slate.apply_slate_restructuring`. The expansion comes first, because only an expanded form
         shows which base form operators must be evaluated before it can be compiled. The
         Slate subtrees are restructured again after the restructuring, because the
         restructuring can make more forms that can be compiled.
@@ -932,14 +930,14 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Don't expand derivatives if `mat_type` is 'matfree'
             # For "matfree", Form evaluation is delayed
             expr = BaseFormAssembler.expand_derivatives_ufl_subtrees(expr, form_compiler_parameters)
-        expr = slate.SlateRestructurer()(expr)
+        expr = slate.apply_slate_restructuring(expr)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
             # Restructuring turns the action of a form on a function into a form,
             # which can then join a Slate subtree.
-            expr = slate.SlateRestructurer()(expr)
+            expr = slate.apply_slate_restructuring(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
@@ -970,7 +968,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         leaves uniformly, without depending on their concrete implementation. Other nodes are
         expanded after their operands, using the appropriate UFL derivative algorithm for the
         node type.
-
         """
         operands = BaseFormAssembler.base_form_operands(expr)
         new_operands = [BaseFormAssembler.expand_derivatives_ufl_subtrees(op, fc_params)
@@ -996,27 +993,7 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @staticmethod
     def is_compilable(expr: ufl.form.BaseForm | ufl.core.expr.Expr) -> bool:
-        """Return whether ``expr`` can be compiled without evaluating any of its operands first.
-
-        Parameters
-        ----------
-        expr : ufl.form.BaseForm or ufl.core.expr.Expr
-            The expression to inspect.
-
-        Returns
-        -------
-        bool
-            Whether ``expr`` is a `ufl.Form` or a `slate.TensorBase` that the form compiler
-            can translate into kernels, with no operand that the `BaseFormAssembler` must
-            evaluate beforehand.
-
-        Notes
-        -----
-        The derivatives of ``expr`` must already be expanded. The base form operators of
-        an unexpanded derivative are the undifferentiated ones, which do not show whether
-        the derivative can be compiled.
-
-        """
+        """Return whether ``expr`` can be compiled without evaluating its operands first."""
         return (isinstance(expr, (ufl.form.Form, slate.TensorBase))
                 and not BaseFormAssembler.base_form_operands(expr))
 

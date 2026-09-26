@@ -81,6 +81,7 @@ class ExtractSubBlock(MultiFunction):
         Returns a new :class:`ufl.classes.Form` on the selected subspace.
         """
         from firedrake import slate
+        from firedrake.slate.slate import apply_slate_restructuring
 
         args = form.arguments()
         self._arg_cache = {}
@@ -95,7 +96,7 @@ class ExtractSubBlock(MultiFunction):
 
         # Restructure Slate-compatible subtrees before UFL traversal reaches
         # them, because UFL cannot descend into Slate nodes.
-        form = slate.slate.SlateRestructurer()(form)
+        form = apply_slate_restructuring(form)
 
         if isinstance(form, slate.slate.TensorBase):
             return slate.push_block(slate.slate.Block(form, tuple(self.blocks[i] for i in range(form.rank))))
