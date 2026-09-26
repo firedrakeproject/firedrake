@@ -1,7 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.slate.slate import ScalarMul, TensorBase, UnaryOp, as_slate
+from firedrake.slate.slate import ScalarMul, SlateRestructurer, TensorBase, UnaryOp, as_slate
 from ufl.equation import Equation
 from ufl.form import FormSum
 import math
@@ -348,11 +348,31 @@ def test_implicit_casting_add_sub():
 
     # combine slate Tensor and Cofunction
     c = Cofunction(V.dual())
-    s = AssembledVector(c)
-    assert b + c == b + s
-    assert b - c == b - s
-    assert as_slate(c + b) == s + b
-    assert as_slate(c - b) == s - b
+
+    def assert_form_sum(expr, components, weights):
+        assert isinstance(expr, FormSum)
+        assert all(actual is expected
+                   for actual, expected in zip(expr.components(), components))
+        assert tuple(expr.weights()) == weights
+
+    assert_form_sum(b + c, (b, c), (1, 1))
+    assert_form_sum(b - c, (b, c), (1, -1))
+    assert_form_sum(c + b, (c, b), (1, 1))
+    c_minus_b = c - b
+    assert isinstance(c_minus_b, FormSum)
+    assert c_minus_b.components()[0] is c
+    assert isinstance(c_minus_b.components()[1], ScalarMul)
+    assert c_minus_b.components()[1].scalar == -1
+    assert c_minus_b.components()[1].operands[0] is b
+    assert tuple(c_minus_b.weights()) == (1, 1)
+    assert_form_sum(SlateRestructurer()(c + b), (b, c), (1, 1))
+    restructured_c_minus_b = SlateRestructurer()(c_minus_b)
+    assert isinstance(restructured_c_minus_b, FormSum)
+    assert isinstance(restructured_c_minus_b.components()[0], ScalarMul)
+    assert restructured_c_minus_b.components()[0].scalar == -1
+    assert restructured_c_minus_b.components()[0].operands[0] is b
+    assert restructured_c_minus_b.components()[1] is c
+    assert tuple(restructured_c_minus_b.weights()) == (1, 1)
 
 
 def test_scalar_multiplication():

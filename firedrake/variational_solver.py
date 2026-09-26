@@ -281,15 +281,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
             J = J.a
         F = ufl_expr.action(J, u)
-        if (
-            isinstance(F, slate.slate.TensorBase)
-            and L != 0
-            and not isinstance(L, (ufl.Form, slate.slate.TensorBase))
-        ):
-            # Slate expressions should not combine with assembled Cofunctions
-            # because assemble(AssembledVector(L)) repeats element summation on L
-            F = ufl.FormSum((F, 1), (L, -1))
-        elif L != 0:
+        if L != 0:
             F = F - L
         return F
 

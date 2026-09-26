@@ -350,6 +350,10 @@ class TensorBase(BaseForm):
         if isinstance(other, numbers.Number) and other == 0:
             # Adding zero is a no-op, as for a ufl.BaseForm, so that a sum can start from 0.
             return self
+        if isinstance(other, Cofunction):
+            # Keep assembled cofunctions in a UFL FormSum so that their
+            # element contributions are not assembled a second time.
+            return FormSum((self, 1), (other, 1))
         try:
             other = as_slate(other)
             return Add(self, other)
@@ -359,6 +363,8 @@ class TensorBase(BaseForm):
     def __radd__(self, other):
         if isinstance(other, numbers.Number) and other == 0:
             return self
+        if isinstance(other, Cofunction):
+            return FormSum((other, 1), (self, 1))
         # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
@@ -368,6 +374,8 @@ class TensorBase(BaseForm):
             return NotImplemented
 
     def __sub__(self, other):
+        if isinstance(other, Cofunction):
+            return FormSum((self, 1), (other, -1))
         try:
             other = as_slate(other)
             return Add(self, -other)
@@ -375,6 +383,8 @@ class TensorBase(BaseForm):
             return NotImplemented
 
     def __rsub__(self, other):
+        if isinstance(other, Cofunction):
+            return FormSum((other, 1), (self, -1))
         # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
@@ -1717,7 +1727,9 @@ class SlateRestructurer(DAGTraverser):
     @staticmethod
     def is_slate_compatible(expr: ufl.form.BaseForm) -> bool:
         """Return whether ``expr`` can be represented by Slate."""
-        if isinstance(expr, (ufl.ZeroBaseForm, Function, Cofunction)):
+        # Cofunctions are already assembled. Keep them in UFL FormSums so
+        # that their element contributions are not assembled a second time.
+        if isinstance(expr, (ufl.ZeroBaseForm, Function)):
             return True
         if isinstance(expr, (ufl.form.Form, TensorBase)):
             from firedrake.assemble import BaseFormAssembler
