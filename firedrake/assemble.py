@@ -1043,6 +1043,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         return (isinstance(expr, (ufl.form.Form, slate.TensorBase))
                 and not BaseFormAssembler.base_form_operands(expr))
 
+
 class FormAssembler(AbstractFormAssembler):
     """Form assembler.
 

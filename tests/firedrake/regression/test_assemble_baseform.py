@@ -469,6 +469,16 @@ def test_preprocess_slate_maximal_action(slate_forms):
     assert np.allclose(assemble(expr).dat.data_ro, expected.dat.data_ro)
 
 
+def test_preprocess_delays_tsfc_derivative():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    expr = derivative(u**2 * v * dx, u)
+
+    assert BaseFormAssembler.preprocess_base_form(expr) is expr
+
+
 def test_restructure_slate_pure_ufl_unchanged(slate_forms):
     V, mass, stiffness, w = slate_forms
     expr = ufl.Action(FormSum((mass, 1), (stiffness, 1)), w)
