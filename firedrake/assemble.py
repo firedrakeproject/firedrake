@@ -894,37 +894,7 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @staticmethod
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
-        """Normalise a `ufl.form.BaseForm` so that the assembly visitor can evaluate it.
-
-        Parameters
-        ----------
-        expr : ufl.form.BaseForm
-            The form to normalise.
-        form_compiler_parameters : dict
-            Optional parameters to pass to the TSFC and/or Slate compilers.
-
-        Returns
-        -------
-        ufl.form.BaseForm
-            The normalised form.
-
-        Notes
-        -----
-        Expanding the derivatives is what exposes the base form operators that the DAG
-        traversal must evaluate. The base form operators of an unexpanded derivative are
-        the undifferentiated ones, so a traversal of that DAG would evaluate an operator
-        where it must instead differentiate it. Only a form whose evaluation is delayed,
-        see `_is_matrix_free`, may reach the assembler with its derivatives unexpanded.
-
-        The derivatives are expanded first in each subtree that is pure UFL, see
-        `expand_derivatives_ufl_subtrees`. The Slate compiler expands the derivatives of
-        the forms inside a Slate tensor itself. The Slate subtrees are then restructured, see
-        `slate.apply_slate_restructuring`. The expansion comes first, because only an expanded form
-        shows which base form operators must be evaluated before it can be compiled. The
-        Slate subtrees are restructured again after the restructuring, because the
-        restructuring can make more forms that can be compiled.
-
-        """
+        """Preprocess ufl.BaseForm objects"""
         original_expr = expr
         if mat_type != "matfree":
             # Don't expand derivatives if `mat_type` is 'matfree'
