@@ -1,7 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.slate.slate import ScalarMul, UnaryOp, as_slate
+from firedrake.slate.slate import ScalarMul, TensorBase, UnaryOp, as_slate
 from ufl.form import FormSum
 import math
 
@@ -306,6 +306,13 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert M201.arguments() == splitter.split(a, ((2,), (0, 1))).arguments()
     assert F01.arguments() == splitter.split(L, ((0, 1),)).arguments()
     assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
+
+    # A FormSum with a Slate component is split as one Slate expression.
+    mixed_sum = FormSum((M, 2), (a, 1))
+    M00_sum = splitter.split(mixed_sum, (0, 0))
+    assert isinstance(M00_sum, TensorBase)
+    assert M00_sum == splitter.split(as_slate(mixed_sum), (0, 0))
+    assert M00.arguments() == M00_sum.arguments()
 
 
 def test_implicit_casting_add_sub():
