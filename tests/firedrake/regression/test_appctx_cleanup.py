@@ -1,4 +1,5 @@
 import numpy
+import pytest
 from firedrake import *
 
 
@@ -54,3 +55,32 @@ def test_appctx_cleanup():
         V = V._coarse
 
     assert numpy.allclose(uh.dat.data_ro, 1.0)
+
+
+class Solver(object):
+    """Stand-in for the solver object that :class:`~.add_hooks` saves hooks on."""
+
+
+def test_broken_hook_stack_does_not_mask_error():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    dm = V.dm
+
+    # An empty hook stack under a live context manager is what a solve looks
+    # like when the appctx goes missing. The error raised inside the block is
+    # the one worth reporting, not the state of the stack.
+    with pytest.warns(RuntimeWarning, match="Setup hooks"):
+        with pytest.raises(ZeroDivisionError):
+            with dmhooks.add_hooks(dm, Solver(), appctx=None):
+                dmhooks.pop_attr("__setup_hooks__", dm)
+                raise ZeroDivisionError
+
+
+def test_broken_hook_stack_is_reported():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    dm = V.dm
+
+    with pytest.raises(RuntimeError, match="Setup hooks"):
+        with dmhooks.add_hooks(dm, Solver(), appctx=None):
+            dmhooks.pop_attr("__setup_hooks__", dm)

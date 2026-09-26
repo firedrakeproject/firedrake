@@ -1,7 +1,11 @@
+import gc
+
 from firedrake import *
 import numpy
 import pytest
 import warnings
+
+from firedrake.mg import ufl_utils
 
 
 def solver_parameters(solver_type):
@@ -106,6 +110,186 @@ def run_poisson(solver_type, rhs_type="form"):
     return norm(assemble(exact - u))
 
 
+def _baseform_solver_parameters(solver_type: str) -> dict:
+    """Return solver parameters used by the BaseForm diagnostics.
+
+    Parameters
+    ----------
+    solver_type : str
+        Multigrid solver configuration to use.
+
+    Returns
+    -------
+    dict
+        PETSc solver parameters for the diagnostic.
+    """
+    parameters = dict(solver_parameters(solver_type))
+    parameters.update({
+        "snes_rtol": 1.0E-10,
+        "snes_atol": 0.0,
+        "ksp_type": "gmres",
+        "ksp_rtol": 1.0E-12,
+        "ksp_atol": 0.0,
+    })
+    return parameters
+
+
+def _baseform_problem(mixed: bool, hierarchy=None) -> tuple:
+    """Construct the problem and equivalent right-hand sides.
+
+    Parameters
+    ----------
+    mixed : bool
+        Whether to use two copies of the scalar space.
+    hierarchy : MeshHierarchy, optional
+        Mesh hierarchy to reuse, or ``None`` to construct one.
+
+    Returns
+    -------
+    tuple
+        The hierarchy, function space, bilinear form, boundary conditions,
+        and equivalent right-hand sides.
+    """
+    if hierarchy is None:
+        base = UnitSquareMesh(2, 2)
+        hierarchy = MeshHierarchy(base, 2, refinements_per_level=2)
+    mesh = hierarchy[-1]
+    V = FunctionSpace(mesh, "CG", 1)
+    _, f = manufacture_solution(V)
+    if mixed:
+        V = V * V
+
+    bcs = []
+    forms = []
+    a_terms = []
+    for Vsub, v, u in zip(V, TestFunctions(V), TrialFunctions(V)):
+        bcs.append(DirichletBC(Vsub, 1.0, (2, 3, 4)))
+        forms.extend([inner(f, v) * dx, inner(Constant(1), v) * ds(1)])
+        a_terms.append(inner(grad(u), grad(v)) * dx)
+    a = sum(a_terms)
+
+    # These are equivalent right-hand sides.
+    sources = [sum(forms),
+               assemble(sum(forms), bcs=bcs),
+               sum(assemble(form, bcs=bcs) for form in forms),
+               forms[0] + assemble(sum(forms[1:]), bcs=bcs),
+               ]
+    return hierarchy, V, a, bcs, sources
+
+
+def _dummy_solve(mesh: object) -> None:
+    """Run a solver whose objects can be collected before the next probe.
+
+    Parameters
+    ----------
+    mesh : firedrake.MeshGeometry
+        Mesh on which to run the dummy solve.
+
+    Returns
+    -------
+    None
+        The solve is used only to exercise solver construction and teardown.
+    """
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    trial = TrialFunction(V)
+    v = TestFunction(V)
+    solve(inner(trial, v) * dx == inner(Constant(1), v) * dx, u,
+          solver_parameters={"snes_type": "ksponly",
+                             "ksp_type": "preonly",
+                             "pc_type": "lu"})
+
+
+class _TrackingTransferManager(TransferManager):
+    """Count transfers made while a solver owns the transfer manager."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.prolong_calls = 0
+        self.restrict_calls = 0
+
+    def prolong(self, coarse: object, fine: object) -> None:
+        self.prolong_calls += 1
+        super().prolong(coarse, fine)
+
+    def restrict(self, fine_dual: object, coarse_dual: object) -> None:
+        self.restrict_calls += 1
+        super().restrict(fine_dual, coarse_dual)
+
+
+def _collect(mesh: object) -> None:
+    """Collect Python and PETSc objects associated with a mesh.
+
+    Parameters
+    ----------
+    mesh : firedrake.MeshGeometry
+        Mesh supplying the communicator for PETSc cleanup.
+
+    Returns
+    -------
+    None
+        Garbage collection is performed for its side effects.
+    """
+    gc.collect()
+    PETSc.garbage_cleanup(mesh.comm)
+
+
+def _solve_baseform_source(hierarchy: object, source_index: int,
+                           solver_type: str = "mg",
+                           transfer_manager: object | None = None) -> float:
+    """Solve one BaseForm diagnostic right-hand side.
+
+    Parameters
+    ----------
+    hierarchy : MeshHierarchy
+        Hierarchy on which to construct the problem.
+    source_index : int
+        Index of the equivalent right-hand side to solve.
+    solver_type : str, optional
+        Multigrid solver configuration.
+    transfer_manager : TransferManager, optional
+        Transfer manager to attach to the solver.
+
+    Returns
+    -------
+    float
+        Norm of the computed solution.
+    """
+    _, V, a, bcs, sources = _baseform_problem(False, hierarchy)
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, sources[source_index], uh, bcs=bcs)
+    solver = LinearVariationalSolver(
+        problem, solver_parameters=_baseform_solver_parameters(solver_type))
+    if transfer_manager is not None:
+        solver.set_transfer_manager(transfer_manager)
+    solver.solve()
+    return norm(uh)
+
+
+def _run_transfer_probe(hierarchy: object, transfer_op: str) -> int:
+    """Run one solver and count an appctx-owned transfer direction.
+
+    Parameters
+    ----------
+    hierarchy : MeshHierarchy
+        Hierarchy on which to solve the symbolic first right-hand side.
+    transfer_op : {"prolong", "restrict"}
+        Transfer direction whose calls should be counted.
+
+    Returns
+    -------
+    int
+        Number of calls to the selected transfer operation.
+    """
+    transfer = _TrackingTransferManager()
+    _solve_baseform_source(hierarchy, 0, transfer_manager=transfer)
+    if transfer_op == "prolong":
+        return transfer.prolong_calls
+    if transfer_op == "restrict":
+        return transfer.restrict_calls
+    raise ValueError(f"Unknown transfer operation: {transfer_op}")
+
+
 @pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 def test_poisson_gmg(solver_type):
@@ -177,36 +361,8 @@ def test_preconditioner_coarsening(solver_type):
 @pytest.mark.parametrize("mixed", [False, True], ids=["scalar", "mixed"])
 @pytest.mark.skip(reason="Test stochastically fails. See https://github.com/firedrakeproject/firedrake/issues/5421")
 def test_baseform_coarsening(solver_type, mixed):
-    parameters = solver_parameters(solver_type)
-    parameters = dict(parameters)
-    parameters["snes_rtol"] = 1.0E-10
-    parameters["snes_atol"] = 0.0
-    parameters["ksp_type"] = "gmres"
-    parameters["ksp_rtol"] = 1.0E-12
-    parameters["ksp_atol"] = 0.0
-    base = UnitSquareMesh(2, 2)
-    mh = MeshHierarchy(base, 2, refinements_per_level=2)
-    mesh = mh[-1]
-    V = FunctionSpace(mesh, "CG", 1)
-    _, f = manufacture_solution(V)
-    if mixed:
-        V = V * V
-
-    bcs = []
-    forms = []
-    a_terms = []
-    for Vsub, v, u in zip(V, TestFunctions(V), TrialFunctions(V)):
-        bcs.append(DirichletBC(Vsub, 1.0, (2, 3, 4)))
-        forms.extend([inner(f, v) * dx, inner(Constant(1), v) * ds(1)])
-        a_terms.append(inner(grad(u), grad(v)) * dx)
-    a = sum(a_terms)
-
-    # These are equivalent right-hand sides
-    sources = [sum(forms),  # purely symbolic linear form
-               assemble(sum(forms), bcs=bcs),  # purely numerical cofunction
-               sum(assemble(form, bcs=bcs) for form in forms),  # symbolic combination of numerical cofunctions
-               forms[0] + assemble(sum(forms[1:]), bcs=bcs),  # symbolic plus numerical
-               ]
+    parameters = _baseform_solver_parameters(solver_type)
+    _, V, a, bcs, sources = _baseform_problem(mixed)
     solutions = []
     for L in sources:
         uh = Function(V)
@@ -215,6 +371,84 @@ def test_baseform_coarsening(solver_type, mixed):
 
     for s in solutions[1:]:
         assert errornorm(s, solutions[0]) < 1E-14
+
+
+def test_baseform_coarsening_after_dummy_solve_gc():
+    """Check BaseForm coarsening after an isolated solver is collected."""
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 2, refinements_per_level=2)
+    mesh = hierarchy[-1]
+
+    _solve_baseform_source(hierarchy, 0)
+    _collect(mesh)
+    _dummy_solve(mesh)
+    _collect(mesh)
+
+    assert numpy.isfinite(_solve_baseform_source(hierarchy, 1))
+    _collect(mesh)
+
+
+@pytest.mark.parametrize("transfer_op", ["prolong", "restrict"])
+def test_baseform_coarsening_after_isolated_transfer_gc(transfer_op):
+    """Check BaseForm coarsening after one collected transfer direction."""
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 2, refinements_per_level=2)
+    mesh = hierarchy[-1]
+
+    # The transfer manager is local to the probe solver, so both it and the
+    # solver appctx are out of scope before the intervening solver is built.
+    assert _run_transfer_probe(hierarchy, transfer_op) > 0
+    _collect(mesh)
+    # Exercise solver construction after either transfer direction has been
+    # collected, before entering the BaseForm coarsening path.
+    _dummy_solve(mesh)
+    _collect(mesh)
+
+    source_index = {"prolong": 0, "restrict": 1}[transfer_op]
+    assert numpy.isfinite(_solve_baseform_source(hierarchy, source_index))
+    _collect(mesh)
+
+
+def test_baseform_coarsening_with_tracked_coefficient_mapping(monkeypatch):
+    """Check coarsening with a tracked coefficient mapping and GC boundary."""
+    mappings = []
+    original_coarsen = ufl_utils.coarsen
+
+    class TrackingMapping(dict):
+        def __init__(self, *args):
+            super().__init__(*args)
+            self.lookups = 0
+            self.assignments = 0
+
+        def get(self, key, default=None):
+            self.lookups += 1
+            return super().get(key, default)
+
+        def __setitem__(self, key, value):
+            self.assignments += 1
+            super().__setitem__(key, value)
+
+    def tracked_coarsen(expr, dispatch, coefficient_mapping=None):
+        if not isinstance(coefficient_mapping, TrackingMapping):
+            coefficient_mapping = TrackingMapping(coefficient_mapping or {})
+            mappings.append(coefficient_mapping)
+        return original_coarsen(expr, tracked_coarsen,
+                                coefficient_mapping=coefficient_mapping)
+
+    monkeypatch.setattr(ufl_utils, "coarsen", tracked_coarsen)
+
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 2, refinements_per_level=2)
+    mesh = hierarchy[-1]
+    assert _run_transfer_probe(hierarchy, "restrict") > 0
+    _collect(mesh)
+    _dummy_solve(mesh)
+    _collect(mesh)
+
+    assert numpy.isfinite(_solve_baseform_source(hierarchy, 1))
+    assert mappings
+    assert any(mapping.lookups and mapping.assignments for mapping in mappings)
+    _collect(mesh)
 
 
 @pytest.mark.parametrize("solver_type",
