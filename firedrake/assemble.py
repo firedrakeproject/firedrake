@@ -162,12 +162,14 @@ def get_assembler(form, *args, **kwargs):
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     fc_params = kwargs.get('form_compiler_parameters', None)
+    mat_type = kwargs.get('mat_type', None)
     if (isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed
             and not _is_matrix_free(form, kwargs.get('mat_type'), kwargs.get('diagonal', False))):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         # A matrix-free 2-form is left alone, because its action is preprocessed instead.
-        form = BaseFormAssembler.preprocess_base_form(form, form_compiler_parameters=fc_params)
+        form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type,
+                                                      form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
@@ -889,32 +891,13 @@ class BaseFormAssembler(AbstractFormAssembler):
         return expr
 
     @staticmethod
-    def preprocess_base_form(expr, form_compiler_parameters=None):
-        """Normalise a `ufl.form.BaseForm` so that the assembly visitor can evaluate it.
-
-        Parameters
-        ----------
-        expr : ufl.form.BaseForm
-            The form to normalise.
-        form_compiler_parameters : dict
-            Optional parameters to pass to the TSFC and/or Slate compilers.
-
-        Returns
-        -------
-        ufl.form.BaseForm
-            The normalised form.
-
-        Notes
-        -----
-        Expanding the derivatives is what exposes the base form operators that the DAG
-        traversal must evaluate. The base form operators of an unexpanded derivative are
-        the undifferentiated ones, so a traversal of that DAG would evaluate an operator
-        where it must instead differentiate it. Only a form whose evaluation is delayed,
-        see `_is_matrix_free`, may reach the assembler with its derivatives unexpanded.
-
-        """
+    def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
+        """Preprocess ufl.BaseForm objects"""
         original_expr = expr
-        expr = BaseFormAssembler.expand_derivatives_ufl_subtrees(expr, form_compiler_parameters)
+        if mat_type != "matfree":
+            # Don't expand derivatives if `mat_type` is 'matfree'
+            # For "matfree", Form evaluation is delayed
+            expr = BaseFormAssembler.expand_derivatives_ufl_subtrees(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
@@ -927,60 +910,15 @@ class BaseFormAssembler(AbstractFormAssembler):
         return expr
 
     @staticmethod
-    def expand_derivatives_form(form, fc_params):
-        """Expand the derivatives of a `ufl.form.BaseForm`.
-
-        Parameters
-        ----------
-        form : ufl.form.BaseForm or slate.TensorBase
-            The form whose derivatives are expanded.
-        fc_params : dict
-            Optional parameters to pass to the TSFC and/or Slate compilers.
-
-        Returns
-        -------
-        ufl.form.BaseForm or slate.TensorBase
-            The form with its derivatives expanded.
-
-        Notes
-        -----
-        Expanding the derivatives determines whether the result is a `ufl.form.Form` or
-        another `ufl.form.BaseForm` object. The caller uses that to decide whether to
-        compile the form or to traverse the sub-DAG.
-
-        """
-        if isinstance(form, ufl.form.Form):
-            from firedrake.parameters import parameters as default_parameters
-            from tsfc.parameters import is_complex
-
-            if fc_params is None:
-                fc_params = default_parameters["form_compiler"].copy()
-            else:
-                # Override defaults with user-specified values
-                _ = fc_params
-                fc_params = default_parameters["form_compiler"].copy()
-                fc_params.update(_)
-
-            complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
-
-            return ufl.algorithms.preprocess_form(form, complex_mode)
-        # We also need to expand derivatives for `ufl.BaseForm` objects that are not `ufl.Form`
-        # Example: `Action(A, derivative(B, f))`, where `A` is a `ufl.BaseForm` and `B` can
-        # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
-        # containing derivatives is not supported anymore but might be needed if the expression
-        # in question is within a `ufl.BaseForm` object.
-        return ufl.algorithms.ad.expand_derivatives(form)
-
-    @staticmethod
     def expand_derivatives_ufl_subtrees(expr: ufl.form.BaseForm, fc_params: dict | None) -> ufl.form.BaseForm:
-        """Expand derivatives in base-form trees that need assembly traversal.
+        """Expand derivatives in subtrees that need assembly traversal.
 
         Parameters
         ----------
         expr : ufl.form.BaseForm
             The form whose derivatives are expanded where direct compilation is not possible.
         fc_params : dict or None
-            Optional parameters to pass to the TSFC and/or Slate compilers.
+            Optional parameters to pass to the form compiler.
 
         Returns
         -------
@@ -990,8 +928,10 @@ class BaseFormAssembler(AbstractFormAssembler):
         Notes
         -----
         A tree with no base-form operands is left unchanged so that its compiler can expand
-        derivatives while it compiles the tree. The recursive traversal also treats opaque
-        base-form leaves uniformly, without depending on their concrete implementation.
+        derivatives while it compiles the tree. The recursive traversal treats opaque base-form
+        leaves uniformly, without depending on their concrete implementation. Other nodes are
+        expanded after their operands, using the appropriate UFL derivative algorithm for the
+        node type.
         """
         operands = BaseFormAssembler.base_form_operands(expr)
         new_operands = [BaseFormAssembler.expand_derivatives_ufl_subtrees(op, fc_params)
@@ -1000,7 +940,20 @@ class BaseFormAssembler(AbstractFormAssembler):
             return BaseFormAssembler.reconstruct_node_from_operands(expr, new_operands)
         if not operands:
             return expr
-        return BaseFormAssembler.expand_derivatives_form(expr, fc_params)
+
+        if isinstance(expr, ufl.form.Form):
+            from firedrake.parameters import parameters as default_parameters
+            from tsfc.parameters import is_complex
+
+            form_compiler_parameters = default_parameters["form_compiler"].copy()
+            if fc_params is not None:
+                form_compiler_parameters.update(fc_params)
+
+            complex_mode = (form_compiler_parameters
+                            and is_complex(form_compiler_parameters.get("scalar_type")))
+            return ufl.algorithms.preprocess_form(expr, complex_mode)
+
+        return ufl.algorithms.ad.expand_derivatives(expr)
 
 
 class FormAssembler(AbstractFormAssembler):
