@@ -2,7 +2,7 @@ from firedrake.slate.slate import (  # noqa: F401
     AssembledVector, Block, Factorization, Tensor, Inverse,
     Transpose, Add, Mul, ScalarMul, Solve, BlockAssembledVector,
     DiagonalTensor, Reciprocal, TensorOp, TensorBase,
-    SlateRestructurer, restructure_slate_base_forms,
+    SlateRestructurer,
     apply_slate_derivatives
 )
 from firedrake.slate.static_condensation import (  # noqa: F401

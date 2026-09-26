@@ -52,7 +52,7 @@ from tsfc.ufl_utils import extract_firedrake_constants
 __all__ = ['TensorBase', 'AssembledVector', 'Block', 'Factorization', 'Tensor',
            'Inverse', 'Transpose',
            'Add', 'Mul', 'ScalarMul', 'Solve', 'BlockAssembledVector', 'DiagonalTensor',
-           'Reciprocal', 'SlateRestructurer', 'restructure_slate_base_forms',
+           'Reciprocal', 'SlateRestructurer',
            'apply_slate_derivatives']
 
 # BlockFunction description type
@@ -1733,11 +1733,6 @@ class SlateRestructurer(DAGTraverser):
                 and SlateRestructurer.is_slate_compatible(component))
 
 
-def restructure_slate_base_forms(expr: ufl.form.BaseForm) -> ufl.form.BaseForm:
-    """Restructure maximal Slate-compatible subtrees into Slate tensors."""
-    return SlateRestructurer()(expr)
-
-
 class SlateDerivative(DAGTraverser):
     """Differentiate a `ufl.form.BaseForm` that has Slate tensors with respect to a coefficient.
 
@@ -1864,7 +1859,7 @@ def apply_slate_derivatives(tensor, coefficient, argument=None,
     The Slate subtrees of ``tensor`` are first collected into Slate tensors. This turns the
     action and the adjoint of a Slate tensor into Slate operations, which have derivative rules.
     """
-    tensor = restructure_slate_base_forms(tensor)
+    tensor = SlateRestructurer()(tensor)
     return SlateDerivative(coefficient, argument, coefficient_derivatives)(tensor)
 
 

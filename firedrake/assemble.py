@@ -917,7 +917,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         The derivatives are expanded first in each subtree that is pure UFL, see
         `expand_derivatives_ufl_subtrees`. The Slate compiler expands the derivatives of
         the forms inside a Slate tensor itself. The Slate subtrees are then restructured, see
-        `slate.restructure_slate_base_forms`. The expansion comes first, because only an expanded form
+        `slate.SlateRestructurer`. The expansion comes first, because only an expanded form
         shows which base form operators must be evaluated before it can be compiled. The
         Slate subtrees are restructured again after the restructuring, because the
         restructuring can make more forms that can be compiled.
@@ -925,14 +925,14 @@ class BaseFormAssembler(AbstractFormAssembler):
         """
         original_expr = expr
         expr = BaseFormAssembler.expand_derivatives_ufl_subtrees(expr, form_compiler_parameters)
-        expr = slate.restructure_slate_base_forms(expr)
+        expr = slate.SlateRestructurer()(expr)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
             # Restructuring turns the action of a form on a function into a form,
             # which can then join a Slate subtree.
-            expr = slate.restructure_slate_base_forms(expr)
+            expr = slate.SlateRestructurer()(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
@@ -984,29 +984,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         # containing derivatives is not supported anymore but might be needed if the expression
         # in question is within a `ufl.BaseForm` object.
         return ufl.algorithms.ad.expand_derivatives(form)
-
-    @staticmethod
-    def restructure_slate_base_forms(expr: ufl.form.BaseForm) -> ufl.form.BaseForm:
-        """Restructure each maximal Slate-compatible subtree of a `ufl.form.BaseForm` into one Slate tensor.
-
-        Parameters
-        ----------
-        expr : ufl.form.BaseForm
-            The form to restructure.
-
-        Returns
-        -------
-        ufl.form.BaseForm
-            The restructured form. It is ``expr`` itself if ``expr`` contains no Slate tensor.
-
-        Notes
-        -----
-        The derivatives in the pure UFL subtrees of ``expr`` must already be expanded, see
-        `expand_derivatives_ufl_subtrees`. A collected subtree becomes one Slate tensor that
-        can be compiled, see `is_compilable`.
-
-        """
-        return slate.restructure_slate_base_forms(expr)
 
     @staticmethod
     def expand_derivatives_ufl_subtrees(expr: ufl.form.BaseForm, fc_params: dict | None) -> ufl.form.BaseForm:
