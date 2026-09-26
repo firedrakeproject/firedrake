@@ -910,15 +910,11 @@ class BaseFormAssembler(AbstractFormAssembler):
         traversal must evaluate. The base form operators of an unexpanded derivative are
         the undifferentiated ones, so a traversal of that DAG would evaluate an operator
         where it must instead differentiate it. Only a form whose evaluation is delayed,
-        see `_is_matrix_free`, and a form that contains a Slate tensor may reach the
-        assembler with its derivatives unexpanded.
+        see `_is_matrix_free`, may reach the assembler with its derivatives unexpanded.
 
         """
         original_expr = expr
-        if not BaseFormAssembler.contains_slate_tensor(expr):
-            # A Slate tensor is built from forms that are already compiled, so it has no
-            # derivatives left to expand. The UFL algorithms cannot traverse it either.
-            expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
+        expr = BaseFormAssembler.expand_derivatives_ufl_subtrees(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
@@ -976,24 +972,35 @@ class BaseFormAssembler(AbstractFormAssembler):
         return ufl.algorithms.ad.expand_derivatives(form)
 
     @staticmethod
-    def contains_slate_tensor(expr):
-        """Return whether ``expr`` is, or has an operand that is, a Slate tensor.
+    def expand_derivatives_ufl_subtrees(expr: ufl.form.BaseForm, fc_params: dict | None) -> ufl.form.BaseForm:
+        """Expand derivatives in base-form trees that need assembly traversal.
 
         Parameters
         ----------
-        expr : ufl.form.BaseForm or slate.TensorBase
-            The form to inspect.
+        expr : ufl.form.BaseForm
+            The form whose derivatives are expanded where direct compilation is not possible.
+        fc_params : dict or None
+            Optional parameters to pass to the TSFC and/or Slate compilers.
 
         Returns
         -------
-        bool
-            Whether a `slate.TensorBase` occurs anywhere in the DAG of ``expr``.
+        ufl.form.BaseForm
+            The form with derivatives expanded in subtrees that need base-form traversal.
 
+        Notes
+        -----
+        A tree with no base-form operands is left unchanged so that its compiler can expand
+        derivatives while it compiles the tree. The recursive traversal also treats opaque
+        base-form leaves uniformly, without depending on their concrete implementation.
         """
-        if isinstance(expr, slate.TensorBase):
-            return True
-        return any(BaseFormAssembler.contains_slate_tensor(operand)
-                   for operand in BaseFormAssembler.base_form_operands(expr))
+        operands = BaseFormAssembler.base_form_operands(expr)
+        new_operands = [BaseFormAssembler.expand_derivatives_ufl_subtrees(op, fc_params)
+                        for op in operands]
+        if any(new is not old for new, old in zip(new_operands, operands)):
+            return BaseFormAssembler.reconstruct_node_from_operands(expr, new_operands)
+        if not operands:
+            return expr
+        return BaseFormAssembler.expand_derivatives_form(expr, fc_params)
 
 
 class FormAssembler(AbstractFormAssembler):
