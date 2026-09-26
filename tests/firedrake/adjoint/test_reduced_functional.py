@@ -213,6 +213,60 @@ def test_interpolate():
 
 
 @pytest.mark.skipcomplex
+def test_slate_schur_complement():
+    mesh = UnitSquareMesh(2, 2)
+    e = FiniteElement("Lagrange", cell=mesh.ufl_cell(), degree=3,
+                      variant="integral")
+    V = FunctionSpace(mesh, MixedElement(e["interior"], e["facet"]))
+    M = FunctionSpace(mesh, "CG", 1)
+
+    m = Function(M).assign(0.2)
+    h = Function(M).assign(0.1)
+
+    ui, uf = TrialFunctions(V)
+    vi, vf = TestFunctions(V)
+    a = (inner(grad(ui + uf), grad(vi + vf))
+         + inner(ui + uf, vi + vf)) * dx
+    L = exp(m) * (vi + vf) * dx
+
+    A = Tensor(a)
+    b = Tensor(L)
+    Aii = Block(A, (0, 0))
+    Aif = Block(A, (0, 1))
+    Afi = Block(A, (1, 0))
+    Aff = Block(A, (1, 1))
+    bi = Block(b, (0,))
+    bf = Block(b, (1,))
+    S = Aff - Afi * Aii.inv * Aif
+    uf_expr = S.inv * (bf - Afi * Aii.inv * bi)
+
+    uf = assemble(uf_expr)
+    J = assemble(uf**4 * dx)
+    Jhat = ReducedFunctional(J, Control(m))
+    dJdm = assemble(inner(Jhat.derivative(apply_riesz=True), h) * dx)
+    Hm = assemble(inner(Jhat.hessian(h, apply_riesz=True), h) * dx)
+
+    assert taylor_test(Jhat, m, h, dJdm=dJdm, Hm=Hm) > 2.9
+
+
+@pytest.mark.skipcomplex
+def test_slate_partial_formsum():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    x, y = SpatialCoordinate(mesh)
+    m = Function(V).interpolate(0.2 + 0.1 * x)
+    h = Function(V).interpolate(0.1 * y)
+
+    # The interpolation cannot be compiled into a Slate tensor, so the sum keeps
+    # a Slate component and a UFL component.
+    J = assemble(FormSum((Tensor(exp(m) * m * dx), 1), (interpolate(m, Q)**4 * dx, 1)))
+    Jhat = ReducedFunctional(J, Control(m))
+
+    assert taylor_test(Jhat, m, h) > 1.9
+
+
+@pytest.mark.skipcomplex
 def test_interpolate_mixed():
     mesh = UnitSquareMesh(2, 2)
     V1 = FunctionSpace(mesh, "RT", 1)

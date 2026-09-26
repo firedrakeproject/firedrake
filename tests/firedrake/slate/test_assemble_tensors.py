@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import ufl
 from firedrake import *
 from firedrake.formmanipulation import split_form
 
@@ -383,3 +384,50 @@ def test_nested_block(mesh, degree):
     result = assemble(Block(Jp, (0, 0))).petscmat
 
     assert np.allclose(result[:, :], expect[:, :])
+
+
+@pytest.fixture
+def control():
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    m = Function(V).interpolate(SpatialCoordinate(mesh)[0])
+    return V, m
+
+
+def assert_matrices_close(A, B):
+    diff = A.petscmat.copy()
+    diff.axpy(-1.0, B.petscmat)
+    assert diff.norm() < 1e-12 * B.petscmat.norm()
+
+
+def test_derivative_slate_formsum(control):
+    V, m = control
+    v = TestFunction(V)
+    L1 = exp(m) * v * dx
+    L2 = m**2 * v * dx
+    F = FormSum((Tensor(L1), 2), (L2, 1))
+
+    dF = derivative(F, m)
+    assert_matrices_close(assemble(dF), assemble(derivative(2 * L1 + L2, m)))
+
+
+def test_derivative_partial_slate_formsum(control):
+    V, m = control
+    v = TestFunction(V)
+    L1 = exp(m) * v * dx
+    # The interpolation cannot be compiled into a Slate tensor, so the sum
+    # keeps a Slate component and a UFL component.
+    L2 = inner(interpolate(m, V)**3, v) * dx
+    F = FormSum((Tensor(L1), 1), (L2, 1))
+
+    dF = derivative(F, m)
+    assert isinstance(dF, ufl.FormSum)
+    assert_matrices_close(assemble(dF), assemble(derivative(L1 + L2, m)))
+
+
+def test_vector_dot_product(control):
+    V, m = control
+    v = TestFunction(V)
+    # The product of two vectors is a scalar.
+    result = assemble(Tensor(exp(m) * v * dx) * AssembledVector(m))
+    assert np.isclose(result, assemble(exp(m) * m * dx))

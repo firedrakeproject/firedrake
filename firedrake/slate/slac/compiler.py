@@ -213,7 +213,10 @@ def gem_to_loopy(gem_expr, var2terminal, scalar_type):
         and loopy GlobalArg for the output variable.
     """
     # Creation of return variables for outer loopy
-    shape = gem_expr.shape if len(gem_expr.shape) != 0 else (1,)
+    if not gem_expr.shape:
+        # A scalar, such as the product of two vectors, is returned as a vector of length 1.
+        gem_expr = gem.ListTensor(np.array([gem_expr]))
+    shape = gem_expr.shape
     idx = make_indices(len(shape))
     indexed_gem_expr = gem.Indexed(gem_expr, idx)
 

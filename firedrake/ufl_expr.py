@@ -231,7 +231,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     See also :func:`ufl.derivative`.
     """
     if has_type(form, firedrake.slate.TensorBase):
-        raise NotImplementedError("Cannot take the derivative of a form containing Slate tensors")
+        from firedrake.slate.slate import apply_slate_derivatives
+        return apply_slate_derivatives(form, u, du, coefficient_derivatives)
     try:
         args = form.arguments()
     except AttributeError:

@@ -513,3 +513,21 @@ def test_normalize_slate_expands_ufl_derivative():
     normalized = BaseFormAssembler.normalize_slate_base_forms(expr)
     assert isinstance(normalized, ufl.FormSum)
     assert_matrix_equal(assemble(expr), [(1, mass), (1, H)])
+
+
+@pytest.mark.parametrize("operand", ["function", "control"])
+def test_action_derivative(operand):
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    v = TestFunction(V)
+    m = Function(V).interpolate(x)
+    h = Function(V).interpolate(y)
+    w = {"function": Function(V).interpolate(1 + y), "control": m}[operand]
+    L = exp(m) * v * dx
+    A = ufl.Action(L, w)
+    expected = exp(m) * w * dx
+
+    dA = assemble(derivative(A, m))
+    assert np.allclose(dA.dat.data_ro, assemble(derivative(expected, m)).dat.data_ro)
+    assert np.isclose(assemble(derivative(A, m, h)), assemble(derivative(expected, m, h)))

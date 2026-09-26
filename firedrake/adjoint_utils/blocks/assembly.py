@@ -186,8 +186,7 @@ class AssembleBlock(Block):
 
         if not isinstance(ddform, float):
             ddform = ufl.algorithms.expand_derivatives(ddform)
-            if not (isinstance(ddform, ufl.ZeroBaseForm)
-                    or (isinstance(ddform, ufl.Form) and ddform.empty())):
+            if not ddform.empty():
                 hessian_outputs += self.compute_action_adjoint(
                     adj_input, arity_form, dform=ddform
                 )[0]

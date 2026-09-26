@@ -28,19 +28,21 @@ from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TestFunction
 from firedrake.utils import unique
 
-from functools import cached_property
+from functools import cached_property, singledispatchmethod
 from itertools import chain, count
 
 from pyop2.utils import as_tuple
 
+from ufl.algorithms.analysis import has_type
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.replace import replace
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import Zero
+from ufl.classes import Expr, Zero
 from ufl.checks import is_true_ufl_scalar
 from ufl.constantvalue import ConstantValue, ScalarValue
 from ufl.domain import join_domains, sort_domains
 from ufl.form import BaseForm, Form, FormSum, ZeroBaseForm
+from ufl.corealg.dag_traverser import DAGTraverser
 import hashlib
 
 from tsfc.ufl_utils import extract_firedrake_constants
@@ -343,6 +345,9 @@ class TensorBase(BaseForm):
         return BlockIndexer(self)
 
     def __add__(self, other):
+        if isinstance(other, numbers.Number) and other == 0:
+            # Adding zero is a no-op, as for a ufl.BaseForm, so that a sum can start from 0.
+            return self
         try:
             other = as_slate(other)
             return Add(self, other)
@@ -350,6 +355,8 @@ class TensorBase(BaseForm):
             return NotImplemented
 
     def __radd__(self, other):
+        if isinstance(other, numbers.Number) and other == 0:
+            return self
         # If other cannot be converted into a TensorBase, return NotImplemented.
         # Otherwise, delegate action to other.
         try:
@@ -1626,6 +1633,138 @@ def as_slate(F):
              for c, w in zip(F.components(), F.weights())))
     else:
         raise TypeError(f"Cannot convert {type(F).__name__} into a slate.Tensor")
+
+
+class SlateDerivative(DAGTraverser):
+    """Differentiate a `ufl.form.BaseForm` that has Slate tensors with respect to a coefficient.
+
+    The Slate nodes are differentiated with their own rules. A `ufl.FormSum` distributes
+    the derivative over its components, so a sum can have both Slate and UFL components.
+    A UFL operand that has no Slate tensor is differentiated by `firedrake.derivative`.
+    """
+
+    def __init__(self, coefficient, argument, coefficient_derivatives):
+        super().__init__()
+        self.coefficient = coefficient
+        self.argument = argument
+        self.coefficient_derivatives = coefficient_derivatives
+
+    @singledispatchmethod
+    def process(self, o):
+        return super().process(o)
+
+    @process.register(Tensor)
+    def tensor(self, o):
+        if self.coefficient not in o.coefficients():
+            return Tensor(ZeroBaseForm(o.form.arguments()), diagonal=o.diagonal)
+        from firedrake.ufl_expr import derivative
+        return Tensor(derivative(o.form, self.coefficient, self.argument,
+                                 self.coefficient_derivatives),
+                      diagonal=o.diagonal)
+
+    @process.register(AssembledVector)
+    def assembled_vector(self, o):
+        if self.coefficient not in o.coefficients():
+            return Tensor(ZeroBaseForm(o.arguments()))
+        raise NotImplementedError(
+            "Differentiation of an assembled Slate vector is not implemented."
+        )
+
+    @process.register(TensorBase)
+    def slate_node(self, o):
+        raise NotImplementedError(f"Differentiation of {type(o).__name__} is not implemented.")
+
+    @process.register(FormSum)
+    @DAGTraverser.postorder
+    def form_sum(self, o, *components):
+        return FormSum(*zip(components, o.weights()))
+
+    @process.register(BaseForm)
+    @process.register(Expr)
+    def ufl_operand(self, o):
+        if has_type(o, TensorBase):
+            raise NotImplementedError(
+                f"Cannot differentiate a {type(o).__name__} that has a Slate operand."
+            )
+        from firedrake.ufl_expr import derivative
+        return derivative(o, self.coefficient, self.argument, self.coefficient_derivatives)
+
+    @process.register(Block)
+    def block(self, o):
+        return Block(self(o.operands[0]), o._indices)
+
+    @process.register(Factorization)
+    @DAGTraverser.postorder
+    def factorization(self, o, operand):
+        return operand
+
+    @process.register(Add)
+    @DAGTraverser.postorder
+    def add(self, o, left, right):
+        return left + right
+
+    @process.register(Mul)
+    @DAGTraverser.postorder
+    def mul(self, o, left, right):
+        return left * o.operands[1] + o.operands[0] * right
+
+    @process.register(ScalarMul)
+    @DAGTraverser.postorder
+    def scalar_mul(self, o, operand):
+        return o.scalar * operand
+
+    @process.register(Transpose)
+    @DAGTraverser.postorder
+    def transpose(self, o, operand):
+        return operand.T
+
+    @process.register(Inverse)
+    @DAGTraverser.postorder
+    def inverse(self, o, operand):
+        return -o * operand * o
+
+    @process.register(Solve)
+    @DAGTraverser.postorder
+    def solve(self, o, left, right):
+        A, B = o.operands
+        return A.inv * (right - left * o)
+
+    @process.register(DiagonalTensor)
+    @DAGTraverser.postorder
+    def diagonal(self, o, operand):
+        return DiagonalTensor(operand)
+
+
+def apply_slate_derivatives(tensor, coefficient, argument=None,
+                            coefficient_derivatives=None):
+    """Apply coefficient derivatives to a `ufl.form.BaseForm` that has Slate tensors.
+
+    Parameters
+    ----------
+    tensor : ufl.form.BaseForm
+        The expression to differentiate. It is a Slate tensor, or it has Slate tensors
+        as operands.
+    coefficient : firedrake.Function or firedrake.Constant
+        The coefficient with respect to which the expression is differentiated.
+    argument : ufl.Argument, optional
+        The direction in which to differentiate.
+    coefficient_derivatives : dict, optional
+        Explicit derivatives for coefficients that occur in the expression.
+
+    Returns
+    -------
+    ufl.form.BaseForm
+        The directional derivative of ``tensor``.
+
+    Notes
+    -----
+    The Slate subtrees of ``tensor`` are first collected into Slate tensors, see
+    `firedrake.assemble.SlateSubtreeNormalizer`. This turns the action and the adjoint of
+    a Slate tensor into Slate operations, which have derivative rules.
+    """
+    from firedrake.assemble import BaseFormAssembler
+    tensor = BaseFormAssembler.normalize_slate_base_forms(tensor)
+    return SlateDerivative(coefficient, argument, coefficient_derivatives)(tensor)
 
 
 # Establishes levels of precedence for Slate tensors
