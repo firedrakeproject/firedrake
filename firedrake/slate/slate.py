@@ -1638,6 +1638,8 @@ def as_slate(F):
         return Tensor(F)
     elif isinstance(F, Function):
         return AssembledVector(F)
+    elif isinstance(F, Cofunction) and F.function_space().finat_element.is_dg():
+        return AssembledVector(F)
     elif isinstance(F, FormSum):
         return functools.reduce(
             operator.add,

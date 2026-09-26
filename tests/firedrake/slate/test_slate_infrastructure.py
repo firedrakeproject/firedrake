@@ -375,6 +375,16 @@ def test_implicit_casting_add_sub():
     assert tuple(restructured_c_minus_b.weights()) == (1, 1)
 
 
+def test_as_slate_cofunction_requires_dg_space():
+    mesh = UnitSquareMesh(1, 1)
+    cg = Cofunction(FunctionSpace(mesh, "CG", 1).dual())
+    dg = Cofunction(FunctionSpace(mesh, "DG", 1).dual())
+
+    with pytest.raises(SlateConversionError):
+        as_slate(cg)
+    assert isinstance(as_slate(dg), AssembledVector)
+
+
 def test_scalar_multiplication():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
