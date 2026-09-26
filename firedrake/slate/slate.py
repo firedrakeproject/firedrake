@@ -23,7 +23,6 @@ from collections import OrderedDict, namedtuple, defaultdict
 import ufl
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
-from finat.ufl import MixedElement
 
 from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.exceptions import SlateConversionError
@@ -62,10 +61,8 @@ def _is_dg_cofunction(expr):
     """Return whether a Cofunction belongs to a discontinuous scalar space."""
     if not isinstance(expr, Cofunction):
         return False
-    function_space = expr.function_space().topological
-    return (not isinstance(function_space.ufl_element(), MixedElement)
-            and function_space.finat_element is not None
-            and function_space.finat_element.is_dg())
+    space = expr.function_space().topological
+    return all(sub.finat_element.is_dg() for sub in space if sub.finat_element)
 
 
 # BlockFunction description type
