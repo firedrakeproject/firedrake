@@ -83,6 +83,24 @@ fdmstar.update(ksp)
 facetstar.update(ksp)
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+def test_broken_function_components(shape):
+    """Copy every scalar, vector, or tensor component into broken cells."""
+    from firedrake.preconditioners.fdm import broken_function
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    element = FiniteElement("Q", mesh.ufl_cell(), 2)
+    if shape:
+        element = TensorElement(element, shape=shape)
+    V = FunctionSpace(mesh, element)
+    weights = numpy.arange(1, numpy.prod(shape, dtype=int) + 1).reshape(shape)
+    expression = SpatialCoordinate(mesh)[0] * Constant(weights)
+    source = Function(V).interpolate(expression)
+    actual = broken_function(V, source.dat)
+    expected = Function(actual.function_space()).interpolate(expression)
+    assert errornorm(expected, actual) < 1.e-12
+
+
 def build_riesz_map(V, d):
     beta = Constant(1E-4)
     subs = [(1, 3)]
