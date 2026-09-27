@@ -427,6 +427,40 @@ def test_bddc_entity_coordinates(bddc_boundary_mesh, shape, restricted):
     assert np.allclose(actual, expected)
 
 
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("cellwise", (False, True))
+def test_bddc_near_nullspace(restricted, cellwise):
+    """BDDC receives explicit near-nullspace vectors after MATIS conversion."""
+    mesh = UnitSquareMesh(3, 3, quadrilateral=True)
+    V = FunctionSpace(mesh, "Q", 3)
+    u, v = TrialFunction(V), TestFunction(V)
+    a = (inner(grad(u), grad(v)) + u * v) * dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    exact = Function(V).interpolate(SpatialCoordinate(mesh)[0])
+    bc.apply(exact)
+    solution = Function(V)
+    problem = LinearVariationalProblem(a, action(a, exact), solution,
+                                       bcs=bc, restrict=restricted)
+    constant = Function(problem.u_restrict.function_space()).interpolate(Constant(1))
+    basis = VectorSpaceBasis([constant])
+    basis.orthonormalize()
+    parameters = solver_parameters(cellwise=cellwise)
+    parameters.update(mat_type="aij", pmat_type="matfree")
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters,
+                                     near_nullspace=basis)
+    solver.solve()
+    _, matis = solver.snes.ksp.pc.getPythonContext().pc.getOperators()
+    near_nullspace = matis.getNearNullSpace()
+    assert near_nullspace.handle
+    assert not near_nullspace.hasConstant()
+    vectors = near_nullspace.getVecs()
+    assert len(vectors) == 1
+    assert vectors[0].getSize() == matis.getSize()[1]
+    with constant.dat.vec_ro as vec:
+        assert np.allclose(vectors[0].array_r, vec.array_r)
+    assert errornorm(exact, solution) < 1.e-9
+
+
 @pytest.mark.parallel([1, 3])
 def test_bddc_restricted_solve(bddc_boundary_mesh):
     """Restricted cellwise BDDC solves with automatic corner selection."""
