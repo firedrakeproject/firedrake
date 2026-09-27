@@ -851,7 +851,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, dset=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         Parameters
@@ -860,6 +860,9 @@ class FunctionSpace:
             If provided, mask out those dofs which match the BC nodes.
         lgmap: PETSc.LGMap
             The base local-to-global map, which might be partially masked.
+        dset : pyop2.types.dataset.DataSet or None
+            Dataset whose algebraic numbering is used when ``lgmap`` is not
+            supplied. Defaults to this function space's dataset.
 
         Note
         ----
@@ -876,8 +879,9 @@ class FunctionSpace:
         # not just on the bcs, but also the parent space, and anything
         # this space has been recursively split out from [e.g. inside
         # fieldsplit]
+        dset = self.dof_dset if dset is None else dset
         if bcs is None or len(bcs) == 0:
-            return lgmap or self.dof_dset.lgmap
+            return lgmap or dset.lgmap
         for bc in bcs:
             fs = bc.function_space()
             while fs.component is not None and fs.parent is not None:
@@ -887,7 +891,7 @@ class FunctionSpace:
         unblocked = any(bc.function_space().component is not None
                         for bc in bcs)
         if lgmap is None:
-            lgmap = self.dof_dset.lgmap
+            lgmap = dset.lgmap
             if unblocked:
                 indices = lgmap.indices.copy()
                 bsize = 1
@@ -1011,8 +1015,20 @@ class RestrictedFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.dof_dset, self.ufl_element(),
                      self.boundary_set))
 
-    def local_to_global_map(self, bcs, lgmap=None):
-        return lgmap or self.dof_dset.lgmap
+    def local_to_global_map(self, bcs, lgmap=None, dset=None):
+        """Return the map whose numbering already excludes constrained nodes.
+
+        Notes
+        -----
+        See :meth:`FunctionSpace.local_to_global_map` for the parameters.
+
+        Returns
+        -------
+        PETSc.LGMap
+            The supplied map or the dataset's map.
+        """
+        dset = self.dof_dset if dset is None else dset
+        return lgmap or dset.lgmap
 
     def collapse(self):
         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
@@ -1210,10 +1226,18 @@ class MixedFunctionSpace(object):
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs, lgmap=None):
-        r"""Return a map from process local dof numbering to global dof numbering.
+    def local_to_global_map(self, bcs, lgmap=None, dset=None):
+        """Require boundary maps to be constructed for individual mixed fields.
 
-        If BCs is provided, mask out those dofs which match the BC nodes."""
+        Notes
+        -----
+        See :meth:`FunctionSpace.local_to_global_map` for the parameters.
+
+        Raises
+        ------
+        NotImplementedError
+            Mixed maps must be handled one field at a time.
+        """
         raise NotImplementedError("Not for mixed maps right now sorry!")
 
     def make_dat(self, val=None, valuetype=None, name=None):
@@ -1471,6 +1495,18 @@ class RealFunctionSpace(FunctionSpace):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
 
-    def local_to_global_map(self, bcs, lgmap=None):
+    def local_to_global_map(self, bcs, lgmap=None, dset=None):
+        """Return no boundary map for a Real space.
+
+        Notes
+        -----
+        See :meth:`FunctionSpace.local_to_global_map` for the parameters.
+        Real spaces cannot have boundary conditions.
+
+        Returns
+        -------
+        None
+            No local-to-global map is required.
+        """
         assert len(bcs) == 0
         return None

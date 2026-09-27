@@ -5,6 +5,47 @@ from firedrake.assemble import TwoFormAssembler
 from firedrake.utils import ScalarType, IntType
 
 
+@pytest.mark.parametrize("vector", (False, True))
+@pytest.mark.parametrize("mat_type", ("aij", "baij"))
+def test_assemble_with_reduced_allocation(vector, mat_type):
+    """Assemble and update directly in independent reduced row/column layouts."""
+    from firedrake.petsc import PETSc
+    from pyop2 import op2
+
+    mesh = UnitSquareMesh(2, 2, comm=COMM_SELF)
+    fs = VectorFunctionSpace if vector else FunctionSpace
+    V = fs(mesh, "CG", 2)
+    u, v = TrialFunction(V), TestFunction(V)
+    coefficient = Constant(1.)
+    form = coefficient * (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    bcs = [DirichletBC(V.sub(0) if vector else V, 0, 2)]
+    dsets = []
+    ises = []
+    for marker in (1, 3):
+        active = np.ones(V.node_set.size, dtype=bool)
+        active[DirichletBC(V, 0, marker).nodes] = False
+        numbering = np.full(active.size, -1, dtype=IntType)
+        numbering[active] = np.arange(active.sum(), dtype=IntType)
+        layout = PETSc.Vec().create(comm=mesh.comm)
+        layout.setSizes((active.sum() * V.block_size, None), bsize=V.block_size)
+        layout.setUp()
+        layout.setLGMap(PETSc.LGMap().create(numbering, bsize=V.block_size, comm=mesh.comm))
+        dsets.append(op2.MatrixDataSet(V.dof_dset, layout))
+        indices = np.flatnonzero(np.repeat(active, V.block_size)).astype(IntType)
+        ises.append(PETSc.IS().createGeneral(indices, comm=mesh.comm))
+    assembler = TwoFormAssembler(form, bcs=bcs, mat_type=mat_type, allocation_dsets=tuple(dsets))
+    tensor = assembler.allocate()
+    assert tensor.petscmat.getSize() == tuple(iset.getSize() for iset in ises)
+    for value in (1., 3.):
+        coefficient.assign(value)
+        assembler.assemble(tensor=tensor)
+        full = assemble(form, bcs=bcs, mat_type=mat_type).petscmat
+        expected = full.createSubMatrix(*ises)
+        actual = tensor.petscmat.copy()
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-12 * expected.norm()
+
+
 @pytest.fixture(scope='module')
 def mesh():
     return UnitSquareMesh(5, 5)
