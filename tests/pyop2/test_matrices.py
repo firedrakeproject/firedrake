@@ -45,6 +45,38 @@ from pyop2.datatypes import IntType, ScalarType, as_cstr
 ScalarType_c = as_cstr(ScalarType)
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("dim", (1, 2))
+def test_matrix_with_reduced_layout(dim):
+    """Assembly skips constrained nodes without changing the element map."""
+    from petsc4py import PETSc
+
+    nodes = op2.Set(4, comm=COMM_WORLD)
+    cells = op2.Set(2, comm=COMM_WORLD)
+    cmap = op2.Map(cells, nodes, 3, [[0, 1, 2], [1, 2, 3]])
+    layout = PETSc.Vec().create(comm=COMM_WORLD)
+    layout.setSizes((3 * dim, None), bsize=dim)
+    layout.setUp()
+    start, end = layout.getOwnershipRange()
+    numbering = np.array([start // dim, -1, start // dim + 1, start // dim + 2], dtype=IntType)
+    layout.setLGMap(PETSc.LGMap().create(numbering, bsize=dim, comm=COMM_WORLD))
+    source = op2.DataSet(nodes, dim)
+    dset = op2.MatrixDataSet(source, layout)
+    assert op2.MatrixDataSet(source, layout) is dset
+    assert op2.DataSet(nodes, dim) is not dset
+    sparsity = op2.Sparsity((dset, dset), [(cmap, cmap, None)])
+    mat = op2.Mat(sparsity, mat_type="aij")
+    kernel = op2.Kernel(f"""
+        void ones({ScalarType_c} *A) {{
+            for (int i = 0; i < {9 * dim * dim}; i++) A[i] = 1;
+        }}""", "ones")
+    op2.par_loop(kernel, cells, mat(op2.INC, (cmap, cmap)))
+    mat.assemble()
+    rows = np.arange(start, end, dtype=IntType)
+    expected = np.kron([[1, 1, 0], [1, 2, 1], [0, 1, 1]], np.ones((dim, dim)))
+    assert_allclose(mat.handle.getValues(rows, rows), expected)
+
+
 # Data type
 valuetype = ScalarType
 

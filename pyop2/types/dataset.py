@@ -198,6 +198,45 @@ class DataSet(caching.ObjectCached):
         return dm
 
 
+class MatrixDataSet(DataSet):
+    """Describe matrix rows or columns with an explicit algebraic layout.
+
+    The node set and value shape remain those of the source dataset, so
+    element maps can be reused. This dataset is intended for matrix assembly,
+    not for constructing Dats.
+
+    Parameters
+    ----------
+    dataset : DataSet
+        Dataset that defines the node set and value shape.
+    layout_vec : PETSc.Vec
+        Vector that defines the matrix layout and its local-to-global map.
+        The map covers all source entries, with negative indices for omitted
+        nodes. Its block size and the vector block size match the value size.
+        The layout and map must not be changed after construction.
+    """
+
+    def __init__(self, dataset, layout_vec):
+        if self._initialized:
+            return
+        lgmap = layout_vec.getLGMap()
+        if layout_vec.block_size != dataset.cdim or lgmap.getBlockSize() != dataset.cdim:
+            raise ValueError("Layout block size must match the dataset value size")
+        if lgmap.getSize() != dataset.total_size * dataset.cdim:
+            raise ValueError("Layout map must cover every dataset entry")
+        super().__init__(dataset.set, dataset.dim)
+        self.layout_vec = layout_vec
+        self.lgmap = lgmap
+
+    @classmethod
+    def _process_args(cls, dataset, layout_vec):
+        return (dataset.set, dataset, layout_vec), {}
+
+    @classmethod
+    def _cache_key(cls, dataset, layout_vec):
+        return (cls, dataset, layout_vec.handle)
+
+
 class GlobalDataSet(DataSet):
     """A proxy :class:`DataSet` for use in a :class:`Sparsity` where the
     matrix has :class:`Global` rows or columns."""
