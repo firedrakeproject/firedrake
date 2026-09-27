@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.bcs import restricted_function_space
 from firedrake.functionspace import DualSpace
@@ -385,3 +386,22 @@ def test_mixed_broken_space(mesh):
     expected = FunctionSpace(mesh, broken_elem)
 
     assert broken == expected
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+def test_hexahedral_broken_space(shape):
+    """Supported Q elements remain valid inside scalar and tensor wrappers."""
+    mesh = UnitCubeMesh(2, 2, 2, hexahedral=True)
+    element = FiniteElement("Q", mesh.ufl_cell(), 2)
+    if shape:
+        element = TensorElement(element, shape=shape)
+    V = FunctionSpace(mesh, element).broken_space()
+    u, v = TrialFunction(V), TestFunction(V)
+    constant = Function(V).assign(1)
+    mass = assemble(inner(u, v) * dx, mat_type="aij").petscmat
+    with constant.dat.vec_ro as vec:
+        result = vec.duplicate()
+        mass.mult(vec, result)
+        value = vec.dot(result)
+    assert abs(value - (np.prod(shape) if shape else 1)) < 1.e-12
