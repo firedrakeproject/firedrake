@@ -4,14 +4,12 @@ from firedrake import *
 
 
 def broken_mesh():
-    mesh = UnitSquareMesh(
-        3,
-        2,
-        quadrilateral=True,
-        distribution_parameters={
-            "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
-        },
-    )
+    nx, ny = 3, 2
+    distribution_parameters = {
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    mesh = UnitSquareMesh(nx, ny, quadrilateral=True,
+                          distribution_parameters=distribution_parameters)
     _, y = SpatialCoordinate(mesh)
     marker_space = FunctionSpace(mesh, "HDiv Trace", 0)
     marker = Function(marker_space).interpolate(
@@ -114,8 +112,8 @@ def plex_cones(mesh):
 
 
 @pytest.mark.parallel(nprocs=[1, 3])
-def test_broken_mesh_keeps_parent_cones():
-    """Orienting Γ to break the mesh does not change the cones of the parent DMPlex.
+def test_broken_mesh_reorients_parent_plex():
+    """Orienting Γ to break the mesh updates the parent DMPlex and its caches.
 
     Some facets of the disk mesh on Γ = {x = 0} are not oriented consistently.
     """
@@ -125,9 +123,53 @@ def test_broken_mesh_keeps_parent_cones():
     marker = Function(FunctionSpace(mesh, "HDiv Trace", 0))
     marker.interpolate(conditional(lt(abs(x), 1e-12), 1, 0))
     mesh = RelabeledMesh(mesh, [marker], [GAMMA])
+    topology = mesh.topology
     cones = plex_cones(mesh)
+    cell_closure = topology.cell_closure
+    entity_orientations = topology.entity_orientations
+    local_cell_orientation_dat = topology.local_cell_orientation_dat
     BrokenMesh(mesh, GAMMA)
-    assert plex_cones(mesh) == cones
+    changed = int(plex_cones(mesh) != cones)
+    assert mesh.comm.allreduce(changed) > 0
+    assert topology.cell_closure is not cell_closure
+    assert topology.entity_orientations is not entity_orientations
+    assert topology.local_cell_orientation_dat is not local_cell_orientation_dat
+    orientation_changed = int(
+        not np.array_equal(topology.entity_orientations, entity_orientations)
+    )
+    assert mesh.comm.allreduce(orientation_changed) > 0
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_broken_mesh_accepts_multiple_subdomains():
+    """Breaking a surface marked by several values includes every marked facet."""
+    nx, ny = 3, 2
+    distribution_parameters = {
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    mesh = UnitSquareMesh(nx, ny, quadrilateral=True,
+                          distribution_parameters=distribution_parameters)
+    x, y = SpatialCoordinate(mesh)
+    marker_left = Function(FunctionSpace(mesh, "HDiv Trace", 0)).interpolate(
+        conditional(And(lt(abs(y - 0.5), 1.0e-12), lt(x, 0.5)), 1, 0)
+    )
+    marker_right = Function(FunctionSpace(mesh, "HDiv Trace", 0)).interpolate(
+        conditional(And(lt(abs(y - 0.5), 1.0e-12), ge(x, 0.5)), 1, 0)
+    )
+    parent = RelabeledMesh(mesh, [marker_left, marker_right], [GAMMA, GAMMA + 1])
+    broken = BrokenMesh(parent, (GAMMA, GAMMA + 1), reorder=False)
+    gamma = Submesh(
+        parent,
+        parent.topological_dimension - 1,
+        (GAMMA, GAMMA + 1),
+        label_name="Face Sets",
+        reorder=False,
+    )
+
+    V = FunctionSpace(parent, "CG", 1)
+    V_broken = FunctionSpace(broken, "CG", 1)
+    V_trace = FunctionSpace(gamma, "CG", 1)
+    assert V_broken.dim() == V.dim() + V_trace.dim()
 
 
 @pytest.mark.parallel(nprocs=[1, 3])

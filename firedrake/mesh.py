@@ -1331,6 +1331,21 @@ class MeshTopology(AbstractMeshTopology):
             f"{self.name}_local_cell_orientation"
         )
 
+    def _recompute_orientation_data(self) -> None:
+        """Recompute cached data after the DMPlex cone orientations change."""
+        for name in (
+            "cell_closure",
+            "entity_orientations",
+            "local_cell_orientation_dat",
+            "exterior_facets",
+            "interior_facets",
+            "cell_to_facets",
+        ):
+            self.__dict__.pop(name, None)
+        self._shared_data_cache.clear()
+        self.cell_closure
+        self.entity_orientations
+
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
@@ -5096,7 +5111,7 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     return submesh
 
 
-def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
+def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
                label_name: str | None = None,
                name: str | None = None, reorder: bool | None = None) -> MeshGeometry:
     """Construct the mesh obtained by opening a labelled surface.
@@ -5105,8 +5120,8 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
     ----------
     mesh : MeshGeometry
         Parent mesh.
-    subdomain_id : int
-        Value in ``label_name`` that marks the surface facets.
+    subdomain_id : int | Sequence[int]
+        Value or values in ``label_name`` that mark the surface facets.
     label_name : str | None
         Name of the label that marks the surface facets. Defaults to the
         parent mesh facet label.
@@ -5135,8 +5150,15 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
         label_name = dmcommon.FACE_SETS_LABEL
     elif not isinstance(label_name, str):
         raise TypeError(f"label_name must be a string: got {label_name!r}")
-    if not isinstance(subdomain_id, numbers.Integral):
-        raise TypeError(f"subdomain_id must be an integer: got {subdomain_id!r}")
+    if isinstance(subdomain_id, numbers.Integral):
+        subdomain_ids = (subdomain_id,)
+    elif isinstance(subdomain_id, Sequence) and not isinstance(subdomain_id, str):
+        subdomain_ids = tuple(subdomain_id)
+    else:
+        subdomain_ids = ()
+    if not subdomain_ids or not all(isinstance(subid, numbers.Integral) for subid in subdomain_ids):
+        raise TypeError(f"subdomain_id must be an integer or a non-empty sequence of integers: got {subdomain_id!r}")
+    subdomain_ids = tuple(dict.fromkeys(subdomain_ids))
     if isinstance(mesh.topology, ExtrudedMeshTopology):
         raise NotImplementedError("Can not create a broken mesh from an ``ExtrudedMesh``")
     if isinstance(mesh.topology, VertexOnlyMeshTopology):
@@ -5145,7 +5167,8 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
         raise NotImplementedError("BrokenMesh requires a mesh with one cell type")
 
     plex = mesh.topology_dm
-    cohesive_label = dmcommon.create_cohesive_label(plex, label_name, subdomain_id)
+    cohesive_label = dmcommon.create_cohesive_label(plex, label_name, subdomain_ids)
+    mesh.topology._recompute_orientation_data()
     plex.setSaveTransform(True)
     transform = PETSc.DMPlexTransform().create(comm=plex.comm)
     petsctools.set_from_options(transform, {"dm_plex_transform_type": "cohesive_extrude"})
