@@ -1598,14 +1598,27 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
 
 
 def broken_function(V, val):
-    """Return a Function(V, val=val) interpolated onto the broken space."""
+    """Copy finite element coefficients into the broken space.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        Space that defines the source coefficient ordering.
+    val : pyop2.Dat or numpy.ndarray
+        Source coefficients, including all value components.
+
+    Returns
+    -------
+    Function
+        Function on the broken space with the same cell coefficients.
+    """
     W = V.broken_space()
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
-    domain = "{[i]: 0 <= i < v.dofs}"
+    domain = f"{{[i, j]: 0 <= i < v.dofs and 0 <= j < {v.dat.cdim}}}"
     instructions = """
-    for i
-        w[i] = v[i]
+    for i, j
+        w[i, j] = v[i, j]
     end
     """
     par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
