@@ -194,7 +194,7 @@ Firedrake computes the intersection automatically with ``intersect_measures``.
 
   dV = dx(mesh_v)
   dA = dx(mesh_s)
-  dC = Measure("dx", domain=mesh_s, intersect_measures=[ds(mesh_v)])
+  dC = dx(mesh_s, intersect_measures=[ds(mesh_v)])
 
 The variational form
 ~~~~~~~~~~~~~~~~~~~~~
