@@ -65,6 +65,58 @@ def get_topological_dimension(PETSc.DM dm):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def transform_source_points(PETSc.DM dm, PETSc.DMPlexTransform transform=None):
+    """Find the source point for each point in a transformed DMPlex.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        A DMPlex made by a transform, such as a refinement, or filtered from
+        the output of a transform.
+    transform : PETSc.DMPlexTransform or None
+        The transform that produced ``dm``. If ``None``, the transform saved
+        on ``dm`` is used.
+
+    Returns
+    -------
+    numpy.ndarray
+        For each point of ``dm``, the point of the original DMPlex that
+        produced it. Repeated source points are retained when a transform
+        duplicates points.
+
+    """
+    cdef:
+        PETSc.PetscDMPlexTransform source_transform = NULL
+        PETSc.IS subpoints
+        PetscInt pStart, pEnd, i, p
+        PetscInt[::1] source_points
+
+    subpoints = None
+    if transform is None:
+        CHKERR(DMPlexGetTransform(dm.dm, &source_transform))
+    else:
+        source_transform = transform.tr
+        subpoints = dm.getSubpointIS()
+    if source_transform == NULL:
+        raise ValueError(
+            "No DMPlex transform was provided or saved on the DMPlex; call "
+            "setSaveTransform before creating it so source point maps can "
+            "be built"
+        )
+    pStart, pEnd = dm.getChart()
+    source_points = np.empty(pEnd - pStart, dtype=IntType)
+    if subpoints is not None and subpoints.iset != NULL:
+        transformed_points = subpoints.indices[pStart:pEnd]
+    else:
+        transformed_points = range(pStart, pEnd)
+
+    for i, p in enumerate(transformed_points):
+        CHKERR(DMPlexTransformGetSourcePoint(source_transform, p, NULL, NULL, &source_points[i], NULL))
+    return np.asarray(source_points)
+
+
 cdef inline void get_height_stratum(PETSc.PetscDM dm, PetscInt stratum, PetscInt *start, PetscInt *end):
     """
     Get the bounds [start, end) for all points at a certain height in

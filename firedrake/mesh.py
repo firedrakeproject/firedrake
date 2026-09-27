@@ -5180,6 +5180,8 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
 
     cell_type = mesh.topology.dm_cell_types[0]
     cell_type_label = transformed_plex.getCellTypeLabel()
+    # The cohesive transform adds prism cells across broken facets. Filter
+    # them out so the BrokenMesh contains only the split parent cells.
     broken_plex, _ = transformed_plex.filter(
         label=cell_type_label,
         value=cell_type,
@@ -5187,7 +5189,7 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
         sanitizeSubMesh=True,
         comm=transformed_plex.comm,
     )
-    parent_point_map = dmcommon.transform_source_point_map(broken_plex, transform)
+    parent_point_map = dmcommon.transform_source_points(broken_plex, transform)
     transform.destroy()
 
     name = name or f"{mesh.name}_broken"
