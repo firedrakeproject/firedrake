@@ -3,6 +3,7 @@ import warnings
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
+import pyop2
 from pyop2.datatypes import IntType
 
 import petsctools
@@ -40,17 +41,29 @@ class HierarchyBase(object):
     meshes :
         List of meshes (coarse to fine).
     coarse_to_fine_cells :
-        List of numpy arrays for each level pair, mapping each coarse cell
-        into fine cells it intersects. Every row is as wide as the busiest
-        coarse cell's count, so a coarse cell with fewer fine cells has its
-        row right-padded with -1.
+        Optional dictionary of numpy arrays keyed by level pair, mapping each
+        coarse cell to its fine children. Every row is as wide as the busiest
+        coarse cell's count. After adaptive refinement, a coarse cell that
+        was not refined has fewer children, so its row is right-padded with
+        -1. Here -1 is only padding. Omit this and ``fine_to_coarse_cells``
+        together to derive both maps from ``fine_to_coarse_points``.
     fine_to_coarse_cells :
-        List of numpy arrays for each level pair, mapping each fine cell into
-        coarse cells it intersects.
+        Optional dictionary of numpy arrays keyed by level, mapping each fine
+        cell to its coarse parent cell. Here -1 marks a fine cell that has
+        no parent in the coarse mesh. This happens in a `SubmeshHierarchy`
+        that contains interior facets. A fine facet inside a coarse cell
+        comes from that volume cell, which is not a cell of the coarse
+        submesh. Omit this and ``coarse_to_fine_cells`` together to derive
+        both maps from ``fine_to_coarse_points``.
     refinements_per_level :
         Number of mesh refinements each multigrid level should "see".
     nested :
         Is this mesh hierarchy nested?
+    fine_to_coarse_points :
+        Dict of numpy arrays for each level that was refined from the level
+        below it. Each array maps fine DMPlex points to their coarse DMPlex
+        source points, or to -1 when no corresponding coarse point is present.
+        Cell maps derived from this point map follow Firedrake cell numbering.
 
     Notes
     -----
@@ -58,15 +71,27 @@ class HierarchyBase(object):
     using `MeshHierarchy`, `ExtrudedMeshHierarchy`, or `NonNestedHierarchy`.
 
     """
-    def __init__(self, meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                 refinements_per_level=1, nested=False):
+    def __init__(self, meshes, coarse_to_fine_cells=None, fine_to_coarse_cells=None,
+                 refinements_per_level=1, nested=False,
+                 fine_to_coarse_points=None):
         petsctools.cite("Mitchell2016")
         self._meshes = list(meshes)
         self.meshes = self._meshes[::refinements_per_level]
-        self.coarse_to_fine_cells = coarse_to_fine_cells
-        self.fine_to_coarse_cells = fine_to_coarse_cells
         self.refinements_per_level = refinements_per_level
         self.nested = nested
+        self.fine_to_coarse_points = dict(fine_to_coarse_points or {})
+        if (coarse_to_fine_cells is None) != (fine_to_coarse_cells is None):
+            raise ValueError("coarse_to_fine_cells and fine_to_coarse_cells must be provided together")
+        if coarse_to_fine_cells is None:
+            coarse_to_fine_cells = {}
+            fine_to_coarse_cells = {Fraction(0, 1): None}
+            for i, (coarse, fine) in enumerate(zip(self._meshes[:-1], self._meshes[1:])):
+                c2f, f2c = impl.coarse_to_fine_cells(
+                    coarse, fine, self.fine_to_coarse_points[Fraction(i+1, refinements_per_level)])
+                coarse_to_fine_cells[Fraction(i, refinements_per_level)] = c2f
+                fine_to_coarse_cells[Fraction(i+1, refinements_per_level)] = f2c
+        self.coarse_to_fine_cells = coarse_to_fine_cells
+        self.fine_to_coarse_cells = fine_to_coarse_cells
         for level, m in enumerate(meshes):
             set_level(m, self, Fraction(level, refinements_per_level))
         for level, m in enumerate(self):
@@ -123,9 +148,13 @@ class HierarchyBase(object):
         if self.refinements_per_level != 1:
             raise NotImplementedError("Cannot add a mesh to a hierarchy with "
                                       "refinements_per_level > 1")
+        fine_to_coarse_points = None
+        if mesh._adaptive_parent is self[-1]:
+            fine_to_coarse_points = mesh._adaptive_fine_to_coarse_points
         if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
-            if mesh.adaptive_parent is self[-1]:
-                coarse_to_fine_cells, fine_to_coarse_cells = mesh.adaptive_cell_maps
+            if fine_to_coarse_points is not None:
+                coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
+                    self[-1], mesh, fine_to_coarse_points)
             elif self.nested:
                 raise ValueError("Expecting a mesh adaptively refined from the finest "
                                  "level of this hierarchy, or explicit cell maps")
@@ -137,6 +166,7 @@ class HierarchyBase(object):
         mesh.topology_dm.setRefineLevel(level)
         self.coarse_to_fine_cells[Fraction(level - 1, 1)] = coarse_to_fine_cells
         self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
+        self.fine_to_coarse_points[Fraction(level, 1)] = fine_to_coarse_points
         return mesh
 
     def adapt(self, eta, theta: float):
@@ -184,7 +214,7 @@ class HierarchyBase(object):
 
 def MeshHierarchy(mesh, refinement_levels=0,
                   refinements_per_level=1,
-                  netgen_flags=False,
+                  netgen_flags=None,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
                   mesh_builder=firedrake.Mesh, nested=True):
@@ -201,10 +231,13 @@ def MeshHierarchy(mesh, refinement_levels=0,
     refinements_per_level : int
         the number of refinements for each level in the hierarchy.
         Adaptive refinement only supports one refinement per level.
-    netgen_flags : bool, dict
-        either a bool or a dictionary containing options for Netgen.
-        If not False the hierachy is constructed using ngsPETSc, if
-        None hierarchy constructed in a standard manner.
+    netgen_flags : dict or None
+        Options for a mesh generated by Netgen. If ``mesh`` was generated by
+        Netgen and this value is ``None``, the hierarchy reuses its Netgen
+        flags. The vertices of each refined mesh are snapped onto the Netgen
+        geometry. The ``"degree"`` option sets the degree of the curved
+        coordinates, either as an integer or as a sequence with one entry per
+        level in the hierarchy. The ``"cg"`` option sets their continuity.
     distribution_parameters : dict
         options controlling mesh distribution, see :py:func:`.Mesh`
         for details.  If ``None``, use the same distribution
@@ -232,15 +265,27 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     """
 
-    if (isinstance(netgen_flags, bool) and netgen_flags) or isinstance(netgen_flags, dict):
+    nlevels = refinement_levels + 1
+    is_netgen = hasattr(mesh, "netgen_mesh")
+    if netgen_flags is not None and not isinstance(netgen_flags, dict):
+        raise TypeError("netgen_flags must be a dictionary or None")
+    if netgen_flags is not None and not is_netgen:
+        raise RuntimeError("Cannot pass netgen_flags to a mesh that was not generated by Netgen.")
+    if is_netgen:
         utils.check_netgen_installed()
-        from firedrake.mg.netgen import NetgenHierarchy
+        from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
+        if netgen_flags is None:
+            netgen_flags = mesh.netgen_flags
+        degree = netgen_flags.get("degree", 1)
+        if isinstance(degree, int):
+            degree = (degree,) * nlevels
+        if len(degree) != nlevels:
+            raise ValueError(f"Expecting one coordinate degree per level in the hierarchy ({nlevels}), "
+                             f"got {len(degree)}.")
+        cg_field = netgen_flags.get("cg")
+        ngmeshes = [mesh.netgen_mesh]
+        mesh = _curve_netgen_mesh(mesh, degree[0], cg_field=cg_field)
 
-        if hasattr(mesh, "netgen_mesh"):
-            return NetgenHierarchy(mesh, refinement_levels, flags=netgen_flags)
-        else:
-            raise RuntimeError("Cannot create a NetgenHierarchy from a mesh that has not been generated by\
-                                Netgen.")
     if callbacks is not None:
         before, after = callbacks
     else:
@@ -257,9 +302,12 @@ def MeshHierarchy(mesh, refinement_levels=0,
     for i in range(refinement_levels*refinements_per_level):
         if i % refinements_per_level == 0:
             before(cdm, i)
+        cdm.setSaveTransform()
         rdm = cdm.refine()
         if i % refinements_per_level == 0:
             after(rdm, i)
+        if is_netgen:
+            ngmeshes.append(_snap_to_netgen(rdm, mesh.netgen_mesh))
         # Fix up coords if refining embedded circle or sphere
         if hasattr(mesh, '_radius'):
             # FIXME, really we need some CAD-like representation
@@ -272,6 +320,11 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
         dms.append(rdm)
         cdm = rdm
+
+    # mesh_builder adds overlap to each DMPlex in place, so first capture the
+    # lgmaps and read the fine-to-coarse point map from each unoverlapped DM.
+    lgmaps = [impl.create_lgmap(dm) for dm in dms]
+    points = [impl.transform_source_points(dm) for dm in dms[1:]]
 
     # Build a mesh for each level, adding overlap here.
     parameters = {}
@@ -292,30 +345,32 @@ def MeshHierarchy(mesh, refinement_levels=0,
         )
         meshes.append(fmesh)
 
-    # Build local-to-global maps and coarse/fine cell maps between
-    # consecutive levels.
-    lgmaps = [
-        (impl.create_lgmap(dm), impl.create_lgmap(m.topology_dm))
-        for dm, m in zip(dms, meshes)
-    ]
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
-                                                  zip(lgmaps[:-1], lgmaps[1:])):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
-        coarse_to_fine_cells.append(c2f)
-        fine_to_coarse_cells.append(f2c)
+    with pyop2.mpi.temp_internal_comm(meshes[0].comm) as icomm:
+        num_halo_cells = icomm.allreduce(
+            sum(m.cell_set.total_size - m.cell_set.size for m in meshes)
+        )
+    if num_halo_cells == 0:
+        lgmaps = [None] * len(dms)
+
+    if is_netgen:
+        for i in range(1, len(meshes)):
+            meshes[i].netgen_mesh = ngmeshes[i]
+            meshes[i].netgen_flags = netgen_flags
+            level, remainder = divmod(i, refinements_per_level)
+            if remainder == 0:
+                meshes[i] = _curve_netgen_mesh(meshes[i], degree[level], cg_field=cg_field)
 
     for i, m in enumerate(meshes):
         # Firedrake counts multigrid levels, PETSc counts refinements
         m.topology_dm.setRefineLevel(i)
 
-    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
-                                for i, c2f in enumerate(coarse_to_fine_cells))
-    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
-                                for i, f2c in enumerate(fine_to_coarse_cells))
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level, nested=nested)
+    fine_to_coarse_points = {
+        Fraction(i+1, refinements_per_level): impl.overlapped_fine_to_coarse_points(
+            meshes[i], meshes[i+1], points[i], lgmaps[i], lgmaps[i+1])
+        for i in range(len(points))
+    }
+    return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
+                         nested=nested, fine_to_coarse_points=fine_to_coarse_points)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
@@ -518,6 +573,16 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
     HierarchyBase
         The submesh hierarchy.
 
+    Notes
+    -----
+    A facet submesh that contains interior facets, such as the skeleton
+    obtained with ``subdim=tdim-1`` and ``subdomain_id=None``, is only
+    partially nested. A fine facet inside a coarse cell has no parent in the
+    coarse submesh.
+    Injection is still possible, because the fine children of each coarse
+    facet cover it. `prolong` and `restrict` raise `NotImplementedError`
+    when a fine node lies only on facets without a parent.
+
     """
     meshes = [firedrake.Submesh(mesh,
                                 subdim=subdim, subdomain_id=subdomain_id,
@@ -526,27 +591,26 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
                                 comm=comm)
               for mesh in parent_hierarchy._meshes]
 
-    lgmaps_with_overlap = []
-    for i, m in enumerate(meshes):
-        lgmaps_with_overlap.append(impl.create_lgmap(m.topology_dm))
-        m.topology_dm.setRefineLevel(i)
-    lgmaps_without_overlap = lgmaps_with_overlap
-    lgmaps = [
-        (no, o) for no, o in zip(lgmaps_without_overlap, lgmaps_with_overlap)
-    ]
-    coarse_to_fine_cells = []
-    fine_to_coarse_cells = [None]
-    for (coarse, fine), (clgmaps, flgmaps) in zip(zip(meshes[:-1], meshes[1:]),
-                                                  zip(lgmaps[:-1], lgmaps[1:])):
-        c2f, f2c = impl.coarse_to_fine_cells(coarse, fine, clgmaps, flgmaps)
-        coarse_to_fine_cells.append(c2f)
-        fine_to_coarse_cells.append(f2c)
-
     refinements_per_level = parent_hierarchy.refinements_per_level
-    coarse_to_fine_cells = dict((Fraction(i, refinements_per_level), c2f)
-                                for i, c2f in enumerate(coarse_to_fine_cells))
-    fine_to_coarse_cells = dict((Fraction(i, refinements_per_level), f2c)
-                                for i, f2c in enumerate(fine_to_coarse_cells))
-    return HierarchyBase(meshes, coarse_to_fine_cells, fine_to_coarse_cells,
-                         refinements_per_level=refinements_per_level,
-                         nested=parent_hierarchy.nested)
+    fine_to_coarse_points = {}
+    for i, (coarse, fine) in enumerate(zip(meshes[:-1], meshes[1:])):
+        level = Fraction(i+1, refinements_per_level)
+        parent_points = parent_hierarchy.fine_to_coarse_points.get(level)
+        if parent_points is None:
+            raise ValueError("SubmeshHierarchy requires a hierarchy whose DMPlex "
+                             f"points on level {level} are refined from the level below")
+        # Map fine submesh points through the parent hierarchy, then translate
+        # them into coarse-submesh numbering. A source outside the coarse
+        # submesh remains -1; for example, a new interior facet can have a
+        # coarse volume cell as its source.
+        coarse_subpoints = coarse.topology_dm.getSubpointIS().indices
+        parent_to_coarse = np.full(parent_hierarchy._meshes[i].topology_dm.getChart()[1], -1, dtype=IntType)
+        parent_to_coarse[coarse_subpoints] = np.arange(len(coarse_subpoints), dtype=IntType)
+        points = impl.compose_points(parent_points, fine.topology_dm.getSubpointIS().indices)
+        fine_to_coarse_points[level] = impl.compose_points(parent_to_coarse, points)
+
+    for i, m in enumerate(meshes):
+        m.topology_dm.setRefineLevel(i)
+    return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
+                         nested=parent_hierarchy.nested,
+                         fine_to_coarse_points=fine_to_coarse_points)
