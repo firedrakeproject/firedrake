@@ -75,7 +75,9 @@ class BDDCPC(PCBase):
         if P.type == "python":
             # Reconstruct P as MatIS
             cellwise = opts.getBool("cellwise", False)
+            near_nullspace = P.getNearNullSpace()
             P, assembleP = create_matis(P, "aij", cellwise=cellwise)
+            P.setNearNullSpace(near_nullspace)
             assemblers.append(assembleP)
 
         if P.type != "is":
