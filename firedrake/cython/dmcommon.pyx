@@ -4113,48 +4113,6 @@ def create_cohesive_label(PETSc.DM dm, str label_name, subdomain_id):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def transform_source_point_map(PETSc.DM child,
-                               PETSc.DMPlexTransform transform):
-    """Return source points for a filtered transform output.
-
-    Parameters
-    ----------
-    child : PETSc.DM
-        A DMPlex filtered from the transform output.
-    transform : PETSc.DMPlexTransform
-        The transform that produced the unfiltered output.
-
-    Returns
-    -------
-    numpy.ndarray
-        The source point for each point in ``child``. Repeated source points
-        are retained because a cohesive transform duplicates points.
-    """
-    cdef:
-        PETSc.IS child_subpoints
-        const PetscInt *child_points = NULL
-        PetscInt child_start, child_end, child_point, transformed_point
-        PetscInt source_point, replica
-        PetscInt[::1] source_points
-
-    child_subpoints = child.getSubpointIS()
-    if child_subpoints.iset == NULL:
-        raise ValueError("The filtered DMPlex has no subpoint map")
-    CHKERR(ISGetIndices(child_subpoints.iset, &child_points))
-    child_start, child_end = child.getChart()
-    source_points = np.empty(child_end - child_start, dtype=IntType)
-    for child_point in range(child_start, child_end):
-        transformed_point = child_points[child_point - child_start]
-        CHKERR(DMPlexTransformGetSourcePoint(
-            transform.tr, transformed_point, NULL, NULL,
-            &source_point, &replica))
-        source_points[child_point - child_start] = source_point
-    CHKERR(ISRestoreIndices(child_subpoints.iset, &child_points))
-    return np.asarray(source_points)
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def submesh_create(PETSc.DM dm,
                    subdim,
                    label_name,
