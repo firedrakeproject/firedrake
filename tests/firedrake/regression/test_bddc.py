@@ -313,9 +313,10 @@ def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("family", ("MTW", "RT"))
 @pytest.mark.parametrize("mesh_builder,resolution", [(UnitSquareMesh, (2, 2)), (UnitCubeMesh, (1, 1, 1))], ids=("triangle", "tetrahedron"))
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
 @pytest.mark.parametrize("mat_type,allow_repeated", [("aij", False), ("is", False), ("is", True)])
 def test_bddc_divergence_mat(family: str, mesh_builder: Callable, resolution: tuple[int, ...],
-                             mat_type: str, allow_repeated: bool) -> None:
+                             shape: tuple[int, ...], mat_type: str, allow_repeated: bool) -> None:
     """Compare fast divergence assembly with the physical form on sheared cells."""
     from firedrake.preconditioners.bddc import get_divergence_mat
     from pyop2.utils import as_tuple
@@ -325,7 +326,10 @@ def test_bddc_divergence_mat(family: str, mesh_builder: Callable, resolution: tu
     transform = np.eye(mesh.geometric_dimension)
     transform[0, 0], transform[0, 1], transform[1, 1] = 2, 1/3, 1/2
     mesh.coordinates.interpolate(dot(Constant(transform), x))
-    V = FunctionSpace(mesh, family, 1)
+    element = FiniteElement(family, mesh.ufl_cell(), 1)
+    if shape:
+        element = TensorElement(element, shape=shape)
+    V = FunctionSpace(mesh, element)
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(mesh, "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
     (actual,), _ = get_divergence_mat(V, mat_type=mat_type, allow_repeated=allow_repeated)

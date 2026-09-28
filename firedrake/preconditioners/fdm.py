@@ -1626,12 +1626,27 @@ def broken_function(V, val):
 
 
 def mask_local_indices(V, lgmap, allow_repeated):
-    """Return a numpy array with the masked local indices."""
+    """Construct a cell argument with masked scalar local indices.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        Space that defines the coefficient ordering.
+    lgmap : PETSc.LGMap
+        Local-to-global map with constrained degrees of freedom masked out.
+    allow_repeated : bool
+        Whether each cell has separate local indices.
+
+    Returns
+    -------
+    pyop2.parloop.DatLegacyArg
+        Argument that supplies the scalar local indices for each cell.
+    """
     mask = lgmap.indices
     if allow_repeated:
         w = broken_function(V, mask)
         V = w.function_space()
-        mask = w.dat.data_ro_with_halos
+        mask = w.dat.data_ro_with_halos.reshape(-1)
 
     indices = numpy.arange(mask.size, dtype=PETSc.IntType)
     indices[mask == -1] = -1
@@ -1641,7 +1656,23 @@ def mask_local_indices(V, lgmap, allow_repeated):
 
 
 def unghosted_lgmap(V, lgmap, allow_repeated):
-    """Construct the local to global mapping for MatIS assembly."""
+    """Construct a scalar local-to-global map for MATIS assembly.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        Space that defines the coefficient ordering.
+    lgmap : PETSc.LGMap
+        Local-to-global map, which can contain masked degrees of freedom.
+    allow_repeated : bool
+        Whether each cell has separate local indices.
+
+    Returns
+    -------
+    PETSc.LGMap
+        Map with block size one that excludes degrees of freedom that occur
+        only on ghost cells. Value components use separate scalar indices.
+    """
     if allow_repeated:
         indices = broken_function(V, lgmap.indices).dat.data_ro
     else:
@@ -1650,7 +1681,7 @@ def unghosted_lgmap(V, lgmap, allow_repeated):
         cell_node_map = broken_function(V, local_indices).dat.data_ro
         ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
         indices[ghost] = -1
-    return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+    return PETSc.LGMap().create(indices, bsize=1, comm=lgmap.getComm())
 
 
 def get_preallocator(comm, sizes, rmap, cmap, mat_type=None):
