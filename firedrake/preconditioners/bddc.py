@@ -13,7 +13,7 @@ from firedrake.preconditioners.hiptmair import BCFromNodes, curl_to_grad
 
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
+from ufl import Form, JacobianDeterminant, div, dx, inner, replace
 from finat.ufl import TensorElement, VectorElement
 from pyop2.mpi import COMM_SELF
 from pyop2.datatypes import as_cstr
@@ -28,6 +28,8 @@ class BDDCPC(PCBase):
     This is a domain decomposition method using subdomains defined by the
     blocks in a Mat of type IS.
 
+    Notes
+    -----
     Internally, this PC creates a PETSc PCBDDC object that can be controlled by
     the options:
     - ``'bddc_cellwise'`` to set up a MatIS on cellwise subdomains if P.type == python,
@@ -48,6 +50,10 @@ class BDDCPC(PCBase):
     If a DG(0) Function is provided, then all degrees of freedom on the cell are marked.
     Alternatively, ``'primal_markers'`` can be a list of the global degrees of freedom to
     be supplied directly to ``PETSc.PC.setBDDCPrimalVerticesIS``.
+
+    The local matrix graph is used by default when the element has degrees
+    of freedom associated with vertices and does not use the ``'fdm'`` variant.
+    The option ``'bddc_pc_bddc_use_local_mat_graph'`` overrides this default.
     """
 
     _prefix = "bddc_"
@@ -91,10 +97,14 @@ class BDDCPC(PCBase):
         # we may inject some options, we remove them after calling setFromOptions
         rem_opts = []
 
-        # Do not use CSR of local matrix to define dofs connectivity unless requested
-        # Using the CSR only makes sense for H1/H2 problems
-        is_h1h2 = V.ufl_element().sobolev_space in {H1, H2}
-        if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or not V.finat_element.has_pointwise_dual_basis):
+        entity_dofs = V.finat_element.entity_dofs()
+        vdofs = entity_dofs[min(entity_dofs)]
+        has_vertex_dofs = any(len(vdofs[v]) > 0 for v in vdofs)
+        is_fdm = V.ufl_element().variant() == "fdm"
+
+        # Without vertex degrees of freedom or with a sparse FDM basis, adjacent
+        # interface entities can be disconnected in the matrix graph.
+        if "pc_bddc_use_local_mat_graph" not in opts and (not has_vertex_dofs or is_fdm):
             opts["pc_bddc_use_local_mat_graph"] = False
             rem_opts.append("pc_bddc_use_local_mat_graph")
 
@@ -126,9 +136,6 @@ class BDDCPC(PCBase):
 
         # Set coordinates if corner selection is requested or needed
         # There's no API to query from PC
-        entity_dofs = V.finat_element.entity_dofs()
-        vdofs = entity_dofs[min(entity_dofs)]
-        has_vertex_dofs = any(len(vdofs[v]) > 0 for v in vdofs)
         corner_selection = opts.getBool("pc_bddc_corner_selection") if "pc_bddc_corner_selection" in opts else has_vertex_dofs
         if corner_selection:
             if "pc_bddc_corner_selection" not in opts:
