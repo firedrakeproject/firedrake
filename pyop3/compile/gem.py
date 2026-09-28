@@ -4,6 +4,7 @@ import abc
 import contextlib
 import dataclasses
 import functools
+import itertools
 import numbers
 import os
 from functools import cached_property
@@ -60,7 +61,17 @@ class GemExecutable(Executable):
 
     @cached_property
     def _callable(self):
-        impero = gem.impero_utils.compile_gem(self.instructions, ())
+        insns = []
+        for insn in self.instructions:
+            new_expr, = gem.impero_utils.preprocess_gem([insn.expression])
+            assert "ComponentTensor" not in repr(new_expr)
+            new_insn = gem.impero.Assignment(
+                assignee=insn.assignee,
+                expression=new_expr,
+                mode=insn.mode,
+            )
+            insns.append(new_insn)
+        impero = gem.impero_utils.compile_gem_new(insns, ())
         raise NotImplementedError("This is where we need to work next")
 
     @property
@@ -131,7 +142,7 @@ class GemCodegenContext(CodegenContext):
         # TODO: lower_expr should know what to do with unindexed buffers - they are gem.Variables
         # not gem.Indexeds
         gem_args = [
-            self.lower_buffer_access(arg, None, [{}], loop_indices=loop_indices, intent=intent)
+            self.lower_buffer_access(arg, [], [], loop_indices=loop_indices, intent=intent)
             for arg, intent in zip(call.arguments, call.function.intents, strict=True)
         ]
 
@@ -143,7 +154,8 @@ class GemCodegenContext(CodegenContext):
             lhs, rhs = insn
             new_lhs = gem.replace_variables(lhs, gem_var_replace_map)
             new_rhs = gem.replace_variables(rhs, gem_var_replace_map)
-            self._add_instruction((new_lhs, new_rhs))
+            insn = gem.impero.Assignment(new_lhs, new_rhs, "write")
+            self._add_instruction(insn)
 
     @contextlib.contextmanager
     def enter_loop(self, size, replace_map, loop_indices):
@@ -151,7 +163,7 @@ class GemCodegenContext(CodegenContext):
             yield None
             return
 
-        gem_size = self.lower_expr(size, [replace_map], loop_indices)
+        gem_size = self.lower_expr(size, [replace_map], loop_indices, is_index=True)
         index = gem.Index(extent=gem_size)
         yield index
 
@@ -173,22 +185,63 @@ class GemCodegenContext(CodegenContext):
         if isinstance(buffer, PetscMatBuffer):
             buffer = buffer_view.denested.getPythonContext().buffer
 
-        var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
-
-        if layouts is None:
-            return var
-        else:
-            multiindex = tuple(
-                self.lower_expr(layout, [iname_map], loop_indices)
-                for layout, iname_map in zip(layouts, iname_maps, strict=True)
-            )
-
-            # TODO: Unify these types
-            if all(isinstance(i, gem.IndexBase) and isinstance(i.extent, numbers.Integral) or isinstance(i, numbers.Integral) for i in multiindex):
-                # simple expressions can use existing gem types
-                return gem.Indexed(var, multiindex)
+        multiindex = []
+        added = []
+        assert len(layouts) == len(iname_maps)
+        for size, layout, iname_map in itertools.zip_longest(
+            buffer.shape, layouts, iname_maps
+        ):
+            if layout is None:
+                # create a new index
+                idx = gem.Index(extent=size)
+                added.append(idx)
             else:
-                return gem.Gather(var, multiindex)
+                lowered = self.lower_expr(layout, [iname_map], loop_indices, is_index=True)
+                if isinstance(lowered, gem.Literal):
+                    idx = lowered.value
+                else:
+                    idx = gem.VariableIndex(lowered)
+            multiindex.append(idx)
+
+        # TODO: make sure sorted
+        all_indices = utils.unique(
+            tuple(loop_indices.values()) + utils.unique(multiindex)
+        )
+        missing_shape = []
+        missing_indices = []
+        for idx in all_indices:
+            if not isinstance(idx, gem.IndexBase):
+                continue
+            if idx not in utils.unique(gem.as_gem(i).free_indices for i in multiindex):
+                missing_shape.append(idx.extent)
+                missing_indices.append(idx)
+
+        shape = (*missing_shape, *buffer.shape)
+        full_multiindex = (*missing_indices, *multiindex)
+
+        assert len(multiindex) == len(set(multiindex))
+
+        var = gem.Variable(name_in_kernel, shape, dtype=buffer.dtype, data=buffer_view)
+
+        # now scalar-ify
+        # print(full_multiindex)
+        # breakpoint()
+        # var = gem.Gather(var, full_multiindex)
+        var = gem.Indexed(var, full_multiindex)
+
+        # now un-scalar-ify (this is the order needed by ComponentTensor since it
+        # needs a scalar expression to wrap)
+        # trimmed_multiindex = []
+        # for i in multiindex:
+        #     if isinstance(i, gem.IndexBase):
+        #         if isinstance(i, gem.VariableIndex):
+        #             trimmed_multiindex.append(i.free_indices)
+        #         else:
+        #             trimmed_multiindex.append(i)
+        var = gem.ComponentTensor(var, tuple(added))
+
+        assert all(li in var.free_indices for li in loop_indices.values())
+        return var
 
     # NOTE: This could probably be refactored
     def add_leaf_assignment(
@@ -220,8 +273,8 @@ class GemCodegenContext(CodegenContext):
 
         self.add_assignment(lexpr, rexpr, assignment_type)
 
-    def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None) -> pym.Expression:
-        return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self)
+    def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None, is_index=False) -> pym.Expression:
+        return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self, is_index=is_index)
 
     def finalize_kernel(self, function_name, compiler_parameters, cc_options):
         return (
@@ -240,8 +293,11 @@ def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
 @_lower_expr.register(numbers.Number)
-def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
-    return num
+def _(num: numbers.Number, /, *args, is_index: bool, **kwargs) -> numbers.Number:
+    dtype = None
+    if is_index:
+        dtype = gem.uint_type
+    return gem.Literal(num, dtype=dtype)
 
 @_lower_expr.register(pyop3.expr.Add)
 def _(add: pyop3.expr.Add, /, *args, **kwargs) -> pym.Expression:
@@ -279,10 +335,11 @@ def _(fdiv: pyop3.expr.FloorDiv, /, *args, **kwargs) -> pym.Expression:
 
 
 @_lower_expr.register(pyop3.expr.AxisVar)
-def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
+def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, is_index: bool, **kwargs) -> pym.Expression:
     active_indices = utils.just_one(iname_maps)
     index = active_indices[axis_var.axis.label]
-    return index if index is not None else 0
+
+    return index if index is not None else gem.Literal(0, dtype=gem.uint_type)
 
 
 @_lower_expr.register(pyop3.expr.LoopIndexVar)
