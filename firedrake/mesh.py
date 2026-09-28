@@ -8,7 +8,7 @@ import ufl
 import finat.ufl
 import FIAT
 import weakref
-from typing import Tuple
+from typing import Literal, Tuple
 from collections import OrderedDict, defaultdict
 from collections.abc import Sequence, Generator
 from ufl.classes import ReferenceGrad
@@ -1594,7 +1594,11 @@ class MeshTopology(AbstractMeshTopology):
             target_indices_end = np.searchsorted(target_points, mapped_points,
                                                  sorter=target_order, side="right")
             target_counts = target_indices_end - target_indices_start
-            arity = max(int(target_counts.max()) if len(target_counts) else 0, 1)
+            # Every rank must build the same map, including the ranks that
+            # see no source entity with more than one target.
+            arity = int(target_counts.max()) if len(target_counts) else 0
+            with temp_internal_comm(self.comm) as icomm:
+                arity = max(icomm.allreduce(arity, op=MPI.MAX), 1)
             values = np.full((from_set.total_size, arity), -1, dtype=IntType)
             if len(target_points):
                 slots = np.arange(arity, dtype=IntType)
@@ -5113,7 +5117,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
 
 def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
                label_name: str | None = None,
-               name: str | None = None, reorder: bool | None = None) -> MeshGeometry:
+               name: str | None = None, reorder: bool | None = None,
+               junctions: Literal["split", "unsplit"] | None = None) -> MeshGeometry:
     """Construct the mesh obtained by opening a labelled surface.
 
     Parameters
@@ -5130,11 +5135,20 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
     reorder : bool | None
         Whether to reorder mesh entities. By default, use the parent mesh
         setting.
+    junctions : {"split", "unsplit"} | None
+        How to break surfaces that meet at a junction, where more than two
+        labelled facets share a ridge. If ``None``, all the values in
+        ``subdomain_id`` mark one surface, which must not have a junction.
+        Otherwise, each value marks a separate surface, and the surfaces are
+        broken one after the other. A surface is not split where it ends,
+        which includes where it ends on another surface. With ``"split"``,
+        a surface that passes through a junction splits it, as for faults.
+        With ``"unsplit"``, no surface splits a junction, as for rivers.
 
     Returns
     -------
     MeshGeometry
-        A mesh with a separate copy of each side of the labelled surface.
+        A mesh with a separate copy of each side of the labelled surfaces.
 
     Notes
     -----
@@ -5159,6 +5173,12 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
     if not subdomain_ids or not all(isinstance(subid, numbers.Integral) for subid in subdomain_ids):
         raise TypeError(f"subdomain_id must be an integer or a non-empty sequence of integers: got {subdomain_id!r}")
     subdomain_ids = tuple(dict.fromkeys(subdomain_ids))
+    if junctions is None:
+        surfaces = (subdomain_ids,)
+    elif junctions in {"split", "unsplit"}:
+        surfaces = tuple((subid,) for subid in subdomain_ids)
+    else:
+        raise ValueError(f'junctions must be "split", "unsplit", or None: got {junctions!r}')
     if isinstance(mesh.topology, ExtrudedMeshTopology):
         raise NotImplementedError("Can not create a broken mesh from an ``ExtrudedMesh``")
     if isinstance(mesh.topology, VertexOnlyMeshTopology):
@@ -5167,16 +5187,27 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
         raise NotImplementedError("BrokenMesh requires a mesh with one cell type")
 
     plex = mesh.topology_dm
-    cohesive_label = dmcommon.create_cohesive_label(plex, label_name, subdomain_ids)
+    cohesive_label_names = dmcommon.create_cohesive_labels(
+        plex, label_name, surfaces, junctions == "unsplit")
     mesh.topology._recompute_orientation_data()
     plex.setSaveTransform(True)
-    transform = PETSc.DMPlexTransform().create(comm=plex.comm)
-    petsctools.set_from_options(transform, {"dm_plex_transform_type": "cohesive_extrude"})
-    transform.setDM(plex)
-    transform.setActive(cohesive_label)
-    transform.setUp()
-    with petsctools.inserted_options(transform):
-        transformed_plex = transform.apply(plex)
+    # Each transform carries the cohesive labels of the next surfaces to its
+    # output. For each transform, source_points maps its output points to
+    # its input points.
+    transformed_plex = plex
+    transform = None
+    source_points = []
+    for cohesive_label_name in cohesive_label_names:
+        if transform is not None:
+            source_points.append(dmcommon.transform_source_points(transformed_plex, transform))
+            transform.destroy()
+        transform = PETSc.DMPlexTransform().create(comm=plex.comm)
+        petsctools.set_from_options(transform, {"dm_plex_transform_type": "cohesive_extrude"})
+        transform.setDM(transformed_plex)
+        transform.setActive(transformed_plex.getLabel(cohesive_label_name))
+        transform.setUp()
+        with petsctools.inserted_options(transform):
+            transformed_plex = transform.apply(transformed_plex)
 
     cell_type = mesh.topology.dm_cell_types[0]
     cell_type_label = transformed_plex.getCellTypeLabel()
@@ -5191,6 +5222,8 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
     )
     parent_point_map = dmcommon.transform_source_points(broken_plex, transform)
     transform.destroy()
+    for points in reversed(source_points):
+        parent_point_map = points[parent_point_map]
 
     name = name or f"{mesh.name}_broken"
     broken_plex.setName(_generate_default_mesh_topology_name(name))

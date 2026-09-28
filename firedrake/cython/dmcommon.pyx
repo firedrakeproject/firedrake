@@ -89,6 +89,7 @@ def transform_source_points(PETSc.DM dm, PETSc.DMPlexTransform transform=None):
     """
     cdef:
         PETSc.PetscDMPlexTransform source_transform = NULL
+        PETSc.PetscDMLabel subpoint_map = NULL
         PETSc.IS subpoints
         PetscInt pStart, pEnd, i, p
         PetscInt[::1] source_points
@@ -98,7 +99,10 @@ def transform_source_points(PETSc.DM dm, PETSc.DMPlexTransform transform=None):
         CHKERR(DMPlexGetTransform(dm.dm, &source_transform))
     else:
         source_transform = transform.tr
-        subpoints = dm.getSubpointIS()
+        # A DMPlex that is not filtered has no subpoint map.
+        CHKERR(DMPlexGetSubpointMap(dm.dm, &subpoint_map))
+        if subpoint_map != NULL:
+            subpoints = dm.getSubpointIS()
     if source_transform == NULL:
         raise ValueError(
             "No DMPlex transform was provided or saved on the DMPlex; call "
@@ -4018,8 +4022,8 @@ def create_halo_exchange_sf(PETSc.DM dm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_cohesive_label(PETSc.DM dm, str label_name, subdomain_id):
-    """Create and complete a depth-labelled cohesive surface.
+def create_cohesive_labels(PETSc.DM dm, str label_name, surfaces, PetscBool unsplit_junctions):
+    """Create and complete a depth-labelled cohesive label for each surface.
 
     Parameters
     ----------
@@ -4027,88 +4031,150 @@ def create_cohesive_label(PETSc.DM dm, str label_name, subdomain_id):
         The parent DMPlex.
     label_name : str
         The name of the parent label that marks the surface facets.
-    subdomain_id : int | Sequence[int]
-        The value or values in ``label_name`` that mark the surface facets.
+    surfaces : Sequence[Sequence[int]]
+        For each surface, the values in ``label_name`` that mark its facets.
+    unsplit_junctions : bool
+        Whether every surface leaves its junctions unsplit. A junction is a
+        ridge where more than two facets of the surfaces meet. Otherwise, a
+        junction is split by each surface that passes through it.
 
     Returns
     -------
-    PETSc.DMLabel
-        A new label that marks the surface and its closure by point depth.
+    list[str]
+        The names of the new labels, one for each surface. Each label marks
+        its surface and the closure by point depth, and it is completed by
+        ``DMPlexLabelCohesiveComplete``.
     """
     cdef:
         PETSc.DMLabel source_label
         PETSc.DMLabel cohesive_label
-        PETSc.IS facets
-        DMLabel source = NULL
+        PETSc.DMLabel junction_label
+        PETSc.IS facets, closure_points
         DMLabel cohesive = NULL
-        PetscInt nfacets, nselected, i, facet, depth, closure_index, closure_point
-        PetscInt closure_size, chart_start, chart_end
+        DMLabel junction = NULL
+        PetscInt nfacets, nselected, i, k, facet, depth, closure_index, closure_point
+        PetscInt closure_size, chart_start, chart_end, dim
         const PetscInt *facet_indices = NULL
+        const PetscInt *closure_indices = NULL
         PetscInt *closure = NULL
-        PetscInt[::1] ridge_counts
-        object subdomain_ids
+        PetscInt[:, ::1] ridge_counts
+        PetscInt[::1] ghost, junctions
         object subdomain
 
-    if isinstance(subdomain_id, Integral):
-        subdomain_ids = (subdomain_id,)
-    else:
-        subdomain_ids = subdomain_id
-
     source_label = dm.getLabel(label_name)
-    source = <DMLabel>source_label.dmlabel
-    if source == NULL:
+    if <DMLabel>source_label.dmlabel == NULL:
         raise ValueError(f"Mesh has no label named {label_name!r}")
 
-    # A rank that does not see the surface has no stratum.
+    dim = dm.getDimension()
     chart_start, chart_end = dm.getChart()
-    ridge_counts = np.zeros(chart_end - chart_start, dtype=IntType)
+    point_sf = dm.getPointSF()
+    _, leaves, _ = point_sf.getGraph()
+    ghost = np.zeros(chart_end - chart_start, dtype=IntType)
+    np.asarray(ghost)[leaves - chart_start] = 1
+    # Each rank counts the surface facets that it owns around each ridge.
+    ridge_counts = np.zeros((len(surfaces), chart_end - chart_start), dtype=IntType)
 
-    # DMPlexLabelCohesiveComplete expects each surface point to be marked
-    # with its depth.
-    cohesive_label_name = "firedrake_cohesive_label"
-    dm.createLabel(cohesive_label_name)
-    cohesive_label = dm.getLabel(cohesive_label_name)
-    cohesive = <DMLabel>cohesive_label.dmlabel
+    cohesive_label_names = [f"firedrake_cohesive_label_{k}" for k in range(len(surfaces))]
     nselected = 0
-    for subdomain in subdomain_ids:
-        facets = source_label.getStratumIS(subdomain)
-        nfacets = 0
-        if facets.iset != NULL:
-            CHKERR(ISGetSize(facets.iset, &nfacets))
-            CHKERR(ISGetIndices(facets.iset, &facet_indices))
-        for i in range(nfacets):
-            facet = facet_indices[i]
-            CHKERR(DMPlexGetPointDepth(dm.dm, facet, &depth))
-            if depth != dm.getDimension() - 1:
-                continue
-            nselected += 1
-            CHKERR(DMPlexGetTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
-            for closure_index in range(closure_size):
-                closure_point = closure[2 * closure_index]
-                CHKERR(DMPlexGetPointDepth(dm.dm, closure_point, &depth))
-                CHKERR(DMLabelSetValue(cohesive, closure_point, depth))
-                if depth == dm.getDimension() - 2:
-                    ridge_counts[closure_point - chart_start] += 1
-            CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
-        if facets.iset != NULL:
-            CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
+    for k, subdomain_ids in enumerate(surfaces):
+        if dm.hasLabel(cohesive_label_names[k]):
+            dm.removeLabel(cohesive_label_names[k])
+        dm.createLabel(cohesive_label_names[k])
+        cohesive_label = dm.getLabel(cohesive_label_names[k])
+        cohesive = <DMLabel>cohesive_label.dmlabel
+        for subdomain in subdomain_ids:
+            facets = source_label.getStratumIS(subdomain)
+            nfacets = 0
+            if facets.iset != NULL:
+                CHKERR(ISGetSize(facets.iset, &nfacets))
+                CHKERR(ISGetIndices(facets.iset, &facet_indices))
+            for i in range(nfacets):
+                facet = facet_indices[i]
+                CHKERR(DMPlexGetPointDepth(dm.dm, facet, &depth))
+                if depth != dim - 1:
+                    continue
+                nselected += 1
+                CHKERR(DMLabelSetValue(cohesive, facet, depth))
+                if ghost[facet - chart_start]:
+                    continue
+                CHKERR(DMPlexGetTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+                for closure_index in range(closure_size):
+                    closure_point = closure[2 * closure_index]
+                    CHKERR(DMPlexGetPointDepth(dm.dm, closure_point, &depth))
+                    if depth == dim - 2:
+                        ridge_counts[k, closure_point - chart_start] += 1
+                CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+            if facets.iset != NULL:
+                CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
+        # Add the closure of the surface, also on the ranks that see a point
+        # of the closure but none of its facets. Then move each point to the
+        # stratum of its depth, as DMPlexLabelCohesiveComplete expects.
+        dm.labelComplete(cohesive_label)
+        closure_points = cohesive_label.getStratumIS(dim - 1)
+        if closure_points.iset == NULL:
+            continue
+        CHKERR(ISGetSize(closure_points.iset, &closure_size))
+        CHKERR(ISGetIndices(closure_points.iset, &closure_indices))
+        for i in range(closure_size):
+            CHKERR(DMPlexGetPointDepth(dm.dm, closure_indices[i], &depth))
+            if depth != dim - 1:
+                CHKERR(DMLabelClearValue(cohesive, closure_indices[i], dim - 1))
+                CHKERR(DMLabelSetValue(cohesive, closure_indices[i], depth))
+        CHKERR(ISRestoreIndices(closure_points.iset, &closure_indices))
+
+    # Sum the counts on the owner of each ridge, and send the sums back.
+    unit = MPI._typedict[np.dtype(IntType).char]
+    for local_counts in np.asarray(ridge_counts):
+        owner_counts = local_counts.copy()
+        point_sf.reduceBegin(unit, local_counts, owner_counts, MPI.SUM)
+        point_sf.reduceEnd(unit, local_counts, owner_counts, MPI.SUM)
+        local_counts[:] = owner_counts
+        point_sf.bcastBegin(unit, owner_counts, local_counts, MPI.REPLACE)
+        point_sf.bcastEnd(unit, owner_counts, local_counts, MPI.REPLACE)
+
     comm = dm.comm.tompi4py()
     if comm.allreduce(nselected, op=MPI.SUM) == 0:
-        dm.removeLabel(cohesive_label_name)
-        raise ValueError("BrokenMesh requires a codimension-one label")
-    if comm.allreduce(np.max(ridge_counts, initial=0) > 2, op=MPI.LOR):
-        dm.removeLabel(cohesive_label_name)
-        raise ValueError("Gamma has a junction")
+        error = "BrokenMesh requires a codimension-one label"
+    elif comm.allreduce(bool(np.any(np.asarray(ridge_counts) > 2)), op=MPI.LOR):
+        error = ("A surface has a junction, where more than two of its facets meet. "
+                 "Mark each branch with its own subdomain_id, and set junctions.")
+    else:
+        error = None
+    if error is not None:
+        for name in cohesive_label_names:
+            dm.removeLabel(name)
+        raise ValueError(error)
 
-    # Orient the facets of the surface consistently, so that the surface has
-    # a well-defined positive side. DMPlexOrientLabel changes cones in place,
-    # so callers must refresh any cached orientation data after this call.
-    CHKERR(DMPlexOrientLabel(dm.dm, cohesive))
-    # Mark every point that touches the surface with the side it lies on.
-    # With a NULL boundary label, PETSc finds the points on the crack tip,
-    # which are not duplicated.
-    CHKERR(DMPlexLabelCohesiveComplete(dm.dm, cohesive, NULL, 1, PETSC_FALSE, NULL))
-    return cohesive_label
+    junctions = (np.flatnonzero(np.sum(ridge_counts, axis=0) > 2) + chart_start).astype(IntType)
+    junction_label_name = "firedrake_junction_label"
+    for name in cohesive_label_names:
+        cohesive_label = dm.getLabel(name)
+        cohesive = <DMLabel>cohesive_label.dmlabel
+        # Orient the facets of the surface consistently, so that the surface
+        # has a well-defined positive side. DMPlexOrientLabel changes cones in
+        # place, so callers must refresh any cached orientation data after
+        # this call.
+        CHKERR(DMPlexOrientLabel(dm.dm, cohesive))
+        # DMPlexLabelCohesiveComplete removes the points that are not on the
+        # surface from the junction label, so each surface gets a new one.
+        # It cannot take an empty junction label, but NULL has the same effect.
+        junction = NULL
+        if unsplit_junctions and junctions.shape[0] > 0:
+            dm.createLabel(junction_label_name)
+            junction_label = dm.getLabel(junction_label_name)
+            junction = <DMLabel>junction_label.dmlabel
+            for i in range(junctions.shape[0]):
+                CHKERR(DMPlexGetTransitiveClosure(dm.dm, junctions[i], PETSC_TRUE, &closure_size, &closure))
+                for closure_index in range(closure_size):
+                    CHKERR(DMLabelSetValue(junction, closure[2 * closure_index], 1))
+                CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, junctions[i], PETSC_TRUE, &closure_size, &closure))
+        # Mark every point that touches the surface with the side it lies on.
+        # PETSc leaves unsplit the points in the junction label and the points
+        # where the surface ends.
+        CHKERR(DMPlexLabelCohesiveComplete(dm.dm, cohesive, junction, 1, PETSC_FALSE, NULL))
+        if junction != NULL:
+            dm.removeLabel(junction_label_name)
+    return cohesive_label_names
 
 
 @cython.boundscheck(False)

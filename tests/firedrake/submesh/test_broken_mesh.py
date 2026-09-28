@@ -204,6 +204,70 @@ def test_broken_mesh_crack_tip_is_not_split(degree, hexahedral):
     assert V_broken.dim() == V.dim() + V_trace.dim() - (n * degree + 1)
 
 
+def t_junction_square(n=8):
+    """Return a unit square with Γ₁ = {y = 1/2} and Γ₂ = {x = 1/2, y > 1/2}, which ends on Γ₁."""
+    mesh = UnitSquareMesh(n, n, distribution_parameters={
+        "partitioner_type": "simple",
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+    x, y = SpatialCoordinate(mesh)
+    markers = []
+    for on_gamma in (lt(abs(y - 0.5), 1e-12), And(lt(abs(x - 0.5), 1e-12), gt(y, 0.5))):
+        marker = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+        markers.append(marker.interpolate(conditional(on_gamma, 1, 0)))
+    return RelabeledMesh(mesh, markers, [GAMMA, GAMMA + 1])
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("junctions,num_unsplit", [("split", 1), ("unsplit", 2)])
+def test_broken_mesh_t_junction(junctions, num_unsplit):
+    """Γ₂ is not split where it ends on Γ₁, and with junctions="unsplit" neither is Γ₁."""
+    mesh = t_junction_square()
+    broken = BrokenMesh(mesh, (GAMMA, GAMMA + 1), junctions=junctions)
+    traces = [Submesh(mesh, mesh.topological_dimension - 1, subid) for subid in (GAMMA, GAMMA + 1)]
+    V = FunctionSpace(mesh, "CG", 1)
+    V_broken = FunctionSpace(broken, "CG", 1)
+    V_traces = [FunctionSpace(trace, "CG", 1) for trace in traces]
+    assert V_broken.dim() == V.dim() + sum(V_trace.dim() for V_trace in V_traces) - num_unsplit
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("junctions", ["split", "unsplit"])
+def test_broken_mesh_t_junction_jump(junctions):
+    """u = q + (x - 1/2)(1 + y) below Γ₁ and u = q + (y - 1/2)(1 + x) right of Γ₂ jump by these terms.
+
+    Both terms vanish at the junction, so u is continuous there with either value of junctions.
+    """
+    mesh = t_junction_square()
+    broken = BrokenMesh(mesh, (GAMMA, GAMMA + 1), junctions=junctions)
+    x, y = SpatialCoordinate(broken)
+    DG0 = FunctionSpace(broken, "DG", 0)
+    below = Function(DG0).interpolate(conditional(lt(y, 0.5), 1, 0))
+    right = Function(DG0).interpolate(conditional(And(gt(y, 0.5), gt(x, 0.5)), 1, 0))
+    q = (1 + x + 2*y)**2
+    u = Function(FunctionSpace(broken, "CG", 2))
+    u.interpolate(q + below * (x - 0.5) * (1 + y) + right * (y - 0.5) * (1 + x))
+
+    n = FacetNormal(mesh)
+    for subid, component in ((GAMMA, 1), (GAMMA + 1, 0)):
+        gamma = Submesh(mesh, mesh.topological_dimension - 1, subid)
+        w = TestFunction(FunctionSpace(gamma, "DG", 2))
+        dS_gamma = Measure("dS", domain=mesh, subdomain_id=subid,
+                           intersect_measures=(Measure("dx", gamma), Measure("dS", broken)))
+        jump_u = assemble(inner(jump(u) * n("+")[component], w) * dS_gamma)
+
+        x, y = SpatialCoordinate(gamma)
+        jump_exact = (x - 0.5) * (1 + y) if subid == GAMMA else -(y - 0.5) * (1 + x)
+        jump_exact = assemble(inner(jump_exact, w) * dx(domain=gamma))
+        assert np.allclose(jump_u.dat.data_ro, jump_exact.dat.data_ro)
+
+
+def test_broken_mesh_rejects_junction():
+    """A single surface cannot be broken across a junction."""
+    mesh = t_junction_square()
+    with pytest.raises(ValueError, match="junction"):
+        BrokenMesh(mesh, (GAMMA, GAMMA + 1))
+
+
 def polynomials(mesh, degree, shape):
     """Return two different polynomials of the given degree and shape."""
     x, y, z = SpatialCoordinate(mesh)
