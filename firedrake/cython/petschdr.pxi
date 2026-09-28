@@ -104,6 +104,12 @@ cdef extern from "petscdmplex.h" nogil:
     PetscErrorCode DMPlexSetCellType(PETSc.PetscDM, PetscInt, PetscDMPolytopeType)
     PetscErrorCode DMPlexGetCellType(PETSc.PetscDM, PetscInt, PetscDMPolytopeType*)
 
+cdef extern from "petscdmplextransform.h" nogil:
+    PetscErrorCode DMPlexGetTransform(PETSc.PetscDM, PETSc.PetscDMPlexTransform*)
+    PetscErrorCode DMPlexTransformGetSourcePoint(
+        PETSc.PetscDMPlexTransform, PetscInt, PetscDMPolytopeType*,
+        PetscDMPolytopeType*, PetscInt*, PetscInt*)
+
 cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMCreateLabel(PETSc.PetscDM, char[])
     PetscErrorCode DMGetLabel(PETSc.PetscDM, char[], DMLabel*)

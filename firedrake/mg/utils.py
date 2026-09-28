@@ -5,6 +5,7 @@ from immutabledict import immutabledict as idict
 from fractions import Fraction
 import pyop3 as op3
 from mpi4py import MPI
+
 from firedrake.utils import IntType
 from firedrake.functionspaceimpl import entity_dofs_key
 import finat.ufl
@@ -38,6 +39,15 @@ def fine_node_to_coarse_node_map(Vf, Vc):
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
+
+        # Detect fine nodes that only touch orphaned fine cells with no coarse parent
+        orphaned = (fine_to_coarse_nodes[:Vf.axes.owned.local_size//Vf.block_size] < 0).all(axis=1).any()
+        with op3.mpi.temp_internal_comm(Vf.comm) as icomm:
+            orphaned = icomm.allreduce(bool(orphaned), op=MPI.LOR)
+        if orphaned:
+            raise NotImplementedError("Transfer is not implemented for fine nodes that only touch "
+                                      "orphaned fine cells with no coarse parent, as in a "
+                                      "SubmeshHierarchy of interior facets")
 
         src_axis = Vf.nodal_axes.root
         target_axis = op3.Axis(fine_to_coarse_nodes.shape[1])
