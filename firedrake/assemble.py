@@ -1119,14 +1119,6 @@ class ParloopFormAssembler(FormAssembler):
 
         return self.result(tensor)
 
-    def compile(self):
-        """Compile the local kernels now, rather than lazily inside `assemble`.
-
-        `DirichletBC` calls this to learn whether its value can be interpolated
-        before it commits to interpolating rather than projecting.
-        """
-        self.local_kernels
-
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc, u=None):
         """Apply boundary condition."""
