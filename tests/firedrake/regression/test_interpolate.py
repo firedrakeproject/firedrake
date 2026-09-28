@@ -61,6 +61,32 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
     assert np.allclose(f.dat.data_ro, expected)
 
 
+@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+def test_cross_mesh_interpolation_reduction(access):
+    source_mesh = UnitSquareMesh(4, 4)
+    target_mesh = UnitSquareMesh(2, 2)
+    x_source, y_source = SpatialCoordinate(source_mesh)
+    x_target, y_target = SpatialCoordinate(target_mesh)
+    source_space = FunctionSpace(source_mesh, "CG", 1)
+    target_space = FunctionSpace(target_mesh, "CG", 1)
+
+    source = Function(source_space).interpolate(x_source + y_source)
+    exact = Function(target_space).interpolate(x_target + y_target)
+    initial = 0.75 if access == op2.MIN else -0.25
+    expected = (
+        np.minimum(initial, exact.dat.data_ro)
+        if access == op2.MIN
+        else np.maximum(initial, exact.dat.data_ro)
+    )
+
+    result = Function(target_space).assign(initial)
+    assert result.interpolate(source, access=access) is result
+    assert np.allclose(result.dat.data_ro, expected)
+
+    allocated = assemble(interpolate(source, target_space, access=access))
+    assert np.allclose(allocated.dat.data_ro, exact.dat.data_ro)
+
+
 def test_mixed_expression():
     m = UnitTriangleMesh()
     x = SpatialCoordinate(m)
