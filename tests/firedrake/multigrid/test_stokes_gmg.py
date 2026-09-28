@@ -57,7 +57,6 @@ def stokes_solver(mesh, mu):
                                       appctx=appctx)
 
 
-@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 3])
 def test_stokes_appctx_coarsening():
     base = UnitSquareMesh(4, 4)

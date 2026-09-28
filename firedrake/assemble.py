@@ -491,15 +491,16 @@ class BaseFormAssembler(AbstractFormAssembler):
             in a post-order fashion.
         """
         if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+            # Only the output matrix uses the requested allocation integral types.
+            # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
+            allocation_integral_types = self._allocation_integral_types if expr is self._form else None
             if args and self._mat_type != "matfree":
                 # Retrieve the Form's children
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
                 # Substitute the base form operators by their output
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
             form = expr
-            # The bcs of a 1-form are applied to the assembled result instead,
-            # so only a matrix takes them here, and only a matrix allocates a
-            # sparsity to match the one that the result was allocated with.
+            # Only matrices need allocation_integral_types, bcs are delayed to the output for 1-forms
             is_matrix = len(form.arguments()) == 2 and not self._diagonal
             assembler = get_form_assembler(
                 form,
@@ -511,7 +512,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 appctx=self._appctx,
                 diagonal=self._diagonal,
                 weight=self._weight,
-                allocation_integral_types=self.allocation_integral_types if is_matrix else None,
+                allocation_integral_types=allocation_integral_types if is_matrix else None,
             )
             return assembler.assemble(tensor=tensor)
         elif isinstance(expr, ufl.Adjoint):
