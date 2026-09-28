@@ -395,6 +395,29 @@ def test_tabulate_gradient_simplex() -> None:
     assert actual.norm() < 1.e-12 * expected.norm()
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("allow_repeated", (False, True))
+@pytest.mark.parametrize("component_bc", (False, True))
+def test_tabulate_divergence_matis_components(allow_repeated: bool, component_bc: bool) -> None:
+    """MATIS preserves masks on whole fields and individual components."""
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, TensorElement(FiniteElement("RT", mesh.ufl_cell(), 1), shape=(2,)))
+    W = VectorFunctionSpace(mesh, "DG", 0, variant="integral(0)", dim=2)
+    cbcs = [DirichletBC(V.sub(1) if component_bc else V, 0, 1)]
+    expected = tabulate_exterior_derivative(V, W)
+    cmask = Function(V).assign(1)
+    cbcs[0].apply(cmask)
+    with cmask.dat.vec_ro as cvec:
+        expected.diagonalScale(None, cvec)
+    actual = tabulate_exterior_derivative(V, W, cbcs=cbcs,
+                                          mat_type="is", allow_repeated=allow_repeated)
+    actual = actual.convert("aij", out=PETSc.Mat())
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
+
+
 def test_tabulate_exterior_derivative_incompatible_shape() -> None:
     """Reject incompatible component counts before inserting reference entries."""
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
