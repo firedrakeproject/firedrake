@@ -7,6 +7,7 @@ from pyop2.datatypes import IntType
 
 import petsctools
 import firedrake
+from firedrake.petsc import PETSc
 from functools import cached_property
 
 from firedrake import utils
@@ -70,13 +71,15 @@ class HierarchyBase(object):
     """
     def __init__(self, meshes, coarse_to_fine_cells=None, fine_to_coarse_cells=None,
                  refinements_per_level=1, nested=False,
-                 fine_to_coarse_points=None, redistribute=True):
+                 fine_to_coarse_points=None, redistribute=True,
+                 coarse_facet_label=None):
         petsctools.cite("Mitchell2016")
         self._meshes = list(meshes)
         self.meshes = self._meshes[::refinements_per_level]
         self.refinements_per_level = refinements_per_level
         self.nested = nested
         self.redistribute = redistribute
+        self._coarse_facet_label = coarse_facet_label
         self.fine_to_coarse_points = dict(fine_to_coarse_points or {})
         if (coarse_to_fine_cells is None) != (fine_to_coarse_cells is None):
             raise ValueError("coarse_to_fine_cells and fine_to_coarse_cells must be provided together")
@@ -218,7 +221,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
                   mesh_builder=firedrake.Mesh, nested=True,
-                  redistribute=True):
+                  redistribute=True, coarse_facet_label=None):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     Parameters
@@ -249,6 +252,9 @@ def MeshHierarchy(mesh, refinement_levels=0,
         avoid empty ranks.  Transfer operators use an internal
         parent-owned mesh before moving data to or from the redistributed
         mesh.
+    coarse_facet_label : int or None
+        Optional subdomain ID used to label the facets of each coarse cell
+        on the next level. This is required by coarse-patch transfer.
     reorder : bool
         optional flag indicating whether to reorder the
         refined meshes.
@@ -314,6 +320,12 @@ def MeshHierarchy(mesh, refinement_levels=0,
     fine_to_coarse_points = {}
     for i in range(refinement_levels*refinements_per_level):
         cdm.setRefinementUniform(True)
+        if coarse_facet_label is not None:
+            fstart, fend = cdm.getHeightStratum(1)
+            iset = PETSc.IS().createStride(fend - fstart, first=fstart,
+                                           comm=cdm.comm)
+            cdm.createLabel("temp_label")
+            cdm.getLabel("temp_label").setStratumIS(1, iset)
         if i % refinements_per_level == 0:
             before(cdm, i)
         cdm.setSaveTransform()
@@ -321,6 +333,12 @@ def MeshHierarchy(mesh, refinement_levels=0,
         source_points = impl.transform_source_points(rdm)
         if i % refinements_per_level == 0:
             after(rdm, i)
+        if coarse_facet_label is not None:
+            iset = rdm.getLabel("temp_label").getStratumIS(1)
+            rdm.getLabel(dmcommon.FACE_SETS_LABEL).setStratumIS(
+                coarse_facet_label, iset)
+            rdm.removeLabel("temp_label")
+            cdm.removeLabel("temp_label")
         if is_netgen:
             ngmesh = _snap_to_netgen(rdm, mesh.netgen_mesh)
             ngmeshes.append(ngmesh)
@@ -374,7 +392,8 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
                          nested=nested, fine_to_coarse_points=fine_to_coarse_points,
-                         redistribute=redistribute)
+                         redistribute=redistribute,
+                         coarse_facet_label=coarse_facet_label)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
