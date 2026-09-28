@@ -103,7 +103,10 @@ cdef extern from "petscdmplex.h" nogil:
     PetscErrorCode DMPlexLabelCohesiveComplete(PETSc.PetscDM, DMLabel, DMLabel, PetscInt, PetscBool, PETSc.PetscDM)
 
 cdef extern from "petscdmplextransform.h" nogil:
-    PetscErrorCode DMPlexTransformGetSourcePoint(PETSc.PetscDMPlexTransform, PetscInt, PetscDMPolytopeType*, PetscDMPolytopeType*, PetscInt*, PetscInt*)
+    PetscErrorCode DMPlexGetTransform(PETSc.PetscDM, PETSc.PetscDMPlexTransform*)
+    PetscErrorCode DMPlexTransformGetSourcePoint(
+        PETSc.PetscDMPlexTransform, PetscInt, PetscDMPolytopeType*,
+        PetscDMPolytopeType*, PetscInt*, PetscInt*)
 
 cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMCreateLabel(PETSc.PetscDM, char[])

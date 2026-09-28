@@ -1331,6 +1331,21 @@ class MeshTopology(AbstractMeshTopology):
             f"{self.name}_local_cell_orientation"
         )
 
+    def _recompute_orientation_data(self) -> None:
+        """Recompute cached data after the DMPlex cone orientations change."""
+        for name in (
+            "cell_closure",
+            "entity_orientations",
+            "local_cell_orientation_dat",
+            "exterior_facets",
+            "interior_facets",
+            "cell_to_facets",
+        ):
+            self.__dict__.pop(name, None)
+        self._shared_data_cache.clear()
+        self.cell_closure
+        self.entity_orientations
+
     @PETSc.Log.EventDecorator()
     def _facets(self, kind):
         if kind not in ["interior", "exterior"]:
@@ -2460,8 +2475,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         self.variable_layers = self.extruded and topology.variable_layers
         self._base_mesh = None  # this is set by extruded meshes in a later step
         # these are set by firedrake.adapt.refine_marked_elements
-        self.adaptive_parent = None
-        self.adaptive_cell_maps = None
+        self._adaptive_parent = None
+        self._adaptive_fine_to_coarse_points = None
 
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
@@ -3043,8 +3058,8 @@ values from f.)"""
         -------
         MeshGeometry
             The adaptively refined mesh, recording this mesh as its
-            ``adaptive_parent`` and the cell maps relative to it as its
-            ``adaptive_cell_maps``, ready to be passed to
+            ``_adaptive_parent`` and the DMPlex points relative to it as its
+            ``_adaptive_fine_to_coarse_points``, ready to be passed to
             :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
         """
         from firedrake.adapt import refine_marked_elements
@@ -5096,7 +5111,7 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     return submesh
 
 
-def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
+def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
                label_name: str | None = None,
                name: str | None = None, reorder: bool | None = None) -> MeshGeometry:
     """Construct the mesh obtained by opening a labelled surface.
@@ -5105,8 +5120,8 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
     ----------
     mesh : MeshGeometry
         Parent mesh.
-    subdomain_id : int
-        Value in ``label_name`` that marks the surface facets.
+    subdomain_id : int | Sequence[int]
+        Value or values in ``label_name`` that mark the surface facets.
     label_name : str | None
         Name of the label that marks the surface facets. Defaults to the
         parent mesh facet label.
@@ -5135,8 +5150,15 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
         label_name = dmcommon.FACE_SETS_LABEL
     elif not isinstance(label_name, str):
         raise TypeError(f"label_name must be a string: got {label_name!r}")
-    if not isinstance(subdomain_id, numbers.Integral):
-        raise TypeError(f"subdomain_id must be an integer: got {subdomain_id!r}")
+    if isinstance(subdomain_id, numbers.Integral):
+        subdomain_ids = (subdomain_id,)
+    elif isinstance(subdomain_id, Sequence) and not isinstance(subdomain_id, str):
+        subdomain_ids = tuple(subdomain_id)
+    else:
+        subdomain_ids = ()
+    if not subdomain_ids or not all(isinstance(subid, numbers.Integral) for subid in subdomain_ids):
+        raise TypeError(f"subdomain_id must be an integer or a non-empty sequence of integers: got {subdomain_id!r}")
+    subdomain_ids = tuple(dict.fromkeys(subdomain_ids))
     if isinstance(mesh.topology, ExtrudedMeshTopology):
         raise NotImplementedError("Can not create a broken mesh from an ``ExtrudedMesh``")
     if isinstance(mesh.topology, VertexOnlyMeshTopology):
@@ -5145,7 +5167,8 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
         raise NotImplementedError("BrokenMesh requires a mesh with one cell type")
 
     plex = mesh.topology_dm
-    cohesive_label = dmcommon.create_cohesive_label(plex, label_name, subdomain_id)
+    cohesive_label = dmcommon.create_cohesive_label(plex, label_name, subdomain_ids)
+    mesh.topology._recompute_orientation_data()
     plex.setSaveTransform(True)
     transform = PETSc.DMPlexTransform().create(comm=plex.comm)
     petsctools.set_from_options(transform, {"dm_plex_transform_type": "cohesive_extrude"})
@@ -5157,6 +5180,8 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
 
     cell_type = mesh.topology.dm_cell_types[0]
     cell_type_label = transformed_plex.getCellTypeLabel()
+    # The cohesive transform adds prism cells across broken facets. Filter
+    # them out so the BrokenMesh contains only the split parent cells.
     broken_plex, _ = transformed_plex.filter(
         label=cell_type_label,
         value=cell_type,
@@ -5164,7 +5189,7 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int,
         sanitizeSubMesh=True,
         comm=transformed_plex.comm,
     )
-    parent_point_map = dmcommon.transform_source_point_map(broken_plex, transform)
+    parent_point_map = dmcommon.transform_source_points(broken_plex, transform)
     transform.destroy()
 
     name = name or f"{mesh.name}_broken"

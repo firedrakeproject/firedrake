@@ -986,7 +986,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         if extract_unique_domain(line).comm.size > 1:
             raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
-        if extract_unique_domain(line).geometric_dimension > 1:
+        if extract_unique_domain(line).topological_dimension > 1:
             raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
                              "see tricontourf, tripcolor, quiver, trisurf")
 

@@ -65,6 +65,58 @@ def get_topological_dimension(PETSc.DM dm):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def transform_source_points(PETSc.DM dm, PETSc.DMPlexTransform transform=None):
+    """Find the source point for each point in a transformed DMPlex.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        A DMPlex made by a transform, such as a refinement, or filtered from
+        the output of a transform.
+    transform : PETSc.DMPlexTransform or None
+        The transform that produced ``dm``. If ``None``, the transform saved
+        on ``dm`` is used.
+
+    Returns
+    -------
+    numpy.ndarray
+        For each point of ``dm``, the point of the original DMPlex that
+        produced it. Repeated source points are retained when a transform
+        duplicates points.
+
+    """
+    cdef:
+        PETSc.PetscDMPlexTransform source_transform = NULL
+        PETSc.IS subpoints
+        PetscInt pStart, pEnd, i, p
+        PetscInt[::1] source_points
+
+    subpoints = None
+    if transform is None:
+        CHKERR(DMPlexGetTransform(dm.dm, &source_transform))
+    else:
+        source_transform = transform.tr
+        subpoints = dm.getSubpointIS()
+    if source_transform == NULL:
+        raise ValueError(
+            "No DMPlex transform was provided or saved on the DMPlex; call "
+            "setSaveTransform before creating it so source point maps can "
+            "be built"
+        )
+    pStart, pEnd = dm.getChart()
+    source_points = np.empty(pEnd - pStart, dtype=IntType)
+    if subpoints is not None and subpoints.iset != NULL:
+        transformed_points = subpoints.indices[pStart:pEnd]
+    else:
+        transformed_points = range(pStart, pEnd)
+
+    for i, p in enumerate(transformed_points):
+        CHKERR(DMPlexTransformGetSourcePoint(source_transform, p, NULL, NULL, &source_points[i], NULL))
+    return np.asarray(source_points)
+
+
 cdef inline void get_height_stratum(PETSc.PetscDM dm, PetscInt stratum, PetscInt *start, PetscInt *end):
     """
     Get the bounds [start, end) for all points at a certain height in
@@ -3966,7 +4018,7 @@ def create_halo_exchange_sf(PETSc.DM dm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
+def create_cohesive_label(PETSc.DM dm, str label_name, subdomain_id):
     """Create and complete a depth-labelled cohesive surface.
 
     Parameters
@@ -3975,8 +4027,8 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
         The parent DMPlex.
     label_name : str
         The name of the parent label that marks the surface facets.
-    subdomain_id : int
-        The value in ``label_name`` that marks the surface facets.
+    subdomain_id : int | Sequence[int]
+        The value or values in ``label_name`` that mark the surface facets.
 
     Returns
     -------
@@ -3989,13 +4041,18 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
         PETSc.IS facets
         DMLabel source = NULL
         DMLabel cohesive = NULL
-        PETSc.DM oriented
-        PETSc.DMLabel oriented_label
         PetscInt nfacets, nselected, i, facet, depth, closure_index, closure_point
-        PetscInt closure_size, chart_start, chart_end, dim
+        PetscInt closure_size, chart_start, chart_end
         const PetscInt *facet_indices = NULL
         PetscInt *closure = NULL
         PetscInt[::1] ridge_counts
+        object subdomain_ids
+        object subdomain
+
+    if isinstance(subdomain_id, Integral):
+        subdomain_ids = (subdomain_id,)
+    else:
+        subdomain_ids = subdomain_id
 
     source_label = dm.getLabel(label_name)
     source = <DMLabel>source_label.dmlabel
@@ -4003,11 +4060,6 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
         raise ValueError(f"Mesh has no label named {label_name!r}")
 
     # A rank that does not see the surface has no stratum.
-    facets = source_label.getStratumIS(subdomain_id)
-    nfacets = 0
-    if facets.iset != NULL:
-        CHKERR(ISGetSize(facets.iset, &nfacets))
-        CHKERR(ISGetIndices(facets.iset, &facet_indices))
     chart_start, chart_end = dm.getChart()
     ridge_counts = np.zeros(chart_end - chart_start, dtype=IntType)
 
@@ -4018,22 +4070,28 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
     cohesive_label = dm.getLabel(cohesive_label_name)
     cohesive = <DMLabel>cohesive_label.dmlabel
     nselected = 0
-    for i in range(nfacets):
-        facet = facet_indices[i]
-        CHKERR(DMPlexGetPointDepth(dm.dm, facet, &depth))
-        if depth != dm.getDimension() - 1:
-            continue
-        nselected += 1
-        CHKERR(DMPlexGetTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
-        for closure_index in range(closure_size):
-            closure_point = closure[2 * closure_index]
-            CHKERR(DMPlexGetPointDepth(dm.dm, closure_point, &depth))
-            CHKERR(DMLabelSetValue(cohesive, closure_point, depth))
-            if depth == dm.getDimension() - 2:
-                ridge_counts[closure_point - chart_start] += 1
-        CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
-    if facets.iset != NULL:
-        CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
+    for subdomain in subdomain_ids:
+        facets = source_label.getStratumIS(subdomain)
+        nfacets = 0
+        if facets.iset != NULL:
+            CHKERR(ISGetSize(facets.iset, &nfacets))
+            CHKERR(ISGetIndices(facets.iset, &facet_indices))
+        for i in range(nfacets):
+            facet = facet_indices[i]
+            CHKERR(DMPlexGetPointDepth(dm.dm, facet, &depth))
+            if depth != dm.getDimension() - 1:
+                continue
+            nselected += 1
+            CHKERR(DMPlexGetTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+            for closure_index in range(closure_size):
+                closure_point = closure[2 * closure_index]
+                CHKERR(DMPlexGetPointDepth(dm.dm, closure_point, &depth))
+                CHKERR(DMLabelSetValue(cohesive, closure_point, depth))
+                if depth == dm.getDimension() - 2:
+                    ridge_counts[closure_point - chart_start] += 1
+            CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+        if facets.iset != NULL:
+            CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
     comm = dm.comm.tompi4py()
     if comm.allreduce(nselected, op=MPI.SUM) == 0:
         dm.removeLabel(cohesive_label_name)
@@ -4043,70 +4101,14 @@ def create_cohesive_label(PETSc.DM dm, str label_name, PetscInt subdomain_id):
         raise ValueError("Gamma has a junction")
 
     # Orient the facets of the surface consistently, so that the surface has
-    # a well-defined positive side. DMPlexOrientLabel changes cones, so the
-    # label is oriented and completed on a copy, which keeps the parent
-    # unchanged. The filter copies the label.
-    dim = dm.getDimension()
-    oriented = submesh_create(dm, dim, "depth", dim, PETSC_FALSE)
-    dm.removeLabel(cohesive_label_name)
-    oriented_label = oriented.getLabel(cohesive_label_name)
-    CHKERR(DMPlexOrientLabel(oriented.dm, <DMLabel>oriented_label.dmlabel))
+    # a well-defined positive side. DMPlexOrientLabel changes cones in place,
+    # so callers must refresh any cached orientation data after this call.
+    CHKERR(DMPlexOrientLabel(dm.dm, cohesive))
     # Mark every point that touches the surface with the side it lies on.
     # With a NULL boundary label, PETSc finds the points on the crack tip,
     # which are not duplicated.
-    CHKERR(DMPlexLabelCohesiveComplete(oriented.dm, <DMLabel>oriented_label.dmlabel,
-                                       NULL, 1, PETSC_FALSE, NULL))
-
-    # The copy has every point of the parent, so the subpoint map carries the
-    # label back to the parent.
-    subpoints = oriented.getSubpointIS().indices
-    cohesive_label = PETSc.DMLabel().create(cohesive_label_name)
-    for value in oriented_label.getValueIS().indices:
-        stratum = subpoints[oriented_label.getStratumIS(value).indices]
-        cohesive_label.insertIS(PETSc.IS().createGeneral(stratum, comm=PETSc.COMM_SELF), value)
+    CHKERR(DMPlexLabelCohesiveComplete(dm.dm, cohesive, NULL, 1, PETSC_FALSE, NULL))
     return cohesive_label
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def transform_source_point_map(PETSc.DM child,
-                               PETSc.DMPlexTransform transform):
-    """Return source points for a filtered transform output.
-
-    Parameters
-    ----------
-    child : PETSc.DM
-        A DMPlex filtered from the transform output.
-    transform : PETSc.DMPlexTransform
-        The transform that produced the unfiltered output.
-
-    Returns
-    -------
-    numpy.ndarray
-        The source point for each point in ``child``. Repeated source points
-        are retained because a cohesive transform duplicates points.
-    """
-    cdef:
-        PETSc.IS child_subpoints
-        const PetscInt *child_points = NULL
-        PetscInt child_start, child_end, child_point, transformed_point
-        PetscInt source_point, replica
-        PetscInt[::1] source_points
-
-    child_subpoints = child.getSubpointIS()
-    if child_subpoints.iset == NULL:
-        raise ValueError("The filtered DMPlex has no subpoint map")
-    CHKERR(ISGetIndices(child_subpoints.iset, &child_points))
-    child_start, child_end = child.getChart()
-    source_points = np.empty(child_end - child_start, dtype=IntType)
-    for child_point in range(child_start, child_end):
-        transformed_point = child_points[child_point - child_start]
-        CHKERR(DMPlexTransformGetSourcePoint(
-            transform.tr, transformed_point, NULL, NULL,
-            &source_point, &replica))
-        source_points[child_point - child_start] = source_point
-    CHKERR(ISRestoreIndices(child_subpoints.iset, &child_points))
-    return np.asarray(source_points)
 
 
 @cython.boundscheck(False)
