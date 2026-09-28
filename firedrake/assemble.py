@@ -201,9 +201,6 @@ def get_assembler(form, *args, **kwargs):
         return ExprAssembler(form)
     elif isinstance(form, ufl.form.BaseForm):
         return BaseFormAssembler(form, *args, **kwargs)
-    elif isinstance(form, slate.TensorBase):
-        raise NotImplementedError("Assemble the interpolation in this Slate tensor first: "
-                                  "TSFC cannot fuse it into the kernels of the form that holds it.")
     else:
         raise ValueError(f'Expecting a BaseForm, slate.TensorBase, or Expr object: got {form}')
 
