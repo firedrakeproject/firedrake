@@ -1693,8 +1693,38 @@ def allocate_matrix(preallocator, mat_type, on_diag=False, allow_repeated=False)
 
 
 def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="aij", allow_repeated=False):
-    """Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
-       Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends."""
+    """Tabulate the exterior derivative as an explicit sparse matrix.
+
+    Parameters
+    ----------
+    Vc, Vf : FunctionSpace
+        Source and target spaces in consecutive degrees of the de Rham complex.
+    cbcs, fbcs : sequence of DirichletBC
+        Boundary conditions on the source and target spaces.
+    comm : MPI.Comm, optional
+        Communicator for the matrix. Defaults to the target space communicator.
+    mat_type : str
+        PETSc matrix type.
+    allow_repeated : bool
+        Whether a MATIS matrix can have repeated local degrees of freedom.
+
+    Returns
+    -------
+    PETSc.Mat
+        Matrix that represents the exterior derivative.
+
+    Raises
+    ------
+    ValueError
+        If the form degrees are not consecutive or the reference matrix does
+        not match the source and target cell maps.
+
+    Notes
+    -----
+    On simplices, the reference element mapping determines whether to tabulate
+    a gradient, curl, or divergence. Tensor-product spaces use the derivatives
+    of their one-dimensional factors.
+    """
     if comm is None:
         comm = Vf.comm
 
@@ -1706,7 +1736,8 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     if Vf.mesh().ufl_cell().is_simplex:
         c0 = ec.fiat_equivalent
         f1 = ef.fiat_equivalent
-        derivative = {ufl.H1: "grad", ufl.HCurl: "curl", ufl.HDiv: "div"}[Vc.ufl_element().sobolev_space]
+        mapping, = set(c0.mapping())
+        derivative = {"affine": "grad", "covariant piola": "curl", "contravariant piola": "div"}[mapping]
         Dhat = petsc_sparse(evaluate_dual(c0, f1, derivative), comm=COMM_SELF)
     else:
         elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
@@ -1751,6 +1782,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     if mat_type != "is":
         allow_repeated = False
     spaces = (Vf, Vc)
+    shape = Dhat.getSize()
+    expected_shape = tuple(V.cell_node_map().arity * V.block_size for V in spaces)
+    if shape != expected_shape:
+        Dhat.destroy()
+        raise ValueError(f"Reference derivative shape {shape} does not match cell maps {expected_shape}.")
     bcs = (fbcs, cbcs)
     lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
     indices_acc = tuple(mask_local_indices(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
