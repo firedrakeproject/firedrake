@@ -144,8 +144,8 @@ do the following steps:
 #. Compile PETSc:
 
    .. code-block:: text
-   
-         $ make
+
+      $ make
 
 #. Test the installation (optional) and return to the parent directory::
 
