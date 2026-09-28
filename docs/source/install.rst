@@ -141,12 +141,11 @@ do the following steps:
 
    $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
 
-#. Compile PETSc by running the ``make`` command prompted by ``configure``. This
-   will look something like:
+#. Compile PETSc:
 
    .. code-block:: text
 
-      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+      $ make
 
 #. Test the installation (optional) and return to the parent directory::
 
@@ -649,15 +648,7 @@ that you want to install (``main`` or ``release``, see
 
       $ git clone https://gitlab.com/petsc/petsc.git
 
-#. Configure and build PETSc as usual:
-
-   .. code-block:: text
-
-      $ cd petsc
-      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
-      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
-      $ make check
-      $ cd ..
+#. Configure and build PETSc :ref:`as usual<install_petsc>`.
 
 #. Clone the desired branch of Firedrake::
 
