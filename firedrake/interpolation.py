@@ -796,8 +796,8 @@ class SameMeshInterpolator(Interpolator):
                                        needs_zeroing=needs_zeroing, access=access)
         assemble_kwargs = {}
         if isinstance(assembler, ParloopFormAssembler):
-            # A zero interpolation produces no local kernels, so a supplied
-            # WRITE tensor must still be zeroed before assembly.
+            # A zero interpolation has no local kernels. If a caller supplied
+            # a WRITE tensor, clear it because no kernel can do so.
             needs_zeroing |= access is op2.WRITE and not assembler.local_kernels
             assemble_kwargs["needs_zeroing"] = needs_zeroing
 
