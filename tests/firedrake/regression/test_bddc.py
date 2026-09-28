@@ -2,6 +2,7 @@ import sys
 import pytest
 import numpy as np
 from functools import reduce
+from collections.abc import Callable
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
@@ -307,6 +308,31 @@ def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
     bcs = True
     sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, vector=vector, elasticity=True) for m in meshes]
     assert (np.diff(sqrt_kappa) <= 1.0).all(), str(sqrt_kappa)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family", ("MTW", "RT"))
+@pytest.mark.parametrize("mesh_builder,resolution", [(UnitSquareMesh, (2, 2)), (UnitCubeMesh, (1, 1, 1))], ids=("triangle", "tetrahedron"))
+@pytest.mark.parametrize("mat_type,allow_repeated", [("aij", False), ("is", False), ("is", True)])
+def test_bddc_divergence_mat(family: str, mesh_builder: Callable, resolution: tuple[int, ...],
+                             mat_type: str, allow_repeated: bool) -> None:
+    """Compare fast divergence assembly with the physical form on sheared cells."""
+    from firedrake.preconditioners.bddc import get_divergence_mat
+    from pyop2.utils import as_tuple
+
+    mesh = mesh_builder(*resolution)
+    x = SpatialCoordinate(mesh)
+    transform = np.eye(mesh.geometric_dimension)
+    transform[0, 0], transform[0, 1], transform[1, 1] = 2, 1/3, 1/2
+    mesh.coordinates.interpolate(dot(Constant(transform), x))
+    V = FunctionSpace(mesh, family, 1)
+    degree = max(as_tuple(V.ufl_element().degree()))
+    Q = TensorFunctionSpace(mesh, "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
+    (actual,), _ = get_divergence_mat(V, mat_type=mat_type, allow_repeated=allow_repeated)
+    expected = assemble(inner(div(TrialFunction(V)), TestFunction(Q))*dx, mat_type="aij").petscmat
+    actual = actual.convert("aij", out=PETSc.Mat())
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
 
 
 @pytest.mark.parallel([1, 3])

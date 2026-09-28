@@ -377,6 +377,35 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
     assert numpy.allclose(vals, 0)
 
 
+@pytest.mark.parallel([1, 2])
+def test_tabulate_gradient_simplex() -> None:
+    """Reference gradients agree with assembly on sheared tetrahedra."""
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+
+    mesh = UnitCubeMesh(1, 1, 1)
+    x = SpatialCoordinate(mesh)
+    mesh.coordinates.interpolate(as_vector([2*x[0] + x[1]/3, x[1]/2, x[2]]))
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "N1curl", 1)
+    D = tabulate_exterior_derivative(V, W)
+    M = assemble(inner(TrialFunction(W), TestFunction(W))*dx).petscmat
+    expected = assemble(inner(grad(TrialFunction(V)), TestFunction(W))*dx).petscmat
+    actual = M.matMult(D)
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
+
+
+def test_tabulate_exterior_derivative_incompatible_shape() -> None:
+    """Reject incompatible component counts before inserting reference entries."""
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+
+    mesh = UnitSquareMesh(1, 1)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "N1curl", 1)
+    with pytest.raises(ValueError, match="does not match cell maps"):
+        tabulate_exterior_derivative(V, W)
+
+
 @pytest.mark.parallel(nprocs=2)
 @pytest.mark.parametrize("mat_type", ("aij",))
 @pytest.mark.parametrize("variant,degree", [("spectral", 1), ("spectral", 4), ("integral", 4), ("fdm", 4)])
