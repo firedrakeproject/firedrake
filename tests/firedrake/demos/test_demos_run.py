@@ -59,6 +59,7 @@ SERIAL_DEMOS = [
     Demo(('reynolds_robust_navier_stokes_hdiv', 'reynolds_robust_navier_stokes_hdiv'), ["vtk"]),
     Demo(('plate_bending_mitc', 'plate_bending_mitc'), ["vtk"]),
     Demo(('modified_morley', 'modified_morley'), ["vtk"]),
+    Demo(('discrete_kirchhoff', 'discrete_kirchhoff'), []),
 ]
 PARALLEL_DEMOS = [
     Demo(("full_waveform_inversion", "full_waveform_inversion"), ["adjoint"]),
