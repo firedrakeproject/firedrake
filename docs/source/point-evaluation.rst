@@ -62,19 +62,19 @@ function space on the vertex-only mesh must be a
 :py:func:`~.VectorFunctionSpace` or :py:func:`~.TensorFunctionSpace`
 respectively. For example:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = VectorFunctionSpace(parent_mesh, "CG", 2)
 
 or
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(parent_mesh, "N1curl", 2)
 
 each require
 
-.. code-block:: python3
+.. code-block:: python
 
    vom = VertexOnlyMesh(parent_mesh, points)
    P0DG_vec = VectorFunctionSpace(vom, "DG", 0)
@@ -90,7 +90,7 @@ the same on each MPI process and are taken from rank 0. To let different ranks
 provide different points to the vertex-only mesh set the keyword argument
 ``redundant = False``
 
-.. code-block:: python3
+.. code-block:: python
 
    # Default behaviour
    vom = VertexOnlyMesh(parent_mesh, points, redundant = True)
@@ -149,7 +149,7 @@ functions at points without writing the vertex-only mesh boilerplate code each t
 First, create a :py:class:`~.PointEvaluator` object by passing the 
 parent mesh and the points to evaluate at:
 
-.. code-block:: python3
+.. code-block:: python
 
    point_evaluator = PointEvaluator(mesh, points)
 
@@ -157,7 +157,7 @@ Internally, this creates a vertex-only mesh at the given points, immersed in the
 To evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
 we use :meth:`~.PointEvaluator.evaluate`:
 
-.. code-block:: python3
+.. code-block:: python
 
    f_at_points = point_evaluator.evaluate(f)
 
@@ -300,7 +300,7 @@ evaluated against a set of point data :math:`\{y_i\}_{i=0}^{N-1}` at points
 
 We can express this in Firedrake as
 
-.. code-block:: python3
+.. code-block:: python
 
    error = sqrt(assemble((interpolate(f, P0DG) - y_pts)**2*dx))
 
@@ -360,7 +360,7 @@ UFL API
 
 UFL reserves the function call operator for evaluation:
 
-.. code-block:: python3
+.. code-block:: python
 
    f([0.2, 0.4])
 
@@ -369,7 +369,7 @@ multiple points at once, and cannot configure what to do with a point
 which is not in the domain. The advantage of this syntax is that it
 works on any :py:class:`~.ufl.core.expr.Expr`, for example:
 
-.. code-block:: python3
+.. code-block:: python
 
    (f*sin(f))([0.2, 0.4])
 
