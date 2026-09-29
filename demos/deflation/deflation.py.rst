@@ -50,18 +50,17 @@ Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonline
 
 .. code-block:: python
 
+    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
           "deflated_snes_type": "newtonls",
           "deflated_snes_monitor": None,
           "deflated_snes_linesearch_type": "basic",
+          "deflated_snes_deflation": deflation,
           "deflated_ksp_type": "preonly",
           "deflated_pc_type": "lu"}
 
-    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
-    appctx = {"deflation": deflation}
-
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
 
 We now find the first solution:
 

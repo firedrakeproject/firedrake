@@ -18,19 +18,18 @@ def test_bratu():
     bcs = DirichletBC(V, 0, "on_boundary")
     problem = NonlinearVariationalProblem(F, u, bcs)
 
+    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
           "deflated_snes_type": "newtonls",
           "deflated_snes_monitor": None,
           "deflated_snes_linesearch_type": "basic",
           "deflated_ksp_type": "preonly",
-          "deflated_pc_type": "lu"}
-
-    deflation = Deflation(op=lambda x, y: inner(x-y, x-y)*dx)
-    appctx = {"deflation": deflation}
+          "deflated_pc_type": "lu",
+          "deflated_snes_deflation": deflation}
 
     # Find the first solution
-    solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=sp)
     u.assign(guess)
     solver.solve()
 

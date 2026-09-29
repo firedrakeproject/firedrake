@@ -171,7 +171,7 @@ def _solve_varproblem(*args, **kwargs):
         form_compiler_parameters = {}
     form_compiler_parameters['scalar_type'] = ScalarType
 
-    appctx = kwargs.get("appctx", {})
+    appctx = kwargs.get("appctx", None)
     if not isinstance(eq.lhs, ufl.BaseForm):
         raise TypeError(f"Equation LHS must be a ufl.BaseForm, not a {type(eq.lhs).__name__}")
 
@@ -252,7 +252,7 @@ def _la_solve(A, x, b, **kwargs):
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
-    appctx = solver_parameters.get("appctx", {})
+    appctx = solver_parameters.get("appctx", None)
     solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
