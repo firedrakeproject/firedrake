@@ -62,9 +62,9 @@ class InterpolateOptions:
     access : pyop2.types.access.Access or None
         The pyop2 access descriptor for combining updates to shared
         DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``.
-        Only ``WRITE`` is supported at present when interpolating across meshes
-        unless the target mesh is a :func:`.VertexOnlyMesh`. Only ``INC`` is
-        supported for the matrix-free adjoint interpolation.
+        ``WRITE``, ``MIN``, and ``MAX`` are supported when interpolating across
+        meshes. Only ``INC`` is supported for the matrix-free adjoint
+        interpolation.
     allow_missing_dofs : bool
         For interpolation across meshes: allow degrees of freedom (aka DoFs/nodes)
         in the target mesh that cannot be defined on the source mesh.
@@ -388,6 +388,14 @@ class Interpolator(abc.ABC):
         if self.rank == 2 and mat_type not in self._allowed_mat_types:
             raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented yet for {type(self).__name__}.")
 
+    def _initialize_minmax(self, tensor: Function | Cofunction) -> Function | Cofunction:
+        """Initialize a newly allocated tensor for a minimum or maximum reduction."""
+        if self.access in {op2.MIN, op2.MAX}:
+            finfo = numpy.finfo(tensor.dat.dtype)
+            value = finfo.max if self.access == op2.MIN else finfo.min
+            tensor.assign(Constant(value))
+        return tensor
+
 
 def get_interpolator(expr: Interpolate) -> Interpolator:
     """Create an Interpolator.
@@ -418,12 +426,11 @@ class CrossMeshInterpolator(Interpolator):
         self.source_mesh = source_mesh
         self.target_mesh = target_mesh
 
-        if self.access and self.access != op2.WRITE:
+        if self.access == op2.INC:
             raise NotImplementedError(
-                "Access other than op2.WRITE not implemented for cross-mesh interpolation."
+                "Increment access is not implemented for cross-mesh interpolation."
             )
-        else:
-            self.access = op2.WRITE
+        self.access = self.access or op2.WRITE
 
         if self.allow_missing_dofs:
             self.missing_points_behaviour = MissingPointsBehaviour.IGNORE
@@ -566,6 +573,8 @@ class CrossMeshInterpolator(Interpolator):
             f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
         else:
             f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
+        if tensor is None:
+            self._initialize_minmax(f)
 
         point_eval, point_eval_input_ordering = self._symbolic_expressions
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -639,9 +648,15 @@ class CrossMeshInterpolator(Interpolator):
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:
                     indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
-                    f.dat.data_wo[indices] = f_point_eval_input_ordering.dat.data_ro[indices]
                 else:
-                    f.dat.data_wo[:] = f_point_eval_input_ordering.dat.data_ro[:]
+                    indices = slice(None)
+                values = f_point_eval_input_ordering.dat.data_ro[indices]
+                if self.access == op2.MIN:
+                    f.dat.data_wo[indices] = numpy.minimum(f.dat.data_ro[indices], values)
+                elif self.access == op2.MAX:
+                    f.dat.data_wo[indices] = numpy.maximum(f.dat.data_ro[indices], values)
+                else:
+                    f.dat.data_wo[indices] = values
 
                 if self.into_quadrature_space:
                     f_target = Function(self.original_target_space)
@@ -779,10 +794,12 @@ class SameMeshInterpolator(Interpolator):
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
                                        needs_zeroing=needs_zeroing, access=access)
-        # DirichletBC needs to know now whether it can interpolate its value,
-        # so it can project instead when it can't.
+        assemble_kwargs = {}
         if isinstance(assembler, ParloopFormAssembler):
-            assembler.compile()
+            # A zero interpolation has no local kernels. If a caller supplied
+            # a WRITE tensor, clear it because no kernel can do so.
+            needs_zeroing |= access is op2.WRITE and not assembler.local_kernels
+            assemble_kwargs["needs_zeroing"] = needs_zeroing
 
         copy_input = None
         copy_output = None
@@ -793,9 +810,7 @@ class SameMeshInterpolator(Interpolator):
             copy_output = partial(tensor.dat.copy, output.dat)
         elif tensor is None and self.access in {op2.MIN, op2.MAX}:
             tensor = assembler.allocate()
-            finfo = numpy.finfo(tensor.dat.dtype)
-            value = finfo.max if self.access == op2.MIN else finfo.min
-            tensor.assign(Constant(value))
+            self._initialize_minmax(tensor)
 
         assembler_tensor = None if self.rank == 2 else tensor
 
@@ -804,7 +819,7 @@ class SameMeshInterpolator(Interpolator):
                 self._update_weighted_dual_arg()
             if copy_input is not None:
                 copy_input()
-            result = assembler.assemble(tensor=assembler_tensor)
+            result = assembler.assemble(tensor=assembler_tensor, **assemble_kwargs)
             if copy_output is not None:
                 copy_output()
             if isinstance(result, MatrixBase):
@@ -844,9 +859,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         if self.rank == 1:
             f = tensor or Function(self.ufl_interpolate.function_space())
             if tensor is None and self.access in {op2.MIN, op2.MAX}:
-                finfo = numpy.finfo(f.dat.dtype)
-                value = finfo.max if self.access == op2.MIN else finfo.min
-                f.assign(Constant(value))
+                self._initialize_minmax(f)
             self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)

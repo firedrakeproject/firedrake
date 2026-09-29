@@ -172,7 +172,7 @@ def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
     elif nargs == 2:
         return TwoFormAssembler(form, *args, **kwargs)
     else:
-        raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
+        raise ValueError(f'Expecting a 0-, 1-, or 2-form: got {form}')
 
 
 def get_assembler(form, *args, **kwargs):
@@ -201,9 +201,6 @@ def get_assembler(form, *args, **kwargs):
         return ExprAssembler(form)
     elif isinstance(form, ufl.form.BaseForm):
         return BaseFormAssembler(form, *args, **kwargs)
-    elif isinstance(form, slate.TensorBase):
-        raise NotImplementedError("Assemble the interpolation in this Slate tensor first: "
-                                  "TSFC cannot fuse it into the kernels of the form that holds it.")
     else:
         raise ValueError(f'Expecting a BaseForm, slate.TensorBase, or Expr object: got {form}')
 
@@ -341,8 +338,8 @@ def _can_fuse_operator(operator: ufl.core.base_form_operator.BaseFormOperator,
     """
     if not isinstance(operator, ufl.Interpolate):
         return False
-    # A non-terminal dual argument needs to be assembled on its own
-    # beforehand, so it cannot share a kernel with the expression.
+    # A fused interpolation must have a terminal dual argument. Otherwise,
+    # that argument needs to be assembled before the enclosing expression.
     dual_arg, expression = operator.argument_slots()
     if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
         return False
@@ -353,14 +350,18 @@ def _can_fuse_operator(operator: ufl.core.base_form_operator.BaseFormOperator,
                    for covering_domain in covering_domains)
                for domain in extract_domains(operator)):
         return False
-    # The expression that holds the interpolation iterates over its own cells,
-    # so it can only absorb an interpolation that maps cells to cells and that
-    # needs no subset.  Any other interpolation keeps its own interpolator.
+    # The enclosing expression iterates over its own cells. It can therefore
+    # absorb only an interpolation that maps cells to cells and needs no
+    # subset; every other interpolation keeps its own interpolator.
     interpolator = get_interpolator(operator)
     if not isinstance(interpolator, SameMeshInterpolator) or interpolator.subset is not None:
         return False
-    return all(_can_fuse_operator(op, covering_domains)
-               for op in ufl.algorithms.extract_base_form_operators(expression))
+    # Nested interpolations can be fused only when all of them meet the same
+    # conditions.
+    for op in ufl.algorithms.extract_base_form_operators(expression):
+        if not _can_fuse_operator(op, covering_domains):
+            return False
+    return True
 
 
 class BaseFormAssembler(AbstractFormAssembler):
@@ -491,15 +492,16 @@ class BaseFormAssembler(AbstractFormAssembler):
             in a post-order fashion.
         """
         if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+            # Only the output matrix uses the requested allocation integral types.
+            # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
+            allocation_integral_types = self._allocation_integral_types if expr is self._form else None
             if args and self._mat_type != "matfree":
                 # Retrieve the Form's children
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
                 # Substitute the base form operators by their output
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
             form = expr
-            # The bcs of a 1-form are applied to the assembled result instead,
-            # so only a matrix takes them here, and only a matrix allocates a
-            # sparsity to match the one that the result was allocated with.
+            # Only matrices need allocation_integral_types, bcs are delayed to the output for 1-forms
             is_matrix = len(form.arguments()) == 2 and not self._diagonal
             assembler = get_form_assembler(
                 form,
@@ -511,7 +513,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 appctx=self._appctx,
                 diagonal=self._diagonal,
                 weight=self._weight,
-                allocation_integral_types=self.allocation_integral_types if is_matrix else None,
+                allocation_integral_types=allocation_integral_types if is_matrix else None,
             )
             return assembler.assemble(tensor=tensor)
         elif isinstance(expr, ufl.Adjoint):
@@ -745,7 +747,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                         if not isinstance(child, ufl.ZeroBaseForm)]
             return list(dict.fromkeys(itertools.chain.from_iterable(operands)))
         if isinstance(expr, ufl.Form):
-            # A fusible interpolation is not a child: descending would assemble it alone.
+            # Filter the base-form operands because a fusible interpolation is
+            # compiled with the enclosing integral instead of as a child.
             children = set()
             for integral in expr.integrals():
                 domains = {integral.ufl_domain(), *integral.extra_domain_integral_type_map()}
@@ -755,9 +758,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             # in the order in which they have been made.
             return [op for op in reversed(expr.base_form_operators()) if op in children]
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-            # An interpolation shares the kernel of the one that targets its domains.
+            # Filter the base-form operands because a fusible interpolation is
+            # compiled with the enclosing operator instead of as a child.
             domains = set(extract_domains(expr.argument_slots()[0])) if isinstance(expr, ufl.Interpolate) else set()
-            # Conserve order
+            # Preserve the order in which the operands were created.
             children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
                                      if isinstance(e, ufl.form.BaseForm) and not _can_fuse_operator(e, domains))
             return list(children)
@@ -1071,7 +1075,8 @@ class ParloopFormAssembler(FormAssembler):
     form_compiler_parameters : dict
         Optional parameters to pass to the TSFC and/or Slate compilers.
     needs_zeroing : bool
-        Should ``tensor`` be zeroed before assembling?
+        Whether a caller-provided ``tensor`` should be zeroed before
+        assembly. Newly allocated tensors are initialized by ``allocate``.
 
     """
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, access=op2.INC):
@@ -1090,8 +1095,10 @@ class ParloopFormAssembler(FormAssembler):
             If provided, the boundary condition nodes are set to the boundary condition residual
             computed as ``current_state`` minus the boundary condition value.
         needs_zeroing : bool or None
-            Override whether to zero a supplied output tensor before assembly. If omitted, use the
-            value provided when constructing the assembler.
+            Override whether to zero a supplied output tensor before assembly.
+            If omitted, use the value provided when constructing the assembler.
+            This option has no effect when ``tensor`` is ``None`` because the
+            assembler allocates the output itself.
 
         Returns
         -------
@@ -1106,6 +1113,8 @@ class ParloopFormAssembler(FormAssembler):
             )
 
         if tensor is None:
+            # The allocator owns initialization of a new tensor. Zeroing is
+            # only relevant when the caller supplies an existing tensor.
             tensor = self.allocate()
         else:
             self._check_tensor(tensor)
@@ -1120,14 +1129,6 @@ class ParloopFormAssembler(FormAssembler):
             self._apply_bc(tensor, bc, u=current_state)
 
         return self.result(tensor)
-
-    def compile(self):
-        """Compile the local kernels now, rather than lazily inside `assemble`.
-
-        `DirichletBC` calls this to learn whether its value can be interpolated
-        before it commits to interpolating rather than projecting.
-        """
-        self.local_kernels
 
     @abc.abstractmethod
     def _apply_bc(self, tensor, bc, u=None):
@@ -1902,13 +1903,21 @@ class _GlobalKernelBuilder:
 
 def _runtime_tabulation_coordinates(arg: kernel_args.TabulationKernelArg,
                                     mesh: MeshGeometry) -> "firedrake.Function":
-    """Return the reference coordinates that a kernel tabulates its runtime point at."""
+    """Return the reference coordinates that a kernel tabulates its runtime point at.
+
+    Raises
+    ------
+    ValueError
+        If ``arg`` is not the runtime tabulation argument.
+    TypeError
+        If ``mesh`` is not a :class:`VertexOnlyMesh`.
+    """
     # FIXME: name-matching is a stopgap; get this from a coefficient map handed
     # down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
     if arg.loopy_arg.name != RUNTIME_POINT_VARIABLE:
         raise ValueError(f"Expecting the runtime tabulation argument {RUNTIME_POINT_VARIABLE}: got {arg.loopy_arg.name}")
     if not isinstance(mesh.topology, VertexOnlyMeshTopology):
-        raise ValueError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(mesh.topology).__name__}")
+        raise TypeError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(mesh.topology).__name__}")
     return mesh.reference_coordinates
 
 

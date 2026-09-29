@@ -384,7 +384,8 @@ def prolong_matrix_kernel(Vc, Vf):
                "evaluate": evaluate_code,
                "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
                "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
+               "kernel_args": _make_kernel_args(kernel, "B", (), "Xref", coordinates="Xci",
+                                                cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
                "row_dim": row_dim,
                "source_cell_inc": source_cell_inc,
@@ -567,8 +568,6 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
-    if complex_mode:
-        raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
     macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
     macro_builder._entity_ids = {Vf.mesh(): (0,)}

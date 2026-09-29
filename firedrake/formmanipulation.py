@@ -4,7 +4,8 @@ import collections
 from collections.abc import Iterable
 
 from ufl import as_tensor, as_vector, split
-from ufl.classes import Expr, Form, Interpolate, Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.classes import Expr, Form, FormSum, Interpolate, Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.algorithms.analysis import has_type
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -16,6 +17,7 @@ from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.cofunction import Cofunction
+from firedrake import slate
 from firedrake.ufl_expr import Coargument
 
 
@@ -34,9 +36,9 @@ class ExtractSubBlock(MultiFunction):
 
     def __init__(self):
         super().__init__()
-        self._arg_cache = {}
-        self.blocks = {}
-        self._splitting_interpolate = False
+        self._arg_cache = None
+        self.blocks = None
+        self._splitting_interpolate = None
 
     class IndexInliner(MultiFunction):
         """Inline fixed index of list tensors"""
@@ -78,14 +80,19 @@ class ExtractSubBlock(MultiFunction):
     def split(self, form, argument_indices):
         """Split a form.
 
-        :arg form: the form to split.
-        :arg argument_indices: indices of test and trial spaces to extract.
-            This should be 0-, 1-, or 2-tuple (whose length is the
-            same as the number of arguments as the ``form``) whose
-            entries are either an integer index, or else an iterable
-            of indices.
+        Parameters
+        ----------
+        form : ufl.BaseForm
+            The form to split.
+        argument_indices : tuple
+            Indices of the test and trial spaces to extract. The tuple must
+            have the same length as ``form.arguments()``. Each entry can be an
+            integer index or an iterable of indices.
 
-        Returns a new :class:`ufl.classes.Form` on the selected subspace.
+        Returns
+        -------
+        ufl.BaseForm
+            A form on the selected subspaces.
         """
         args = form.arguments()
         self._arg_cache = {}
@@ -97,9 +104,18 @@ class ExtractSubBlock(MultiFunction):
             # Functional can't be split
             return form
         if all(len(a.function_space()) == 1 for a in args):
-            assert (len(idx) == 1 for idx in self.blocks.values())
-            assert (idx[0] == 0 for idx in self.blocks.values())
+            assert all(len(idx) == 1 for idx in self.blocks.values())
+            assert all(idx[0] == 0 for idx in self.blocks.values())
             return form
+
+        if isinstance(form, FormSum) and has_type(form, slate.slate.TensorBase):
+            # A Slate component cannot be traversed as a UFL DAG, so recover the
+            # equivalent Slate expression and take a Block of that instead.
+            form = slate.slate.as_slate(form)
+
+        if isinstance(form, slate.slate.TensorBase):
+            return slate.push_block(slate.slate.Block(form, tuple(self.blocks[i] for i in range(form.rank))))
+
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         f = map_integrand_dags(self, form)
         if expand_derivatives(f).empty():
@@ -248,7 +264,12 @@ class ExtractSubBlock(MultiFunction):
 
     @staticmethod
     def _select_components(V: WithGeometry, indices: tuple, operand: Expr) -> list:
-        """Flatten the sub-blocks of ``operand`` whose subspace is in ``indices``."""
+        """Select the flattened components for the requested subspaces.
+
+        Mixed function spaces store the values of their subspaces
+        consecutively. This selects those components before they are reshaped
+        to the value shape of the collapsed target space.
+        """
         components = []
         cur = 0
         for i, Vi in enumerate(V):
@@ -259,7 +280,7 @@ class ExtractSubBlock(MultiFunction):
 
     @staticmethod
     def _embed_components(V: WithGeometry, indices: tuple, values: Iterable) -> list:
-        """Embed ``values`` into V's full shape, zero outside ``indices``."""
+        """Restore selected values to ``V``'s shape, zeroing other subspaces."""
         values = iter(values)
         components = []
         for i, Vi in enumerate(V):
@@ -288,7 +309,8 @@ class ExtractSubBlock(MultiFunction):
         sub_dual_arg = self(dual_arg)
         W = sub_dual_arg.function_space()
 
-        # Unflatten the expression into the target shape
+        # Select the flattened mixed-space components and reshape them to the
+        # value shape of the collapsed target space.
         components = self._select_components(V, indices, operand)
         operand = as_tensor(numpy.reshape(components, W.value_shape))
         if isinstance(operand, Zero):
@@ -311,12 +333,24 @@ SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 @PETSc.Log.EventDecorator()
 def split_form(form, diagonal=False):
-    """Split a form into a tuple of sub-forms defined on the component spaces.
+    """Split a form into blocks over the component spaces of its arguments.
 
-    Each entry is a :class:`SplitForm` tuple of the indices into the
-    component arguments and the form defined on that block.
+    Parameters
+    ----------
+    form : ufl.BaseForm
+        The form to split.
+    diagonal : bool, optional
+        If ``True``, return only the diagonal blocks of a two-argument form.
 
-    For example, consider the following code:
+    Returns
+    -------
+    tuple of SplitForm
+        Each entry contains the component indices and the corresponding form
+        on those component spaces.
+
+    Examples
+    --------
+    Consider the following form:
 
     .. code-block:: python
 
@@ -326,17 +360,16 @@ def split_form(form, diagonal=False):
         p, q, r = TestFunctions(W)
         a = q*u*dx + p*w*dx
 
-    Then splitting the form returns a tuple of two forms.
+    Splitting ``a`` returns two nonzero blocks:
 
     .. code-block:: python
 
-       ((0, 2), w*p*dx),
-        (1, 0), q*u*dx))
+        ((1, 0), q*u*dx)
+        ((0, 2), p*w*dx)
 
     Due to the limited amount of simplification that UFL does, some of
-    the returned forms may eventually evaluate to zero.  The form
-    compiler will remove these in its more complex simplification
-    stages.
+    the returned forms may evaluate to zero. The form compiler removes those
+    forms during its later simplification stages.
     """
     splitter = ExtractSubBlock()
     args = form.arguments()
