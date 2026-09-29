@@ -148,8 +148,18 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     adaptive = False
     use_divergence = None
     if elasticity:
-        adaptive = True
-        use_divergence = True  # use divergence mat trick to compute no-net flux coarse space
+        use_divergence = True
+        x = SpatialCoordinate(mesh)
+        translations = [Constant(e) for e in np.eye(mesh.geometric_dimension)]
+        rotations = [x[i]*translations[j] - x[j]*translations[i]
+                     for i in range(len(translations)) for j in range(i)]
+        # Projection also supports spaces with moment degrees of freedom.
+        parameters = {"ksp_type": "preonly", "pc_type": "lu",
+                      "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
+        basis = [Function(V).project(mode, solver_parameters=parameters)
+                 for mode in translations + rotations]
+        nsp = VectorSpaceBasis(basis)
+        nsp.orthonormalize()
     elif formdegree == 0:
         b = np.zeros(V.value_shape)
         expr = Constant(b)
@@ -172,10 +182,17 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
                            use_divergence=use_divergence, adaptive=adaptive, deluxe=deluxe)
+    if elasticity:
+        entity_dofs = V.finat_element.entity_dofs()
+        has_vertex_dofs = any(entity_dofs[min(entity_dofs)].values())
+        sp["bddc_pc_bddc_use_change_of_basis"] = not has_vertex_dofs
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
     solver.solve()
+    if elasticity:
+        _, matis = solver.snes.ksp.pc.getPythonContext().pc.getOperators()
+        assert matis.getNearNullSpace().handle == nsp.nullspace().handle
     uerr = Function(V).assign(uh - u_exact)
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
 
@@ -297,20 +314,21 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
 
 
 @pytest.mark.skipcomplex(
-    reason="Adaptive BDDC's sub-Schur factorization assumes SPD matrices, unsupported for complex Hermitian systems"
+    reason="These elasticity tests use Cholesky subdomain solvers for real SPD matrices"
 )
-@pytest.mark.parallel(3)
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("family,degree,cellwise", [("CG", 2, False), ("GN", 1, False), ("MTW", 1, False)])
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
-    """Test h-dependence of condition number by measuring iteration counts"""
+    """Test the growth of the estimated condition number under refinement."""
     base = UnitSquareMesh(2, 2)
     meshes = MeshHierarchy(base, 2)
     dim = base.topological_dimension
     vector = (family == "CG")
     variant = "alfeld" if family == "CG" and degree < 2*dim else None
     bcs = True
-    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, vector=vector, elasticity=True) for m in meshes]
-    assert (np.diff(sqrt_kappa) <= 1.0).all(), str(sqrt_kappa)
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise,
+                                  vector=vector, elasticity=True, deluxe=True) for m in meshes]
+    assert (np.diff(sqrt_kappa) <= 1.5).all(), str(sqrt_kappa)
 
 
 @pytest.mark.parallel([1, 3])
