@@ -172,7 +172,7 @@ def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
     elif nargs == 2:
         return TwoFormAssembler(form, *args, **kwargs)
     else:
-        raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
+        raise ValueError(f'Expecting a 0-, 1-, or 2-form: got {form}')
 
 
 def get_assembler(form, *args, **kwargs):
