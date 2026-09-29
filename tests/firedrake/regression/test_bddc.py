@@ -12,7 +12,7 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False, adaptive=False,
+def bddc_params(mat_type="is", cellwise=False, adaptive=False, deluxe=False,
                 use_divergence=None, use_gradient=None, corner_selection=None, debug=0):
     chol = {
         "pc_type": "cholesky",
@@ -38,11 +38,14 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False,
         # defaults to True for H1 spaces
         sp["bddc_pc_bddc_corner_selection"] = corner_selection
 
-    if adaptive:
+    if deluxe or adaptive:
         sp.update({
             "bddc_pc_bddc_use_deluxe_scaling": None,
-            "bddc_pc_bddc_adaptive_userdefined": None,
             "bddc_pc_bddc_deluxe_zerorows": False,
+        })
+    if adaptive:
+        sp.update({
+            "bddc_pc_bddc_adaptive_userdefined": None,
             "bddc_pc_bddc_adaptive_threshold": 5,
         })
     # On MacOSX the distributed right-hand side is bugged!
@@ -100,7 +103,7 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
     return sp
 
 
-def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False, deluxe=False):
     """Solve the riesz map for a random manufactured solution and return the
        square root of the estimated condition number."""
     dirichlet_ids = []
@@ -168,7 +171,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
 
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
-                           use_divergence=use_divergence, adaptive=adaptive)
+                           use_divergence=use_divergence, adaptive=adaptive, deluxe=deluxe)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
