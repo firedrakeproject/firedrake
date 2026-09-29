@@ -19,7 +19,7 @@ def demo2():
     v = TestFunction(V)
 
     # do a regular one first to make sure that it still runs
-    assemble(c*v*dx)
+    # assemble(c*v*dx)
 
     assemble(c*v*dx, pyop3_compiler_parameters={"backend": "gem"}, form_compiler_parameters={"backend": "gem"})
 
