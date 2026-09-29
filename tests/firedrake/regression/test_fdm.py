@@ -1,5 +1,6 @@
 import pytest
 import numpy
+from collections.abc import Callable
 from firedrake import *
 from pyop2.utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
@@ -378,18 +379,21 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
 
 
 @pytest.mark.parallel([1, 2])
-def test_tabulate_gradient_simplex() -> None:
-    """Reference gradients agree with assembly on sheared tetrahedra."""
+@pytest.mark.parametrize("degree", (1, 2))
+@pytest.mark.parametrize("source,target,derivative", [("CG", "N1curl", grad), ("N1curl", "RT", curl)])
+def test_tabulate_exterior_derivative_simplex(source: str, target: str,
+                                              derivative: Callable, degree: int) -> None:
+    """Reference gradients and curls agree with assembly on sheared tetrahedra."""
     from firedrake.preconditioners.fdm import tabulate_exterior_derivative
 
     mesh = UnitCubeMesh(1, 1, 1)
     x = SpatialCoordinate(mesh)
     mesh.coordinates.interpolate(as_vector([2*x[0] + x[1]/3, x[1]/2, x[2]]))
-    V = FunctionSpace(mesh, "CG", 1)
-    W = FunctionSpace(mesh, "N1curl", 1)
+    V = FunctionSpace(mesh, source, degree)
+    W = FunctionSpace(mesh, target, degree)
     D = tabulate_exterior_derivative(V, W)
     M = assemble(inner(TrialFunction(W), TestFunction(W))*dx).petscmat
-    expected = assemble(inner(grad(TrialFunction(V)), TestFunction(W))*dx).petscmat
+    expected = assemble(inner(derivative(TrialFunction(V)), TestFunction(W))*dx).petscmat
     actual = M.matMult(D)
     actual.axpy(-1, expected)
     assert actual.norm() < 1.e-12 * expected.norm()
