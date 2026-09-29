@@ -2814,7 +2814,7 @@ def evaluate_dual(source, target, derivative=None):
         if derivative == "curl":
             d = B.shape[1]
             idx = ((i, j) for i in reversed(range(d)) for j in reversed(range(i+1, d)))
-            B = numpy.stack([((-1)**k) * (B[:, i, j, :] - B[:, j, i, :])
+            B = numpy.stack([((-1)**k) * (B[:, j, i, :] - B[:, i, j, :])
                              for k, (i, j) in enumerate(idx)], axis=1)
         elif derivative == "div":
             B = numpy.trace(B, axis1=1, axis2=2)
