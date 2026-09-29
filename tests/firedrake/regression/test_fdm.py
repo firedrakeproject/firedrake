@@ -102,6 +102,36 @@ def test_broken_function_components(shape):
     assert errornorm(expected, actual) < 1.e-12
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((2,), (2, 2), (2, 3)))
+@pytest.mark.parametrize("mat_type,allow_repeated", [("aij", False), ("is", False), ("is", True)])
+def test_fdm_tensor_components(shape: tuple[int, ...], mat_type: str, allow_repeated: bool) -> None:
+    """FDM preserves each component of a weighted Cartesian Riesz map."""
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = TensorFunctionSpace(mesh, "Q", 2, variant="fdm", shape=shape)
+    u, v = TrialFunction(V), TestFunction(V)
+    weights = Constant(numpy.arange(1, numpy.prod(shape) + 1).reshape(shape))
+    weighted_u = elem_mult(weights, u)
+    a = (inner(grad(weighted_u), grad(v)) + inner(weighted_u, v)) * dx
+    expected = assemble(a).petscmat
+
+    exact = Function(V).assign(1)
+    problem = LinearVariationalProblem(a, action(a, exact), Function(V))
+    solver = LinearVariationalSolver(problem, solver_parameters={
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.FDMPC",
+        "fdm_mat_type": mat_type,
+        "fdm_mat_is_allow_repeated": allow_repeated,
+        "fdm_pc_type": "none",
+    })
+    solver.solve()
+    _, P = solver.snes.ksp.pc.getPythonContext().pc.getOperators()
+    actual = P.convert("aij", out=PETSc.Mat())
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
+
+
 def build_riesz_map(V, d):
     beta = Constant(1E-4)
     subs = [(1, 3)]

@@ -634,9 +634,10 @@ class FDMPC(PCBase):
     @cached_property
     def _element_mass_matrix(self):
         Z = self.coefficients["cell"].function_space()
-        shape = (sum(V.finat_element.space_dimension() for V in Z),) + Z[0].shape
+        # Coefficient blocks act on all scalar components of each field value.
+        bsize = self.V[0].block_size
+        shape = (sum(V.finat_element.space_dimension() for V in Z), bsize, Z[0].block_size // bsize)
         data = numpy.ones(shape, dtype=PETSc.RealType)
-        shape += (1,) * (3-len(shape))
         nrows = shape[0] * shape[1]
         ai = numpy.arange(nrows+1, dtype=PETSc.IntType)
         aj = numpy.tile(ai[:-1].reshape((-1, shape[1])), (1, shape[2]))
