@@ -10,7 +10,6 @@ from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
 from functools import cached_property
 
-from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import functionspaceimpl
 from firedrake import function
 from firedrake.adjoint_utils import annotate_project
@@ -117,7 +116,7 @@ def project(
     return val
 
 
-class Assigner(object):
+class Assigner:
     def __init__(self, source, target):
         self.source = source
         self.target = target
@@ -127,7 +126,7 @@ class Assigner(object):
         return self.target
 
 
-class ProjectorBase(object, metaclass=abc.ABCMeta):
+class ProjectorBase(metaclass=abc.ABCMeta):
     def __init__(
         self, source, target, bcs=None, solver_parameters=None,
         form_compiler_parameters=None, constant_jacobian=True,
@@ -171,8 +170,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             slate_supported = False
             needs_trace = False
         else:
-            slate_supported = (F.finat_element.is_dg() and not F.mesh().variable_layers
-                               and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
+            slate_supported = F.finat_element.is_dg() and not F.mesh().variable_layers
             needs_trace = F.ufl_element().family() in {"HDiv Trace", "Boundary Quadrature"}
 
         self.use_slate_for_inverse = use_slate_for_inverse and slate_supported

@@ -40,7 +40,7 @@ def solve(*args, **kwargs):
 
     A linear system Ax = b may be solved by calling
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
@@ -54,7 +54,7 @@ def solve(*args, **kwargs):
     construct any preconditioner from; if none is supplied ``A`` is used to
     construct the preconditioner.
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(A, x, b, P=P, bcs=bcs, solver_parameters={...})
 
@@ -66,7 +66,7 @@ def solve(*args, **kwargs):
     solution). Optional arguments may be supplied to specify boundary
     conditions or solver parameters. Some examples are given below:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(a == L, u)
         solve(a == L, u, bcs=bc)
@@ -79,7 +79,7 @@ def solve(*args, **kwargs):
     options as solver parameters.  For example, to solve the system
     using direct factorisation use:
 
-    .. code-block:: python3
+    .. code-block:: python
 
        solve(a == L, u, bcs=bcs,
              solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
@@ -101,7 +101,7 @@ def solve(*args, **kwargs):
     pure PETSc code.  See :class:`~.NonlinearVariationalSolver` for more
     details.
 
-    .. code-block:: python3
+    .. code-block:: python
 
         solve(F == 0, u)
         solve(F == 0, u, bcs=bc)
@@ -232,14 +232,14 @@ def _la_solve(A, x, b, **kwargs):
         Any boundary conditions must be applied when assembling the
         bilinear form as:
 
-        .. code-block:: python3
+        .. code-block:: python
 
            A = assemble(a, bcs=[bc1])
            solve(A, x, b)
 
     Example usage:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
