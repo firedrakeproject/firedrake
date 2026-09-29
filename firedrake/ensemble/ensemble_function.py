@@ -117,10 +117,12 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         kwargs
             other arguments to be passed to the firedrake.riesz_map.
         """
+        riesz_map = kwargs.get('riesz_map', None)
+        if riesz_map and not isinstance(riesz_map, str):
+            return riesz_map(self)
         riesz = EnsembleFunction(self.function_space().dual())
         for uself, uriesz in zip(self.subfunctions, riesz.subfunctions):
-            uriesz.assign(
-                uself.riesz_representation(**kwargs))
+            uriesz.assign(uself.riesz_representation(**kwargs))
         return riesz
 
     @PETSc.Log.EventDecorator()
