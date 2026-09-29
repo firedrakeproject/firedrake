@@ -37,7 +37,9 @@ dependencies = [
   "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad @ git+https://github.com/sghelichkhani/pyadjoint.git@sghelichkhani/singlemem-checkpoint-clearing",
+  # TODO RELEASE
+  # Need to release pyadjoint. 
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint.git@master",
   "pycparser",
   "pytools[siphash]",
   "requests",
