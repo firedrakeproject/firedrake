@@ -86,6 +86,12 @@ def test_cross_mesh_interpolation_reduction(access):
     allocated = assemble(interpolate(source, target_space, access=access))
     assert np.allclose(allocated.dat.data_ro, exact.dat.data_ro)
 
+    # DoFs outside the source mesh receive no value, as they do with WRITE.
+    larger_space = FunctionSpace(RectangleMesh(2, 2, 2.0, 2.0), "CG", 1)
+    written = assemble(interpolate(source, larger_space, allow_missing_dofs=True))
+    allocated = assemble(interpolate(source, larger_space, access=access, allow_missing_dofs=True))
+    assert np.allclose(allocated.dat.data_ro, written.dat.data_ro)
+
 
 def test_mixed_expression():
     m = UnitTriangleMesh()
