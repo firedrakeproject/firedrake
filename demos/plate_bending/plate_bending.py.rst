@@ -14,15 +14,28 @@ applies it inside each element kernel. It does not assemble a separate global
 interpolation matrix. The three methods combine ``interpolate`` and ``grad``
 in three different orders:
 
+We write :math:`\Pi_h^P`, :math:`\Pi_h^N`, and :math:`\Pi_h^\Theta` for
+interpolation into the linear Lagrange space :math:`P_h`, the Nédélec space
+:math:`\boldsymbol{N}_h`, and the rotated Bernardi--Raugel space
+:math:`\boldsymbol{\Theta}_h`, respectively.
+
+The scalar and Nédélec interpolants commute with the gradient:
+
+.. math::
+
+  \Pi_h^N \nabla q = \nabla \Pi_h^P q.
+
 1. **MITC** for the Reissner--Mindlin plate uses ``interpolate(grad(...))``.
-   :math:`\Pi_h` maps the shear strain into a Nédélec space.
+   :math:`\Pi_h^N` maps the shear strain into a Nédélec space.
 2. **The modified Morley element** for a Kirchhoff plate under in-plane
-   tension uses ``grad(interpolate(...))``. :math:`\Pi_h` maps the deflection
+   tension uses ``grad(interpolate(...))``. :math:`\Pi_h^P` maps the deflection
    into the linear Lagrange space in the membrane term.
 3. **Discrete Kirchhoff triangles** for the Kirchhoff plate use
-   ``grad(interpolate(grad(...)))``. :math:`\Pi_h` maps the gradient of the
-   deflection into a rotated Bernardi--Raugel space, and the bending term
-   differentiates the result.
+   ``grad(interpolate(grad(...)))`` for bending and
+   ``grad(interpolate(...))`` for membrane energy. The first reduction maps the
+   gradient of the deflection into a rotated Bernardi--Raugel space with
+   :math:`\Pi_h^\Theta`, and the second maps the deflection into the linear
+   Lagrange space with :math:`\Pi_h^P`.
 
 At the end, we compare the convergence rates of the three methods.
 
@@ -94,13 +107,16 @@ high degree, so we integrate it with a quadrature rule of high degree.
 Reissner--Mindlin Plate with MITC
 ---------------------------------
 
-The Reissner--Mindlin model adds the shear energy of the transverse shear strain
-:math:`\nabla w - \boldsymbol{\beta}` to the bending energy:
+The Reissner--Mindlin model has the total potential energy
 
 .. math::
 
-  \frac{1}{2} \int_\Omega k_s G t \, | \nabla w - \boldsymbol{\beta} |^2
-  \, \mathrm{d}x,
+  \mathcal{E}(w, \boldsymbol{\beta}) =
+  \frac{1}{2} \int_\Omega \left(
+  \boldsymbol{\sigma}(\boldsymbol{\beta}) :
+  \boldsymbol{\varepsilon}(\boldsymbol{\beta})
+  + k_s G t \, | \nabla w - \boldsymbol{\beta} |^2 \right) \, \mathrm{d}x
+  - \int_\Omega f w \, \mathrm{d}x.
 
 where :math:`G = E / (2 (1 + \nu))` is the shear modulus and :math:`k_s` is
 the shear correction factor. As :math:`t \to 0`, the shear term becomes a
@@ -111,16 +127,17 @@ the deflection tends to zero instead of to the Kirchhoff solution.
 The Mixed Interpolation of Tensorial Components (MITC) method
 :cite:`Bathe:1985,Brezzi:1989` replaces the
 shear strain by its interpolant into an :math:`H(\mathrm{curl})`-conforming
-Nédélec space :math:`\boldsymbol{R}_h`:
+Nédélec space :math:`\boldsymbol{N}_h`:
 
 .. math::
 
-  \bar{\boldsymbol{\gamma}}_h = \Pi_h (\nabla w_h - \boldsymbol{\beta}_h)
-  = \nabla w_h - \Pi_h \boldsymbol{\beta}_h.
+  \bar{\boldsymbol{\gamma}}_h = \Pi_h^N (\nabla w_h - \boldsymbol{\beta}_h)
+  = \nabla w_h - \Pi_h^N \boldsymbol{\beta}_h.
 
-The second form holds because the gradient of the linear deflection is already
-in :math:`\boldsymbol{R}_h`. Thus the reduced constraint
-:math:`\nabla w_h = \Pi_h \boldsymbol{\beta}_h` does not over-constrain the
+In particular, if :math:`w_h \in P_h`, then :math:`\Pi_h^P w_h = w_h`, so the
+commuting property gives :math:`\Pi_h^N \nabla w_h = \nabla w_h`. Thus the
+second form follows, and the reduced constraint
+:math:`\nabla w_h = \Pi_h^N \boldsymbol{\beta}_h` does not over-constrain the
 discrete solution.
 
 The following diagram shows the element spaces:
@@ -136,7 +153,7 @@ The following diagram shows the element spaces:
   :math:`\boldsymbol{\beta}`. The double dots denote degrees of freedom that
   evaluate a vector-valued function at a point.
 * `Nédélec 1 <https://defelement.org/elements/nedelec1.html>`__: the
-  :math:`H(\mathrm{curl})`-conforming space :math:`\boldsymbol{R}_h` for the
+  :math:`H(\mathrm{curl})`-conforming space :math:`\boldsymbol{N}_h` for the
   reduction operator. The arrows show the tangential degrees of freedom on the
   edges.
 
@@ -165,9 +182,10 @@ boundary, so we apply it as boundary data.
       w, beta = TrialFunctions(Z)
       v, theta = TestFunctions(Z)
 
+      a_bending = bending(beta, theta)
       a_shear = k_s * G * t * inner(interpolate(grad(w) - beta, R),
                                     interpolate(grad(v) - theta, R)) * dx
-      a = bending(beta, theta) + a_shear
+      a = a_bending + a_shear
 
       w_K = kirchhoff_solution(mesh)
       f = D * div(grad(div(grad(w_K))))
@@ -182,11 +200,21 @@ boundary, so we apply it as boundary data.
       w_h, beta_h = z.subfunctions
       return w_h, l2_error(grad(beta_h) - grad(grad(w_K)))
 
-Plate Under Tension with the Modified Morley Element
-----------------------------------------------------
+Kirchhoff Plate with the Modified Morley Element
+------------------------------------------------
 
-Next, we apply an in-plane tension :math:`T` to a Kirchhoff plate. The
-tension adds a membrane term to the equilibrium equation:
+Next, we apply an in-plane tension :math:`T` to a Kirchhoff plate. Its total
+potential energy is
+
+.. math::
+
+  \mathcal{E}(w) =
+  \frac{1}{2} \int_\Omega \left(
+  \boldsymbol{\sigma}(\nabla w) : \boldsymbol{\varepsilon}(\nabla w)
+  + T |\nabla w|^2 \right) \, \mathrm{d}x
+  - \int_\Omega f w \, \mathrm{d}x.
+
+The corresponding equilibrium equation is:
 
 .. math::
 
@@ -204,18 +232,18 @@ discretisation of the membrane term does not converge as
 :math:`\varepsilon \to 0`. The modified Morley method of Wang, Xu and Hu
 :cite:`Wang:2006` keeps the Morley element in the bending term. In the membrane
 term and in the load, it replaces :math:`w_h` by its interpolant
-:math:`\Pi_h w_h` into the linear Lagrange space :math:`P_h`:
+:math:`\Pi_h^P w_h` into the linear Lagrange space :math:`P_h`:
 
 .. math::
 
   \int_\Omega \boldsymbol{\sigma}(\nabla w_h) : \boldsymbol{\varepsilon}(\nabla v_h)
   \, \mathrm{d}x
-  + \int_\Omega T \, \nabla \Pi_h w_h \cdot \nabla \Pi_h v_h \, \mathrm{d}x
-  = \int_\Omega f \, \Pi_h v_h \, \mathrm{d}x \qquad \forall v_h \in V_h,
+  + \int_\Omega T \, \nabla \Pi_h^P w_h \cdot \nabla \Pi_h^P v_h \, \mathrm{d}x
+  = \int_\Omega f \, \Pi_h^P v_h \, \mathrm{d}x \qquad \forall v_h \in V_h,
 
 where the gradients are evaluated on each cell. At :math:`D = 0`, this is the
 linear Lagrange discretisation of the membrane problem. Thus
-:math:`\Pi_h w_h` tends to the discrete membrane solution as
+:math:`\Pi_h^P w_h` tends to the discrete membrane solution as
 :math:`\varepsilon \to 0`.
 
 .. image:: morley_elements.svg
@@ -235,7 +263,7 @@ clamped conditions weakly. For the normal derivative
 :math:`\partial_n w`, we use Nitsche's method with the normal bending moment
 :math:`M_{nn}(w) = \boldsymbol{n} \cdot \boldsymbol{\sigma}(\nabla w)
 \boldsymbol{n}`. For the deflection, we apply a penalty to the interpolant
-:math:`\Pi_h w`. The penalty is scaled for the membrane term and for the
+:math:`\Pi_h^P w`. The penalty is scaled for the membrane term and for the
 bending term.
 
 .. code-block:: python
@@ -259,12 +287,13 @@ bending term.
       def d_n(u):
           return dot(grad(u), n)
 
-      a = (bending(grad(w), grad(v))
-           + T * inner(grad(Pi_w), grad(Pi_v)) * dx
-           - inner(M_nn(w), d_n(v)) * ds
-           - inner(d_n(w), M_nn(v)) * ds
-           + alpha * D / h * inner(d_n(w), d_n(v)) * ds
-           + alpha * (T / h + D / h**3) * inner(Pi_w, Pi_v) * ds)
+      a_bending = bending(grad(w), grad(v))
+      a_membrane = T * inner(grad(Pi_w), grad(Pi_v)) * dx
+      a_boundary = (- inner(M_nn(w), d_n(v)) * ds
+                    - inner(d_n(w), M_nn(v)) * ds
+                    + alpha * D / h * inner(d_n(w), d_n(v)) * ds
+                    + alpha * (T / h + D / h**3) * inner(Pi_w, Pi_v) * ds)
+      a = a_bending + a_membrane + a_boundary
       L = inner(f, Pi_v) * dx
 
       w_h = Function(V)
@@ -272,7 +301,7 @@ bending term.
       return w_h
 
 We check the membrane limit with a uniform load. We compare
-:math:`\Pi_h w_h` with the linear Lagrange solution of the membrane problem,
+:math:`\Pi_h^P w_h` with the linear Lagrange solution of the membrane problem,
 which has the same weak boundary condition, and we decrease
 :math:`\varepsilon`.
 
@@ -327,23 +356,40 @@ Kirchhoff Plate with Discrete Kirchhoff Triangles
 The Kirchhoff model uses :math:`\boldsymbol{\beta} = \nabla w` in the bending
 energy, and it has no shear term. The bending term then contains second
 derivatives of :math:`w`, and a conforming method needs an
-:math:`H^2`-conforming space. The discrete Kirchhoff triangle of Bartels
-:cite:`Bartels:2015` replaces :math:`\nabla w` by a discrete gradient
-:math:`\nabla_h w_h = \Pi_h \nabla w_h`. This operator interpolates the
-gradient into the rotated Bernardi--Raugel space :math:`\Theta_h`. The discrete
-problem is
+:math:`H^2`-conforming space. The discrete Kirchhoff triangle of Batoz, Bathe,
+and Ho :cite:`Batoz:1980` replaces :math:`\nabla w` by a discrete gradient
+:math:`\nabla_h^\Theta w_h = \Pi_h^\Theta \nabla w_h`. This operator interpolates the
+gradient into the rotated Bernardi--Raugel space :math:`\Theta_h`. To include
+the membrane energy, we use a second reduction
+:math:`\Pi_h^P w_h` into the linear Lagrange space :math:`P_h`. The full DKT
+energy is
 
 .. math::
 
-  \int_\Omega \boldsymbol{\sigma}(\nabla_h w_h) :
-  \boldsymbol{\varepsilon}(\nabla_h v_h) \, \mathrm{d}x
-  = \int_\Omega f v_h \, \mathrm{d}x \qquad \forall v_h \in W_h.
+  \mathcal{E}_h(w_h) =
+  \frac{1}{2} \int_\Omega \boldsymbol{\sigma}(\nabla_h^\Theta w_h) :
+  \boldsymbol{\varepsilon}(\nabla_h^\Theta w_h) \, \mathrm{d}x
+  + \frac{1}{2} \int_\Omega T |\nabla \Pi_h^P w_h|^2 \, \mathrm{d}x
+  - \int_\Omega f \Pi_h^P w_h \, \mathrm{d}x.
 
-This is the bending term of the MITC method, with the discrete gradient in
-place of the independent rotation. The method combines the two previous
-reduction operators. As in MITC, :math:`\Pi_h` interpolates a gradient. As in
-the modified Morley method, the energy then differentiates the interpolant. In
-UFL, the curvature is ``grad(interpolate(grad(w), Theta))``.
+The equilibrium equation for this energy is:
+
+.. math::
+
+  \int_\Omega \boldsymbol{\sigma}(\nabla_h^\Theta w_h) :
+  \boldsymbol{\varepsilon}(\nabla_h^\Theta v_h) \, \mathrm{d}x
+  + \int_\Omega T \, \nabla \Pi_h^P w_h \cdot \nabla \Pi_h^P v_h \, \mathrm{d}x
+  = \int_\Omega f \Pi_h^P v_h \, \mathrm{d}x
+  \qquad \forall v_h \in W_h.
+
+The P1 reduction is essential for the membrane term. The DKT discrete gradient
+is designed to approximate the rotation in the bending term; it is not the
+conforming gradient of the reduced deflection space. Using it in the membrane
+term would therefore define a different second-order operator and would lose
+the uniform membrane limit. The DKT method combines the two gradient
+reductions in UFL as
+``grad(interpolate(grad(w), Theta))`` for bending and
+``grad(interpolate(w, P))`` for membrane energy.
 
 .. image:: discrete_kirchhoff_elements.svg
    :align: center
@@ -368,15 +414,23 @@ on the boundary, and this clamps the plate.
   def discrete_kirchhoff(mesh):
       W = FunctionSpace(mesh, "Reduced-Hermite", 3)
       Theta = FunctionSpace(mesh, "Rotated-Bernardi-Raugel", 1)
+      P = FunctionSpace(mesh, "Lagrange", 1)
 
       w = TrialFunction(W)
       v = TestFunction(W)
+      discrete_grad_w = interpolate(grad(w), Theta)
+      discrete_grad_v = interpolate(grad(v), Theta)
+      Pi_w = interpolate(w, P)
+      Pi_v = interpolate(v, P)
 
-      a = bending(interpolate(grad(w), Theta), interpolate(grad(v), Theta))
+      T = D / Constant(1e-2)**2
+      a_bending = bending(discrete_grad_w, discrete_grad_v)
+      a_membrane = T * inner(grad(Pi_w), grad(Pi_v)) * dx
+      a = a_bending + a_membrane
 
       w_K = kirchhoff_solution(mesh)
-      f = D * div(grad(div(grad(w_K))))
-      L = inner(f, v) * dx
+      f = D * div(grad(div(grad(w_K)))) - T * div(grad(w_K))
+      L = inner(f, Pi_v) * dx
 
       w_h = Function(W)
       solve(a == L, w_h, bcs=DirichletBC(W, 0, "on_boundary"))
