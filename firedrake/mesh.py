@@ -2027,7 +2027,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         Parameters
         ----------
-        swarm : FiredrakeDMSwarm
+        swarm : ``FiredrakeDMSwarm``
             DMSwarm representing particle-in-cell vertices immersed within a
             PETSc DM stored in ``parentmesh``.
         parentmesh : AbstractMeshTopology
@@ -2036,7 +2036,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             Name of the mesh topology.
         reorder : bool
             Whether to reorder the mesh entities.
-        input_ordering_swarm : FiredrakeDMSwarm
+        input_ordering_swarm : ``FiredrakeDMSwarm``
             The swarm from which the input-ordering vertex-only mesh is constructed.
         perm_is : PETSc.IS
             `PETSc.IS` that is used as ``_dm_renumbering``; only
