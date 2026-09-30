@@ -131,7 +131,8 @@ The following diagram shows the element spaces:
 * **P1**: the linear Lagrange element for the deflection :math:`w`.
 * **P1-iso-P2**: a macroelement that divides each triangle into four smaller
   triangles, with linear Lagrange elements on each one. We use it for the
-  rotation :math:`\boldsymbol{\beta}`.
+  rotation :math:`\boldsymbol{\beta}`. The double dots denote degrees of
+  freedom that evaluate a vector-valued function at a point.
 * **Nédélec 1**: the :math:`H(\mathrm{curl})`-conforming space
   :math:`\boldsymbol{R}_h` for the reduction operator. The arrows show the
   tangential degrees of freedom on the edges.
