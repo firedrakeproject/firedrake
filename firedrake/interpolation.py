@@ -26,7 +26,7 @@ from firedrake.functionspaceimpl import WithGeometry
 from firedrake.matrix import ImplicitMatrix, MatrixBase, Matrix
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
-from firedrake.formmanipulation import split_form
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -1434,17 +1434,20 @@ class MixedInterpolator(Interpolator):
         # See https://github.com/firedrakeproject/firedrake/issues/4668
         space_equals = lambda V1, V2: V1 == V2 and V1.parent == V2.parent and V1.index == V2.index
 
-        # We need a Coargument in order to split the Interpolate
-        needs_action = not any(isinstance(a, Coargument) for a in self.interpolate_args)
-        if needs_action:
-            # Split the dual argument
-            dual_split = dict(split_form(self.dual_arg))
-            # Create the Jacobian to be split into blocks
-            self.ufl_interpolate = self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, self.target_space)
+        # Interpolation onto a mixed space is the sum of the interpolations onto
+        # its subspaces. The Jacobian has the target as an argument, so each of
+        # its blocks interpolates onto one target subspace.
+        jacobian = self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, self.target_space)
+        target = jacobian.argument_slots()[0].number()
+        splitter = ExtractSubBlock()
 
         # Get sub-interpolators and sub-bcs for each block
         Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]] = {}
-        for indices, block in split_form(self.ufl_interpolate):
+        for indices in numpy.ndindex(tuple(len(a.function_space()) for a in jacobian.arguments())):
+            block = splitter.split(jacobian, indices)
+            if not isinstance(self.dual_arg, Coargument):
+                # Contract the block with the dual argument on the same target subspace
+                block = action(block, splitter.split(self.dual_arg, indices[target:target + 1]))
             if isinstance(block, ZeroBaseForm):
                 # Ensure block sparsity
                 continue
@@ -1452,9 +1455,6 @@ class MixedInterpolator(Interpolator):
             for space, index in zip(spaces, indices):
                 subspace = space.sub(index)
                 sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
-            if needs_action:
-                # Take the action of each sub-cofunction against each block
-                block = action(block, dual_split[indices[-1:]])
             Isub[indices] = (get_interpolator(block), sub_bcs)
 
         return Isub
