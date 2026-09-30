@@ -382,6 +382,16 @@ table.docutils td {
     padding: 0.5em;
 }
 
+/* Draw a rule before every even column, to separate a leading column
+   from the pairs of columns that follow it. */
+table.column-pairs col:nth-child(2n) {
+    border-left: 1px solid #aaa;
+}
+
+table.column-pairs th[colspan] {
+    text-align: center;
+}
+
 table.highlighttable {
 	width: 100%;
 	clear: both;
