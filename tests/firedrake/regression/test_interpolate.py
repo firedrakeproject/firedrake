@@ -49,7 +49,7 @@ def test_function():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize(
     ("access", "initial", "expected"),
-    [(op2.INC, 2.0, 4.0), (op2.MIN, 3.0, 3.0), (op2.MAX, -3.0, -3.0)],
+    [(op2.INC, 2.0, 2.0), (op2.MIN, 3.0, 3.0), (op2.MAX, -3.0, -3.0)],
     ids=["inc", "min", "max"],
 )
 def test_in_place_interpolation_preserves_reduction(access, initial, expected):

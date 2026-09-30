@@ -715,6 +715,10 @@ class SameMeshInterpolator(Interpolator):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             if self.access and self.access != op2.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
+            self.access = op2.INC
+        elif self.access is None:
+            # Default access for forward 1-form or 2-form (forward and adjoint)
+            self.access = op2.WRITE
 
     @property
     def _needs_adjoint_weighting(self):
@@ -757,13 +761,7 @@ class SameMeshInterpolator(Interpolator):
         weighted copy of the dual argument when the adjoint needs one.
         """
         options = asdict(self.ufl_interpolate.options)
-        access = self.access
-        if not isinstance(self.dual_arg, Coargument):
-            access = op2.INC
-        elif access is None:
-            # Default access for forward 1-form or 2-form (forward and adjoint)
-            access = op2.WRITE
-        options.update(subset=self.subset, access=access)
+        options.update(subset=self.subset, access=self.access)
         dual_arg = self._weighted_dual_arg if self._needs_adjoint_weighting else self.dual_arg
         return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg, **options)
 
@@ -789,14 +787,13 @@ class SameMeshInterpolator(Interpolator):
                 inputs.update(mesh.coordinates.dat)
             if set(tensor.dat) & inputs:
                 output = tensor
-                # INC, MIN and MAX combine the result with the current output values.
+                # MIN and MAX combine the result with the current output values.
                 # Therefore, we must copy the output into the temporary before assembly.
-                reads_output = self.access is not None and self.access is not op2.WRITE
+                reads_output = self.access in {op2.MIN, op2.MAX}
 
-        access = self._interpolate_to_assemble.options.access
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
-                                       needs_zeroing=False, access=access)
+                                       needs_zeroing=False, access=self.access)
 
         copy_input = None
         copy_output = None
@@ -809,11 +806,12 @@ class SameMeshInterpolator(Interpolator):
             tensor = assembler.allocate()
             self._initialize_minmax(tensor)
 
+        # Interpolator.assemble copies a rank-2 result into the supplied matrix.
+        # Therefore, the assembler allocates its own matrix.
         assembler_tensor = None if self.rank == 2 else tensor
         # A zero interpolation has no local kernels, so nothing writes a WRITE output.
-        needs_zeroing = (assembler_tensor is not None and not reads_output
-                         and (access is op2.INC
-                              or (access is op2.WRITE and not assembler.local_kernels)))
+        needs_zeroing = assembler_tensor is not None and (
+            self.access is op2.INC or (self.access is op2.WRITE and not assembler.local_kernels))
 
         def callable():
             if self._needs_adjoint_weighting:
