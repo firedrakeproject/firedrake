@@ -1084,7 +1084,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._access = access
 
-    def assemble(self, tensor=None, current_state=None, needs_zeroing: bool | None = None):
+    def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
 
         Parameters
@@ -1094,11 +1094,6 @@ class ParloopFormAssembler(FormAssembler):
         current_state : firedrake.function.Function or None
             If provided, the boundary condition nodes are set to the boundary condition residual
             computed as ``current_state`` minus the boundary condition value.
-        needs_zeroing : bool or None
-            Override whether to zero a supplied output tensor before assembly.
-            If omitted, use the value provided when constructing the assembler.
-            This option has no effect when ``tensor`` is ``None`` because the
-            assembler allocates the output itself.
 
         Returns
         -------
@@ -1118,9 +1113,7 @@ class ParloopFormAssembler(FormAssembler):
             tensor = self.allocate()
         else:
             self._check_tensor(tensor)
-            if needs_zeroing is None:
-                needs_zeroing = self._needs_zeroing
-            if needs_zeroing:
+            if self._needs_zeroing:
                 self._as_pyop2_type(tensor).zero()
 
         self.execute_parloops(tensor)

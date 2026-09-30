@@ -773,39 +773,36 @@ class SameMeshInterpolator(Interpolator):
             dual.pointwiseMult(dual, weight)
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        from firedrake.assemble import get_form_assembler, ParloopFormAssembler
+        from firedrake.assemble import get_form_assembler
 
+        # The output tensor can share a dat with an input. Then the kernel would
+        # overwrite input values that it has not read yet. Therefore, the kernel
+        # must write into a temporary, and we copy the temporary into the output
+        # after assembly.
         output = None
-        preserve_input = False
+        reads_output = False
         if isinstance(tensor, Function | Cofunction):
             inputs = set()
             for coefficient in self._interpolate_to_assemble.coefficients():
                 inputs.update(coefficient.dat)
             for mesh in extract_domains(self._interpolate_to_assemble):
                 inputs.update(mesh.coordinates.dat)
-            if isinstance(self.dual_arg, Cofunction):
-                inputs.update(self.dual_arg.dat)
             if set(tensor.dat) & inputs:
                 output = tensor
-                preserve_input = self.access is not None and self.access is not op2.WRITE
+                # INC, MIN and MAX combine the result with the current output values.
+                # Therefore, we must copy the output into the temporary before assembly.
+                reads_output = self.access is not None and self.access is not op2.WRITE
 
         access = self._interpolate_to_assemble.options.access
-        needs_zeroing = (self.rank == 2 or access is op2.INC) and not preserve_input
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
-                                       needs_zeroing=needs_zeroing, access=access)
-        assemble_kwargs = {}
-        if isinstance(assembler, ParloopFormAssembler):
-            # A zero interpolation has no local kernels. If a caller supplied
-            # a WRITE tensor, clear it because no kernel can do so.
-            needs_zeroing |= access is op2.WRITE and not assembler.local_kernels
-            assemble_kwargs["needs_zeroing"] = needs_zeroing
+                                       needs_zeroing=False, access=access)
 
         copy_input = None
         copy_output = None
         if output is not None:
             tensor = assembler.allocate()
-            if preserve_input:
+            if reads_output:
                 copy_input = partial(output.dat.copy, tensor.dat)
             copy_output = partial(tensor.dat.copy, output.dat)
         elif tensor is None and self.access in {op2.MIN, op2.MAX}:
@@ -813,13 +810,19 @@ class SameMeshInterpolator(Interpolator):
             self._initialize_minmax(tensor)
 
         assembler_tensor = None if self.rank == 2 else tensor
+        # A zero interpolation has no local kernels, so nothing writes a WRITE output.
+        needs_zeroing = (assembler_tensor is not None and not reads_output
+                         and (access is op2.INC
+                              or (access is op2.WRITE and not assembler.local_kernels)))
 
         def callable():
             if self._needs_adjoint_weighting:
                 self._update_weighted_dual_arg()
             if copy_input is not None:
                 copy_input()
-            result = assembler.assemble(tensor=assembler_tensor, **assemble_kwargs)
+            if needs_zeroing:
+                assembler_tensor.zero()
+            result = assembler.assemble(tensor=assembler_tensor)
             if copy_output is not None:
                 copy_output()
             if isinstance(result, MatrixBase):
