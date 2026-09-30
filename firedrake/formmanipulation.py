@@ -339,7 +339,7 @@ def split_form(form, diagonal=False):
     ----------
     form : ufl.BaseForm
         The form to split.
-    diagonal : bool, optional
+    diagonal : bool
         If ``True``, return only the diagonal blocks of a two-argument form.
 
     Returns
