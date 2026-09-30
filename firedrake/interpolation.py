@@ -28,7 +28,6 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
-from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.exceptions import (
@@ -259,10 +258,11 @@ class Interpolator(abc.ABC):
         bcs: Iterable[DirichletBC] | None = None,
         mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
-    ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
+    ) -> Callable[[], Function | Cofunction | MatrixBase | Number]:
         """Return a callable to perform interpolation.
 
-        If ``self.rank == 2``, then the callable must return a PETSc matrix.
+        If ``self.rank == 2``, then the callable must return a ``MatrixBase``.
+        This is ``tensor`` when the interpolator can assemble into it.
         If ``self.rank == 1``, then the callable must return a ``Function``
         or ``Cofunction`` (in the forward and adjoint cases respectively).
         If ``self.rank == 0``, then the callable must return a number.
@@ -359,12 +359,11 @@ class Interpolator(abc.ABC):
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
-            assert isinstance(result, PETSc.Mat)
-            if tensor:
-                result.copy(tensor.petscmat)
+            assert isinstance(result, MatrixBase)
+            if tensor and result is not tensor:
+                result.petscmat.copy(tensor.petscmat)
                 return tensor
-            else:
-                return Matrix(self.ufl_interpolate, result, bcs=bcs)
+            return result
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
@@ -387,14 +386,6 @@ class Interpolator(abc.ABC):
         """
         if self.rank == 2 and mat_type not in self._allowed_mat_types:
             raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented yet for {type(self).__name__}.")
-
-    def _initialize_minmax(self, tensor: Function | Cofunction) -> Function | Cofunction:
-        """Initialize a newly allocated tensor for a minimum or maximum reduction."""
-        if self.access in {op2.MIN, op2.MAX}:
-            finfo = numpy.finfo(tensor.dat.dtype)
-            value = finfo.max if self.access == op2.MIN else finfo.min
-            tensor.assign(Constant(value))
-        return tensor
 
 
 def get_interpolator(expr: Interpolate) -> Interpolator:
@@ -573,8 +564,9 @@ class CrossMeshInterpolator(Interpolator):
             f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
         else:
             f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
-        if tensor is None:
-            self._initialize_minmax(f)
+        # Each target DoF receives a single value. Therefore, MIN and MAX only
+        # combine that value with the current values of a supplied output.
+        reduction = {op2.MIN: numpy.minimum, op2.MAX: numpy.maximum}.get(self.access) if f is tensor else None
 
         point_eval, point_eval_input_ordering = self._symbolic_expressions
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -589,18 +581,17 @@ class CrossMeshInterpolator(Interpolator):
             else:
                 interp_expr = action(point_eval_input_ordering, point_eval)
 
-            def callable() -> PETSc.Mat:
+            def callable() -> Matrix:
                 res = assemble(interp_expr, mat_type=mat_type).petscmat
                 if self.into_quadrature_space:
                     source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
                         I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
-                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
+                        res = assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
                         I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
-                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
-                else:
-                    return res
+                        res = assemble(action(self._interpolate_from_quadrature, I)).petscmat
+                return Matrix(self.ufl_interpolate, res)
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
@@ -651,12 +642,9 @@ class CrossMeshInterpolator(Interpolator):
                 else:
                     indices = slice(None)
                 values = f_point_eval_input_ordering.dat.data_ro[indices]
-                if self.access == op2.MIN:
-                    f.dat.data_wo[indices] = numpy.minimum(f.dat.data_ro[indices], values)
-                elif self.access == op2.MAX:
-                    f.dat.data_wo[indices] = numpy.maximum(f.dat.data_ro[indices], values)
-                else:
-                    f.dat.data_wo[indices] = values
+                if reduction is not None:
+                    values = reduction(f.dat.data_ro[indices], values)
+                f.dat.data_wo[indices] = values
 
                 if self.into_quadrature_space:
                     f_target = Function(self.original_target_space)
@@ -715,6 +703,10 @@ class SameMeshInterpolator(Interpolator):
             # Matrix-free assembly of 0-form or 1-form requires INC access
             if self.access and self.access != op2.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
+            self.access = op2.INC
+        elif self.access is None:
+            # Default access for forward 1-form or 2-form (forward and adjoint)
+            self.access = op2.WRITE
 
     @property
     def _needs_adjoint_weighting(self):
@@ -725,27 +717,54 @@ class SameMeshInterpolator(Interpolator):
     def _weighted_dual_arg(self):
         return Function(self.dual_arg.function_space())
 
-    @cached_property
-    def _adjoint_weight(self):
-        W = self.dual_arg.function_space()
-        weight = W.make_dat()
-        if len(W) > 1:
-            spaces_and_weights = zip(W, weight)
-        else:
-            spaces_and_weights = ((W, weight),)
+    def _par_loop_target_nodes(self, f: Function | Cofunction, name: str,
+                               value: float, access: Literal[op2.WRITE, op2.INC, op2.MIN, op2.MAX]) -> None:
+        """Write or increment ``value`` at each node of ``f`` in the cells of the iteration set.
 
+        Parameters
+        ----------
+        f
+            The function or cofunction on the target space to update.
+        name
+            The prefix of the generated kernel names.
+        value
+            The value to write or to add.
+        access
+            The access descriptor of the par_loop.
+        """
+        operator = "+=" if access is op2.INC else "="
         target_mesh = self.target_mesh.unique()
         iterset = target_mesh.cell_set if self.subset is None else self.subset
-        for i, (V, component_weight) in enumerate(spaces_and_weights):
-            node_map = get_assembly_entity_node_map(V, target_mesh)
-            size = V.finat_element.space_dimension() * V.block_size
+        for k, fk in enumerate(f.subfunctions):
+            node_map = get_assembly_entity_node_map(fk.function_space(), target_mesh)
             kernel_code = f"""
-            void multiplicity_{i}(PetscScalar *restrict w) {{
-                for (PetscInt i=0; i<{size}; i++) w[i] += 1;
+            void {name}_{k}(PetscScalar *restrict w) {{
+                for (PetscInt i=0; i<{node_map.arity * fk.dat.cdim}; i++) w[i] {operator} {value!r};
             }}"""
-            kernel = op2.Kernel(kernel_code, f"multiplicity_{i}")
-            op2.par_loop(kernel, iterset, component_weight(op2.INC, node_map))
-        with weight.vec as weight_vec:
+            kernel = op2.Kernel(kernel_code, f"{name}_{k}")
+            op2.par_loop(kernel, iterset, fk.dat(access, node_map))
+
+    def _initialize_minmax(self, tensor: Function | Cofunction) -> None:
+        """Set the identity of the MIN or MAX reduction on the nodes that the interpolation reaches.
+
+        The other nodes keep the zero of a newly allocated tensor.
+        """
+        # A node can be reached only from the halo cells of its owner. The
+        # opposite reduction carries the identity from the halo copies to the
+        # owner. Therefore, the MIN identity is written with MAX access, and the
+        # MAX identity with MIN access.
+        finfo = numpy.finfo(tensor.dat.dtype)
+        if self.access is op2.MIN:
+            value, access = float(finfo.max), op2.MAX
+        else:
+            value, access = float(finfo.min), op2.MIN
+        self._par_loop_target_nodes(tensor, "minmax_init", value, access)
+
+    @cached_property
+    def _adjoint_weight(self):
+        weight = Function(self.dual_arg.function_space())
+        self._par_loop_target_nodes(weight, "multiplicity", 1.0, op2.INC)
+        with weight.dat.vec as weight_vec:
             weight_vec.reciprocal()
         return weight
 
@@ -757,73 +776,67 @@ class SameMeshInterpolator(Interpolator):
         weighted copy of the dual argument when the adjoint needs one.
         """
         options = asdict(self.ufl_interpolate.options)
-        access = self.access
-        if not isinstance(self.dual_arg, Coargument):
-            access = op2.INC
-        elif access is None:
-            # Default access for forward 1-form or 2-form (forward and adjoint)
-            access = op2.WRITE
-        options.update(subset=self.subset, access=access)
+        options.update(subset=self.subset, access=self.access)
         dual_arg = self._weighted_dual_arg if self._needs_adjoint_weighting else self.dual_arg
         return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg, **options)
 
     def _update_weighted_dual_arg(self):
         self.dual_arg.dat.copy(self._weighted_dual_arg.dat)
-        with self._adjoint_weight.vec_ro as weight, self._weighted_dual_arg.dat.vec as dual:
+        with self._adjoint_weight.dat.vec_ro as weight, self._weighted_dual_arg.dat.vec as dual:
             dual.pointwiseMult(dual, weight)
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
-        from firedrake.assemble import get_form_assembler, ParloopFormAssembler
+        from firedrake.assemble import get_form_assembler
 
+        # The output tensor can share a dat with an input. Then the kernel would
+        # overwrite input values that it has not read yet. Therefore, the kernel
+        # must write into a temporary, and we copy the temporary into the output
+        # after assembly.
         output = None
-        preserve_input = False
+        reads_output = False
         if isinstance(tensor, Function | Cofunction):
             inputs = set()
             for coefficient in self._interpolate_to_assemble.coefficients():
                 inputs.update(coefficient.dat)
             for mesh in extract_domains(self._interpolate_to_assemble):
                 inputs.update(mesh.coordinates.dat)
-            if isinstance(self.dual_arg, Cofunction):
-                inputs.update(self.dual_arg.dat)
             if set(tensor.dat) & inputs:
                 output = tensor
-                preserve_input = self.access is not None and self.access is not op2.WRITE
+                # MIN and MAX combine the result with the current output values.
+                # Therefore, we must copy the output into the temporary before assembly.
+                reads_output = self.access in {op2.MIN, op2.MAX}
 
-        access = self._interpolate_to_assemble.options.access
-        needs_zeroing = (self.rank == 2 or access is op2.INC) and not preserve_input
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
-                                       needs_zeroing=needs_zeroing, access=access)
-        assemble_kwargs = {}
-        if isinstance(assembler, ParloopFormAssembler):
-            # A zero interpolation has no local kernels. If a caller supplied
-            # a WRITE tensor, clear it because no kernel can do so.
-            needs_zeroing |= access is op2.WRITE and not assembler.local_kernels
-            assemble_kwargs["needs_zeroing"] = needs_zeroing
+                                       needs_zeroing=False, access=self.access)
 
         copy_input = None
         copy_output = None
         if output is not None:
             tensor = assembler.allocate()
-            if preserve_input:
+            if reads_output:
                 copy_input = partial(output.dat.copy, tensor.dat)
             copy_output = partial(tensor.dat.copy, output.dat)
         elif tensor is None and self.access in {op2.MIN, op2.MAX}:
             tensor = assembler.allocate()
             self._initialize_minmax(tensor)
 
-        assembler_tensor = None if self.rank == 2 else tensor
+        # INC adds the contributions to the current output values. A zero
+        # interpolation has no local kernels to write a WRITE output.
+        # Therefore, we must zero the output explicitly in both cases.
+        needs_zeroing = tensor is not None and (
+            self.access is op2.INC or (self.access is op2.WRITE and not assembler.local_kernels))
 
         def callable():
             if self._needs_adjoint_weighting:
                 self._update_weighted_dual_arg()
             if copy_input is not None:
                 copy_input()
-            result = assembler.assemble(tensor=assembler_tensor, **assemble_kwargs)
+            if needs_zeroing:
+                tensor.zero()
+            result = assembler.assemble(tensor=tensor)
             if copy_output is not None:
                 copy_output()
-            if isinstance(result, MatrixBase):
-                return result.petscmat
             return output if copy_output is not None else result
 
         return callable
@@ -858,8 +871,6 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
         if self.rank == 1:
             f = tensor or Function(self.ufl_interpolate.function_space())
-            if tensor is None and self.access in {op2.MIN, op2.MAX}:
-                self._initialize_minmax(f)
             self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
@@ -887,8 +898,8 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             else:
                 self.mat = self._create_permutation_mat(mat_type)
 
-            def callable() -> PETSc.Mat:
-                return self.mat
+            def callable() -> Matrix:
+                return Matrix(self.ufl_interpolate, self.mat)
 
         return callable
 
@@ -1458,7 +1469,7 @@ class MixedInterpolator(Interpolator):
         shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
-            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
+            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)().petscmat
         isrows, iscols = (V.dof_dset.field_ises for V in spaces)
         return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
@@ -1479,10 +1490,13 @@ class MixedInterpolator(Interpolator):
         f = tensor or Function(V_dest)
         if self.rank == 2:
             if mat_type == "nest":
-                callable = partial(self._build_matnest, Isub, sub_mat_type)
+                build = partial(self._build_matnest, Isub, sub_mat_type)
             else:
                 assert mat_type == "aij"
-                callable = partial(self._build_aij, Isub)
+                build = partial(self._build_aij, Isub)
+
+            def callable() -> Matrix:
+                return Matrix(self.ufl_interpolate, build(), bcs=bcs)
         elif self.rank == 1:
             def callable() -> Function | Cofunction:
                 for k, sub_tensor in enumerate(f.subfunctions):

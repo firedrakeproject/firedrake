@@ -38,7 +38,7 @@ class ExtractSubBlock(MultiFunction):
         super().__init__()
         self._arg_cache = None
         self.blocks = None
-        self._splitting_interpolate = None
+        self._interpolate_outermost = None
 
     class IndexInliner(MultiFunction):
         """Inline fixed index of list tensors"""
@@ -99,7 +99,7 @@ class ExtractSubBlock(MultiFunction):
         self.blocks = dict(enumerate(map(as_tuple, argument_indices)))
         # An outermost Interpolate splits into a smaller Interpolate, while one
         # inside an integrand must keep the value shape its neighbours expect.
-        self._splitting_interpolate = isinstance(form, Interpolate)
+        self._interpolate_outermost = isinstance(form, Interpolate)
         if len(args) == 0:
             # Functional can't be split
             return form
@@ -258,7 +258,7 @@ class ExtractSubBlock(MultiFunction):
 
     def _zero_interpolate(self, o: Interpolate) -> ZeroBaseForm | Zero:
         """Result of an Interpolate whose operand or target block is Zero."""
-        if self._splitting_interpolate:
+        if self._interpolate_outermost:
             return self(ZeroBaseForm(o.arguments()))
         return Zero(o.ufl_shape)
 
@@ -317,7 +317,7 @@ class ExtractSubBlock(MultiFunction):
             return self._zero_interpolate(o)
 
         interpolation = o._ufl_expr_reconstruct_(operand, sub_dual_arg)
-        if self._splitting_interpolate:
+        if self._interpolate_outermost:
             return interpolation
 
         # Inside an integrand the block is one part of a wider expression, so
@@ -339,7 +339,7 @@ def split_form(form, diagonal=False):
     ----------
     form : ufl.BaseForm
         The form to split.
-    diagonal : bool, optional
+    diagonal : bool
         If ``True``, return only the diagonal blocks of a two-argument form.
 
     Returns
