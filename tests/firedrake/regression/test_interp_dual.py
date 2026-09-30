@@ -526,6 +526,53 @@ def test_form_interp_bilinear():
     assert np.allclose(actual.dat.data, expected.dat.data)
 
 
+@pytest.mark.parametrize("case", ("integrand", "nested", "form_sum", "dual_form"))
+def test_form_interp_mixed_split(case):
+    # Only the target of an outermost interpolation is an argument of the
+    # form. The target of any other interpolation is contracted, and its
+    # coargument number can coincide with the number of an unrelated argument.
+    mesh = UnitSquareMesh(2, 2)
+    x, y = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    P2 = FunctionSpace(mesh, "CG", 2)
+    Z = P2 * P1
+    W = P1 * P2
+    u = TrialFunction(Z)
+    w = TestFunction(W)
+    f = Function(Z)
+    f.sub(0).interpolate(x * y)
+    f.sub(1).interpolate(x - y)
+    g = Function(W)
+    g.sub(0).interpolate(1 + x)
+    g.sub(1).interpolate(y * y)
+
+    def interp(z):
+        return interpolate(as_vector([z[0], z[1] + x * z[0]]), W)
+
+    # Each case contracts the assembled operator with f and compares it with
+    # a functional that has no argument to split.
+    c = assemble(inner(g, w) * dx)
+    if case == "integrand":
+        a = (interp(u)[0] * w[1] + interp(u)[1] * w[0]) * dx
+        expected = assemble((interp(f)[0] * g[1] + interp(f)[1] * g[0]) * dx)
+    elif case == "nested":
+        a = interpolate(interp(u), W)
+        expected = assemble(interpolate(interp(f), c))
+    elif case == "form_sum":
+        a = ufl.FormSum((interp(u), 1), (interpolate(x * interp(u), W), 2))
+        expected = assemble(interpolate(interp(f), c)) + 2 * assemble(interpolate(x * interp(f), c))
+    elif case == "dual_form":
+        a = action(inner(interpolate(w, W), g) * dx, interp(u))
+        expected = assemble(inner(interpolate(assemble(interp(f)), W), g) * dx)
+
+    A = assemble(a)
+    if case == "dual_form":
+        actual = A.dat.inner(f.dat)
+    else:
+        actual = assemble(action(A, f)).dat.inner((g if case == "integrand" else c).dat)
+    assert np.isclose(actual, expected)
+
+
 @pytest.mark.parametrize("family", ("RTCE", "RTCF", "Q"))
 def test_form_interp_direct_sum(family):
     # A direct sum blocks its tabulation and its dual basis along the same
