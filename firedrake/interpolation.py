@@ -259,10 +259,11 @@ class Interpolator(abc.ABC):
         bcs: Iterable[DirichletBC] | None = None,
         mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
-    ) -> Callable[[], Function | Cofunction | PETSc.Mat | Number]:
+    ) -> Callable[[], Function | Cofunction | MatrixBase | Number]:
         """Return a callable to perform interpolation.
 
-        If ``self.rank == 2``, then the callable must return a PETSc matrix.
+        If ``self.rank == 2``, then the callable must return a ``MatrixBase``.
+        This is ``tensor`` when the interpolator can assemble into it.
         If ``self.rank == 1``, then the callable must return a ``Function``
         or ``Cofunction`` (in the forward and adjoint cases respectively).
         If ``self.rank == 0``, then the callable must return a number.
@@ -359,12 +360,11 @@ class Interpolator(abc.ABC):
         if self.rank == 2:
             # Assembling the operator
             assert isinstance(tensor, MatrixBase | None)
-            assert isinstance(result, PETSc.Mat)
-            if tensor:
-                result.copy(tensor.petscmat)
+            assert isinstance(result, MatrixBase)
+            if tensor and result is not tensor:
+                result.petscmat.copy(tensor.petscmat)
                 return tensor
-            else:
-                return Matrix(self.ufl_interpolate, result, bcs=bcs)
+            return result
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
@@ -590,18 +590,17 @@ class CrossMeshInterpolator(Interpolator):
             else:
                 interp_expr = action(point_eval_input_ordering, point_eval)
 
-            def callable() -> PETSc.Mat:
+            def callable() -> Matrix:
                 res = assemble(interp_expr, mat_type=mat_type).petscmat
                 if self.into_quadrature_space:
                     source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
                         I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
-                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
+                        res = assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
                         I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
-                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
-                else:
-                    return res
+                        res = assemble(action(self._interpolate_from_quadrature, I)).petscmat
+                return Matrix(self.ufl_interpolate, res)
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
@@ -804,11 +803,10 @@ class SameMeshInterpolator(Interpolator):
             tensor = assembler.allocate()
             self._initialize_minmax(tensor)
 
-        # Interpolator.assemble copies a rank-2 result into the supplied matrix.
-        # Therefore, the assembler allocates its own matrix.
-        assembler_tensor = None if self.rank == 2 else tensor
-        # A zero interpolation has no local kernels, so nothing writes a WRITE output.
-        needs_zeroing = assembler_tensor is not None and (
+        # INC adds the contributions to the current output values. A zero
+        # interpolation has no local kernels to write a WRITE output.
+        # Therefore, we must zero the output explicitly in both cases.
+        needs_zeroing = tensor is not None and (
             self.access is op2.INC or (self.access is op2.WRITE and not assembler.local_kernels))
 
         def callable():
@@ -817,12 +815,10 @@ class SameMeshInterpolator(Interpolator):
             if copy_input is not None:
                 copy_input()
             if needs_zeroing:
-                assembler_tensor.zero()
-            result = assembler.assemble(tensor=assembler_tensor)
+                tensor.zero()
+            result = assembler.assemble(tensor=tensor)
             if copy_output is not None:
                 copy_output()
-            if isinstance(result, MatrixBase):
-                return result.petscmat
             return output if copy_output is not None else result
 
         return callable
@@ -886,8 +882,8 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             else:
                 self.mat = self._create_permutation_mat(mat_type)
 
-            def callable() -> PETSc.Mat:
-                return self.mat
+            def callable() -> Matrix:
+                return Matrix(self.ufl_interpolate, self.mat)
 
         return callable
 
@@ -1457,7 +1453,7 @@ class MixedInterpolator(Interpolator):
         shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
-            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)()
+            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)().petscmat
         isrows, iscols = (V.dof_dset.field_ises for V in spaces)
         return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
@@ -1478,10 +1474,13 @@ class MixedInterpolator(Interpolator):
         f = tensor or Function(V_dest)
         if self.rank == 2:
             if mat_type == "nest":
-                callable = partial(self._build_matnest, Isub, sub_mat_type)
+                build = partial(self._build_matnest, Isub, sub_mat_type)
             else:
                 assert mat_type == "aij"
-                callable = partial(self._build_aij, Isub)
+                build = partial(self._build_aij, Isub)
+
+            def callable() -> Matrix:
+                return Matrix(self.ufl_interpolate, build(), bcs=bcs)
         elif self.rank == 1:
             def callable() -> Function | Cofunction:
                 for k, sub_tensor in enumerate(f.subfunctions):

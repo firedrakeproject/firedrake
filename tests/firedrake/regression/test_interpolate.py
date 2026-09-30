@@ -752,6 +752,24 @@ def test_interpolator_reuse(family, degree, mode):
 
 
 @pytest.mark.parallel([1, 3])
+def test_interpolation_matrix_into_tensor():
+    mesh = UnitSquareMesh(2, 2)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    c = Constant(1.0)
+    expr = interpolate(c * TrialFunction(V1), V2)
+
+    tensor = assemble(expr)
+    expected = tensor.petscmat.copy()
+    expected.scale(2.0)
+
+    c.assign(2.0)
+    assert assemble(expr, tensor=tensor) is tensor
+    expected.axpy(-1.0, tensor.petscmat)
+    assert np.isclose(expected.norm(), 0.0)
+
+
+@pytest.mark.parallel([1, 3])
 def test_same_space_interp_bcs():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
