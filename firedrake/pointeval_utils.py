@@ -194,7 +194,8 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     PetscErrorCode locate_err = locate_cell_from_candidates(
             f, x, &to_reference_coords, &to_reference_coords_xtr,
             &temp_reference_coords, &found_reference_coords,
-            &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore, &cell);
+            &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore,
+            NULL, &cell, NULL);
     rtree_free_ids(ids, nids);
     if (locate_err != PETSC_SUCCESS) {
         return locate_err;
