@@ -66,7 +66,7 @@ source/demos: copy_demos
 copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
-	for file in source/demos/*.py.rst; do pylit $$file; done
+	for file in source/demos/*.py.rst; do pylit --code-block-marker ".. code-block:: python" $$file; done
 
 NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
 EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))

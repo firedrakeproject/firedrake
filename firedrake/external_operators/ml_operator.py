@@ -1,5 +1,5 @@
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
-from firedrake.matrix import AssembledMatrix
+from firedrake.matrix import Matrix
 
 
 class MLOperator(AbstractExternalOperator):
@@ -58,20 +58,16 @@ class MLOperator(AbstractExternalOperator):
         """Assemble the Jacobian using the AD engine of the ML framework."""
         # Delegate computation to the ML framework.
         J = self._jac()
-        # Set bcs
-        bcs = ()
-        return AssembledMatrix(self, bcs, J)
+        return Matrix(self, J)
 
     @assemble_method(1, (1, 0))
     def assemble_jacobian_adjoint(self, *args, **kwargs):
         """Assemble the Jacobian Hermitian transpose using the AD engine of the ML framework."""
         # Delegate computation to the ML framework.
         J = self._jac()
-        # Set bcs
-        bcs = ()
         # Take the adjoint (Hermitian transpose)
         J.hermitianTranspose()
-        return AssembledMatrix(self, bcs, J)
+        return Matrix(self, J)
 
     @assemble_method(1, (0, None))
     def assemble_jacobian_action(self, *args, **kwargs):
