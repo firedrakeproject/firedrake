@@ -859,7 +859,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
         if self.rank == 1:
             f = tensor or Function(self.ufl_interpolate.function_space())
-            if tensor is None and self.access in {op2.MIN, op2.MAX}:
+            if tensor is None:
                 self._initialize_minmax(f)
             self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
             if self.ufl_interpolate.is_adjoint:
