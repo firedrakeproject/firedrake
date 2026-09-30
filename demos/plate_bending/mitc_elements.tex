@@ -20,8 +20,18 @@
         \draw[draw=black, thick] (1,1.732) -- (1.5,0.866);
         \draw[draw=black, thick] (1,0) -- (0.5,0.866);
         \draw[draw=black, thick] (1,0) -- (1.5,0.866);
-        \foreach \p in {(0,0), (2,0), (1,1.732), (1,0), (0.5,0.866), (1.5,0.866)} \fill[black] \p circle (2pt);
+        % Two dots at each node for the two components of the rotation
+        \foreach \p in {(0,0), (2,0), (1,1.732), (1,0), (0.5,0.866), (1.5,0.866)} {
+            \fill[black] \p ++(-0.08,0) circle (2pt);
+            \fill[black] \p ++(0.08,0) circle (2pt);
+        }
         \node at (1,-0.5) {P1-iso-P2};
+    \end{scope}
+
+    % Reduction operator
+    \begin{scope}[shift={(0,0)}]
+        \draw[->, very thick, black] (6.1,0.866) -- (7.9,0.866);
+        \node at (7,1.25) {$\Pi_h$};
     \end{scope}
 
     % Nédélec (1st kind) Element - Filled
