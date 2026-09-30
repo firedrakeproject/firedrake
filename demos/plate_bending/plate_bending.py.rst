@@ -128,14 +128,17 @@ The following diagram shows the element spaces:
 .. image:: mitc_elements.svg
    :align: center
 
-* **P1**: the linear Lagrange element for the deflection :math:`w`.
-* **P1-iso-P2**: a macroelement that divides each triangle into four smaller
-  triangles, with linear Lagrange elements on each one. We use it for the
-  rotation :math:`\boldsymbol{\beta}`. The double dots denote degrees of
-  freedom that evaluate a vector-valued function at a point.
-* **Nédélec 1**: the :math:`H(\mathrm{curl})`-conforming space
-  :math:`\boldsymbol{R}_h` for the reduction operator. The arrows show the
-  tangential degrees of freedom on the edges.
+* `P1 <https://defelement.org/elements/lagrange.html>`__: the linear
+  Lagrange element for the deflection :math:`w`.
+* `P1-iso-P2 <https://defelement.org/elements/p1-iso-p2.html>`__: a
+  macroelement that divides each triangle into four smaller triangles, with
+  linear Lagrange elements on each one. We use it for the rotation
+  :math:`\boldsymbol{\beta}`. The double dots denote degrees of freedom that
+  evaluate a vector-valued function at a point.
+* `Nédélec 1 <https://defelement.org/elements/nedelec1.html>`__: the
+  :math:`H(\mathrm{curl})`-conforming space :math:`\boldsymbol{R}_h` for the
+  reduction operator. The arrows show the tangential degrees of freedom on the
+  edges.
 
 The P1-iso-P2 macroelement divides each edge in two. Thus the edge moments of
 the Nédélec space must use a composite quadrature rule on the divided edges,
@@ -218,11 +221,13 @@ linear Lagrange discretisation of the membrane problem. Thus
 .. image:: morley_elements.svg
    :align: center
 
-* **Morley**: the quadratic nonconforming element for fourth-order problems.
-  Its degrees of freedom are the values at the vertices and the mean normal
-  derivatives on the edges, which the arrows show.
-* **P1**: the linear Lagrange element. The reduction operator keeps the values
-  at the vertices and ignores the normal derivatives.
+* `Morley <https://defelement.org/elements/morley.html>`__: the quadratic
+  nonconforming element for fourth-order problems. Its degrees of freedom are
+  the values at the vertices and the mean normal derivatives on the edges,
+  which the arrows show.
+* `P1 <https://defelement.org/elements/lagrange.html>`__: the linear
+  Lagrange element. The reduction operator keeps the values at the vertices
+  and ignores the normal derivatives.
 
 Firedrake does not apply strong boundary conditions to the Morley element,
 because not all of its degrees of freedom are point values. Thus we apply both
@@ -344,12 +349,15 @@ UFL, the curvature is ``grad(interpolate(grad(w), Theta))``.
    :align: center
 
 * **Reduced Hermite**: the deflection space :math:`W_h`. Its degrees of freedom
-  are the values and the gradients at the vertices. It is the cubic Hermite
-  element with one constraint that removes the interior degree of freedom.
+  are the values and the gradients at the vertices. It is the cubic
+  `Hermite <https://defelement.org/elements/hermite.html>`__ element with one
+  constraint that removes the interior degree of freedom.
 * **Rotated Bernardi--Raugel**: the vector-valued space :math:`\Theta_h`. It is
-  the vector linear Lagrange space with a tangential bubble on each edge. The
-  discrete gradient keeps the gradient at the vertices and the tangential
-  component on each edge.
+  the vector linear Lagrange space with a tangential bubble on each edge, and
+  it rotates the normal bubbles of the
+  `Bernardi--Raugel <https://defelement.org/elements/bernardi-raugel.html>`__
+  element. The discrete gradient keeps the gradient at the vertices and the
+  tangential component on each edge.
 
 The boundary condition on :math:`W_h` sets the values and the gradients at the
 boundary vertices to zero. The discrete gradient of the solution is then zero
