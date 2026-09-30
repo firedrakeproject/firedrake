@@ -28,7 +28,6 @@ from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
 from firedrake.formmanipulation import split_form
 from firedrake.functionspace import VectorFunctionSpace, TensorFunctionSpace, FunctionSpace
-from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.exceptions import (
@@ -388,14 +387,6 @@ class Interpolator(abc.ABC):
         if self.rank == 2 and mat_type not in self._allowed_mat_types:
             raise NotImplementedError(f"Assembly of matrix type {mat_type} not implemented yet for {type(self).__name__}.")
 
-    def _initialize_minmax(self, tensor: Function | Cofunction) -> Function | Cofunction:
-        """Initialize a newly allocated tensor for a minimum or maximum reduction."""
-        if self.access in {op2.MIN, op2.MAX}:
-            finfo = numpy.finfo(tensor.dat.dtype)
-            value = finfo.max if self.access == op2.MIN else finfo.min
-            tensor.assign(Constant(value))
-        return tensor
-
 
 def get_interpolator(expr: Interpolate) -> Interpolator:
     """Create an Interpolator.
@@ -726,27 +717,54 @@ class SameMeshInterpolator(Interpolator):
     def _weighted_dual_arg(self):
         return Function(self.dual_arg.function_space())
 
-    @cached_property
-    def _adjoint_weight(self):
-        W = self.dual_arg.function_space()
-        weight = W.make_dat()
-        if len(W) > 1:
-            spaces_and_weights = zip(W, weight)
-        else:
-            spaces_and_weights = ((W, weight),)
+    def _par_loop_target_nodes(self, f: Function | Cofunction, name: str,
+                               value: float, access: Literal[op2.WRITE, op2.INC, op2.MIN, op2.MAX]) -> None:
+        """Write or increment ``value`` at each node of ``f`` in the cells of the iteration set.
 
+        Parameters
+        ----------
+        f
+            The function or cofunction on the target space to update.
+        name
+            The prefix of the generated kernel names.
+        value
+            The value to write or to add.
+        access
+            The access descriptor of the par_loop.
+        """
+        operator = "+=" if access is op2.INC else "="
         target_mesh = self.target_mesh.unique()
         iterset = target_mesh.cell_set if self.subset is None else self.subset
-        for i, (V, component_weight) in enumerate(spaces_and_weights):
-            node_map = get_assembly_entity_node_map(V, target_mesh)
-            size = V.finat_element.space_dimension() * V.block_size
+        for k, fk in enumerate(f.subfunctions):
+            node_map = get_assembly_entity_node_map(fk.function_space(), target_mesh)
             kernel_code = f"""
-            void multiplicity_{i}(PetscScalar *restrict w) {{
-                for (PetscInt i=0; i<{size}; i++) w[i] += 1;
+            void {name}_{k}(PetscScalar *restrict w) {{
+                for (PetscInt i=0; i<{node_map.arity * fk.dat.cdim}; i++) w[i] {operator} {value!r};
             }}"""
-            kernel = op2.Kernel(kernel_code, f"multiplicity_{i}")
-            op2.par_loop(kernel, iterset, component_weight(op2.INC, node_map))
-        with weight.vec as weight_vec:
+            kernel = op2.Kernel(kernel_code, f"{name}_{k}")
+            op2.par_loop(kernel, iterset, fk.dat(access, node_map))
+
+    def _initialize_minmax(self, tensor: Function | Cofunction) -> None:
+        """Set the identity of the MIN or MAX reduction on the nodes that the interpolation reaches.
+
+        The other nodes keep the zero of a newly allocated tensor.
+        """
+        # A node can be reached only from the halo cells of its owner. The
+        # opposite reduction carries the identity from the halo copies to the
+        # owner. Therefore, the MIN identity is written with MAX access, and the
+        # MAX identity with MIN access.
+        finfo = numpy.finfo(tensor.dat.dtype)
+        if self.access is op2.MIN:
+            value, access = float(finfo.max), op2.MAX
+        else:
+            value, access = float(finfo.min), op2.MIN
+        self._par_loop_target_nodes(tensor, "minmax_init", value, access)
+
+    @cached_property
+    def _adjoint_weight(self):
+        weight = Function(self.dual_arg.function_space())
+        self._par_loop_target_nodes(weight, "multiplicity", 1.0, op2.INC)
+        with weight.dat.vec as weight_vec:
             weight_vec.reciprocal()
         return weight
 
@@ -764,7 +782,7 @@ class SameMeshInterpolator(Interpolator):
 
     def _update_weighted_dual_arg(self):
         self.dual_arg.dat.copy(self._weighted_dual_arg.dat)
-        with self._adjoint_weight.vec_ro as weight, self._weighted_dual_arg.dat.vec as dual:
+        with self._adjoint_weight.dat.vec_ro as weight, self._weighted_dual_arg.dat.vec as dual:
             dual.pointwiseMult(dual, weight)
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
@@ -853,8 +871,6 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
 
         if self.rank == 1:
             f = tensor or Function(self.ufl_interpolate.function_space())
-            if tensor is None:
-                self._initialize_minmax(f)
             self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)

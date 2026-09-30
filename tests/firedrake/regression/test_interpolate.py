@@ -61,6 +61,25 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
     assert np.allclose(f.dat.data_ro, expected)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+def test_subset_interpolation_reduction(access):
+    mesh = UnitSquareMesh(2, 2)
+    x, y = SpatialCoordinate(mesh)
+    indicator = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x < 0.5, 1, 0))
+    mesh = RelabeledMesh(mesh, [indicator], [100])
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    subset = mesh.cell_subset(100)
+
+    # The DoFs outside the cells of the subset receive no value, so they stay zero.
+    exact = assemble(interpolate(x + y, V))
+    reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op2.INC))
+    expected = np.where(reached.dat.data_ro > 0, exact.dat.data_ro, 0)
+    reduced = assemble(interpolate(x + y, V, subset=subset, access=access))
+    assert np.allclose(reduced.dat.data_ro, expected)
+
+
 @pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
 def test_cross_mesh_interpolation_reduction(access):
     source_mesh = UnitSquareMesh(4, 4)
