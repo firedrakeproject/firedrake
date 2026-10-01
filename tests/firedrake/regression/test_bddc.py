@@ -11,7 +11,7 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False, adaptive=False,
+def bddc_params(mat_type="is", cellwise=False, adaptive=False, subdomain_size=None,
                 use_divergence=None, use_gradient=None, corner_selection=None, debug=0):
     chol = {
         "pc_type": "cholesky",
@@ -27,6 +27,8 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False,
         "bddc_pc_bddc_coarse": chol,
         "bddc_debug": debug,
     }
+    if subdomain_size is not None:
+        sp["bddc_subdomain_size"] = subdomain_size
     if use_gradient is not None:
         # defaults to True for 3D H(curl) spaces
         sp["bddc_use_discrete_gradient"] = use_gradient
@@ -99,7 +101,8 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
     return sp
 
 
-def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False,
+                    subdomain_size=None):
     """Solve the riesz map for a random manufactured solution and return the
        square root of the estimated condition number."""
     dirichlet_ids = []
@@ -167,7 +170,7 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
 
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
-                           use_divergence=use_divergence, adaptive=adaptive)
+                           use_divergence=use_divergence, adaptive=adaptive, subdomain_size=subdomain_size)
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
@@ -292,6 +295,14 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family,degree", [("CG", 3), ("N1div", 2)])
+def test_bddc_subdomain_size(rg, family, degree):
+    """Test BDDC on several subdomains on each process"""
+    mesh = UnitSquareMesh(8, 8)
+    solve_riesz_map(rg, mesh, family, degree, None, True, subdomain_size=16)
+
+
 @pytest.mark.skipcomplex(
     reason="Adaptive BDDC's sub-Schur factorization assumes SPD matrices, unsupported for complex Hermitian systems"
 )
@@ -310,16 +321,17 @@ def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
 
 
 @pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("subdomain_size", (None, 4))
 @pytest.mark.parametrize("cellwise", (True, False))
 @pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
-def test_create_matis(local_mat_type, cellwise):
+def test_create_matis(local_mat_type, cellwise, subdomain_size):
     from firedrake.preconditioners.bddc import create_matis
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
     a = inner(grad(TrialFunction(V)), grad(TestFunction(V)))*dx
     A = assemble(a, mat_type="matfree").petscmat
 
-    A, assembler = create_matis(A, local_mat_type, cellwise=cellwise)
+    A, assembler = create_matis(A, local_mat_type, cellwise=cellwise, subdomain_size=subdomain_size)
     B = assemble(a, mat_type=local_mat_type).petscmat
     if local_mat_type == "matfree":
         Ax, x = A.createVecs()
