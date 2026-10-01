@@ -86,6 +86,19 @@ def test_broken_mesh_standard_spaces_and_cross_mesh_trace():
     assert assemble(q * jump**2 * dS_gamma) == pytest.approx(1.0)
 
 
+@pytest.mark.parallel(nprocs=[1, 2, 3])
+def test_broken_mesh_matrix_action():
+    _, broken = broken_mesh()
+    V = FunctionSpace(broken, "CG", 1)
+    x, y = SpatialCoordinate(broken)
+    u = Function(V).interpolate(1 + x * y)
+    v = TestFunction(V)
+    A = assemble(inner(TrialFunction(V), v) * dx)
+    Au = assemble(inner(u, v) * dx)
+    with u.dat.vec_ro as u_vec, Au.dat.vec_ro as Au_vec:
+        assert (A.petscmat * u_vec - Au_vec).norm() < 1e-12
+
+
 GAMMA = 99
 
 

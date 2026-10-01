@@ -5137,6 +5137,10 @@ def _child_mesh_from_plex(mesh: MeshGeometry, plex: PETSc.DMPlex, name: str,
         The child mesh, with ``mesh`` as its ``submesh_parent``.
     """
     plex.setName(_generate_default_mesh_topology_name(name))
+    # The plex inherits the parent labels, but the entity classes must
+    # follow the point SF of the child plex.
+    for class_label_name in ("pyop2_core", "pyop2_owned", "pyop2_ghost"):
+        plex.removeLabel(class_label_name)
     if reorder is None:
         # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
