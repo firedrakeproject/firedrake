@@ -27,8 +27,6 @@ def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
-    mesh = Vf.mesh()
-    assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
     hierarchyc, levelc = get_level(Vc.mesh())
 
@@ -41,7 +39,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = _cache_key(Vc, Vf)
-    cache = mesh._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
+    cache = hierarchy._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
     try:
         return cache[key]
     except KeyError:
@@ -70,8 +68,6 @@ def coarse_node_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
-    mesh = Vc.mesh()
-    assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
     hierarchyc, levelc = get_level(Vc.mesh())
 
@@ -84,7 +80,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = _cache_key(Vc, Vf)
-    cache = mesh._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
+    cache = hierarchy._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
     try:
         return cache[key]
     except KeyError:
@@ -119,8 +115,6 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
         return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
-    mesh = Vc.mesh()
-    assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
     hierarchyc, levelc = get_level(Vc.mesh())
 
@@ -133,7 +127,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = _cache_key(Vc, Vf, needs_coarse_entity_dofs=False)
-    cache = mesh._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
+    cache = hierarchy._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
     try:
         return cache[key]
     except KeyError:
@@ -195,7 +189,6 @@ def coarse_cell_child_count(
 
     """
     mesh = Vc.mesh()
-    assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
     hierarchyc, levelc = get_level(Vc.mesh())
 
@@ -208,7 +201,7 @@ def coarse_cell_child_count(
         raise ValueError(f"Can't map between level {levelc} and level {levelf}")
 
     key = (levelc, Vc.extruded and (Vf.mesh().layers, Vc.mesh().layers))
-    cache = mesh._shared_data_cache["hierarchy_coarse_cell_child_count"]
+    cache = hierarchy._shared_data_cache["hierarchy_coarse_cell_child_count"]
     try:
         return cache[key]
     except KeyError:
