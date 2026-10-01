@@ -175,6 +175,22 @@ def test_refine_marked_elements_coarsens():
 
 
 @pytest.mark.parallel([1, 3])
+def test_refine_marked_elements_coarsens_past_parent():
+    """Coarsening can undo more rounds than the refinement that produced the mesh."""
+    base = UnitCubeMesh(4, 4, 4)
+    M = FunctionSpace(base, "DG", 0)
+    mesh = base.refine_marked_elements(Function(M).assign(1))
+    mesh = mesh.refine_marked_elements(Function(FunctionSpace(mesh, "DG", 0)).assign(1))
+    x = SpatialCoordinate(mesh)
+    coarsened = mesh.refine_marked_elements(
+        Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -2, 0)))
+
+    x = SpatialCoordinate(base)
+    expected = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 2, 0)))
+    _assert_same_mesh(coarsened, expected)
+
+
+@pytest.mark.parallel([1, 3])
 def test_refine_marked_elements_refines_and_coarsens():
     """A marker with both signs refines some cells and coarsens others."""
     base = UnitCubeMesh(4, 4, 4)

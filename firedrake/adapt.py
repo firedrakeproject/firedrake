@@ -82,15 +82,17 @@ def refine_marked_elements(mesh, cell_marker):
     cell_marker
         A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
         positive value ``n`` are refined ``n`` times. Cells with a negative
-        value ``-n`` ask to undo ``n`` rounds of the refinement that produced
-        ``mesh``. A cell of the adaptive parent of ``mesh`` is coarsened
-        only as far as all the cells that it was refined into ask.
+        value ``-n`` ask to undo ``n`` rounds of refinement, which can go
+        past the adaptive parent of ``mesh`` to its own ancestors. A cell of
+        an ancestor is coarsened only as far as all the cells that it was
+        refined into ask.
 
     Returns
     -------
     MeshGeometry
         The adapted mesh. Its ``_adaptive_parent`` is ``mesh`` after a
-        refinement, and the adaptive parent of ``mesh`` after a coarsening.
+        refinement, and the adaptive parent of ``mesh``, coarsened as far as
+        needed, after a coarsening.
         A marker with both signs first coarsens ``mesh``, and then refines
         the coarsened mesh, which becomes the adaptive parent. Its ``_adaptive_fine_to_coarse_points`` is the DMPlex point of that
         parent that each of its DMPlex points was refined from.
@@ -169,8 +171,20 @@ def _coarsen_marked_elements(mesh, cell_marker):
     # The -1 padding of coarse_to_fine reads the appended entry, which never raises the maximum.
     requests = np.append(np.rint(cell_marker.dat.data_ro.real), -np.inf)
     rounds = np.maximum(-requests[coarse_to_fine].max(axis=1), 0)
+    stored = mesh._adaptive_marker.dat.data_ro.real
     marker = Function(mesh._adaptive_marker.function_space())
-    marker.dat.data_wo[:] = np.maximum(mesh._adaptive_marker.dat.data_ro.real - rounds, 0)
+    marker.dat.data_wo[:] = np.maximum(stored - rounds, 0)
+
+    # The rounds that the refinement of the parent cannot undo coarsen the parent itself.
+    remaining = Function(marker.function_space())
+    remaining.dat.data_wo[:] = np.minimum(stored - rounds, 0)
+    with remaining.dat.vec_ro as v:
+        _, most_remaining = v.min()
+    if most_remaining < 0 and parent._adaptive_parent is not None:
+        from firedrake.mg.interface import prolong
+        coarsened = refine_marked_elements(parent, remaining)
+        marker = prolong(marker, Function(FunctionSpace(coarsened, "DG", 0)))
+        parent = coarsened
     return refine_marked_elements(parent, marker)
 
 
