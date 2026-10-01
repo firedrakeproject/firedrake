@@ -2491,6 +2491,7 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # these are set by firedrake.adapt.refine_marked_elements
         self._adaptive_parent = None
         self._adaptive_fine_to_coarse_points = None
+        self._adaptive_marker = None
 
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
@@ -3060,21 +3061,25 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def refine_marked_elements(self, mark):
-        """Adaptively refine a mesh using a DG0 marking function.
+        """Adaptively refine or coarsen a mesh using a DG0 marking function.
 
         Parameters
         ----------
         mark
             A DG0 `~firedrake.function.Function` on this mesh: cells
-            with a positive value ``n`` are refined ``n`` times.
+            with a positive value ``n`` are refined ``n`` times. Cells with
+            a negative value ``-n`` ask to undo ``n`` rounds of the
+            refinement that produced this mesh. A cell is coarsened only as
+            far as all the cells that it was refined into ask.
 
         Returns
         -------
         MeshGeometry
-            The adaptively refined mesh, recording this mesh as its
-            ``_adaptive_parent`` and the DMPlex points relative to it as its
-            ``_adaptive_fine_to_coarse_points``, ready to be passed to
-            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
+            The adapted mesh. After a refinement, it records this mesh as
+            its ``_adaptive_parent`` and the DMPlex points relative to it as
+            its ``_adaptive_fine_to_coarse_points``, ready to be passed to
+            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. After a
+            coarsening, it records the adaptive parent of this mesh instead.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)

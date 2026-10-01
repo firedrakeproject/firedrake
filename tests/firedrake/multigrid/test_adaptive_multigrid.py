@@ -151,6 +151,54 @@ def test_refine_marked_elements_repeats(coarse_mesh):
     assert max_children[2] > max_children[1]
 
 
+def _assert_same_mesh(mesh, expected):
+    for dim in (0, mesh.topological_dimension):
+        sizes = [m.comm.allreduce(len(range(*m.topology_dm.getDepthStratum(dim)))) for m in (mesh, expected)]
+        assert sizes[0] == sizes[1]
+    assert np.isclose(assemble(1*dx(mesh)), assemble(1*dx(expected)))
+
+
+@pytest.mark.parallel([1, 3])
+def test_refine_marked_elements_coarsens():
+    """A negative marker value coarsens the cells that a refinement produced."""
+    base = UnitCubeMesh(4, 4, 4)
+    M = FunctionSpace(base, "DG", 0)
+    mesh = base.refine_marked_elements(Function(M).assign(1))
+    # The plane x = 1/2 is made of faces of base.
+    x = SpatialCoordinate(mesh)
+    coarsened = mesh.refine_marked_elements(
+        Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 0)))
+
+    x = SpatialCoordinate(base)
+    expected = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 1, 0)))
+    _assert_same_mesh(coarsened, expected)
+
+
+@pytest.mark.parallel([1, 3])
+def test_refine_marked_elements_coarsens_unanimously():
+    """A cell is coarsened only if all the cells that it was refined into ask."""
+    base = UnitCubeMesh(4, 4, 4)
+    M = FunctionSpace(base, "DG", 0)
+    mesh = base.refine_marked_elements(Function(M).assign(1))
+    point = (0.1, 0.2, 0.3)
+    marker = Function(FunctionSpace(mesh, "DG", 0)).assign(-1)
+    cell = mesh.locate_cell(point)
+    # Every rank must access the halo data, since the access is collective.
+    data = marker.dat.data_with_halos
+    if cell is not None:
+        data[cell] = 0
+    coarsened = mesh.refine_marked_elements(marker)
+
+    expected_marker = Function(M)
+    cell = base.locate_cell(point)
+    # Every rank must access the halo data, since the access is collective.
+    data = expected_marker.dat.data_with_halos
+    if cell is not None:
+        data[cell] = 1
+    expected = base.refine_marked_elements(expected_marker)
+    _assert_same_mesh(coarsened, expected)
+
+
 def test_add_mesh_rejects_unrelated_mesh():
     """Cell maps are only meaningful relative to the mesh they were built
     against, so a mesh refined from anything but the finest level is refused
