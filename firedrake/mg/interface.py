@@ -124,6 +124,12 @@ def _prolong(coarse, fine):
 
 @PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
+    with utils.adaptive_transfer_levels(ufl_expr.extract_unique_domain(coarse_dual),
+                                        ufl_expr.extract_unique_domain(fine_dual)):
+        return _restrict(fine_dual, coarse_dual)
+
+
+def _restrict(fine_dual, coarse_dual):
     check_arguments(coarse_dual, fine_dual, needs_dual=True)
     Vf = fine_dual.function_space()
     Vc = coarse_dual.function_space()

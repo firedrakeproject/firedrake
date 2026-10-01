@@ -657,6 +657,29 @@ def test_prolong_step_between_adapted_meshes(adapted_meshes):
 
 
 @pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family, degree", [("CG", 2), ("DG", 1)])
+def test_restrict_between_adapted_meshes(adapted_meshes, family, degree):
+    old, new = adapted_meshes
+    Vold = FunctionSpace(old, family, degree)
+    Vnew = FunctionSpace(new, family, degree)
+    x = SpatialCoordinate(old)
+    uold = Function(Vold).interpolate(sin(3*x[0]) * exp(x[1]) * cos(2*x[2]))
+    y = SpatialCoordinate(new)
+    rnew = assemble(inner(cos(y[0] + 2*y[1]) * exp(y[2]), TestFunction(Vnew)) * dx)
+
+    rold = Cofunction(Vold.dual())
+    restrict(rnew, rold)
+    unew = Function(Vnew)
+    prolong(uold, unew)
+    # Restriction is the adjoint of prolongation.
+    with rold.dat.vec_ro as r, uold.dat.vec_ro as u:
+        lhs = r.dot(u)
+    with rnew.dat.vec_ro as r, unew.dat.vec_ro as u:
+        rhs = r.dot(u)
+    assert np.isclose(lhs, rhs, rtol=1e-12)
+
+
+@pytest.mark.parallel([1, 3])
 def test_prolong_between_adapted_meshes_keeps_hierarchy(adapted_meshes):
     old, new = adapted_meshes
     mh = MeshHierarchy(new._adaptive_parent)
