@@ -13,16 +13,19 @@ from pyop3.dtypes import IntType
 # ---
 cimport numpy as np_c
 
-from petsctools cimport cpetsc as petsc_c
+from mpi4py cimport libmpi as cmpi
+from mpi4py cimport MPI
+from petsctools cimport cpetsc
 from petsctools.cpetsc cimport CHKERR as CHKERR_c
 
 
+
 def filter_petsc_sf(
-    sf: petsc_c.PetscSF_py,
+    sf: cpetsc.PetscSF_py,
     selected_points: np_c.ndarray[IntType],  # TODO: IS?
-    p_start: petsc_c.PetscInt,
-    p_end: petsc_c.PetscInt,
-) -> petsc_c.PetscSF_py:
+    p_start: cpetsc.PetscInt,
+    p_end: cpetsc.PetscInt,
+) -> cpetsc.PetscSF_py:
     """
     neednt be ordered
 
@@ -30,11 +33,11 @@ def filter_petsc_sf(
 
     """
     cdef:
-        petsc_c.PetscSF_py     sf_filtered
-        petsc_c.PetscSection_py section
+        cpetsc.PetscSF_py     sf_filtered
+        cpetsc.PetscSection_py section
 
-        petsc_c.PetscInt      npoints_c, i_c, p_c
-        petsc_c.PetscInt      *remoteOffsets_c = NULL
+        cpetsc.PetscInt      npoints_c, i_c, p_c
+        cpetsc.PetscInt      *remoteOffsets_c = NULL
 
     npoints_c = len(selected_points)
     if npoints_c > 0:
@@ -46,13 +49,13 @@ def filter_petsc_sf(
     section.setChart(p_start, p_end)
     for i_c in range(npoints_c):
         p_c = selected_points[i_c]
-        CHKERR_c(petsc_c.PetscSectionSetDof(section.sec, p_c, 1))
+        CHKERR_c(cpetsc.PetscSectionSetDof(section.sec, p_c, 1))
     section.setUp()
 
     return create_petsc_section_sf(sf, section)
 
 
-def create_petsc_section_sf(sf: petsc_c.PetscSF_py, section: petsc_c.PetscSection_py) -> PETSc.SF:
+def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_py) -> PETSc.SF:
     """Create the halo exchange sf.
 
     Parameters
@@ -71,62 +74,46 @@ def create_petsc_section_sf(sf: petsc_c.PetscSF_py, section: petsc_c.PetscSectio
 
     """
     cdef:
-        petsc_c.PetscSF_py point_sf, halo_exchange_sf
-        petsc_c.PetscSection_py local_sec
-        np_c.ndarray local_offsets
-        np_c.ndarray remote_offsets
+        cpetsc.PetscSF_py point_sf, halo_exchange_sf
+        cpetsc.PetscSection_py local_sec
+        cpetsc.PetscInt *local_offsets = NULL
+        cpetsc.PetscInt *remote_offsets = NULL
 
-        petsc_c.PetscInt dof_nroots, dof_nleaves
-        petsc_c.PetscInt *dof_ilocal = NULL
-        petsc_c.PetscSFNode *dof_iremote = NULL
-        petsc_c.PetscInt nroots, nleaves
-        const petsc_c.PetscInt *ilocal = NULL
-        const petsc_c.PetscSFNode *iremote = NULL
-        petsc_c.PetscInt pStart, pEnd, p, dof, off, m, n, i, j
+        cpetsc.PetscInt dof_nroots, dof_nleaves
+        cpetsc.PetscInt *dof_ilocal = NULL
+        cpetsc.PetscSFNode *dof_iremote = NULL
+        cpetsc.PetscInt nroots, nleaves
+        const cpetsc.PetscInt *ilocal = NULL
+        const cpetsc.PetscSFNode *iremote = NULL
+        cpetsc.PetscInt pStart, pEnd, p, dof, off, m, n, i, j
 
     point_sf = sf
     local_sec = section
-    CHKERR_c(petsc_c.PetscSFGetGraph(point_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+    CHKERR_c(cpetsc.PetscSFGetGraph(point_sf.sf, &nroots, &nleaves, &ilocal, &iremote))
     pStart, pEnd = local_sec.getChart()
     assert pEnd - pStart == nroots, f"pEnd - pStart ({pEnd - pStart}) != nroots ({nroots})"
     assert pStart == 0
     m = 0
-    local_offsets = np.empty(pEnd - pStart, dtype=IntType)
-    remote_offsets = np.full(pEnd - pStart, -1, dtype=IntType)
+    CHKERR_c(cpetsc.PetscMalloc1(pEnd-pStart, &local_offsets))
+    CHKERR_c(cpetsc.PetscMalloc1(pEnd-pStart, &remote_offsets))  # fill with -1s
     for p in range(pStart, pEnd):
-        CHKERR_c(petsc_c.PetscSectionGetDof(local_sec.sec, p, &dof))
-        CHKERR_c(petsc_c.PetscSectionGetOffset(local_sec.sec, p, &off))
-        local_offsets[p] = off
+        remote_offsets[p] = -1
+    # local_offsets = np.empty(pEnd - pStart, dtype=IntType)
+    # remote_offsets = np.full(pEnd - pStart, -1, dtype=IntType)
+    for p in range(pStart, pEnd):
+        CHKERR_c(cpetsc.PetscSectionGetDof(local_sec.sec, p, &dof))
+        CHKERR_c(cpetsc.PetscSectionGetOffset(local_sec.sec, p, &local_offsets[p]))
         m += dof
-    unit = MPI._typedict[np.dtype(IntType).char]
-    point_sf.bcastBegin(unit, local_offsets, remote_offsets, MPI.REPLACE)
-    point_sf.bcastEnd(unit, local_offsets, remote_offsets, MPI.REPLACE)
-    n = 0
-    # ilocal == NULL if local leaf points are [0, 1, 2, ...).
-    for i in range(nleaves):
-        p = ilocal[i] if ilocal else i
-        CHKERR_c(petsc_c.PetscSectionGetDof(local_sec.sec, p, &dof))
-        n += dof
-    CHKERR_c(petsc_c.PetscMalloc1(n, &dof_ilocal))
-    CHKERR_c(petsc_c.PetscMalloc1(n, &dof_iremote))
-    n = 0
-    for i in range(nleaves):
-        # ilocal == NULL if local leaf points are [0, 1, 2, ...).
-        p = ilocal[i] if ilocal else i
-        assert remote_offsets[p] >= 0
-        CHKERR_c(petsc_c.PetscSectionGetDof(local_sec.sec, p, &dof))
-        CHKERR_c(petsc_c.PetscSectionGetOffset(local_sec.sec, p, &off))
-        for j in range(dof):
-            dof_ilocal[n] = off + j
-            dof_iremote[n].rank = iremote[i].rank
-            dof_iremote[n].index = remote_offsets[p] + j
-            n += 1
+    cdef MPI.Datatype unit = MPI._typedict[np.dtype(IntType).char]
+    CHKERR_c(cpetsc.PetscSFBcastBegin(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
+    CHKERR_c(cpetsc.PetscSFBcastEnd(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
+
     halo_exchange_sf = PETSc.SF().create(comm=point_sf.comm)
-    CHKERR_c(petsc_c.PetscSFSetGraph(halo_exchange_sf.sf, m, n, dof_ilocal, petsc_c.PETSC_OWN_POINTER, dof_iremote, petsc_c.PETSC_OWN_POINTER))
+    CHKERR_c(cpetsc.PetscSFCreateSectionSF(sf.sf, section.sec, remote_offsets, section.sec, &halo_exchange_sf.sf))
     return halo_exchange_sf
 
 
-def renumber_petsc_sf(sf: petsc_c.PetscSF_py, renumbering: petsc_c.IS_py) -> petsc_c.PetscSF_py:
+def renumber_petsc_sf(sf: cpetsc.PetscSF_py, renumbering: cpetsc.IS_py) -> cpetsc.PetscSF_py:
     """Renumber an SF.
 
     Parameters
@@ -148,11 +135,11 @@ def renumber_petsc_sf(sf: petsc_c.PetscSF_py, renumbering: petsc_c.IS_py) -> pet
 
     """
     cdef:
-        petsc_c.PetscSF_py      sf_renum
-        petsc_c.PetscSection_py section
+        cpetsc.PetscSF_py      sf_renum
+        cpetsc.PetscSection_py section
 
-        petsc_c.PetscInt      npoints_c, p_c
-        petsc_c.PetscInt      *remoteOffsets_c = NULL
+        cpetsc.PetscInt      npoints_c, p_c
+        cpetsc.PetscInt      *remoteOffsets_c = NULL
 
     npoints_c = renumbering.getLocalSize()
 
@@ -160,7 +147,7 @@ def renumber_petsc_sf(sf: petsc_c.PetscSF_py, renumbering: petsc_c.IS_py) -> pet
     section = PETSc.Section().create(MPI.COMM_SELF)
     section.setChart(0, npoints_c)
     for p_c in range(npoints_c):
-        CHKERR_c(petsc_c.PetscSectionSetDof(section.sec, p_c, 1))
+        CHKERR_c(cpetsc.PetscSectionSetDof(section.sec, p_c, 1))
     section.setPermutation(renumbering)
     section.setUp()
 
