@@ -1,6 +1,7 @@
 """Adaptive mesh refinement helpers."""
 import numpy as np
 import petsctools
+from ufl import max_value
 
 from firedrake.cython import dmcommon
 from firedrake.cython import mgimpl as impl
@@ -90,7 +91,8 @@ def refine_marked_elements(mesh, cell_marker):
     MeshGeometry
         The adapted mesh. Its ``_adaptive_parent`` is ``mesh`` after a
         refinement, and the adaptive parent of ``mesh`` after a coarsening.
-        Its ``_adaptive_fine_to_coarse_points`` is the DMPlex point of that
+        A marker with both signs first coarsens ``mesh``, and then refines
+        the coarsened mesh, which becomes the adaptive parent. Its ``_adaptive_fine_to_coarse_points`` is the DMPlex point of that
         parent that each of its DMPlex points was refined from.
 
     """
@@ -98,9 +100,14 @@ def refine_marked_elements(mesh, cell_marker):
         _, num_coarsenings = v.min()
         _, num_refinements = v.max()
     if num_coarsenings < 0:
-        if num_refinements > 0:
-            raise NotImplementedError("Cannot refine and coarsen in the same call")
-        return _coarsen_marked_elements(mesh, cell_marker)
+        coarsened = _coarsen_marked_elements(mesh, cell_marker)
+        if num_refinements <= 0:
+            return coarsened
+        # A cell with a positive marker stops the coarsening of its ancestor,
+        # so the coarsened mesh still has the cells that the positive markers refine.
+        from firedrake.mg.interface import prolong
+        refinements = Function(cell_marker.function_space()).interpolate(max_value(cell_marker, 0))
+        return refine_marked_elements(coarsened, prolong(refinements, Function(FunctionSpace(coarsened, "DG", 0))))
     # Always run at least one adaptation pass, even when no cell is marked,
     # so that a fresh mesh (with its own cell maps) is produced uniformly.
     num_refinements = max(int(np.rint(num_refinements)), 1)
