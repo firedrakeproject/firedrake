@@ -175,6 +175,21 @@ def test_refine_marked_elements_coarsens():
 
 
 @pytest.mark.parallel([1, 3])
+def test_refine_marked_elements_refines_and_coarsens():
+    """A marker with both signs refines some cells and coarsens others."""
+    base = UnitCubeMesh(4, 4, 4)
+    M = FunctionSpace(base, "DG", 0)
+    mesh = base.refine_marked_elements(Function(M).assign(1))
+    x = SpatialCoordinate(mesh)
+    adapted = mesh.refine_marked_elements(
+        Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 1)))
+
+    x = SpatialCoordinate(base)
+    expected = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 2, 0)))
+    _assert_same_mesh(adapted, expected)
+
+
+@pytest.mark.parallel([1, 3])
 def test_refine_marked_elements_coarsens_unanimously():
     """A cell is coarsened only if all the cells that it was refined into ask."""
     base = UnitCubeMesh(4, 4, 4)
