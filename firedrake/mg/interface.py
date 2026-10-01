@@ -39,6 +39,12 @@ def check_arguments(coarse, fine, needs_dual=False):
 
 @PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
+    with utils.adaptive_transfer_levels(ufl_expr.extract_unique_domain(coarse),
+                                        ufl_expr.extract_unique_domain(fine)):
+        return _prolong(coarse, fine)
+
+
+def _prolong(coarse, fine):
     check_arguments(coarse, fine)
     Vc = coarse.function_space()
     Vf = fine.function_space()
