@@ -67,31 +67,40 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
 
 
 def refine_marked_elements(mesh, cell_marker):
-    """Adaptively refine a mesh using a DG0 marking function.
+    """Adaptively refine or coarsen a mesh using a DG0 marking function.
 
     Positive integer marker values request repeated refinement of the
-    corresponding cells. The vertices of a Netgen mesh are snapped onto its
-    geometry after each round, and the coordinates are curved to their
-    original degree at the end.
+    corresponding cells, and negative values request coarsening. After each
+    round, the vertices of a Netgen mesh are snapped onto its geometry. At the
+    end, the coordinates are curved to their original degree.
 
     Parameters
     ----------
     mesh
-        The mesh to refine.
+        The mesh to adapt.
     cell_marker
         A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
-        positive value ``n`` are refined ``n`` times.
+        positive value ``n`` are refined ``n`` times. Cells with a negative
+        value ``-n`` ask to undo ``n`` rounds of the refinement that produced
+        ``mesh``. A cell of the adaptive parent of ``mesh`` is coarsened
+        only as far as all the cells that it was refined into ask.
 
     Returns
     -------
     MeshGeometry
-        The adaptively refined mesh, with ``_adaptive_parent`` set to
-        ``mesh`` and ``_adaptive_fine_to_coarse_points`` set to the DMPlex
-        point of ``mesh`` that each of its DMPlex points was refined from.
+        The adapted mesh. Its ``_adaptive_parent`` is ``mesh`` after a
+        refinement, and the adaptive parent of ``mesh`` after a coarsening.
+        Its ``_adaptive_fine_to_coarse_points`` is the DMPlex point of that
+        parent that each of its DMPlex points was refined from.
 
     """
     with cell_marker.dat.vec_ro as v:
+        _, num_coarsenings = v.min()
         _, num_refinements = v.max()
+    if num_coarsenings < 0:
+        if num_refinements > 0:
+            raise NotImplementedError("Cannot refine and coarsen in the same call")
+        return _coarsen_marked_elements(mesh, cell_marker)
     # Always run at least one adaptation pass, even when no cell is marked,
     # so that a fresh mesh (with its own cell maps) is produced uniformly.
     num_refinements = max(int(np.rint(num_refinements)), 1)
@@ -139,8 +148,23 @@ def refine_marked_elements(mesh, cell_marker):
 
     final_mesh._adaptive_parent = mesh
     final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
+    final_mesh._adaptive_marker = cell_marker.copy(deepcopy=True)
     _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh
+
+
+def _coarsen_marked_elements(mesh, cell_marker):
+    """Refine the adaptive parent of ``mesh`` again, with fewer rounds where ``cell_marker`` asks."""
+    parent = mesh._adaptive_parent
+    if parent is None:
+        raise ValueError("Only an adaptively refined mesh can be coarsened")
+    coarse_to_fine, _ = impl.coarse_to_fine_cells(parent, mesh, mesh._adaptive_fine_to_coarse_points)
+    # The -1 padding of coarse_to_fine reads the appended entry, which never raises the maximum.
+    requests = np.append(np.rint(cell_marker.dat.data_ro.real), -np.inf)
+    rounds = np.maximum(-requests[coarse_to_fine].max(axis=1), 0)
+    marker = Function(mesh._adaptive_marker.function_space())
+    marker.dat.data_wo[:] = np.maximum(mesh._adaptive_marker.dat.data_ro.real - rounds, 0)
+    return refine_marked_elements(parent, marker)
 
 
 def _adaptive_ancestors(mesh):
