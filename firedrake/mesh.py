@@ -3068,9 +3068,10 @@ values from f.)"""
         mark
             A DG0 `~firedrake.function.Function` on this mesh: cells
             with a positive value ``n`` are refined ``n`` times. Cells with
-            a negative value ``-n`` ask to undo ``n`` rounds of the
-            refinement that produced this mesh. A cell is coarsened only as
-            far as all the cells that it was refined into ask.
+            a negative value ``-n`` ask to undo ``n`` rounds of refinement,
+            which can go past the adaptive parent of this mesh. A cell of an
+            ancestor is coarsened only as far as all the cells that it was
+            refined into ask.
 
         Returns
         -------
@@ -3079,7 +3080,8 @@ values from f.)"""
             its ``_adaptive_parent`` and the DMPlex points relative to it as
             its ``_adaptive_fine_to_coarse_points``, ready to be passed to
             :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. After a
-            coarsening, it records the adaptive parent of this mesh instead.
+            coarsening, it records the adaptive parent of this mesh instead,
+            coarsened as far as needed.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)
