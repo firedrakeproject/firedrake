@@ -656,6 +656,20 @@ def test_prolong_step_between_adapted_meshes(adapted_meshes):
     assert errornorm(step(new), unew) < 1e-12
 
 
+@pytest.mark.parallel([1, 3])
+def test_prolong_between_adapted_meshes_keeps_hierarchy(adapted_meshes):
+    old, new = adapted_meshes
+    mh = MeshHierarchy(new._adaptive_parent)
+    mh.add_mesh(new)
+    x = SpatialCoordinate(old)
+    prolong(Function(FunctionSpace(old, "CG", 1)).interpolate(x[0]), Function(FunctionSpace(new, "CG", 1)))
+
+    ucoarse = Function(FunctionSpace(mh[0], "CG", 1)).interpolate(_linear_expr(mh[0]))
+    ufine = Function(FunctionSpace(mh[1], "CG", 1))
+    prolong(ucoarse, ufine)
+    assert errornorm(_linear_expr(mh[1]), ufine) < 1e-12
+
+
 def test_deprecated_adaptive_aliases():
     """The deprecated aliases warn, and forward their arguments."""
     mesh = UnitSquareMesh(2, 2)
