@@ -218,6 +218,9 @@ linkcheck_ignore = [
     r'https://fluids.leeds.ac.uk/',
     r'https://buy.crosscountrytrains.co.uk',
 
+    # people
+    r'https://mscroggs\.co\.uk/?$',
+
     # other
     r'https://firedrakeproject.slack.com',
     r'https://join.slack.com/t/firedrakeproject/*',
