@@ -93,17 +93,10 @@ def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_
     pStart, pEnd = local_sec.getChart()
     assert pEnd - pStart == nroots, f"pEnd - pStart ({pEnd - pStart}) != nroots ({nroots})"
     assert pStart == 0
-    m = 0
     CHKERR_c(cpetsc.PetscMalloc1(pEnd-pStart, &local_offsets))
-    CHKERR_c(cpetsc.PetscMalloc1(pEnd-pStart, &remote_offsets))  # fill with -1s
+    CHKERR_c(cpetsc.PetscMalloc1(pEnd-pStart, &remote_offsets))
     for p in range(pStart, pEnd):
-        remote_offsets[p] = -1
-    # local_offsets = np.empty(pEnd - pStart, dtype=IntType)
-    # remote_offsets = np.full(pEnd - pStart, -1, dtype=IntType)
-    for p in range(pStart, pEnd):
-        CHKERR_c(cpetsc.PetscSectionGetDof(local_sec.sec, p, &dof))
         CHKERR_c(cpetsc.PetscSectionGetOffset(local_sec.sec, p, &local_offsets[p]))
-        m += dof
     cdef MPI.Datatype unit = MPI._typedict[np.dtype(IntType).char]
     CHKERR_c(cpetsc.PetscSFBcastBegin(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
     CHKERR_c(cpetsc.PetscSFBcastEnd(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
