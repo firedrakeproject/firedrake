@@ -1843,10 +1843,20 @@ class MeshTopology(AbstractMeshTopology):
             else:
                 raise NotImplementedError(f"Unknown integration type : {base_integral_type}")
             composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_subset_points)
-            if (base_integral_type == "interior_facet"
-                    and integral_type == "exterior_facet"
-                    and composed_map.arity == 2):
-                integral_type = "broken_facet"
+            if composed_map.arity > 1:
+                # The two exterior facet copies of an interior facet are the
+                # two sides of one broken facet. Any other entity with several
+                # copies has no single image on self.
+                if (base_integral_type == "interior_facet"
+                        and integral_type == "exterior_facet"
+                        and composed_map.arity == 2):
+                    integral_type = "broken_facet"
+                else:
+                    raise NotImplementedError(
+                        f"Can not map {base_integral_type} entities of {base_mesh} to {self}: "
+                        f"an entity has up to {composed_map.arity} {integral_type} copies. "
+                        "Only an interior facet split into two exterior facets is supported; "
+                        "entities copied into overlapping subdomains are not.")
             return composed_map, integral_type
 
     @cached_property
@@ -5094,25 +5104,54 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
 
     subplex = dmcommon.submesh_create(mesh.topology_dm, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
-
-    comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex.setName(_generate_default_mesh_topology_name(name))
+    return _child_mesh_from_plex(mesh, subplex, name, reorder, comm=comm)
+
+
+def _child_mesh_from_plex(mesh: MeshGeometry, plex: PETSc.DMPlex, name: str,
+                          reorder: bool | None, comm: MPI.Comm | None = None,
+                          parent_point_map: np.ndarray | None = None) -> MeshGeometry:
+    """Construct a mesh from a DMPlex derived from the parent mesh plex.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        Parent mesh.
+    plex : PETSc.DMPlex
+        DMPlex of the child mesh, distributed as the parent mesh.
+    name : str
+        Name of the child mesh.
+    reorder : bool | None
+        Whether to reorder mesh entities. By default, use the parent mesh
+        setting.
+    comm : MPI.Comm | None
+        Communicator of the child mesh. Defaults to the parent mesh
+        communicator.
+    parent_point_map : numpy.ndarray | None
+        Parent plex point of each child plex point. Defaults to the subpoint
+        IS of ``plex``.
+
+    Returns
+    -------
+    MeshGeometry
+        The child mesh, with ``mesh`` as its ``submesh_parent``.
+    """
+    plex.setName(_generate_default_mesh_topology_name(name))
     if reorder is None:
         # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
-
-    submesh = Mesh(
-        subplex,
+    child = Mesh(
+        plex,
         submesh_parent=mesh,
         name=name,
-        comm=comm,
+        comm=comm or mesh.comm,
         reorder=reorder,
         distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+        submesh_parent_point_map=parent_point_map,
     )
     # Tag the relabeled mesh with the original distribution parameters
-    submesh._distribution_parameters = mesh._distribution_parameters
-    return submesh
+    child._distribution_parameters = mesh._distribution_parameters
+    return child
 
 
 def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
@@ -5226,20 +5265,7 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
         parent_point_map = points[parent_point_map]
 
     name = name or f"{mesh.name}_broken"
-    broken_plex.setName(_generate_default_mesh_topology_name(name))
-    if reorder is None:
-        reorder = mesh._did_reordering
-    broken_mesh = Mesh(
-        broken_plex,
-        submesh_parent=mesh,
-        name=name,
-        comm=mesh.comm,
-        reorder=reorder,
-        distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-        submesh_parent_point_map=parent_point_map,
-    )
-    broken_mesh._distribution_parameters = mesh._distribution_parameters
-    return broken_mesh
+    return _child_mesh_from_plex(mesh, broken_plex, name, reorder, parent_point_map=parent_point_map)
 
 
 def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl.FiniteElement) -> "CoordinatelessFunction":
