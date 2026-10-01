@@ -614,6 +614,48 @@ def test_mg_patch(mh, backend):
     assert errornorm(u_ex, u) <= 1e-8
 
 
+@pytest.fixture
+def adapted_meshes():
+    """A uniform refinement of a base mesh, and an adapted mesh. The adapted
+    mesh refines the cells with x < 1/4, coarsens the cells with x > 3/4, and
+    keeps the other cells."""
+    base = UnitCubeMesh(4, 4, 4)
+    M = FunctionSpace(base, "DG", 0)
+    old = base.refine_marked_elements(Function(M).assign(1))
+    x = SpatialCoordinate(base)
+    marker = Function(M).interpolate(conditional(x[0] < 0.25, 2, conditional(x[0] > 0.75, 0, 1)))
+    new = base.refine_marked_elements(marker)
+    return old, new
+
+
+@pytest.mark.parallel([1, 3])
+def test_prolong_between_adapted_meshes(adapted_meshes):
+    old, new = adapted_meshes
+    x = SpatialCoordinate(old)
+    uold = Function(FunctionSpace(old, "CG", 2)).interpolate(sin(3*x[0]) * exp(x[1]) * cos(2*x[2]))
+    Vnew = FunctionSpace(new, "CG", 2)
+    unew = Function(Vnew)
+    prolong(uold, unew)
+    # Prolongation evaluates uold at the nodes of Vnew, as cross-mesh interpolation does.
+    expected = assemble(interpolate(uold, Vnew))
+    assert errornorm(expected, unew) < 1e-12
+
+
+@pytest.mark.parallel([1, 3])
+def test_prolong_step_between_adapted_meshes(adapted_meshes):
+    old, new = adapted_meshes
+
+    def step(mesh):
+        # The jump at y = 1/2 is on faces of the base mesh, so every mesh conforms to it.
+        x = SpatialCoordinate(mesh)
+        return conditional(x[1] < 0.5, 1 + x[0] - x[2], -2 + 3*x[2])
+
+    uold = Function(FunctionSpace(old, "DG", 1)).interpolate(step(old))
+    unew = Function(FunctionSpace(new, "DG", 1))
+    prolong(uold, unew)
+    assert errornorm(step(new), unew) < 1e-12
+
+
 def test_deprecated_adaptive_aliases():
     """The deprecated aliases warn, and forward their arguments."""
     mesh = UnitSquareMesh(2, 2)

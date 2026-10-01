@@ -141,3 +141,49 @@ def refine_marked_elements(mesh, cell_marker):
     final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
     _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh
+
+
+def _adaptive_ancestors(mesh):
+    """Yield ``mesh`` and each of its adaptive ancestors, with the map of the DMPlex points of ``mesh`` to theirs."""
+    points = np.arange(*mesh.topology_dm.getChart(), dtype=IntType)
+    while mesh is not None:
+        yield mesh, points
+        if mesh._adaptive_parent is not None:
+            points = impl.compose_points(mesh._adaptive_fine_to_coarse_points, points)
+        mesh = mesh._adaptive_parent
+
+
+def transfer_cell_maps(source, target):
+    """Return the candidate cell maps for the transfer between two adapted meshes.
+
+    The candidates of a cell are the cells of the other mesh that come from
+    the same cell of the closest common adaptive ancestor. Each mesh can be
+    finer than the other in some regions and coarser in others.
+
+    Parameters
+    ----------
+    source, target
+        The meshes to transfer between.
+
+    Returns
+    -------
+    tuple or None
+        The ``coarse_to_fine_cells`` and ``fine_to_coarse_cells`` arrays that
+        `~firedrake.mg.mesh.HierarchyBase` takes for the levels
+        ``[source, target]``, or ``None`` if the meshes have no common
+        adaptive ancestor.
+
+    """
+    target_ancestors = list(_adaptive_ancestors(target))
+    for ancestor, source_points in _adaptive_ancestors(source):
+        target_points = next((p for m, p in target_ancestors if m is ancestor), None)
+        if target_points is not None:
+            break
+    else:
+        return None
+    ancestor_to_source, source_to_ancestor = impl.coarse_to_fine_cells(ancestor, source, source_points)
+    ancestor_to_target, target_to_ancestor = impl.coarse_to_fine_cells(ancestor, target, target_points)
+    source_to_target = ancestor_to_target[source_to_ancestor[:, 0]]
+    target_to_source = ancestor_to_source[target_to_ancestor[:, 0]]
+    # Every ancestor cell has a descendant, so the first entry of a row can replace its -1 padding.
+    return tuple(np.where(m < 0, m[:, :1], m) for m in (source_to_target, target_to_source))
