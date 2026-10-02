@@ -3,7 +3,6 @@ import weakref
 from itertools import chain
 
 import numpy
-import ufl
 
 from pyop2 import op2
 from firedrake import dmhooks
@@ -16,6 +15,7 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
+from ufl import as_vector, replace, split, zero
 
 if typing.TYPE_CHECKING:
     from firedrake.variational_solver import NonlinearVariationalProblem
@@ -139,8 +139,7 @@ Reason:
 def check_ksp_convergence(ksp: PETSc.KSP) -> None:
     """Raise an error if a linear solve does not converge.
 
-    The KSP-level counterpart of `check_snes_convergence`, for the linear
-    solves that no SNES drives.
+    The `PETSc.KSP` counterpart of `check_snes_convergence`.
 
     Parameters
     ----------
@@ -161,40 +160,6 @@ def check_ksp_convergence(ksp: PETSc.KSP) -> None:
         raise ConvergenceError(r"""Linear solve failed to converge after %d iterations.
 Reason:
    %s""" % (ksp.getIterationNumber(), reason))
-
-
-def adaptive_convergence_test(snes, it: int, norms: tuple[float, float, float]) -> int:
-    """SNES convergence test that stops once the adaptive loop has converged.
-
-    PETSc's `DMAdaptor` runs a fixed number of ``-snes_adapt_sequence`` steps
-    and has no error tolerance of its own. Once the marking callback declines
-    to mark anything, the mesh stops changing. Each remaining step would then
-    solve a problem that is already solved. This test reports convergence
-    immediately, so those steps cost nothing.
-
-    Parameters
-    ----------
-    snes
-        The `PETSc.SNES` that this test examines.
-    it
-        The current nonlinear iteration number.
-    norms
-        The solution, update and residual norms, as PETSc passes them.
-
-    Returns
-    -------
-    The `PETSc.SNES.ConvergedReason` for this iteration.
-    """
-    ctx = dmhooks.get_appctx(snes.getDM())
-    if ctx is not None and ctx._adapt_converged:
-        return PETSc.SNES.ConvergedReason.CONVERGED_ITS
-    # petsc4py exposes no binding for SNESConvergedDefault, so this test puts
-    # it back as the SNES's own test while it delegates to it.
-    snes.setConvergenceTest("default")
-    try:
-        return snes.callConvergenceTest(it, *norms)
-    finally:
-        snes.setConvergenceTest(adaptive_convergence_test)
 
 
 class _SNESContext(object):
@@ -251,16 +216,11 @@ class _SNESContext(object):
 
     Notes
     -----
-    The `snes` attribute gives the route back from a context to the SNES that
-    solves it. The reference is weak. The SNES owns its DM, and that DM owns
-    this context while a solve runs, so a strong reference here would close a
-    cycle that the garbage collector cannot break.
-
-    The context that a solver builds and the context that adaptive refinement
-    reconstructs retain the solver's SNES. The contexts that `reconstruct`
-    makes for field splits and coarse multigrid levels do not inherit it,
-    because the Jacobian of the outer SNES describes a different problem from
-    the one that they hold.
+    `snes` is a weak reference to the SNES that solves this context, because
+    the SNES owns the DM that holds this context. Adaptive refinement passes
+    the SNES on to the refined context. The contexts that `reconstruct` builds
+    for field splits and coarse levels have no SNES, because they hold other
+    problems.
 
     """
     @PETSc.Log.EventDecorator()
@@ -298,9 +258,6 @@ class _SNESContext(object):
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
         self.snes = None
-        # True once the marking callback declines to mark anything. This mesh
-        # then needs no more adaptation.
-        self._adapt_converged = False
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -347,8 +304,7 @@ class _SNESContext(object):
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
                 # Drop existing lifting term from the residual
-                assert isinstance(self.F, ufl.BaseForm)
-                self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+                self.F = replace(self.F, {self._x: zero(self._x.ufl_shape)})
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
 
@@ -434,10 +390,7 @@ class _SNESContext(object):
 
     def solve_jacobian(self, b: Cofunction, x: Function, *,
                        transpose: bool = False) -> None:
-        """Solve against the current Jacobian.
-
-        This method reuses the Jacobian and the preconditioner that the most
-        recent solve assembled, so it costs one linear solve and no new setup.
+        """Solve with the Jacobian and preconditioner of the most recent solve.
 
         Parameters
         ----------
@@ -446,14 +399,13 @@ class _SNESContext(object):
         x
             The Function in which to store the solution.
         transpose
-            If `True`, solve against the transposed Jacobian. This requires a
-            preconditioner implementing ``applyTranspose``, which not every
-            Python PC does.
+            If `True`, solve with the transposed Jacobian. The preconditioner
+            must then implement ``applyTranspose``.
 
         Raises
         ------
         RuntimeError
-            If no SNES was recorded on this context.
+            If this context has no SNES.
         ConvergenceError
             If the linear solve fails to converge.
         """
@@ -463,7 +415,7 @@ class _SNESContext(object):
         ksp = snes.getKSP()
         solve = ksp.solveTranspose if transpose else ksp.solve
         with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
-            with dmhooks.add_hooks(self._problem.dm, self, appctx=self, save=False):
+            with dmhooks.add_hooks(self._problem.dm, self, appctx=self):
                 solve(bvec, xvec)
         check_ksp_convergence(ksp)
 
@@ -483,18 +435,33 @@ class _SNESContext(object):
         with the same semantics.
         """
         if self._transfer_manager is None:
-            opts = PETSc.Options()
             prefix = self.options_prefix or ""
-            if opts.hasName(prefix + "mg_transfer_manager"):
-                managername = opts[prefix + "mg_transfer_manager"]
-            elif opts.hasName(prefix + "fas_transfer_manager"):
-                managername = opts[prefix + "fas_transfer_manager"]
-            else:
-                managername = None
+            opts = PETSc.Options(prefix)
+            # We cannot attach a single mg_ or fas_ prefix to a TransferManager,
+            # as it can be shared across distinct _SNESContext instances arising
+            # when composing fas with mg. Therefore, we need to read both options.
+            # However the TransferManager should behave differently if options clash.
+            # TODO, a better way of doing this (issue #5283).
 
+            def get_transfer_option(mg_name, fas_name, default=None):
+                has_mg = opts.hasName(mg_name)
+                has_fas = opts.hasName(fas_name)
+                if has_mg and has_fas:
+                    warning(f"Both '{mg_name}' and '{fas_name}' options were supplied; "
+                            f"ignoring '{fas_name}'.")
+                if has_mg:
+                    return opts[mg_name]
+                elif has_fas:
+                    return opts[fas_name]
+                else:
+                    return default
+
+            managername = get_transfer_option("mg_transfer_manager", "fas_transfer_manager")
             if managername is None:
                 from firedrake import TransferManager
-                transfer = TransferManager(use_averaging=True)
+                mat_type = get_transfer_option("mg_transfer_mat_type", "fas_transfer_mat_type",
+                                               default="matfree")
+                transfer = TransferManager(use_averaging=True, mat_type=mat_type)
             else:
                 (modname, objname) = managername.rsplit('.', 1)
                 mod = __import__(modname)
@@ -539,11 +506,10 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
-        splits = self._splits.get(tuple(fields))
+        splits = self._splits.get(fields)
         if splits is not None:
             return splits
 
@@ -554,7 +520,7 @@ class _SNESContext(object):
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
-            V = F.arguments()[0].function_space()
+            V = J.arguments()[-1].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
             # mixed space defined by the relevant fields.
@@ -573,16 +539,13 @@ class _SNESContext(object):
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             vec = []
-            for i, u in enumerate(us):
+            for i, ui in enumerate(us):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field.index(i)]
-                if u.ufl_shape == ():
-                    vec.append(u)
-                else:
-                    vec.extend(u[idx] for idx in numpy.ndindex(u.ufl_shape))
+                    ui = subsplit[field.index(i)]
+                vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
@@ -626,7 +589,7 @@ class _SNESContext(object):
             field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
             splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
-        return self._splits.setdefault(tuple(fields), splits)
+        return self._splits.setdefault(fields, splits)
 
     @staticmethod
     def form_objective(snes, X):
