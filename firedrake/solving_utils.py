@@ -415,7 +415,7 @@ class _SNESContext(object):
         ksp = snes.getKSP()
         solve = ksp.solveTranspose if transpose else ksp.solve
         with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
-            with dmhooks.add_hooks(self._problem.dm, self, appctx=self, save=False):
+            with dmhooks.add_hooks(self._problem.dm, self, appctx=self):
                 solve(bvec, xvec)
         check_ksp_convergence(ksp)
 

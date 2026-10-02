@@ -598,7 +598,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 # Ensure options database has full set of options (so monitors
                 # work right)
                 for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
+                                 [dmhooks.add_hooks(dm, self._ctx, appctx=self._ctx) for dm in problem_dms],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)

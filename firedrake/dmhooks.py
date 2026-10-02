@@ -139,10 +139,9 @@ class SetupHooks(object):
 
     You probably don't want to use this directly, instead see
     :class:`~add_hooks` or :func:`add_hook`."""
-    def __init__(self, appctx=None):
+    def __init__(self):
         self._setup = []
         self._teardown = []
-        self.appctx = appctx
 
     def add_setup(self, f):
         self._setup.append(f)
@@ -221,10 +220,7 @@ class add_hooks(object):
     def __init__(self, dm, obj, *, save=True, appctx=None):
         self.dm = dm
         self.obj = obj
-        # Rebuild the saved hooks when the appctx changes, e.g. after adapting
-        # the mesh.
-        self.first_time = (not hasattr(obj, "setup_hooks")
-                           or obj.setup_hooks.appctx is not appctx)
+        self.first_time = not hasattr(obj, "setup_hooks")
         self.save = save
         self.appctx = appctx
         if not (self.save or self.first_time):
@@ -238,7 +234,7 @@ class add_hooks(object):
             hooks.setup()
         else:
             # Not yet seen, let's save the relevant information.
-            hooks = SetupHooks(self.appctx)
+            hooks = SetupHooks()
             if self.save:
                 # Remember it for later
                 self.obj.setup_hooks = hooks
