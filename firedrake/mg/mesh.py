@@ -134,7 +134,9 @@ class HierarchyBase(object):
         coarse_to_fine_cells :
             Map from the cells of the current finest mesh to the cells of
             ``mesh``. Defaults to the map ``mesh`` recorded when it was
-            adaptively refined.
+            adaptively refined. If ``mesh`` was adapted from another mesh, for
+            example by coarsening, it defaults to the candidate cells from
+            `firedrake.adapt.transfer_cell_maps`.
         fine_to_coarse_cells :
             Map from the cells of ``mesh`` to the cells of the current finest
             mesh. Defaults the same way as ``coarse_to_fine_cells``.
@@ -155,9 +157,14 @@ class HierarchyBase(object):
             if fine_to_coarse_points is not None:
                 coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
                     self[-1], mesh, fine_to_coarse_points)
-            elif self.nested:
-                raise ValueError("Expecting a mesh adaptively refined from the finest "
-                                 "level of this hierarchy, or explicit cell maps")
+            else:
+                from firedrake.adapt import transfer_cell_maps
+                maps = transfer_cell_maps(self[-1], mesh)
+                if maps is not None:
+                    coarse_to_fine_cells, fine_to_coarse_cells = maps
+                elif self.nested:
+                    raise ValueError("Expecting a mesh adapted from the finest level "
+                                     "of this hierarchy, or explicit cell maps")
 
         level = len(self.meshes)
         self._meshes.append(mesh)

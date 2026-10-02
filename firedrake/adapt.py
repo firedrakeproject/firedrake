@@ -83,7 +83,8 @@ def refine_marked_elements(mesh, cell_marker):
         A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
         positive value ``n`` are refined ``n`` times. Cells with a negative
         value ``-n`` ask to undo ``n`` rounds of refinement, which can go
-        past the adaptive parent of ``mesh`` to its own ancestors. A cell of
+        past the adaptive parent of ``mesh`` to its own ancestors, but not
+        past the mesh that has no adaptive parent. A cell of
         an ancestor is coarsened only as far as all the cells that it was
         refined into ask.
 
@@ -101,7 +102,7 @@ def refine_marked_elements(mesh, cell_marker):
     with cell_marker.dat.vec_ro as v:
         _, num_coarsenings = v.min()
         _, num_refinements = v.max()
-    if num_coarsenings < 0:
+    if num_coarsenings < 0 and mesh._adaptive_parent is not None:
         coarsened = _coarsen_marked_elements(mesh, cell_marker)
         if num_refinements <= 0:
             return coarsened
