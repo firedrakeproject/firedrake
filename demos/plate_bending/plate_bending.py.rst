@@ -11,27 +11,23 @@ Firedrake writes a reduction operator as a :doc:`symbolic interpolation
 <../interpolation>` with :py:func:`~.interpolate` inside the
 variational form. The interpolation is onto the same mesh, so the form compiler
 applies it inside each element kernel. It does not assemble a separate global
-interpolation matrix. The three methods combine ``interpolate`` and ``grad``
-in three different orders:
+interpolation matrix.
 
 We write :math:`\Pi_h^P`, :math:`\Pi_h^N`, and :math:`\Pi_h^\Theta` for
 interpolation into the linear Lagrange space :math:`P_h`, the Nédélec space
 :math:`\boldsymbol{N}_h`, and the rotated Bernardi--Raugel space
 :math:`\boldsymbol{\Theta}_h`, respectively.
 
-The scalar and Nédélec interpolants commute with the gradient:
-
-.. math::
-
-  \Pi_h^N \nabla q = \nabla \Pi_h^P q.
+The three methods combine ``interpolate`` and ``grad`` in three different
+orders:
 
 1. **MITC** for the Reissner--Mindlin plate uses ``interpolate(grad(...))``.
    :math:`\Pi_h^N` maps the shear strain into a Nédélec space.
 2. **The modified Morley element** for a Kirchhoff plate under in-plane
    tension uses ``grad(interpolate(...))``. :math:`\Pi_h^P` maps the deflection
    into the linear Lagrange space in the membrane term.
-3. **Discrete Kirchhoff triangles** for the Kirchhoff plate use
-   ``grad(interpolate(grad(...)))`` for bending and
+3. **Discrete Kirchhoff triangles** for a Kirchhoff plate under in-plane
+   tension use ``grad(interpolate(grad(...)))`` for bending and
    ``grad(interpolate(...))`` for membrane energy. The first reduction maps the
    gradient of the deflection into a rotated Bernardi--Raugel space with
    :math:`\Pi_h^\Theta`, and the second maps the deflection into the linear
@@ -116,7 +112,7 @@ The Reissner--Mindlin model has the total potential energy
   \boldsymbol{\sigma}(\boldsymbol{\beta}) :
   \boldsymbol{\varepsilon}(\boldsymbol{\beta})
   + k_s G t \, | \nabla w - \boldsymbol{\beta} |^2 \right) \, \mathrm{d}x
-  - \int_\Omega f w \, \mathrm{d}x.
+  - \int_\Omega f w \, \mathrm{d}x,
 
 where :math:`G = E / (2 (1 + \nu))` is the shear modulus and :math:`k_s` is
 the shear correction factor. As :math:`t \to 0`, the shear term becomes a
@@ -134,9 +130,15 @@ Nédélec space :math:`\boldsymbol{N}_h`:
   \bar{\boldsymbol{\gamma}}_h = \Pi_h^N (\nabla w_h - \boldsymbol{\beta}_h)
   = \nabla w_h - \Pi_h^N \boldsymbol{\beta}_h.
 
-In particular, if :math:`w_h \in P_h`, then :math:`\Pi_h^P w_h = w_h`, so the
-commuting property gives :math:`\Pi_h^N \nabla w_h = \nabla w_h`. Thus the
-second form follows, and the reduced constraint
+The second form holds because the scalar and Nédélec interpolants commute with
+the gradient:
+
+.. math::
+
+  \Pi_h^N \nabla q = \nabla \Pi_h^P q.
+
+If :math:`w_h \in P_h`, then :math:`\Pi_h^P w_h = w_h`, so
+:math:`\Pi_h^N \nabla w_h = \nabla w_h`. Thus the reduced constraint
 :math:`\nabla w_h = \Pi_h^N \boldsymbol{\beta}_h` does not over-constrain the
 discrete solution.
 
