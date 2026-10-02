@@ -12,7 +12,9 @@ that the same machinery handles.
 The unknowns are the two rows of the stress :math:`\sigma`, the displacement
 :math:`u`, and a scalar rotation :math:`\gamma`.  We use first-order BDM
 elements for each stress row, piecewise constants for the displacement, and
-continuous linears for the rotation. ::
+continuous linears for the rotation:
+
+.. code-block:: python
 
   from firedrake import *
 
@@ -39,7 +41,9 @@ compliance tensor is
 We manufacture the displacement
 :math:`u_0=(xy\sin(\pi y),0)` and use the corresponding body force from the
 paper.  Prescribed displacement is a natural boundary condition in this
-mixed formulation. ::
+mixed formulation:
+
+.. code-block:: python
 
   x, y = SpatialCoordinate(mesh)
   mu = Constant(1.0)
@@ -64,7 +68,9 @@ mixed formulation. ::
   )*dx - inner(body_force, v)*dx - inner(u0, dot(tau, n))*ds
 
 Our goal is the weighted average shear traction on the right boundary.  Its
-exact value is approximately :math:`-0.06029761071`. ::
+exact value is approximately :math:`-0.06029761071`:
+
+.. code-block:: python
 
   psi = y*(y - 1)
   tangent = as_vector((0, 1))
@@ -72,7 +78,9 @@ exact value is approximately :math:`-0.06029761071`. ::
 
 The Hellinger--Reissner system is indefinite.  MUMPS handles this system with
 its default null-pivot setting, and we give it room to grow its working space
-(``icntl_14``). ::
+(``icntl_14``):
+
+.. code-block:: python
 
   solver_parameters = {
       "ksp_type": "preonly",
@@ -88,7 +96,9 @@ evaluated on the uncorrected, non-enriched solution.  ``dwr_atol`` supplies an
 absolute stopping threshold.  If both tolerances are set, the loop stops when
 the estimate falls below the larger of the two thresholds.  ``dwr_monitor``
 reports the estimate once per cycle, split into the discretisation part and the
-algebraic-solve part. ::
+algebraic-solve part:
+
+.. code-block:: python
 
   solver_parameters.update({
       "snes_adapt_sequence": 5,
@@ -101,7 +111,9 @@ The DWR callback solves the low- and enriched-order dual problems, localises
 the residual with bubble and cone functions, and marks cells by the global
 Dörfler criterion.  The local cell and facet problems are diagonal because
 each has one degree of freedom per cell or facet.  We pass the callback to the
-solver below. ::
+solver below:
+
+.. code-block:: python
 
   initial_dofs = W.dim()
   problem = NonlinearVariationalProblem(F, w)
@@ -113,20 +125,25 @@ solver below. ::
   w_adapt = solver.solve()
 
 ``solver.solve()`` returns the solution on the final adapted mesh.
-``solver.get_goal_functional()`` gives the goal functional on that same mesh,
-and ``solver.get_error_estimate()`` gives the estimate :math:`\eta` of
-:math:`J(w) - J(w_h)` from the last cycle. ::
+``solver.get_marking_callback()`` returns the callback on that same mesh,
+which holds the goal functional and the estimate :math:`\eta` of
+:math:`J(w) - J(w_h)` from the last cycle:
 
-  adapted_goal = solver.get_goal_functional()
+.. code-block:: python
+
+  callback = solver.get_marking_callback()
+  adapted_goal = callback.goal_functional
 
   print(f"degrees of freedom: {initial_dofs} -> {w_adapt.function_space().dim()}")
   print(f"weighted shear traction: {assemble(adapted_goal):.8f}")
-  print(f"error estimate: {solver.get_error_estimate():.3e}")
+  print(f"error estimate: {callback.error_estimate:.3e}")
 
 The refinement is driven by the error in this boundary traction, rather than
 by a global energy norm.  Cells near the right boundary, where the goal
 functional is defined, are refined preferentially over the rest of the
-domain. ::
+domain:
+
+.. code-block:: python
 
   import matplotlib.pyplot as plt
   from firedrake.pyplot import triplot

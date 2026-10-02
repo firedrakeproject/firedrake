@@ -29,7 +29,9 @@ Here we apply DWR to a nonlinear stationary boundary value problem, the
 
 We solve it on the unit square with a known analytical solution, so that we can
 compute effectivity indices for our error estimates. Adaptive refinement needs
-no special mesh: any Firedrake mesh can be refined in place. ::
+no special mesh: any Firedrake mesh can be refined in place:
+
+.. code-block:: python
 
   from firedrake import *
 
@@ -47,7 +49,9 @@ The manufactured solution vanishes on all four edges, so the boundary condition
 is homogeneous. The problem is strongly nonlinear, so for the purposes of this
 demo we cheat and start from an initial guess close to the exact solution. The
 integrand is not polynomial, so we ask for a richer quadrature rule than the
-degree of the space alone would suggest. ::
+degree of the space alone would suggest:
+
+.. code-block:: python
 
   u = Function(V, name="Solution")
   u.interpolate(0.99*u_exact)
@@ -60,7 +64,9 @@ degree of the space alone would suggest. ::
 
 To apply goal-based adaptivity we need a goal functional. Here we use the
 integral of the normal derivative of the solution over the top boundary, which
-`UnitSquareMesh` numbers ``4``. ::
+`UnitSquareMesh` numbers ``4``:
+
+.. code-block:: python
 
   n = FacetNormal(mesh)
   J = inner(grad(u), n)*ds(4)
@@ -68,7 +74,9 @@ integral of the normal derivative of the solution over the top boundary, which
 The estimate splits in two: the error committed by discretising, and the error
 committed by not solving the algebraic system exactly. Because DWR measures
 that algebraic error too, a very coarse tolerance on the nonlinear solver
-costs us nothing. ::
+costs us nothing:
+
+.. code-block:: python
 
   solver_parameters = {
       "snes_atol": 1.0e-6,
@@ -89,7 +97,9 @@ relative to the absolute value of the current goal functional on the
 uncorrected, non-enriched solution.  If both tolerances are set, the loop stops
 when the estimate falls below the larger threshold.  ``dwr_marking_fraction``
 is the fraction of the total estimated error that Dörfler marking must
-capture, and ``dwr_monitor`` reports the estimate at each cycle. ::
+capture, and ``dwr_monitor`` reports the estimate at each cycle:
+
+.. code-block:: python
 
   solver_parameters.update({
       "adaptor_criterion": "refine",
@@ -104,7 +114,9 @@ method usually needs.  The solver runs the configured
 SOLVE--ESTIMATE--MARK--REFINE cycle, and the marking callback supplies the
 cells to refine.  We also pass the exact solution, which lets the monitor
 report the true error and an effectivity index.  That is a diagnostic, and is
-not needed in general. ::
+not needed in general:
+
+.. code-block:: python
 
   initial_dofs = V.dim()
   problem = NonlinearVariationalProblem(F, u, bcs)
@@ -116,11 +128,13 @@ not needed in general. ::
   uh = solver.solve()
 
 ``solver.solve()`` returns the solution on the final adapted mesh, and
-``solver.get_error_estimate()`` gives the estimate :math:`\eta` that stopped
-the loop. ::
+``solver.get_marking_callback().error_estimate`` is the estimate
+:math:`\eta` that stopped the loop:
+
+.. code-block:: python
 
   print(f"degrees of freedom: {initial_dofs} -> {uh.function_space().dim()}")
-  print(f"error estimate: {solver.get_error_estimate():.6e}")
+  print(f"error estimate: {solver.get_marking_callback().error_estimate:.6e}")
 
 The loop terminates after eight refinements, short of the ten it was allowed,
 because the estimate fell below ``dwr_atol``. The effectivity indices
@@ -139,9 +153,7 @@ which one is limiting. On the last cycle this run prints
 
 .. code-block:: text
 
-    DWR: the solver error estimate exceeds the discretisation error estimate,
-    so the estimate is dominated by how loosely the algebraic system was
-    solved. Tighten the solver tolerances.
+    DWR: the solver error exceeds the discretisation error. Tighten the solver tolerances.
 
 By then the mesh is fine enough that the discretisation error falls below the
 algebraic error left by a ``snes_rtol`` of :math:`10^{-1}`. Further refinement
@@ -151,7 +163,9 @@ estimate already sits within ``dwr_atol``, so the warning is safe to ignore.
 
 Finally we plot the adapted mesh. The refinement concentrates near the top
 boundary, where the goal functional lives. Refinement driven by a global energy
-norm would instead spread evenly over the domain. ::
+norm would instead spread evenly over the domain:
+
+.. code-block:: python
 
   import matplotlib.pyplot as plt
   from firedrake.pyplot import triplot
