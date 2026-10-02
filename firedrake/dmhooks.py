@@ -492,6 +492,7 @@ def _refine_adaptive(dm):
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    refined_ctx._adapted_coefficients = {c: coefficient_mapping[v] for c, v in ctx._adapted_coefficients.items()}
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
     # Get all DMs from the refined problem
