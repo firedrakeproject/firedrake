@@ -570,6 +570,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
+                if self.snes.getSolution() != work:
+                    # DMAdaptorAdapt() consumed a reference to work when it put
+                    # a vector of its own in place.
+                    work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
         problem = self._ctx._problem

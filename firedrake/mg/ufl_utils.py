@@ -533,7 +533,7 @@ class Injection(object):
         self.cbcs = cbcs or []
         self.manager = manager
 
-    def mult(self, mat, x, y):
+    def multTranspose(self, mat, x, y):
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
@@ -541,14 +541,6 @@ class Injection(object):
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
             v.copy(y)
-
-    def multTranspose(self, mat, x, y):
-        # PETSc's MatRestrict() cannot distinguish an injection matrix from
-        # an interpolation matrix when the coarse and fine spaces happen to
-        # have equal size (e.g. a no-op adaptive refinement level), and may
-        # call MatMultTranspose() instead of MatMult(). Injection is only
-        # ever used in one direction (fine to coarse), so both must agree.
-        self.mult(mat, x, y)
 
 
 def create_interpolation(dmc, dmf):
@@ -587,16 +579,15 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    row_size = V_c.dof_dset.layout_vec.getSizes()
-    col_size = V_f.dof_dset.layout_vec.getSizes()
+    # The matrix maps coarse to fine like the interpolation, so that MatRestrict()
+    # applies its transpose even when both spaces have the same dimension.
+    row_size = V_f.dof_dset.layout_vec.getSizes()
+    col_size = V_c.dof_dset.layout_vec.getSizes()
 
     if (V_c.ufl_element().family() == "Real"
             and V_f.ufl_element().family() == "Real"):
         assert row_size == col_size
-        # If the coarse and fine spaces have equal size
-        # PETSc will apply the transpose of the injection.
-        # It does not make sense to implement Injection.multTranspose,
-        # instead we return a concrete identity matrix.
+        # The injection between Real spaces is the identity.
         dvec = V_c.dof_dset.layout_vec.duplicate()
         dvec.set(1.0)
         return PETSc.Mat().createDiagonal(dvec)

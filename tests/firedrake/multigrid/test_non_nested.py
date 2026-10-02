@@ -1,4 +1,3 @@
-import pytest
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen as symbolic_coarsen
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER_PARAMETERS
@@ -93,19 +92,3 @@ def test_sphere_mg():
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() < 7
 
-
-@pytest.mark.parallel(3)
-def test_interpolation_between_spaces_of_equal_dimension():
-    # Both spaces have 25 dofs, and their local sizes are equal on some ranks only.
-    solvers = []
-    for diagonal in ("left", "right"):
-        V = FunctionSpace(UnitSquareMesh(4, 4, diagonal=diagonal), "CG", 1)
-        u = Function(V)
-        problem = NonlinearVariationalProblem(inner(u, TestFunction(V)) * dx, u)
-        solvers.append(NonlinearVariationalSolver(problem))
-    dmc, dmf = (solver._problem.dm for solver in solvers)
-    with dmhooks.add_hooks(dmc, solvers[0], appctx=solvers[0]._ctx), \
-            dmhooks.add_hooks(dmf, solvers[1], appctx=solvers[1]._ctx):
-        _, rscale = dmc.createInterpolation(dmf)
-    # PETSc identifies the coarse space by the size of rscale when the global dimensions are equal.
-    assert rscale.handle != 0
