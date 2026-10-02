@@ -288,8 +288,8 @@ def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
         coarse submesh.
 
     """
-    ncoarse = coarse_mesh.cell_set.size
-    nfine = fine_mesh.cell_set.size
+    ncoarse = coarse_mesh.cells.owned.local_size
+    nfine = fine_mesh.cells.owned.local_size
     cStart, cEnd = coarse_mesh.topology_dm.getHeightStratum(0)
     fStart, _ = fine_mesh.topology_dm.getHeightStratum(0)
     coarse_cells, _ = get_entity_renumbering(coarse_mesh.topology_dm, coarse_mesh._cell_numbering, "cell")

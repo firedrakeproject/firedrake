@@ -1569,14 +1569,14 @@ class FunctionSpace(AbstractFunctionSpace):
         base_mesh = self.mesh()._base_mesh
         base_dm = self.mesh()._base_mesh.topology_dm
 
-        base_point_label = extr_dm.getLabel("base_point")
+        base_point_label = extr_dm._extruded_to_base_point_map
 
         extr_section = self.local_section
         base_section = PETSc.Section().create(comm=self.comm)
         base_section.setChart(*base_dm.getChart())
         for base_pt in range(*base_dm.getChart()):
             ndofs = 0
-            for extr_pt in base_point_label.getStratumIS(base_pt).indices:
+            for extr_pt in np.flatnonzero(base_point_label == base_pt):
                 ndofs += extr_section.getDof(extr_pt)
             base_section.setDof(base_pt, ndofs)
         base_section.setPermutation(base_mesh._dm_renumbering)

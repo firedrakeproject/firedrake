@@ -103,9 +103,9 @@ jax = [
 netgen = [
   "ngsPETSc>=0.3.0",
 ]
-slepc = [
-  "slepc4py==3.26.0",
-]
+# slepc = [
+#   "slepc4py==3.26.0",
+# ]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
 ]
@@ -131,7 +131,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.26.0",
+  # "slepc4py==3.26.0",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -150,7 +150,7 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  "slepc4py==3.26.0",
+  # "slepc4py==3.26.0",
   "vtk",
 ]
 
@@ -162,7 +162,8 @@ requires = [
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
-  "petsc4py==3.26.0",
+  # TODO RELEASE
+  # "petsc4py==3.26.0",
   "petsctools",
   "pkgconfig",
   "pybind11",

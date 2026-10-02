@@ -345,7 +345,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
 
     with op3.mpi.temp_internal_comm(meshes[0].comm) as icomm:
         num_halo_cells = icomm.allreduce(
-            sum(m.cell_set.total_size - m.cell_set.size for m in meshes)
+            sum(m.cells.local_size - m.cells.owned.local_size for m in meshes)
         )
     if num_halo_cells == 0:
         lgmaps = [None] * len(dms)

@@ -3788,9 +3788,9 @@ def get_dm_cell_types(PETSc.DM dm):
     )
 
 
-def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETSc.DM:
+def extrude_mesh(base_dm: PETSc.DM, nlayers, thickness, PetscBool periodic) -> tuple[PETSc.DM, np.ndarray]:
     cdef:
-        PETSc.DM extruded_mesh
+        PETSc.DM extruded_dm
 
         PetscBool tensor_c = PETSC_TRUE
         PetscBool symmetric_c = PETSC_FALSE
@@ -3802,18 +3802,18 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETS
     # Label the points in the base mesh with their dimension so we can determine
     # the different facet types in the extruded mesh.
     # Also label with the base entity
-    mesh.createLabel("base_dim")
-    base_dim_label = mesh.getLabel("base_dim")
-    mesh.createLabel("base_point")
-    base_point_label = mesh.getLabel("base_point")
-    for dim in range(mesh.getDimension()+1):
-        for pt in range(*mesh.getDepthStratum(dim)):
+    base_dm.createLabel("base_dim")
+    base_dim_label = base_dm.getLabel("base_dim")
+    # base_dm.createLabel("base_point")  # so slow!
+    # base_point_label = base_dm.getLabel("base_point")
+    for dim in range(base_dm.getDimension()+1):
+        for pt in range(*base_dm.getDepthStratum(dim)):
             base_dim_label.setValue(pt, dim)
-            base_point_label.setValue(pt, pt)
+            # base_point_label.setValue(pt, pt)
 
-    extruded_mesh = PETSc.DMPlex().create(comm=mesh.comm)
+    extruded_dm = PETSc.DMPlex().create(comm=base_dm.comm)
     PETSc.CHKERR(DMPlexExtrude(
-        mesh.dm,
+        base_dm.dm,
         nlayers,
         thickness,
         tensor_c,
@@ -3822,13 +3822,167 @@ def extrude_mesh(mesh: PETSc.DM, nlayers, thickness, PetscBool periodic) -> PETS
         normal_c,
         thicknesses_c,
         active_label_c,
-        &extruded_mesh.dm,
+        &extruded_dm.dm,
     ))
 
-    extruded_mesh.getLabel("exterior_facets").setName("base_exterior_facets")
-    extruded_mesh.getLabel("interior_facets").setName("base_interior_facets")
+    extruded_dm.getLabel("exterior_facets").setName("base_exterior_facets")
+    extruded_dm.getLabel("interior_facets").setName("base_interior_facets")
 
-    return extruded_mesh
+    extr_to_base_pt, extr_to_off = get_extruded_base_point_map(base_dm, extruded_dm, nlayers, periodic)
+
+    # expected = np.asarray([extruded_dm.getLabel("base_point").getValue(pt) for pt in range(*extruded_dm.getChart())], dtype=IntType)
+    # actual = extr_to_base_pt
+    #
+    # print("expected")
+    # print(expected)
+    # print("actual")
+    # print(actual)
+    # assert (actual == expected).all()
+
+
+
+    return extruded_dm, extr_to_base_pt, extr_to_off
+
+
+def extruded_plex_strata_order(dimension):
+    # found by marking points before extruding and backing out the order
+    if dimension == 2:
+        return (
+            (1, 1),
+            (0, 0),
+            (1, 0),
+            (0, 1),
+        )
+    else:
+        assert dimension == 3
+        return (
+            (2, 1),
+            (0, 0),
+            (2, 0),
+            (1, 1),
+            (1, 0),
+            (0, 1),
+        )
+
+
+def get_extruded_base_point_map(base_dm, dm, nlayers, periodic):
+    """
+                #     2--0--3--1--4
+                #
+                # to
+                #
+                #     6-15--9-18-12
+                #     |     |     |
+                #    20  1 22  3 24
+                #     |     |     |
+                #     5-14--8-17-11
+                #     |     |     |
+                #    19  0 21  2 23
+                #     |     |     |
+                #     4-13--7-16-10
+    """
+    start, end = dm.getChart()
+    extr_to_base_pt = np.full(end-start, -1, dtype=IntType)
+    extr_to_off = np.full(end-start, -1, dtype=IntType)
+    for base_dim in range(base_dm.getDimension()+1):
+        for extr_dim in [0, 1]:
+            if extr_dim == 0:
+                stratum_self = base_dim
+                stratum_other = base_dim + 1
+                dim_self = (base_dim, 0)
+                dim_other = (base_dim-1, 1)
+                base_dim_other = base_dim - 1  # the other base points producing these
+                num_cols_self = nlayers if periodic else nlayers + 1
+                num_cols_other = nlayers
+            else:
+                stratum_self = base_dim + 1
+                stratum_other = base_dim
+                dim_self = (base_dim, 1)
+                dim_other = (base_dim+1, 0)
+                base_dim_other = base_dim + 1
+                num_cols_self = nlayers
+                num_cols_other = nlayers if periodic else nlayers + 1
+
+            stratum_off, _ = dm.getDepthStratum(stratum_self)
+
+            # print(f"{dim_self = } {dim_other = }")
+
+            strata_order = extruded_plex_strata_order(dm.getDimension())
+            if dim_other not in strata_order:
+                # No other base points produce this stratum (e.g. vertices are only ever
+                # produced by base vertices)
+                # print("A")
+                per_stratum_off = 0
+            elif strata_order.index(dim_self) < strata_order.index(dim_other):
+                # print("B")
+                per_stratum_off = 0
+            else:
+                # How many base points from another base dimension also produce points matching
+                # this dimension?
+                start_other, end_other = base_dm.getDepthStratum(base_dim_other)
+                # print(f"{start_other = }")
+                # print(f"{end_other = }")
+                num_base_pts_other = end_other - start_other
+                per_stratum_off = num_base_pts_other * num_cols_other
+
+            # x, y = base_dm.getDepthStratum(base_dim)
+            # nbase = y-x
+            # print(f"({base_dim}, {extr_dim}) has {nbase*num_cols_self} and is preceded by {stratum_off} + {per_stratum_off}")
+
+            # print(f"{stratum_off = }")
+            # print(f"{per_stratum_off = }")
+            # print(f"{num_cols_self = }")
+            # print(f"{num_cols_other = }")
+
+            for ib, base_pt in enumerate(range(*base_dm.getDepthStratum(base_dim))):
+                for ie in range(num_cols_self):
+                    extr_pt = ib*num_cols_self + ie + stratum_off + per_stratum_off
+                    extr_to_base_pt[extr_pt] = base_pt
+                    if extr_dim == 0:
+                        extr_to_off[extr_pt] = 2*ie
+                    else:
+                        extr_to_off[extr_pt] = 2*ie+1
+
+    return extr_to_base_pt, extr_to_off
+
+
+def extrude_point_renumbering(dm, base_dm, base_renumbering, nlayers, periodic, extr2base, extr2off):
+    """
+    Consider
+
+          x-----x-----x
+          2  0  3  1  4
+         (1  0  2  3  4)   going to
+
+    When we extrude it will have the following numbering:
+
+          5--2--8-11-14
+          |     |     |
+          4  1  7 10 13
+          |     |     |
+          3--0--6--9-12
+
+    whilst the DMPlex will think it is:
+
+          3--9--5-11--7
+          |     |     |
+         12  0 13  1 14
+          |     |     |
+          2--8--4-10--6
+
+    (To see this recall that points are numbered cells then vertices then edges.)
+
+    """
+    column_height = 2*nlayers+1
+    if periodic:
+        column_height -= 1
+
+    start, end = dm.getChart()
+    assert start == 0
+    extr_renumbering = np.full(end-start, -1, dtype=IntType)
+    for ep in range(start, end):
+        extr_renumbering[ep] = base_renumbering[extr2base[ep]] * column_height + extr2off[ep]
+    return extr_renumbering
 
 
 def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:

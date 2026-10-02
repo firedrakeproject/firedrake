@@ -632,7 +632,8 @@ class AbstractMeshTopology(abc.ABC):
             return (2, 0, 1)
         else:
             assert self.dimension == 3
-            return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
+            # return (3, 0, 2, 1)  # I think, 1 and 2 might need swapping
+            return (3, 0, 1, 2)  # I think, 1 and 2 might need swapping
 
     @cached_property
     def points(self):
@@ -2854,10 +2855,12 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         # self.topology_dm = mesh.topology_dm
         base_dm = mesh.topology_dm.clone()
-        topology_dm = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
+        topology_dm, extr_to_base_pt, extr_to_off = dmcommon.extrude_mesh(base_dm, layers-1, 666, periodic=periodic)
         topology_dm.setName(self.name)
 
         self.topology_dm = topology_dm
+        self._extruded_to_base_point_map = extr_to_base_pt
+        self._extruded_to_offset_map = extr_to_off
         r"The PETSc DM representation of the mesh topology."
         self._did_reordering = mesh._did_reordering
         self._distribution_parameters = mesh._distribution_parameters
@@ -3000,29 +3003,32 @@ class ExtrudedMeshTopology(MeshTopology):
 
         # we always have 2n+1 entities when we extrude
         base_indices = self._base_mesh._old_to_new_point_renumbering.indices
-        base_point_label = self.topology_dm.getLabel("base_point")
 
-        column_height = 2*n_extr_cells+1
-        if self.periodic:
-            column_height -= 1
-        indices = np.empty(base_indices.size * column_height, dtype=base_indices.dtype)
-        for base_dim in range(self._base_mesh.topology_dm.getDimension()+1):
-            cell_stratum = self.topology_dm.getDepthStratum(base_dim+1)
-            vert_stratum = self.topology_dm.getDepthStratum(base_dim)
-            for base_pt in range(*self._base_mesh.topology_dm.getDepthStratum(base_dim)):
-                extruded_points = base_point_label.getStratumIS(base_pt)
-                extruded_cells = dmcommon.filter_is(extruded_points, *cell_stratum)
-                extruded_verts = dmcommon.filter_is(extruded_points, *vert_stratum)
-                if self.periodic:
-                    assert extruded_verts.size == extruded_cells.size
-                else:
-                    assert extruded_verts.size == extruded_cells.size + 1
+        indices = dmcommon.extrude_point_renumbering(self.topology_dm, self._base_mesh.topology_dm, base_indices, self.layers-1, self.periodic, self._extruded_to_base_point_map, self._extruded_to_offset_map)
 
-                for i, ec in enumerate(extruded_cells.indices):
-                    indices[ec] = base_indices[base_pt] * column_height + (2*i+1)
-
-                for i, ev in enumerate(extruded_verts.indices):
-                    indices[ev] = base_indices[base_pt] * column_height + 2*i
+        # column_height = 2*n_extr_cells+1
+        # if self.periodic:
+        #     column_height -= 1
+        # indices = np.empty(base_indices.size * column_height, dtype=base_indices.dtype)
+        # for base_dim in range(self._base_mesh.topology_dm.getDimension()+1):
+        #     c_start, c_end = self.topology_dm.getDepthStratum(base_dim+1)
+        #     v_start, v_end = self.topology_dm.getDepthStratum(base_dim)
+        #     for base_pt in range(*self._base_mesh.topology_dm.getDepthStratum(base_dim)):
+        #         extruded_points = np.flatnonzero(base_point_label == base_pt)
+        #
+        #         ic = 0
+        #         iv = 0
+        #         for ep in extruded_points:
+        #             if c_start <= ep < c_end:
+        #                 indices[ep] = base_indices[base_pt] * column_height + (2*ic+1)
+        #                 ic += 1
+        #             else:
+        #                 assert v_start <= ep < v_end
+        #                 indices[ep] = base_indices[base_pt] * column_height + 2*iv
+        #                 iv += 1
+        # print(base_indices)
+        # print(indices)
+        # breakpoint()
 
         return PETSc.IS().createGeneral(indices, comm=MPI.COMM_SELF)
 
@@ -3050,7 +3056,6 @@ class ExtrudedMeshTopology(MeshTopology):
             np.sort(self._old_to_new_point_renumbering.indices[matching_extruded_points.indices])
         )
 
-    # TODO: I don't think that the specific ordering actually matters here...
     @property
     def _plex_strata_ordering(self):
         return tuple(
@@ -3110,9 +3115,9 @@ class ExtrudedMeshTopology(MeshTopology):
     def _plex_point_to_base_point_array(self) -> np.ndarray:
         # TODO: cythonise
         point_map = np.empty(self.num_points, dtype=IntType)
-        base_pt_label = self.topology_dm.getLabel("base_point")
+        base_pt_label = self._extruded_to_base_point_map
         for base_pt in range(base_pt_label.getNumValues()):
-            extr_pts = base_pt_label.getStratumIS(base_pt).indices
+            extr_pts = np.flatnonzero(base_pt_label == base_pt)
             point_map[extr_pts] = base_pt
         return utils.readonly(point_map)
 
