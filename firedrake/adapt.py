@@ -37,9 +37,12 @@ def _adapt_marked_cells(mesh, cell_marker):
             adapt_indicator, adapt_label, DM_ADAPT_REFINE,
         )
 
-    parameters = {"dm_plex_transform_type": "refine_sbr"}
+    # DMPlexTransform reads its type without a prefix. Keep a type that the
+    # user has set, because inserted_options deletes what it inserts.
+    options = PETSc.Options()
+    transform_type = "dm_plex_transform_type"
+    parameters = {} if transform_type in options else {transform_type: "refine_sbr"}
     try:
-        # options_prefix="" is essential
         with petsctools.inserted_options(parameters=parameters, options_prefix=""):
             with PETSc.Log.Event("AdaptiveRefine: adaptLabel"):
                 new_dm = dm.adaptLabel(ADAPT_LABEL)

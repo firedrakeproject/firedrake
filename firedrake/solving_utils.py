@@ -136,6 +136,32 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
+def check_ksp_convergence(ksp: PETSc.KSP) -> None:
+    """Raise an error if a linear solve does not converge.
+
+    The `PETSc.KSP` counterpart of `check_snes_convergence`.
+
+    Parameters
+    ----------
+    ksp
+        The `PETSc.KSP` that has just solved.
+
+    Raises
+    ------
+    ConvergenceError
+        If the KSP reports a negative converged reason.
+    """
+    r = ksp.getConvergedReason()
+    try:
+        reason = KSPReasons[r]
+    except KeyError:
+        reason = "unknown reason (petsc4py enum incomplete?), try with -ksp_converged_reason"
+    if r < 0:
+        raise ConvergenceError(r"""Linear solve failed to converge after %d iterations.
+Reason:
+   %s""" % (ksp.getIterationNumber(), reason))
+
+
 class _SNESContext(object):
     """Context holding information for SNES callbacks.
 
@@ -187,6 +213,14 @@ class _SNESContext(object):
     user form_function code, we pull the DM out of the SNES and then
     get the context (which is one of these objects) to find the
     Firedrake level information.
+
+    Notes
+    -----
+    `snes` is a weak reference to the SNES that solves this context, because
+    the SNES owns the DM that holds this context. Adaptive refinement passes
+    the SNES on to the refined context. The contexts that `reconstruct` builds
+    for field splits and coarse levels have no SNES, because they hold other
+    problems.
 
     """
     @PETSc.Log.EventDecorator()
@@ -353,6 +387,37 @@ class _SNESContext(object):
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    def solve_jacobian(self, b: Cofunction, x: Function, *,
+                       transpose: bool = False) -> None:
+        """Solve with the Jacobian and preconditioner of the most recent solve.
+
+        Parameters
+        ----------
+        b
+            The dual right-hand side.
+        x
+            The Function in which to store the solution.
+        transpose
+            If `True`, solve with the transposed Jacobian. The preconditioner
+            must then implement ``applyTranspose``.
+
+        Raises
+        ------
+        RuntimeError
+            If this context has no SNES.
+        ConvergenceError
+            If the linear solve fails to converge.
+        """
+        snes = self.snes
+        if snes is None:
+            raise RuntimeError("This context is not attached to a SNES")
+        ksp = snes.getKSP()
+        solve = ksp.solveTranspose if transpose else ksp.solve
+        with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
+            with dmhooks.add_hooks(self._problem.dm, self, appctx=self):
+                solve(bvec, xvec)
+        check_ksp_convergence(ksp)
 
     @property
     def transfer_manager(self):

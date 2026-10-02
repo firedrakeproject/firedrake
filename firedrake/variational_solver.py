@@ -358,7 +358,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
                :class:`.Function` or :class:`.Cofunction` with positive
-               values on cells to refine.
+               values on cells to refine. If the callback returns ``None``,
+               the adaptation stops and keeps the current mesh and solution.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -439,7 +440,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx.set_snes(self.snes)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -481,11 +481,16 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solution DM to refine, where ``ctx`` is the current
         `_SNESContext`. It must return a DG0
         :class:`.Function` or :class:`.Cofunction` on the current solution
-        mesh, with positive values on cells to refine.
+        mesh, with positive values on cells to refine. If the callback returns
+        ``None``, the adaptation stops and keeps the current mesh and solution.
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
         self._ctx._marking_callback = callback
+
+    def get_marking_callback(self) -> Callable | None:
+        r"""Return the marking callback on the current (possibly adapted) mesh."""
+        return self._ctx._marking_callback
 
     def get_solution(self):
         r"""Return the current (possibly adapted) solution."""
@@ -560,17 +565,22 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
+        # The mesh may have been adapted since the last solve.
+        work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
                 for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
+                                 [dmhooks.add_hooks(dm, self._ctx, appctx=self._ctx) for dm in problem_dms],
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
+                if self.snes.getSolution() != work:
+                    # DMAdaptorAdapt() consumed a reference to work when it put
+                    # a vector of its own in place.
+                    work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
         problem = self._ctx._problem
