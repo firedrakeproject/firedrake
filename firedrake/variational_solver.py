@@ -486,40 +486,15 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
-        from firedrake.dwr import DWRMarkingCallback
-        if isinstance(callback, DWRMarkingCallback):
-            with self.inserted_options():
-                callback.setup(self._ctx._problem.u, self.options_prefix)
         self._ctx._marking_callback = callback
+
+    def get_marking_callback(self) -> Callable | None:
+        r"""Return the marking callback on the current (possibly adapted) mesh."""
+        return self._ctx._marking_callback
 
     def get_solution(self):
         r"""Return the current (possibly adapted) solution."""
         return self._ctx._problem.u
-
-    def get_goal_functional(self) -> ufl.BaseForm:
-        r"""Return the goal functional of the attached :class:`.DWRMarkingCallback`,
-        on the current (possibly adapted) solution mesh."""
-        from firedrake.dwr import DWRMarkingCallback
-        callback = self._ctx._marking_callback
-        if not isinstance(callback, DWRMarkingCallback):
-            raise AttributeError("This solver has no DWRMarkingCallback attached")
-        return callback.goal_functional
-
-    def get_error_estimate(self) -> float:
-        r"""Return the most recent estimate of :math:`J(u) - J(u_h)` from the
-        attached :class:`.DWRMarkingCallback`.
-
-        The estimate belongs to the current mesh if adaptation stopped at the
-        ``-dwr_atol`` or ``-dwr_rtol`` tolerance, and to the previous mesh
-        otherwise.
-        """
-        from firedrake.dwr import DWRMarkingCallback
-        callback = self._ctx._marking_callback
-        if not isinstance(callback, DWRMarkingCallback):
-            raise AttributeError("This solver has no DWRMarkingCallback attached")
-        if callback.error_estimate is None:
-            raise ValueError("No error estimate is available until the solver has marked")
-        return callback.error_estimate
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.

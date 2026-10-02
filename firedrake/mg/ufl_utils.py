@@ -469,14 +469,7 @@ def reconstruct_dwr_marking_callback(callback, self, coefficient_mapping=None):
         coefficient_mapping = {}
     goal = self(callback.goal_functional, self, coefficient_mapping=coefficient_mapping)
     exact_solution = self(callback.exact_solution, self, coefficient_mapping=coefficient_mapping)
-    primal = self(callback._primal, self, coefficient_mapping=coefficient_mapping)
-    new_callback = type(callback)(goal, exact_solution, primal=primal,
-                                  enrichment_degree=callback._enrichment_degree,
-                                  options_prefix=callback._options_prefix,
-                                  options=callback._options)
-    # Keep the estimate from the coarser mesh until the next marking.
-    new_callback.error_estimate = callback.error_estimate
-    return new_callback
+    return callback.reconstruct(goal, exact_solution)
 
 
 @_reconstruct.register(firedrake.slate.BlockAssembledVector)

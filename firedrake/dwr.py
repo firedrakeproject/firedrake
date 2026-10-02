@@ -189,16 +189,18 @@ class DWRMarkingCallback:
         An optional UFL expression for the exact primal solution.
         ``-dwr_monitor`` uses it to report the true error and the effectivity
         index.
-    primal
-        The primal solution ``u_h``. `setup` sets it.
-    enrichment_degree
-        The number of degrees that the enriched space adds to the primal
-        space. `setup` reads it from the options.
-    options_prefix
-        The options prefix of the solver that this callback is attached to.
-        `setup` sets it.
-    options
-        The options under ``options_prefix``. `setup` captures them.
+
+    Attributes
+    ----------
+    goal_functional
+        The goal functional on the current mesh.
+    error_estimate
+        The most recent estimate ``eta`` of ``J(u) - J(u_h)``, or `None`
+        before the first marking. It belongs to the current mesh if
+        adaptation stopped at the tolerance, and to the previous mesh
+        otherwise.
+    converged
+        Whether ``error_estimate`` meets the tolerances.
 
     Notes
     -----
@@ -209,8 +211,9 @@ class DWRMarkingCallback:
     (default 1e-50), ``dwr_rtol`` (default 0) and ``dwr_monitor``
     (default off). The auxiliary solvers read the ``dwr_enriched_``,
     ``dwr_cell_`` and ``dwr_facet_`` sub-prefixes. The callback copies all
-    these options when it is attached, and uses the copy on every adapted
-    mesh. Without ``dwr_enriched_`` options, the enriched solve uses the
+    these options when it first marks, and uses the copy on every adapted
+    mesh. `NonlinearVariationalSolver.get_marking_callback` returns the
+    callback on the current mesh. Without ``dwr_enriched_`` options, the enriched solve uses the
     options of the parent solver. The dual solves reuse the primal Jacobians
     through ``solve_jacobian``, so the preconditioners of both primal solvers
     must implement ``applyTranspose``.
@@ -221,47 +224,38 @@ class DWRMarkingCallback:
     """
 
     def __init__(self, goal_functional: ufl.BaseForm,
-                 exact_solution: ufl.classes.Expr | None = None,
-                 primal: Function | None = None,
-                 enrichment_degree: int | None = None,
-                 options_prefix: str = "",
-                 options: dict[str, str] | None = None):
+                 exact_solution: ufl.classes.Expr | None = None):
         if not isinstance(goal_functional, ufl.BaseForm) or goal_functional.arguments():
             raise ValueError("goal_functional must be a 0-form")
         self.goal_functional = goal_functional
         self.exact_solution = exact_solution
-        # The most recent estimate of J(u) - J(u_h), and whether it meets the
-        # tolerances.
         self.error_estimate = None
         self.converged = False
-        self._primal = primal
-        self._enrichment_degree = enrichment_degree
-        self._options_prefix = options_prefix
-        # The solvers delete their options from the database, so keep a copy
-        # for the adapted meshes.
-        self._options = {} if options is None else options
-        self._high_space = None
-        if primal is not None:
-            V = primal.function_space()
-            self._high_space = V.reconstruct(degree=V.ufl_element().degree() + enrichment_degree)
+        # The prefix of the solver, and a copy of its options, because the
+        # auxiliary solvers delete their options from the database.
+        self._options_prefix = None
+        self._options = None
 
-    def setup(self, primal: Function, options_prefix: str) -> None:
-        """Attach this callback to a solver, and read that solver's options.
+    def reconstruct(self, goal_functional: ufl.BaseForm,
+                    exact_solution: ufl.classes.Expr | None) -> DWRMarkingCallback:
+        """Return a copy of this callback for another mesh.
 
         Parameters
         ----------
-        primal
-            The primal solution ``u_h`` on the initial mesh.
-        options_prefix
-            The options prefix of that solver.
+        goal_functional
+            The goal functional on the other mesh.
+        exact_solution
+            The exact solution on the other mesh, or `None`.
+
+        Returns
+        -------
+        A callback that keeps the options and the error estimate of this one.
         """
-        options = PETSc.Options(options_prefix)
-        self._options_prefix = options_prefix
-        self._options = options.getAll()
-        self._primal = primal
-        self._enrichment_degree = options.getInt("dwr_enrichment_degree", 1)
-        V = primal.function_space()
-        self._high_space = V.reconstruct(degree=V.ufl_element().degree() + self._enrichment_degree)
+        callback = type(self)(goal_functional, exact_solution)
+        callback.error_estimate = self.error_estimate
+        callback._options_prefix = self._options_prefix
+        callback._options = self._options
+        return callback
 
     def __call__(self, ctx, current_solution: Function) -> Function | None:
         return self._mark(ctx, current_solution)
@@ -326,15 +320,17 @@ class DWRMarkingCallback:
     def _mark(self, ctx, current_solution: Function) -> Function | None:
         problem = ctx._problem
         V = current_solution.function_space()
+        if self._options is None:
+            self._options_prefix = ctx.options_prefix or ""
+            self._options = PETSc.Options(self._options_prefix).getAll()
         # Refined contexts have a prefix for their multigrid level, so read the
         # options of the original solver.
         prefix = self._options_prefix
         options = PETSc.Options(prefix)
+        enrichment_degree = options.getInt("dwr_enrichment_degree", 1)
         residual_degree = options.getInt("dwr_residual_degree", 1)
         marking_fraction = options.getReal("dwr_marking_fraction", 0.5)
-        high_space = self._high_space
-        if high_space is None:
-            raise RuntimeError("DWR marking callback has not been set up")
+        high_space = V.reconstruct(degree=V.ufl_element().degree() + enrichment_degree)
 
         dual_low = Function(V, name="dwr_dual_low")
         goal_derivative = derivative(self.goal_functional, current_solution)

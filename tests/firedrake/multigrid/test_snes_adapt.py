@@ -229,7 +229,7 @@ def test_dwr_marking_callback_multiple_levels():
     assert level == 3
     assert len(hierarchy) == 4
     assert hierarchy[0] is mesh
-    adapted_goal = solver.get_goal_functional()
+    adapted_goal = solver.get_marking_callback().goal_functional
     assert adapted_goal.arguments() == ()
 
 
@@ -257,14 +257,14 @@ def test_dwr_marking_callback_solver_reuse():
     hierarchy, first_level = get_level(first_result.function_space().mesh())
     assert first_level == 1
     first_dim = first_result.function_space().dim()
-    first_goal = assemble(solver.get_goal_functional())
+    first_goal = assemble(solver.get_marking_callback().goal_functional)
 
     second_result = solver.solve()
     hierarchy, second_level = get_level(second_result.function_space().mesh())
     assert second_level == 2
     assert hierarchy[1] is first_result.function_space().mesh()
     assert second_result.function_space().dim() > first_dim
-    second_goal = assemble(solver.get_goal_functional())
+    second_goal = assemble(solver.get_marking_callback().goal_functional)
 
     assert first_dim > old_dim
     assert isinstance(first_goal, float)
@@ -308,7 +308,7 @@ def test_dwr_marking_callback_stops_at_tolerance(monkeypatch):
     # callback marks nothing.
     assert len(markings) == level + 1
     assert markings[-1] is None
-    assert abs(solver.get_error_estimate()) < atol
+    assert abs(solver.get_marking_callback().error_estimate) < atol
 
 
 @pytest.mark.parallel([1, 2])
@@ -395,7 +395,7 @@ def test_dwr_marking_callback_reconstructs_exact_solution():
     adapted_mesh = result.function_space().mesh().unique()
     assert adapted_mesh is not mesh
     assert extract_unique_domain(adapted.exact_solution) is adapted_mesh
-    assert solver.get_error_estimate() != 0.0
+    assert solver.get_marking_callback().error_estimate != 0.0
 
 
 @pytest.mark.parallel([1, 2])
