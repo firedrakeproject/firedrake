@@ -489,7 +489,7 @@ To install Firedrake with SLEPc support you should:
 
    .. code-block:: console
 
-      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-slepc
+      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-slepc --download-slepc-commit=v3.26.0
 
 #. Set ``SLEPC_DIR``:
 
