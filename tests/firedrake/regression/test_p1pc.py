@@ -67,9 +67,10 @@ def test_p_independence(mesh, expected):
                 "pc_python_type": "firedrake.AssembledPC",
                 "assembled_pc_type": "cholesky",
             },
-            "ksp_monitor": None})
+            "ksp_monitor": None, "snes_monitor": None})
 
         solver.solve()
 
         nits.append(solver.snes.ksp.getIterationNumber())
+        assert nits[0] == expected[0]  # debuggin
     assert (nits == expected)

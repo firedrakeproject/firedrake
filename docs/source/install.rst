@@ -263,7 +263,7 @@ install Firedrake. To do this perform the following steps:
       so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
       for more information.
 
-#. Install Firedrake::
+#. Install Firedrake:
 
    .. code-block:: console
 

@@ -1,5 +1,7 @@
-from firedrake import *
 import numpy as np
+import pytest
+
+from firedrake import *
 
 
 def test_extruded_change_coordinates():

@@ -14,15 +14,6 @@ extern "C" {
 #endif
 
 struct Function {
-	/* Number of cells in the base mesh */
-	PetscInt n_cols;
-
-	/* true if extruded, false if not */
-	bool extruded;
-
-	/* number of layers for extruded, otherwise 1 */
-	PetscInt n_layers;
-
 	/* Coordinate values and node mapping */
 	PetscScalar *coords;
 	PetscInt *coords_map;
@@ -45,16 +36,9 @@ typedef PetscReal (*ref_cell_l1_dist)(void *data_,
 				PetscInt cell,
 				double *x);
 
-typedef PetscReal (*ref_cell_l1_dist_xtr)(void *data_,
-				struct Function *f,
-				PetscInt cell,
-				PetscInt layer,
-				double *x);
-
-extern PetscErrorCode locate_cell_from_candidates(struct Function *f,
+extern PetscErrorCode locate_cell_from_coordinates(struct Function *f,
 		       double *x,
 		       ref_cell_l1_dist try_candidate,
-		       ref_cell_l1_dist_xtr try_candidate_xtr,
 		       void *temp_ref_coords,
 		       void *found_ref_coords,
 		       PetscReal *found_ref_cell_dist_l1,

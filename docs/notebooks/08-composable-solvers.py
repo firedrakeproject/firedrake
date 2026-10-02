@@ -159,7 +159,7 @@ fig.colorbar(streamlines);
 solver_parameters = {
     "mat_type": "aij",
     "ksp_type": "gmres",
-    "ksp_gmres_modifiedgramschmidt": None,
+    "ksp_orthogonalization_mgs": None,
     "ksp_max_it": 2000,
     "ksp_converged_reason": None,
     "pc_type": "ilu"

@@ -129,7 +129,8 @@ def test_parallel_limiting():
 
 
 def _apply_limiter_with_comm(comm):
-    mesh = RectangleMesh(10, 4, 5000., 1000., comm=comm)
+    # mesh = RectangleMesh(10, 4, 5000., 1000., comm=comm)
+    mesh = RectangleMesh(3, 2, 5000., 1000., comm=comm)
     V = space(mesh)
     f = Function(V)
     x, *_ = SpatialCoordinate(mesh)

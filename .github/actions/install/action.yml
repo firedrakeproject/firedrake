@@ -85,11 +85,15 @@ runs:
       run: |
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
-          git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pcpatch-fixups
+          EXTRA_CONFIGURE_OPTIONS=""
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \
             --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
             https://gitlab.com/petsc/petsc.git
+          : # The SLEPc packaged with PETSc v3.26.0 doesn't actually build against
+          : # slepc4py==3.26.0
+          EXTRA_CONFIGURE_OPTIONS="--download-slepc-commit=v3.26.0"
         else
           echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
           exit 1
@@ -111,6 +115,7 @@ runs:
           --gpu-arch ${{ inputs.gpu }} \
           --show-petsc-configure-options | \
           xargs -L1 ./configure \
+            $EXTRA_CONFIGURE_OPTIONS \
             --with-make-np=$NPROCS \
             --download-slepc
         make

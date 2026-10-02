@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import contextlib
 import gc
 from copy import deepcopy
 from types import MappingProxyType
@@ -7,7 +10,8 @@ from warnings import warn
 import petsctools
 from mpi4py import MPI
 from petsc4py import PETSc
-from pyop2 import mpi
+from pyop3 import mpi
+from firedrake import utils
 
 
 __all__ = ("PETSc",)
@@ -155,3 +159,26 @@ _DEFAULT_SNES_PARAMETERS = {
 DEFAULT_DIRECT_SOLVER_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_DIRECT_SOLVER_PARAMETERS))
 DEFAULT_KSP_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_KSP_PARAMETERS))
 DEFAULT_SNES_PARAMETERS = MappingProxyType(deepcopy(_DEFAULT_SNES_PARAMETERS))
+
+
+@contextlib.contextmanager
+def local_submat(mat: PETSc.Mat, row_space: WithGeometry, column_space: WithGeometry):
+    """Yield a temporary reference to a submatrix pulled from a larger one.
+
+    This is useful is you want to modify a block of a multi-space matrix in
+    a unified way regardless of whether it is a MATNEST or some monolithic
+    matrix type.
+
+    """
+    if row_space.index is None and column_space.index is None:
+        yield mat
+        return
+
+    if mat.type == PETSc.Mat.Type.NEST:
+        yield mat.getNestSubMatrix(row_space.index or 0, column_space.index or 0)
+    else:
+        row_is = row_space.parent.local_ises[row_space.index]
+        column_is = column_space.parent.local_ises[column_space.index]
+        submat = mat.getLocalSubMatrix(row_is, column_is)
+        yield submat
+        mat.restoreLocalSubMatrix(row_is, column_is, submat)
