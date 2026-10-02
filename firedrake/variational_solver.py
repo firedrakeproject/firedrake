@@ -358,7 +358,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
                :class:`.Function` or :class:`.Cofunction` with positive
-               values on cells to refine.
+               values on cells to refine. If the callback returns ``None``,
+               the adaptation stops and keeps the current mesh and solution.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -464,9 +465,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
-        if marking_callback is not None:
-            self.snes.setConvergenceTest(solving_utils.adaptive_convergence_test)
-
         # Used for custom grid transfer.
         self._transfer_operators = ()
         self._setup = False
@@ -483,7 +481,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solution DM to refine, where ``ctx`` is the current
         `_SNESContext`. It must return a DG0
         :class:`.Function` or :class:`.Cofunction` on the current solution
-        mesh, with positive values on cells to refine.
+        mesh, with positive values on cells to refine. If the callback returns
+        ``None``, the adaptation stops and keeps the current mesh and solution.
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
@@ -565,9 +564,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_objective(self.snes)
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
-        # Reset the adaptive convergence flag, so that a solver that stopped
-        # adapting last time gets to adapt again.
-        self._ctx._adapt_converged = False
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
@@ -613,10 +609,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.solve(None, work)
                 if self.snes.getSolution() != work:
                     # DMAdaptorAdapt() consumed a reference to work when it put
-                    # a vector of its own in place. The solution vector records
-                    # that exchange, and the DM does not. An adaptation that
-                    # converges at once leaves the DM alone, and still builds
-                    # the vector again.
+                    # a vector of its own in place.
                     work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())

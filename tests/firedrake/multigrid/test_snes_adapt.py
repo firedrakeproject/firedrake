@@ -282,7 +282,16 @@ def _dwr_poisson_problem(n=4):
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_marking_callback_stops_at_tolerance():
+def test_dwr_marking_callback_stops_at_tolerance(monkeypatch):
+    markings = []
+    mark = DWRMarkingCallback.__call__
+
+    def record_marking(self, ctx, current_solution):
+        markers = mark(self, ctx, current_solution)
+        markings.append(markers)
+        return markers
+
+    monkeypatch.setattr(DWRMarkingCallback, "__call__", record_marking)
     atol = 2.0e-3
     requested = 8
     mesh, V, problem, goal = _dwr_poisson_problem()
@@ -295,7 +304,10 @@ def test_dwr_marking_callback_stops_at_tolerance():
 
     hierarchy, level = get_level(result.function_space().mesh())
     assert 0 < level < requested
-    assert solver._ctx._adapt_converged
+    # The callback marks once per refinement, and the sequence stops after the
+    # callback marks nothing.
+    assert len(markings) == level + 1
+    assert markings[-1] is None
     assert abs(solver.get_error_estimate()) < atol
 
 

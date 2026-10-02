@@ -458,6 +458,8 @@ def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` on the adaptively-refined mesh.
     `_SNESContext.marking_callback` marks the cells that this function refines.
+    Return a null DM if the callback marks nothing, so that DMAdaptorAdapt()
+    keeps the current DM and solution and stops the adaptation sequence.
     """
     from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import refine
@@ -466,21 +468,11 @@ def _refine_adaptive(dm):
     ctx = get_appctx(dm)
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
-    if ctx._adapt_converged:
-        # PETSc's adaptor has no tolerance of its own, so it asks for the rest
-        # of -snes_adapt_sequence after the callback declares itself satisfied.
-        # Hand the same DM straight back. An estimate here would cost two
-        # solves and give an answer that this function already has.
-        return dm
     current_solution = ctx._x
     solution_mesh = current_solution.function_space().mesh()
     mesh = solution_mesh.unique()
     hierarchy, level = get_level(mesh)
-    if hierarchy is None:
-        hierarchy = MeshHierarchy(mesh)
-        level = 0
-
-    if level+1 != len(hierarchy):
+    if hierarchy is not None and level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:
         # Without a callback, nothing tells one cell from another, so this
@@ -490,14 +482,7 @@ def _refine_adaptive(dm):
     else:
         markers = ctx._marking_callback(ctx, current_solution)
     if markers is None:
-        # The callback is satisfied with this mesh, so hand the same DM back
-        # unrefined. petsc4py increments the reference count of what this
-        # function returns. DMAdaptorAdapt() then destroys its input, which
-        # consumes that increment, so the count stays balanced. The flag on the
-        # context lets this function and the SNES convergence test skip the
-        # remaining steps of the sequence.
-        ctx._adapt_converged = True
-        return dm
+        return PETSc.DM()
 
     if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
         raise TypeError(
@@ -510,11 +495,12 @@ def _refine_adaptive(dm):
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
-    # DMAdaptorAdapt() always destroys its input DM. Each input DM remains a
-    # level of the mesh hierarchy, so increase the reference count here to keep
-    # the coarse DM alive.
+    # DMAdaptorAdapt() destroys its input DM after a refinement. Each input DM
+    # remains a level of the mesh hierarchy, so increase the reference count
+    # here to keep the coarse DM alive.
     dm.incRef()
-
+    if hierarchy is None:
+        hierarchy = MeshHierarchy(mesh)
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))
     if isinstance(solution_mesh, MeshSequenceGeometry):
         solution_mesh.set_hierarchy()
