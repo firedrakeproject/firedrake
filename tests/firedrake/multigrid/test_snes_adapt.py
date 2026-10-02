@@ -146,3 +146,38 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     assert adapted_mesh is not mesh
     assert u_adapted is not uh
     assert u_adapted.function_space().dim() > old_dim
+
+
+@pytest.mark.parallel([1, 3])
+def test_snes_adapt_noop_refinement_with_multigrid():
+    # The adapted level has the same dimension as the original level.
+    def mark_no_cells(ctx, current_solution):
+        return Function(FunctionSpace(current_solution.function_space().mesh(), "DG", 0))
+
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v)) * dx - inner(Constant(1), v) * dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+    params = {
+        "snes_type": "ksponly",
+        "snes_adapt_sequence": 1,
+        "mat_type": "aij",
+        "ksp_type": "cg",
+        "ksp_rtol": 1e-12,
+        "pc_type": "mg",
+        "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
+        "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
+    }
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, bcs=bcs),
+                                        solver_parameters=params,
+                                        marking_callback=mark_no_cells)
+    uh = solver.solve()
+    _, level = get_level(uh.function_space().mesh())
+    assert level == 1
+    assert uh.function_space().dim() == V.dim()
+
+    u_ref = Function(V)
+    solve(replace(F, {u: u_ref}) == 0, u_ref, bcs=bcs)
+    assert abs(norm(uh) - norm(u_ref)) < 1e-10 * norm(u_ref)
