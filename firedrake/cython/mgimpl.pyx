@@ -226,43 +226,6 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def transform_source_points(PETSc.DM dm):
-    """Find the point that produced each point of a transformed DMPlex.
-
-    Parameters
-    ----------
-    dm : PETSc.DM
-        A DMPlex made by a transform, such as a refinement, of a DMPlex on
-        which ``setSaveTransform`` was called first.
-
-    Returns
-    -------
-    numpy.ndarray
-        For each point of ``dm``, the point of the original DMPlex that
-        produced it.
-
-    """
-    cdef:
-        PETSc.PetscDMPlexTransform transform = NULL
-        PetscInt pStart, pEnd, p, source
-        PetscInt[::1] points
-
-    CHKERR(DMPlexGetTransform(dm.dm, &transform))
-    if transform == NULL:
-        raise ValueError(
-            "The DMPlex did not save its transform; call setSaveTransform "
-            "before creating it so hierarchy point maps can be built"
-        )
-    pStart, pEnd = dm.getChart()
-    points = np.empty(pEnd - pStart, dtype=IntType)
-    for p in range(pStart, pEnd):
-        CHKERR(DMPlexTransformGetSourcePoint(transform, p, NULL, NULL, &source, NULL))
-        points[p - pStart] = source
-    return np.asarray(points)
-
-
 def compose_points(outer, inner):
     """Compose two point maps.
 
@@ -304,7 +267,7 @@ def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_poin
     fine_to_coarse_points : numpy.ndarray
         For each point of the unoverlapped fine DMPlex, the point of the
         unoverlapped coarse DMPlex that produced it, as given by
-        `transform_source_points`. This is a DMPlex point map; it does not use
+        `dmcommon.transform_source_points`. This is a DMPlex point map; it does not use
         Firedrake cell numbering.
     coarse_lgmap, fine_lgmap : PETSc.LGMap or None
         The point local-to-global maps of the unoverlapped coarse and fine
