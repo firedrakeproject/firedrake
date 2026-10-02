@@ -22,7 +22,7 @@ from finat.quadrature import make_quadrature
 from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
-from gem.unconcatenate import split_contraction
+from gem.unconcatenate import unconcatenate
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
                          CellVertices, CellVolume, Coefficient, FacetArea,
@@ -406,6 +406,7 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
 
     # A mixed dual argument has one component per sub-element.
     elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
+    argument_indices = set(chain(*kernel_cfg["argument_multiindices"]))
     evaluations = []
     for element, gem_dual in zip(elements, gem_duals, strict=True):
         evaluation, quadrature_indices, basis_indices = element.dual_evaluation(fn, coordinate_mapping)
@@ -415,9 +416,10 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
         # reduce here instead of indexing the return value.  A direct sum
         # tabulates into a Concatenate that only its own component can split.
         product = gem.Product(evaluation, gem_dual[basis_indices])
-        for expr, indices in split_contraction(product, basis_indices, kernel_cfg["index_cache"]):
-            summed_indices = tuple(index for index in chain(quadrature_indices, indices)
-                                   if index in expr.free_indices)
+        for _, expr in unconcatenate([(None, product)], kernel_cfg["index_cache"],
+                                     indices=basis_indices):
+            summed_indices = tuple(index for index in dict.fromkeys(chain(quadrature_indices, expr.free_indices))
+                                   if index in expr.free_indices and index not in argument_indices)
             evaluations.append((expr, summed_indices, ()))
     return evaluations
 
@@ -934,10 +936,9 @@ def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, 
         # and each block also contracts over the interpolation points that its
         # own summand evaluates on.
         summands = []
-        for expr, indices in split_contraction(gem.Product(vec_beta, table_qi),
-                                               beta, ctx.index_cache):
-            indices = tuple(i for i in dict.fromkeys(chain(indices, expr.free_indices))
-                            if i in expr.free_indices and i not in unsummed_indices)
+        for _, expr in unconcatenate([(None, gem.Product(vec_beta, table_qi))],
+                                     ctx.index_cache, indices=beta):
+            indices = tuple(i for i in expr.free_indices if i not in unsummed_indices)
             summands.append(gem.optimise.contraction(gem.IndexSum(expr, indices)))
         value_dict[alpha] = gem.ComponentTensor(gem.optimise.make_sum(summands), zeta)
 
