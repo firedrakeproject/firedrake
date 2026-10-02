@@ -406,7 +406,6 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
 
     # A mixed dual argument has one component per sub-element.
     elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
-    argument_indices = set(chain(*kernel_cfg["argument_multiindices"]))
     evaluations = []
     for element, gem_dual in zip(elements, gem_duals, strict=True):
         evaluation, quadrature_indices, basis_indices = element.dual_evaluation(fn, coordinate_mapping)
@@ -415,12 +414,9 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
         # The dual argument contracts over the nodes, so the basis indices
         # reduce here instead of indexing the return value.  A direct sum
         # tabulates into a Concatenate that only its own component can split.
-        product = gem.Product(evaluation, gem_dual[basis_indices])
-        for _, expr in unconcatenate([(None, product)], kernel_cfg["index_cache"],
-                                     indices=basis_indices):
-            summed_indices = tuple(index for index in dict.fromkeys(chain(quadrature_indices, expr.free_indices))
-                                   if index in expr.free_indices and index not in argument_indices)
-            evaluations.append((expr, summed_indices, ()))
+        var, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
+        for v, expr in unconcatenate([(var, evaluation)], kernel_cfg["index_cache"]):
+            evaluations.append((gem.Product(expr, v), tuple(quadrature_indices) + v.index_ordering(), ()))
     return evaluations
 
 
@@ -930,17 +926,16 @@ def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, 
     value_dict = {}
     for alpha, table in per_derivative.items():
         table_qi = gem.Indexed(table, beta + zeta)
-        # The contraction over beta splits the Concatenate that a direct sum
-        # tabulates into, and slices a dat of coefficients into the same
-        # blocks.  An interpolated value is a computed expression instead,
-        # and each block also contracts over the interpolation points that its
-        # own summand evaluates on.
         summands = []
-        for _, expr in unconcatenate([(None, gem.Product(vec_beta, table_qi))],
-                                     ctx.index_cache, indices=beta):
-            indices = tuple(i for i in expr.free_indices if i not in unsummed_indices)
-            summands.append(gem.optimise.contraction(gem.IndexSum(expr, indices)))
-        value_dict[alpha] = gem.ComponentTensor(gem.optimise.make_sum(summands), zeta)
+        # An interpolated value also carries its interpolation points and the
+        # argument indices, so split only along beta, and also sum over the
+        # interpolation points.
+        for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache, indices=beta):
+            indices = tuple(i for i in var.free_indices if i not in unsummed_indices)
+            value = gem.IndexSum(gem.Product(expr, var), indices)
+            summands.append(gem.optimise.contraction(value))
+        optimised_value = gem.optimise.make_sum(summands)
+        value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
