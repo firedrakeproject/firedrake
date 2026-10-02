@@ -474,8 +474,8 @@ def create_interpolation(dmc, dmf):
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
     mat.setUp()
-    if row_size == col_size:
-        # PETSc cannot determine the coarse space if the dimensions are equal.
+    if row_size[1] == col_size[1]:
+        # PETSc cannot determine the coarse space if the global dimensions are equal.
         # The coarse space is identified by the dimension of rscale, so we provide one.
         rscale = mat.createVecRight()
         rscale.set(1.0)
