@@ -37,11 +37,8 @@ def _adapt_marked_cells(mesh, cell_marker):
             adapt_indicator, adapt_label, DM_ADAPT_REFINE,
         )
 
-    # DMPlexTransform reads its type from the unprefixed options database, so
-    # these parameters carry no prefix. The context deletes each parameter that
-    # it inserts. The parameters therefore leave out a transform type that the
-    # user already set. Otherwise the deletion would take that choice away, and
-    # every later refinement would use refine_sbr.
+    # DMPlexTransform reads its type without a prefix. Keep a type that the
+    # user has set, because inserted_options deletes what it inserts.
     options = PETSc.Options()
     transform_type = "dm_plex_transform_type"
     parameters = {} if transform_type in options else {transform_type: "refine_sbr"}

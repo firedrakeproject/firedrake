@@ -49,11 +49,8 @@ def _sub_parameters(options: dict[str, str], sub_prefix: str) -> dict[str, str]:
 def _enriched_parameters(options: dict[str, str]) -> dict[str, str]:
     """Return the solver parameters of the enriched-order primal solve.
 
-    The enriched solve keeps its own ``dwr_enriched_`` prefix. Its monitors and
-    its unused options then belong to it alone, and do not mix with those of
-    the parent. If the user sets no option under that prefix, this function
-    copies the parent's options across. The enriched problem then uses the same
-    solver as the problem that it enriches.
+    These are the options under the ``dwr_enriched_`` sub-prefix. If there are
+    none, the enriched solve takes the options of the parent solver.
 
     Parameters
     ----------
@@ -66,9 +63,7 @@ def _enriched_parameters(options: dict[str, str]) -> dict[str, str]:
     """
     parameters = _sub_parameters(options, "dwr_enriched_")
     if not parameters:
-        # These options configure this callback and the adaptive loop that
-        # drives it, not the solve itself. An enriched solve that inherited
-        # snes_adapt_sequence would adapt a mesh of its own.
+        # Leave out the options that drive adaptivity.
         not_inherited = ("dwr_", "snes_adapt_", "adaptor_")
         parameters = {key: value for key, value in options.items()
                       if not key.startswith(not_inherited)}
@@ -104,9 +99,7 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix, options
     degree = V.ufl_element().degree() + residual_degree
     variant = "integral"
 
-    # Bubble functions vanish on cell boundaries. A test of F against
-    # bubble * cell_test therefore isolates the interior (strong) cell
-    # residual.
+    # Testing F against cell bubbles isolates the cell residual.
     bubble_space = FunctionSpace(mesh, "B", dim + 1, variant=variant)
     bubble = Function(bubble_space).assign(1)
     if V.value_shape == ():
@@ -127,10 +120,7 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix, options
     )
     cell_solver.solve()
 
-    # Facet-bubble ("cone") functions vanish away from a single facet. This
-    # problem subtracts the cell residual that the first solve localized, and
-    # tests the remainder against facet_test. That isolates the jump residual
-    # of each facet.
+    # Testing the remainder against facet bubbles isolates the facet residual.
     cone_space = FunctionSpace(mesh, "FB", dim, variant=variant)
     cone = Function(cone_space).assign(1)
     element = BrokenElement(FiniteElement("FB", cell=mesh.ufl_cell(),
@@ -196,9 +186,9 @@ class DWRMarkingCallback:
     goal_functional
         A scalar UFL 0-form that depends on the primal solution.
     exact_solution
-        An optional UFL expression for the exact primal solution. It serves
-        diagnostics only: it turns ``-dwr_monitor`` output into a true error
-        and an effectivity index, and never influences marking.
+        An optional UFL expression for the exact primal solution.
+        ``-dwr_monitor`` uses it to report the true error and the effectivity
+        index.
     primal
         The primal solution ``u_h``. `setup` sets it.
     enrichment_degree
@@ -212,25 +202,22 @@ class DWRMarkingCallback:
 
     Notes
     -----
-    Suitable for use as ``solve(..., marking_callback=DWRMarkingCallback(goal))``.
-    This callback reads its options from the prefix of the solver that it is
-    attached to, and keeps reading them from there as the mesh adapts. The
-    supported options are ``dwr_enrichment_degree`` (default 1),
-    ``dwr_residual_degree`` (default 1), ``dwr_marking_fraction``
-    (default 0.5), ``dwr_atol`` (default 1e-50), ``dwr_rtol`` (default 0)
-    and ``dwr_monitor`` (default off). The auxiliary solvers use the
-    ``dwr_enriched_``, ``dwr_cell_``, and ``dwr_facet_`` sub-prefixes. They
-    keep the options that those sub-prefixes held when a solver attached this
-    callback. If the user sets no ``dwr_enriched_`` option, the enriched-order
-    solve inherits the parent solver's own options. The dual solves reuse the
-    Jacobian of the low- and enriched-order primal solvers through
-    ``solve_jacobian``, so a preconditioner that implements ``applyTranspose``
-    must precondition both primal solvers.
+    Use as ``solve(..., marking_callback=DWRMarkingCallback(goal))``.
+    The callback reads these options from the prefix of its solver:
+    ``dwr_enrichment_degree`` (default 1), ``dwr_residual_degree``
+    (default 1), ``dwr_marking_fraction`` (default 0.5), ``dwr_atol``
+    (default 1e-50), ``dwr_rtol`` (default 0) and ``dwr_monitor``
+    (default off). The auxiliary solvers read the ``dwr_enriched_``,
+    ``dwr_cell_`` and ``dwr_facet_`` sub-prefixes. The callback copies all
+    these options when it is attached, and uses the copy on every adapted
+    mesh. Without ``dwr_enriched_`` options, the enriched solve uses the
+    options of the parent solver. The dual solves reuse the primal Jacobians
+    through ``solve_jacobian``, so the preconditioners of both primal solvers
+    must implement ``applyTranspose``.
 
-    Adaptation stops once ``|eta| < max(dwr_atol, dwr_rtol * |J(u_h)|)``. The
-    callback then returns `None` rather than a set of markers. The default
-    tolerances never trigger, so adaptation runs for the whole
-    ``-snes_adapt_sequence`` unless the user asks for a tolerance.
+    Adaptation stops once ``|eta| < max(dwr_atol, dwr_rtol * |J(u_h)|)``, and
+    the callback then returns `None`. With the default tolerances, adaptation
+    runs for the whole ``-snes_adapt_sequence``.
     """
 
     def __init__(self, goal_functional: ufl.BaseForm,
@@ -243,16 +230,15 @@ class DWRMarkingCallback:
             raise ValueError("goal_functional must be a 0-form")
         self.goal_functional = goal_functional
         self.exact_solution = exact_solution
-        # The estimate of J(u) - J(u_h) that the most recent marking gave, and
-        # whether that estimate met the requested tolerances.
+        # The most recent estimate of J(u) - J(u_h), and whether it meets the
+        # tolerances.
         self.error_estimate = None
         self.converged = False
         self._primal = primal
         self._enrichment_degree = enrichment_degree
         self._options_prefix = options_prefix
-        # Each auxiliary solver deletes the options that it reads from the
-        # database. This copy survives that deletion, and configures the
-        # solvers that the callback rebuilds on every adapted mesh.
+        # The solvers delete their options from the database, so keep a copy
+        # for the adapted meshes.
         self._options = {} if options is None else options
         self._high_space = None
         if primal is not None:
@@ -283,12 +269,10 @@ class DWRMarkingCallback:
     def _estimate_error(self, problem, current_solution: Function,
                         dual_low: Function, dual_error: ufl.classes.Expr,
                         options_prefix: str) -> float:
-        """Estimate the error in the goal functional, and report on it.
+        """Estimate ``J(u) - J(u_h)``, and report on it.
 
-        The residual, weighted by the dual error, estimates the error that the
-        discretisation makes. The residual, weighted by the dual itself,
-        estimates the error that the inexact algebraic solve makes. Their sum
-        estimates ``J(u) - J(u_h)``.
+        The estimate is the sum of the discretisation error
+        ``rho(u_h; z - z_h)`` and the solver error ``rho(u_h; z_h)``.
 
         Parameters
         ----------
@@ -318,10 +302,8 @@ class DWRMarkingCallback:
         self.converged = abs(error_estimate) < max(atol, rtol * abs(goal))
 
         if abs(solver_error) > abs(discretisation_error):
-            warning(RED % ("DWR: the solver error estimate exceeds the discretisation "
-                           "error estimate, so the estimate is dominated by how "
-                           "loosely the algebraic system was solved. Tighten the "
-                           "solver tolerances."))
+            warning(RED % ("DWR: the solver error exceeds the discretisation error. "
+                           "Tighten the solver tolerances."))
 
         if options.getBool("dwr_monitor", False):
             report = [("goal J(u_h)", goal),
@@ -344,9 +326,8 @@ class DWRMarkingCallback:
     def _mark(self, ctx, current_solution: Function) -> Function | None:
         problem = ctx._problem
         V = current_solution.function_space()
-        # The options belong to the solver that this callback was attached to.
-        # A context that moves onto a refined mesh takes its name from the
-        # multigrid level that it becomes. Nobody sets dwr_ options there.
+        # Refined contexts have a prefix for their multigrid level, so read the
+        # options of the original solver.
         prefix = self._options_prefix
         options = PETSc.Options(prefix)
         residual_degree = options.getInt("dwr_residual_degree", 1)
@@ -388,8 +369,6 @@ class DWRMarkingCallback:
             problem, current_solution, dual_low, dual_error, prefix
         )
         if self.converged:
-            # Two more solves localize the estimate onto the cells, and no cell
-            # remains to refine.
             return None
 
         indicators = _residual_indicators(

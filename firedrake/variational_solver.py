@@ -506,16 +506,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         return callback.goal_functional
 
     def get_error_estimate(self) -> float:
-        r"""Return the most recent estimate of the error in the goal functional.
+        r"""Return the most recent estimate of :math:`J(u) - J(u_h)` from the
+        attached :class:`.DWRMarkingCallback`.
 
-        This is the ``eta`` that approximates :math:`J(u) - J(u_h)`, from the
-        last time the attached :class:`.DWRMarkingCallback` marked. The
-        ``-dwr_atol`` and ``-dwr_rtol`` tolerances apply to it.
-
-        The estimate refers to the mesh that it came from. That is the current
-        mesh only if the solve stopped because it met the tolerances. Otherwise
-        it is the mesh one refinement coarser, because the estimate asked for
-        that refinement, and no estimate covers the refined mesh yet.
+        The estimate belongs to the current mesh if adaptation stopped at the
+        ``-dwr_atol`` or ``-dwr_rtol`` tolerance, and to the previous mesh
+        otherwise.
         """
         from firedrake.dwr import DWRMarkingCallback
         callback = self._ctx._marking_callback
@@ -594,8 +590,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        # The problem may sit on an adapted mesh since the last solve, so no
-        # cache can hold this vector across calls.
+        # The mesh may have been adapted since the last solve.
         work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)

@@ -139,8 +139,7 @@ Reason:
 def check_ksp_convergence(ksp: PETSc.KSP) -> None:
     """Raise an error if a linear solve does not converge.
 
-    The KSP-level counterpart of `check_snes_convergence`, for the linear
-    solves that no SNES drives.
+    The `PETSc.KSP` counterpart of `check_snes_convergence`.
 
     Parameters
     ----------
@@ -217,16 +216,11 @@ class _SNESContext(object):
 
     Notes
     -----
-    The `snes` attribute gives the route back from a context to the SNES that
-    solves it. The reference is weak. The SNES owns its DM, and that DM owns
-    this context while a solve runs, so a strong reference here would close a
-    cycle that the garbage collector cannot break.
-
-    The context that a solver builds and the context that adaptive refinement
-    reconstructs retain the solver's SNES. The contexts that `reconstruct`
-    makes for field splits and coarse multigrid levels do not inherit it,
-    because the Jacobian of the outer SNES describes a different problem from
-    the one that they hold.
+    `snes` is a weak reference to the SNES that solves this context, because
+    the SNES owns the DM that holds this context. Adaptive refinement passes
+    the SNES on to the refined context. The contexts that `reconstruct` builds
+    for field splits and coarse levels have no SNES, because they hold other
+    problems.
 
     """
     @PETSc.Log.EventDecorator()
@@ -396,10 +390,7 @@ class _SNESContext(object):
 
     def solve_jacobian(self, b: Cofunction, x: Function, *,
                        transpose: bool = False) -> None:
-        """Solve against the current Jacobian.
-
-        This method reuses the Jacobian and the preconditioner that the most
-        recent solve assembled, so it costs one linear solve and no new setup.
+        """Solve with the Jacobian and preconditioner of the most recent solve.
 
         Parameters
         ----------
@@ -408,14 +399,13 @@ class _SNESContext(object):
         x
             The Function in which to store the solution.
         transpose
-            If `True`, solve against the transposed Jacobian. This requires a
-            preconditioner implementing ``applyTranspose``, which not every
-            Python PC does.
+            If `True`, solve with the transposed Jacobian. The preconditioner
+            must then implement ``applyTranspose``.
 
         Raises
         ------
         RuntimeError
-            If no SNES was recorded on this context.
+            If this context has no SNES.
         ConvergenceError
             If the linear solve fails to converge.
         """

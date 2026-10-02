@@ -142,8 +142,6 @@ class SetupHooks(object):
     def __init__(self, appctx=None):
         self._setup = []
         self._teardown = []
-        # The hooks close over this appctx and its DMs, so they replay for it
-        # alone.
         self.appctx = appctx
 
     def add_setup(self, f):
@@ -223,8 +221,8 @@ class add_hooks(object):
     def __init__(self, dm, obj, *, save=True, appctx=None):
         self.dm = dm
         self.obj = obj
-        # Saved hooks close over the appctx that built them, so they replay for
-        # that appctx alone. An adapted mesh replaces both.
+        # Rebuild the saved hooks when the appctx changes, e.g. after adapting
+        # the mesh.
         self.first_time = (not hasattr(obj, "setup_hooks")
                            or obj.setup_hooks.appctx is not appctx)
         self.save = save
@@ -456,10 +454,10 @@ def coarsen(dm, comm):
 
 def _refine_adaptive(dm):
     """
-    Return the DM of the `_SNESContext` on the adaptively-refined mesh.
-    `_SNESContext.marking_callback` marks the cells that this function refines.
-    Return a null DM if the callback marks nothing, so that DMAdaptorAdapt()
-    keeps the current DM and solution and stops the adaptation sequence.
+    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
+    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    Return a null DM if the callback returns None, so that DMAdaptorAdapt()
+    keeps the current DM and stops adapting.
     """
     from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import refine
@@ -475,9 +473,7 @@ def _refine_adaptive(dm):
     if hierarchy is not None and level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:
-        # Without a callback, nothing tells one cell from another, so this
-        # function refines them all. Adaptive refinement then becomes uniform
-        # refinement, which is what grid sequencing alone asks for.
+        # Without a marking callback, refine uniformly.
         markers = firedrake.Function(firedrake.FunctionSpace(mesh, "DG", 0)).assign(1)
     else:
         markers = ctx._marking_callback(ctx, current_solution)
@@ -495,9 +491,9 @@ def _refine_adaptive(dm):
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
-    # DMAdaptorAdapt() destroys its input DM after a refinement. Each input DM
-    # remains a level of the mesh hierarchy, so increase the reference count
-    # here to keep the coarse DM alive.
+    # DMAdaptorAdapt() destroys its input DM after refining, and each
+    # adapted input DM remains a level in the mesh hierarchy.
+    # Increase the reference count so the coarse DM survives.
     dm.incRef()
     if hierarchy is None:
         hierarchy = MeshHierarchy(mesh)
