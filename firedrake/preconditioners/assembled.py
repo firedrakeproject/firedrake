@@ -31,7 +31,7 @@ class AssembledPC(PCBase):
 
         if P.type == "python":
             context = P.getPythonContext()
-            # It only makes sense to preconditioner/invert a diagonal
+            # It only makes sense to precondition/invert a diagonal
             # block in general.  That's all we're going to allow.
             if not context.on_diag:
                 raise ValueError("Only makes sense to invert diagonal block")

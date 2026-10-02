@@ -336,3 +336,19 @@ petsctools.add_citation("Croci2018", """
   language={en}
 }
 """)
+
+petsctools.add_citation("Weaver2013", """
+@article{weaver_diffusion_2013,
+    title = {On the diffusion equation and its application to isotropic and anisotropic correlation modelling in variational assimilation},
+    volume = {139},
+    issn = {0035-9009, 1477-870X},
+    doi = {10.1002/qj.1955},
+    language = {en},
+    number = {670},
+    journal = {Quarterly Journal of the Royal Meteorological Society},
+    author = {Weaver, A. T. and Mirouze, I.},
+    month = jan,
+    year = {2013},
+    pages = {242--260},
+}
+""")

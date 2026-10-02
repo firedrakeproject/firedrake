@@ -79,10 +79,15 @@ Firedrake's toolchain, in order:
 * **`petsc4py`/PETSc version skew:** Rebuild `petsc4py` (`pip install --no-build-isolation -e .`) after
   switching the PETSc branch/commit under an existing venv. A stale `petsc4py` fails `import firedrake`
   with an `undefined symbol: ...` error, not a Firedrake traceback.
-* **Caching:** TSFC kernels and PyOP2 code are cached under
-  `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`/`PYOP2_CACHE_DIR` (default `$VIRTUAL_ENV/.cache/{tsfc,pyop2}`), set
-  by `firedrake.configuration.setup_cache_dirs()` on `import firedrake`. Run `firedrake-clean` if a
-  change to the code generator does not take effect.
+* **Caching:** `import firedrake` sets `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`, `PYOP2_CACHE_DIR`, and
+  `XDG_CACHE_HOME`, all derived from `FIREDRAKE_CACHE_DIR` (default `sys.prefix/.cache`, or `~/.cache`
+  if that isn't writable). Run `firedrake-clean` if a change to the code generator does not take
+  effect.
+* **Isolated cache:** Set `FIREDRAKE_CACHE_DIR` to a scratch directory before running Firedrake to keep
+  one variant's cached kernels from leaking into another's, e.g. for an A/B comparison.
+* **Scratch caches are yours to clean up:** `firedrake-clean` only clears the caches implied by the
+  *current* environment, so it can't find a `FIREDRAKE_CACHE_DIR` from an earlier, different run.
+  Delete a scratch cache directory yourself once you're done with it.
 * **Smoke test:** `firedrake-check` runs a process-count-grouped subset of the regression suite; use it
   before a full run.
 
