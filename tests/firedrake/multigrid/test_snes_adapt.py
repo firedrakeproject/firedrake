@@ -286,8 +286,48 @@ def test_snes_adapt_transient(pc_type):
 
 
 @pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("pc_type", ["lu", "mg"])
+def test_snes_adapt_transient_noop(pc_type):
+    base = UnitSquareMesh(16, 16)
+    t = Constant(0)
+    marking_callback = TransientMarkingCallback(t, 0.5 / 16**2, radius=0.1, speed=0)
+    V = FunctionSpace(base, "CG", 1)
+    u_old = Function(V)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx + inner(grad(u), grad(v)) * dx
+    L = inner(u_old + t, v) * dx
+    problem = LinearVariationalProblem(a, L, Function(V), bcs=DirichletBC(V, 0, "on_boundary"))
+    params = {"snes_adapt_sequence": 1, "mat_type": "aij", "ksp_type": "preonly", "pc_type": "lu"}
+    if pc_type == "mg":
+        params.update({
+            "ksp_type": "cg",
+            "pc_type": "mg",
+            "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
+            "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
+        })
+    solver = LinearVariationalSolver(problem, solver_parameters=params,
+                                     marking_callback=marking_callback)
+
+    # The first step refines the window, and the window does not move afterwards.
+    t.assign(1)
+    uh = solver.solve()
+    ctx = solver._ctx
+    mesh = uh.function_space().mesh()
+    hierarchy, level = get_level(mesh)
+    for step in range(2, 4):
+        t.assign(step)
+        solver.get_coefficient(u_old).assign(uh)
+        assert solver.solve() is uh
+        assert marking_callback.meshes[-1] is mesh
+        assert solver._ctx is ctx
+        assert get_level(mesh) == (hierarchy, level)
+        assert len(hierarchy) == level + 1
+
+
+@pytest.mark.parallel([1, 3])
 def test_snes_adapt_noop_refinement_with_multigrid():
-    # The adapted level has the same dimension as the original level.
+    # Marking no cells keeps the mesh and the solution.
     def mark_no_cells(ctx, current_solution):
         return Function(FunctionSpace(current_solution.function_space().mesh(), "DG", 0))
 
@@ -311,9 +351,8 @@ def test_snes_adapt_noop_refinement_with_multigrid():
                                         solver_parameters=params,
                                         marking_callback=mark_no_cells)
     uh = solver.solve()
-    _, level = get_level(uh.function_space().mesh())
-    assert level == 1
-    assert uh.function_space().dim() == V.dim()
+    assert uh is u
+    assert get_level(mesh) == (None, None)
 
     u_ref = Function(V)
     solve(replace(F, {u: u_ref}) == 0, u_ref, bcs=bcs)

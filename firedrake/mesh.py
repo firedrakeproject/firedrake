@@ -3081,7 +3081,8 @@ values from f.)"""
             its ``_adaptive_fine_to_coarse_points``, ready to be passed to
             :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. After a
             coarsening, it records the adaptive parent of this mesh instead,
-            coarsened as far as needed.
+            coarsened as far as needed. This is this mesh itself if ``mark``
+            changes no cell.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)
