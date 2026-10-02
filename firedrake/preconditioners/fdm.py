@@ -570,7 +570,7 @@ class FDMPC(PCBase):
             result = self.assemble_reference_tensor(V, transpose=transpose, sort_interior=False)
             if formdegree != 0:
                 # Compute the stiffness matrix on the interior of a cell
-                A00 = self._element_mass_matrix.PtAP(result)
+                A00 = self._element_mass_matrix.ptap(result)
                 indptr, indices, _ = A00.getValuesCSR()
                 degree = numpy.diff(indptr)
                 # Sort by blocks

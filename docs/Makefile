@@ -68,34 +68,48 @@ copy_demos:
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
 	for file in source/demos/*.py.rst; do pylit --code-block-marker ".. code-block:: python" $$file; done
 
-# Convert the py:percent tutorial notebooks to .ipynb, copy across the data
-# files they reference at runtime, and execute them. nbsphinx then renders the
-# stored output (nbsphinx_execute='never'). This is a real (directory) target
-# depending on the notebook sources, so the notebooks are executed once per
-# build (only when a source changes) rather than once per Sphinx builder.
-# Cells carrying the ``skip-execution`` and ``raises-exception`` tags (the same
-# tags nbval honours) are skipped / allowed to raise by nbconvert automatically.
-# The matplotlib display settings (inline backend, SVG figures, figure size)
-# come from ipython_kernel_config.py via a throwaway IPython profile under the
-# (gitignored) build directory, so the notebooks need no display preamble.
-source/notebooks: $(wildcard notebooks/*.py) ipython_kernel_config.py
-	rm -rf source/notebooks
-	install -d source/notebooks
-	cp -r notebooks/image source/notebooks/
-	cp notebooks/*.geo notebooks/*.msh source/notebooks/
-	for file in notebooks/*.py; do \
-		jupytext --to ipynb --output source/notebooks/`basename $${file%.py}`.ipynb $$file; \
-	done
-	install -d $(BUILDDIR)/ipython/profile_default
-	cp ipython_kernel_config.py $(BUILDDIR)/ipython/profile_default/
+NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
+EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))
+NOTEBOOK_ASSETS = $(patsubst notebooks/%,source/notebooks/%,\
+	$(wildcard notebooks/*.geo notebooks/*.msh notebooks/image/*))
+NOTEBOOK_PROFILE = $(BUILDDIR)/ipython/profile_default/ipython_kernel_config.py
+
+# Build all generated notebooks.
+source/notebooks: $(EXECUTED_NOTEBOOKS)
+
+# Copy each notebook asset (geometry, mesh, or image file) from notebooks/ to the
+# matching path under source/notebooks/. Keep each asset as a separate target so
+# Make can update it independently.
+$(NOTEBOOK_ASSETS): source/notebooks/%: notebooks/%
+	mkdir -p $(dir $@)
+	cp $< $@
+
+# Copy the IPython kernel configuration into the profile that runs the
+# generated notebooks.
+$(NOTEBOOK_PROFILE): ipython_kernel_config.py
+	mkdir -p $(dir $@)
+	cp $< $@
+
+# Convert each Jupytext-formatted Python source to a Jupyter notebook, then
+# execute it. Sphinx uses the stored output instead of executing it again. Each
+# generated notebook has its own target, so editing one Python source rebuilds
+# only its corresponding notebook, and `make -j` can build them in parallel.
+# nbconvert skips cells tagged `skip-execution` and allows cells tagged
+# `raises-exception` to raise an exception.
+# The `|` makes notebook assets and the IPython profile order-only prerequisites.
+# Make builds the notebook assets and IPython profile first, but changes to these
+# prerequisites do not cause the generated notebook to run again.
+source/notebooks/%.ipynb: notebooks/%.py | $(NOTEBOOK_ASSETS) $(NOTEBOOK_PROFILE)
+	mkdir -p $(dir $@)
+	jupytext --to ipynb --output $@ $<
 	env IPYTHONDIR=$(CURDIR)/$(BUILDDIR)/ipython OMP_NUM_THREADS=1 jupyter nbconvert \
 		--execute \
 		--to notebook \
 		--inplace \
 		--ExecutePreprocessor.timeout=600 \
-		source/notebooks/*.ipynb
+		$@
 
-# Convenience target to force regeneration of the executed notebooks.
+# Remove the generated notebooks and notebook assets, then rebuild them.
 copy_notebooks:
 	rm -rf source/notebooks
 	$(MAKE) source/notebooks
