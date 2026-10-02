@@ -4,7 +4,7 @@ from collections import namedtuple, OrderedDict
 from ufl import Coefficient, FunctionSpace
 from ufl.domain import MeshSequence
 
-from finat.ufl import MixedElement as ufl_MixedElement, FiniteElement
+from finat.ufl import FiniteElement
 
 import gem
 from gem.flop_count import count_flops
@@ -15,14 +15,6 @@ from tsfc import kernel_args
 from finat.element_factory import as_fiat_cell, create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase, KernelBuilderMixin, get_index_names, check_requirements, prepare_coefficient, prepare_arguments, prepare_constant, lower_integral_type
 from tsfc.loopy import generate as generate_loopy
-
-
-# Expression kernel description type
-ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'needs_cell_sizes',
-                                                   'coefficient_numbers',
-                                                   'needs_external_coords',
-                                                   'tabulations', 'name', 'arguments',
-                                                   'flop_count', 'event'])
 
 
 ActiveDomainNumbers = namedtuple('ActiveDomainNumbers', ['coordinates',
@@ -78,6 +70,24 @@ class Kernel:
         self.flop_count = flop_count
         self.name = name
         self.event = event
+
+    def _has_argument(self, argument_type) -> bool:
+        return any(isinstance(arg, argument_type) for arg in self.arguments or ())
+
+    @property
+    def needs_external_coords(self) -> bool:
+        """Whether the kernel expects coordinates from the caller."""
+        return self._has_argument(kernel_args.CoordinatesKernelArg)
+
+    @property
+    def oriented(self) -> bool:
+        """Whether the kernel expects cell orientations from the caller."""
+        return self._has_argument(kernel_args.CellOrientationsKernelArg)
+
+    @property
+    def needs_cell_sizes(self) -> bool:
+        """Whether the kernel expects cell sizes from the caller."""
+        return self._has_argument(kernel_args.CellSizesKernelArg)
 
 
 class KernelBuilderBase(_KernelBuilderBase):
@@ -152,18 +162,20 @@ class KernelBuilderBase(_KernelBuilderBase):
         measure of the mesh size around each vertex (hence this lives
         in P1).
 
-        Should the domain have topological dimension 0 this does
-        nothing.
+        A domain of topological dimension 0 gets a ``None`` entry: every
+        domain must keep its slot, since the active domain numbers index
+        this dict positionally.
         """
         self._cell_sizes = {}
         for i, domain in enumerate(domains):
             if domain.ufl_cell().topological_dimension > 0:
-                # Can't create P1 since only P0 is a valid finite element if
-                # topological_dimension is 0 and the concept of "cell size"
-                # is not useful for a vertex.
                 f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
                 expr = prepare_coefficient(f, f"cell_sizes_{i}", self._domain_integral_type_map)
-                self._cell_sizes[domain] = expr
+            else:
+                # Only P0 is a valid finite element on a vertex, and the
+                # concept of "cell size" is not useful there.
+                expr = None
+            self._cell_sizes[domain] = expr
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
@@ -190,97 +202,6 @@ class KernelBuilderBase(_KernelBuilderBase):
         return self.generate_arg_from_variable(var, dtype=dtype or self.scalar_type)
 
 
-class ExpressionKernelBuilder(KernelBuilderBase):
-    """Builds expression kernels for UFL interpolation in Firedrake."""
-
-    def __init__(self, scalar_type):
-        super(ExpressionKernelBuilder, self).__init__(scalar_type=scalar_type)
-        self.oriented = False
-        self.cell_sizes = False
-
-    def set_coefficients(self, coefficients):
-        """Prepare the coefficients of the expression.
-
-        :arg coefficients: UFL coefficients from Firedrake
-        """
-        self.coefficient_split = {}
-
-        for i, coefficient in enumerate(coefficients):
-            if type(coefficient.ufl_element()) == ufl_MixedElement:
-                subcoeffs = coefficient.subfunctions  # Firedrake-specific
-                self.coefficient_split[coefficient] = subcoeffs
-                for j, subcoeff in enumerate(subcoeffs):
-                    self._coefficient(subcoeff, f"w_{i}_{j}")
-            else:
-                self._coefficient(coefficient, f"w_{i}")
-
-    def set_constants(self, constants):
-        for i, const in enumerate(constants):
-            gemexpr = prepare_constant(const, i)
-            self.constant_map[const] = gemexpr
-
-    def set_coefficient_numbers(self, coefficient_numbers):
-        """Store the coefficient indices of the original form.
-
-        :arg coefficient_numbers: Iterable of indices describing which coefficients
-            from the input expression need to be passed in to the kernel.
-        """
-        self.coefficient_numbers = coefficient_numbers
-
-    def register_requirements(self, ir):
-        """Inspect what is referenced by the IR that needs to be
-        provided by the kernel interface."""
-        self.oriented, self.cell_sizes, self.tabulations = check_requirements(ir)
-
-    def set_output(self, o):
-        """Produce the kernel return argument"""
-        loopy_arg = lp.GlobalArg(o.name, dtype=self.scalar_type, shape=o.shape)
-        self.output_arg = kernel_args.OutputKernelArg(loopy_arg)
-
-    def construct_kernel(self, impero_c, index_names, needs_external_coords, log=False, name=None):
-        """Constructs an :class:`ExpressionKernel`.
-
-        :arg impero_c: gem.ImperoC object that represents the kernel
-        :arg index_names: pre-assigned index names
-        :arg needs_external_coords: If ``True``, the first argument to
-            the kernel is an externally provided coordinate field.
-        :arg log: bool if the Kernel should be profiled with Log events
-
-        :returns: :class:`ExpressionKernel` object
-        """
-        args = [self.output_arg]
-        if self.oriented:
-            cell_orientations, = tuple(self._cell_orientations.values())
-            funarg = self.generate_arg_from_expression(cell_orientations, dtype=numpy.int32)
-            args.append(kernel_args.CellOrientationsKernelArg(funarg))
-        if self.cell_sizes:
-            cell_sizes, = tuple(self._cell_sizes.values())
-            funarg = self.generate_arg_from_expression(cell_sizes)
-            args.append(kernel_args.CellSizesKernelArg(funarg))
-        for _, expr in self.coefficient_map.items():
-            # coefficient_map is OrderedDict.
-            funarg = self.generate_arg_from_expression(expr)
-            args.append(kernel_args.CoefficientKernelArg(funarg))
-
-        # now constants
-        for gemexpr in self.constant_map.values():
-            funarg = self.generate_arg_from_expression(gemexpr)
-            args.append(kernel_args.ConstantKernelArg(funarg))
-
-        for name_, shape in self.tabulations:
-            tab_loopy_arg = lp.GlobalArg(name_, dtype=self.scalar_type, shape=shape)
-            args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
-
-        loopy_args = [arg.loopy_arg for arg in args]
-
-        name = name or "expression_kernel"
-        loopy_kernel, event = generate_loopy(impero_c, loopy_args, self.scalar_type,
-                                             name, index_names, log=log)
-        return ExpressionKernel(loopy_kernel, self.oriented, self.cell_sizes,
-                                self.coefficient_numbers, needs_external_coords,
-                                self.tabulations, name, args, count_flops(impero_c), event)
-
-
 class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
     """Helper class for building a :class:`Kernel` object."""
 
@@ -293,8 +214,12 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         self.local_tensor = None
         self.coefficient_number_index_map = OrderedDict()
         self.integral_data_info = integral_data_info
-        self._domain_integral_type_map = integral_data_info.domain_integral_type_map  # For consistency with ExpressionKernelBuilder.
+        self.coefficient_split = integral_data_info.coefficient_split
+        self._domain_integral_type_map = integral_data_info.domain_integral_type_map
         self.set_arguments()
+        domains = tuple(integral_data_info.domain_integral_type_map)
+        self.set_entity_numbers(domains)
+        self.set_entity_orientations(domains)
 
     def set_arguments(self):
         """Process arguments."""

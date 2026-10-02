@@ -19,6 +19,7 @@ from pyop2.utils import as_tuple
 
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
+from firedrake.functionspaceimpl import WithGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.slate.slate import Block, TensorBase, as_slate
 from firedrake.ufl_expr import Coargument
@@ -90,7 +91,7 @@ class ExtractSubBlock(DAGTraverser):
 
     @process.register(Form)
     def _(self, o, blocks):
-        form = map_integrands(functools.partial(self, blocks=blocks), o)
+        form = map_integrands(functools.partial(self._expression_splitter, blocks=blocks), o)
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         if expand_derivatives(form).empty():
             return self(ZeroBaseForm(o.arguments()), blocks=blocks)
@@ -259,42 +260,62 @@ class ExtractSubBlock(DAGTraverser):
     def _(self, o, blocks):
         return ZeroBaseForm(self._subspace_argument(a, blocks) for a in o.arguments())
 
+    @functools.cached_property
+    def _expression_splitter(self) -> "ExtractSubBlock":
+        """Return the splitter for the expressions inside a form."""
+        return ExtractSubExpression()
+
+    @staticmethod
+    def _select_components(V: WithGeometry, indices: tuple, operand: Expr) -> list:
+        """Select the flattened components for the requested subspaces.
+
+        Mixed function spaces store the values of their subspaces
+        consecutively. This selects those components before they are reshaped
+        to the value shape of the collapsed target space.
+        """
+        components = []
+        cur = 0
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(operand[k] for k in range(cur, cur + Vi.value_size))
+            cur += Vi.value_size
+        return components
+
+    @process.register(Interpolate)
+    def _(self, o, blocks):
+        # The target of an Interpolate that is a form is an argument of that
+        # form. Interpolation onto a mixed space acts on each subspace
+        # separately, so the block onto some target subspaces interpolates
+        # only the operand components that belong to those subspaces.
+        dual_arg, operand = o.argument_slots()
+        operand = self._expression_splitter(operand, blocks=blocks)
+        indices = self.select_block(blocks, dual_arg.number()) if isinstance(dual_arg, Coargument) else None
+        if indices is not None and len(dual_arg.function_space()) > 1:
+            V = dual_arg.function_space()
+            dual_arg = self(dual_arg, blocks=blocks)
+            components = self._select_components(V, indices, operand)
+            operand = as_tensor(numpy.reshape(components, dual_arg.function_space().value_shape))
+        if isinstance(operand, Zero):
+            return self(ZeroBaseForm(o.arguments()), blocks=blocks)
+        return o._ufl_expr_reconstruct_(operand, dual_arg)
+
+
+class ExtractSubExpression(ExtractSubBlock):
+
+    """Extract a sub-block from an expression inside a form."""
+
+    @functools.singledispatchmethod
+    def process(self, o, blocks):
+        return super().process(o, blocks=blocks)
+
     @process.register(Interpolate)
     @DAGTraverser.postorder
     def _(self, o, operand, blocks):
+        # The target of an Interpolate inside an expression is contracted
+        # there, so it is not an argument of the form.
         if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()), blocks=blocks)
-
-        dual_arg, _ = o.argument_slots()
-        if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
-            # The dual argument has been contracted or does not need to be split
-            return o._ufl_expr_reconstruct_(operand, dual_arg)
-
-        if not isinstance(dual_arg, Coargument):
-            raise NotImplementedError(f"I do not know how to split an Interpolate with a {type(dual_arg).__name__}.")
-
-        indices = self.select_block(blocks, dual_arg.number())
-        if indices is None:
-            return o._ufl_expr_reconstruct_(operand, dual_arg)
-        V = dual_arg.function_space()
-
-        # Split the target (dual) argument
-        sub_dual_arg = self(dual_arg, blocks=blocks)
-        W = sub_dual_arg.function_space()
-
-        # Unflatten the expression into the target shape
-        cur = 0
-        components = []
-        for i, Vi in enumerate(V):
-            if i in indices:
-                components.extend(operand[i] for i in range(cur, cur+Vi.value_size))
-            cur += Vi.value_size
-
-        operand = as_tensor(numpy.reshape(components, W.value_shape))
-        if isinstance(operand, Zero):
-            return self(ZeroBaseForm(o.arguments()), blocks=blocks)
-
-        return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
+            return Zero(o.ufl_shape)
+        return o._ufl_expr_reconstruct_(operand)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
@@ -302,12 +323,24 @@ SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 @PETSc.Log.EventDecorator()
 def split_form(form, diagonal=False):
-    """Split a form into a tuple of sub-forms defined on the component spaces.
+    """Split a form into blocks over the component spaces of its arguments.
 
-    Each entry is a :class:`SplitForm` tuple of the indices into the
-    component arguments and the form defined on that block.
+    Parameters
+    ----------
+    form : ufl.BaseForm
+        The form to split.
+    diagonal : bool
+        If ``True``, return only the diagonal blocks of a two-argument form.
 
-    For example, consider the following code:
+    Returns
+    -------
+    tuple of SplitForm
+        Each entry contains the component indices and the corresponding form
+        on those component spaces.
+
+    Examples
+    --------
+    Consider the following form:
 
     .. code-block:: python
 
@@ -317,17 +350,16 @@ def split_form(form, diagonal=False):
         p, q, r = TestFunctions(W)
         a = q*u*dx + p*w*dx
 
-    Then splitting the form returns a tuple of two forms.
+    Splitting ``a`` returns two nonzero blocks:
 
     .. code-block:: python
 
-       ((0, 2), w*p*dx),
-        (1, 0), q*u*dx))
+        ((1, 0), q*u*dx)
+        ((0, 2), p*w*dx)
 
     Due to the limited amount of simplification that UFL does, some of
-    the returned forms may eventually evaluate to zero.  The form
-    compiler will remove these in its more complex simplification
-    stages.
+    the returned forms may evaluate to zero. The form compiler removes those
+    forms during its later simplification stages.
     """
     splitter = ExtractSubBlock()
     args = form.arguments()

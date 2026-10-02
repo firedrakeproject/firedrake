@@ -18,6 +18,10 @@ class KernelInterface(metaclass=ABCMeta):
         expressions."""
 
     @abstractmethod
+    def coefficient_components(self, ufl_coefficient, restriction):
+        """Return GEM expressions for a coefficient's stored components."""
+
+    @abstractmethod
     def constant(self, const):
         """Return the GEM expression corresponding to the constant."""
 

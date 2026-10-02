@@ -458,7 +458,8 @@ each block given by
    \end{pmatrix}
 
 The off-diagonal blocks are zero since the dofs are applied component-wise. Firedrake's form
-compiler recognises this and avoids assembling the zero blocks.
+compiler recognises this and avoids assembling the zero blocks, which the nest
+still allocates.
 
 We can assemble more general interpolation matrices between mixed function spaces by interpolating
 vector expressions with arguments. For example, by doing
