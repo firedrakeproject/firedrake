@@ -41,7 +41,7 @@ from pyop2.logger import debug, info, warning, error, critical, set_log_level
 from pyop2.mpi import MPI, COMM_WORLD, collective
 
 from pyop2.types import (  # noqa: F401
-    Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet,
+    Set, ExtrudedSet, MixedSet, Subset, DataSet, MatrixDataSet, MixedDataSet,
     Map, MixedMap, PermutedMap, ComposedMap, Sparsity, Halo,
     Global, Constant, GlobalDataSet,
     Dat, MixedDat, DatView, Mat
@@ -62,7 +62,7 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
            'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
-           'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
+           'MixedSet', 'Subset', 'DataSet', 'MatrixDataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
            'Sparsity', 'parloop', 'Parloop', 'ParLoop', 'par_loop',
            'DatView', 'PermutedMap', 'ComposedMap']

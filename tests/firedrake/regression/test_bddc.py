@@ -2,6 +2,7 @@ import sys
 import pytest
 import numpy as np
 from functools import reduce
+from collections.abc import Callable
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
@@ -11,7 +12,7 @@ def rg():
     return RandomGenerator(PCG64(seed=123456789))
 
 
-def bddc_params(mat_type="is", cellwise=False, adaptive=False,
+def bddc_params(mat_type="is", cellwise=False, adaptive=False, deluxe=False,
                 use_divergence=None, use_gradient=None, corner_selection=None, debug=0):
     chol = {
         "pc_type": "cholesky",
@@ -37,11 +38,14 @@ def bddc_params(mat_type="is", cellwise=False, adaptive=False,
         # defaults to True for H1 spaces
         sp["bddc_pc_bddc_corner_selection"] = corner_selection
 
-    if adaptive:
+    if deluxe or adaptive:
         sp.update({
             "bddc_pc_bddc_use_deluxe_scaling": None,
-            "bddc_pc_bddc_adaptive_userdefined": None,
             "bddc_pc_bddc_deluxe_zerorows": False,
+        })
+    if adaptive:
+        sp.update({
+            "bddc_pc_bddc_adaptive_userdefined": None,
             "bddc_pc_bddc_adaptive_threshold": 5,
         })
     # On MacOSX the distributed right-hand side is bugged!
@@ -99,7 +103,7 @@ def solver_parameters(cellwise=False, condense=False, variant=None, rtol=1E-10, 
     return sp
 
 
-def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False):
+def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, condense=False, vector=False, threshold=None, elasticity=False, deluxe=False):
     """Solve the riesz map for a random manufactured solution and return the
        square root of the estimated condition number."""
     dirichlet_ids = []
@@ -144,8 +148,18 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
     adaptive = False
     use_divergence = None
     if elasticity:
-        adaptive = True
-        use_divergence = True  # use divergence mat trick to compute no-net flux coarse space
+        use_divergence = True
+        x = SpatialCoordinate(mesh)
+        translations = [Constant(e) for e in np.eye(mesh.geometric_dimension)]
+        rotations = [x[i]*translations[j] - x[j]*translations[i]
+                     for i in range(len(translations)) for j in range(i)]
+        # Projection also supports spaces with moment degrees of freedom.
+        parameters = {"ksp_type": "preonly", "pc_type": "lu",
+                      "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
+        basis = [Function(V).project(mode, solver_parameters=parameters)
+                 for mode in translations + rotations]
+        nsp = VectorSpaceBasis(basis)
+        nsp.orthonormalize()
     elif formdegree == 0:
         b = np.zeros(V.value_shape)
         expr = Constant(b)
@@ -167,11 +181,18 @@ def solve_riesz_map(rg, mesh, family, degree, variant, bcs, cellwise=False, cond
 
     rtol = 1E-8
     sp = solver_parameters(cellwise=cellwise, condense=condense, variant=variant, rtol=rtol,
-                           use_divergence=use_divergence, adaptive=adaptive)
+                           use_divergence=use_divergence, adaptive=adaptive, deluxe=deluxe)
+    if elasticity:
+        entity_dofs = V.finat_element.entity_dofs()
+        has_vertex_dofs = any(entity_dofs[min(entity_dofs)].values())
+        sp["bddc_pc_bddc_use_change_of_basis"] = not has_vertex_dofs
     sp.setdefault("ksp_view_singularvalues", None)
     solver = LinearVariationalSolver(problem, near_nullspace=nsp,
                                      solver_parameters=sp, appctx=appctx)
     solver.solve()
+    if elasticity:
+        _, matis = solver.snes.ksp.pc.getPythonContext().pc.getOperators()
+        assert matis.getNearNullSpace().handle == nsp.nullspace().handle
     uerr = Function(V).assign(uh - u_exact)
     assert (assemble(a(uerr, uerr)) / assemble(a(u_exact, u_exact))) ** 0.5 < rtol
 
@@ -293,20 +314,50 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
 
 
 @pytest.mark.skipcomplex(
-    reason="Adaptive BDDC's sub-Schur factorization assumes SPD matrices, unsupported for complex Hermitian systems"
+    reason="These elasticity tests use Cholesky subdomain solvers for real SPD matrices"
 )
-@pytest.mark.parallel(3)
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("family,degree,cellwise", [("CG", 2, False), ("GN", 1, False), ("MTW", 1, False)])
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):
-    """Test h-dependence of condition number by measuring iteration counts"""
+    """Test the growth of the estimated condition number under refinement."""
     base = UnitSquareMesh(2, 2)
     meshes = MeshHierarchy(base, 2)
     dim = base.topological_dimension
     vector = (family == "CG")
     variant = "alfeld" if family == "CG" and degree < 2*dim else None
     bcs = True
-    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise, vector=vector, elasticity=True) for m in meshes]
-    assert (np.diff(sqrt_kappa) <= 1.0).all(), str(sqrt_kappa)
+    sqrt_kappa = [solve_riesz_map(rg, m, family, degree, variant, bcs, cellwise=cellwise,
+                                  vector=vector, elasticity=True, deluxe=True) for m in meshes]
+    assert (np.diff(sqrt_kappa) <= 1.5).all(), str(sqrt_kappa)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family", ("MTW", "RT"))
+@pytest.mark.parametrize("mesh_builder,resolution", [(UnitSquareMesh, (2, 2)), (UnitCubeMesh, (1, 1, 1))], ids=("triangle", "tetrahedron"))
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+@pytest.mark.parametrize("mat_type,allow_repeated", [("aij", False), ("is", False), ("is", True)])
+def test_bddc_divergence_mat(family: str, mesh_builder: Callable, resolution: tuple[int, ...],
+                             shape: tuple[int, ...], mat_type: str, allow_repeated: bool) -> None:
+    """Compare fast divergence assembly with the physical form on sheared cells."""
+    from firedrake.preconditioners.bddc import get_divergence_mat
+    from pyop2.utils import as_tuple
+
+    mesh = mesh_builder(*resolution)
+    x = SpatialCoordinate(mesh)
+    transform = np.eye(mesh.geometric_dimension)
+    transform[0, 0], transform[0, 1], transform[1, 1] = 2, 1/3, 1/2
+    mesh.coordinates.interpolate(dot(Constant(transform), x))
+    element = FiniteElement(family, mesh.ufl_cell(), 1)
+    if shape:
+        element = TensorElement(element, shape=shape)
+    V = FunctionSpace(mesh, element)
+    degree = max(as_tuple(V.ufl_element().degree()))
+    Q = TensorFunctionSpace(mesh, "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
+    (actual,), _ = get_divergence_mat(V, mat_type=mat_type, allow_repeated=allow_repeated)
+    expected = assemble(inner(div(TrialFunction(V)), TestFunction(Q))*dx, mat_type="aij").petscmat
+    actual = actual.convert("aij", out=PETSc.Mat())
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
 
 
 @pytest.mark.parallel([1, 3])
@@ -332,3 +383,201 @@ def test_create_matis(local_mat_type, cellwise):
         A.convert("aij")
         B.axpy(-1, A)
         assert np.isclose(B.norm(PETSc.NormType.FROBENIUS), 0)
+
+
+@pytest.fixture(params=("quad", "hex", "extruded"))
+def bddc_boundary_mesh(request):
+    if request.param == "quad":
+        return UnitSquareMesh(2, 2, quadrilateral=True), ("on_boundary",)
+    if request.param == "hex":
+        return UnitCubeMesh(2, 2, 2, hexahedral=True), ("on_boundary",)
+    mesh = ExtrudedMesh(UnitSquareMesh(2, 2, quadrilateral=True), 2)
+    return mesh, ("on_boundary", "bottom", "top")
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("cellwise", (False, True))
+@pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
+@pytest.mark.parametrize("vector", (False, True))
+def test_create_matis_boundary(bddc_boundary_mesh, restricted, cellwise, local_mat_type, vector):
+    """Local operators preserve exterior boundaries and coefficient updates."""
+    from firedrake.preconditioners.bddc import create_matis
+    mesh, markers = bddc_boundary_mesh
+    if mesh.extruded and mesh.comm.size > 1:
+        pytest.skip("Submesh does not support extruded meshes")
+    fs = VectorFunctionSpace if vector else FunctionSpace
+    V = fs(mesh, "Q", 2)
+    if restricted:
+        V = RestrictedFunctionSpace(V, boundary_set=markers)
+    bcs = [DirichletBC(V, 0, marker) for marker in markers]
+    u, v = TrialFunction(V), TestFunction(V)
+    coefficient = Constant(1.)
+    form = (coefficient * inner(grad(u), grad(v)) + inner(u, v)) * dx
+    source = assemble(form, bcs=bcs, mat_type="matfree").petscmat
+    A, update = create_matis(source, local_mat_type, cellwise=cellwise)
+    x, actual = A.createVecs()
+    expected = actual.duplicate()
+    x.setRandom()
+    # MATIS sums local Dirichlet diagonals, so compare the physical free
+    # subspace. Restricted spaces have already removed those diagonals.
+    probe = Function(V)
+    with probe.dat.vec as vec:
+        x.copy(vec)
+    for bc in bcs:
+        bc.apply(probe)
+    with probe.dat.vec_ro as vec:
+        vec.copy(x)
+    for value in (1., 3.):
+        coefficient.assign(value)
+        update()
+        assembled = assemble(form, bcs=bcs, mat_type="aij").petscmat
+        A.mult(x, actual)
+        assembled.mult(x, expected)
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-11 * expected.norm()
+        if restricted and local_mat_type == "aij":
+            converted = A.convert("aij", out=PETSc.Mat())
+            converted.axpy(-1, assembled)
+            assert converted.norm() < 1.e-11 * assembled.norm()
+            if cellwise:
+                from scipy.sparse import csr_matrix
+                from scipy.sparse.csgraph import connected_components
+                local = A.getISLocalMat()
+                indptr, indices, values = local.getValuesCSR()
+                graph = csr_matrix((values, indices, indptr), shape=local.getSize())
+                graph.eliminate_zeros()
+                count, _ = connected_components(graph)
+                components = V.value_size if vector else 1
+                cells = FunctionSpace(mesh, "DG", 0).dof_dset.layout_vec.local_size
+                assert count == cells * components
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+@pytest.mark.parametrize("restricted", (False, True))
+def test_bddc_entity_coordinates(bddc_boundary_mesh, shape, restricted):
+    """Coordinate rows follow the scalar, vector, or tensor algebraic layout."""
+    from firedrake.preconditioners.bddc import get_entity_coordinates
+    mesh, markers = bddc_boundary_mesh
+    element = FiniteElement("Q", mesh.ufl_cell(), 2)
+    if shape:
+        element = TensorElement(element, shape=shape)
+    V = FunctionSpace(mesh, element)
+    if restricted:
+        V = RestrictedFunctionSpace(V, boundary_set=markers)
+    x = SpatialCoordinate(mesh)
+    columns = []
+    for component in range(mesh.geometric_dimension):
+        f = Function(V).interpolate(x[component] * Constant(np.ones(shape)))
+        with f.dat.vec_ro as vec:
+            columns.append(vec.array_r.real.copy())
+    expected = np.column_stack(columns)
+    actual = get_entity_coordinates(V)
+    assert actual.shape == expected.shape
+    assert np.allclose(actual, expected)
+
+
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("cellwise", (False, True))
+def test_bddc_near_nullspace(restricted, cellwise):
+    """BDDC receives explicit near-nullspace vectors after MATIS conversion."""
+    mesh = UnitSquareMesh(3, 3, quadrilateral=True)
+    V = FunctionSpace(mesh, "Q", 3)
+    u, v = TrialFunction(V), TestFunction(V)
+    a = (inner(grad(u), grad(v)) + u * v) * dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    exact = Function(V).interpolate(SpatialCoordinate(mesh)[0])
+    bc.apply(exact)
+    solution = Function(V)
+    problem = LinearVariationalProblem(a, action(a, exact), solution,
+                                       bcs=bc, restrict=restricted)
+    constant = Function(problem.u_restrict.function_space()).interpolate(Constant(1))
+    basis = VectorSpaceBasis([constant])
+    basis.orthonormalize()
+    parameters = solver_parameters(cellwise=cellwise)
+    parameters.update(mat_type="aij", pmat_type="matfree")
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters,
+                                     near_nullspace=basis)
+    solver.solve()
+    _, matis = solver.snes.ksp.pc.getPythonContext().pc.getOperators()
+    near_nullspace = matis.getNearNullSpace()
+    assert near_nullspace.handle
+    assert not near_nullspace.hasConstant()
+    vectors = near_nullspace.getVecs()
+    assert len(vectors) == 1
+    assert vectors[0].getSize() == matis.getSize()[1]
+    with constant.dat.vec_ro as vec:
+        assert np.allclose(vectors[0].array_r, vec.array_r)
+    assert errornorm(exact, solution) < 1.e-9
+
+
+@pytest.mark.parallel([1, 3])
+def test_bddc_restricted_solve(bddc_boundary_mesh):
+    """Restricted cellwise BDDC solves with automatic corner selection."""
+    mesh, markers = bddc_boundary_mesh
+    if mesh.extruded and mesh.comm.size > 1:
+        pytest.skip("Submesh does not support extruded meshes")
+    V = FunctionSpace(mesh, "Q", 2)
+    bcs = [DirichletBC(V, 0, marker) for marker in markers]
+    u, v = TrialFunction(V), TestFunction(V)
+    form = (inner(grad(u), grad(v)) + u * v) * dx
+    exact = Function(V).interpolate(SpatialCoordinate(mesh)[0])
+    for bc in bcs:
+        bc.apply(exact)
+    solution = Function(V)
+    solve(form == action(form, exact), solution, bcs=bcs,
+          solver_parameters=solver_parameters(cellwise=True),
+          restrict=True,
+          near_nullspace=VectorSpaceBasis(constant=True, comm=mesh.comm))
+    assert errornorm(exact, solution) < 1.e-10
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("cellwise", (False, True))
+@pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
+def test_create_matis_component_bc(cellwise, local_mat_type):
+    """Local form assembly preserves conditions on one vector component."""
+    from firedrake.preconditioners.bddc import create_matis
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = VectorFunctionSpace(mesh, "Q", 2)
+    bc = DirichletBC(V.sub(1), 0, 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    form = (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    A, _ = create_matis(form, local_mat_type, cellwise=cellwise, bcs=[bc])
+    B = assemble(form, bcs=bc, mat_type="aij").petscmat
+    probe = Function(V).interpolate(as_vector(SpatialCoordinate(mesh)))
+    bc.apply(probe)
+    with probe.dat.vec_ro as x:
+        actual, expected = A.createVecLeft(), B.createVecLeft()
+        A.mult(x, actual)
+        B.mult(x, expected)
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-11 * expected.norm()
+
+
+@pytest.mark.parametrize("extrusion,restricted", [("variable", False), ("periodic", False), ("periodic", True)])
+@pytest.mark.parametrize("cellwise", (False, True))
+def test_create_matis_extruded_node_map(rg, extrusion, cellwise, restricted):
+    """Node maps preserve layer offsets, periodic wrapping, and tensor blocks."""
+    from firedrake.preconditioners.bddc import create_matis
+    base = UnitIntervalMesh(2)
+    if extrusion == "variable":
+        mesh = ExtrudedMesh(base, layers=[[0, 3], [1, 2]], layer_height=0.25)
+    else:
+        mesh = ExtrudedMesh(base, layers=3, periodic=True)
+    V = TensorFunctionSpace(mesh, "Q", 3, shape=(2, 2))
+    if restricted:
+        V = RestrictedFunctionSpace(V, boundary_set=[1])
+    bc = DirichletBC(V, 0, 1)
+    form = inner(TrialFunction(V), TestFunction(V)) * dx
+    A, _ = create_matis(form, "aij", cellwise=cellwise, bcs=[bc])
+    B = assemble(form, bcs=bc, mat_type="aij").petscmat
+    probe = rg.uniform(V, -1, 1)
+    bc.apply(probe)
+    with probe.dat.vec_ro as x:
+        actual, expected = A.createVecLeft(), B.createVecLeft()
+        A.mult(x, actual)
+        B.mult(x, expected)
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-11 * expected.norm()

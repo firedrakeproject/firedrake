@@ -102,6 +102,10 @@ def assemble(expr, *args, **kwargs):
     allocation_integral_types : Sequence
         `Sequence` of integral types to be used when allocating the output
         `matrix.Matrix`.
+    allocation_dsets : tuple of pyop2.types.dataset.DataSet or None
+        Row and column datasets for explicit matrix allocation, using the
+        argument spaces' node sets and value shapes. These may supply reduced
+        algebraic layouts through ``pyop2.types.dataset.MatrixDataSet``.
     is_base_form_preprocessed : bool
         If `True`, skip preprocessing of the form.
     current_state : firedrake.function.Function or None
@@ -1353,8 +1357,12 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         2-form.
+    allocation_dsets : tuple of pyop2.types.dataset.DataSet or None
+        Row and column datasets for matrix allocation. They must use the
+        argument spaces' node sets and value shapes, but may provide different
+        algebraic layouts and local-to-global maps.
 
     Notes
     -----
@@ -1372,7 +1380,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
-                 allocation_integral_types=None):
+                 allocation_integral_types=None, allocation_dsets=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
@@ -1380,13 +1388,15 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self._appctx = appctx
         self.weight = weight
         self._allocation_integral_types = allocation_integral_types
+        self._allocation_dsets = allocation_dsets
 
     def allocate(self):
         test, trial = self._form.arguments()
         sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial,
                                                           self._mat_type,
                                                           self._sub_mat_type,
-                                                          self._make_maps_and_regions())
+                                                          self._make_maps_and_regions(),
+                                                          dsets=self._allocation_dsets)
         op2mat = op2.Mat(
             sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
             dtype=ScalarType
@@ -1395,7 +1405,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                       fc_params=self._form_compiler_params, options_prefix=self._options_prefix)
 
     @staticmethod
-    def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions):
+    def _make_sparsity(test, trial, mat_type, sub_mat_type, maps_and_regions, dsets=None):
         assert mat_type != "matfree"
         nest = mat_type == "nest"
         if nest:
@@ -1404,9 +1414,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             baij = mat_type == "baij"
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
+        if dsets is None:
+            dsets = (test.function_space().dof_dset, trial.function_space().dof_dset)
         try:
-            sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                     trial.function_space().dof_dset),
+            sparsity = op2.Sparsity(dsets,
                                     maps_and_regions,
                                     nest=nest,
                                     block_sparse=baij)
@@ -2082,10 +2093,14 @@ class ParloopBuilder:
     def collect_lgmaps(self):
         """Return any local-to-global maps that need to be swapped out.
 
-        This is only needed when applying boundary conditions to 2-forms.
+        Boundary conditions mask the allocation datasets' numbering so that
+        matrices with reduced layouts retain their insertion maps.
 
-        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
-        :param bcs: Iterable of boundary conditions.
+        Returns
+        -------
+        tuple or None
+            Row and column maps for each assembled block, or ``None`` when no
+            boundary maps are required.
         """
 
         if len(self._form.arguments()) == 2 and not self._diagonal:
@@ -2097,16 +2112,18 @@ class ParloopBuilder:
                 row_bcs, col_bcs = self._filter_bcs(i, j)
                 # the tensor is already indexed
                 rlgmap, clgmap = self._tensor.local_to_global_maps
-                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                rdset, cdset = self._tensor.sparsity.dsets
+                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, dset=rdset)
+                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, dset=cdset)
                 return ((rlgmap, clgmap),)
             else:
                 lgmaps = []
                 for i, j in self.get_indicess():
                     row_bcs, col_bcs = self._filter_bcs(i, j)
                     rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
-                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
-                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
+                    rdset, cdset = self._tensor[i, j].sparsity.dsets
+                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, dset=rdset)
+                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, dset=cdset)
                     lgmaps.append((rlgmap, clgmap))
                 return tuple(lgmaps)
         else:
