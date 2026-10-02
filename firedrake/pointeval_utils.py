@@ -181,7 +181,24 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     %(real_type)s found_ref_cell_dist_l1 = PETSC_MAX_REAL;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
     %(IntType)s cells_ignore[1] = {-1};
-    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1, 1, cells_ignore);
+    RTreeError err;
+    int64_t *ids = NULL;
+    size_t nids = 0;
+    err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
+    if (err != Success) {
+        fputs("ERROR: rtree_locate_all_at_point failed.\\n", stderr);
+        rtree_free_ids(ids, nids);
+        return -2;
+    }
+    %(IntType)s cell;
+    PetscErrorCode locate_err = locate_cell_from_candidates(
+            f, x, &to_reference_coords, &to_reference_coords_xtr,
+            &temp_reference_coords, &found_reference_coords,
+            &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore, &cell);
+    rtree_free_ids(ids, nids);
+    if (locate_err != PETSC_SUCCESS) {
+        return locate_err;
+    }
     if (cell == -1) {
         return -1;
     }

@@ -233,13 +233,29 @@ def test_point_reset_works():
 
     assert np.allclose([0.0], f._at((0.3, 0.3)))
     f.assign(1)
-    m.clear_spatial_index()
+    m.clear_rtree()
     assert np.allclose([1.0], f._at((0.3, 0.3)))
 
 
-def test_changing_coordinates_invalidates_spatial_index():
+def test_changing_coordinates_invalidates_rtree():
     mesh = UnitSquareMesh(2, 2)
-
-    saved_spatial_index = mesh.spatial_index
+    assert mesh.rtree is mesh.rtree
+    saved_rtree = mesh.rtree
     mesh.coordinates.assign(mesh.coordinates * 2)
-    assert mesh.spatial_index != saved_spatial_index
+    assert mesh.rtree != saved_rtree
+
+
+def test_changing_coordinates_invalidates_bounding_box():
+    mesh = UnitSquareMesh(2, 2)
+    assert mesh.bounding_box_coords is mesh.bounding_box_coords
+    saved_bounding_box_coords = mesh.bounding_box_coords
+    mesh.coordinates.assign(mesh.coordinates * 2)
+    assert not np.allclose(mesh.bounding_box_coords, saved_bounding_box_coords)
+
+
+def test_changing_tolerance_invalidates_rtree():
+    mesh = UnitSquareMesh(2, 2)
+    assert mesh.rtree is mesh.rtree
+    saved_rtree = mesh.rtree
+    mesh.tolerance = 1e-5
+    assert mesh.rtree != saved_rtree

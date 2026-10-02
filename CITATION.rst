@@ -8,7 +8,9 @@
 Citing Firedrake
 ================
 
-If you publish results using Firedrake, we would be grateful if you would cite the Firedrake user manual::
+If you publish results using Firedrake, we would be grateful if you would cite the Firedrake user manual:
+
+.. code-block:: text
 
   @manual{FiredrakeUserManual,
     title        = {Firedrake User Manual},
@@ -20,13 +22,15 @@ If you publish results using Firedrake, we would be grateful if you would cite t
     doi          = {10.25561/104839},
   }
 
-The simplest way to determine any additional relevant papers to cite is by asking Firedrake itself. You can ask that a list of citations relevant to your computation be printed when exiting by calling `Citations.print_at_exit` after importing Firedrake::
+The simplest way to determine any additional relevant papers to cite is by asking Firedrake itself. You can ask that a list of citations relevant to your computation be printed when exiting by calling ``Citations.print_at_exit`` after importing Firedrake:
+
+.. code-block:: python
 
   from firedrake import *
 
   Citations.print_at_exit()
 
-Alternatively, you can pass a command-line option `-citations` to obtain the same result.
+Alternatively, you can pass a command-line option ``-citations`` to obtain the same result.
 
 Please visit https://www.firedrakeproject.org/citing.html for further details.
 
