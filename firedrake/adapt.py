@@ -97,6 +97,7 @@ def refine_marked_elements(mesh, cell_marker):
         A marker with both signs first coarsens ``mesh``, and then refines
         the coarsened mesh, which becomes the adaptive parent. Its ``_adaptive_fine_to_coarse_points`` is the DMPlex point of that
         parent that each of its DMPlex points was refined from.
+        This is ``mesh`` itself if ``cell_marker`` changes no cell.
 
     """
     with cell_marker.dat.vec_ro as v:
@@ -108,12 +109,14 @@ def refine_marked_elements(mesh, cell_marker):
             return coarsened
         # A cell with a positive marker stops the coarsening of its ancestor,
         # so the coarsened mesh still has the cells that the positive markers refine.
-        from firedrake.mg.interface import prolong
         refinements = Function(cell_marker.function_space()).interpolate(max_value(cell_marker, 0))
-        return refine_marked_elements(coarsened, prolong(refinements, Function(FunctionSpace(coarsened, "DG", 0))))
-    # Always run at least one adaptation pass, even when no cell is marked,
-    # so that a fresh mesh (with its own cell maps) is produced uniformly.
-    num_refinements = max(int(np.rint(num_refinements)), 1)
+        if coarsened is not mesh:
+            from firedrake.mg.interface import prolong
+            refinements = prolong(refinements, Function(FunctionSpace(coarsened, "DG", 0)))
+        return refine_marked_elements(coarsened, refinements)
+    num_refinements = int(np.rint(num_refinements))
+    if num_refinements <= 0:
+        return mesh
 
     current_mesh = mesh
     current_mark = cell_marker
@@ -182,10 +185,19 @@ def _coarsen_marked_elements(mesh, cell_marker):
     with remaining.dat.vec_ro as v:
         _, most_remaining = v.min()
     if most_remaining < 0 and parent._adaptive_parent is not None:
-        from firedrake.mg.interface import prolong
         coarsened = refine_marked_elements(parent, remaining)
-        marker = prolong(marker, Function(FunctionSpace(coarsened, "DG", 0)))
-        parent = coarsened
+        if coarsened is not parent:
+            from firedrake.mg.interface import prolong
+            marker = prolong(marker, Function(FunctionSpace(coarsened, "DG", 0)))
+            return refine_marked_elements(coarsened, marker)
+
+    # A negative stored value asked to coarsen a mesh without a parent, which refined nothing.
+    undone = Function(marker.function_space())
+    undone.dat.data_wo[:] = np.maximum(stored, 0) - marker.dat.data_ro
+    with undone.dat.vec_ro as v:
+        _, most_undone = v.max()
+    if most_undone <= 0:
+        return mesh
     return refine_marked_elements(parent, marker)
 
 

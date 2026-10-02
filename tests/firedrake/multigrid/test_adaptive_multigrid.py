@@ -191,6 +191,22 @@ def test_refine_marked_elements_coarsens_past_parent():
 
 
 @pytest.mark.parallel([1, 3])
+def test_refine_marked_elements_noop():
+    """A marker that changes no cell returns the mesh itself."""
+    base = UnitCubeMesh(4, 4, 4)
+    M = FunctionSpace(base, "DG", 0)
+    assert base.refine_marked_elements(Function(M)) is base
+    assert base.refine_marked_elements(Function(M).assign(-1)) is base
+
+    x = SpatialCoordinate(base)
+    mesh = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 1, 0)))
+    # No cell with x < 1/2 was marked for refinement, so none of them can be coarsened.
+    x = SpatialCoordinate(mesh)
+    marker = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 0))
+    assert mesh.refine_marked_elements(marker) is mesh
+
+
+@pytest.mark.parallel([1, 3])
 def test_refine_marked_elements_refines_and_coarsens():
     """A marker with both signs refines some cells and coarsens others."""
     base = UnitCubeMesh(4, 4, 4)
