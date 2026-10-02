@@ -91,4 +91,3 @@ def test_sphere_mg():
     solver = LinearVariationalSolver(prob, solver_parameters=mg_params)
     solver.solve()
     assert solver.snes.ksp.getIterationNumber() < 7
-
