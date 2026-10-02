@@ -18,30 +18,26 @@ dependencies = [
   "decorator<=4.4.2",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
-  # TODO RELEASE
   # Note that FEniCS may make new minor releases of UFL without warning so we pin
   # each Firedrake release to a specific UFL minor version (e.g. 2025.3.x)
-  "fenics-ufl @ git+https://github.com/FEniCS/ufl.git@main",
-  # TODO RELEASE
-  "firedrake-fiat @ git+https://github.com/firedrakeproject/fiat.git@main",
+  "fenics-ufl==2026.2",
+  "firedrake-fiat==2026.10",
   "h5py>3.12.1",
-  "firedrake-rtree>=2026.2.0",
+  "firedrake-rtree>=2026.3.0",
   "immutabledict",
   "libsupermesh>=2026.1",
   "loopy>2024.1",
   "numpy",
   "packaging",
-  # TODO RELEASE
-  # "petsc4py==3.25.0",
-  # TODO RELEASE
-  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
+  "petsc4py==3.26.0",
+  "petsctools>=2026.1",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2026.9.0",
+  "pyadjoint-ad>=2026.10",
   "pycparser",
   "pytools[siphash]",
   "requests",
-  "rtree",
+  "rtree>=1.2",
   "scipy",
   "sympy",
   "islpy<2026.2",
@@ -101,12 +97,11 @@ jax = [
   "jax",
 ]
 netgen = [
-  "ngsPETSc>=0.2.0",
+  "ngsPETSc>=0.3.0",
 ]
-# TODO RELEASE
-# slepc = [
-#   "slepc4py==3.25.0",
-# ]
+slepc = [
+  "slepc4py==3.26.0",
+]
 torch = [  # requires passing '--extra-index-url' to work
   "torch",
 ]
@@ -123,7 +118,7 @@ ci = [
   "mpi-pytest>=2026.0",
   "nbval",
   "networkx",
-  "ngsPETSc>=0.2.0",
+  "ngsPETSc>=0.3.0",
   "pdf2image",
   "pygraphviz",
   "pylit",
@@ -132,8 +127,7 @@ ci = [
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  # TODO RELEASE
-  # "slepc4py==3.25.0",
+  "slepc4py==3.26.0",
   "torch",  # requires passing '--extra-index-url' to work
   "vtk",
 ]
@@ -152,27 +146,24 @@ docker = [  # Used in firedrake-vanilla container
   "pytest-split",  # needed for firedrake-run-split-tests
   "pytest-timeout",
   "pytest-xdist",
-  # TODO RELEASE 
-  # "slepc4py==3.25.0",
+  "slepc4py==3.26.0",
   "vtk",
 ]
 
 [build-system]
 requires = [
   "Cython>=3.0",
-  "firedrake-rtree>=2026.2.0",
-  # TODO RELEASE
-  "libsupermesh @ git+https://github.com/firedrakeproject/libsupermesh.git@main",
+  "firedrake-rtree>=2026.3.0",
+  "libsupermesh>=2026.3",
   "mpi4py>3; python_version >= '3.13'",
   "mpi4py; python_version < '3.13'",
   "numpy",
-  # TODO RELEASE
-  # "petsc4py==3.25.0",
+  "petsc4py==3.26.0",
   "petsctools",
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
-  "rtree",
+  "rtree>=1.2",
 ]
 build-backend = "setuptools.build_meta"
 
