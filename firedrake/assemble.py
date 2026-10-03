@@ -162,7 +162,8 @@ def get_assembler(form, *args, **kwargs):
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     fc_params = kwargs.get('form_compiler_parameters', None)
-    if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
+    if (isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed
+            and not needs_matfree_assembler(form, kwargs.get('mat_type'), kwargs.get('diagonal', False))):
         # If not assembling a matrix, internal BaseForm nodes are matfree by default
         # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
         default_mat_type = "matfree" if len(form.arguments()) < 2 else None
@@ -355,15 +356,20 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._weight = weight
         self._allocation_integral_types = allocation_integral_types
 
+    @cached_property
+    def _matrix_free_assembler(self):
+        return MatrixFreeAssembler(self._form, bcs=self._bcs,
+                                   form_compiler_parameters=self._form_compiler_params,
+                                   options_prefix=self._options_prefix,
+                                   appctx=self._appctx)
+
     def allocate(self):
         rank = len(self._form.arguments())
         if rank == 2 and not self._diagonal:
             if isinstance(self._form, MatrixBase):
                 return self._form
             elif self._mat_type == "matfree":
-                return MatrixFreeAssembler(self._form, bcs=self._bcs, form_compiler_parameters=self._form_compiler_params,
-                                           options_prefix=self._options_prefix,
-                                           appctx=self._appctx).allocate()
+                return self._matrix_free_assembler.allocate()
             else:
                 test, trial = self._form.arguments()
                 sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_type, self._sub_mat_type, self.maps_and_regions)
@@ -422,15 +428,11 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
-        def visitor(e, *operands):
-            t = tensor if e is self._form else None
-            # Deal with 2-form bcs inside the visitor
-            bcs = self._bcs if isinstance(e, ufl.BaseForm) and len(e.arguments()) == 2 else ()
-            return self.base_form_assembly_visitor(e, t, bcs, *operands)
+        if needs_matfree_assembler(self._form, self._mat_type, self._diagonal):
+            return self._matrix_free_assembler.assemble(tensor=tensor)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
-        visited = {}
-        result = BaseFormAssembler.base_form_postorder_traversal(self._form, visitor, visited)
+        result = self._assemble_base_form(self._form, tensor)
 
         # Deal with 1-form bcs outside the visitor
         rank = len(self._form.arguments())
@@ -438,6 +440,16 @@ class BaseFormAssembler(AbstractFormAssembler):
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
         return result
+
+    def _assemble_base_form(self, expr, tensor=None):
+        """Assemble a BaseForm tree in post-order."""
+        def visitor(e, *operands):
+            t = tensor if e is expr else None
+            # Deal with 2-form bcs inside the visitor
+            bcs = self._bcs if isinstance(e, ufl.BaseForm) and len(e.arguments()) == 2 else ()
+            return self.base_form_assembly_visitor(e, t, bcs, *operands)
+
+        return BaseFormAssembler.base_form_postorder_traversal(expr, visitor, {})
 
     def base_form_assembly_visitor(self, expr, tensor, bcs, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
@@ -447,11 +459,17 @@ class BaseFormAssembler(AbstractFormAssembler):
             in a post-order fashion.
         """
         if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-            if args and self._mat_type != "matfree":
+            # Only the output matrix uses the requested allocation integral types.
+            # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
+            allocation_integral_types = self._allocation_integral_types if expr is self._form else None
+            if args:
                 # Retrieve the Form's children
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
                 # Substitute the base form operators by their output
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
+                # Replace calls expand_derivatives and this might turn a Form into a BaseForm
+                if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+                    return self._assemble_base_form(expr, tensor)
             form = expr
             rank = len(form.arguments())
             if rank == 0:
@@ -463,7 +481,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=self._form_compiler_params,
                                              mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
                                              options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
-                                             allocation_integral_types=self.allocation_integral_types)
+                                             allocation_integral_types=allocation_integral_types)
             else:
                 raise AssertionError
             return assembler.assemble(tensor=tensor)
@@ -1314,6 +1332,13 @@ def TwoFormAssembler(form, *args, **kwargs):
         return ExplicitMatrixAssembler(form, *args, mat_type=mat_type, sub_mat_type=sub_mat_type, **kwargs)
 
 
+def needs_matfree_assembler(form, mat_type, diagonal=False):
+    """Return whether ``form`` needs a matrix-free assembler."""
+    return (mat_type == "matfree" and not diagonal
+            and len(form.arguments()) == 2
+            and not isinstance(form, (MatrixBase, ufl.core.base_form_operator.BaseFormOperator)))
+
+
 def _get_mat_type(mat_type, sub_mat_type, arguments):
     """Validate the matrix types provided by the user and set any that are
     undefined to default values.
@@ -1565,25 +1590,21 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         return tensor
 
 
-class MatrixFreeAssembler(FormAssembler):
+class MatrixFreeAssembler(AbstractFormAssembler):
     """Stub class wrapping matrix-free assembly.
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBase
-        2-form.
+    form : ufl.form.BaseForm or slate.TensorBase
+        2-form. The form is never compiled here, so it can be any `ufl.form.BaseForm`
+        whose action a surrounding `ImplicitMatrixContext` can assemble.
 
     Notes
     -----
-    See `FormAssembler` and `assemble` for descriptions of the other parameters.
+    See `AbstractFormAssembler` and `assemble` for descriptions of the other parameters.
 
     """
 
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        return
-
-    @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None,
                  options_prefix=None, appctx=None):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
