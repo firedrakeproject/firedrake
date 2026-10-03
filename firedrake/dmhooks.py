@@ -452,15 +452,12 @@ def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
     mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    Return a null DM if the markers change no cell, so that DMAdaptorAdapt()
+    keeps the current DM and solution.
     """
     from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
-
-    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    # Increase the reference count so the coarse DM survives.
-    dm.incRef()
 
     ctx = get_appctx(dm)
     if ctx is None:
@@ -468,11 +465,7 @@ def _refine_adaptive(dm):
     current_solution = ctx._x
     mesh = current_solution.function_space().mesh()
     hierarchy, level = get_level(mesh)
-    if hierarchy is None:
-        hierarchy = MeshHierarchy(mesh)
-        level = 0
-
-    if level+1 != len(hierarchy):
+    if hierarchy is not None and level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:
         raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
@@ -489,9 +482,18 @@ def _refine_adaptive(dm):
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
-    hierarchy.add_mesh(mesh.refine_marked_elements(markers))
+    adapted_mesh = mesh.refine_marked_elements(markers)
+    if adapted_mesh is mesh:
+        return PETSc.DM()
+    # DMAdaptorAdapt() destroys its input DM after an adaptation, and each
+    # adapted input DM remains a level in the mesh hierarchy.
+    dm.incRef()
+    if hierarchy is None:
+        hierarchy = MeshHierarchy(mesh)
+    hierarchy.add_mesh(adapted_mesh)
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    refined_ctx._adapted_coefficients = {c: coefficient_mapping[v] for c, v in ctx._adapted_coefficients.items()}
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
     # Get all DMs from the refined problem

@@ -133,8 +133,9 @@ class HierarchyBase(object):
             current finest mesh.
         coarse_to_fine_cells :
             Map from the cells of the current finest mesh to the cells of
-            ``mesh``. Defaults to the map ``mesh`` recorded when it was
-            adaptively refined.
+            ``mesh``. Defaults to the map from
+            `firedrake.adapt.adapted_cell_maps`, which gives the children of
+            each cell if ``mesh`` was refined from the current finest mesh.
         fine_to_coarse_cells :
             Map from the cells of ``mesh`` to the cells of the current finest
             mesh. Defaults the same way as ``coarse_to_fine_cells``.
@@ -148,16 +149,17 @@ class HierarchyBase(object):
         if self.refinements_per_level != 1:
             raise NotImplementedError("Cannot add a mesh to a hierarchy with "
                                       "refinements_per_level > 1")
-        fine_to_coarse_points = None
-        if mesh._adaptive_parent is self[-1]:
-            fine_to_coarse_points = mesh._adaptive_fine_to_coarse_points
-        if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
-            if fine_to_coarse_points is not None:
-                coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
-                    self[-1], mesh, fine_to_coarse_points)
-            elif self.nested:
-                raise ValueError("Expecting a mesh adaptively refined from the finest "
-                                 "level of this hierarchy, or explicit cell maps")
+        from firedrake.adapt import adapted_cell_maps
+        maps = adapted_cell_maps(self[-1], mesh)
+        if maps is None:
+            fine_to_coarse_points = None
+            if self.nested and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
+                raise ValueError("Expecting a mesh adapted from the finest level "
+                                 "of this hierarchy, or explicit cell maps")
+        else:
+            *default_maps, fine_to_coarse_points = maps
+            if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
+                coarse_to_fine_cells, fine_to_coarse_cells = default_maps
 
         level = len(self.meshes)
         self._meshes.append(mesh)

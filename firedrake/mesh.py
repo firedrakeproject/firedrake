@@ -3060,21 +3060,29 @@ values from f.)"""
 
     @PETSc.Log.EventDecorator()
     def refine_marked_elements(self, mark):
-        """Adaptively refine a mesh using a DG0 marking function.
+        """Adaptively refine or coarsen a mesh using a DG0 marking function.
 
         Parameters
         ----------
         mark
-            A DG0 `~firedrake.function.Function` on this mesh: cells
-            with a positive value ``n`` are refined ``n`` times.
+            A DG0 `~firedrake.function.Function` on this mesh. If no value
+            is negative, the cells with a positive value ``n`` are refined
+            ``n`` times. Otherwise, one round is done: the cells with a
+            positive value are refined once, and the cells with a negative
+            value undo one round of refinement, which can go past the
+            adaptive parent of this mesh. A cell of an ancestor is coarsened
+            only if all the cells that it was refined into ask.
 
         Returns
         -------
         MeshGeometry
-            The adaptively refined mesh, recording this mesh as its
-            ``_adaptive_parent`` and the DMPlex points relative to it as its
-            ``_adaptive_fine_to_coarse_points``, ready to be passed to
-            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
+            The adapted mesh, ready to be passed to
+            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. Its
+            ``_adaptive_parent`` is the mesh it was transformed from: this
+            mesh after a refinement, and an ancestor of this mesh after a
+            coarsening. This is this mesh itself if ``mark`` changes no
+            cell, and an ancestor of this mesh if the coarsening undoes all
+            the refinement after that ancestor.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)
