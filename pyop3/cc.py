@@ -49,7 +49,7 @@ from pathlib import Path
 from random import randint
 from tempfile import gettempdir, mkstemp
 from textwrap import dedent
-from typing import Self
+from typing import Self, Any
 
 import petsctools
 from mpi4py import MPI

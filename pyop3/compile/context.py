@@ -6,6 +6,7 @@ import os
 from abc import ABC, abstractmethod
 from functools import cached_property
 from typing import Any, List, Dict, Tuple, Self
+from mpi4py import MPI
 
 import numpy as np
 import petsctools
