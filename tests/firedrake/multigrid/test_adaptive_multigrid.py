@@ -180,10 +180,12 @@ def test_refine_marked_elements_coarsens_past_parent():
     base = UnitCubeMesh(4, 4, 4)
     M = FunctionSpace(base, "DG", 0)
     mesh = base.refine_marked_elements(Function(M).assign(1))
-    mesh = mesh.refine_marked_elements(Function(FunctionSpace(mesh, "DG", 0)).assign(1))
-    x = SpatialCoordinate(mesh)
-    coarsened = mesh.refine_marked_elements(
-        Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -2, 0)))
+    coarsened = mesh.refine_marked_elements(Function(FunctionSpace(mesh, "DG", 0)).assign(1))
+    # Each call undoes one round, and the second one goes past the parent of the mesh it coarsens.
+    for _ in range(2):
+        x = SpatialCoordinate(coarsened)
+        coarsened = coarsened.refine_marked_elements(
+            Function(FunctionSpace(coarsened, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 0)))
 
     x = SpatialCoordinate(base)
     expected = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 2, 0)))
