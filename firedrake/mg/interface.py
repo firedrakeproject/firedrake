@@ -39,8 +39,8 @@ def check_arguments(coarse, fine, needs_dual=False):
 
 @PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
-    with utils.adaptive_transfer_levels(ufl_expr.extract_unique_domain(coarse),
-                                        ufl_expr.extract_unique_domain(fine)):
+    with utils.temporary_hierarchy(ufl_expr.extract_unique_domain(coarse),
+                                   ufl_expr.extract_unique_domain(fine)):
         return _prolong(coarse, fine)
 
 
@@ -124,8 +124,8 @@ def _prolong(coarse, fine):
 
 @PETSc.Log.EventDecorator()
 def restrict(fine_dual, coarse_dual):
-    with utils.adaptive_transfer_levels(ufl_expr.extract_unique_domain(coarse_dual),
-                                        ufl_expr.extract_unique_domain(fine_dual)):
+    with utils.temporary_hierarchy(ufl_expr.extract_unique_domain(coarse_dual),
+                                   ufl_expr.extract_unique_domain(fine_dual)):
         return _restrict(fine_dual, coarse_dual)
 
 

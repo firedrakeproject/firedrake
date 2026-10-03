@@ -2491,7 +2491,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         # these are set by firedrake.adapt.refine_marked_elements
         self._adaptive_parent = None
         self._adaptive_fine_to_coarse_points = None
-        self._adaptive_marker = None
 
         self.topology = topology
         self.geometric_shared_data_cache = defaultdict(dict)
@@ -3066,23 +3065,24 @@ values from f.)"""
         Parameters
         ----------
         mark
-            A DG0 `~firedrake.function.Function` on this mesh: cells
-            with a positive value ``n`` are refined ``n`` times. Cells with
-            a negative value ``-n`` ask to undo ``n`` rounds of refinement,
-            which can go past the adaptive parent of this mesh. A cell of an
-            ancestor is coarsened only as far as all the cells that it was
-            refined into ask.
+            A DG0 `~firedrake.function.Function` on this mesh. If no value
+            is negative, the cells with a positive value ``n`` are refined
+            ``n`` times. Otherwise, one round is done: the cells with a
+            positive value are refined once, and the cells with a negative
+            value undo one round of refinement, which can go past the
+            adaptive parent of this mesh. A cell of an ancestor is coarsened
+            only if all the cells that it was refined into ask.
 
         Returns
         -------
         MeshGeometry
-            The adapted mesh. After a refinement, it records this mesh as
-            its ``_adaptive_parent`` and the DMPlex points relative to it as
-            its ``_adaptive_fine_to_coarse_points``, ready to be passed to
-            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. After a
-            coarsening, it records the adaptive parent of this mesh instead,
-            coarsened as far as needed. This is this mesh itself if ``mark``
-            changes no cell.
+            The adapted mesh, ready to be passed to
+            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. Its
+            ``_adaptive_parent`` is the mesh it was transformed from: this
+            mesh after a refinement, and an ancestor of this mesh after a
+            coarsening. This is this mesh itself if ``mark`` changes no
+            cell, and an ancestor of this mesh if the coarsening undoes all
+            the refinement after that ancestor.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)
