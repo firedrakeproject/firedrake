@@ -148,9 +148,40 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     assert u_adapted.function_space().dim() > old_dim
 
 
+lu_parameters = {
+    "mat_type": "aij",
+    "ksp_type": "preonly",
+    "pc_type": "lu",
+}
+
+mg_parameters = {
+    "mat_type": "aij",
+    "ksp_type": "cg",
+    "ksp_rtol": 1e-12,
+    "pc_type": "mg",
+    "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
+    "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
+}
+
+
+@pytest.fixture(params=["lu", "mg"])
+def linear_parameters(request):
+    return {"lu": lu_parameters, "mg": mg_parameters}[request.param]
+
+
+def poisson(V):
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(Constant(1), v) * dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+    return a, L, bcs
+
+
 def test_get_coefficient():
     def mark_cells(ctx, current_solution):
-        return Function(FunctionSpace(current_solution.function_space().mesh(), "DG", 0)).assign(1)
+        M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
+        return Function(M).assign(1)
 
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
@@ -160,7 +191,9 @@ def test_get_coefficient():
     u = Function(V)
     v = TestFunction(V)
     F = inner(u - c * f, v) * dx
-    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, bcs=DirichletBC(V, g, 1)),
+    bcs = DirichletBC(V, g, 1)
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs)
+    solver = NonlinearVariationalSolver(problem,
                                         solver_parameters={"snes_adapt_sequence": 1},
                                         marking_callback=mark_cells)
     assert solver.get_coefficient(f) is f
@@ -202,12 +235,12 @@ class TransientMarkingCallback:
         inside = lt(self.distance(mesh), self.radius)
         unrefined = gt(CellVolume(mesh), 0.75 * self.base_volume)
         marker = conditional(inside, conditional(unrefined, 1, 0), -1)
-        return Function(FunctionSpace(mesh, "DG", 0)).interpolate(marker)
+        M = FunctionSpace(mesh, "DG", 0)
+        return Function(M).interpolate(marker)
 
 
 @pytest.mark.parallel([1, 3])
-@pytest.mark.parametrize("pc_type", ["lu", "mg"])
-def test_snes_adapt_transient(pc_type):
+def test_snes_adapt_transient(linear_parameters):
     base = UnitSquareMesh(16, 16)
     base_volume = 0.5 / 16**2
     t = Constant(0)
@@ -229,33 +262,22 @@ def test_snes_adapt_transient(pc_type):
         return a, L, DirichletBC(V, 0, "on_boundary")
 
     def global_max(expr, mesh):
-        f = Function(FunctionSpace(mesh, "DG", 0)).interpolate(expr)
+        M = FunctionSpace(mesh, "DG", 0)
+        f = Function(M).interpolate(expr)
         with f.dat.vec_ro as v:
             return v.max()[1]
 
-    params = {
-        "snes_adapt_sequence": 1,
-        "mat_type": "aij",
-        "ksp_type": "preonly",
-        "pc_type": "lu",
-    }
-    if pc_type == "mg":
-        params.update({
-            "ksp_type": "cg",
-            "ksp_rtol": 1e-12,
-            "pc_type": "mg",
-            "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
-            "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
-        })
+    params = {"snes_adapt_sequence": 1, **linear_parameters}
     marking_callback = TransientMarkingCallback(centre, base_volume, radius)
-    u_old = Function(FunctionSpace(base, "CG", 1))
+    V = FunctionSpace(base, "CG", 1)
+    u_old = Function(V)
     a, L, bc = heat_equation(u_old)
-    uh = Function(u_old.function_space())
+    uh = Function(V)
     problem = LinearVariationalProblem(a, L, uh, bcs=bc)
     solver = LinearVariationalSolver(problem, solver_parameters=params,
                                      marking_callback=marking_callback)
 
-    u_ref = Function(u_old.function_space())
+    u_ref = Function(V)
     for step in range(nsteps + nsteps_still):
         t.assign(t + dt)
         moving = step < nsteps
@@ -291,98 +313,97 @@ def test_snes_adapt_transient(pc_type):
         assert global_max(conditional(far, abs(volume - base_volume), 0), mesh) < 1e-12 * base_volume
 
         # The same step, solved without adaptation on the adapted mesh.
-        V = u.function_space()
-        u_ref_old = assemble(interpolate(u_ref, V)) if moving else u_ref
+        Vh = u.function_space()
+        u_ref_old = assemble(interpolate(u_ref, Vh)) if moving else u_ref
         a, L, bc = heat_equation(u_ref_old)
-        u_ref = Function(V)
-        solve(a == L, u_ref, bcs=bc, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+        u_ref = Function(Vh)
+        solve(a == L, u_ref, bcs=bc, solver_parameters=lu_parameters)
         assert errornorm(u_ref, u) < 1e-10 * norm(u_ref)
 
         solver.get_coefficient(u_old).assign(u)
 
 
-@pytest.mark.parallel([1, 3])
-def test_snes_adapt_hierarchy_follows_adaptive_parents():
-    # Two refinements, and then a coarsening that undoes the first one.
-    markers = [
-        lambda x: conditional(lt(x[0], 0.5), 1, 0),
-        lambda x: conditional(lt(x[0], 0.25), 1, 0),
-        lambda x: conditional(gt(x[0], 0.75), 1, -1),
-    ]
+refine_left_half = lambda x: conditional(lt(x[0], 0.5), 1, 0)  # noqa: E731
+refine_left_quarter = lambda x: conditional(lt(x[0], 0.25), 1, 0)  # noqa: E731
+coarsen_left_quarter = lambda x: conditional(lt(x[0], 0.25), -1, 0)  # noqa: E731
+coarsen_left_half = lambda x: conditional(lt(x[0], 0.5), -1, 0)  # noqa: E731
+coarsen_all_but_right = lambda x: conditional(gt(x[0], 0.75), 1, -1)  # noqa: E731
 
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("markers, levels", [
+    # Two refinements, and then a coarsening that undoes the first one.
+    ([refine_left_half, refine_left_quarter, coarsen_all_but_right], [0, -1]),
+    # Two refinements, and then a coarsening that returns the first refined mesh.
+    ([refine_left_half, refine_left_quarter, coarsen_left_quarter], [0, 1]),
+    # The same, and then a refinement of the returned mesh.
+    ([refine_left_half, refine_left_quarter, coarsen_left_quarter, refine_left_quarter], [0, 1, -1]),
+    # A refinement, and then a coarsening that returns the base mesh.
+    ([refine_left_half, coarsen_left_half], [0]),
+], ids=["coarsen_to_new_mesh", "coarsen_to_ancestor", "refine_ancestor", "coarsen_to_base"])
+def test_snes_adapt_hierarchy_follows_adaptive_parents(markers, levels):
+    """The levels of the hierarchy are the adaptive ancestors of the adapted mesh.
+
+    ``levels`` indexes the meshes that the markers see, followed by the
+    adapted mesh.
+    """
     meshes = []
 
     def mark_cells(ctx, current_solution):
         mesh = current_solution.function_space().mesh()
         meshes.append(mesh)
         marker = markers[len(meshes) - 1](SpatialCoordinate(mesh))
-        return Function(FunctionSpace(mesh, "DG", 0)).interpolate(marker)
+        M = FunctionSpace(mesh, "DG", 0)
+        return Function(M).interpolate(marker)
 
     base = UnitSquareMesh(8, 8)
     V = FunctionSpace(base, "CG", 1)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    a = inner(grad(u), grad(v)) * dx
-    L = inner(Constant(1), v) * dx
-    problem = LinearVariationalProblem(a, L, Function(V), bcs=DirichletBC(V, 0, "on_boundary"))
-    params = {
-        "snes_adapt_sequence": 3,
-        "mat_type": "aij",
-        "ksp_type": "cg",
-        "ksp_rtol": 1e-12,
-        "pc_type": "mg",
-        "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
-        "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
-    }
+    a, L, bcs = poisson(V)
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    params = {"snes_adapt_sequence": len(markers), **mg_parameters}
     solver = LinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_cells)
     u = solver.solve()
     mesh = u.function_space().mesh()
 
-    # The coarsening goes back to the base mesh, so the two refined meshes are not levels.
-    assert len(meshes) == 3
-    assert mesh._adaptive_parent is base
+    assert len(meshes) == len(markers)
+    candidates = [*meshes, mesh]
+    expected = [candidates[i] for i in levels]
     hierarchy, level = get_level(mesh)
-    assert level == 1 and list(hierarchy) == [base, mesh]
-    for refined in meshes[1:]:
-        assert get_level(refined) == (None, None)
+    assert list(hierarchy) == expected
+    assert level == len(expected) - 1
+    assert mesh._adaptive_parent is (expected[-2] if level else None)
+    for m in candidates:
+        if not any(m is e for e in expected):
+            assert get_level(m) == (None, None)
+    assert solver.snes.getDM().getRefineLevel() == level
 
     # The solution on the adapted mesh is the one of the same problem solved directly.
-    Vf = u.function_space()
-    u_ref = Function(Vf)
-    solve(inner(grad(TrialFunction(Vf)), grad(TestFunction(Vf))) * dx == inner(Constant(1), TestFunction(Vf)) * dx,
-          u_ref, bcs=DirichletBC(Vf, 0, "on_boundary"))
+    Vh = u.function_space()
+    a, L, bcs = poisson(Vh)
+    u_ref = Function(Vh)
+    solve(a == L, u_ref, bcs=bcs, solver_parameters=lu_parameters)
     assert errornorm(u_ref, u) < 1e-10 * norm(u_ref)
 
 
 @pytest.mark.parallel([1, 3])
-def test_snes_adapt_noop_refinement_with_multigrid():
+def test_snes_adapt_noop_refinement(linear_parameters):
     # Marking no cells keeps the mesh and the solution.
     def mark_no_cells(ctx, current_solution):
-        return Function(FunctionSpace(current_solution.function_space().mesh(), "DG", 0))
+        M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
+        return Function(M)
 
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V)
-    v = TestFunction(V)
-    F = inner(grad(u), grad(v)) * dx - inner(Constant(1), v) * dx
-    bcs = DirichletBC(V, 0, "on_boundary")
-    params = {
-        "snes_type": "ksponly",
-        "snes_adapt_sequence": 1,
-        "mat_type": "aij",
-        "ksp_type": "cg",
-        "ksp_rtol": 1e-12,
-        "pc_type": "mg",
-        "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
-        "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
-    }
-    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, bcs=bcs),
-                                        solver_parameters=params,
-                                        marking_callback=mark_no_cells)
-    uh = solver.solve()
-    assert uh is u
+    a, L, bcs = poisson(V)
+    uh = Function(V)
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    params = {"snes_adapt_sequence": 1, **linear_parameters}
+    solver = LinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_no_cells)
+    u = solver.solve()
+    assert u is uh
     assert get_level(mesh) == (None, None)
 
     u_ref = Function(V)
-    solve(replace(F, {u: u_ref}) == 0, u_ref, bcs=bcs)
-    assert abs(norm(uh) - norm(u_ref)) < 1e-10 * norm(u_ref)
+    solve(a == L, u_ref, bcs=bcs, solver_parameters=lu_parameters)
+    assert errornorm(u_ref, u) < 1e-10 * norm(u_ref)
