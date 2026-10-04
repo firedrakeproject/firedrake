@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy
-from contextlib import contextmanager
 from fractions import Fraction
 from mpi4py import MPI
 from pyop2 import op2
@@ -260,46 +259,6 @@ def get_level(obj):
 def has_level(obj):
     """Does the provided object have level info?"""
     return hasattr(obj.topological, "__level_info__")
-
-
-@contextmanager
-def temporary_hierarchy(coarse, fine):
-    """Put two meshes on the levels of a short-lived hierarchy.
-
-    Inside the context, ``coarse`` and ``fine`` are the levels 0 and 1 of a
-    hierarchy whose cell maps come from `firedrake.adapt.adapted_cell_maps`.
-    The previous level info of both meshes is restored on exit. Nothing
-    happens if the meshes are already in the same hierarchy, or if they have
-    no common adaptive ancestor.
-
-    Parameters
-    ----------
-    coarse, fine
-        The meshes to transfer between.
-
-    """
-    from firedrake.adapt import adapted_cell_maps
-    from firedrake.mg.mesh import HierarchyBase
-
-    meshes = (coarse, fine)
-    levels = [get_level(m) for m in meshes]
-    maps = None
-    if levels[0][0] is None or levels[0][0] is not levels[1][0]:
-        maps = adapted_cell_maps(coarse, fine)
-    if maps is None:
-        yield
-        return
-    coarse_to_fine, fine_to_coarse, _ = maps
-    HierarchyBase(meshes, {Fraction(0, 1): coarse_to_fine},
-                  {Fraction(0, 1): None, Fraction(1, 1): fine_to_coarse})
-    try:
-        yield
-    finally:
-        for mesh, (hierarchy, level) in zip(meshes, levels):
-            if hierarchy is None:
-                delattr(mesh.topological, "__level_info__")
-            else:
-                set_level(mesh, hierarchy, level)
 
 
 def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):

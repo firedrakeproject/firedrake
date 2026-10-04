@@ -181,22 +181,20 @@ def test_get_coefficient():
 class TransientMarkingCallback:
     """Refines the cells that a moving window covers, and coarsens the others.
 
-    The window has radius ``radius`` and its centre moves along ``y = 1/2``
-    as ``speed * t``. A cell that is still as large as a base cell is marked
-    with +1 when its centroid is inside the window. A cell outside the window
-    is marked with -1.
+    The window has radius ``radius`` and its centre is at ``(centre, 1/2)``.
+    A cell that is still as large as a base cell is marked with +1 when its
+    centroid is inside the window. A cell outside the window is marked with -1.
     """
 
-    def __init__(self, t, base_volume, radius, speed):
-        self.t = t
+    def __init__(self, centre, base_volume, radius):
+        self.centre = centre
         self.base_volume = base_volume
         self.radius = radius
-        self.speed = speed
         self.meshes = []
 
     def distance(self, mesh):
         x = SpatialCoordinate(mesh)
-        return sqrt((x[0] - self.speed * self.t)**2 + (x[1] - 0.5)**2)
+        return sqrt((x[0] - self.centre)**2 + (x[1] - 0.5)**2)
 
     def __call__(self, ctx, current_solution):
         mesh = current_solution.function_space().mesh()
@@ -214,14 +212,16 @@ def test_snes_adapt_transient(pc_type):
     base_volume = 0.5 / 16**2
     t = Constant(0)
     dt = Constant(0.1)
+    centre = Constant(0)
     radius = 0.1
     speed = 1.2
     nsteps = 5
+    nsteps_still = 2
 
     def heat_equation(u_old):
         V = u_old.function_space()
         x = SpatialCoordinate(V.mesh())
-        source = exp(-((x[0] - speed * t)**2 + (x[1] - 0.5)**2) / 0.01)
+        source = exp(-((x[0] - centre)**2 + (x[1] - 0.5)**2) / 0.01)
         u = TrialFunction(V)
         v = TestFunction(V)
         a = inner(u, v) * dx + dt * inner(grad(u), grad(v)) * dx
@@ -247,7 +247,7 @@ def test_snes_adapt_transient(pc_type):
             "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
             "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
         })
-    marking_callback = TransientMarkingCallback(t, base_volume, radius, speed)
+    marking_callback = TransientMarkingCallback(centre, base_volume, radius)
     u_old = Function(FunctionSpace(base, "CG", 1))
     a, L, bc = heat_equation(u_old)
     uh = Function(u_old.function_space())
@@ -256,16 +256,28 @@ def test_snes_adapt_transient(pc_type):
                                      marking_callback=marking_callback)
 
     u_ref = Function(u_old.function_space())
-    for step in range(nsteps):
+    for step in range(nsteps + nsteps_still):
         t.assign(t + dt)
-        previous_mesh = solver.get_solution().function_space().mesh()
+        moving = step < nsteps
+        if moving:
+            centre.assign(speed * t)
+        previous_u = solver.get_solution()
+        previous_ctx = solver._ctx
+        previous_mesh = previous_u.function_space().mesh()
         u = solver.solve()
         mesh = u.function_space().mesh()
 
-        # The marker sees the solution of this step on the previous mesh,
-        # and the step is solved again on the adapted mesh.
+        # The marker sees the solution of this step on the previous mesh.
         assert marking_callback.meshes[-1] is previous_mesh
-        assert mesh is not previous_mesh
+        if moving:
+            # The step is solved again on the adapted mesh.
+            assert mesh is not previous_mesh
+        else:
+            # The window does not move, so the mesh, the solution and the context are kept.
+            assert u is previous_u
+            assert solver._ctx is previous_ctx
+            hierarchy, level = get_level(mesh)
+            assert len(hierarchy) == level + 1
 
         # The window is refined, and the cells far from it are coarsened back to the base mesh.
         distance = marking_callback.distance(mesh)
@@ -276,53 +288,13 @@ def test_snes_adapt_transient(pc_type):
 
         # The same step, solved without adaptation on the adapted mesh.
         V = u.function_space()
-        u_ref_old = prolong(u_ref, Function(V))
+        u_ref_old = prolong(u_ref, Function(V)) if moving else u_ref
         a, L, bc = heat_equation(u_ref_old)
         u_ref = Function(V)
         solve(a == L, u_ref, bcs=bc, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
         assert errornorm(u_ref, u) < 1e-10 * norm(u_ref)
 
         solver.get_coefficient(u_old).assign(u)
-
-
-@pytest.mark.parallel([1, 3])
-@pytest.mark.parametrize("pc_type", ["lu", "mg"])
-def test_snes_adapt_transient_noop(pc_type):
-    base = UnitSquareMesh(16, 16)
-    t = Constant(0)
-    marking_callback = TransientMarkingCallback(t, 0.5 / 16**2, radius=0.1, speed=0)
-    V = FunctionSpace(base, "CG", 1)
-    u_old = Function(V)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    a = inner(u, v) * dx + inner(grad(u), grad(v)) * dx
-    L = inner(u_old + t, v) * dx
-    problem = LinearVariationalProblem(a, L, Function(V), bcs=DirichletBC(V, 0, "on_boundary"))
-    params = {"snes_adapt_sequence": 1, "mat_type": "aij", "ksp_type": "preonly", "pc_type": "lu"}
-    if pc_type == "mg":
-        params.update({
-            "ksp_type": "cg",
-            "pc_type": "mg",
-            "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
-            "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
-        })
-    solver = LinearVariationalSolver(problem, solver_parameters=params,
-                                     marking_callback=marking_callback)
-
-    # The first step refines the window, and the window does not move afterwards.
-    t.assign(1)
-    uh = solver.solve()
-    ctx = solver._ctx
-    mesh = uh.function_space().mesh()
-    hierarchy, level = get_level(mesh)
-    for step in range(2, 4):
-        t.assign(step)
-        solver.get_coefficient(u_old).assign(uh)
-        assert solver.solve() is uh
-        assert marking_callback.meshes[-1] is mesh
-        assert solver._ctx is ctx
-        assert get_level(mesh) == (hierarchy, level)
-        assert len(hierarchy) == level + 1
 
 
 @pytest.mark.parallel([1, 3])
