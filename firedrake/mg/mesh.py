@@ -13,7 +13,7 @@ from functools import cached_property
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
 import firedrake.cython.dmcommon as dmcommon
-from .utils import set_level
+from .utils import get_level, set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
@@ -170,6 +170,67 @@ class HierarchyBase(object):
         self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
         self.fine_to_coarse_points[Fraction(level, 1)] = fine_to_coarse_points
         return mesh
+
+    def remove_mesh(self):
+        """Remove the finest mesh from the hierarchy.
+
+        Only supported for hierarchies with ``refinements_per_level == 1``.
+
+        Returns
+        -------
+        MeshGeometry
+            The mesh that was removed. It is no longer on a level of any
+            hierarchy.
+
+        """
+        if self.refinements_per_level != 1:
+            raise NotImplementedError("Cannot remove a mesh from a hierarchy with "
+                                      "refinements_per_level > 1")
+        if len(self) == 1:
+            raise ValueError("Cannot remove the coarsest mesh of a hierarchy")
+        level = len(self.meshes) - 1
+        mesh = self._meshes.pop()
+        self.meshes.pop()
+        if get_level(mesh) == (self, level):
+            delattr(mesh.topological, "__level_info__")
+        del self.coarse_to_fine_cells[Fraction(level - 1, 1)]
+        del self.fine_to_coarse_cells[Fraction(level, 1)]
+        self.fine_to_coarse_points.pop(Fraction(level, 1), None)
+        # The transfer kernels depend only on the elements, but the other
+        # cached data is keyed by level.
+        for name, cache in self._shared_data_cache.items():
+            if name != "transfer_kernels":
+                cache.clear()
+        return mesh
+
+    def _follow_adaptive_parents(self):
+        """Make the levels above the base mesh the adaptive ancestors of the finest mesh.
+
+        The chain of adaptive parents of the finest mesh is followed down to
+        the first mesh that is a level of this hierarchy. The levels between
+        that mesh and the finest mesh are replaced by the chain. If no
+        adaptive ancestor is a level, the finest mesh is put directly above
+        the coarsest level.
+
+        """
+        finest = self[-1]
+        chain = [finest]
+        mesh = finest._adaptive_parent
+        while mesh is not None:
+            hierarchy, level = get_level(mesh)
+            if hierarchy is self and self[level] is mesh:
+                break
+            chain.append(mesh)
+            mesh = mesh._adaptive_parent
+        else:
+            chain, level = [finest], 0
+        chain.reverse()
+        if len(self) == level + 1 + len(chain) and all(a is b for a, b in zip(self[level + 1:], chain)):
+            return
+        while len(self) > level + 1:
+            self.remove_mesh()
+        for mesh in chain:
+            self.add_mesh(mesh)
 
     def adapt(self, eta, theta: float):
         """Add a new mesh to the hierarchy by locally refining the finest mesh
