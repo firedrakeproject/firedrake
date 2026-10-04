@@ -151,6 +151,13 @@ def test_refine_marked_elements_repeats(coarse_mesh):
     assert max_children[2] > max_children[1]
 
 
+def _adapt(mesh, marker):
+    """Adapt ``mesh`` with the DG0 interpolant of ``marker(x)``."""
+    M = FunctionSpace(mesh, "DG", 0)
+    m = Function(M).interpolate(marker(SpatialCoordinate(mesh)))
+    return mesh.refine_marked_elements(m)
+
+
 def _assert_same_mesh(mesh, expected):
     for dim in (0, mesh.topological_dimension):
         sizes = [m.comm.allreduce(len(range(*m.topology_dm.getDepthStratum(dim)))) for m in (mesh, expected)]
@@ -159,78 +166,50 @@ def _assert_same_mesh(mesh, expected):
 
 
 @pytest.mark.parallel([1, 3])
-def test_refine_marked_elements_coarsens():
-    """A negative marker value coarsens the cells that a refinement produced."""
-    base = UnitCubeMesh(4, 4, 4)
-    M = FunctionSpace(base, "DG", 0)
-    mesh = base.refine_marked_elements(Function(M).assign(1))
-    # The plane x = 1/2 is made of faces of base.
-    x = SpatialCoordinate(mesh)
-    coarsened = mesh.refine_marked_elements(
-        Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 0)))
-
-    x = SpatialCoordinate(base)
-    expected = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 1, 0)))
-    _assert_same_mesh(coarsened, expected)
-
-
-@pytest.mark.parallel([1, 3])
-def test_refine_marked_elements_coarsens_past_parent():
-    """Coarsening can undo more rounds than the refinement that produced the mesh."""
-    base = UnitCubeMesh(4, 4, 4)
-    M = FunctionSpace(base, "DG", 0)
-    mesh = base.refine_marked_elements(Function(M).assign(1))
-    coarsened = mesh.refine_marked_elements(Function(FunctionSpace(mesh, "DG", 0)).assign(1))
+@pytest.mark.parametrize("refinements, markers, expected_marker", [
+    # A negative marker value coarsens the cells that a refinement produced.
+    (1, [lambda x: conditional(x[0] < 0.5, -1, 0)],
+     lambda x: conditional(x[0] > 0.5, 1, 0)),
     # Each call undoes one round, and the second one goes past the parent of the mesh it coarsens.
-    for _ in range(2):
-        x = SpatialCoordinate(coarsened)
-        coarsened = coarsened.refine_marked_elements(
-            Function(FunctionSpace(coarsened, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 0)))
+    (2, [lambda x: conditional(x[0] < 0.5, -1, 0)] * 2,
+     lambda x: conditional(x[0] > 0.5, 2, 0)),
+    # A marker with both signs refines some cells and coarsens others.
+    (1, [lambda x: conditional(x[0] < 0.5, -1, 1)],
+     lambda x: conditional(x[0] > 0.5, 2, 0)),
+], ids=["coarsens", "coarsens_past_parent", "refines_and_coarsens"])
+def test_refine_marked_elements_coarsens(refinements, markers, expected_marker):
+    # The plane x = 1/2 is made of faces of the base mesh.
+    base = UnitCubeMesh(4, 4, 4)
+    mesh = base
+    for _ in range(refinements):
+        mesh = _adapt(mesh, lambda x: Constant(1))
+    for marker in markers:
+        mesh = _adapt(mesh, marker)
 
-    x = SpatialCoordinate(base)
-    expected = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 2, 0)))
-    _assert_same_mesh(coarsened, expected)
+    expected = _adapt(base, expected_marker)
+    _assert_same_mesh(mesh, expected)
 
 
 @pytest.mark.parallel([1, 3])
 def test_refine_marked_elements_noop():
     """A marker that changes no cell returns the mesh itself."""
     base = UnitCubeMesh(4, 4, 4)
-    M = FunctionSpace(base, "DG", 0)
-    assert base.refine_marked_elements(Function(M)) is base
-    assert base.refine_marked_elements(Function(M).assign(-1)) is base
+    assert _adapt(base, lambda x: Constant(0)) is base
+    assert _adapt(base, lambda x: Constant(-1)) is base
 
-    x = SpatialCoordinate(base)
-    mesh = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 1, 0)))
+    mesh = _adapt(base, lambda x: conditional(x[0] > 0.5, 1, 0))
     # No cell with x < 1/2 was marked for refinement, so none of them can be coarsened.
-    x = SpatialCoordinate(mesh)
-    marker = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 0))
-    assert mesh.refine_marked_elements(marker) is mesh
-
-
-@pytest.mark.parallel([1, 3])
-def test_refine_marked_elements_refines_and_coarsens():
-    """A marker with both signs refines some cells and coarsens others."""
-    base = UnitCubeMesh(4, 4, 4)
-    M = FunctionSpace(base, "DG", 0)
-    mesh = base.refine_marked_elements(Function(M).assign(1))
-    x = SpatialCoordinate(mesh)
-    adapted = mesh.refine_marked_elements(
-        Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] < 0.5, -1, 1)))
-
-    x = SpatialCoordinate(base)
-    expected = base.refine_marked_elements(Function(M).interpolate(conditional(x[0] > 0.5, 2, 0)))
-    _assert_same_mesh(adapted, expected)
+    assert _adapt(mesh, lambda x: conditional(x[0] < 0.5, -1, 0)) is mesh
 
 
 @pytest.mark.parallel([1, 3])
 def test_refine_marked_elements_coarsens_unanimously():
     """A cell is coarsened only if all the cells that it was refined into ask."""
     base = UnitCubeMesh(4, 4, 4)
-    M = FunctionSpace(base, "DG", 0)
-    mesh = base.refine_marked_elements(Function(M).assign(1))
+    mesh = _adapt(base, lambda x: Constant(1))
     point = (0.1, 0.2, 0.3)
-    marker = Function(FunctionSpace(mesh, "DG", 0)).assign(-1)
+    M = FunctionSpace(mesh, "DG", 0)
+    marker = Function(M).assign(-1)
     cell = mesh.locate_cell(point)
     # Every rank must access the halo data, since the access is collective.
     data = marker.dat.data_with_halos
@@ -238,6 +217,7 @@ def test_refine_marked_elements_coarsens_unanimously():
         data[cell] = 0
     coarsened = mesh.refine_marked_elements(marker)
 
+    M = FunctionSpace(base, "DG", 0)
     expected_marker = Function(M)
     cell = base.locate_cell(point)
     # Every rank must access the halo data, since the access is collective.
@@ -717,21 +697,24 @@ def adapted_meshes():
     of one hierarchy. The adapted mesh refines the cells with x < 1/4,
     coarsens the cells with x > 3/4, and keeps the other cells."""
     base = UnitCubeMesh(4, 4, 4)
-    M = FunctionSpace(base, "DG", 0)
-    old = base.refine_marked_elements(Function(M).assign(1))
-    x = SpatialCoordinate(base)
-    marker = Function(M).interpolate(conditional(x[0] < 0.25, 2, conditional(x[0] > 0.75, 0, 1)))
-    new = base.refine_marked_elements(marker)
+    old = _adapt(base, lambda x: Constant(1))
+    new = _adapt(base, lambda x: conditional(x[0] < 0.25, 2, conditional(x[0] > 0.75, 0, 1)))
     MeshHierarchy(old).add_mesh(new)
     return old, new
 
 
+def _smooth(mesh):
+    x = SpatialCoordinate(mesh)
+    return sin(3*x[0]) * exp(x[1]) * cos(2*x[2])
+
+
 @pytest.mark.parallel([1, 3])
-def test_prolong_between_adapted_meshes(adapted_meshes):
+@pytest.mark.parametrize("degree", [1, 2])
+def test_prolong_between_adapted_meshes(adapted_meshes, degree):
     old, new = adapted_meshes
-    x = SpatialCoordinate(old)
-    uold = Function(FunctionSpace(old, "CG", 2)).interpolate(sin(3*x[0]) * exp(x[1]) * cos(2*x[2]))
-    Vnew = FunctionSpace(new, "CG", 2)
+    Vold = FunctionSpace(old, "CG", degree)
+    Vnew = FunctionSpace(new, "CG", degree)
+    uold = Function(Vold).interpolate(_smooth(old))
     unew = Function(Vnew)
     prolong(uold, unew)
     # Prolongation evaluates uold at the nodes of Vnew, as cross-mesh interpolation does.
@@ -748,10 +731,13 @@ def test_prolong_step_between_adapted_meshes(adapted_meshes):
         x = SpatialCoordinate(mesh)
         return conditional(x[1] < 0.5, 1 + x[0] - x[2], -2 + 3*x[2])
 
-    uold = Function(FunctionSpace(old, "DG", 1)).interpolate(step(old))
-    unew = Function(FunctionSpace(new, "DG", 1))
+    Vold = FunctionSpace(old, "DG", 1)
+    Vnew = FunctionSpace(new, "DG", 1)
+    uold = Function(Vold).interpolate(step(old))
+    unew = Function(Vnew)
     prolong(uold, unew)
-    assert errornorm(step(new), unew) < 1e-12
+    expected = Function(Vnew).interpolate(step(new))
+    assert errornorm(expected, unew) < 1e-12
 
 
 @pytest.mark.parallel([1, 3])
@@ -760,10 +746,10 @@ def test_restrict_between_adapted_meshes(adapted_meshes, family, degree):
     old, new = adapted_meshes
     Vold = FunctionSpace(old, family, degree)
     Vnew = FunctionSpace(new, family, degree)
-    x = SpatialCoordinate(old)
-    uold = Function(Vold).interpolate(sin(3*x[0]) * exp(x[1]) * cos(2*x[2]))
+    uold = Function(Vold).interpolate(_smooth(old))
     y = SpatialCoordinate(new)
-    rnew = assemble(inner(cos(y[0] + 2*y[1]) * exp(y[2]), TestFunction(Vnew)) * dx)
+    L = inner(cos(y[0] + 2*y[1]) * exp(y[2]), TestFunction(Vnew)) * dx
+    rnew = assemble(L)
 
     rold = Cofunction(Vold.dual())
     restrict(rnew, rold)

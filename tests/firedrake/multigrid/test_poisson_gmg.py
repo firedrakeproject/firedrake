@@ -298,14 +298,15 @@ def test_mg_after_another_solver_on_the_same_space():
                   "ksp_type": "cg",
                   "ksp_rtol": 1.0E-12,
                   "pc_type": "mg"}
-    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh, bcs=bcs),
-                                        solver_parameters=parameters)
+    problem = NonlinearVariationalProblem(F, uh, bcs=bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
     solver.solve()
 
     u_other = Function(V)
-    solve(replace(F, {uh: u_other}) == 0, u_other, bcs=bcs,
+    F_other = replace(F, {uh: u_other})
+    solve(F_other == 0, u_other, bcs=bcs,
           solver_parameters={"snes_type": "ksponly", "ksp_type": "preonly", "pc_type": "lu"})
-    del u_other
+    del u_other, F_other
     gc.collect()
     PETSc.garbage_cleanup(V.mesh().comm)
 
@@ -313,5 +314,6 @@ def test_mg_after_another_solver_on_the_same_space():
     c.assign(2)
     solver.solve()
     u_ref = Function(V)
-    solve(replace(F, {uh: u_ref}) == 0, u_ref, bcs=bcs)
+    F_ref = replace(F, {uh: u_ref})
+    solve(F_ref == 0, u_ref, bcs=bcs)
     assert errornorm(u_ref, uh) < 1.0E-10 * norm(u_ref)

@@ -601,25 +601,22 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                  self._transfer_operators):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
-                if self.snes.getSolution() != work:
+                adapted = self.snes.getSolution() != work
+                if adapted:
                     # DMAdaptorAdapt() consumed a reference to work when it put
                     # a vector of its own in place.
                     work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
-        if self._ctx._problem is not problem:
+        if adapted:
             from firedrake.mg.utils import get_level
-            # The old mesh is a level below the adapted mesh until the solution
-            # is transferred. Only then can the levels follow the adaptive
-            # parents of the adapted mesh.
+            # The old mesh stays a level of the hierarchy until the solution is
+            # transferred. Only then can the levels follow the adaptive parents
+            # of the adapted mesh.
             V = self._ctx._problem.u_restrict.function_space()
             hierarchy, _ = get_level(V.mesh())
-            hierarchy._follow_adaptive_parents()
-            # The DMs copied the level of the mesh when they were created, and
-            # PCMG takes its number of levels from the solution DM.
-            _, level = get_level(V.mesh())
-            for W in (V, *V):
-                W.dm.setRefineLevel(level)
+            hierarchy._follow_adaptive_parents(V.mesh())
+            dmhooks.set_refine_level(V)
             # The saved setup hooks attach the data of the problem before adaptation.
             del self.setup_hooks
             self.snes.getKSP().reset()

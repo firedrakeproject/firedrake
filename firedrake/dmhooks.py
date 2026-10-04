@@ -448,15 +448,63 @@ def coarsen(dm, comm):
     return cdm
 
 
+def set_refine_level(V):
+    """Set the refine level of the DMs of a function space to the level of its mesh.
+
+    PCMG takes its number of levels from the refine level of the solution DM.
+    A DM copies the refine level of its mesh when it is created, and
+    DMCoarsen() copies the refine level of the finer DM, so the refine level
+    must be set again when the mesh is the solution mesh on another level.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.WithGeometry
+        A function space on a level of a mesh hierarchy.
+    """
+    from firedrake.mg.utils import get_level
+    _, level = get_level(V.mesh())
+    for W in (V, *V):
+        W.dm.setRefineLevel(level)
+
+
+def _reconstructed_coefficients(old_ctx, new_ctx):
+    """Return the map from the coefficients of a `_SNESContext` to those of its reconstruction.
+
+    Parameters
+    ----------
+    old_ctx : _SNESContext
+        The context that was reconstructed.
+    new_ctx : _SNESContext
+        The context returned by reconstructing ``old_ctx`` on another level.
+        It can be the context that ``old_ctx`` was itself reconstructed from.
+
+    Returns
+    -------
+    dict
+        The counterpart in ``new_ctx`` of each coefficient of ``old_ctx``.
+    """
+    if new_ctx._x not in old_ctx._coefficient_mapping:
+        return new_ctx._coefficient_mapping
+    # The reconstruction returned the context that old_ctx was reconstructed
+    # from, so its coefficients still have the values from that time.
+    coefficient_mapping = {v: c for c, v in old_ctx._coefficient_mapping.items()}
+    manager = get_transfer_manager(old_ctx._x.function_space().dm)
+    for v, c in coefficient_mapping.items():
+        manager.transfer(v, c)
+    return coefficient_mapping
+
+
 def _refine_adaptive(dm):
     """
-    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
-    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
-    Return a null DM if the markers change no cell, so that DMAdaptorAdapt()
-    keeps the current DM and solution.
+    Return the DM of the `_SNESContext` reconstructed on the adapted mesh,
+    using `_SNESContext.marking_callback` to mark the cells to be refined or
+    coarsened. The adapted mesh is added on top of the hierarchy, unless it is
+    an ancestor that is already a coarser level. Return a null DM if the
+    markers change no cell, so that DMAdaptorAdapt() keeps the current DM and
+    solution.
     """
     from firedrake.mg.mesh import MeshHierarchy
-    from firedrake.mg.ufl_utils import refine
+    from firedrake.mg.ufl_utils import coarsen, refine
     from firedrake.mg.utils import get_level
 
     ctx = get_appctx(dm)
@@ -466,7 +514,11 @@ def _refine_adaptive(dm):
     mesh = current_solution.function_space().mesh()
     hierarchy, level = get_level(mesh)
     if hierarchy is not None and level+1 != len(hierarchy):
-        raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
+        if hierarchy[level+1]._adaptive_parent is not mesh:
+            raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
+        # An earlier adaptation returned this mesh, which is an ancestor of
+        # the finer levels. The solution has been transferred since then.
+        hierarchy._follow_adaptive_parents(mesh)
     if ctx._marking_callback is None:
         raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
 
@@ -489,11 +541,24 @@ def _refine_adaptive(dm):
     # adapted input DM remains a level in the mesh hierarchy.
     dm.incRef()
     if hierarchy is None:
-        hierarchy = MeshHierarchy(mesh)
-    hierarchy.add_mesh(adapted_mesh)
-    coefficient_mapping = {}
-    refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
-    refined_ctx._adapted_coefficients = {c: coefficient_mapping[v] for c, v in ctx._adapted_coefficients.items()}
+        hierarchy, level = MeshHierarchy(mesh), 0
+    adapted_hierarchy, _ = get_level(adapted_mesh)
+    if adapted_hierarchy is hierarchy:
+        # The coarsening returned an ancestor that is a coarser level.
+        reconstruct = coarsen
+    else:
+        hierarchy.add_mesh(adapted_mesh)
+        reconstruct = refine
+    _, adapted_level = get_level(adapted_mesh)
+    refined_ctx = ctx
+    adapted_coefficients = ctx._adapted_coefficients
+    for _ in range(abs(adapted_level - level)):
+        old_ctx = refined_ctx
+        refined_ctx = reconstruct(old_ctx, reconstruct, coefficient_mapping={})
+        coefficient_mapping = _reconstructed_coefficients(old_ctx, refined_ctx)
+        adapted_coefficients = {c: coefficient_mapping[v] for c, v in adapted_coefficients.items()}
+    refined_ctx._adapted_coefficients = adapted_coefficients
+    set_refine_level(refined_ctx._problem.u_restrict.function_space())
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
     # Get all DMs from the refined problem
@@ -514,6 +579,9 @@ def _refine_adaptive(dm):
         add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
                  teardown=partial(pop_appctx, refined_dm, refined_ctx),
                  call_setup=True)
+    # DMRefine() gives the returned DM one more refine level than dm, which
+    # is the old mesh and leaves the hierarchy after the solution is transferred.
+    dm.setRefineLevel(adapted_level - 1)
     return refined_ctx._problem.dm
 
 
@@ -536,7 +604,9 @@ def refine(dm, comm):
     """
     from firedrake.mg.utils import get_level
     hierarchy, level = get_level(get_function_space(dm).mesh())
-    if hierarchy is not None and level+1 < len(hierarchy):
+    ctx = get_appctx(dm)
+    adaptive = ctx is not None and ctx._marking_callback is not None
+    if hierarchy is not None and level+1 < len(hierarchy) and not adaptive:
         return _refine_from_hierarchy(dm)
     else:
         return _refine_adaptive(dm)

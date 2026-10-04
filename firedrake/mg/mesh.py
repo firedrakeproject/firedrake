@@ -203,34 +203,43 @@ class HierarchyBase(object):
                 cache.clear()
         return mesh
 
-    def _follow_adaptive_parents(self):
-        """Make the levels above the base mesh the adaptive ancestors of the finest mesh.
+    def _follow_adaptive_parents(self, mesh):
+        """Make an adapted mesh the finest level, above its adaptive ancestors.
 
-        The chain of adaptive parents of the finest mesh is followed down to
-        the first mesh that is a level of this hierarchy. The levels between
-        that mesh and the finest mesh are replaced by the chain. If no
-        adaptive ancestor is a level, the finest mesh is put directly above
-        the coarsest level.
+        The chain of adaptive parents of ``mesh`` is followed down to the
+        first mesh that is a level of this hierarchy. The levels above that
+        mesh are replaced by the chain and ``mesh``. If no adaptive ancestor
+        is a level, ``mesh`` is put directly above the coarsest level, unless
+        ``mesh`` is the coarsest level.
+
+        Parameters
+        ----------
+        mesh :
+            A mesh adapted from a level of this hierarchy. It can itself be a
+            level, if the adaptation returned an ancestor of the finest mesh.
 
         """
-        finest = self[-1]
-        chain = [finest]
-        mesh = finest._adaptive_parent
-        while mesh is not None:
-            hierarchy, level = get_level(mesh)
-            if hierarchy is self and self[level] is mesh:
+        chain = [mesh]
+        ancestor = mesh._adaptive_parent
+        while ancestor is not None:
+            hierarchy, level = get_level(ancestor)
+            if hierarchy is self and self[level] is ancestor:
                 break
-            chain.append(mesh)
-            mesh = mesh._adaptive_parent
+            chain.append(ancestor)
+            ancestor = ancestor._adaptive_parent
         else:
-            chain, level = [finest], 0
-        chain.reverse()
-        if len(self) == level + 1 + len(chain) and all(a is b for a, b in zip(self[level + 1:], chain)):
-            return
-        while len(self) > level + 1:
+            chain, level = [mesh], 0
+        target = [*self[:level + 1], *reversed(chain)]
+        if target[0] is mesh:
+            target = [mesh]
+        # The levels that already match the target keep their cell maps.
+        keep = level + 1
+        while keep < min(len(self), len(target)) and self[keep] is target[keep]:
+            keep += 1
+        while len(self) > keep:
             self.remove_mesh()
-        for mesh in chain:
-            self.add_mesh(mesh)
+        for m in target[keep:]:
+            self.add_mesh(m)
 
     def adapt(self, eta, theta: float):
         """Add a new mesh to the hierarchy by locally refining the finest mesh

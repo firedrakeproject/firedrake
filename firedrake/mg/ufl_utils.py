@@ -490,7 +490,7 @@ class Interpolation(object):
     def mult(self, mat, x, y, inc=False):
         with self.cprimal.dat.vec_wo as v:
             x.copy(v)
-        self.manager.prolong(self.cprimal, self.fprimal)
+        self.manager.transfer(self.cprimal, self.fprimal)
         for bc in self.fbcs:
             bc.zero(self.fprimal)
         with self.fprimal.dat.vec_ro as v:
