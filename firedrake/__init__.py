@@ -140,7 +140,7 @@ from firedrake.utility_meshes import (  # noqa: F401
     BoxMesh, CubeMesh, UnitCubeMesh, PeriodicBoxMesh, PeriodicUnitCubeMesh,
     IcosahedralSphereMesh, UnitIcosahedralSphereMesh, OctahedralSphereMesh,
     UnitOctahedralSphereMesh, CubedSphereMesh, UnitCubedSphereMesh,
-    TorusMesh, AnnulusMesh, SolidTorusMesh, CylinderMesh
+    TorusMesh, AnnulusMesh, SolidTorusMesh, CylinderMesh, TriangulatedMesh
 )
 from firedrake.variational_solver import (  # noqa: F401
     LinearVariationalProblem, LinearVariationalSolver,
