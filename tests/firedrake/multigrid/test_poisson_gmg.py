@@ -1,4 +1,5 @@
 from firedrake import *
+import gc
 import numpy
 import pytest
 import warnings
@@ -280,3 +281,37 @@ def test_reinjection_mass_then_poisson(solver_type):
     assert ksp_its_reused == ksp_its_new
     assert snes_its_reused == snes_its_new
     assert numpy.isclose(res_reused, res_new)
+
+
+def test_mg_after_another_solver_on_the_same_space():
+    # Every solver on V shares its DM. The multigrid solver must keep its own
+    # coarse operators after another solver on V has been set up and freed.
+    mh = MeshHierarchy(UnitSquareMesh(4, 4), 1)
+    V = FunctionSpace(mh[-1], "CG", 1)
+    c = Constant(1)
+    uh = Function(V)
+    v = TestFunction(V)
+    F = c * inner(grad(uh), grad(v)) * dx - inner(Constant(1), v) * dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+    parameters = {"snes_type": "ksponly",
+                  "mat_type": "aij",
+                  "ksp_type": "cg",
+                  "ksp_rtol": 1.0E-12,
+                  "pc_type": "mg"}
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh, bcs=bcs),
+                                        solver_parameters=parameters)
+    solver.solve()
+
+    u_other = Function(V)
+    solve(replace(F, {uh: u_other}) == 0, u_other, bcs=bcs,
+          solver_parameters={"snes_type": "ksponly", "ksp_type": "preonly", "pc_type": "lu"})
+    del u_other
+    gc.collect()
+    PETSc.garbage_cleanup(V.mesh().comm)
+
+    # A new coefficient sets up the coarse levels again.
+    c.assign(2)
+    solver.solve()
+    u_ref = Function(V)
+    solve(replace(F, {uh: u_ref}) == 0, u_ref, bcs=bcs)
+    assert errornorm(u_ref, uh) < 1.0E-10 * norm(u_ref)
