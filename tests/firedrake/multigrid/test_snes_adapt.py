@@ -276,8 +276,12 @@ def test_snes_adapt_transient(pc_type):
             # The window does not move, so the mesh, the solution and the context are kept.
             assert u is previous_u
             assert solver._ctx is previous_ctx
-            hierarchy, level = get_level(mesh)
-            assert len(hierarchy) == level + 1
+
+        # Each adapted mesh is refined once from the base mesh, so it replaces
+        # the previous one on the finest level.
+        hierarchy, level = get_level(mesh)
+        assert level == 1 and len(hierarchy) == 2
+        assert hierarchy[0] is base
 
         # The window is refined, and the cells far from it are coarsened back to the base mesh.
         distance = marking_callback.distance(mesh)
@@ -288,13 +292,66 @@ def test_snes_adapt_transient(pc_type):
 
         # The same step, solved without adaptation on the adapted mesh.
         V = u.function_space()
-        u_ref_old = prolong(u_ref, Function(V)) if moving else u_ref
+        u_ref_old = assemble(interpolate(u_ref, V)) if moving else u_ref
         a, L, bc = heat_equation(u_ref_old)
         u_ref = Function(V)
         solve(a == L, u_ref, bcs=bc, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
         assert errornorm(u_ref, u) < 1e-10 * norm(u_ref)
 
         solver.get_coefficient(u_old).assign(u)
+
+
+@pytest.mark.parallel([1, 3])
+def test_snes_adapt_hierarchy_follows_adaptive_parents():
+    # Two refinements, and then a coarsening that undoes the first one.
+    markers = [
+        lambda x: conditional(lt(x[0], 0.5), 1, 0),
+        lambda x: conditional(lt(x[0], 0.25), 1, 0),
+        lambda x: conditional(gt(x[0], 0.75), 1, -1),
+    ]
+
+    meshes = []
+
+    def mark_cells(ctx, current_solution):
+        mesh = current_solution.function_space().mesh()
+        meshes.append(mesh)
+        marker = markers[len(meshes) - 1](SpatialCoordinate(mesh))
+        return Function(FunctionSpace(mesh, "DG", 0)).interpolate(marker)
+
+    base = UnitSquareMesh(8, 8)
+    V = FunctionSpace(base, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(Constant(1), v) * dx
+    problem = LinearVariationalProblem(a, L, Function(V), bcs=DirichletBC(V, 0, "on_boundary"))
+    params = {
+        "snes_adapt_sequence": 3,
+        "mat_type": "aij",
+        "ksp_type": "cg",
+        "ksp_rtol": 1e-12,
+        "pc_type": "mg",
+        "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
+        "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
+    }
+    solver = LinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_cells)
+    u = solver.solve()
+    mesh = u.function_space().mesh()
+
+    # The coarsening goes back to the base mesh, so the two refined meshes are not levels.
+    assert len(meshes) == 3
+    assert mesh._adaptive_parent is base
+    hierarchy, level = get_level(mesh)
+    assert level == 1 and list(hierarchy) == [base, mesh]
+    for refined in meshes[1:]:
+        assert get_level(refined) == (None, None)
+
+    # The solution on the adapted mesh is the one of the same problem solved directly.
+    Vf = u.function_space()
+    u_ref = Function(Vf)
+    solve(inner(grad(TrialFunction(Vf)), grad(TestFunction(Vf))) * dx == inner(Constant(1), TestFunction(Vf)) * dx,
+          u_ref, bcs=DirichletBC(Vf, 0, "on_boundary"))
+    assert errornorm(u_ref, u) < 1e-10 * norm(u_ref)
 
 
 @pytest.mark.parallel([1, 3])
