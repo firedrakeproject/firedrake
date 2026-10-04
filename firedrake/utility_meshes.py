@@ -2,6 +2,7 @@ import numbers
 import numpy as np
 import warnings
 from typing import Literal
+from numpy.typing import ArrayLike
 
 import petsctools
 import ufl
@@ -35,6 +36,7 @@ from pyadjoint.tape import no_annotations
 
 
 __all__ = [
+    "TriangulatedMesh",
     "IntervalMesh",
     "UnitIntervalMesh",
     "PeriodicIntervalMesh",
@@ -479,6 +481,89 @@ def OneElementThickMesh(
             lfd[i, :] = [2, 3]
 
     return mash
+
+
+@PETSc.Log.EventDecorator()
+def TriangulatedMesh(
+    points: ArrayLike,
+    distribution_parameters: dict | None = None,
+    comm: MPI.Comm = COMM_WORLD,
+    name: str = DEFAULT_MESH_NAME,
+    distribution_name: str | None = None,
+    permutation_name: str | None = None,
+):
+    """Generate a simplicial mesh from the Delaunay triangulation of a set of points.
+
+    Parameters
+    ----------
+    points
+        The vertex coordinates, with shape ``(npoints, dim)`` where ``dim``
+        is 2 or 3. Every rank must pass the same points. The mesh is built
+        from the points on rank 0 and then distributed.
+    distribution_parameters
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
+    comm
+        Optional communicator to build the mesh on.
+    name
+        Optional name of the mesh.
+    distribution_name
+        The name of parallel distribution used when checkpointing; if `None`,
+        the name is automatically generated.
+    permutation_name
+        The name of entity permutation (reordering) used when checkpointing;
+        if `None`, the name is automatically generated.
+
+    Returns
+    -------
+    MeshGeometry
+        The new mesh, which covers the convex hull of ``points``.
+
+    Raises
+    ------
+    ValueError
+        If ``points`` is not a 2D array, if ``dim`` is not 2 or 3, or if there
+        are fewer than ``dim + 1`` points.
+
+    Notes
+    -----
+
+    The triangulation is computed with :class:`scipy.spatial.Delaunay`.
+    Points that do not span ``dim`` dimensions, for example points that are
+    all on one line in 2D, cause Qhull to raise an error.
+
+    All boundary facets of the mesh are marked with the ID 1.
+
+    """
+    from scipy.spatial import Delaunay
+
+    points = np.asarray(points, dtype=np.double)
+    if points.ndim != 2:
+        raise ValueError(f"points must be a 2D array, not {points.ndim}D")
+    npoints, dim = points.shape
+    if dim not in (2, 3):
+        raise ValueError(f"Can only triangulate in 2 or 3 dimensions, not {dim}")
+    if npoints < dim + 1:
+        raise ValueError(
+            f"Need at least {dim + 1} points to triangulate in {dim} dimensions,"
+            f" got {npoints}"
+        )
+
+    cells = Delaunay(points).simplices
+    plex = plex_from_cell_list(
+        dim, cells, points, comm, _generate_default_mesh_topology_name(name)
+    )
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    plex.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, 1)
+
+    return Mesh(
+        plex,
+        reorder=False,
+        distribution_parameters=distribution_parameters,
+        name=name,
+        distribution_name=distribution_name,
+        permutation_name=permutation_name,
+        comm=comm,
+    )
 
 
 @PETSc.Log.EventDecorator()
