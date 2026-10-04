@@ -531,12 +531,10 @@ def TriangulatedMesh(
     Points that do not span ``dim`` dimensions, for example points that are
     all on one line in 2D, cause Qhull to raise an error.
 
-    All boundary facets of the mesh are marked with the ID 1.
-
     """
     from scipy.spatial import Delaunay
 
-    points = np.asarray(points, dtype=np.double)
+    points = np.asarray(points, dtype=PETSc.RealType)
     if points.ndim != 2:
         raise ValueError(f"points must be a 2D array, not {points.ndim}D")
     npoints, dim = points.shape
@@ -552,8 +550,6 @@ def TriangulatedMesh(
     plex = plex_from_cell_list(
         dim, cells, points, comm, _generate_default_mesh_topology_name(name)
     )
-    plex.createLabel(dmcommon.FACE_SETS_LABEL)
-    plex.markBoundaryFaces(dmcommon.FACE_SETS_LABEL, 1)
 
     return Mesh(
         plex,

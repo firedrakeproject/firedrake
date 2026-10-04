@@ -540,10 +540,10 @@ def test_triangulated_mesh_random_points_area():
     assert abs(integrate_one(m) - 1.0) < 1e-10
 
 
-def test_triangulated_mesh_boundary_is_marked():
+def test_triangulated_mesh_perimeter():
     m = TriangulatedMesh([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
-    # Perimeter of the unit square, via the marked exterior facets.
-    assert abs(assemble(Constant(1) * ds(1, domain=m)) - 4.0) < 1e-10
+    # Perimeter of the unit square, via the exterior facets.
+    assert abs(assemble(Constant(1) * ds(domain=m)) - 4.0) < 1e-10
 
 
 @pytest.mark.parallel([1, 3])
@@ -555,7 +555,7 @@ def test_triangulated_mesh_parallel():
     corners = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
     m = TriangulatedMesh(np.vstack([corners, interior]))
     assert abs(integrate_one(m) - 1.0) < 1e-10
-    assert abs(assemble(Constant(1) * ds(1, domain=m)) - 4.0) < 1e-10
+    assert abs(assemble(Constant(1) * ds(domain=m)) - 4.0) < 1e-10
 
 
 @pytest.mark.parametrize("bad, err", [
