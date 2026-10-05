@@ -300,16 +300,12 @@ class ExtractSubBlock(DAGTraverser):
             return o
         return Transpose(*(self(child, blocks=blocks[::-1]) for child in o.children))
 
-    @process.register(ScalarMul)
-    def _(self, o, blocks):
-        tensor, = o.children
-        return ScalarMul(o.scalar, self(tensor, blocks=blocks))
-
     @process.register(Add)
     @process.register(DiagonalTensor)
     @process.register(Reciprocal)
+    @process.register(ScalarMul)
     def _(self, o, blocks):
-        return type(o)(*(self(child, blocks=blocks) for child in o.children))
+        return self.reuse_if_untouched(o, blocks=blocks)
 
     @process.register(Factorization)
     @process.register(Inverse)
@@ -326,8 +322,8 @@ class ExtractSubBlock(DAGTraverser):
             row, col = blocks
             full_col_A = tuple(range(len(A.arguments()[1].function_space())))
             full_row_B = tuple(range(len(B.arguments()[0].function_space())))
-            A = self(Block(A, (row, full_col_A)), blocks=())
-            B = self(Block(B, (full_row_B, col)), blocks=())
+            A = self(A, blocks=(row, full_col_A))
+            B = self(B, blocks=(full_row_B, col))
             return type(o)(A, B)
 
         # A non-matrix product cannot distribute the outer block across its operands.
@@ -346,7 +342,7 @@ class ExtractSubBlock(DAGTraverser):
     def _(self, o, blocks):
         if blocks:
             reindexed = tuple(
-                big[slice(small[0], small[-1] + 1)]
+                tuple(big[i] for i in small)
                 for big, small in zip(o._indices, blocks)
             )
         else:
