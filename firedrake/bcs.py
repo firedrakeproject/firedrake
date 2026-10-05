@@ -369,7 +369,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 _ = interpolator.target_space.finat_element.dual_basis
                 self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
             except (NotImplementedError, AttributeError):
-                # The interpolator does not implement interpolation.
+                # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
         else:
