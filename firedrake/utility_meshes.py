@@ -2,11 +2,11 @@ import numbers
 import numpy as np
 import warnings
 from typing import Literal
-from numpy.typing import ArrayLike
 
 import petsctools
 import ufl
 from mpi4py import MPI
+from scipy.spatial import Delaunay
 
 from pyop2.mpi import COMM_WORLD
 from firedrake.utils import IntType, ScalarType
@@ -485,27 +485,27 @@ def OneElementThickMesh(
 
 @PETSc.Log.EventDecorator()
 def TriangulatedMesh(
-    points: ArrayLike,
-    distribution_parameters: dict | None = None,
+    points: np.ndarray | list,
     comm: MPI.Comm = COMM_WORLD,
     name: str = DEFAULT_MESH_NAME,
+    distribution_parameters: dict | None = None,
     distribution_name: str | None = None,
     permutation_name: str | None = None,
-):
+) -> MeshGeometry:
     """Generate a simplicial mesh from the Delaunay triangulation of a set of points.
 
     Parameters
     ----------
     points
         The vertex coordinates, with shape ``(npoints, dim)`` where ``dim``
-        is 2 or 3. Every rank must pass the same points. The mesh is built
-        from the points on rank 0 and then distributed.
-    distribution_parameters
-        Options controlling mesh distribution, see :func:`.Mesh` for details.
+        is 2 or 3. The mesh is built from the points on rank 0 and then
+        distributed.
     comm
         Optional communicator to build the mesh on.
     name
         Optional name of the mesh.
+    distribution_parameters
+        Options controlling mesh distribution, see :func:`.Mesh` for details.
     distribution_name
         The name of parallel distribution used when checkpointing; if `None`,
         the name is automatically generated.
@@ -527,13 +527,11 @@ def TriangulatedMesh(
     Notes
     -----
 
-    The triangulation is computed with :class:`scipy.spatial.Delaunay`.
+    The triangulation is computed with ``scipy.spatial.Delaunay``.
     Points that do not span ``dim`` dimensions, for example points that are
     all on one line in 2D, cause Qhull to raise an error.
 
     """
-    from scipy.spatial import Delaunay
-
     points = np.asarray(points, dtype=PETSc.RealType)
     if points.ndim != 2:
         raise ValueError(f"points must be a 2D array, not {points.ndim}D")
@@ -553,7 +551,6 @@ def TriangulatedMesh(
 
     return Mesh(
         plex,
-        reorder=False,
         distribution_parameters=distribution_parameters,
         name=name,
         distribution_name=distribution_name,
