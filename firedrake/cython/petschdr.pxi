@@ -98,6 +98,10 @@ cdef extern from "petscdmlabel.h" nogil:
     PetscErrorCode DMLabelSetStratumIS(DMLabel, PetscInt, PETSc.PetscIS)
     PetscErrorCode DMLabelClearStratum(DMLabel, PetscInt)
 
+cdef extern from "petscdmplex.h" nogil:
+    PetscErrorCode DMPlexOrientLabel(PETSc.PetscDM, DMLabel)
+    PetscErrorCode DMPlexLabelCohesiveComplete(PETSc.PetscDM, DMLabel, DMLabel, PetscInt, PetscBool, PETSc.PetscDM)
+
 cdef extern from "petscdmplextransform.h" nogil:
     PetscErrorCode DMPlexGetTransform(PETSc.PetscDM, PETSc.PetscDMPlexTransform*)
     PetscErrorCode DMPlexTransformGetSourcePoint(

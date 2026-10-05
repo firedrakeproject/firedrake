@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
-from firedrake.cython import mgimpl
+from firedrake.cython import dmcommon
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -189,7 +189,7 @@ def test_mesh_hierarchy_without_overlap_uses_local_point_maps():
 
     assert np.array_equal(
         mh.fine_to_coarse_points[1],
-        mgimpl.transform_source_points(transformed[0]),
+        dmcommon.transform_source_points(transformed[0]),
     )
 
 
