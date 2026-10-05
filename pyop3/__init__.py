@@ -48,6 +48,9 @@ __all__ += [
 from pyop3.buffer import (
     ArrayBuffer,
     DensePythonMatContext,
+    DenseRowPythonMatContext,
+    DenseColumnPythonMatContext,
+    DenseBlockPythonMatContext,
     MonolithicPetscMatBufferSpec,
     MonolithicPetscMatInitBufferSpec,
     NestedPetscMatBufferSpec,

@@ -311,30 +311,29 @@ class Mat(Tensor):
 
             if mat.type == PETSc.Mat.Type.PYTHON:
                 context = mat.getPythonContext()
-                if isinstance(context, pyop3.buffer.DensePythonMatContext):
-                    match context.mode:
-                        case "row":
-                            row_indices = slice(None)
-                            column_indices = column_axes.buffer_slice(include_ghosts=True)
-                        case "column":
-                            row_indices = row_axes.buffer_slice(include_ghosts=True)
-                            column_indices = slice(None)
-                        case _:
-                            raise AssertionError
-
-                    match mode:
-                        case "ro":
-                            array = mat.getPythonContext().buffer.data_ro
-                        case "rw":
-                            array = mat.getPythonContext().buffer.data_rw
-                        case "wo":
-                            array = mat.getPythonContext().buffer.data_wo
-                        case _:
-                            raise AssertionError
-
-                    return self._array_view(array, row_indices, column_indices, mode)
+                if isinstance(context, pyop3.buffer.DenseRowPythonMatContext):
+                    row_indices = slice(None)
+                    column_indices = column_axes.buffer_slice(include_ghosts=True)
+                elif isinstance(context, pyop3.buffer.DenseColumnPythonMatContext):
+                    row_indices = row_axes.buffer_slice(include_ghosts=True)
+                    column_indices = slice(None)
+                elif isinstance(context, pyop3.buffer.DenseBlockPythonMatContext):
+                    row_indices = slice(None)
+                    column_indices = slice(None)
                 else:
                     raise NotImplementedError
+
+                match mode:
+                    case "ro":
+                        array = mat.getPythonContext().buffer.data_ro
+                    case "rw":
+                        array = mat.getPythonContext().buffer.data_rw
+                    case "wo":
+                        array = mat.getPythonContext().buffer.data_wo
+                    case _:
+                        raise AssertionError
+
+                return self._array_view(array, row_indices, column_indices, mode)
             else:
                 assert mode == "ro"
                 row_indices = row_axes.buffer_slice(include_ghosts=True)
@@ -403,7 +402,7 @@ def make_full_mat_buffer_spec(partial_spec: pyop3.buffer.PetscMatInitBufferSpec,
     if isinstance(partial_spec, pyop3.buffer.MonolithicPetscMatInitBufferSpec):
         comm = pyop3.visitors.common_comm([row_axes, column_axes])
 
-        if partial_spec.mat_type in {"rvec", "cvec"}:
+        if partial_spec.mat_type in {"denserow", "densecol"}:
             row_spec = row_axes
             column_spec = column_axes
         else:

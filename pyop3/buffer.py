@@ -1140,23 +1140,17 @@ class PetscMatBuffer(ConcreteBuffer):
         row_spec = mat_spec.row_spec
         column_spec = mat_spec.column_spec
 
-        # TODO: just want the size here, don't need more than that. Can clean up matspec stuff
+        # TODO: just want the sf here, don't need more than that. Can clean up matspec stuff
         # Maybe can then even set lgmaps in the same way...
-        if mat_type in {"rvec", "cvec"}:
-            row_axes = row_spec
-            column_axes = column_spec
-
-            if mat_type == "rvec":
-                mode = "row"
+        if mat_type in {"denseblock", "denserow", "densecol"}:
+            if mat_type == "denserow":
                 # a row vec (horizontal) has #columns entries
-                sf = column_axes.sf
-            else:
-                mode = "column"
+                mat_context = DenseRowPythonMatContext.empty(column_spec.sf)
+            elif mat_type == "densecol":
                 # a column vec (vertical) has #rows entries
-                sf = row_axes.sf
-
-            assert sf.comm == comm
-            mat_context = DensePythonMatContext.empty(mode, sf)
+                mat_context = DenseColumnPythonMatContext.empty(row_spec.sf)
+            else:
+                mat_context = DenseBlockPythonMatContext.empty(comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=comm)
         else:
             if preallocator:
@@ -1377,79 +1371,29 @@ class DensePythonMatContext:
 
     """
 
-    def __init__(self, /, mode: Literal[row, column], buffer: ArrayBuffer) -> None:
-        self.mode = mode
+    # IMPORTANT: There is a nasty parallel bug hidden in this code. We currently
+    # make the assumption that the data is always owned by rank 0 (e.g. look for
+    # anywhere we write 'if comm.rank == 0'). This assumption breaks down for
+    # the case where rank 0 is empty and the data then lives on another rank.
+
+    def __init__(self, buffer: ArrayBuffer) -> None:
         self.buffer = buffer
 
-    @classmethod
-    def empty(cls, mode: Literal[row, column], sf: pyop3.sf.StarForest) -> Self:
-        if mode == "row":
-            shape = (1, sf.size)
-        else:
-            assert mode == "column"
-            shape = (sf.size, 1)
-        buffer = ArrayBuffer.empty(shape, sf=sf, dtype=ScalarType)
-        return cls(mode, buffer)
+    def duplicate(self, *, copy: bool = False) -> Self:
+        return type(self)(self.buffer.duplicate(copy=copy))
 
     @property
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
-
-    @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
-        # TODO: if block size > 1 then the other size will need changing
-        if self.mode == "row":
-            return ((None, 1), (self.buffer.sf.num_owned, None))
-        else:
-            return ((self.buffer.sf.num_owned, None), (None, 1))
 
     # {{{ Mat context routines
 
     def __getitem__(self, key):
         raise NotImplementedError
 
+    @abc.abstractmethod
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
         """Set y = self @ x."""
-        if self.mode == "row":
-            # Example:
-            # * 'A' (self) has global size (m, n)
-            # * 'x' has global size (n,)
-            # * 'y' has global size (m,)
-            #
-            # Where, because this is a row matrix, we know that 'm' must be 1:
-            #
-            #     A     ⊗  x  ➜  y
-            # ■ ■ ■ ■ ■    ■     ■
-            #              ■
-            #              ■
-            #              ■
-            #              ■
-            y_array = y.array_w
-            with self.buffer.vec_ro() as A:
-                result = A.dot(x)
-                if self.comm.rank == 0:
-                    y_array[...] = result
-        else:
-            # Example:
-            # * 'A' (self) has global size (m, n)
-            # * 'x' has global size (n,)
-            # * 'y' has global size (m,)
-            #
-            # Where, because this is a column matrix, we know that 'n' must be 1:
-            #
-            #   A  ⊗  x  ➜  y
-            #   ■     ■     ■
-            #   ■           ■
-            #   ■           ■
-            #   ■           ■
-            #   ■           ■
-
-            # Send the single 'x' value to all ranks
-            with pyop3.mpi.temp_internal_comm(self.comm) as icomm:
-                xval = icomm.bcast(x.array_r)
-
-            with self.buffer.vec_ro() as A:
-                y.array_w[...] = A.array_r * xval
 
     def multTranspose(self, mat, x, y):
         raise NotImplementedError
@@ -1517,6 +1461,7 @@ class DensePythonMatContext:
         #                 z.array[...]
 
     def getDiagonal(self, mat: PETSc.Mat, result: PETSc.Vec | None = None) -> PETSc.Vec:
+        # Think this might be wrong
         if result is None:
             with self.buffer.vec_ro() as vec:
                 result = vec.duplicate()
@@ -1526,9 +1471,6 @@ class DensePythonMatContext:
 
     def zeroEntries(self, mat: PETSc.Mat) -> None:
         self.buffer.zero()
-
-    def duplicate(self, *, copy: bool = False) -> Self:
-        return type(self)(self.mode, self.buffer.duplicate(copy=copy))
 
     # }}}
 
@@ -1540,6 +1482,106 @@ class DensePythonMatContext:
         data = self.buffer.data_wo  # do collectively so state is tracked collectively
         if self.comm.rank == 0:
             data[0] = value
+
+
+class DenseRowPythonMatContext(DensePythonMatContext):
+
+    @classmethod
+    @abc.abstractmethod
+    def empty(cls, sf: pyop3.sf.StarForest) -> Self:
+        buffer = ArrayBuffer.empty((1, sf.size), sf=sf, dtype=ScalarType)
+        return cls(buffer)
+
+    @property
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        return ((None, 1), (self.buffer.sf.num_owned, None))
+
+    def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
+        # Example:
+        # * 'A' (self) has global size (m, n)
+        # * 'x' has global size (n,)
+        # * 'y' has global size (m,)
+        #
+        # Where, because this is a row matrix, we know that 'm' must be 1:
+        #
+        #     A     ⊗  x  ➜  yt
+        # ■ ■ ■ ■ ■    ■     ■
+        #              ■
+        #              ■
+        #              ■
+        #              ■
+        y_array = y.array_w
+        with self.buffer.vec_ro() as A:
+            result = A.dot(x)
+            if self.comm.rank == 0:
+                y_array[...] = result
+
+
+class DenseColumnPythonMatContext(DensePythonMatContext):
+
+    @classmethod
+    @abc.abstractmethod
+    def empty(cls, sf: pyop3.sf.StarForest) -> Self:
+        buffer = ArrayBuffer.empty((sf.size, 1), sf=sf, dtype=ScalarType)
+        return cls(buffer)
+
+    @property
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        return ((self.buffer.sf.num_owned, None), (None, 1))
+
+    def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
+        # Example:
+        # * 'A' (self) has global size (m, n)
+        # * 'x' has global size (n,)
+        # * 'y' has global size (m,)
+        #
+        # Where, because this is a column matrix, we know that 'n' must be 1:
+        #
+        #   A  ⊗  x  ➜  y
+        #   ■     ■     ■
+        #   ■           ■
+        #   ■           ■
+        #   ■           ■
+        #   ■           ■
+
+        # Send the single 'x' value to all ranks
+        with pyop3.mpi.temp_internal_comm(self.comm) as icomm:
+            xval = icomm.bcast(x.array_r)
+
+        with self.buffer.vec_ro() as A:
+            y.array_w[...] = A.array_r * xval
+
+
+class DenseBlockPythonMatContext(DensePythonMatContext):
+
+    @classmethod
+    @abc.abstractmethod
+    def empty(cls, comm: MPI.Comm) -> Self:
+        sf = pyop3.sf.single_star_sf(comm, 1)
+        buffer = ArrayBuffer.empty((1, 1), sf=sf, dtype=ScalarType)
+        return cls(buffer)
+
+    @property
+    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+        return ((None, 1), (None, 1))
+
+    def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
+        # Example:
+        # * 'A' (self) has global size (1, 1)
+        # * 'x' has global size (n,)
+        # * 'y' has global size (1,)
+        #
+        #     A     ⊗  x  ➜  y
+        #     ■        ■     ■
+        #              ■
+        #              ■
+        #              ■
+        #              ■
+        y_array = y.array_w
+        with self.buffer.vec_ro() as A:
+            result = A.dot(x)
+            if self.comm.rank == 0:
+                y_array[...] = result
 
 
 @functools.singledispatch

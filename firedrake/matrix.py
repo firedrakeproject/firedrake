@@ -28,14 +28,12 @@ def _get_mat_type(petscmat: PETSc.Mat) -> str:
         ctx = petscmat.getPythonContext()
         if isinstance(ctx, ImplicitMatrixContext):
             return "matfree"
-        elif isinstance(ctx, op3.DensePythonMatContext):
-            # TODO: nicer if row and column was encoded in type system
-            if ctx.mode == "row":
-                # TODO: 'denserow' is much nicer
-                return "rvec"
-            else:
-                # TODO: 'densecol' is much nicer
-                return "cvec"
+        elif isinstance(ctx, op3.DenseRowPythonMatContext):
+            return "denserow"
+        elif isinstance(ctx, op3.DenseColumnPythonMatContext):
+            return "densecol"
+        elif isinstance(ctx, op3.DenseBlockPythonMatContext):
+            return "denseblock"
         elif isinstance(ctx, VomOntoVomMatContext):
             return "vomtovom"
         else:

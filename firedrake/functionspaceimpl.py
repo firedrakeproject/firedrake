@@ -1569,14 +1569,14 @@ class FunctionSpace(AbstractFunctionSpace):
         base_mesh = self.mesh()._base_mesh
         base_dm = self.mesh()._base_mesh.topology_dm
 
-        base_point_label = extr_dm._extruded_to_base_point_map
+        base_point_label = self.mesh()._extruded_to_base_point_map
 
         extr_section = self.local_section
         base_section = PETSc.Section().create(comm=self.comm)
         base_section.setChart(*base_dm.getChart())
         for base_pt in range(*base_dm.getChart()):
             ndofs = 0
-            for extr_pt in np.flatnonzero(base_point_label == base_pt):
+            for extr_pt in numpy.flatnonzero(base_point_label == base_pt):
                 ndofs += extr_section.getDof(extr_pt)
             base_section.setDof(base_pt, ndofs)
         base_section.setPermutation(base_mesh._dm_renumbering)
@@ -2402,7 +2402,14 @@ class RealFunctionSpace(FunctionSpace):
         # empty then we do allow the data to live on an empty rank because
         # the data should not ever be reachable.
         with op3.mpi.temp_internal_comm(self.comm) as icomm:
-            max_ncells, root = icomm.allreduce((self.mesh().cells.owned.local_size, icomm.rank), MPI.MAXLOC)
+            ncells = self.mesh().cells.owned.local_size
+            # FIXME: For DensePythonMatContext we assume that data lives on
+            # rank 0, and therefore things break if we designate another rank
+            # as the owner. To minimise the occurences of this we always prefer
+            # rank 0 if it has any cells at all.
+            if icomm.rank == 0 and ncells > 0:
+                ncells = op3.dtypes.dtype_limits(IntType).max
+            max_ncells, root = icomm.allreduce((ncells, icomm.rank), MPI.MAXLOC)
 
         dof_axis = op3.Axis(
             op3.AxisComponent(ndofs, None, sf=op3.single_star_sf(self.comm, ndofs, root=root)),

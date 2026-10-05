@@ -1382,18 +1382,20 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
         if is_mixed(test_space) or is_mixed(trial_space):
             mat_type = "nest"
         else:
-            if _is_real_space(test_space):
-                mat_type = "rvec"
+            if _is_real_space(test_space) and _is_real_space(trial_space):
+                mat_type = "denseblock"
+            elif _is_real_space(test_space):
+                mat_type = "denserow"
             else:
-                mat_type = "cvec"
+                mat_type = "densecol"
     elif mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
 
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
 
-    if has_real_subspace and mat_type not in ["nest", "rvec", "cvec", "matfree"]:
-        raise ValueError("Matrices containing real space arguments must have type 'nest', 'rvec', 'cvec', or 'matfree'")
+    if has_real_subspace and mat_type not in ["nest", "denseblock", "denserow", "densecol", "matfree"]:
+        raise ValueError("Matrices containing real space arguments must have type 'nest', 'denserow', 'densecol', 'denseblock', or 'matfree'")
     if sub_mat_type not in {"aij", "baij", "is"}:
         raise ValueError(
             f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij' or 'is')"
@@ -1409,16 +1411,18 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
                 # block_shape = (test_subspace.block_shape, trial_subspace.block_shape)
                 block_shape = (), ()
 
-                if _is_real_space(test_subspace):
+                if _is_real_space(test_subspace) and _is_real_space(trial_subspace):
+                    sub_mat_type_ = "denseblock"
+                elif _is_real_space(test_subspace):
                     # The test space is the row space, so a Real test space means we have a single row
-                    sub_mat_type_ = "rvec"
+                    sub_mat_type_ = "denserow"
                 elif sub_mat_type == "is" and i != j:
                     # Don't put MATIS on the off diagonal blocks (I don't know why)
                     sub_mat_type_ = "baij"
                 else:
                     if _is_real_space(trial_subspace):
                         # The trial space is the column space, so a Real trial space means we have a single column
-                        sub_mat_type_ = "cvec"
+                        sub_mat_type_ = "densecol"
                     else:
                         sub_mat_type_ = sub_mat_type
 

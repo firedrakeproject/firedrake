@@ -352,20 +352,22 @@ class ObjectConcretizer(pyop3.node.NodeVisitor):
             row_layout, column_layout = layouts
             return pyop3.expr.MatPetscMatBufferExpression(ibuffer, row_layout, column_layout)
 
-        else:
-            # MATPYTHON
+        else:  # MATPYTHON
             assert isinstance(ibuffer.handle, np.ndarray)
             ctx = ibuffer.denested.getPythonContext()
-            if ctx.mode == "row":
+            if isinstance(ctx, pyop3.buffer.DenseRowPythonMatContext):
                 if row_axes.size != 1:
                     raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) rows")
                 row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
                 column_layouts = column_axes.leaf_subst_layouts
-            else:
-                assert ctx.mode == "column"
+            elif isinstance(ctx, pyop3.buffer.DenseColumnPythonMatContext):
                 if column_axes.size != 1:
                     raise NotImplementedError("Currently cannot deal with non-unit (vector-valued) columns")
                 row_layouts = row_axes.leaf_subst_layouts
+                column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
+            else:
+                assert isinstance(ctx, pyop3.buffer.DenseBlockPythonMatContext)
+                row_layouts = idict({path: 0 for path in row_axes.leaf_subst_layouts})
                 column_layouts = idict({path: 0 for path in column_axes.leaf_subst_layouts})
             ibuffer = pyop3.buffer.IndexedBuffer(buffer, nest_indices)
             return pyop3.expr.MatArrayBufferExpression(ibuffer, row_layouts, column_layouts)

@@ -52,7 +52,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         if "pc_type" in keys:
             # Might reasonably expect to get petsc defaults
             skip.update({"pc_factor_mat_solver_type", "ksp_type"})
-        if parameters.get("mat_type") in {"matfree", "nest", "rvec", "cvec"}:
+        if parameters.get("mat_type") in {"matfree", "nest", "denserow", "densecol", "denseblock"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
             ksp_defaults["pc_type"] = "jacobi"
@@ -82,7 +82,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
                 fields.append(i)
         if len(fields) == 0:
             # Just reals, GMRES
-            opts = {"mat_type": "rvec",
+            opts = {"mat_type": "denseblock",
                     "ksp_type": "gmres",
                     "pc_type": "none"}
             parameters.update(opts)
