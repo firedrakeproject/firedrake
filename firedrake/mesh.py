@@ -3111,16 +3111,6 @@ class ExtrudedMeshTopology(MeshTopology):
         # up for the whole column
         return np.repeat(orientationss, self.layers-1, axis=0)
 
-    @cached_property
-    def _plex_point_to_base_point_array(self) -> np.ndarray:
-        # TODO: cythonise
-        point_map = np.empty(self.num_points, dtype=IntType)
-        base_pt_label = self._extruded_to_base_point_map
-        for base_pt in range(base_pt_label.getNumValues()):
-            extr_pts = np.flatnonzero(base_pt_label == base_pt)
-            point_map[extr_pts] = base_pt
-        return utils.readonly(point_map)
-
     # TODO: implement for regular meshes too
     def _plex_indices_for_dim(self, dim: tuple) -> PETSc.IS:
         if len(dim) != 2:
