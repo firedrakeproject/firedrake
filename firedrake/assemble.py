@@ -429,6 +429,7 @@ class BaseFormAssembler(AbstractFormAssembler):
 
         """
         if needs_matfree_assembler(self._form, self._mat_type, self._diagonal):
+            # Keep the full 2-form tree intact so one implicit matrix can assemble its action.
             return self._matrix_free_assembler.assemble(tensor=tensor)
 
         # DAG assembly: traverse the DAG in a post-order fashion and evaluate the node on the fly.
