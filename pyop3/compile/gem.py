@@ -48,6 +48,7 @@ from pyop3.insn.base import (
 )
 
 from pyop3.compile.context import CodegenContext, Executable
+from pyop3.compile.mlir import MLIRBuilder
 
 
 @dataclasses.dataclass
@@ -72,6 +73,9 @@ class GemExecutable(Executable):
             )
             insns.append(new_insn)
         impero = gem.impero_utils.compile_gem_new(insns, ())
+        builder = MLIRBuilder() 
+
+        modop = builder.build(impero.tree) 
         raise NotImplementedError("This is where we need to work next")
 
     @property
