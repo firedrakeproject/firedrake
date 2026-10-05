@@ -405,17 +405,16 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subspace.dm
 
 
-def set_ksp_operators(*dms: PETSc.DM) -> None:
-    """Make the KSPs on the given DMs assemble their operators from the application context.
+def set_ksp_operators(dm: PETSc.DM) -> None:
+    """Make the KSPs on a DM assemble their operators from the application context.
 
     Parameters
     ----------
-    *dms
-        The DMs that receive the operator callbacks of :class:`~firedrake.solving_utils._SNESContext`.
+    dm
+        The DM that receives the operator callbacks of :class:`~firedrake.solving_utils._SNESContext`.
     """
-    for dm in dms:
-        dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
-        dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+    dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
+    dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
 
 
 @PETSc.Log.EventDecorator()
@@ -453,10 +452,11 @@ def coarsen(dm, comm):
         add_hook(parent, setup=partial(push_appctx, cdm, cctx),
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
-        # Necessary for MG inside a fieldsplit in a SNES. The solvers on a
-        # function space share its DM, so each solve sets the callbacks again.
-        add_hook(parent, setup=partial(set_ksp_operators, dm, cdm),
-                 call_setup=True)
+        # PETSc makes cdm share the DMKSP of dm after this function returns,
+        # so the callbacks set on dm reach cdm on the first solve. The solvers
+        # on a function space share its DM, so each solve sets them on cdm again.
+        set_ksp_operators(dm)
+        add_hook(parent, setup=partial(set_ksp_operators, cdm))
     return cdm
 
 

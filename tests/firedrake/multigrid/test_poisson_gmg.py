@@ -1,5 +1,4 @@
 from firedrake import *
-import gc
 import numpy
 import pytest
 import warnings
@@ -283,34 +282,41 @@ def test_reinjection_mass_then_poisson(solver_type):
 
 
 def test_mg_after_another_solver_on_the_same_space():
-    # Every solver on V shares its DM. The multigrid solver must keep its own
-    # coarse operators after another solver on V has been set up and freed.
+    # All solvers on V share its DM, and the coarse DMs of the multigrid
+    # solver read their operator callback from it. Setting up another solver
+    # on V must not leave its own callback there for the multigrid solver.
     mh = MeshHierarchy(UnitSquareMesh(4, 4), 1)
     V = FunctionSpace(mh[-1], "CG", 1)
-    c = Constant(1)
-    uh = Function(V)
     v = TestFunction(V)
-    F = c * inner(grad(uh), grad(v)) * dx - inner(Constant(1), v) * dx
     bcs = DirichletBC(V, 0, "on_boundary")
-    parameters = {"snes_type": "ksponly",
-                  "mat_type": "aij",
-                  "ksp_type": "cg",
-                  "ksp_rtol": 1.0E-12,
-                  "pc_type": "mg"}
-    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh, bcs=bcs),
-                                        solver_parameters=parameters)
-    solver.solve()
 
-    u_other = Function(V)
-    solve(replace(F, {uh: u_other}) == 0, u_other, bcs=bcs,
-          solver_parameters={"snes_type": "ksponly", "ksp_type": "preonly", "pc_type": "lu"})
-    del u_other
-    gc.collect()
-    PETSc.garbage_cleanup(V.mesh().comm)
+    uh = Function(V)
+    F = inner(grad(uh), grad(v)) * dx - inner(Constant(1), v) * dx
+    mg_parameters = {"snes_type": "ksponly",
+                     "mat_type": "aij",
+                     "ksp_type": "cg",
+                     "ksp_rtol": 1.0E-12,
+                     "pc_type": "mg"}
+    mg_solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh, bcs=bcs),
+                                           solver_parameters=mg_parameters)
+    mg_solver.solve()
+    mg_its = mg_solver.snes.ksp.getIterationNumber()
 
-    # A new coefficient sets up the coarse levels again.
-    c.assign(2)
-    solver.solve()
-    u_ref = Function(V)
-    solve(replace(F, {uh: u_ref}) == 0, u_ref, bcs=bcs)
-    assert errornorm(u_ref, uh) < 1.0E-10 * norm(u_ref)
+    u_lu = Function(V)
+    F_lu = replace(F, {uh: u_lu})
+    lu_parameters = {"snes_type": "ksponly",
+                     "ksp_type": "preonly",
+                     "pc_type": "lu"}
+    lu_solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F_lu, u_lu, bcs=bcs),
+                                           solver_parameters=lu_parameters)
+    lu_solver.solve()
+    # While the LU solver exists, its callback assembles the same coarse
+    # operators. After it is deleted, a call into it fails.
+    del lu_solver
+
+    # Each solve assembles the coarse operators again with the callback.
+    # From the same initial guess, the second solve repeats the first one.
+    uh.assign(0)
+    mg_solver.solve()
+    assert mg_solver.snes.ksp.getIterationNumber() == mg_its
+    assert errornorm(u_lu, uh) < 1.0E-10 * norm(u_lu)
