@@ -113,53 +113,33 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         return parameters
 
 
-def check_snes_convergence(snes):
-    r = snes.getConvergedReason()
-    try:
-        reason = SNESReasons[r]
-        inner = False
-    except KeyError:
-        r = snes.getKSP().getConvergedReason()
-        try:
-            inner = True
-            reason = KSPReasons[r]
-        except KeyError:
-            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_converged_reason and -ksp_converged_reason"
-    if r < 0:
-        if inner:
-            msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
-                  (snes.getKSP().getIterationNumber(), reason)
-        else:
-            msg = reason
-        raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
-Reason:
-   %s""" % (snes.getIterationNumber(), msg))
-
-
-def check_ksp_convergence(ksp: PETSc.KSP) -> None:
-    """Raise an error if a linear solve does not converge.
-
-    The `PETSc.KSP` counterpart of `check_snes_convergence`.
+def check_convergence(solver: PETSc.SNES | PETSc.KSP) -> None:
+    """Raise an error if a nonlinear or a linear solve does not converge.
 
     Parameters
     ----------
-    ksp
-        The `PETSc.KSP` that has just solved.
+    solver
+        The `PETSc.SNES` or `PETSc.KSP` that has just solved.
 
     Raises
     ------
     ConvergenceError
-        If the KSP reports a negative converged reason.
+        If the solver reports a negative converged reason. If the KSP of a
+        failed SNES also failed, its error is the cause of the SNES error.
     """
-    r = ksp.getConvergedReason()
-    try:
-        reason = KSPReasons[r]
-    except KeyError:
-        reason = "unknown reason (petsc4py enum incomplete?), try with -ksp_converged_reason"
+    r = solver.getConvergedReason()
     if r < 0:
-        raise ConvergenceError(r"""Linear solve failed to converge after %d iterations.
-Reason:
-   %s""" % (ksp.getIterationNumber(), reason))
+        snes = isinstance(solver, PETSc.SNES)
+        kind, reasons = ("Nonlinear", SNESReasons) if snes else ("Linear", KSPReasons)
+        reason = reasons.get(r, "unknown reason (petsc4py enum incomplete?), "
+                                "try with -snes_converged_reason and -ksp_converged_reason")
+        error = ConvergenceError(f"{kind} solve failed to converge after "
+                                 f"{solver.getIterationNumber()} iterations.\nReason:\n   {reason}")
+        try:
+            snes and check_convergence(solver.getKSP())
+        except ConvergenceError as cause:
+            raise error from cause
+        raise error
 
 
 class _SNESContext(object):
@@ -417,7 +397,7 @@ class _SNESContext(object):
         with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
             with dmhooks.add_hooks(self._problem.dm, self, appctx=self):
                 solve(bvec, xvec)
-        check_ksp_convergence(ksp)
+        check_convergence(ksp)
 
     @property
     def transfer_manager(self):

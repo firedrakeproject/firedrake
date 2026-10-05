@@ -590,7 +590,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
-        solving_utils.check_snes_convergence(self.snes)
+        solving_utils.check_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
         comm = problem.u_restrict.function_space().mesh().comm
