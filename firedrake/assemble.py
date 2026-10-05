@@ -468,9 +468,6 @@ class BaseFormAssembler(AbstractFormAssembler):
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
                 # Substitute the base form operators by their output
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
-                # Replace calls expand_derivatives and this might turn a Form into a BaseForm
-                if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-                    return self._assemble_base_form(expr, tensor)
             form = expr
             rank = len(form.arguments())
             if rank == 0:
@@ -902,9 +899,7 @@ class BaseFormAssembler(AbstractFormAssembler):
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
         """Preprocess ufl.BaseForm objects"""
         original_expr = expr
-        if mat_type != "matfree":
-            # Don't expand derivatives if `mat_type` is 'matfree'
-            # For "matfree", Form evaluation is delayed
+        if BaseFormAssembler.needs_derivative_expansion(expr, mat_type):
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
         if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
             # => No restructuring needed for Form and slate.TensorBase
@@ -916,6 +911,21 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(original_expr, ufl.form.Form) and isinstance(expr, ufl.form.Form):
             expr._cache = original_expr._cache
         return expr
+
+    @staticmethod
+    def needs_derivative_expansion(expr, mat_type):
+        """Return whether the derivatives of ``expr`` must be expanded before assembly.
+
+        Expanding the derivatives of a Form with base form operators may turn it
+        into another BaseForm, which determines how it is assembled. TSFC expands
+        the derivatives of any other Form, and Slate tensors.
+        """
+        if isinstance(expr, slate.TensorBase):
+            return False
+        if isinstance(expr, ufl.form.Form) and not expr.base_form_operators():
+            return False
+        # A 'matfree' matrix is expanded when its action is taken.
+        return mat_type != "matfree" or len(expr.arguments()) < 2
 
     @staticmethod
     def expand_derivatives_form(form, fc_params):
