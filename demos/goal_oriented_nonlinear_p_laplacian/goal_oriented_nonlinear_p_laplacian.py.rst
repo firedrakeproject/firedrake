@@ -28,8 +28,8 @@ Here we apply DWR to a nonlinear stationary boundary value problem, the
     -\nabla \cdot \left( |\nabla u|^{p-2} \nabla u \right) = f \text{ in } \Omega, \quad u = 0 \text{ on } \partial \Omega.
 
 We solve it on the unit square with a known analytical solution, so that we can
-compute effectivity indices for our error estimates. Adaptive refinement needs
-no special mesh: any Firedrake mesh can be refined in place:
+compute effectivity indices for our error estimates. Any Firedrake mesh can be
+refined in place, so we start from a uniform mesh:
 
 .. code-block:: python
 
@@ -109,12 +109,11 @@ capture, and ``dwr_monitor`` reports the estimate at each cycle:
       "dwr_monitor": None,
   })
 
-There is no loop to write here, unlike in the ad hoc implementations such a
-method usually needs.  The solver runs the configured
+The adaptive loop is handled inside the solver.  It runs the configured
 SOLVE--ESTIMATE--MARK--REFINE cycle, and the marking callback supplies the
 cells to refine.  We also pass the exact solution, which lets the monitor
-report the true error and an effectivity index.  That is a diagnostic, and is
-not needed in general:
+report the true error and an effectivity index.  Of course, this is not needed
+in general:
 
 .. code-block:: python
 
@@ -127,9 +126,11 @@ not needed in general:
   )
   uh = solver.solve()
 
-``solver.solve()`` returns the solution on the final adapted mesh, and
-``solver.get_marking_callback().error_estimate`` is the estimate
-:math:`\eta` that stopped the loop:
+``solver.solve()`` returns the solution on the final adapted mesh, in the
+original degree-2 space.  The enriched solution that the estimator computes is
+not returned.  ``solver.get_marking_callback().error_estimate`` is the
+estimate :math:`\eta` of the error in the goal for the returned solution, and
+it is the value that stopped the loop:
 
 .. code-block:: python
 
