@@ -19,6 +19,7 @@ from xdsl.ir import SSAValue, Block, Region, Operation
 
 from xdsl.dialects.builtin import (
     ArrayAttr,
+    DenseIntOrFPElementsAttr,
     DictionaryAttr,
     IntegerType,
     IndexType,
@@ -28,6 +29,7 @@ from xdsl.dialects.builtin import (
     i32, i64, f32, f64,
     MemRefType,
     ModuleOp,
+    TensorType,
     UnitAttr,
 )
 
@@ -153,7 +155,7 @@ class MLIRBuilder():
       results = op.results 
       return results[0] if results else None 
   
-    def create_const(self, value, mlir_type) -> SSAValue:
+    def _const(self, value, mlir_type) -> SSAValue:
       if is_float(mlir_type):
           attr = FloatAttr(float(value), mlir_type)
       else:
@@ -196,9 +198,9 @@ class MLIRBuilder():
 
       elif is_float(frm) and is_intlike(to):
         v = self.insert(arith.FPToSIOp(v, i64 if to == INDEX_TYPE else to))
-        return self._cast(v, to)
+        return self._convert_type(v, to)
 
-      raise NotImplementedError(f"Casting frm {frm} to {to} is not implemented")
+      raise NotImplementedError(f"Casting from {frm} to {to} is not implemented")
 
     def _to_index(self, ssa: SSAValue) -> SSAValue:
       if isinstance(ssa.type, IndexType):
@@ -230,7 +232,7 @@ class MLIRBuilder():
       else:  
         target = a.type if a.type.width.data >= b.type.width.data else b.type
 
-      return self._cast(a, target), self._cast(b, target)
+      return self._convert_type(a, target), self._convert_type(b, target)
 
     def _binary(self, a, b, float_op, int_op) -> SSAValue:
       a, b = self._align_scalars(a, b)
@@ -247,10 +249,12 @@ class MLIRBuilder():
       """
       extent = index.extent
 
-      if not isinstance(extent, numbers.Integral):
-        raise NotImplementedError(f"Index {index} has variable index extent {extent!r}")
-
-      return int(extent)
+      if isinstance(extent, gem.Literal):
+        return int(extent.value)
+      elif isinstance(extent, numbers.Integral):
+        return extent 
+      else:
+        raise NotImplementedError(f"Not prepared for value of type: {extent!r}")
 
     # }}} 
 
@@ -280,29 +284,47 @@ class MLIRBuilder():
 
     @_create_buffer.register(gem.Literal)
     def _(self, node: gem.Literal) -> SSAValue:
-      """ Define Literal (tensor-valued constant) as buffer  
-      
-      I would like to define constant literals in advance of this process. 
-      They are known in advance anyway. 
-    
-      """ 
-      if node in self._temporaries:
-        return self._temporaries[name] 
+      """ Define Literal (tensor-valued constant) as global constant read-only buffer """ 
+      if node in self.globals:
+        return self.globals[node].results[0] 
       
       arr = node.array 
-      mlir_type = get_mlir_type(arr.dtype)
+      mlir_type = get_mlir_type(node.dtype)
       memref_type = MemRefType(mlir_type, arr.shape)
+      
+      value = DenseIntOrFPElementsAttr.from_list(
+        TensorType(mlir_type, arr.shape), arr.data
+      )
+      
+      gop = memref.GlobalOp.get(
+        StringAttr("literal"),
+        memref_type,
+        value,
+        sym_visiblity=StringAttr("private"),
+        constant=UnitAttr()
+      )
 
-      name = self.unique_name("literal")
-      alloca_op = memref.AllocaOp.get(memref_type, shape=arr.shape)
-        
-      # NOTE: Insert into top body
-      # TODO: Define constants in advance, avoid this ugly portion 
-      Builder(InsertPoint.at_start(self._entry_block)).insert(alloca_op)
-      self._temporaries[node] = alloca_op.results[0]
+      self.globals[node] = gop
 
-      return self._temporaries[node]
+      return self.globals[node].results[0]
 
+    def _alloc_temp(self, key, free_indices, elem_type) -> SSAValue:
+      # NOTE: AllocOps are used because AllocaOp bad on GPU
+      # Compiler pass can raise Alloc to Alloca
+      # Alloca = stack allocate, Alloc = heap allocate
+      # Deallocations required for alloc (and inserted with compiler pass)
+      if key in self._temporaries:
+          return self._temporaries[key][0]
+      shape = tuple(self._extent(i) for i in free_indices)
+      op = memref.AllocOp.get(elem_type, shape=shape)
+
+      Builder(InsertPoint.at_start(self._entry_block)).insert(op)
+      self._temporaries[key] = (op.results[0], tuple(free_indices))
+      return op.results[0]
+    
+    def _temp_indices(self, key) -> list[SSAValue]:
+      _, free = self._temporaries[key]
+      return [self.symbol_table[i] for i in free]
 
     @functools.singledispatchmethod
     def get_index_ssa(self, idx) -> SSAValue:
@@ -312,17 +334,21 @@ class MLIRBuilder():
     def _(self, idx: numbers.Integral):
       return self._const(idx, INDEX_TYPE)
 
+    @get_index_ssa.register(gem.Constant)
+    def _(self, idx: gem.Constant): 
+      return self._const(idx.value, INDEX_TYPE)
+
     @get_index_ssa.register(IndexType)
     def _(self, idx: INDEX_TYPE):
       return self.symbol_table[idx]
       
     @get_index_ssa.register(gem.VariableIndex)
     def _(self, idx: gem.VariableIndex):
-      return self._as_index(self.emit(idx.expression))
+      return self._to_index(self.emit(idx.expression))
 
     @get_index_ssa.register(gem.Node)
     def _(self, idx: gem.Node):
-      return self._as_index(self.emit(idx))
+      return self._to_index(self.emit(idx))
 
     @functools.singledispatchmethod
     def get_address(self, node: Any):
@@ -341,9 +367,9 @@ class MLIRBuilder():
   
 
     def _store(self, node, value: SSAValue, accumulate: bool = False) -> None:
-      buf, idx = self._address(node)
+      buf, idx = self.get_address(node)
       elem = buf.type.element_type
-      value = self._cast(value, elem)
+      value = self._convert_type(value, elem)
       if accumulate:
         old = self.insert(memref.LoadOp.get(buf, idx))
         value = self._binary(old, value, arith.AddfOp, arith.AddiOp)
@@ -388,7 +414,12 @@ class MLIRBuilder():
 
     @index_into.register(gem.ListTensor)
     def _(self, aggregate: gem.ListTensor, multiindex) -> SSAValue:
-      """ Indexing into ListTensor (stack or list of tensors essentially) """
+      """ Indexing into ListTensor (stack or list of tensors essentially) 
+
+      I think there is some optimisations to make here regarding the loading of the required elements.
+      All elements are evaluated here, regardless of indexing, which is not ideal
+      """
+      
       arr = aggregate.array
 
       # If multiindex all compile-time integers, return the indices
@@ -408,7 +439,9 @@ class MLIRBuilder():
 
         linearised = term if linearised is None else self._binary(linearised, term, arith.AddfOp, arith.AddiOp)
 
-      # TODO: Explain this better for others
+      # Sort of a ternary operator in MLIR
+      # Nested Select(Select(Select(...)))
+      # Each element expression is eagerly evaluated this way 
       acc = self.emit(arr.flat[-1])
       for k in range(arr.size-2, -1, -1):
         hit = self.insert(arith.CmpiIOp(linearised, self._const(k, INDEX_TYPE), "eq"))
@@ -452,14 +485,14 @@ class MLIRBuilder():
       # NOTE: Index hopefully tagged with parallel at this stage  
       # if tree.index.is_parallel... 
 
-      with enter_for(tree.index):
-        process(tree.children[0], ctx)
+      with self.enter_for(tree.index):
+        self.process(tree.children[0])
 
     @process.register(imp.Initialise)
     def process_initialise(self, leaf): 
       isum = leaf.indexsum 
       dtype = get_mlir_type(isum.dtype)
-      buf = self._alloc_temporary(isum, isum.free_indices, dtype)
+      buf = self._alloc_temp(isum, isum.free_indices, dtype)
       sop = memref.StoreOp.get(self._const(0, dtype), buf, self._temp_indices(isum))
       self.insert(sop)
 
@@ -471,7 +504,7 @@ class MLIRBuilder():
           raise KeyError(f"Accumulate before Initialise for {isum}")
       buf, _ = self._temporaries[isum]
       idx = self._temp_indices(isum)
-      term = self._cast(self.emit(isum.children[0]), buf.type.element_type)
+      term = self._convert_type(self.emit(isum.children[0]), buf.type.element_type)
       old = self.insert(memref.LoadOp.get(buf, idx))
       new = self._binary(old, term, arith.AddfOp, arith.AddiOp)
       self.insert(memref.StoreOp.get(new, buf, idx))
@@ -487,18 +520,30 @@ class MLIRBuilder():
     # def process_returnaccumulate(self, leaf):
     #   ...
 
-    @process.register(imp.Evaluate) 
+    # @process.register(imp.Evaluate) 
+    # def process_evaluate(self, leaf):
+    #   """ Assign temporary, mapping expr to SSA for re-use """ 
+    #   # Some serious issues in this portion of code to debug
+    #   expr = leaf.expression
+    #   if expr in self._temporaries:
+    #       return
+    #   if expr.shape:
+    #       raise NotImplementedError("Evaluate of a tensor-valued expression")
+    #   value = self.process(expr)
+    #   buf = self._alloc_temp(expr, expr.free_indices, value.type)
+    #   self.insert(memref.StoreOp.get(value, buf, self._temp_indices(expr)))
+
+    @process.register(imp.Evaluate)
     def process_evaluate(self, leaf):
-      """ Assign temporary, mapping expr to SSA for re-use """ 
-      # Some serious issues in this portion of code to debug
+      """ Calculate value within expression and assign to temporary """
       expr = leaf.expression
+      
       if expr in self._temporaries:
-          return
-      if expr.shape:
-          raise NotImplementedError("Evaluate of a tensor-valued expression")
-      value = self.process(expr)  # bypass the temp lookup: this *is* the definition
-      buf = self._alloc_temp(expr, expr.free_indices, value.type)
-      self.insert(memref.StoreOp.get(value, buf, self._temp_indices(expr)))
+        return self._temporaries[expr]
+
+      value = self.process(expr)
+
+      # WILO: How do I deal with gem.Index / baseless evaluate expressions 
 
     # }}}
 
@@ -512,10 +557,11 @@ class MLIRBuilder():
     @process.register(gem.Literal)
     def _(self, leaf):
       """ Process gem.Literal which is a tensor-valued constant """
+      # Check if GEM is a tensor-valued expression
       if leaf.shape:
-        # This is wrong for when we Evaluate a tensor literal
-        raise NotImplementedError("Tensor-valued literals must be indexed")
-      return self._const(leaf.value, get_mlir_type(leaf.dtype))
+        return 
+      else:    
+        return self._const(leaf.value, get_mlir_type(leaf.dtype))
 
     @process.register(gem.Variable)
     def _(self, leaf):
@@ -637,7 +683,7 @@ class MLIRBuilder():
     # }}}
 
     @contextlib.contextmanager
-    def enter_for(self, extent): 
+    def enter_for(self, index): 
       # Define SSA for extent, if it does not exist 
 
       extent = self._extent(index)
@@ -658,24 +704,3 @@ class MLIRBuilder():
       self.insert(scf.YieldOp())
       self._builder_stack.pop()
       self.symbol_table.pop()
-
-
-    # TODO: Factorise with iterative loop
-    @contextlib.contextmanager
-    def enter_block(self): 
-      block = Block()
-      builder = Builder(InsertPoint.at_end(block))
-      
-      self._builder_stack.append(builder) 
-      self.symbol_table.push()
-
-      yield 
-
-      # NOTE: ReturnOp??
-
-      # Attach Block to parent Block (parent in builder stack) 
-      populated_block = self._builder_stack.pop()
-      self.symbol_table.pop()
-      self.insert(populated_block) 
-
-
