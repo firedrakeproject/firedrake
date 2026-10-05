@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import ufl
 from finat.ufl import BrokenElement, FiniteElement
+from petsctools.options import DefaultOptionSet, get_default_options
 
 from firedrake.assemble import assemble
 from firedrake.exceptions import ConvergenceError
@@ -28,49 +29,7 @@ def _both(expr):
     return expr("+") + expr("-")
 
 
-def _sub_parameters(options: dict[str, str], sub_prefix: str) -> dict[str, str]:
-    """Return the options of one auxiliary solver.
-
-    Parameters
-    ----------
-    options
-        The options under the prefix of the parent solver.
-    sub_prefix
-        The sub-prefix of one auxiliary solver, such as ``"dwr_cell_"``.
-
-    Returns
-    -------
-    The options that begin with ``sub_prefix``, with that sub-prefix removed.
-    """
-    return {key[len(sub_prefix):]: value
-            for key, value in options.items() if key.startswith(sub_prefix)}
-
-
-def _enriched_parameters(options: dict[str, str]) -> dict[str, str]:
-    """Return the solver parameters of the enriched-order primal solve.
-
-    These are the options under the ``dwr_enriched_`` sub-prefix. If there are
-    none, the enriched solve takes the options of the parent solver.
-
-    Parameters
-    ----------
-    options
-        The options under the prefix of the parent solver.
-
-    Returns
-    -------
-    The solver parameters to give the enriched-order solver.
-    """
-    parameters = _sub_parameters(options, "dwr_enriched_")
-    if not parameters:
-        # Leave out the options that drive adaptivity.
-        not_inherited = ("dwr_", "snes_adapt_", "adaptor_")
-        parameters = {key: value for key, value in options.items()
-                      if not key.startswith(not_inherited)}
-    return parameters
-
-
-def _residual_indicators(F, dual_error, residual_degree, options_prefix, options):
+def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     """Compute the strong residual representation of Rognes and Logg.
 
     Parameters
@@ -84,8 +43,6 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix, options
         space.
     options_prefix
         The options prefix of the solver that this callback is attached to.
-    options
-        The options under ``options_prefix``.
 
     Returns
     -------
@@ -116,7 +73,6 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix, options
     )
     cell_solver = LinearVariationalSolver(
         cell_problem, options_prefix=options_prefix + "dwr_cell_",
-        solver_parameters=_sub_parameters(options, "dwr_cell_"),
     )
     cell_solver.solve()
 
@@ -141,7 +97,6 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix, options
     )
     facet_solver = LinearVariationalSolver(
         facet_problem, options_prefix=options_prefix + "dwr_facet_",
-        solver_parameters=_sub_parameters(options, "dwr_facet_"),
     )
     facet_solver.solve()
     facet_residual = facet_residual_hat / cone
@@ -210,11 +165,11 @@ class DWRMarkingCallback:
     (default 1), ``dwr_marking_fraction`` (default 0.5), ``dwr_atol``
     (default 1e-50), ``dwr_rtol`` (default 0) and ``dwr_monitor``
     (default off). The auxiliary solvers read the ``dwr_enriched_``,
-    ``dwr_cell_`` and ``dwr_facet_`` sub-prefixes. The callback copies all
-    these options when it first marks, and uses the copy on every adapted
-    mesh. `NonlinearVariationalSolver.get_marking_callback` returns the
-    callback on the current mesh. Without ``dwr_enriched_`` options, the enriched solve uses the
-    options of the parent solver. The dual solves reuse the primal Jacobians
+    ``dwr_cell_`` and ``dwr_facet_`` sub-prefixes. The enriched solve
+    inherits the options of the parent solver, except the ``dwr_`` options
+    and ``snes_adapt_sequence``, and its ``dwr_enriched_`` options take
+    precedence. `NonlinearVariationalSolver.get_marking_callback` returns the
+    callback on the current mesh. The dual solves reuse the primal Jacobians
     through ``solve_jacobian``, so the preconditioners of both primal solvers
     must implement ``applyTranspose``.
 
@@ -231,10 +186,8 @@ class DWRMarkingCallback:
         self.exact_solution = exact_solution
         self.error_estimate = None
         self.converged = False
-        # The prefix of the solver, and a copy of its options, because the
-        # auxiliary solvers delete their options from the database.
+        # The prefix of the solver that this callback is attached to.
         self._options_prefix = None
-        self._options = None
 
     def reconstruct(self, goal_functional: ufl.BaseForm,
                     exact_solution: ufl.classes.Expr | None) -> DWRMarkingCallback:
@@ -249,12 +202,11 @@ class DWRMarkingCallback:
 
         Returns
         -------
-        A callback that keeps the options and the error estimate of this one.
+        A callback that keeps the options prefix and the error estimate of this one.
         """
         callback = type(self)(goal_functional, exact_solution)
         callback.error_estimate = self.error_estimate
         callback._options_prefix = self._options_prefix
-        callback._options = self._options
         return callback
 
     def __call__(self, ctx, current_solution: Function) -> Function | None:
@@ -320,9 +272,8 @@ class DWRMarkingCallback:
     def _mark(self, ctx, current_solution: Function) -> Function | None:
         problem = ctx._problem
         V = current_solution.function_space()
-        if self._options is None:
+        if self._options_prefix is None:
             self._options_prefix = ctx.options_prefix or ""
-            self._options = PETSc.Options(self._options_prefix).getAll()
         # Refined contexts have a prefix for their multigrid level, so read the
         # options of the original solver.
         prefix = self._options_prefix
@@ -344,10 +295,12 @@ class DWRMarkingCallback:
         nullspace = None if ctx._nullspace is None else ctx._nullspace.rediscretise(high_space)
         transpose_nullspace = None if ctx._nullspace_T is None else ctx._nullspace_T.rediscretise(high_space)
         near_nullspace = None if ctx._near_nullspace is None else ctx._near_nullspace.rediscretise(high_space)
+        parameters = get_default_options(DefaultOptionSet(prefix, ("dwr_",)))
+        parameters.pop("snes_adapt_sequence", None)
         primal_solver = NonlinearVariationalSolver(
             high_problem,
             options_prefix=prefix + "dwr_enriched_",
-            solver_parameters=_enriched_parameters(self._options),
+            solver_parameters=parameters,
             nullspace=nullspace,
             transpose_nullspace=transpose_nullspace,
             near_nullspace=near_nullspace,
@@ -368,6 +321,6 @@ class DWRMarkingCallback:
             return None
 
         indicators = _residual_indicators(
-            problem.F, dual_error, residual_degree, prefix, self._options
+            problem.F, dual_error, residual_degree, prefix
         )
         return _dorfler_mark(indicators, marking_fraction)
