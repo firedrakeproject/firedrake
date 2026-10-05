@@ -57,6 +57,12 @@ jobs:
       # firedrake-check to pass
       PYOP2_CFLAGS: -O0
     steps:
+      - name: Fix HOME
+        # GitHub actions overwrite HOME to /github/home which causes permissions
+        # issues for certain operations (observed at 'pip cache purge')
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
