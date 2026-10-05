@@ -23,7 +23,6 @@ from collections import OrderedDict, namedtuple, defaultdict
 from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
-from firedrake.formmanipulation import ExtractSubBlock, subspace
 from firedrake.function import Function, Cofunction
 from firedrake.ufl_expr import TestFunction
 from firedrake.utils import unique
@@ -742,6 +741,8 @@ class Block(TensorBase):
         """Splits the function space and stores the component
         spaces determined by the indices.
         """
+        from firedrake.formmanipulation import subspace
+
         tensor, = self.operands
         return tuple(type(a)(subspace(a.function_space(), self._blocks[i]),
                              a.number(), part=a.part())
@@ -766,7 +767,7 @@ class Block(TensorBase):
         assert tensor.terminal
         if not tensor.assembled:
             # turns a Block on a Tensor into an indexed ufl form
-            return tensor.block(self._indices)
+            return tensor._subblock_extractor.split(tensor.form, self._indices)
         else:
             # turns the Block on an AssembledVector into a set off coefficients
             # corresponding to the indices of the Block
@@ -976,25 +977,11 @@ class Tensor(TensorBase):
         return Tensor(form, diagonal=diagonal or self.diagonal)
 
     @cached_property
-    def _block_cache(self):
-        """Cache of `ExtractSubBlock`-split forms, keyed by the requested
-        argument indices. Shared by every `Block` wrapping this Tensor, so
-        that independently-constructed `Block`s selecting the same indices
-        (e.g. via `Block.__new__`'s pushdown through `Mul`/`Add`, or via
-        repeated reconstruction across MG coarsening levels) always resolve
-        to the identical split Form/Arguments, rather than each minting its
-        own via a fresh `ExtractSubBlock().split()`/`.collapse()` call."""
-        return {}
+    def _subblock_extractor(self):
+        """Returns the traverser that extracts this tensor's subblocks."""
+        from firedrake.formmanipulation import ExtractSubBlock
 
-    def block(self, indices):
-        """Returns the `ExtractSubBlock`-split form for `indices`, memoized
-        on this Tensor so repeated requests for the same indices are
-        identical, not merely equal."""
-        cache = self._block_cache
-        try:
-            return cache[indices]
-        except KeyError:
-            return cache.setdefault(indices, ExtractSubBlock().split(self.form, indices))
+        return ExtractSubBlock()
 
     @property
     def ufl_operands(self):
