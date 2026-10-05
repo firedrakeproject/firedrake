@@ -66,7 +66,7 @@ __all__ = [
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
-    'Submesh', 'BrokenMesh'
+    'Submesh', 'BrokenMesh', 'DomainDecomposition'
 ]
 
 
@@ -5271,6 +5271,99 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
 
     name = name or f"{mesh.name}_broken"
     return _child_mesh_from_plex(mesh, broken_plex, name, reorder, parent_point_map=parent_point_map)
+
+
+def DomainDecomposition(mesh: MeshGeometry, label_name: str | None = None,
+                        overlap: int = 0, ignore_halo: bool = False,
+                        name: str | None = None, reorder: bool | None = None) -> MeshGeometry:
+    """Construct the disjoint union of the subdomains of a mesh.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        Parent mesh.
+    label_name : str | None
+        Name of the label whose values mark the subdomain cells. Each value
+        defines one subdomain. Defaults to the parent mesh cell label.
+    overlap : int
+        Number of layers of neighbouring cells added to each subdomain.
+        Neighbouring cells share an entity of the kind used to grow the
+        halo of ``mesh``: a facet for ``FACET`` overlap, a ridge for
+        ``RIDGE`` overlap, and a vertex otherwise.
+    ignore_halo : bool
+        Whether to ignore the labelled cells in the halo of ``mesh``. If each
+        subdomain only contains cells owned by one process, the subdomains
+        then share no entities across processes.
+    name : str | None
+        Name of the decomposed mesh. Defaults to ``mesh.name + "_dd"``.
+    reorder : bool | None
+        Whether to reorder mesh entities. By default, use the parent mesh
+        setting.
+
+    Returns
+    -------
+    MeshGeometry
+        A mesh with a separate copy of each subdomain. Its label named
+        ``label_name`` marks every entity with the value of its subdomain.
+
+    Notes
+    -----
+    The returned mesh is related to ``mesh`` through the generic
+    ``submesh_parent`` relation. Its entities map to entities of ``mesh``
+    for any ``overlap``, but an entity of ``mesh`` maps to the decomposed
+    mesh only when it has a single copy there, or when it is an interior
+    facet between two subdomains without overlap.
+
+    The other labels of ``mesh`` are copied to each subdomain. The facets
+    between subdomains are exterior facets of the decomposed mesh, and
+    carry the ``"Face Sets"`` markers of ``mesh`` only. To mark them, mark
+    these facets of ``mesh`` before the decomposition.
+
+    In parallel, ``mesh`` needs a halo at least ``overlap`` layers deep.
+    """
+    if not isinstance(mesh, MeshGeometry):
+        raise TypeError("Parent mesh must be a `MeshGeometry`")
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Can not create a domain decomposition of an ``ExtrudedMesh``")
+    if isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise NotImplementedError("Can not create a domain decomposition of a ``VertexOnlyMesh``")
+    if label_name is None:
+        label_name = dmcommon.CELL_SETS_LABEL
+    if overlap < 0:
+        raise ValueError(f"overlap must be nonnegative: got {overlap}")
+    overlap_type, halo_depth = mesh._distribution_parameters["overlap_type"]
+    if mesh.comm.size > 1 and overlap > halo_depth:
+        raise ValueError(f"overlap={overlap} needs a halo at least {overlap} layers deep: got {halo_depth}")
+
+    plex = mesh.topology_dm
+    if not plex.hasLabel(label_name):
+        raise ValueError(f"Mesh has no label named {label_name!r}")
+    # Grow a copy of the label so that the parent mesh is unchanged.
+    label = plex.getLabel(label_name).duplicate()
+    if overlap > 0:
+        if overlap_type in {DistributedMeshOverlapType.FACET, DistributedMeshOverlapType.RIDGE}:
+            dmcommon.set_adjacency_callback(plex, overlap_type)
+        try:
+            plex.labelAddOverlap(label, overlap)
+        finally:
+            dmcommon.clear_adjacency_callback(plex)
+
+    transform = PETSc.DMPlexTransform().create(comm=plex.comm)
+    petsctools.set_from_options(transform, {
+        "dm_plex_transform_type": PETSc.DMPlexTransformType.TRANSFORMDD,
+        "dm_plex_transform_dd_ignore_halo": ignore_halo,
+    })
+    transform.setDM(plex)
+    transform.setActive(label)
+    transform.setUp()
+    with petsctools.inserted_options(transform):
+        dd_plex = transform.apply(plex)
+    parent_point_map = dmcommon.transform_source_points(dd_plex, transform)
+    transform.destroy()
+    label.destroy()
+
+    name = name or f"{mesh.name}_dd"
+    return _child_mesh_from_plex(mesh, dd_plex, name, reorder, parent_point_map=parent_point_map)
 
 
 def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl.FiniteElement) -> "CoordinatelessFunction":
