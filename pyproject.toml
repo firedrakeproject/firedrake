@@ -35,7 +35,7 @@ dependencies = [
   "progress",
   "pyadjoint-ad>=2026.10",
   "pycparser",
-  "pytools[siphash]",
+  "pytools>=2026.1.1",
   "requests",
   "rtree>=1.2",
   "scipy",
