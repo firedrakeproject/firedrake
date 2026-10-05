@@ -2920,9 +2920,10 @@ values from f.)"""
                 ],
                 ldargs=[
                     f"-L{sys.prefix}/lib",
-                    firedrake_rtree.get_lib_filename(),
+                    f"-L{firedrake_rtree.get_library().parent}",
+                    "-lfiredrake_rtree",
                     f"-Wl,-rpath,{sys.prefix}/lib",
-                    f"-Wl,-rpath,{firedrake_rtree.get_lib()}"
+                    f"-Wl,-rpath,{firedrake_rtree.get_library().parent}"
                 ],
                 comm=self.comm
             )
