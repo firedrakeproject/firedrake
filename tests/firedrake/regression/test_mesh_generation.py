@@ -508,3 +508,61 @@ def test_immerse_mesh():
     # end_immerse
 
     new_mesh  # Variable reference to silence linter.
+
+
+def test_triangulated_mesh_unit_square():
+    # Four corners triangulate to two cells covering the unit square, so the
+    # integral of 1 is the area regardless of how Qhull splits the diagonal.
+    points = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]
+    m = TriangulatedMesh(points)
+    assert m.geometric_dimension == 2
+    assert m.topological_dimension == 2
+    assert abs(integrate_one(m) - 1.0) < 1e-10
+
+
+def test_triangulated_mesh_3d():
+    points = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    m = TriangulatedMesh(points)
+    assert m.geometric_dimension == 3
+    assert m.topological_dimension == 3
+    # Volume of the reference tetrahedron.
+    assert abs(integrate_one(m) - 1.0 / 6.0) < 1e-10
+
+
+def test_triangulated_mesh_random_points_area():
+    # A random cloud whose convex hull is the unit square: the triangulation
+    # covers the hull exactly, so the area is still 1.
+    rng = np.random.default_rng(42)
+    interior = rng.uniform(0.05, 0.95, size=(20, 2))
+    corners = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    m = TriangulatedMesh(np.vstack([corners, interior]))
+    assert m.num_cells() > 2
+    assert abs(integrate_one(m) - 1.0) < 1e-10
+
+
+def test_triangulated_mesh_perimeter():
+    m = TriangulatedMesh([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    # Perimeter of the unit square, via the exterior facets.
+    assert abs(assemble(Constant(1) * ds(domain=m)) - 4.0) < 1e-10
+
+
+@pytest.mark.parallel([1, 3])
+def test_triangulated_mesh_parallel():
+    # Each rank passes the same cloud. The distributed mesh must give the
+    # same area and perimeter in serial and in parallel.
+    rng = np.random.default_rng(42)
+    interior = rng.uniform(0.05, 0.95, size=(40, 2))
+    corners = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    m = TriangulatedMesh(np.vstack([corners, interior]))
+    assert abs(integrate_one(m) - 1.0) < 1e-10
+    assert abs(assemble(Constant(1) * ds(domain=m)) - 4.0) < 1e-10
+
+
+@pytest.mark.parametrize("bad, err", [
+    ([[0.0, 0.0], [1.0, 0.0]], "at least 3 points"),
+    ([[0.0, 0.0, 0.0, 0.0]] * 5, "2 or 3 dimensions"),
+    ([0.0, 1.0, 2.0], "must be a 2D array"),
+])
+def test_triangulated_mesh_rejects_bad_input(bad, err):
+    with pytest.raises(ValueError, match=err):
+        TriangulatedMesh(bad)
