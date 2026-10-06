@@ -23,6 +23,10 @@ def test_marking_callback_configures_refine_adaptor():
     with pytest.raises(RuntimeError):
         solver._ctx.set_snes(solver.snes)
 
+    ctx = solver._ctx.reconstruct()
+    ctx.set_snes(solver._ctx.snes)
+    assert ctx.snes == solver.snes
+
 
 @pytest.mark.skipnetgen
 def test_marking_callback_refine_hook_reconstructs_problem():

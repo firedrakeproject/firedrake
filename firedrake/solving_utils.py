@@ -297,13 +297,13 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
-    def set_snes(self, snes: PETSc.SNES) -> None:
+    def set_snes(self, snes: "PETSc.SNES | weakref.ProxyType") -> None:
         """Stash a weakref to the SNES wrapping this _SNESContext.
 
         Parameters
         ----------
         snes
-            The SNES that wraps this context.
+            The SNES that wraps this context, or a ``weakref.proxy`` to it.
 
         Raises
         ------
@@ -312,7 +312,9 @@ class _SNESContext(object):
         """
         if self.snes is not None:
             raise RuntimeError("This _SNESContext already has an SNES.")
-        self.snes = weakref.proxy(snes)
+        if not isinstance(snes, weakref.ProxyTypes):
+            snes = weakref.proxy(snes)
+        self.snes = snes
 
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
