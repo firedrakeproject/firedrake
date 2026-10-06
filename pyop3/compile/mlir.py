@@ -4,16 +4,19 @@ import functools
 import contextlib
 import numbers
 import types
+import numpy as np
 from typing import Any
 
 
 from immutabledict import immutabledict as idict
 
 from pyop3 import utils
+from pyop3.buffer import NullBuffer, ArrayBuffer
 
 from gem import gem, impero as imp 
 
 from xdsl.dialects import arith, func, memref, scf
+from xdsl.dialects import math as xmath
 from xdsl.builder import Builder, InsertPoint
 from xdsl.ir import SSAValue, Block, Region, Operation
 
@@ -29,6 +32,7 @@ from xdsl.dialects.builtin import (
     i32, i64, f32, f64,
     MemRefType,
     ModuleOp,
+    StringAttr,
     TensorType,
     UnitAttr,
 )
@@ -118,8 +122,8 @@ class MLIRBuilder():
       self._temporaries: dict[Any, tuple[SSAValue, tuple]] = dict()
 
       # Going to need this for globally defined constants - like quadrature weights 
-      self.globals: list[Operation] = [] 
-      self._global_cache: dict[Any, tuple[str, MemRefType]] = dict()
+      self.global_ops: list[Operations] = list()
+      self.globals: dict[Any, SSAValue] = dict() 
 
       self._name_generator = utils.UniqueNameGenerator()
       
@@ -136,13 +140,18 @@ class MLIRBuilder():
       :arg name: Name of generated MLIR kernel
       :arg args: gem.Variable in desired argument order. gem.Variables not provided are appended in order of visitation
       """
+      # FIXME: Come back to this. To determine if I want args in advance of build. 
       for variable in args:
-          self._create_buffer(variable)
+          self.register_buffer(variable)
       self.process(root)
       self._entry_block.add_op(func.ReturnOp())
       arg_types = tuple(a.type for a in self._entry_block.args)
       fn = func.FuncOp(name, (arg_types, ()), Region(self._entry_block))
-      return ModuleOp([*self.globals, fn])
+      modop = ModuleOp([*self.global_ops, fn])
+
+      modop.verify()
+
+      return modop
     
    # {{{ helpers 
 
@@ -238,13 +247,10 @@ class MLIRBuilder():
       a, b = self._align_scalars(a, b)
       return self.insert((float_op if is_float(a.type) else int_op)(a, b))
 
-    def _extent(self, index) -> int:
-      """ Return extent for index 
-      
-      Assuming that this could be an SSA value
-      But this could be an SSA value so revisit this. 
+    def get_extent(self, index) -> int:
+      """ 
 
-      Leaving wrapped as function for above concern.
+      Return extent for index as SSA 
 
       """
       extent = index.extent
@@ -252,69 +258,116 @@ class MLIRBuilder():
       if isinstance(extent, gem.Literal):
         return int(extent.value)
       elif isinstance(extent, numbers.Integral):
-        return extent 
+        return self.get_index_ssa(extent)
+      elif isinstance(extent, gem.Index):
+        return  
       else:
         raise NotImplementedError(f"Not prepared for value of type: {extent!r}")
 
     # }}} 
 
     # {{{ buffers and temporaries
+  
+    def collect_buffer(self, node) -> SSAValue:
+      """ Returns SSA value corresponding to buffer 
+
+      Buffer exists in either:
+      - self.globals as constant read-only, or
+      - self._buffer_args as a function/temporary argument 
+
+      If it does not exist, the buffer is registered
+      """
+
+      if node not in self._buffer_args and node not in self.globals:
+        self.register_buffer(node)
+      
+      if node in self.globals:
+        return self.globals[node]
+
+      return self._buffer_args[node] 
     
     @functools.singledispatchmethod
-    def _create_buffer(self, node) -> SSAValue:
+    def register_buffer(self, node) -> SSAValue:
       utils.raise_missing_dispatch_handler(node)
 
-    @_create_buffer.register(gem.Variable)
+    @register_buffer.register(gem.Variable)
     def _(self, node: gem.Variable) -> SSAValue:
-      if node.name in self._buffer_args: 
-        return self._buffer_args[node.name] 
-    
-      # NOTE: Assuming that the variables are function arguments.
-      # This is a mistake, Variable are just runtime-known values. 
-      # FIXME: Need to reconsider how to approach gem.Variable parsing
-      assert isinstance(node.shape[0], numbers.Integral)
-  
-      memref_type = MemRefType(get_mlir_type(node.dtype), node.shape)
+      """ Creates runtime-tensors
+      
+      Determining between function argument and temporary:
+      -> isinstance(node.data.buffer, NullBuffer) -> temporary
+      -> isinstance(node.data.buffer, ArrayBuffer) -> function argument 
 
-      # Insert buffer into end of function argument signature 
-      arg = self._entry_block.insert_arg(memref_type, len(self._entry_block.args))
-      arg.name_hint = node.name
-      self._buffer_args[node.name] = arg 
-      return self._buffer_args[node.name]
+      TODO: Opportunity to tag buffers with memory space attributes here 
+      """ 
+      # Assuming buffer is flat, we are doing one-form assembly anyway 
+      assert len(node.data.buffer.shape) == 1 
+      shape = list(map(int, node.data.buffer.shape))
+      mlir_type = get_mlir_type(node.dtype)
+      
+      # Working with temporary 
+      if isinstance(node.data.buffer, NullBuffer):
+        # We want to allocate here with this size and shape 
+        # TODO: Fix _alloc_temp and refactor this to use it
+        op = memref.AllocOp.get(mlir_type, shape=shape)
+        
+        # Insert temporary tensor at highest level (outside current brace nesting) 
+        Builder(InsertPoint.at_start(self._entry_block)).insert(op)
+        self._buffer_args[node] = op.results[0]
 
-    @_create_buffer.register(gem.Literal)
+      # Working with function argument
+      # TODO: Maybe want to assign as dynamic indices here...
+      elif isinstance(node.data.buffer, ArrayBuffer):
+        memref_type = MemRefType(mlir_type, shape=shape)
+        arg = self._entry_block.insert_arg(memref_type, len(self._entry_block.args)) 
+        arg.name_hint = node.name 
+        self._buffer_args[node] = arg 
+      
+      return self._buffer_args[node]
+
+    @register_buffer.register(gem.Literal)
     def _(self, node: gem.Literal) -> SSAValue:
       """ Define Literal (tensor-valued constant) as global constant read-only buffer """ 
       if node in self.globals:
-        return self.globals[node].results[0] 
+        return self.globals[node] 
       
       arr = node.array 
       mlir_type = get_mlir_type(node.dtype)
       memref_type = MemRefType(mlir_type, arr.shape)
+      # FIXME: Likely that the unique name portion of this is not working correctly 
+      name = self.unique_name("literal")
       
       value = DenseIntOrFPElementsAttr.from_list(
         TensorType(mlir_type, arr.shape), arr.data
       )
       
-      gop = memref.GlobalOp.get(
-        StringAttr("literal"),
+      # Registering the constant array 
+      global_op = memref.GlobalOp.get(
+        StringAttr(name),
         memref_type,
         value,
-        sym_visiblity=StringAttr("private"),
+        sym_visibility=StringAttr("private"),
         constant=UnitAttr()
       )
+      self.global_ops.append(global_op)
 
-      self.globals[node] = gop
+      get_ssa = self.insert(memref.GetGlobalOp(name, memref_type))
 
-      return self.globals[node].results[0]
+      self.globals[node] = get_ssa
+
+      return self.globals[node]
 
     def _alloc_temp(self, key, free_indices, elem_type) -> SSAValue:
-      # NOTE: AllocOps are used because AllocaOp bad on GPU
-      # Compiler pass can raise Alloc to Alloca
-      # Alloca = stack allocate, Alloc = heap allocate
-      # Deallocations required for alloc (and inserted with compiler pass)
+      """
+      NOTE: AllocOps are used because AllocaOp bad on GPU
+      Compiler pass can raise Alloc to Alloca
+      Alloca = stack allocate, Alloc = heap allocate
+      Deallocations required for alloc (and inserted with compiler pass)
+      """
+
       if key in self._temporaries:
           return self._temporaries[key][0]
+      # TODO: Come back to fix this extent function
       shape = tuple(self._extent(i) for i in free_indices)
       op = memref.AllocOp.get(elem_type, shape=shape)
 
@@ -346,34 +399,48 @@ class MLIRBuilder():
     def _(self, idx: gem.VariableIndex):
       return self._to_index(self.emit(idx.expression))
 
+    @get_index_ssa.register(gem.Index)
+    def _(self, idx: gem.Index):
+      if idx in self.symbol_table:
+        return self.symbol_table[idx]
+      
+      rhs = self.process(idx.extent)
+      return self._to_index(rhs)  
+
     @get_index_ssa.register(gem.Node)
-    def _(self, idx: gem.Node):
-      return self._to_index(self.emit(idx))
+    def _(self, node: gem.Node):
+      ssa = self.process(node)
+      return self._to_index(ssa)
 
     @functools.singledispatchmethod
     def get_address(self, node: Any):
       """(memref, indices) for an lvalue: Variable, or Indexed/Gather of one."""
       utils.raise_missing_dispatch_handler(node)
 
+    # FIXME: Again, a misunderstanding of gem.Variable
     @get_address.register(gem.Variable)
     def _(self, node):
-      return self._create_buffer(node), []
+      raise NotImplementedError
+      return self.collect_buffer(node), []
 
     @get_address.register(gem.Indexed)
     @get_address.register(gem.Gather)
     def _(self, node): 
-      assert isinstance(node.children[0], gem.Variable)
-      return (self._create_buffer(node.children[0]), [self.get_index_ssa(i) for i in node.multiindex])  
-  
+      
 
-    def _store(self, node, value: SSAValue, accumulate: bool = False) -> None:
-      buf, idx = self.get_address(node)
-      elem = buf.type.element_type
-      value = self._convert_type(value, elem)
-      if accumulate:
-        old = self.insert(memref.LoadOp.get(buf, idx))
-        value = self._binary(old, value, arith.AddfOp, arith.AddiOp)
-      self.insert(memref.StoreOp.get(value, buf, idx))
+      # Bug here is that we may encounter a ComponentTensor 
+      assert isinstance(node.children[0], gem.Variable)
+      return (self.collect_buffer(node.children[0]), [self.get_index_ssa(i) for i in node.multiindex])  
+
+    # TODO: This is not getting used 
+    # def _store(self, node, value: SSAValue, accumulate: bool = False) -> None:
+    #   buf, idx = self.get_address(node)
+    #   elem = buf.type.element_type
+    #   value = self._convert_type(value, elem)
+    #   if accumulate:
+    #     old = self.insert(memref.LoadOp.get(buf, idx))
+    #     value = self._binary(old, value, arith.AddfOp, arith.AddiOp)
+    #   self.insert(memref.StoreOp.get(value, buf, idx))
 
     # NOTE: Might avoid a dispatch function at this point 
     def emit(self, expr) -> SSAValue:
@@ -384,7 +451,6 @@ class MLIRBuilder():
         buf, _ = self._temporaries[expr]
         return self.insert(memref.LoadOp.get(buf, self._temp_indices(expr)))
       return self.process(expr)
-
 
     @functools.singledispatchmethod
     def index_into(self, aggregate, multiindex) -> SSAValue: 
@@ -405,10 +471,17 @@ class MLIRBuilder():
     @index_into.register(gem.Variable)
     @index_into.register(gem.Literal)
     def _(self, aggregate, multiindex) -> SSAValue:
-      buf = self._create_buffer(aggregate)
+      buf = self.collect_buffer(aggregate)
+      # Discuss problem with Connor later: multiinddex hosts indices for all indices associated with a variable
+      # i.e:
+      #  t_2[6l]
+      #  t_2[0] = dat_1[0] + dat_2[0]
+      #  t_2.multiindex = [0, 0, 0] 
+      # NOTE: Forcing only single index for now. 
+      indices = [self.get_index_ssa(i) for i in multiindex][:1]
       return self.insert(
         memref.LoadOp.get(
-          buf, [self.get_index_ssa(i) for i in multiindex]
+          buf, indices
         )
       )
 
@@ -439,7 +512,7 @@ class MLIRBuilder():
 
         linearised = term if linearised is None else self._binary(linearised, term, arith.AddfOp, arith.AddiOp)
 
-      # Sort of a ternary operator in MLIR
+      # Simulating a ternary operator in MLIR
       # Nested Select(Select(Select(...)))
       # Each element expression is eagerly evaluated this way 
       acc = self.emit(arr.flat[-1])
@@ -507,43 +580,56 @@ class MLIRBuilder():
       term = self._convert_type(self.emit(isum.children[0]), buf.type.element_type)
       old = self.insert(memref.LoadOp.get(buf, idx))
       new = self._binary(old, term, arith.AddfOp, arith.AddiOp)
-      self.insert(memref.StoreOp.get(new, buf, idx))
+      sop = memref.StoreOp.get(new, buf, idx) 
+      
+      self.insert(sop)
 
-    # NOTE: Are these necessary? How would they present in MLIR?
-    # Only of use if not buffer-type, memref changes buffer in-place. If returning scalar value. MLIR would need to have return type defined
     @process.register(imp.Return)
     def process_return(self, leaf):
-      self._store(leaf.variable, self.emit(leaf.expression))
+      """ Store value of expression into variable 
+      
+      If variable is Indexed - we store into the buffer
+      If variable is not Indexed, we just store by name into symbol table
+    
+      """ 
+      
+      # WILO: Not parsing the indirect memory accesses and return values correctly 
+      """
+      Fix the storage process:  
+      multiindex may be layered indices and we should collect a single SSA from the cumulative address process
+      i.e. def get_multiindex_ssa()
 
-    # Same as above. Albeit accumulate must happen. Could just redirect to accumulate. 
-    # @process.register(imp.ReturnAccumulate)
-    # def process_returnaccumulate(self, leaf):
-    #   ...
+      Fix the memref type: 
+      The "processed" value gives a f64 type but it should be a ?xf64 aligned with the memref type
+        
+      """
+        
+      var = leaf.variable 
+      
+      if not isinstance(var, gem.Indexed):
+        rhs = self.process(var.expression)
+        self.symbol_table[var.name] = rhs
+        return
 
-    # @process.register(imp.Evaluate) 
-    # def process_evaluate(self, leaf):
-    #   """ Assign temporary, mapping expr to SSA for re-use """ 
-    #   # Some serious issues in this portion of code to debug
-    #   expr = leaf.expression
-    #   if expr in self._temporaries:
-    #       return
-    #   if expr.shape:
-    #       raise NotImplementedError("Evaluate of a tensor-valued expression")
-    #   value = self.process(expr)
-    #   buf = self._alloc_temp(expr, expr.free_indices, value.type)
-    #   self.insert(memref.StoreOp.get(value, buf, self._temp_indices(expr)))
+      buf, idx = self.get_address(var) 
+      value = self.process(leaf.expression)
+
+      sop = memref.StoreOp.get(buf, value, idx)
+      breakpoint()
+      self.insert(sop)
+      return 
 
     @process.register(imp.Evaluate)
     def process_evaluate(self, leaf):
       """ Calculate value within expression and assign to temporary """
       expr = leaf.expression
       
-      if expr in self._temporaries:
-        return self._temporaries[expr]
+      if expr in self.symbol_table:
+        return self.symbol_table[expr]
 
       value = self.process(expr)
-
-      # WILO: How do I deal with gem.Index / baseless evaluate expressions 
+      self.symbol_table.define(expr, value)
+      return self.symbol_table[expr]
 
     # }}}
 
@@ -563,16 +649,27 @@ class MLIRBuilder():
       else:    
         return self._const(leaf.value, get_mlir_type(leaf.dtype))
 
+    # FIXME: This implementation makes no sense 
     @process.register(gem.Variable)
     def _(self, leaf):
+      raise NotImplementedError
       if leaf.shape:
         raise NotImplementedError(f"Variable {leaf.name} is tensor-valued; it must be indexed")
-      return self.insert(memref.LoadOp.get(self._create_buffer(leaf), []))
+      return self.insert(memref.LoadOp.get(self.collect_buffer(leaf), []))
 
     @process.register(gem.Index)
     def _(self, leaf):
+      if leaf not in self.symbol_table:
+        # Really hope that this exists for all indices
+        assert leaf.extent.value 
+        
+        # TODO: Should be using get_index_ssa
+        index_ssa = self._const(leaf.extent.value, INDEX_TYPE) 
+        self.symbol_table.define(leaf, index_ssa)
+
       return self.symbol_table[leaf] 
 
+    # TODO: I am not parsing this correctly 
     @process.register(gem.VariableIndex)
     def _(self, leaf):
       return self.emit(leaf.expression)
@@ -584,7 +681,6 @@ class MLIRBuilder():
     @process.register(gem.ComponentTensor)
     def _(self, leaf):
       raise NotImplementedError("ComponentTensor is only valid beneath Indexed")
-
 
     @process.register(gem.IndexSum)
     def _(self, leaf):
@@ -599,25 +695,24 @@ class MLIRBuilder():
 
     # {{{ gem operations 
 
-
     @process.register(gem.Sum)
     def _expression_sum(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       return self._binary(a, b, arith.AddfOp, arith.AddiOp)
 
     @process.register(gem.Product)
     def _expression_product(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       return self._binary(a, b, arith.MulfOp, arith.MuliOp)
 
     @process.register(gem.Division)
     def _expression_division(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       return self._binary(a, b, arith.DivfOp, arith.DivSIOp)
 
     @process.register(gem.FloorDiv)
     def _expression_floordiv(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       a, b = self._align_scalars(a, b)
 
       assert not is_float(a.type)
@@ -626,7 +721,7 @@ class MLIRBuilder():
 
     @process.register(gem.Remainder)
     def _expression_remainder(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       a, b = self._align_scalars(a, b)
       
       assert not is_float(a.type)
@@ -635,22 +730,22 @@ class MLIRBuilder():
 
     @process.register(gem.LogicalAnd)
     def _expression_logicaland(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       return self.insert(arith.AndIOp(a, b))
 
     @process.register(gem.LogicalOr)
     def _expression_logicalor(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       return self.insert(arith.OrIOp(a, b))
 
     @process.register(gem.MinValue)
     def _expression_min(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       return self._binary(a, b, arith.MinimumfOp, arith.MinSIOp)
 
     @process.register(gem.MaxValue)
     def _expression_max(self, expr):
-      a, b = (self.emit(c) for c in expr.children)
+      a, b = (self.process(c) for c in expr.children)
       return self._binary(a, b, arith.MaximumfOp, arith.MaxSIOp)
 
     _CMPF = {"<": "olt", "<=": "ole", ">": "ogt", ">=": "oge", "==": "oeq", "!=": "one"}
@@ -659,7 +754,7 @@ class MLIRBuilder():
 
     @process.register(gem.Comparison)
     def _(self, expr):
-      a, b = self._align_scalars(*(self.emit(c) for c in expr.children))
+      a, b = self._align_scalars(*(self.process(c) for c in expr.children))
       if is_float(a.type):
         return self.insert(arith.CmpfOp(a, b, self._CMPF[expr.operator]))
       return self.insert(arith.CmpiOp(a, b, self._CMPI[expr.operator]))
@@ -668,10 +763,18 @@ class MLIRBuilder():
     def _(self, expr):
       # NOTE: Worth noting that arith.select is eager
       # scf.if may be better if branch leads to div-by-zero
-      cond, then, else_ = (self.emit(c) for c in expr.children)
+      cond, then, else_ = (self.process(c) for c in expr.children)
       then, else_ = self._align_scalars(then, else_)
       return self.insert(arith.SelectOp(cond, then, else_))
 
+    # TODO: Need to deal with more possible functions 
+    @process.register(gem.MathFunction)
+    def _(self, expr):
+      name = expr.name
+      args = [self.process(c) for c in expr.children]
+      if name == "abs":
+        return self.insert((xmath.AbsFOp if is_float(args[0].type) else xmath.AbsIOp)(args[0]))
+    
     # }}} 
 
     # {{{ misc types
@@ -686,9 +789,8 @@ class MLIRBuilder():
     def enter_for(self, index): 
       # Define SSA for extent, if it does not exist 
 
-      extent = self._extent(index)
       lb = self._const(0, INDEX_TYPE)
-      ub = self._const(extent, INDEX_TYPE)
+      ub = self.get_index_ssa(index.extent)
       step = self._const(1, INDEX_TYPE)
 
       for_op = scf.ForOp(lb, ub, step, [], Region(Block(arg_types=[INDEX_TYPE])))
@@ -696,7 +798,7 @@ class MLIRBuilder():
 
       body = for_op.body.block 
       self.symbol_table.push()
-      self.symbol_table.define(extent, body.args[0])
+      self.symbol_table.define(index, body.args[0])
       self._builder_stack.append(Builder(InsertPoint.at_end(body)))
 
       yield 

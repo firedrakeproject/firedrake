@@ -65,9 +65,12 @@ class GemExecutable(Executable):
         insns = []
         for insn in self.instructions:
             new_expr, = gem.impero_utils.preprocess_gem([insn.expression])
+            new_insn, = gem.impero_utils.preprocess_gem([insn.assignee])
             assert "ComponentTensor" not in repr(new_expr)
+            assert "ComponentTensor" not in repr(new_insn)
+
             new_insn = gem.impero.Assignment(
-                assignee=insn.assignee,
+                assignee=new_insn,
                 expression=new_expr,
                 mode=insn.mode,
             )
