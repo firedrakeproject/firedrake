@@ -503,6 +503,7 @@ def _refine_adaptive(dm):
     markers change no cell, so that DMAdaptorAdapt() keeps the current DM and
     solution.
     """
+    from firedrake.adapt import follow_adaptive_parents
     from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import coarsen, refine
     from firedrake.mg.utils import get_level
@@ -518,9 +519,7 @@ def _refine_adaptive(dm):
         if hierarchy[level+1]._adaptive_parent is not mesh:
             raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
         # An earlier adaptation returned this mesh as an ancestor of finer levels.
-        hierarchy._follow_adaptive_parents(mesh)
-        if mesh_sequence is not mesh:
-            mesh_sequence.set_hierarchy()
+        follow_adaptive_parents(mesh_sequence)
     if ctx._marking_callback is None:
         raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
 
