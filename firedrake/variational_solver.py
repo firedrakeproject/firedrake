@@ -614,8 +614,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             # transferred. Only then can the levels follow the adaptive parents
             # of the adapted mesh.
             V = self._ctx._problem.u_restrict.function_space()
-            hierarchy, _ = get_level(V.mesh())
-            hierarchy._follow_adaptive_parents(V.mesh())
+            mesh_sequence = V.mesh()
+            mesh = mesh_sequence.unique()
+            hierarchy, _ = get_level(mesh)
+            hierarchy._follow_adaptive_parents(mesh)
+            if mesh_sequence is not mesh:
+                mesh_sequence.set_hierarchy()
             dmhooks.set_refine_level(V)
             # The saved setup hooks attach the data of the problem before adaptation.
             del self.setup_hooks

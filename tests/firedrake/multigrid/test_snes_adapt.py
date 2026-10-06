@@ -323,6 +323,65 @@ def test_snes_adapt_transient(linear_parameters):
         solver.get_coefficient(u_old).assign(u)
 
 
+@pytest.mark.parallel([1, 3])
+def test_snes_adapt_repeated_mixed_solve():
+    mesh = UnitSquareMesh(16, 16)
+    base_volume = 0.5 / 16**2
+    centre = Constant(0.1)
+    radius = 0.12
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    u = Function(W)
+    u0, u1 = split(u)
+    v0, v1 = TestFunctions(W)
+    F = inner(u0 - 1.0, v0) * dx + inner(u1 - 2.0, v1) * dx
+    marked_meshes = []
+    mat_types = []
+
+    def mark_cells(ctx, current_solution):
+        mesh = current_solution.function_space().mesh().unique()
+        marked_meshes.append(mesh)
+        mat_types.append(ctx.mat_type)
+        x = SpatialCoordinate(mesh)
+        inside = lt(sqrt((x[0] - centre)**2 + (x[1] - 0.5)**2), radius)
+        unrefined = gt(CellVolume(mesh), 0.75 * base_volume)
+        marker = conditional(inside, conditional(unrefined, 1, 0), -1)
+        M = FunctionSpace(mesh, "DG", 0)
+        return Function(M).interpolate(marker)
+
+    problem = NonlinearVariationalProblem(F, u)
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters={
+            "snes_adapt_sequence": 1,
+            "mat_type": "aij",
+            "ksp_type": "gmres",
+            "pc_type": "none",
+            "mg_levels_1": {
+                "mat_type": "aij",
+                "ksp_type": "gmres",
+                "pc_type": "none",
+            },
+            "mg_levels_2": {
+                "mat_type": "matfree",
+                "pmat_type": "matfree",
+                "ksp_type": "gmres",
+                "pc_type": "none",
+            },
+        },
+        marking_callback=mark_cells,
+    )
+    for step in range(3):
+        centre.assign(0.1 + 0.1 * step)
+        previous_mesh = solver.get_solution().function_space().mesh().unique()
+        solution = solver.solve()
+        adapted_mesh = solution.function_space().mesh().unique()
+        assert adapted_mesh is not previous_mesh
+        assert marked_meshes[-1] is previous_mesh
+        assert adapted_mesh.cell_set.size < 3 * mesh.cell_set.size
+    assert mat_types == ["aij", "aij", "matfree"]
+
+
 refine_left_half = lambda x: conditional(lt(x[0], 0.5), 1, 0)  # noqa: E731
 refine_left_quarter = lambda x: conditional(lt(x[0], 0.25), 1, 0)  # noqa: E731
 coarsen_left_quarter = lambda x: conditional(lt(x[0], 0.25), -1, 0)  # noqa: E731

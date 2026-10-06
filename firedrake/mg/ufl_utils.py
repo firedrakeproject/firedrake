@@ -391,8 +391,10 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
 
     # Get options prefix for current level
     parent_context = context
-    while get_relative(self, parent_context, reverse=True) is not None:
-        parent_context = get_relative(self, parent_context, reverse=True)
+    parent = get_relative(self, parent_context, reverse=True)
+    while parent is not None:
+        parent_context = parent
+        parent = get_relative(self, parent_context, reverse=True)
 
     parent_prefix = parent_context.options_prefix
     opts = PETSc.Options(parent_prefix)

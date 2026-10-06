@@ -511,14 +511,16 @@ def _refine_adaptive(dm):
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
-    mesh = current_solution.function_space().mesh()
+    mesh_sequence = current_solution.function_space().mesh()
+    mesh = mesh_sequence.unique()
     hierarchy, level = get_level(mesh)
     if hierarchy is not None and level+1 != len(hierarchy):
         if hierarchy[level+1]._adaptive_parent is not mesh:
             raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
-        # An earlier adaptation returned this mesh, which is an ancestor of
-        # the finer levels. The solution has been transferred since then.
+        # An earlier adaptation returned this mesh as an ancestor of finer levels.
         hierarchy._follow_adaptive_parents(mesh)
+        if mesh_sequence is not mesh:
+            mesh_sequence.set_hierarchy()
     if ctx._marking_callback is None:
         raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
 
@@ -548,6 +550,8 @@ def _refine_adaptive(dm):
         reconstruct = coarsen
     else:
         hierarchy.add_mesh(adapted_mesh)
+        if mesh_sequence is not mesh:
+            mesh_sequence.set_hierarchy()
         reconstruct = refine
     _, adapted_level = get_level(adapted_mesh)
     refined_ctx = ctx
