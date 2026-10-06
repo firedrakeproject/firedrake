@@ -93,9 +93,10 @@ class Scalar(Tensor):
     def comm(self) -> MPI.Comm:
         return self.buffer.comm
 
-    def concretize(self):
+    def concretize(self, *, linear=True):
         from pyop3.expr import as_linear_buffer_expression
 
+        assert linear
         return as_linear_buffer_expression(self)
 
     @property

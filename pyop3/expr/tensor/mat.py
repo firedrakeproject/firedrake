@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import operator
 import numbers
 import typing
 import weakref
@@ -335,10 +336,26 @@ class Mat(Tensor):
 
                 return self._array_view(array, row_indices, column_indices, mode)
             else:
-                assert mode == "ro"
+                if mode != "ro":
+                    raise pyop3.exceptions.InvalidArrayAccessException
                 row_indices = row_axes.buffer_slice(include_ghosts=True)
                 column_indices = column_axes.buffer_slice(include_ghosts=True)
                 return mat[row_indices, column_indices]
+
+        elif isinstance(self.buffer, pyop3.buffer.ArrayBuffer):
+            match mode:
+                case "ro":
+                    getter = operator.attrgetter("data_ro")
+                case "rw":
+                    getter = operator.attrgetter("data_rw")
+                case "wo":
+                    getter = operator.attrgetter("data_wo")
+                case _:
+                    raise AssertionError
+            row_indices = self.row_axes.buffer_slice(include_ghosts=True)
+            column_indices = self.column_axes.buffer_slice(include_ghosts=True)
+            return getter(self.buffer)[row_indices, column_indices]
+
         else:
             raise NotImplementedError
 

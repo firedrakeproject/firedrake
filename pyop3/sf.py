@@ -177,13 +177,13 @@ class StarForest(AbstractStarForest):
     def ileaf(self):
         return self.ilocal
 
-    # @cached_property
-    # def icore(self):
-    #     """Return the indices of points that are not roots or leaves."""
-    #     mask = np.full(self.size, True, dtype=bool)
-    #     mask[self.iroot] = False
-    #     mask[self.ileaf] = False
-    #     return utils.just_one(np.nonzero(mask))
+    @cached_property
+    def icore(self):
+        """Return the indices of points that are not roots or leaves."""
+        mask = np.full(self.size, True, dtype=bool)
+        mask[self.iroot] = False
+        mask[self.ileaf] = False
+        return np.flatnonzero(mask)
 
     @property
     def num_owned(self):

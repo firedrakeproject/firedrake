@@ -180,7 +180,7 @@ class AxisComponentRegion(pyop3.obj.Object):
 
         # this is a little clumsy
         if isinstance(size, Tensor):
-            size = size.concretize()
+            size = size.concretize(linear=True)
 
         object.__setattr__(self, "size", size)
         object.__setattr__(self, "label", label)
@@ -1201,7 +1201,8 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         # match for all leaves.
         blocked_tree = self.materialize()
         for block_size in reversed(block_shape):
-            block_axis = utils.single_valued(blocked_tree.leaves)
+            parent_paths = [parent_path(lp) for lp in blocked_tree.leaf_paths]
+            block_axis = utils.single_valued(blocked_tree.node_map[pp] for pp in parent_paths)
             assert block_axis.component.size == block_size
 
             index = ScalarIndex(block_axis.label, block_axis.component.label, 0)

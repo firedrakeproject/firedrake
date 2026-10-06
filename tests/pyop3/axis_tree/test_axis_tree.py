@@ -2,6 +2,7 @@ import collections
 import re
 
 import numpy as np
+import pytest
 from immutabledict import immutabledict as idict
 
 import pyop3 as op3
@@ -38,8 +39,8 @@ def test_ragged_axis_tree_subtree_sizes():
         "C",
     )
     axes = op3.AxisTree.from_iterable((axis1, axis2, axis3))
-    assert axes.size == 8
+    assert axes.local_size == 8
 
-    check_subtree_size(axes, ["A"], "(2 * array_#[i_{A}])", lambda i: 2 * [1, 2, 1][i])
-    check_subtree_size(axes, ["A", "B"], "array_#[i_{A}]", lambda i, j: [1, 2, 1][i])
+    check_subtree_size(axes, ["A"], "(2 * dat_#_buffer[i_{A}])", lambda i: 2 * [1, 2, 1][i])
+    check_subtree_size(axes, ["A", "B"], "dat_#_buffer[i_{A}]", lambda i, j: [1, 2, 1][i])
     check_subtree_size(axes, ["A", "B", "C"], "0", lambda i, j, k: 0)

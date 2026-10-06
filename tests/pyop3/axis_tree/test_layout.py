@@ -128,7 +128,7 @@ def test_ragged_with_scalar_subaxis():
     axis3 = op3.Axis(2, "C")
     axis_tree = op3.AxisTree.from_iterable((axis1, axis2, axis3))
 
-    assert axis_tree.size == 8
+    assert axis_tree.local_size == 8
 
     check_layout(
         axis_tree,
@@ -165,7 +165,7 @@ def test_ragged_with_multiple_ragged_subaxes():
     axis3 = op3.Axis(op3.Dat(axis2, data=np.asarray([1, 2], dtype=op3.IntType)), "C")
     axis_tree = op3.AxisTree.from_iterable((axis1, axis2, axis3))
 
-    assert axis_tree.size == 4
+    assert axis_tree.local_size == 4
 
     check_layout(axis_tree, ["A"], [(0,), (1,)], "array_#[i_{A}]", lambda i: [0, 1][i])
     check_layout(
@@ -196,7 +196,7 @@ def test_ragged_with_nonstandard_axis_ordering():
     axis3 = op3.Axis(op3.Dat(axis1, data=np.asarray([1, 2, 1], dtype=op3.IntType)), "C")
     axis_tree = op3.AxisTree.from_iterable((axis1, axis2, axis3))
 
-    assert axis_tree.size == 8
+    assert axis_tree.local_size == 8
 
     check_layout(
         axis_tree,
