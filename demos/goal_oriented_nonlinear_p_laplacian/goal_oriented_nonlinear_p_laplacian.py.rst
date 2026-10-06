@@ -91,22 +91,22 @@ facet-bubble spaces.  The resulting local problems are diagonal because each
 has one degree of freedom per cell or facet.
 
 Now the adaptive loop itself. ``snes_adapt_sequence`` is the *maximum* number
-of SOLVE--ESTIMATE--MARK--REFINE cycles. ``dwr_atol`` stops it early once the
-estimated error in the goal is small enough, and ``dwr_rtol`` gives a tolerance
+of SOLVE--ESTIMATE--MARK--REFINE cycles. ``goal_atol`` stops it early once the
+estimated error in the goal is small enough, and ``goal_rtol`` gives a tolerance
 relative to the absolute value of the current goal functional on the
 uncorrected, non-enriched solution.  If both tolerances are set, the loop stops
-when the estimate falls below the larger threshold.  ``dwr_marking_fraction``
+when the estimate falls below the larger threshold.  ``goal_marking_fraction``
 is the fraction of the total estimated error that Dörfler marking must
-capture, and ``dwr_monitor`` reports the estimate at each cycle:
+capture, and ``goal_monitor`` reports the estimate at each cycle:
 
 .. code-block:: python
 
   solver_parameters.update({
       "adaptor_criterion": "refine",
       "snes_adapt_sequence": 10,
-      "dwr_atol": 5.0e-3,
-      "dwr_marking_fraction": 0.5,
-      "dwr_monitor": None,
+      "goal_atol": 5.0e-3,
+      "goal_marking_fraction": 0.5,
+      "goal_monitor": None,
   })
 
 The adaptive loop is handled inside the solver.  It runs the configured
@@ -122,7 +122,7 @@ in general:
   solver = NonlinearVariationalSolver(
       problem,
       solver_parameters=solver_parameters,
-      marking_callback=DWRMarkingCallback(J, exact_solution=u_exact),
+      marking_callback=GoalOrientedMarker(J, exact_solution=u_exact),
   )
   uh = solver.solve()
 
@@ -138,15 +138,15 @@ it is the value that stopped the loop:
   print(f"error estimate: {solver.get_marking_callback().error_estimate:.6e}")
 
 The loop terminates after eight refinements, short of the ten it was allowed,
-because the estimate fell below ``dwr_atol``. The effectivity indices
+because the estimate fell below ``goal_atol``. The effectivity indices
 
 .. math::
 
     I = \frac{\eta}{J(u) - J(u_h)}
 
-printed by ``dwr_monitor`` stay close to one throughout, between roughly
+printed by ``goal_monitor`` stay close to one throughout, between roughly
 :math:`0.83` and :math:`1.30`. The estimate is therefore a faithful measure of
-the error it steers by. Tightening ``dwr_atol`` refines further and drives the
+the error it steers by. Tightening ``goal_atol`` refines further and drives the
 estimate down accordingly.
 
 Because the two parts of the estimate are reported separately, it is easy to see
@@ -160,7 +160,7 @@ By then the mesh is fine enough that the discretisation error falls below the
 algebraic error left by a ``snes_rtol`` of :math:`10^{-1}`. Further refinement
 is of no use: the algebraic error limits the accuracy of the goal, not the
 mesh. Tightening ``snes_rtol`` and ``snes_atol`` is what helps. Here the
-estimate already sits within ``dwr_atol``, so the warning is safe to ignore.
+estimate already sits within ``goal_atol``, so the warning is safe to ignore.
 
 Finally we plot the adapted mesh. The refinement concentrates near the top
 boundary, where the goal functional lives. Refinement driven by a global energy

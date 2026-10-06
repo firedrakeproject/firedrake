@@ -405,7 +405,7 @@ def test_goal_oriented_marker_reconstructs_exact_solution():
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_marking_callback_mixed_space():
+def test_goal_oriented_marker_mixed_space():
     mesh = UnitSquareMesh(2, 2)
     W = FunctionSpace(mesh, "RT", 1) * FunctionSpace(mesh, "DG", 0)
     w = Function(W)
@@ -416,11 +416,11 @@ def test_dwr_marking_callback_mixed_space():
     goal = inner(sigma, n)*ds(2)
 
     num_refinements = 2
-    parameters = _dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", num_refinements)
+    parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", num_refinements)
     parameters["pc_factor_mat_solver_type"] = "mumps"
     problem = NonlinearVariationalProblem(F, w)
     solver = NonlinearVariationalSolver(
-        problem, solver_parameters=parameters, marking_callback=DWRMarkingCallback(goal),
+        problem, solver_parameters=parameters, marking_callback=GoalOrientedMarker(goal),
     )
     result = solver.solve()
 
