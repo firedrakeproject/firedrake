@@ -377,6 +377,9 @@ def test_snes_adapt_repeated_mixed_solve():
         solution = solver.solve()
         adapted_mesh = solution.function_space().mesh().unique()
         assert adapted_mesh is not previous_mesh
+        hierarchy, level = get_level(adapted_mesh)
+        sequence_hierarchy, sequence_level = get_level(solution.function_space().mesh())
+        assert (len(sequence_hierarchy), sequence_level) == (len(hierarchy), level)
         assert marked_meshes[-1] is previous_mesh
         assert adapted_mesh.cell_set.size < 3 * mesh.cell_set.size
     assert mat_types == ["aij", "aij", "matfree"]
