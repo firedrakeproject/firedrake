@@ -332,6 +332,21 @@ def test_input_ordering_missing_point():
         _ = len(data_input_ordering.dat.data_ro)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+def test_input_ordering_missing_point_reduction(access):
+    m = UnitIntervalMesh(4)
+    points = np.asarray([[0.125], [0.375], [5.0]])
+    vm = VertexOnlyMesh(m, points, missing_points_behaviour="ignore")
+    u = Function(FunctionSpace(vm, "DG", 0)).assign(1.0)
+    P0DG_input_ordering = FunctionSpace(vm.input_ordering, "DG", 0)
+
+    # The missing point receives no value, as it does with WRITE.
+    written = assemble(interpolate(u, P0DG_input_ordering))
+    reduced = assemble(interpolate(u, P0DG_input_ordering, access=access))
+    assert np.allclose(reduced.dat.data_ro, written.dat.data_ro)
+
+
 @pytest.fixture(
     params=[
         ((2, 2), None),
