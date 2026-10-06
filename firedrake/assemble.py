@@ -320,7 +320,7 @@ class AbstractFormAssembler(abc.ABC):
         """
 
 
-def dual_slot_coargument(expr, dual):
+def replace_dual_slot_by_coargument(expr, dual):
     """Replace the dual slot of a base form operator by a coargument.
 
     Parameters
@@ -685,8 +685,9 @@ class BaseFormAssembler(AbstractFormAssembler):
                 expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
             if expr.assembly_method() is None and isinstance(v, (firedrake.Cofunction, MatrixBase)):
                 # Contract the external operator with its assembled dual slot.
-                result = dual_slot_coargument(expr, v).assemble(assembly_opts=opts)
-                return contract(contracted_arguments(result, v), result, v, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
+                expr = replace_dual_slot_by_coargument(expr, v)
+                result = expr.assemble(assembly_opts=opts)
+                return contract(contracted_arguments(expr, v), result, v, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
             # Call the external operator assembly
             result = expr.assemble(assembly_opts=opts)
             return tensor.assign(result) if tensor else result
@@ -703,9 +704,9 @@ class BaseFormAssembler(AbstractFormAssembler):
 
             if isinstance(v, MatrixBase):
                 # Contract the interpolation with its assembled dual slot.
-                interpolator = get_interpolator(dual_slot_coargument(expr, v))
-                result = interpolator.assemble(bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
-                return contract(contracted_arguments(result, v), result, v, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
+                expr = replace_dual_slot_by_coargument(expr, v)
+                result = get_interpolator(expr).assemble(bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
+                return contract(contracted_arguments(expr, v), result, v, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
@@ -850,7 +851,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                dNdu(u; uhat, v*)
 
             (5) N(u; w) (scalar valued) is not restructured: UFL simplifies Action(N(u; v*), w) to N(u; w).
-                It is assembled as the contraction of N(u; v*) with w (see `dual_slot_coargument`).
+                It is assembled as the contraction of N(u; v*) with w (see `replace_dual_slot_by_coargument`).
 
         So from Action(Action(dFdN, dNdu(u; v*)), w) we get:
 
