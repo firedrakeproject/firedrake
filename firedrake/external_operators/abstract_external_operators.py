@@ -137,6 +137,27 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
             return assemble
         return decorator
 
+    def _assembly_key(self):
+        """Return the identifier of the assembly method of this external operator."""
+        arguments = tuple(arg.number() if isinstance(arg, BaseArgument) else None for arg in self.argument_slots())
+        return (self.derivatives, arguments)
+
+    def assembly_method(self):
+        """Return the assembly method of this external operator, or None if there is none.
+
+        Returns
+        -------
+        Callable or None
+            The method registered with :func:`assemble_method` for the derivatives and the argument slots of this operator.
+        """
+        derivs, arguments = self._assembly_key()
+        assembly_registry = self._assembly_registry
+        if (derivs, arguments) in assembly_registry:
+            return assembly_registry[(derivs, arguments)]
+        # User can provide the sum of derivatives instead of the multi-index
+        #  => This is useful for arbitrary operators where the number of operators is unknwon a priori.
+        return assembly_registry.get((sum(derivs), arguments))
+
     def assemble(self, assembly_opts=None):
         """External operator assembly
 
@@ -166,25 +187,12 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
                 err_msg = "Cannot assemble external operators with more than 2 arguments! You need to take the action!"
             raise ValueError(err_msg)
 
-        # -- Construct assembly identifier of the external operator `self` -- #
-
-        derivs = self.derivatives
-        arguments = tuple(arg.number() if isinstance(arg, BaseArgument) else None for arg in self.argument_slots())
-        key = (derivs, arguments)
-
         # -- Get assembly methods -- #
 
-        assembly_registry = self._assembly_registry
-        try:
-            assemble = assembly_registry[key]
-        except KeyError:
-            try:
-                # User can provide the sum of derivatives instead of the multi-index
-                #  => This is useful for arbitrary operators where the number of operators is unknwon a priori.
-                assemble = assembly_registry[(sum(key[0]), key[1])]
-            except KeyError:
-                raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
-                                           + ' has an implementation for %s !') % (type(self).__name__, str(key)))
+        assemble = self.assembly_method()
+        if assemble is None:
+            raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
+                                       + ' has an implementation for %s !') % (type(self).__name__, str(self._assembly_key())))
 
         # -- Assemble -- #
         result = assemble(self, assembly_opts=assembly_opts)
