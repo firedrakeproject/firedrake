@@ -303,7 +303,7 @@ class _SNESContext(object):
         Parameters
         ----------
         snes
-            The SNES that wraps this context, or a ``weakref.proxy`` to it.
+            The SNES associated with this context, or a ``weakref.proxy`` to it.
 
         Raises
         ------
