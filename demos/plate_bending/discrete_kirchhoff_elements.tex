@@ -1,0 +1,38 @@
+\documentclass[tikz,border=2pt]{standalone}
+\usepackage[utf8]{inputenc}
+% Glyphs shared by all element diagrams of the plate bending demo
+\tikzset{
+    cell/.style={draw=black, thick},
+    edge dof/.style={->, ultra thick, black},
+    operator/.style={->, very thick, black},
+}
+\newcommand{\scalardof}[1]{\fill[black] #1 circle (2pt);}
+\newcommand{\vectordof}[1]{\fill[black] #1 ++(-0.08,0) circle (2pt); \fill[black] #1 ++(0.08,0) circle (2pt);}
+\newcommand{\gradientdof}[1]{\draw[black, thick] #1 circle (4pt);}
+\begin{document}
+\begin{tikzpicture}
+
+    % Reduced Hermite element: vertex values and vertex gradients
+    \begin{scope}[shift={(0,0)}]
+        \filldraw[fill=yellow!20, cell] (0,0) -- (2,0) -- (1,1.732) -- cycle;
+        \foreach \p in {(0,0), (2,0), (1,1.732)} {\scalardof{\p} \gradientdof{\p}}
+        \node at (1,-0.5) {Reduced Hermite $W_h$};
+    \end{scope}
+
+    % Discrete gradient
+    \draw[operator] (2.6,0.866) -- (3.9,0.866);
+    \node at (3.25,1.25) {$\nabla_h^\Theta$};
+
+    % Rotated Bernardi-Raugel element: vector values at the vertices and
+    % tangential moments on the edges
+    \begin{scope}[shift={(4.5,0)}]
+        \filldraw[fill=cyan!20, cell] (0,0) -- (2,0) -- (1,1.732) -- cycle;
+        \draw[edge dof] (0.65,0) -- (1.35,0);
+        \draw[edge dof] (1.675,0.563) -- (1.325,1.169);
+        \draw[edge dof] (0.675,1.169) -- (0.325,0.563);
+        \foreach \p in {(0,0), (2,0), (1,1.732)} {\vectordof{\p}}
+        \node at (1,-0.5) {Rotated Bernardi--Raugel $\Theta_h$};
+    \end{scope}
+
+\end{tikzpicture}
+\end{document}
