@@ -129,14 +129,15 @@ def check_convergence(solver: PETSc.SNES | PETSc.KSP) -> None:
     """
     r = solver.getConvergedReason()
     if r < 0:
-        snes = isinstance(solver, PETSc.SNES)
-        kind, reasons = ("Nonlinear", SNESReasons) if snes else ("Linear", KSPReasons)
+        is_snes = isinstance(solver, PETSc.SNES)
+        kind, reasons = ("Nonlinear", SNESReasons) if is_snes else ("Linear", KSPReasons)
         reason = reasons.get(r, "unknown reason (petsc4py enum incomplete?), "
                                 "try with -snes_converged_reason and -ksp_converged_reason")
         error = ConvergenceError(f"{kind} solve failed to converge after "
                                  f"{solver.getIterationNumber()} iterations.\nReason:\n   {reason}")
         try:
-            snes and check_convergence(solver.getKSP())
+            if is_snes:
+                check_convergence(solver.getKSP())
         except ConvergenceError as cause:
             raise error from cause
         raise error
