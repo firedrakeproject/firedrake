@@ -95,6 +95,14 @@ def _skip_test_dependency(dependency):
         except ImportError:
             return skip
 
+    elif dependency == "pygraphviz":
+        try:
+            import pygraphviz  # noqa: F401
+            del pygraphviz
+            return not skip
+        except ImportError:
+            return skip
+
     elif dependency in ("mumps", "hypre"):
         return dependency not in get_external_packages()
 
@@ -111,6 +119,7 @@ dependency_skip_markers_and_reasons = (
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
     ("vtk", "skipvtk", "VTK is not installed"),
+    ("pygraphviz", "skipgraphviz", "pygraphviz is not installed"),
 )
 
 
@@ -145,6 +154,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "skipvtk: mark as skipped if vtk is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipgraphviz: mark as skipped if pygraphviz is not installed"
     )
     config.addinivalue_line(
         "markers",

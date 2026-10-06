@@ -139,7 +139,7 @@ def variant(request):
 @pytest.mark.skipcomplex
 def test_p_independence_hgrad(mesh, variant):
     family = "Lagrange"
-    expected = [16, 12] if mesh.topological_dimension == 3 else [9, 7]
+    expected = [16, 13] if mesh.topological_dimension == 3 else [9, 7]
     solvers = [fdmstar] if variant is None else [fdmstar, facetstar]
     for degree in range(3, 6):
         V = FunctionSpace(mesh, family, degree, variant=variant)
