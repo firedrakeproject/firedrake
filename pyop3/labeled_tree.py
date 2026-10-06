@@ -311,7 +311,9 @@ class LabeledTree(AbstractLabeledTreeLike):
 
     @cached_property
     def leaves(self) -> tuple[Node]:
-        return tuple(self.node_map[parent_path(leaf_path)] for leaf_path in self.leaf_paths)
+        assert False, "old code"
+    #     # Note that this doesn't quite do the right thing for multicomponent axes
+    #     return tuple(self.node_map[parent_path(leaf_path)] for leaf_path in self.leaf_paths)
 
     @property
     def is_linear(self) -> bool:
@@ -594,8 +596,13 @@ class MutableLabeledTreeMixin:
         to_drop = self.node_map[path]
 
         above = self.drop_subtree(path, allow_empty_subtree=True)
-        below = self.subtree(path | {to_drop.label: to_drop.component_label})
-        return above.add_subtree(path, below)
+
+        if path in {parent_path(lp) for lp in self.leaf_paths}:
+            # We are dropping a leaf node, nothing below to add back
+            return above
+        else:
+            below = self.subtree(path | {to_drop.label: to_drop.component_label})
+            return above.add_subtree(path, below)
 
 
 def as_component_label(component):

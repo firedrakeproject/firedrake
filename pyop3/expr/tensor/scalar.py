@@ -28,6 +28,7 @@ class Scalar(Tensor):
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self.buffer))
 
+    # TODO: It would be nice to accept dtype here to alloc an empty thing
     def __init__(
         self,
         value: numbers.Number | None = None,

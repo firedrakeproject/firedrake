@@ -17,6 +17,10 @@ class ValueMismatchException(Pyop3Exception):
     pass
 
 
+class MultipleUniqueEntriesException(Pyop3Exception):
+    pass
+
+
 class UnhashableObjectException(Pyop3Exception, TypeError):
     pass
 

@@ -112,7 +112,7 @@ def single_valued(iterable):
 
     for item in items:
         if not safe_equals(first, item):
-            raise RuntimeError
+            raise pyop3.exceptions.MultipleUniqueEntriesException("Iterable contains more than one unique value")
 
     return first
 

@@ -300,8 +300,8 @@ class Dat(Tensor):
     def _full_str(self) -> str:
         try:
             return "\n".join(
-                f"{self.name}[{self.axes.layouts2[self.axes.path(leaf)]}]"
-                for leaf in self.axes.leaves
+                f"{self.name}[{self.axes.layouts2[leaf_path]}]"
+                for leaf in self.axes.leaf_paths
             )
         # FIXME: lazy fallback because failures make debugging annoying
         except:

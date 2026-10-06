@@ -52,29 +52,24 @@ def sf(comm):
     return sf
 
 
-@pytest.fixture
-def paxis(comm, sf):
-    # abort in serial
-    if comm.size == 1:
-        return
-
-    if sf.comm.rank == 0:
-        numbering = [0, 1, 3, 2, 4, 5]
-    else:
-        assert sf.comm.rank == 1
-        numbering = [0, 4, 1, 2, 5, 3]
-    serial = op3.Axis(6, numbering=numbering)
-    return op3.Axis.from_serial(serial, sf)
-
-
 class Helper:
+
+    @classmethod
+    def set_kernel(cls, value, dtype=op3.ScalarType):
+        inames = cls._inames_from_shape((1,))
+        inames_str = ",".join(inames)
+        insn = f"y[{inames_str}] = {value}"
+
+        lpy_kernel = cls._loopy_kernel((1,), insn, ["y"], dtype)
+        return op3.Function(lpy_kernel, [op3.WRITE])
+
     @classmethod
     def copy_kernel(cls, shape, dtype=op3.ScalarType):
         inames = cls._inames_from_shape(shape)
         inames_str = ",".join(inames)
         insn = f"y[{inames_str}] = x[{inames_str}]"
 
-        lpy_kernel = cls._loopy_kernel(shape, insn, dtype)
+        lpy_kernel = cls._loopy_kernel(shape, insn, ["x", "y"], dtype)
         return op3.Function(lpy_kernel, [op3.READ, op3.WRITE])
 
     @classmethod
@@ -83,7 +78,7 @@ class Helper:
         inames_str = ",".join(inames)
         insn = f"y[{inames_str}] = y[{inames_str}] + x[{inames_str}]"
 
-        lpy_kernel = cls._loopy_kernel(shape, insn, dtype)
+        lpy_kernel = cls._loopy_kernel(shape, insn, ["x", "y"], dtype)
         return op3.Function(lpy_kernel, [op3.READ, op3.INC])
 
     @classmethod
@@ -93,7 +88,7 @@ class Helper:
         return tuple(f"i_{i}" for i, _ in enumerate(shape))
 
     @classmethod
-    def _loopy_kernel(cls, shape, insns, dtype):
+    def _loopy_kernel(cls, shape, insns, argnames, dtype):
         if isinstance(shape, numbers.Number):
             shape = (shape,)
 
@@ -104,69 +99,12 @@ class Helper:
         return lp.make_kernel(
             domains,
             insns,
-            [
-                lp.GlobalArg("x", shape=shape, dtype=dtype),
-                lp.GlobalArg("y", shape=shape, dtype=dtype),
-            ],
-            target=op3.ir.LOOPY_TARGET,
-            lang_version=op3.ir.LOOPY_LANG_VERSION,
+            [lp.GlobalArg(name, shape=shape, dtype=dtype) for name in argnames],
+            target=op3.compile.loopy.LOOPY_TARGET,
+            lang_version=op3.compile.loopy.LOOPY_LANG_VERSION,
         )
 
 
 @pytest.fixture(scope="session")
 def factory():
     return Helper()
-
-
-import loopy as lp
-import pytest
-
-from pyop3 import INC, READ, WRITE, Function, IntType, ScalarType
-
-
-@pytest.fixture
-def scalar_copy_kernel():
-    code = lp.make_kernel(
-        "{ [i]: 0 <= i < 1 }",
-        "y[i] = x[i]",
-        [
-            lp.GlobalArg("x", ScalarType, (1,), is_input=True, is_output=False),
-            lp.GlobalArg("y", ScalarType, (1,), is_input=False, is_output=True),
-        ],
-        name="scalar_copy",
-        target=LOOPY_TARGET,
-        lang_version=LOOPY_LANG_VERSION,
-    )
-    return Function(code, [READ, WRITE])
-
-
-@pytest.fixture
-def scalar_copy_kernel_int():
-    code = lp.make_kernel(
-        "{ [i]: 0 <= i < 1 }",
-        "y[i] = x[i]",
-        [
-            lp.GlobalArg("x", IntType, (1,), is_input=True, is_output=False),
-            lp.GlobalArg("y", IntType, (1,), is_input=False, is_output=True),
-        ],
-        name="scalar_copy_int",
-        target=LOOPY_TARGET,
-        lang_version=LOOPY_LANG_VERSION,
-    )
-    return Function(code, [READ, WRITE])
-
-
-@pytest.fixture
-def scalar_inc_kernel():
-    lpy_kernel = lp.make_kernel(
-        "{ [i]: 0 <= i < 1 }",
-        "y[i] = y[i] + x[i]",
-        [
-            lp.GlobalArg("x", ScalarType, (1,), is_input=True, is_output=False),
-            lp.GlobalArg("y", ScalarType, (1,), is_input=True, is_output=True),
-        ],
-        name="scalar_inc",
-        target=LOOPY_TARGET,
-        lang_version=LOOPY_LANG_VERSION,
-    )
-    return Function(lpy_kernel, [READ, INC])

@@ -224,7 +224,7 @@ def _index_forest_from_iterable(indices, axes, loop_context, *, path):
             if len(cf_index.leaf_target_paths) > 1:
                 path_ = None  # disable Python slice parsing
             else:
-                path_ = path | cf_index.leaf_target_paths[0][component_index]
+                path_ = path | list(cf_index.leaf_target_paths[0])[component_index]
 
             # Each index can produce multiple index trees because of equivalent
             # targets, so we have to collect all of them.
