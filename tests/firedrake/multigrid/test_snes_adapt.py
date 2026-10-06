@@ -25,6 +25,12 @@ def test_marking_callback_configures_refine_adaptor():
     assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
     assert solver._ctx.snes == solver.snes
+    with pytest.raises(RuntimeError):
+        solver._ctx.set_snes(solver.snes)
+
+    ctx = solver._ctx.reconstruct()
+    ctx.set_snes(solver._ctx.snes)
+    assert ctx.snes == solver.snes
 
 
 def test_solve_accepts_marking_callback():

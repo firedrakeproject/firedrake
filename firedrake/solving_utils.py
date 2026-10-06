@@ -238,6 +238,7 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
+        # The solver creates the SNES after this context, so set_snes sets it later.
         self.snes = None
 
         self.fcp = problem.form_compiler_parameters
@@ -311,17 +312,24 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
-    def set_snes(self, snes: PETSc.SNES | None) -> None:
-        """Set the SNES associated with this context.
+    def set_snes(self, snes: "PETSc.SNES | weakref.ProxyType") -> None:
+        """Stash a weakref to the SNES wrapping this _SNESContext.
 
         Parameters
         ----------
         snes
-            The SNES, or a ``weakref.proxy`` to one, to associate with this
-            context. Pass ``None`` to clear the association.
+            The SNES associated with this context, or a ``weakref.proxy`` to it.
+
+        Raises
+        ------
+        RuntimeError
+            If an SNES is already associated with this context.
         """
-        self.snes = (snes if snes is None or isinstance(snes, weakref.ProxyTypes)
-                     else weakref.proxy(snes))
+        if self.snes is not None:
+            raise RuntimeError("This _SNESContext already has an SNES.")
+        if not isinstance(snes, weakref.ProxyTypes):
+            snes = weakref.proxy(snes)
+        self.snes = snes
 
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
