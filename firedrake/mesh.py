@@ -3057,6 +3057,13 @@ values from f.)"""
         yield self
 
     def unique(self):
+        """Return this mesh as the only mesh in its domain.
+
+        Returns
+        -------
+        MeshGeometry
+            This mesh.
+        """
         return self
 
     @PETSc.Log.EventDecorator()
@@ -5388,6 +5395,8 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         """Set mesh hierarchy if needed."""
         from firedrake.mg.utils import set_level, get_level, has_level
 
+        old_hierarchy, _ = get_level(self)
+
         # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
         if all(not has_level(m) for m in self._meshes):
             return
@@ -5406,6 +5415,16 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         for ilevel in range(nlevels):
             if ilevel == level:
                 result.append(self)
+            elif old_hierarchy is not None and ilevel < len(old_hierarchy):
+                old_mesh_sequence = old_hierarchy[ilevel]
+                # Contexts retain these wrappers, so keep them when their meshes still match.
+                if (len(old_mesh_sequence) == len(hierarchy_list)
+                        and all(old_mesh is hierarchy[ilevel]
+                                for old_mesh, hierarchy in zip(old_mesh_sequence, hierarchy_list))):
+                    result.append(old_mesh_sequence)
+                else:
+                    result.append(MeshSequenceGeometry(
+                        [hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
             else:
                 result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
         result = tuple(result)
