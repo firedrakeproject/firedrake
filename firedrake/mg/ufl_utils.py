@@ -6,7 +6,7 @@ from functools import singledispatch, singledispatchmethod, partial
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
-from firedrake.dwr import DWRMarkingCallback
+from firedrake.adapt import GoalOrientedMarker
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
@@ -463,8 +463,8 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     return new_context
 
 
-@_reconstruct.register(DWRMarkingCallback)
-def reconstruct_dwr_marking_callback(callback, self, coefficient_mapping=None):
+@_reconstruct.register(GoalOrientedMarker)
+def reconstruct_goal_oriented_marker(callback, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     goal = self(callback.goal_functional, self, coefficient_mapping=coefficient_mapping)

@@ -135,15 +135,16 @@ def check_convergence(solver: PETSc.SNES | PETSc.KSP) -> None:
                                 "try with -snes_converged_reason and -ksp_converged_reason")
         error = ConvergenceError(f"{kind} solve failed to converge after "
                                  f"{solver.getIterationNumber()} iterations.\nReason:\n   {reason}")
-        try:
-            if is_snes:
+        if is_snes:
+            try:
                 check_convergence(solver.getKSP())
-        except ConvergenceError as cause:
-            raise error from cause
-        raise error
+            except ConvergenceError as cause:
+                raise error from cause
+        else:
+            raise error
 
 
-class _SNESContext(object):
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -194,14 +195,6 @@ class _SNESContext(object):
     user form_function code, we pull the DM out of the SNES and then
     get the context (which is one of these objects) to find the
     Firedrake level information.
-
-    Notes
-    -----
-    `snes` is a weak reference to the SNES that solves this context, because
-    the SNES owns the DM that holds this context. Adaptive refinement passes
-    the SNES on to the refined context. The contexts that `reconstruct` builds
-    for field splits and coarse levels have no SNES, because they hold other
-    problems.
 
     """
     @PETSc.Log.EventDecorator()
