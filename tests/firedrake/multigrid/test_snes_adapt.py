@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import pytest
 from firedrake import *
-from firedrake import dmhooks, dwr
+from firedrake import adapt, dmhooks
 from firedrake.mg.utils import get_level
 from ufl.domain import extract_unique_domain
 
@@ -25,6 +25,12 @@ def test_marking_callback_configures_refine_adaptor():
     assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
     assert solver._ctx.snes == solver.snes
+    with pytest.raises(RuntimeError):
+        solver._ctx.set_snes(solver.snes)
+
+    ctx = solver._ctx.reconstruct()
+    ctx.set_snes(solver._ctx.snes)
+    assert ctx.snes == solver.snes
 
 
 def test_solve_accepts_marking_callback():
@@ -152,17 +158,17 @@ def test_solve_jacobian_without_snes_raises():
         reconstructed.solve_jacobian(b, Function(V))
 
 
-def _dwr_poisson_solver_parameters(adapt_option, criterion, num_refinements):
+def _goal_poisson_solver_parameters(adapt_option, criterion, num_refinements):
     direct = {"ksp_type": "preonly", "pc_type": "lu"}
-    dwr_local = {
-        "dwr_cell_ksp_type": "preonly",
-        "dwr_cell_pc_type": "jacobi",
-        "dwr_facet_ksp_type": "preonly",
-        "dwr_facet_pc_type": "jacobi",
+    goal_local = {
+        "goal_cell_ksp_type": "preonly",
+        "goal_cell_pc_type": "jacobi",
+        "goal_facet_ksp_type": "preonly",
+        "goal_facet_pc_type": "jacobi",
     }
     return {
         **direct,
-        **dwr_local,
+        **goal_local,
         adapt_option: num_refinements,
         "adaptor_criterion": criterion,
     }
@@ -175,7 +181,7 @@ def _dwr_poisson_solver_parameters(adapt_option, criterion, num_refinements):
     # https://gitlab.com/petsc/petsc/-/merge_requests/9447
     (("snes_adapt_sequence", "refine"),),
 )
-def test_dwr_marking_callback_builds_poisson_markers(adapt_option, criterion):
+def test_goal_oriented_marker_builds_poisson_markers(adapt_option, criterion):
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     old_dim = V.dim()
@@ -183,14 +189,14 @@ def test_dwr_marking_callback_builds_poisson_markers(adapt_option, criterion):
     v = TestFunction(V)
     F = inner(grad(u), grad(v))*dx - v*dx
     goal = u*dx
-    callback = DWRMarkingCallback(goal)
+    callback = GoalOrientedMarker(goal)
 
     problem = NonlinearVariationalProblem(
         F, u, bcs=DirichletBC(V, 0, "on_boundary")
     )
     solver = NonlinearVariationalSolver(
         problem,
-        solver_parameters=_dwr_poisson_solver_parameters(adapt_option, criterion, 1),
+        solver_parameters=_goal_poisson_solver_parameters(adapt_option, criterion, 1),
         marking_callback=callback,
     )
     result = solver.solve()
@@ -204,7 +210,7 @@ def test_dwr_marking_callback_builds_poisson_markers(adapt_option, criterion):
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_marking_callback_multiple_levels():
+def test_goal_oriented_marker_multiple_levels():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     old_dim = V.dim()
@@ -212,14 +218,14 @@ def test_dwr_marking_callback_multiple_levels():
     v = TestFunction(V)
     F = inner(grad(u), grad(v))*dx - v*dx
     goal = u*dx
-    callback = DWRMarkingCallback(goal)
+    callback = GoalOrientedMarker(goal)
 
     problem = NonlinearVariationalProblem(
         F, u, bcs=DirichletBC(V, 0, "on_boundary")
     )
     solver = NonlinearVariationalSolver(
         problem,
-        solver_parameters=_dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 3),
+        solver_parameters=_goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 3),
         marking_callback=callback,
     )
     result = solver.solve()
@@ -234,7 +240,7 @@ def test_dwr_marking_callback_multiple_levels():
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_marking_callback_solver_reuse():
+def test_goal_oriented_marker_solver_reuse():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
     old_dim = V.dim()
@@ -242,14 +248,14 @@ def test_dwr_marking_callback_solver_reuse():
     v = TestFunction(V)
     F = inner(grad(u), grad(v))*dx - v*dx
     goal = u*dx
-    callback = DWRMarkingCallback(goal)
+    callback = GoalOrientedMarker(goal)
 
     problem = NonlinearVariationalProblem(
         F, u, bcs=DirichletBC(V, 0, "on_boundary")
     )
     solver = NonlinearVariationalSolver(
         problem,
-        solver_parameters=_dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 1),
+        solver_parameters=_goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 1),
         marking_callback=callback,
     )
 
@@ -271,7 +277,7 @@ def test_dwr_marking_callback_solver_reuse():
     assert isinstance(second_goal, float)
 
 
-def _dwr_poisson_problem(n=4):
+def _goal_poisson_problem(n=4):
     mesh = UnitSquareMesh(n, n)
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
@@ -282,23 +288,23 @@ def _dwr_poisson_problem(n=4):
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_marking_callback_stops_at_tolerance(monkeypatch):
+def test_goal_oriented_marker_stops_at_tolerance(monkeypatch):
     markings = []
-    mark = DWRMarkingCallback.__call__
+    mark = GoalOrientedMarker.__call__
 
     def record_marking(self, ctx, current_solution):
         markers = mark(self, ctx, current_solution)
         markings.append(markers)
         return markers
 
-    monkeypatch.setattr(DWRMarkingCallback, "__call__", record_marking)
+    monkeypatch.setattr(GoalOrientedMarker, "__call__", record_marking)
     atol = 2.0e-3
     requested = 8
-    mesh, V, problem, goal = _dwr_poisson_problem()
-    parameters = _dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", requested)
-    parameters["dwr_atol"] = atol
+    mesh, V, problem, goal = _goal_poisson_problem()
+    parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", requested)
+    parameters["goal_atol"] = atol
     solver = NonlinearVariationalSolver(
-        problem, solver_parameters=parameters, marking_callback=DWRMarkingCallback(goal),
+        problem, solver_parameters=parameters, marking_callback=GoalOrientedMarker(goal),
     )
     result = solver.solve()
 
@@ -312,13 +318,13 @@ def test_dwr_marking_callback_stops_at_tolerance(monkeypatch):
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_marking_callback_reads_options_after_refinement():
-    # Every dwr_ option must keep coming from the prefix of the solver the
+def test_goal_oriented_marker_reads_options_after_refinement():
+    # Every goal_ option must keep coming from the prefix of the solver the
     # callback was attached to. The reconstructed context is renamed after
     # the multigrid level it becomes.
-    mesh, V, problem, goal = _dwr_poisson_problem()
-    callback = DWRMarkingCallback(goal)
-    parameters = _dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 3)
+    mesh, V, problem, goal = _goal_poisson_problem()
+    callback = GoalOrientedMarker(goal)
+    parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 3)
     solver = NonlinearVariationalSolver(
         problem, solver_parameters=parameters, marking_callback=callback,
     )
@@ -339,38 +345,38 @@ def _recording_solver(base, record):
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_auxiliary_solver_options_survive_refinement(monkeypatch):
+def test_goal_oriented_marker_auxiliary_solver_options_survive_refinement(monkeypatch):
     # The auxiliary solvers are rebuilt on every adapted mesh, and each one
     # deletes from the options database the options that it reads. The callback
     # must therefore hold its own copy of them. Otherwise every mesh after the
     # first one is solved with the default preonly and lu, which is what these
     # parameters are chosen to differ from.
     used = []
-    monkeypatch.setattr(dwr, "LinearVariationalSolver",
+    monkeypatch.setattr(adapt, "LinearVariationalSolver",
                         _recording_solver(LinearVariationalSolver, used))
-    monkeypatch.setattr(dwr, "NonlinearVariationalSolver",
+    monkeypatch.setattr(adapt, "NonlinearVariationalSolver",
                         _recording_solver(NonlinearVariationalSolver, used))
 
     refinements = 3
-    mesh, V, problem, goal = _dwr_poisson_problem()
+    mesh, V, problem, goal = _goal_poisson_problem()
     parameters = {
         "ksp_type": "cg",
         "pc_type": "jacobi",
-        "dwr_cell_ksp_type": "preonly",
-        "dwr_cell_pc_type": "jacobi",
-        "dwr_facet_ksp_type": "preonly",
-        "dwr_facet_pc_type": "jacobi",
+        "goal_cell_ksp_type": "preonly",
+        "goal_cell_pc_type": "jacobi",
+        "goal_facet_ksp_type": "preonly",
+        "goal_facet_pc_type": "jacobi",
         "snes_adapt_sequence": refinements,
         "adaptor_criterion": "refine",
     }
     solver = NonlinearVariationalSolver(
-        problem, solver_parameters=parameters, marking_callback=DWRMarkingCallback(goal),
+        problem, solver_parameters=parameters, marking_callback=GoalOrientedMarker(goal),
     )
     solver.solve()
 
     localization = [solve for prefix, solve in used
-                    if prefix.endswith(("dwr_cell_", "dwr_facet_"))]
-    enriched = [solve for prefix, solve in used if prefix.endswith("dwr_enriched_")]
+                    if prefix.endswith(("goal_cell_", "goal_facet_"))]
+    enriched = [solve for prefix, solve in used if prefix.endswith("goal_enriched_")]
     # One cell solve and one facet solve localize the estimate on every mesh.
     assert len(localization) == 2*refinements
     assert set(localization) == {("preonly", "jacobi")}
@@ -380,12 +386,12 @@ def test_dwr_auxiliary_solver_options_survive_refinement(monkeypatch):
 
 
 @pytest.mark.parallel([1, 2])
-def test_dwr_marking_callback_reconstructs_exact_solution():
-    mesh, V, problem, goal = _dwr_poisson_problem()
+def test_goal_oriented_marker_reconstructs_exact_solution():
+    mesh, V, problem, goal = _goal_poisson_problem()
     x, y = SpatialCoordinate(mesh)
-    callback = DWRMarkingCallback(goal, exact_solution=x*(1 - x)*y*(1 - y))
-    parameters = _dwr_poisson_solver_parameters("snes_adapt_sequence", "refine", 2)
-    parameters["dwr_monitor"] = None
+    callback = GoalOrientedMarker(goal, exact_solution=x*(1 - x)*y*(1 - y))
+    parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 2)
+    parameters["goal_monitor"] = None
     solver = NonlinearVariationalSolver(
         problem, solver_parameters=parameters, marking_callback=callback,
     )
@@ -428,7 +434,7 @@ def test_dwr_marking_callback_mixed_space():
 
 @pytest.mark.parallel([1, 2])
 def test_adaptive_refine_without_marking_callback_is_uniform():
-    mesh, V, problem, _ = _dwr_poisson_problem(n=2)
+    mesh, V, problem, _ = _goal_poisson_problem(n=2)
     solver = NonlinearVariationalSolver(
         problem,
         solver_parameters={"ksp_type": "preonly", "pc_type": "lu",

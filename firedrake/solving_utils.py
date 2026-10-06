@@ -129,20 +129,22 @@ def check_convergence(solver: PETSc.SNES | PETSc.KSP) -> None:
     """
     r = solver.getConvergedReason()
     if r < 0:
-        snes = isinstance(solver, PETSc.SNES)
-        kind, reasons = ("Nonlinear", SNESReasons) if snes else ("Linear", KSPReasons)
+        is_snes = isinstance(solver, PETSc.SNES)
+        kind, reasons = ("Nonlinear", SNESReasons) if is_snes else ("Linear", KSPReasons)
         reason = reasons.get(r, "unknown reason (petsc4py enum incomplete?), "
                                 "try with -snes_converged_reason and -ksp_converged_reason")
         error = ConvergenceError(f"{kind} solve failed to converge after "
                                  f"{solver.getIterationNumber()} iterations.\nReason:\n   {reason}")
-        try:
-            snes and check_convergence(solver.getKSP())
-        except ConvergenceError as cause:
-            raise error from cause
-        raise error
+        if is_snes:
+            try:
+                check_convergence(solver.getKSP())
+            except ConvergenceError as cause:
+                raise error from cause
+        else:
+            raise error
 
 
-class _SNESContext(object):
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -194,14 +196,6 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
 
-    Notes
-    -----
-    `snes` is a weak reference to the SNES that solves this context, because
-    the SNES owns the DM that holds this context. Adaptive refinement passes
-    the SNES on to the refined context. The contexts that `reconstruct` builds
-    for field splits and coarse levels have no SNES, because they hold other
-    problems.
-
     """
     @PETSc.Log.EventDecorator()
     def __init__(self, problem,
@@ -237,6 +231,7 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
+        # The solver creates the SNES after this context, so set_snes sets it later.
         self.snes = None
 
         self.fcp = problem.form_compiler_parameters
@@ -310,17 +305,24 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
-    def set_snes(self, snes: PETSc.SNES | None) -> None:
-        """Set the SNES associated with this context.
+    def set_snes(self, snes: "PETSc.SNES | weakref.ProxyType") -> None:
+        """Stash a weakref to the SNES wrapping this _SNESContext.
 
         Parameters
         ----------
         snes
-            The SNES, or a ``weakref.proxy`` to one, to associate with this
-            context. Pass ``None`` to clear the association.
+            The SNES associated with this context, or a ``weakref.proxy`` to it.
+
+        Raises
+        ------
+        RuntimeError
+            If an SNES is already associated with this context.
         """
-        self.snes = (snes if snes is None or isinstance(snes, weakref.ProxyTypes)
-                     else weakref.proxy(snes))
+        if self.snes is not None:
+            raise RuntimeError("This _SNESContext already has an SNES.")
+        if not isinstance(snes, weakref.ProxyTypes):
+            snes = weakref.proxy(snes)
+        self.snes = snes
 
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
