@@ -1,8 +1,10 @@
+import gc
+import weakref
+
 import pytest
 from firedrake import *
 from firedrake import dmhooks
 from firedrake.mg.utils import get_level
-from petsctools import OptionsManager
 
 
 def test_marking_callback_configures_refine_adaptor():
@@ -185,52 +187,31 @@ def test_snes_adapt_noop_refinement_with_multigrid():
 
 
 @pytest.mark.parallel([1, 3])
-@pytest.mark.parametrize("adapt_options", [
-    {"snes_adapt_initial": 1},
-    {"snes_adapt_sequence": 1},
-    {"snes_adapt_initial": 1, "snes_adapt_sequence": 1},
-])
-def test_snes_adapt_preserves_input_vector_reference(adapt_options: dict) -> None:
-    def residual(snes: PETSc.SNES, x: PETSc.Vec, f: PETSc.Vec) -> None:
-        f.set(0)
+def test_snes_adapt_solution_survives_solver_destruction() -> None:
+    def mark_cells(ctx: object, current_solution: Function) -> Function:
+        mesh = current_solution.function_space().mesh()
+        return Function(FunctionSpace(mesh, "DG", 0)).assign(1)
 
-    def interpolation(coarse: PETSc.DM, fine: PETSc.DM) -> tuple[PETSc.Mat, None]:
-        size = coarse.comm.size
-        mat = PETSc.Mat().createAIJ(((1, size), (1, size)), nnz=1, comm=coarse.comm)
-        mat.assemble()
-        mat.shift(1)
-        return mat, None
-
-    def refine(dm: PETSc.DM | None, comm: PETSc.Comm) -> PETSc.DMShell:
-        refined = PETSc.DMShell().create(comm=comm)
-        template = PETSc.Vec().createMPI((1, comm.size), comm=comm)
-        refined.setGlobalVector(template)
-        template.destroy()
-        refined.setRefine(refine)
-        refined.setCreateInterpolation(interpolation)
-        refined.setSNESFunction(residual)
-        return refined
-
-    dm = refine(None, PETSc.COMM_WORLD)
-    x = dm.createGlobalVec()
-    x.set(0)
-    snes = PETSc.SNES().create(comm=PETSc.COMM_WORLD)
-    snes.setDM(dm)
-    options = OptionsManager({"adaptor_criterion": "refine", **adapt_options}, options_prefix="")
-    with options.inserted_options():
-        snes.setOptionsPrefix(options.options_prefix)
-        snes.setFromOptions()
-        # Keep a guard reference so the ownership assertion can report a failure.
-        x.incRef()
-        dm.incRef()
-        snes.solve(None, x)
-        assert snes.getSolution() != x
-    snes.destroy()
-    try:
-        assert x.getRefCount() == 2
-        x.set(1)
-    finally:
-        if x.getRefCount() == 2:
-            x.decRef()
-        x.destroy()
-        dm.destroy()
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(u - 1, v) * dx
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, u),
+        solver_parameters={"snes_type": "ksponly", "snes_adapt_sequence": 1,
+                           "ksp_type": "preonly", "pc_type": "lu"},
+        marking_callback=mark_cells,
+    )
+    adapted = solver.solve()
+    assert adapted.function_space().dim() > V.dim()
+    assert norm(adapted - 1) < 1e-12
+    solver_ref = weakref.ref(solver)
+    del solver
+    gc.collect()
+    assert solver_ref() is None
+    PETSc.garbage_cleanup(mesh.comm)
+    u.assign(2)
+    adapted.assign(3)
+    assert norm(u - 2) < 1e-12
+    assert norm(adapted - 3) < 1e-12

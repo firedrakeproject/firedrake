@@ -99,11 +99,6 @@ runs:
           exit 1
         fi
 
-        : # DROP BEFORE MERGE: Build PETSc !9686 until it lands in release.
-        git -C petsc fetch --depth 1 origin pbrubeck/snes-adapt-vector-ownership-release
-        git -C petsc checkout --detach FETCH_HEAD
-        git -C petsc rev-parse HEAD
-
         if [ ${{ inputs.os }} = 'linux' ]; then
           NPROCS=8
         elif [ ${{ inputs.os }} = 'macos' ]; then
