@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 from firedrake import dmhooks
 from firedrake.mg.utils import get_level
+from petsctools import OptionsManager
 
 
 def test_marking_callback_configures_refine_adaptor():
@@ -181,3 +182,55 @@ def test_snes_adapt_noop_refinement_with_multigrid():
     u_ref = Function(V)
     solve(replace(F, {u: u_ref}) == 0, u_ref, bcs=bcs)
     assert abs(norm(uh) - norm(u_ref)) < 1e-10 * norm(u_ref)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("adapt_options", [
+    {"snes_adapt_initial": 1},
+    {"snes_adapt_sequence": 1},
+    {"snes_adapt_initial": 1, "snes_adapt_sequence": 1},
+])
+def test_snes_adapt_preserves_input_vector_reference(adapt_options: dict) -> None:
+    def residual(snes: PETSc.SNES, x: PETSc.Vec, f: PETSc.Vec) -> None:
+        f.set(0)
+
+    def interpolation(coarse: PETSc.DM, fine: PETSc.DM) -> tuple[PETSc.Mat, None]:
+        size = coarse.comm.size
+        mat = PETSc.Mat().createAIJ(((1, size), (1, size)), nnz=1, comm=coarse.comm)
+        mat.assemble()
+        mat.shift(1)
+        return mat, None
+
+    def refine(dm: PETSc.DM | None, comm: PETSc.Comm) -> PETSc.DMShell:
+        refined = PETSc.DMShell().create(comm=comm)
+        template = PETSc.Vec().createMPI((1, comm.size), comm=comm)
+        refined.setGlobalVector(template)
+        template.destroy()
+        refined.setRefine(refine)
+        refined.setCreateInterpolation(interpolation)
+        refined.setSNESFunction(residual)
+        return refined
+
+    dm = refine(None, PETSc.COMM_WORLD)
+    x = dm.createGlobalVec()
+    x.set(0)
+    snes = PETSc.SNES().create(comm=PETSc.COMM_WORLD)
+    snes.setDM(dm)
+    options = OptionsManager({"adaptor_criterion": "refine", **adapt_options}, options_prefix="")
+    with options.inserted_options():
+        snes.setOptionsPrefix(options.options_prefix)
+        snes.setFromOptions()
+        # Keep a guard reference so the ownership assertion can report a failure.
+        x.incRef()
+        dm.incRef()
+        snes.solve(None, x)
+        assert snes.getSolution() != x
+    snes.destroy()
+    try:
+        assert x.getRefCount() == 2
+        x.set(1)
+    finally:
+        if x.getRefCount() == 2:
+            x.decRef()
+        x.destroy()
+        dm.destroy()
