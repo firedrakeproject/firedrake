@@ -579,8 +579,7 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    # The matrix maps coarse to fine like the interpolation, so that MatRestrict()
-    # applies its transpose even when both spaces have the same dimension.
+    # PCMG calls MatRestrict() on the transpose of injection going from coarse to fine
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
 
