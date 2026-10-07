@@ -5,8 +5,9 @@ from itertools import chain, zip_longest
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
 from gem.cost import estimate_cost
-from gem.optimise import (cancel_nested_deltas, filtered_replace_indices,
-                          has_linear_maps)
+from gem.optimise import (cancel_nested_deltas,
+                          tabulate_indirect_contractions,
+                          filtered_replace_indices, has_linear_maps)
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
@@ -36,10 +37,8 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
 
-    # Cancel the indirect Deltas that select a basis transformation's columns.
-    # No later pass can: monomial collection only cancels Deltas that surface
-    # as factors of a monomial, and one buried in a preserved linear map never
-    # does, so it would reach code generation.
+    # Cancel the Deltas that select a basis transformation's columns, so that
+    # monomial collection sees the resulting gather rather than the Delta.
     expressions = [cancel_nested_deltas(e) for e in expressions]
 
     # Unroll
@@ -86,7 +85,7 @@ def _preservable(pairs):
 
 
 def _factorise(pairs, quadrature_indices, preserve_maps):
-    """Factorise the arguments of each assignment.
+    """Factorise the arguments of each assignment and place its reductions.
 
     Parameters
     ----------
@@ -137,9 +136,10 @@ def _factorise(pairs, quadrature_indices, preserve_maps):
         sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
         # Put them in a deterministic order
         sum_indices = [i for i in quadrature_indices if i in sum_indices]
-        # Apply sum factorisation combined with COFFEE technology
+        # Apply sum factorisation combined with COFFEE technology, then
+        # tabulate indirect contractions over the whole factorised assignment.
         expression = sum_factorise(variable, sum_indices, monomial_sum)
-        plan.append((variable, expression))
+        plan.append((variable, tabulate_indirect_contractions(expression)))
     return tuple(plan)
 
 

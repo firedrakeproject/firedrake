@@ -52,3 +52,42 @@ def test_quadrature_element(mesh, family, mat_type, diagonal):
         a = inner(u, v) * dx
 
     assemble(a, mat_type=mat_type, diagonal=diagonal)
+
+
+@pytest.mark.parametrize("family", ["DG", "CG", "Bernstein"])
+@pytest.mark.parametrize("cell", ["triangle", "tetrahedron"])
+@pytest.mark.parametrize("degree", [1, 3])
+def test_collapsed_quadrature_sum_factorisation(cell, degree, family):
+    """Check sum-factorized residuals and matrices against dense tabulation."""
+    mesh = {"triangle": UnitSquareMesh(2, 2),
+            "tetrahedron": UnitCubeMesh(1, 1, 1)}[cell]
+    variant = None if family == "Bernstein" else "integral"
+    V = FunctionSpace(mesh, family, degree, variant=variant)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    rg = RandomGenerator(PCG64(seed=0))
+    w = rg.uniform(V, 0, 1)
+
+    # translate_coefficient path (forward transform): residual with a
+    # derivative, mixing both the coefficient and argument sum-factorized
+    # tabulations.
+    L = inner(grad(w), grad(v)) * dx(scheme="canonical")
+    L_collapsed = inner(grad(w), grad(v)) * dx(scheme="collapsed")
+    b = assemble(L)
+    b_collapsed = assemble(L_collapsed)
+    assert np.allclose(b.dat.data, b_collapsed.dat.data, rtol=1e-10, atol=1e-10)
+
+    # translate_argument path (backward transform): mass matrix.
+    a = inner(u, v) * dx(scheme="canonical")
+    a_collapsed = inner(u, v) * dx(scheme="collapsed")
+    M = assemble(a).M.values
+    M_collapsed = assemble(a_collapsed).M.values
+    assert np.allclose(M, M_collapsed, rtol=1e-10, atol=1e-10)
+
+    # Bilinear derivatives exercise two independently transformed argument
+    # lattices.
+    a = inner(grad(u), grad(v)) * dx(scheme="canonical")
+    a_collapsed = inner(grad(u), grad(v)) * dx(scheme="collapsed")
+    K = assemble(a).M.values
+    K_collapsed = assemble(a_collapsed).M.values
+    assert np.allclose(K, K_collapsed, rtol=1e-10, atol=1e-10)
