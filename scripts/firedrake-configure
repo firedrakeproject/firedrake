@@ -766,8 +766,8 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             # PETSc external packages
             "libfftw3-dev",
             "libfftw3-mpi-dev",
-            "libhwloc-dev",
             "libhdf5-mpi-dev",
+            "libhwloc-dev",
             "libmumps-ptscotch-dev",
             "libmetis-dev",
             "libnetcdf-dev",
@@ -800,6 +800,8 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "--with-netcdf",
             "--with-pnetcdf",
             "--with-ptscotch",
+            "--with-ptscotch-lib='-lptesmumps -lptscotch -lptscotcherr -lesmumps -lscotch -lscotcherr'",
+            "--with-ptscotch-include=/usr/include/scotch",
             "--with-scalapack-lib=-lscalapack-openmpi",
             "--with-zlib",
             "--download-hypre",
@@ -815,11 +817,6 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         coptflags=["-O3", "-march=native", "-mtune=native"],
         cxxoptflags=["-O3", "-march=native", "-mtune=native"],
         foptflags=["-O3", "-march=native", "-mtune=native"],
-        include_dirs=[
-            "/usr/include/scotch",
-            "/usr/include/superlu",
-            "/usr/include/superlu-dist",
-        ],
         extra_env_vars={
             "PATH": "/usr/local/cuda/bin:$PATH",
         },
