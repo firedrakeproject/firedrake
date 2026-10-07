@@ -1154,8 +1154,9 @@ RETIRED_ARCHS: Mapping[ArchKey, RetiredArch] = {
         ],
     ),
 
-    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.CUDA): Arch(
+    (OS.UBUNTU_2404_X86_64, ScalarType.DEFAULT, IntType.INT32, GPUPlatform.CUDA): RetiredArch(
         name="default-cuda",
+        last_modified="2026-10-07",
         system_packages=[
             "bison",
             "build-essential",
@@ -1513,6 +1514,12 @@ COMMUNITY_ARCHS: Mapping[ArchKey, CommunityArch] = {
         ],
     ),
 }
+
+
+# quick sanity checks for easy mistakes to make
+assert all(type(arch) is Arch for arch in OFFICIAL_ARCHS.values())
+assert all(type(arch) is RetiredArch for arch in RETIRED_ARCHS.values())
+assert all(type(arch) is CommunityArch for arch in COMMUNITY_ARCHS.values())
 
 
 if __name__ == "__main__":
