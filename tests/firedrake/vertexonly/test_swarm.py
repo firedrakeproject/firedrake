@@ -316,6 +316,8 @@ def test_pic_swarm_in_mesh_2d_3procs():
 
 @pytest.mark.parallel(nprocs=3)
 def test_discover_remote_roots():
+    # tests `discover_remote_roots` from rtree.pyx, which queries a partition
+    # rtree and returns a remote array which builds a candidate SF
     comm = MPI.COMM_WORLD
     mins = np.array([[0.0], [1.0], [1.0], [10.0]], dtype=np.float64)
     maxs = np.array([[2.0], [3.0], [2.5], [11.0]], dtype=np.float64)
@@ -327,19 +329,18 @@ def test_discover_remote_roots():
         np.array([[0.5], [1.5]], dtype=np.float64),
         np.empty((0, 1), dtype=np.float64),
     )[comm.rank]
+
     expected = (
-        {(0, 0), (1, 0), (1, 1)},
-        {(0, 0), (1, 1)},
-        {(0, 1)},
+        [(0, 0), (1, 0), (1, 1)],
+        [(0, 0), (1, 1)],
+        [(0, 1)],
     )[comm.rank]
 
     remote = rtree.discover_remote_roots(tree, points, comm)
 
     assert remote.dtype == IntType
-    assert {tuple(node) for node in remote.tolist()} == expected
-    sf = PETSc.SF().create(comm=comm)
-    sf.setGraph(len(points), None, remote)
-    assert sf.getGraph()[0] == len(points)
+    assert remote.shape == (len(expected), 2)
+    assert sorted(tuple(node) for node in remote.tolist()) == expected
 
     remote = rtree.discover_remote_roots(tree, np.array([[-1.0]], dtype=np.float64), comm)
     assert remote.shape == (0, 2)
@@ -357,7 +358,7 @@ def test_point_on_partition_boundary(overlap):
     comm = MPI.COMM_WORLD
     parent_mesh = UnitIntervalMesh(
         2,
-        distribution_parameters={"overlap_type": overlap},
+        distribution_parameters={"partitioner_type": "simple", "overlap_type": overlap},
     )
     coords = np.array([[0.5]]) if comm.rank == 0 else np.empty((0, 1))
 
