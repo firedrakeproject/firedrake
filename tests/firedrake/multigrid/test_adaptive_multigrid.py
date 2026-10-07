@@ -288,6 +288,41 @@ def test_adapt_after_uniform_netgen_refinement():
     _assert_adapt_after_uniform_refinement(MeshHierarchy(mesh))
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("refine", ["marked", "hierarchy"])
+@pytest.mark.parametrize("coordinates", ["moved", "curved", "periodic"])
+def test_refinement_keeps_coordinates(coordinates, refine):
+    """Refinement keeps moved or higher-degree coordinates."""
+    if coordinates == "periodic":
+        mesh = PeriodicUnitSquareMesh(4, 4)
+    else:
+        mesh = UnitSquareMesh(4, 4)
+    if coordinates == "curved":
+        x, y = SpatialCoordinate(mesh)
+        V = VectorFunctionSpace(mesh, "CG", 2)
+        curved = Function(V).interpolate(as_vector([x + 0.1*y**2, y + 0.1*x**2]))
+        mesh = Mesh(curved)
+    else:
+        X = mesh.coordinates.dat.data
+        X += 0.1 * X[:, ::-1]**2
+
+    if refine == "marked":
+        M = FunctionSpace(mesh, "DG", 0)
+        markers = Function(M)
+        markers.dat.data_wo[::2] = 1
+        refined = mesh.refine_marked_elements(markers)
+    else:
+        refined = MeshHierarchy(mesh, 1, refinements_per_level=2)[-1]
+
+    def moment(m):
+        x, y = SpatialCoordinate(m)
+        return assemble(x**4 * y**3 * dx(domain=m))
+
+    element = mesh.coordinates.function_space().ufl_element()
+    assert refined.coordinates.function_space().ufl_element() == element
+    assert np.isclose(moment(refined), moment(mesh), rtol=1e-12)
+
+
 @pytest.mark.skipnetgen
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("degree", [1, 2])
