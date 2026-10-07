@@ -6,9 +6,9 @@ import numpy
 import loopy
 from tsfc import compile_form
 from ufl import (FunctionSpace, Mesh, TestFunction,
-                 TrialFunction, dx, grad, inner,
+                 TrialFunction, div, dx, grad, inner,
                  interval, triangle, quadrilateral,
-                 TensorProductCell)
+                 tetrahedron, TensorProductCell)
 from finat.ufl import FiniteElement, VectorElement
 from tsfc.parameters import target
 
@@ -64,3 +64,20 @@ def test_flop_count(cell, parameters):
     loopy_flops = numpy.asarray(loopy_flops)
 
     assert all(new_flops == loopy_flops)
+
+
+@pytest.mark.parametrize("cell", [triangle, tetrahedron],
+                         ids=lambda cell: cell.cellname)
+def test_flop_count_mapped_tabulation(cell):
+    # Preserving a Piola map materialises it as a ComponentTensor.
+    # Scheduling emits that as an assignment, not a loop nest, so counting
+    # it needs its own extents.
+    mesh = Mesh(VectorElement("P", cell, 1))
+    for k in range(1, 4):
+        V = FunctionSpace(mesh, FiniteElement("RT", cell, k))
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        a = inner(u, v)*dx + inner(div(u), div(v))*dx
+        kernel, = compile_form(a, prefix="form",
+                               parameters={"mode": "spectral"})
+        assert kernel.flop_count == count_loopy_flops(kernel)
