@@ -568,7 +568,18 @@ def _expression_variable(expr, ctx):
 @_expression.register(gem.Indexed)
 def _expression_indexed(expr, ctx):
     rank = ctx.fetch_multiindex(expr.multiindex)
-    var = expression(expr.children[0], ctx)
+    aggregate, = expr.children
+    if (isinstance(aggregate, gem.ComponentTensor)
+            and aggregate not in ctx.gem_to_pymbolic):
+        body, = aggregate.children
+        if body in ctx.gem_to_pymbolic:
+            replacements = dict(zip(aggregate.multiindex, expr.multiindex))
+            multiindex = tuple(replacements.get(index, index)
+                               for index in ctx.indices[body])
+            rank = ctx.fetch_multiindex(multiindex)
+            return p.Subscript(ctx._gem_to_pym_var(body), rank)
+
+    var = expression(aggregate, ctx)
     if isinstance(var, p.Subscript):
         rank = var.index + rank
         var = var.aggregate
