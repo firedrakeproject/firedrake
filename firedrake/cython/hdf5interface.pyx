@@ -8,7 +8,7 @@ cdef extern from "hdf5.h":
 
 
 cdef extern from "petscviewerhdf5.h":
-    int PetscViewerHDF5GetFileId(PETSc.PetscViewer,hid_t*)
+    int PetscViewerHDF5GetFileId(PETSc.PetscViewer, hid_t*)
 
 
 def get_h5py_file(PETSc.Viewer vwr not None):

@@ -1,7 +1,7 @@
+import typing
 from itertools import chain
 
 import numpy
-import ufl
 
 from pyop2 import op2
 from firedrake import dmhooks
@@ -14,6 +14,10 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
+from ufl import as_vector, replace, split, zero
+
+if typing.TYPE_CHECKING:
+    from firedrake.variational_solver import NonlinearVariationalProblem
 
 
 def _make_reasons(reasons):
@@ -163,6 +167,11 @@ class _SNESContext(object):
         User-defined function called immediately before residual assembly.
     post_function_callback
         User-defined function called immediately after residual assembly.
+    marking_callback
+        User-defined function of the form ``callback(ctx, u)``, called after
+        the nonlinear solve with this :class:`_SNESContext` and the current
+        solution, returning a DG0 Function with cells marked for adaptive
+        refinement.
     options_prefix
         The options prefix of the SNES.
     transfer_manager
@@ -187,6 +196,7 @@ class _SNESContext(object):
                  appctx: dict | None = None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
+                 marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
                  pre_apply_bcs: bool = True):
@@ -211,6 +221,7 @@ class _SNESContext(object):
         self._pre_function_callback = pre_function_callback
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
+        self._marking_callback = marking_callback
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -231,6 +242,7 @@ class _SNESContext(object):
         self.pmatfree = pmatfree
         self.F = problem.F
         self.J = problem.J
+        self.E = problem.E
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
         Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
@@ -256,10 +268,15 @@ class _SNESContext(object):
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
                 # Drop existing lifting term from the residual
-                assert isinstance(self.F, ufl.BaseForm)
-                self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+                self.F = replace(self.F, {self._x: zero(self._x.ufl_shape)})
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
+
+        self._assemble_objective = lambda *args, **kwargs: args
+        if self.E:
+            self._assemble_objective = get_assembler(self.E,
+                                                     form_compiler_parameters=self.fcp,
+                                                     ).assemble
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
@@ -277,20 +294,47 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
-    def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
-        """Reconstruct this _SNESContext instance with new arguments."""
+    def reconstruct(self,
+                    problem: "NonlinearVariationalProblem | None" = None,
+                    mat_type: str | None = None,
+                    pmat_type: str | None = None,
+                    **kwargs) -> "_SNESContext":
+        """Reconstruct this _SNESContext instance with new arguments.
+
+        Parameters
+        ----------
+        problem
+            The new NonlinearVariationalProblem, defaults to the original problem.
+        mat_type
+            The new Jacobian matrix type, defaults to `self.mat_type`.
+        pmat_type
+            The new preconditioner matrix type, defaults to `self.pmat_type`.
+        **kwargs
+            Any other constructor argument accepted by `_SNESContext`, defaulting
+            to the corresponding attribute (or callback) of this instance.
+
+        Returns
+        -------
+        _SNESContext
+            The reconstructed context.
+        """
         problem = problem or self._problem
         mat_type = mat_type or self.mat_type
         pmat_type = pmat_type or self.pmat_type
 
-        default_options = {
-            "sub_mat_type": self.sub_mat_type,
-            "sub_pmat_type": self.sub_pmat_type,
-            "appctx": self.appctx,
-            "options_prefix": self.options_prefix,
-            "transfer_manager": self.transfer_manager,
-            "pre_apply_bcs": self.pre_apply_bcs,
-        }
+        default_options = dict(
+            sub_mat_type=self.sub_mat_type,
+            sub_pmat_type=self.sub_pmat_type,
+            appctx=self.appctx,
+            options_prefix=self.options_prefix,
+            transfer_manager=self.transfer_manager,
+            pre_jacobian_callback=self._pre_jacobian_callback,
+            pre_function_callback=self._pre_function_callback,
+            post_jacobian_callback=self._post_jacobian_callback,
+            post_function_callback=self._post_function_callback,
+            pre_apply_bcs=self.pre_apply_bcs,
+            marking_callback=self._marking_callback,
+        )
         for k, v in default_options.items():
             if kwargs.get(k) is None:
                 kwargs[k] = v
@@ -312,18 +356,33 @@ class _SNESContext(object):
         with the same semantics.
         """
         if self._transfer_manager is None:
-            opts = PETSc.Options()
             prefix = self.options_prefix or ""
-            if opts.hasName(prefix + "mg_transfer_manager"):
-                managername = opts[prefix + "mg_transfer_manager"]
-            elif opts.hasName(prefix + "fas_transfer_manager"):
-                managername = opts[prefix + "fas_transfer_manager"]
-            else:
-                managername = None
+            opts = PETSc.Options(prefix)
+            # We cannot attach a single mg_ or fas_ prefix to a TransferManager,
+            # as it can be shared across distinct _SNESContext instances arising
+            # when composing fas with mg. Therefore, we need to read both options.
+            # However the TransferManager should behave differently if options clash.
+            # TODO, a better way of doing this (issue #5283).
 
+            def get_transfer_option(mg_name, fas_name, default=None):
+                has_mg = opts.hasName(mg_name)
+                has_fas = opts.hasName(fas_name)
+                if has_mg and has_fas:
+                    warning(f"Both '{mg_name}' and '{fas_name}' options were supplied; "
+                            f"ignoring '{fas_name}'.")
+                if has_mg:
+                    return opts[mg_name]
+                elif has_fas:
+                    return opts[fas_name]
+                else:
+                    return default
+
+            managername = get_transfer_option("mg_transfer_manager", "fas_transfer_manager")
             if managername is None:
                 from firedrake import TransferManager
-                transfer = TransferManager(use_averaging=True)
+                mat_type = get_transfer_option("mg_transfer_mat_type", "fas_transfer_mat_type",
+                                               default="matfree")
+                transfer = TransferManager(use_averaging=True, mat_type=mat_type)
             else:
                 (modname, objname) = managername.rsplit('.', 1)
                 mod = __import__(modname)
@@ -341,6 +400,12 @@ class _SNESContext(object):
         if self._transfer_manager is not None:
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
+
+    def set_objective(self, snes):
+        if self._problem.E:
+            snes.setObjective(self.form_objective)
+        else:
+            snes.setObjective(None)
 
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
@@ -362,11 +427,10 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
-        splits = self._splits.get(tuple(fields))
+        splits = self._splits.get(fields)
         if splits is not None:
             return splits
 
@@ -377,7 +441,7 @@ class _SNESContext(object):
             F = splitter.split(problem.F, argument_indices=(field, ))
             J = splitter.split(problem.J, argument_indices=(field, field))
             us = problem.u_restrict.subfunctions
-            V = F.arguments()[0].function_space()
+            V = J.arguments()[-1].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
             # mixed space defined by the relevant fields.
@@ -396,16 +460,13 @@ class _SNESContext(object):
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             vec = []
-            for i, u in enumerate(us):
+            for i, ui in enumerate(us):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field.index(i)]
-                if u.ufl_shape == ():
-                    vec.append(u)
-                else:
-                    vec.extend(u[idx] for idx in numpy.ndindex(u.ufl_shape))
+                    ui = subsplit[field.index(i)]
+                vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
@@ -449,7 +510,28 @@ class _SNESContext(object):
             field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
             splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
-        return self._splits.setdefault(tuple(fields), splits)
+        return self._splits.setdefault(fields, splits)
+
+    @staticmethod
+    def form_objective(snes, X):
+        r"""Form the objective for this problem
+
+        :arg snes: a PETSc SNES object
+        :arg X: the current guess (a Vec)
+        """
+        dm = snes.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        # X may not be the same vector as the vec behind self._x, so
+        # copy guess in from X.
+        with ctx._x.dat.vec_wo as v:
+            X.copy(v)
+
+        # Apply DirichletBC on the solution
+        if not ctx._problem.restrict:
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._x)
+
+        return ctx._assemble_objective()
 
     @staticmethod
     def form_function(snes, X, F):
