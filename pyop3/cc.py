@@ -68,6 +68,9 @@ from pyop3.cache import (
 from pyop3.exceptions import CompilationException
 from pyop3.log import INFO, debug, progress, warning
 
+import time
+
+from pyop3.device import get_current_device
 
 def _check_hashes(x, y, datatype):
     """MPI reduction op to check if code hashes differ across ranks."""
@@ -84,6 +87,45 @@ _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
+# NOTE: Basic mlir-opt passes. Further optimisations can be made in future.
+MLIR_OPT_PASSES = {
+    "CPU": (
+        "--canonicalize",
+        "--cse",
+        "--symbol-dce",
+        "--buffer-deallocation-pipeline",
+        "--convert-scf-to-cf",
+        "--canonicalize",
+        "--convert-cf-to-llvm",
+        "--convert-func-to-llvm",
+        "--finalize-memref-to-llvm",
+        "--convert-arith-to-llvm",
+        "--convert-index-to-llvm",
+        "--reconcile-unrealized-casts",
+    ),
+    "CudaGPU": (
+        "--scf-parallel-loop-tiling=parallel-loop-tile-sizes=128 no-min-max-bounds=true",
+        "--canonicalize",
+        "--cse",
+        "--gpu-map-parallel-loops",
+        "--convert-parallel-loops-to-gpu",
+        "--gpu-kernel-outlining",
+        "--nvvm-attach-target=chip=sm_89 features=+ptx80 O=3", # NOTE: Hardware arch information. Need more information.
+        "--convert-scf-to-cf",
+        "--expand-strided-metadata",
+        "--lower-affine",
+        "--convert-gpu-to-nvvm",
+        "--convert-nvvm-to-llvm",
+        "--convert-index-to-llvm",
+        "--convert-arith-to-llvm",
+        "--convert-cf-to-llvm",
+        "--finalize-memref-to-llvm",
+        "--convert-func-to-llvm",
+        "--gpu-to-llvm",
+        "--reconcile-unrealized-casts",
+        "--gpu-module-to-binary",
+    )
+}
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -102,14 +144,13 @@ class CompilerOptions:
             libs=self.libs+other.libs,
         )
 
-    # {{{ enable unpacking with **
-
+    # {{{ enable unpacking with ** 
+    
     def keys(self, /):
-        return (f.name for f in dataclasses.fields(self))
+      return (f.name for f in dataclasses.fields(self))
 
     def __getitem__(self, key, /) -> Any:
-        return getattr(self, key)
-
+      return getattr(self, key)
     # }}}
 
 
@@ -452,6 +493,72 @@ class AnonymousCompiler(Compiler):
     _name = "Unknown"
 
 
+class MLIRCompiler(Compiler):
+    """A "compiler" that turns MLIR source into a shared library.
+
+    The pipeline is:
+
+    mlir-opt lowers down to the mlir-llvm
+       dialect.
+    mlir-translate converts mlir-llvm dialect to LLVM IR
+       (.ll).
+    clang compiles the LLVM IR into a shared library.
+
+    :arg extra_compiler_flags: Extra arguments passed to ``mlir-opt``
+        (optional, prepended to any flags specified as the mlir-opt-flags
+        configuration option). The environment variable
+        ``PYOP2_MLIR_OPT_FLAGS`` can also be used to extend these options.
+    :arg extra_linker_flags: Extra arguments passed to ``clang`` when
+        compiling the LLVM IR into a shared library (optional, prepended to
+        any flags specified as the ldflags configuration option). The
+        environment variable ``PYOP2_LDFLAGS`` can also be used to extend
+        these options.
+    :arg version: (Optional) usually sniffed by loader.
+    :arg debug: Whether to use debugging compiler flags.
+    """
+    _name = "MLIR"
+
+    _mlir_opt = None
+    _mlir_translate = None
+    _cc = None
+
+    # TODO: Better way to do this - depends on these strings matching. Very silly 
+    _mlir_opt_flags = MLIR_OPT_PASSES[str(get_current_device())]
+    _cflags = ("-fPIC",)
+    # TODO: Add the MLIR/LLVM binary wheel. Requires linking for CUDA/AMD runtime binary
+    _ldflags = ("-shared", "-L/home/sam/Documents/llvm-project/build/lib")
+
+    _optflags = ("-O3", "-ffast-math",)
+    _debugflags = ("-O0", "-g")
+
+    @property
+    def mlir_opt(self):
+        return self._mlir_opt or shutil.which("mlir-opt") or "mlir-opt"
+
+    @property
+    def mlir_translate(self):
+        return self._mlir_translate or shutil.which("mlir-translate") or "mlir-translate"
+
+    @property
+    def cc(self):
+        return self._cc or shutil.which("clang++") or "clang++"
+
+    @property
+    def mlir_opt_flags(self) -> tuple[str, ...]:
+        return (
+            *MLIR_OPT_PASSES[str(get_current_device())],
+            *getattr(pyop3.config, "extra_mlir_opt_flags", ()),
+        )
+
+    @property
+    def cflags(self) -> tuple[str, ...]:
+        return (
+            *self._cflags,
+            # *(self._debugflags if self._debug else self._optflags),
+            *self._debugflags,
+        )
+
+
 def load_hashkey(code, extension, cppargs=(), ldargs=(), comm=None):
     cppargs = tuple(cppargs)
     ldargs = tuple(ldargs)
@@ -471,7 +578,10 @@ def load(code, extension, cppargs=(), ldargs=(), comm=MPI.COMM_WORLD):
     :kwarg comm: Optional communicator to compile the code on (only
         rank 0 compiles code) (defaults to mpi4py.MPI.COMM_WORLD).
     """
-    if _compiler:
+    if extension == "mlir":
+        # MLIR source has to go through separate mlir-opt -> mlir-translate -> clang pipeline
+        compiler = MLIRCompiler
+    elif _compiler:
         # Use the global compiler if it has been set
         compiler = _compiler
     else:
@@ -525,7 +635,13 @@ class CompilerDiskAccess(DictLikeDiskAccess):
 
 
 def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
-    if extension == "cpp":
+    if extension == "mlir":
+        return (
+            compiler, code, compiler.mlir_opt, compiler.mlir_opt_flags,
+            compiler.mlir_translate, compiler.cc, compiler.cflags,
+            compiler.ld, compiler.ldflags,
+        )
+    elif extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
     else:
@@ -580,7 +696,10 @@ def make_so(compiler, code, extension, comm):
     icomm = mpi.internal_comm(comm, compiler)
     ccomm = mpi.compilation_comm(icomm, compiler)
 
-    if extension == "cpp":
+    if extension == "mlir":
+        exe = None
+        compiler_flags = None
+    elif extension == "cpp":
         exe = compiler.cxx
         compiler_flags = compiler.cxxflags
     else:
@@ -608,7 +727,42 @@ def make_so(compiler, code, extension, comm):
                     fh.write(code)
                 os.close(descriptor)
 
-                if not compiler.ld:
+                if extension == "mlir":
+                    # TODO: This can be done in-process. It would be significant compilation-time save.
+                    # 1. mlir -> optimised mlir 
+                    lowered_name = filename.with_suffix(".llvm.mlir")
+                    mlir_opt_cmd = (
+                        (compiler.mlir_opt, str(cname))
+                        + ("--mlir-timing",)
+                        + compiler.mlir_opt_flags
+                        + ('-o', str(lowered_name))
+                    )
+
+                    with timer("mlir-opt"): 
+                        _run(mlir_opt_cmd, logfile, errfile, step="Lowering")
+
+                    # mlir -> llvm
+                    llname = filename.with_suffix(".ll")
+                    translate_cmd = (
+                        compiler.mlir_translate,
+                        "--mlir-timing", 
+                        "--mlir-to-llvmir",
+                        str(lowered_name),
+                        '-o', str(llname),
+                    )
+                    with timer("mlir-translate"):
+                        _run(translate_cmd, logfile, errfile, step="Translating", filemode="a")
+
+                    # llvm -> shared library
+                    # NOTE: How can I guarantee this is clang??
+                    cc = (
+                        (compiler.cc,) + compiler.cflags + ("-march=native",)
+                        + (str(llname),) + compiler.ldflags + ("-lmlir_cuda_runtime",)
+                        + ('-o', str(soname))
+                    )
+                    with timer("clang"):
+                        _run(cc, logfile, errfile, step="Compilation", filemode="a")
+                elif not compiler.ld:
                     # Compile and link
                     cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
                     _run(cc, logfile, errfile)
@@ -706,3 +860,12 @@ def clear_compiler_disk_cache(prompt=False):
             shutil.rmtree(directory, ignore_errors=True)
         else:
             print("Not removing cached libraries")
+
+
+@contextmanager
+def timer(description="Operation"):
+    start_time = time.perf_counter()
+    yield
+    end_time = time.perf_counter()
+    elapsed_time = end_time - start_time
+    print(f"{description}: {elapsed_time*1000:.4f} milliseconds")

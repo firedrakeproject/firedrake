@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import functools
 import contextlib
+import dataclasses
 import numbers
 import types
 import numpy as np
 from typing import Any
-
 
 from immutabledict import immutabledict as idict
 
@@ -39,6 +39,18 @@ from xdsl.dialects.builtin import (
 
 INDEX_TYPE = IndexType()
 FLOAT_TYPES = (f32, f64)
+
+@dataclasses.dataclass
+class Argument:
+    name: str
+    dtype: np.dtype
+    shape: Tuple[int] | None
+
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return f"<{self.name}, dtype: {self.dtype}, shape: {self.shape or '?'}>"
 
 def get_mlir_type(dtype):
   # NOTE: Default to f64 if dtype is None, possibly wrong. 
@@ -126,11 +138,18 @@ class MLIRBuilder():
       self.globals: dict[Any, SSAValue] = dict() 
 
       self._name_generator = utils.UniqueNameGenerator()
+
+      # Arguments to return to buffer
+      self._arguments: list[Argument] = list()
       
 
     @property
     def builder(self) -> Builder:
       return self._builder_stack[-1]
+
+    @property
+    def arguments(self) -> list: 
+      return sorted(self._arguments, key=lambda arg: arg.name)
 
     def build(self, root, name: str = "imp_kernel", args=()) -> ModuleOp:
       """ 
@@ -141,17 +160,35 @@ class MLIRBuilder():
       :arg args: gem.Variable in desired argument order. gem.Variables not provided are appended in order of visitation
       """
       # FIXME: Come back to this. To determine if I want args in advance of build. 
-      for variable in args:
-          self.register_buffer(variable)
-      self.process(root)
-      self._entry_block.add_op(func.ReturnOp())
-      arg_types = tuple(a.type for a in self._entry_block.args)
-      fn = func.FuncOp(name, (arg_types, ()), Region(self._entry_block))
-      modop = ModuleOp([*self.global_ops, fn])
+      # for variable in args:
+      #     self.register_buffer(variable)
 
+      self.process(root)
+      n = len(self._arguments)
+
+      perm = sorted(range(n), key=lambda i: self._arguments[i].name)
+      arg_types = [self._entry_block.args[i].type for i in perm]
+
+      func_op = func.FuncOp(name, (arg_types, ()))
+      func_op.attributes["llvm.emit_c_interface"] = UnitAttr()
+      new_block = func_op.body.block
+  
+      for new_index, old_index in enumerate(perm):
+        old_arg = self._entry_block.args[old_index]
+        new_arg = new_block.args[new_index]
+        old_arg.replace_all_uses_with(new_arg)
+
+      ops = list(self._entry_block.ops)
+      for op in ops:
+        op.detach()
+      new_block.add_ops(ops)
+      new_block.add_op(func.ReturnOp())
+
+      modop = ModuleOp([*self.global_ops, func_op])
+    
       modop.verify()
 
-      return modop
+      return modop, self.arguments, f"_mlir_ciface_{name}"
     
    # {{{ helpers 
 
@@ -322,6 +359,10 @@ class MLIRBuilder():
         arg = self._entry_block.insert_arg(memref_type, len(self._entry_block.args)) 
         arg.name_hint = node.name 
         self._buffer_args[node] = arg 
+
+        self._arguments.append(Argument(node.name, node.dtype, shape))
+          
+        # At this point, we need to add to buffer
       
       return self._buffer_args[node]
 
@@ -426,21 +467,9 @@ class MLIRBuilder():
     @get_address.register(gem.Indexed)
     @get_address.register(gem.Gather)
     def _(self, node): 
-      
-
-      # Bug here is that we may encounter a ComponentTensor 
+      # TODO: Figure out why this assert is actually true
       assert isinstance(node.children[0], gem.Variable)
-      return (self.collect_buffer(node.children[0]), [self.get_index_ssa(i) for i in node.multiindex])  
-
-    # TODO: This is not getting used 
-    # def _store(self, node, value: SSAValue, accumulate: bool = False) -> None:
-    #   buf, idx = self.get_address(node)
-    #   elem = buf.type.element_type
-    #   value = self._convert_type(value, elem)
-    #   if accumulate:
-    #     old = self.insert(memref.LoadOp.get(buf, idx))
-    #     value = self._binary(old, value, arith.AddfOp, arith.AddiOp)
-    #   self.insert(memref.StoreOp.get(value, buf, idx))
+      return (self.collect_buffer(node.children[0]), self.get_strided_index(node.children[0], node.multiindex))  
 
     # NOTE: Might avoid a dispatch function at this point 
     def emit(self, expr) -> SSAValue:
@@ -451,6 +480,33 @@ class MLIRBuilder():
         buf, _ = self._temporaries[expr]
         return self.insert(memref.LoadOp.get(buf, self._temp_indices(expr)))
       return self.process(expr)
+
+
+    def linearise_index(self, strides, multiindex) -> SSAValue:
+      """ Receives a list of ints and gem.{Index, VariableIndex} and returns SSA linearised access """
+      linearised = None
+
+      # linearised = sum(index * stride)
+      for ind, step in zip(multiindex, strides):
+        term = self._binary(
+          self.get_index_ssa(ind), self._const(int(step), INDEX_TYPE),
+          arith.MulfOp, arith.MuliOp
+        )
+
+        linearised = term if linearised is None else self._binary(linearised, term, arith.AddfOp, arith.AddiOp)
+      return linearised 
+
+#       # Simulating a ternary operator in MLIR
+#       # Nested Select(Select(Select(...)))
+#       # Each element expression is eagerly evaluated this way 
+#       acc = self.emit(arr.flat[-1])
+#       for k in range(arr.size-2, -1, -1):
+#         hit = self.insert(arith.CmpiIOp(linearised, self._const(k, INDEX_TYPE), "eq"))
+#         val = self.emit(arr.flat[k])
+#         val, acc = self._align_scalars(val, acc)
+            
+#         acc = self.insert(arith.SelectOp(hit, val, acc))
+#       return acc
 
     @functools.singledispatchmethod
     def index_into(self, aggregate, multiindex) -> SSAValue: 
@@ -468,20 +524,33 @@ class MLIRBuilder():
       t = get_mlir_type(aggregate.dtype)
       return self.insert(arith.SelectOp(eq, self._const(1, t), self._const(0, t)))
 
-    @index_into.register(gem.Variable)
     @index_into.register(gem.Literal)
     def _(self, aggregate, multiindex) -> SSAValue:
       buf = self.collect_buffer(aggregate)
-      # Discuss problem with Connor later: multiinddex hosts indices for all indices associated with a variable
-      # i.e:
-      #  t_2[6l]
-      #  t_2[0] = dat_1[0] + dat_2[0]
-      #  t_2.multiindex = [0, 0, 0] 
-      # NOTE: Forcing only single index for now. 
-      indices = [self.get_index_ssa(i) for i in multiindex][:1]
+
+      strides = aggregate.shape
+
+      linearised = [self.linearise_index(strides, multiindex)]
+
       return self.insert(
         memref.LoadOp.get(
-          buf, indices
+          buf, linearised
+        )
+      )
+
+    @index_into.register(gem.Variable)
+    def _(self, aggregate, multiindex) -> SSAValue:
+      buf = self.collect_buffer(aggregate)
+
+      # TODO: Maybe find a way to refactor this in future 
+      variable, dim2idxs, indexes = gem.decompose_variable_view(aggregate)
+      strides = [stride for _, idxs in dim2idxs for _, stride in idxs] 
+
+      linearised = [self.linearise_index(strides, multiindex)]
+
+      return self.insert(
+        memref.LoadOp.get(
+          buf, linearised
         )
       )
 
@@ -539,6 +608,13 @@ class MLIRBuilder():
     
     # }}} 
 
+    def get_strided_index(self, aggregate, multiindex) -> SSAValue: 
+      variable, dim2idxs, indexes = gem.decompose_variable_view(aggregate)
+      strides = [stride for _, idxs in dim2idxs for _, stride in idxs] 
+
+      linearised = [self.linearise_index(strides, multiindex)]
+      return linearised
+
     @functools.singledispatchmethod
     def process(self, obj: Any, /, **kwargs):
       utils.raise_missing_dispatch_handler(obj)
@@ -593,12 +669,7 @@ class MLIRBuilder():
     
       """ 
       
-      # WILO: Not parsing the indirect memory accesses and return values correctly 
       """
-      Fix the storage process:  
-      multiindex may be layered indices and we should collect a single SSA from the cumulative address process
-      i.e. def get_multiindex_ssa()
-
       Fix the memref type: 
       The "processed" value gives a f64 type but it should be a ?xf64 aligned with the memref type
         
@@ -606,6 +677,7 @@ class MLIRBuilder():
         
       var = leaf.variable 
       
+      # If variable is just a temporary scalar
       if not isinstance(var, gem.Indexed):
         rhs = self.process(var.expression)
         self.symbol_table[var.name] = rhs
@@ -614,8 +686,7 @@ class MLIRBuilder():
       buf, idx = self.get_address(var) 
       value = self.process(leaf.expression)
 
-      sop = memref.StoreOp.get(buf, value, idx)
-      breakpoint()
+      sop = memref.StoreOp.get(value, buf, idx)
       self.insert(sop)
       return 
 
