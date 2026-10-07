@@ -1,8 +1,10 @@
 from firedrake import *
 import pytest
 from os.path import abspath, dirname, join
+import gc
 import os
 import functools
+
 from pyop3.mpi import COMM_WORLD
 from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.embedding import get_embedding_method_for_checkpointing
@@ -207,6 +209,8 @@ def test_io_function_base(cell_type, family, degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -235,6 +239,8 @@ def test_io_function_real(cell_type, tmpdir):
             assert abs(valueB - valueA) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -264,6 +270,8 @@ def test_io_function_mixed(cell_type, family_degree_tuples, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -302,6 +310,8 @@ def test_io_function_mixed_real(cell_type, family_degree_tuples, tmpdir):
             assert assemble(inner(fB - fBe, fB - fBe) * dx) < 1.e-16
             with CheckpointFile(filename, 'w', comm=comm) as afile:
                 afile.save_function(fB)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -332,6 +342,8 @@ def test_io_function_vector(cell_type, family, degree, vector_dim, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -357,6 +369,8 @@ def test_io_function_tensor(cell_type, family, degree, shape, symmetry, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -393,6 +407,8 @@ def test_io_function_mixed_vector(cell_type, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -420,6 +436,8 @@ def test_io_function_extrusion(cell_type, family, degree, vfamily, vdegree, tmpd
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -444,6 +462,8 @@ def test_io_function_extrusion_real(cell_type, family, degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -468,6 +488,8 @@ def test_io_function_vector_extrusion_real(cell_type, family, degree, dim, tmpdi
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -499,23 +521,9 @@ def test_io_function_mixed_vector_extrusion_real(cell_type, family0, degree0, di
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
-
-
-def _compute_random_layers(base):
-    V = VectorFunctionSpace(base, "DG", 0, dim=2)
-    f = Function(V)
-    dim = base.topology_dm.getCoordinateDim()
-    if dim == 1:
-        x, = SpatialCoordinate(base)
-        y = x * x
-    elif dim == 2:
-        x, y = SpatialCoordinate(base)
-    else:
-        raise NotImplementedError(f"Not for dim = {dim}")
-    f.interpolate(as_vector([2 + sin(x) + sin(y),
-                             7 + sin(5 * x)]))
-    return f.dat.data_with_halos.astype(IntType)
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -545,6 +553,8 @@ def test_io_function_extrusion_periodic(tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, func_name, comm, method, extruded_mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
 
 
@@ -570,4 +580,6 @@ def test_io_function_naming(cell_type, family, degree, tmpdir):
         comm = COMM_WORLD.Split(color=mycolor, key=COMM_WORLD.rank)
         if mycolor == 0:
             _load_check_save_functions(filename, alt_name, comm, method, mesh_name)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()

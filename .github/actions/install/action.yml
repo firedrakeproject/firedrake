@@ -108,12 +108,14 @@ runs:
           exit 1
         fi
 
+        : # UNDO ME
         cd petsc
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
           --gpu-arch ${{ inputs.gpu }} \
-          --show-petsc-configure-options | \
+          --show-petsc-configure-options \
+          -- --with-debugging=1 --COPTFLAGS='-O0 -g' | \
           xargs -L1 ./configure \
             $EXTRA_CONFIGURE_OPTIONS \
             --with-make-np=$NPROCS \

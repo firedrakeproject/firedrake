@@ -35,7 +35,7 @@ def profile_insns(kernel_name, instructions, log=False):
         prepend = [lp.CInstruction("", "PetscLogEventBegin("+event_id_var_name+",0,0,0,0);")]
         append = [lp.CInstruction("", "PetscLogEventEnd("+event_id_var_name+",0,0,0,0);")]
         instructions = prepend + instructions + append
-        return instructions, event_name, [(str(2**31-1)+"_"+kernel_name, preamble)]
+        return instructions, event_name, [("99"+"_"+kernel_name, preamble)]
     else:
         return instructions, None, None
 

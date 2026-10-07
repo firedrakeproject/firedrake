@@ -1,5 +1,9 @@
-import pytest
+import gc
 import os
+
+import pytest
+from petsc4py import PETSc
+
 from firedrake import *
 from pyop3.mpi import COMM_WORLD
 import numpy as np
@@ -151,4 +155,6 @@ def test_io_mesh_default_mesh_name(tmpdir):
             # Save.
             with CheckpointFile(fname, "w", comm=comm) as afile:
                 afile.save_mesh(mesh)
+        gc.collect()
+        PETSc.garbage_cleanup(comm)
         comm.Free()
