@@ -2701,19 +2701,19 @@ values from f.)"""
             A global Rtree whose leaf ids are MPI rank numbers.
         """
         gdim = self.geometric_dimension
-        comm = self.comm
 
         local_bboxes = self._box_ratio_heuristic  # (n_local, 2, gdim)
         n_local = local_bboxes.shape[0]
 
-        # Allgather per-rank box counts
-        counts = np.empty(comm.size, dtype=IntType)
-        comm.Allgather(np.array([n_local], dtype=IntType), counts)
-        n_total = int(counts.sum())
+        with temp_internal_comm(self.comm) as comm:
+            # Allgather per-rank box counts
+            counts = np.empty(comm.size, dtype=IntType)
+            comm.Allgather(np.array([n_local], dtype=IntType), counts)
+            n_total = int(counts.sum())
 
-        # Allgatherv the bbox data
-        all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
-        comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
+            # Allgatherv the bbox data
+            all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
+            comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
 
         # Reshape to (n_total, 2, gdim) and split into lo/hi corner arrays.
         all_bboxes = all_bboxes_flat.reshape(n_total, 2, gdim)
@@ -2721,7 +2721,7 @@ values from f.)"""
         regions_hi = np.ascontiguousarray(all_bboxes[:, 1, :])  # (n_total, gdim)
 
         # Set the owning rank as the leaf id so queries return rank numbers.
-        ids = np.repeat(np.arange(comm.size, dtype=np.int64), counts)
+        ids = np.repeat(np.arange(self.comm.size, dtype=np.int64), counts)
 
         return rtree.build_from_aabb(regions_lo, regions_hi, ids)
 
@@ -2797,7 +2797,8 @@ values from f.)"""
         Returns
         -------
         tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
-            An array of cell IDs containing each point, an array containing the reference coordinates of each point, and an array containing reference L^1 distances to the cell.
+            An array of cell IDs containing each point, an array containing the reference coordinates of each point,
+            and an array containing reference L^1 distances to the cell.
             If the point is not found, then the cell ID will be -1.
         """
         if self.variable_layers:
@@ -3958,7 +3959,6 @@ class VertexOnlyMeshSF:
         root_values: np.ndarray,
         leaf_values: np.ndarray,
     ) -> None:
-        # TODO: make these collective
         if root_values.shape[0] != self.nroots:
             raise ValueError("Number of root values does not match number of roots in the SF.")
         if leaf_values.shape[0] < self.leaf_buffer_size:
@@ -4012,42 +4012,30 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
     """A DMSwarm for use with :func:`VertexOnlyMesh`. This class provides
     convenience methods for creating the swarm, and accessing fields defined
     on the swarm.
-
-    Parameters
-    ----------
-    dm : PETSc.DMSwarm
-        The underlying PETSc DMSwarm.
-    extruded : bool
-        Whether the swarm is embedded in an extruded mesh.
     """
     @classmethod
-    def create_with_fields(
+    def from_fields(
         cls,
         cell_dm: PETSc.DM,
-        tdim: int,
         gdim: int,
-        extruded: bool,
-        extra_fields: Sequence[tuple] = (),
+        fields: dict[str, np.ndarray],
     ) -> "FiredrakeDMSwarm":
-        """Create an empty Firedrake DMSwarm with VertexOnlyMesh fields registered.
+        """Create a Firedrake DMSwarm and populate its fields from numpy arrays.
 
         Parameters
         ----------
         cell_dm : PETSc.DM
             The PETSc DM containing the cells in which the swarm is embedded.
-        tdim : int
-            The topological dimension of the embedding mesh.
         gdim : int
             The geometric dimension of the embedding mesh.
-        extruded : bool
-            Whether the parent mesh is extruded.
-        extra_fields : sequence of tuple
-            Additional ``(name, block_size, dtype)`` fields to register.
+        fields : dict[str, numpy.ndarray]
+            Fields to register on the DMSwarm. Size and dtype is determined
+            automatically from the arrays.
 
         Returns
         -------
         FiredrakeDMSwarm
-            The empty swarm with all fields registered.
+            The swarm with all supplied field values copied into it.
         """
         swarm = cls()
         PETSc.DMSwarm.create(swarm, comm=cell_dm.comm)
@@ -4058,19 +4046,18 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         if not isinstance(cell_dm, PETSc.DMSwarm):
             swarm.setType(PETSc.DMSwarm.Type.PIC)
 
-        swarm.registerField("parentcellnum", 1, dtype=IntType)
-        swarm.registerField("refcoord", tdim, dtype=RealType)
-        swarm.registerField("globalindex", 1, dtype=IntType)
-        swarm.registerField("inputrank", 1, dtype=IntType)
-        swarm.registerField("inputindex", 1, dtype=IntType)
-        if extruded:
-            swarm.registerField("parentcellbasenum", 1, dtype=IntType)
-            swarm.registerField("parentcellextrusionheight", 1, dtype=IntType)
-
-        for name, size, dtype in extra_fields:
-            swarm.registerField(name, size, dtype=dtype)
+        # PETSc registers these fields automatically when creating a DMSWarm, so skip
+        # registering them here.
+        builtin_fields = {"DMSwarmPIC_coor", "DMSwarm_rank", f"{cell_dm.getName()}_cellid"}
+        for name, values in fields.items():
+            if name not in builtin_fields:
+                size = int(np.prod(values.shape[1:]))
+                swarm.registerField(name, size, dtype=values.dtype)
 
         swarm.finalizeFieldRegister()
+        swarm.setLocalSizes(len(fields["DMSwarmPIC_coor"]), -1)
+        for name, values in fields.items():
+            swarm.set_field(name, values)
         return swarm
 
     def set_halo_sf(
@@ -4140,7 +4127,7 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
 def _pic_swarm_in_mesh(
     parent_mesh: MeshGeometry,
     coords: np.ndarray,
-    fields: Sequence[tuple] | None = None,
+    fields: Sequence[tuple] = (),
     tolerance: float | None = None,
     redundant: bool = True,
 ) -> tuple[FiredrakeDMSwarm, FiredrakeDMSwarm, int]:
@@ -4188,14 +4175,14 @@ def _pic_swarm_in_mesh(
             "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
         )
     coords = np.asarray(coords, dtype=RealType)
-
+    gdim = parent_mesh.geometric_dimension
     # in the redundant=True case we discard all the points not on rank zero
     # TODO: Here rank 0 queries the partition rtree while all other ranks wait.
     # We should load balance this by scattering chunks from rank 0 to all other ranks.
     # This would change the semantics of the input-ordering, however, so we would
     # need a 'work-to-input' SF which we would compose with the candidate SF.
     if redundant and parent_mesh.comm.rank != 0:
-        coords = np.empty((0, parent_mesh.geometric_dimension), dtype=RealType)
+        coords = np.empty((0, gdim), dtype=RealType)
 
     (
         winner_sf,
@@ -4234,39 +4221,29 @@ def _pic_swarm_in_mesh(
     # convert firedrake local cell numbering into DMPlex numbering
     cell_ids = parent_mesh.topology.cell_closure[cell_numbers, -1]
 
-    # create and populate the immersed DMSwarm
-    swarm = FiredrakeDMSwarm.create_with_fields(
-        parent_mesh.topology.topology_dm,
-        parent_mesh.topological_dimension,
-        parent_mesh.geometric_dimension,
-        parent_mesh.extruded,
-        extra_fields=() if fields is None else fields,
-    )
-    swarm.setLocalSizes(n_owned, -1)
-    cell_id_name = swarm.getCellDMActive().getCellID()
-    swarm.set_field("DMSwarmPIC_coor", physical_coords)
-    swarm.set_field(cell_id_name, cell_ids)
-    swarm.set_field("parentcellnum", parent_cell_nums)  # store Firedrake parent-cell numbers
-    swarm.set_field("refcoord", reference_coords)
-    swarm.set_field("globalindex", global_idxs_leaves)
-    swarm.set_field("DMSwarm_rank", np.full(n_owned, parent_mesh.comm.rank, dtype=IntType))
-    swarm.set_field("inputrank", winner_sf.input_ranks.astype(IntType))
-    swarm.set_field("inputindex", winner_sf.input_indices.astype(IntType))
+    # Create and populate the immersed DMSwarm.
+    cell_dm = parent_mesh.topology.topology_dm
+    swarm_fields = {
+        "DMSwarmPIC_coor": physical_coords,
+        f"{cell_dm.getName()}_cellid": cell_ids,  # Stores DMPlex numbering
+        "parentcellnum": parent_cell_nums,  # Stores firedrake cell numbering
+        "refcoord": reference_coords,
+        "globalindex": global_idxs_leaves,
+        "DMSwarm_rank": np.full(n_owned, parent_mesh.comm.rank, dtype=IntType),
+        "inputrank": winner_sf.input_ranks.astype(IntType),
+        "inputindex": winner_sf.input_indices.astype(IntType),
+    }
     if parent_mesh.extruded:
-        swarm.set_field("parentcellbasenum", swarm_base_cells)
-        swarm.set_field("parentcellextrusionheight", swarm_extrusion_heights)
+        swarm_fields["parentcellbasenum"] = swarm_base_cells
+        swarm_fields["parentcellextrusionheight"] = swarm_extrusion_heights
+    for name, size, dtype in fields:
+        swarm_fields[name] = np.empty((n_owned, size), dtype=dtype)
+    swarm = FiredrakeDMSwarm.from_fields(cell_dm, gdim, swarm_fields)
 
     # The distributed swarm contains owned points only.
     empty = np.empty(0, dtype=IntType)
     swarm.set_halo_sf(n_owned, empty, empty)
 
-    # Now we create the corresponding input-ordering swarm.
-    original_ordering_swarm = FiredrakeDMSwarm.create_with_fields(
-        swarm,
-        parent_mesh.topological_dimension,
-        parent_mesh.geometric_dimension,
-        parent_mesh.extruded,
-    )
     # Send each winner's local swarm index to its input root.
     # The input-ordering swarm uses these as cell IDs into the distributed swarm.
     winner_swarm_idx_buf = np.full(winner_sf.leaf_buffer_size, -1, dtype=IntType)
@@ -4274,20 +4251,22 @@ def _pic_swarm_in_mesh(
     winner_swarm_idx_roots = np.full(nroots, -1, dtype=IntType)
     winner_sf.reduce(winner_swarm_idx_buf, winner_swarm_idx_roots, op=MPI.MAX)
 
-    original_ordering_swarm.setLocalSizes(nroots, -1)
-    cell_id_name = original_ordering_swarm.getCellDMActive().getCellID()
-    original_ordering_swarm.set_field("DMSwarmPIC_coor", coords)
-    original_ordering_swarm.set_field(cell_id_name, winner_swarm_idx_roots)
-    original_ordering_swarm.set_field("parentcellnum", winner_cells)
-    original_ordering_swarm.set_field("refcoord", winner_ref_coords)
-    original_ordering_swarm.set_field("globalindex", global_idxs)
-    original_ordering_swarm.set_field("DMSwarm_rank", input_owner_ranks)
-    original_ordering_swarm.set_field("inputrank", np.full(nroots, parent_mesh.comm.rank, dtype=IntType))
-    original_ordering_swarm.set_field("inputindex", np.arange(nroots, dtype=IntType))
+    # Create the corresponding input-ordering swarm.
+    input_fields = {
+        "DMSwarmPIC_coor": coords,
+        f"{swarm.getName()}_cellid": winner_swarm_idx_roots,
+        "parentcellnum": winner_cells,
+        "refcoord": winner_ref_coords,
+        "globalindex": global_idxs,
+        "DMSwarm_rank": input_owner_ranks.astype(IntType),
+        "inputrank": np.full(nroots, parent_mesh.comm.rank, dtype=IntType),
+        "inputindex": np.arange(nroots, dtype=IntType),
+    }
     if parent_mesh.extruded:
         base_cells, extrusion_heights = _parent_extrusion_numbering(winner_cells, parent_mesh.layers)
-        original_ordering_swarm.set_field("parentcellbasenum", base_cells)
-        original_ordering_swarm.set_field("parentcellextrusionheight", extrusion_heights)
+        input_fields["parentcellbasenum"] = base_cells
+        input_fields["parentcellextrusionheight"] = extrusion_heights
+    original_ordering_swarm = FiredrakeDMSwarm.from_fields(swarm, gdim, input_fields)
     original_ordering_swarm.set_halo_sf(nroots, empty, empty)
     return swarm, original_ordering_swarm, n_missing_points
 
