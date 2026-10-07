@@ -572,7 +572,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.solve(None, work)
                 if self.snes.getSolution() != work:
                     # DMAdaptorAdapt() consumed a reference to work after adaptation.
-                    # The Function passed to the solver must survive after the solve
+                    # The Function passed to the solver must survive after the solve.
                     work.incRef()
                 # The appctx might have been refined
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
