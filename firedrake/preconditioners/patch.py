@@ -664,7 +664,7 @@ class PlaneSmoother(object):
         coordinatesV = coordinates.function_space()
         data = coordinates.dat.data_ro_with_halos
         coordinatesDM = coordinatesV.dm
-        coordinatesSection = coordinatesDM.getDefaultSection()
+        coordinatesSection = coordinatesDM.getLocalSection()
 
         closure_of_p = [x for x in dm.getTransitiveClosure(p, useCone=True)[0] if coordinatesSection.getDof(x) > 0]
 

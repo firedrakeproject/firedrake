@@ -21,12 +21,16 @@ We consider the Dirichlet eigenvalue problem for the Poisson equation on an L-sh
 
 We aim to compute the lowest eigenvalue. Since the domain has a re-entrant corner, the eigenfunction has a singularity. Thus, uniform mesh refinement leads to suboptimal convergence. We demonstrate an adaptive strategy driven by a residual-based a posteriori error estimator. To establish rigorous bounds on the true eigenvalue :math:`\lambda`, we use conforming elements (CG) for an upper bound :cite:`Boffi:2010`, and nonconforming elements (CR) with Carstensen-Gedicke postprocessing :cite:`CarstensenGedicke:2014` for a guaranteed lower bound.
 
-We start by importing the necessary libraries: ::
+We start by importing the necessary libraries:
+
+.. code-block:: python
 
   from firedrake import *
   from netgen.occ import *
 
-We then define the L-shaped domain using Netgen's Open CASCADE technology (OCC) interface, and generate an initial mesh: ::
+We then define the L-shaped domain using Netgen's Open CASCADE technology (OCC) interface, and generate an initial mesh:
+
+.. code-block:: python
 
   rect1 = WorkPlane(Axes((0,0,0), n=Z, h=X)).Rectangle(1,2).Face()
   rect2 = WorkPlane(Axes((0,1,0), n=Z, h=X)).Rectangle(2,1).Face()
@@ -43,7 +47,9 @@ We create a function to solve the eigenvalue problem for both continuous (CG) an
 
 where :math:`\kappa_{\text{CR}} \approx 0.1893` is the constant established by Carstensen and Gedicke :cite:`CarstensenGedicke:2014`. A general theory for deriving lower bounds for eigenvalues with nonconforming methods has been developed by Hu et al. :cite:`Hu:2014`. We will use the postprocessed lower bound to terminate the adaptive iteration, while for technical reasons we will plot the Galerkin gap :math:`\lambda_{\text{CG}} - \lambda_{\text{CR}}` to demonstrate optimal convergence.
 
-To efficiently compute the smallest eigenvalue, we configure SLEPc using a solver parameters dictionary. We specify a Krylov-Schur eigensolver (``eps_type``) and a shift-and-invert spectral transformation (``st_type``) with a target of zero (``eps_target``). We also flag the generalized eigenvalue problem as Hermitian (``eps_gen_hermitian``) and request the smallest real eigenvalue (``eps_smallest_real``). ::
+To efficiently compute the smallest eigenvalue, we configure SLEPc using a solver parameters dictionary. We specify a Krylov-Schur eigensolver (``eps_type``) and a shift-and-invert spectral transformation (``st_type``) with a target of zero (``eps_target``). We also flag the generalized eigenvalue problem as Hermitian (``eps_gen_hermitian``) and request the smallest real eigenvalue (``eps_smallest_real``).
+
+.. code-block:: python
 
   def solve_eigenproblem(mesh):
       h_symbolic = CellDiameter(mesh)
@@ -87,7 +93,9 @@ To efficiently compute the smallest eigenvalue, we configure SLEPc using a solve
       eigenfunction.rename("Eigenfunction")
       return (lambda_lb, lambda_ub, lambda_CR, eigenfunction)
 
-These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. Note that this assumes there is a single eigenfunction associated with the lowest eigenvalue; if the eigenvalue were of higher multiplicity the estimator would need to consider the entire eigenspace :cite:`Boffi:2014`. ::
+These bounds do not describe where the mesh should be refined so as to reduce the error. For this purpose we employ a standard residual-based a posteriori error estimator :cite:`Duran:2003,Larson:2000`. Note that this assumes there is a single eigenfunction associated with the lowest eigenvalue; if the eigenvalue were of higher multiplicity the estimator would need to consider the entire eigenspace :cite:`Boffi:2014`.
+
+.. code-block:: python
 
   def estimate_error(mesh, uh, lam):
       W = FunctionSpace(mesh, "DG", 0)
@@ -112,7 +120,9 @@ These bounds do not describe where the mesh should be refined so as to reduce th
           error_est = eta_.norm()
       return (eta, error_est)
 
-We define a function to adapt the mesh by refining elements with large error indicators, using the maximum Dörfler-like marking strategy with :math:`\theta = 0.5`: ::
+We define a function to adapt the mesh by refining elements with large error indicators, using the maximum Dörfler-like marking strategy with :math:`\theta = 0.5`:
+
+.. code-block:: python
 
   def adapt(mesh, eta):
       W = FunctionSpace(mesh, "DG", 0)
@@ -127,7 +137,9 @@ We define a function to adapt the mesh by refining elements with large error ind
 
       return mesh.refine_marked_elements(markers)
 
-Finally, we run the adaptive loop until the upper and lower bounds agree to within a tolerance. ::
+Finally, we run the adaptive loop until the upper and lower bounds agree to within a tolerance.
+
+.. code-block:: python
 
   max_iterations = 20
   error_estimators = []
@@ -150,7 +162,9 @@ Finally, we run the adaptive loop until the upper and lower bounds agree to with
       eta, _ = estimate_error(mesh, uh, lam_ub)
       mesh = adapt(mesh, eta)
 
-To demonstrate that adaptivity is necessary to achieve the optimal convergence rate, we can run the same script with :math:`\theta = 0`, which forces uniform refinement (all cells are marked for refinement at every step). We make this optional by guarding it behind the Boolean ``run_uniform``. ::
+To demonstrate that adaptivity is necessary to achieve the optimal convergence rate, we can run the same script with :math:`\theta = 0`, which forces uniform refinement (all cells are marked for refinement at every step). We make this optional by guarding it behind the Boolean ``run_uniform``.
+
+.. code-block:: python
 
   run_uniform = True
 
@@ -174,7 +188,9 @@ To demonstrate that adaptivity is necessary to achieve the optimal convergence r
           eta, _ = estimate_error(mesh_uniform, uh, lam_ub)
           mesh_uniform = adapt_uniform(mesh_uniform, eta)
 
-We can plot the convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}` against the number of degrees of freedom. With adaptivity, we achieve the optimal :math:`O(N^{-1})` convergence rate. For uniform refinement, the error is initially dominated by the smooth part of the solution (yielding a pre-asymptotic :math:`O(N^{-1})` rate), but as the mesh is refined, the singularity inevitably dominates and limits the asymptotic convergence to the suboptimal rate of :math:`O(N^{-2/3})`. ::
+We can plot the convergence of the Galerkin gap :math:`\lambda_{\text{ub}} - \lambda_{\text{CR}}` against the number of degrees of freedom. With adaptivity, we achieve the optimal :math:`O(N^{-1})` convergence rate. For uniform refinement, the error is initially dominated by the smooth part of the solution (yielding a pre-asymptotic :math:`O(N^{-1})` rate), but as the mesh is refined, the singularity inevitably dominates and limits the asymptotic convergence to the suboptimal rate of :math:`O(N^{-2/3})`.
+
+.. code-block:: python
 
   try:
       import matplotlib.pyplot as plt

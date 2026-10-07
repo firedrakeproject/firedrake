@@ -110,7 +110,7 @@ RUN if [ "${BRANCH}" != "main" ]; then \
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/-march=native -mtune=native/-mtune=generic/g" | \
-        xargs -L1 ./configure --with-make-np=8 --download-slepc ${PETSC_EXTRA_ARGS} \
+        xargs -L1 ./configure --with-make-np=8 --download-slepc --download-slepc-commit=v3.26.0 ${PETSC_EXTRA_ARGS} \
     && make; \
     if [ $? -eq 1 ]; then \
         cat configure.log; \
@@ -142,10 +142,6 @@ ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
 #     packages. These are installed in editable mode.
 #     The order these are installed is important, e.g. FIAT must be installed
 #     before UFL otherwise `pip install fiat` will reinstall pypi ufl.
-
-# Fix for petsc4py build to be removed after #5372 is resolved.
-RUN echo 'Cython<3.3.0' > /opt/constraints.txt
-ENV PIP_CONSTRAINT=/opt/constraints.txt
 
 RUN git clone --branch ${BRANCH} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
