@@ -15,7 +15,6 @@ from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.petsc import PETSc
 
-
 __all__ = ["Cofunction", "RieszMap"]
 
 
@@ -78,9 +77,36 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self.comm
-            self.dat = val
+            self._dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name())
+            self._dat = V.make_dat(val, dtype, self.name())
+
+        # Record the mesh topology version
+        self._mesh_topology_version = self._mesh_topology._topology_version
+
+        # Register the function on the mesh
+        self._mesh_topology._register_function(self)
+
+    @property
+    def _mesh_topology(self):
+        """Return the topology on which this cofunction is defined."""
+        return self._function_space.topological.mesh()
+
+    @property
+    def dat(self):
+        self._migrate_to_current_topology_version()
+        return self._dat
+
+    @dat.setter
+    def dat(self, value):
+        if value is self._dat:
+            return
+        raise AttributeError("A Cofunction's Dat cannot be replaced directly.")
+
+    def _migrate_to_current_topology_version(self) -> None:
+        """Migrate this cofunction's data to the current topology version."""
+        from firedrake.function import _migrate_dg0_coefficient
+        _migrate_dg0_coefficient(self, self._function_space.topological)
 
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
