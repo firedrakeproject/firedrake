@@ -895,7 +895,12 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += [firedrake_rtree.get_lib_filename(), f"-Wl,-rpath,{firedrake_rtree.get_lib()}"]
+    rtree_library_dir = firedrake_rtree.get_library().parent
+    ldargs += [
+        f"-L{rtree_library_dir}",
+        "-lfiredrake_rtree",
+        f"-Wl,-rpath,{rtree_library_dir}",
+    ]
     dll = compilation.load(
         src, "c",
         cppargs=[

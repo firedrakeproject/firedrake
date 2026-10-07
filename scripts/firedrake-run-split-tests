@@ -18,7 +18,7 @@ Usage:
   outer process-tree timeout for each split job:
 
     * FIREDRAKE_RUN_SPLIT_TESTS_TIMEOUT: maximum wall time for each job
-      (default: 1800s)
+      (default: 3600s)
     * FIREDRAKE_RUN_SPLIT_TESTS_KILL_AFTER: grace period before forcibly
       killing a timed-out job (default: 60s)
 
@@ -51,7 +51,7 @@ fi
 num_procs=$1
 num_jobs=$2
 extra_args=${@:3}
-job_timeout=${FIREDRAKE_RUN_SPLIT_TESTS_TIMEOUT:-1800s}
+job_timeout=${FIREDRAKE_RUN_SPLIT_TESTS_TIMEOUT:-3600s}
 kill_after=${FIREDRAKE_RUN_SPLIT_TESTS_KILL_AFTER:-60s}
 
 # Callback to kill child processes if Ctrl-C hit

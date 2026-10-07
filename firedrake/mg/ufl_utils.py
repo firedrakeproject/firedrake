@@ -314,7 +314,7 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
-    u = coefficient_mapping[problem.u_restrict]
+    u = self(problem.u_restrict, self, coefficient_mapping=coefficient_mapping)
 
     new_problem = firedrake.NonlinearVariationalProblem(
         F, u, bcs=bcs, J=J, Jp=Jp, objective=E, is_linear=problem.is_linear,
@@ -458,41 +458,23 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     return new_context
 
 
-@_reconstruct.register(firedrake.slate.AssembledVector)
-def reconstruct_slate_assembled_vector(tensor, self, coefficient_mapping=None):
-    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
-    return type(tensor)(form)
-
-
 @_reconstruct.register(firedrake.slate.BlockAssembledVector)
 def reconstruct_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
     form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
-    block = self(tensor.block, self, coefficient_mapping=coefficient_mapping)
-    return type(tensor)(form, *block.children, block.indices)
+    block = self(tensor._block, self, coefficient_mapping=coefficient_mapping)
+    child, = block.children
+    return type(tensor)(form, child, block._indices)
 
 
-@_reconstruct.register(firedrake.slate.Block)
-def reconstruct_slate_block(tensor, self, coefficient_mapping=None):
-    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
-    return type(tensor)(*children, indices=tensor._indices)
-
-
-@_reconstruct.register(firedrake.slate.Factorization)
-def reconstruct_slate_factorization(tensor, self, coefficient_mapping=None):
-    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
-    return type(tensor)(*children, decomposition=tensor.decomposition)
-
-
-@_reconstruct.register(firedrake.slate.Tensor)
+@_reconstruct.register(firedrake.slate.TensorBase)
 def reconstruct_slate_tensor(tensor, self, coefficient_mapping=None):
+    if tensor.children:
+        children = (self(c, self, coefficient_mapping=coefficient_mapping)
+                    for c in tensor.children)
+        return tensor.reconstruct(*children)
+
     form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
-    return type(tensor)(form, diagonal=tensor.diagonal)
-
-
-@_reconstruct.register(firedrake.slate.TensorOp)
-def reconstruct_slate_tensor_op(tensor, self, coefficient_mapping=None):
-    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
-    return type(tensor)(*children)
+    return tensor.reconstruct(form)
 
 
 class Interpolation(object):

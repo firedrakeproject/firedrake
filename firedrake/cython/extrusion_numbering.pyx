@@ -184,7 +184,6 @@ This is guaranteed to pick up all the nodes in the closure of the
 facet column.
 """
 import cython
-import firedrake.extrusion_utils as eutils
 import numpy
 from firedrake.petsc import PETSc
 from firedrake.cython.dmcommon import count_labelled_points
@@ -193,7 +192,6 @@ from mpi4py.libmpi cimport (MPI_Op_create, MPI_OP_NULL, MPI_Op_free,
                             MPI_User_function)
 from pyop2 import op2
 from firedrake.utils import IntType
-from finat.element_factory import as_fiat_cell
 
 cimport numpy
 cimport mpi4py.MPI as MPI
@@ -203,7 +201,7 @@ numpy.import_array()
 
 include "petschdr.pxi"
 
-cdef inline void extents_reduce(void *in_, void *out, int *count, MPI.MPI_Datatype *datatype) nogil:
+cdef inline void extents_reduce(void *in_, void *out, int *count, MPI.MPI_Datatype *datatype) noexcept nogil:
     cdef:
         PetscInt *xin = <PetscInt *>in_
         PetscInt *xout = <PetscInt *>out
@@ -326,7 +324,6 @@ def node_classes(mesh, nodes_per_entity):
     """
     cdef:
         PETSc.DM dm
-        DMLabel label
         PetscInt p, point, layers, i, j, dimension
         numpy.ndarray[PetscInt, ndim=2, mode="c"] nodes
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents = mesh.layer_extents
@@ -386,7 +383,6 @@ def facet_closure_nodes(V, sub_domain):
         int f, i, j, dof, facet, idx
         int nfacet, nlocal, layers
         PetscInt local_facet
-        PetscInt offset
 
     # We don't have to handle the "on_boundary" case, because the
     # caller handles it.
@@ -485,7 +481,7 @@ def entity_layers(mesh, height, label=None):
         DMLabel clabel = NULL
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layers
-        PetscInt f, p, i, hStart, hEnd, pStart, pEnd
+        PetscInt p, hStart, hEnd, pStart, pEnd
         PetscInt point, offset
         const PetscInt *renumbering
         PetscBool flg

@@ -1074,7 +1074,14 @@ class ParloopFormAssembler(FormAssembler):
         if hasattr(self, "_parloops"):
             for (lknl, _), parloop in zip(self.local_kernels, self._parloops):
                 data = self._as_pyop2_type(tensor, lknl.indices)
-                parloop.arguments[0].data = data
+                if isinstance(data, op2.Global):
+                    # In parloops we swap out globals with private ones so
+                    # increments don't double add. The right attribute to swap
+                    # out here is therefore reduced_globals instead of arguments.
+                    tmp = parloop.arguments[0].data
+                    parloop.reduced_globals[tmp] = op2.GlobalParloopArg(data)
+                else:
+                    parloop.arguments[0].data = data
 
         else:
             # Make parloops for one concrete output tensor and cache them.
@@ -2090,18 +2097,16 @@ class ParloopBuilder:
                 row_bcs, col_bcs = self._filter_bcs(i, j)
                 # the tensor is already indexed
                 rlgmap, clgmap = self._tensor.local_to_global_maps
-                mat_type = self._tensor.handle.getType()
-                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
-                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
+                rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
+                clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
                 return ((rlgmap, clgmap),)
             else:
                 lgmaps = []
                 for i, j in self.get_indicess():
                     row_bcs, col_bcs = self._filter_bcs(i, j)
                     rlgmap, clgmap = self._tensor[i, j].local_to_global_maps
-                    mat_type = self._tensor[i, j].handle.getType()
-                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap, mat_type=mat_type)
-                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap, mat_type=mat_type)
+                    rlgmap = self.test_function_space[i].local_to_global_map(row_bcs, rlgmap)
+                    clgmap = self.trial_function_space[j].local_to_global_map(col_bcs, clgmap)
                     lgmaps.append((rlgmap, clgmap))
                 return tuple(lgmaps)
         else:
