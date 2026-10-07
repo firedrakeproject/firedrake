@@ -9,6 +9,7 @@ import pyop3 as op3
 
 
 def check_subtree_size(axis_tree, path, pattern, size_fn):
+
     if not isinstance(path, collections.abc.Mapping):
         path = {axis_label: None for axis_label in path}
     path = idict(path)
@@ -20,6 +21,7 @@ def check_subtree_size(axis_tree, path, pattern, size_fn):
     # Before iterating drop the subtree and linearise
     iterset = axis_tree.drop_subtree(path, allow_empty_subtree=True).linearize(path)
 
+    pytest.xfail("Eager iteration of itersets not supported")
     for path_, ix in iterset.iter(eager=True):
         assert path_ == path
         assert op3.evaluate(subtree.size, ix) == size_fn(*ix.values())

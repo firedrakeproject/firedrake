@@ -27,7 +27,7 @@ def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
     axis_tree = axis_tree.materialize()
 
     block_shape = []
-    while not axis_tree.is_empty:
+    while axis_tree.depth > 1:
         parent_paths = [parent_path(lp) for lp in axis_tree.leaf_paths]
         if not utils.has_unique_entries(parent_paths):
             break

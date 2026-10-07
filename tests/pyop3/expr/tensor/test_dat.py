@@ -304,3 +304,26 @@ class TestDatLinalg:
 
         i2 = d2.inner(d1)
         assert abs(i2 - 32) < 1e-12
+
+
+@pytest.mark.parametrize("reshaped", ["lhs", "rhs"])
+def test_linear_reshaped_assign(reshaped):
+    axes1 = op3.AxisTree.from_iterable([10, 3])
+    axes2 = op3.AxisTree(op3.Axis(15))
+
+    dat1 = op3.Dat(axes1, data=np.arange(30))
+    dat2 = op3.Dat.zeros(axes2, dtype=dat1.dtype)
+
+    dat1_indexed = dat1[::2]
+
+    if reshaped == "lhs":
+        lhs = dat2.reshape(op3.AxisTree(dat1_indexed.axes.node_map))
+        rhs = dat1_indexed
+    else:
+        assert reshaped == "rhs"
+        lhs = dat2
+        rhs = dat1_indexed.reshape(dat2.axes)
+
+    lhs.assign(rhs, eager=True, eager_strategy="compile")
+
+    assert np.equal(dat2.data_ro.ravel(), dat1.data_ro[::2].ravel()).all()

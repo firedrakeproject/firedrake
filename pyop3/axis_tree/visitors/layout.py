@@ -277,7 +277,7 @@ def _compute_layouts_cached(axis_tree: AxisTree) -> idict[ConcretePathT, Express
             # we can use this to build a new sf mapping between offsets
             section = PETSc.Section().create(comm=offset_pt_sf.comm)
             section.setChart(0, offset_dat.axes.local_size)
-            for pt, off in enumerate(offset_dat.data_ro):
+            for pt, off in enumerate(offset_dat.data_ro.ravel()):
                 section.setDof(pt, sizes[pt])
                 section.setOffset(pt, off)
 
@@ -363,13 +363,15 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
                     component_sf = offset_axis.component.sf
                     break
                 component_sf_path |= {offset_axis.label: offset_axis.component.label}
-            assert component_sf is not None
 
-            # Now get the section and build the new star forest. By default the
-            # section will drop values for all but the first region but here we
-            # don't want this to happen
-            component_sf_sec = offset_axes.regionless().section(component_sf_path)
-            offset_sf = component_sf.with_section(component_sf_sec)
+            if component_sf is not None:
+                # Now get the section and build the new star forest. By default the
+                # section will drop values for all but the first region but here we
+                # don't want this to happen
+                component_sf_sec = offset_axes.regionless().section(component_sf_path)
+                offset_sf = component_sf.with_section(component_sf_sec)
+            else:
+                offset_sf = pyop3.sf.local_sf(offset_axes.local_size, offset_axes.comm)
 
             to_tabulate.append((offset_axes, offset_dat, steps, offset_sf))
 
@@ -512,7 +514,7 @@ def _tabulate_regions(offset_axes, step, comm):
         region_offset_dat.assign(offset_expr, eager=True, eager_strategy="compile")
 
         region_size = regioned_offset_axes.local_size
-        locs[ptr:ptr+region_size] = region_offset_dat.data_ro
+        locs[ptr:ptr+region_size] = region_offset_dat.data_ro.ravel()
         ptr += region_size
 
     # We now have the necessary permutation but to compute offsets we actually
@@ -529,23 +531,10 @@ def _tabulate_regions(offset_axes, step, comm):
     # the region interleaving. We therefore need to:
     #
     # 1. Reorder the steps into 'region' order
-    reordered_steps = step_dat.data_ro[locs]
+    reordered_steps = step_dat.data_ro.ravel()[locs]
     # 2. Accumulate these steps to give us offsets
     reordered_offsets = utils.steps(reordered_steps)
     # 3. Undo the reordering
     offsets = reordered_offsets[utils.invert(locs)]
 
-    # if "constrained" in offset_axes._all_region_labels:
-    #     unconstrained_step_dat = Dat.zeros_like(step_dat)
-    #     loop_(
-    #         i := offset_axes.with_region_label("constrained", allow_missing=True).iter(),
-    #         unconstrained_step_dat[i].assign(1),
-    #         eager=True,
-    #     )
-    #     masked = utils.just_one(np.nonzero(unconstrained_step_dat.data_ro == 1))
-    #     # breakpoint()
-    # else:
-    #     unconstrained_step_dat = step_dat
-    #     masked = np.empty(0, dtype=IntType)
-
-    return Dat(step_dat.axes, data=offsets), step_dat.data_ro
+    return Dat(step_dat.axes, data=offsets), step_dat.data_ro.ravel()

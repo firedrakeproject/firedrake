@@ -253,6 +253,9 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
     def __setitem__(self, key, value) -> None:
         self.cache[key] = value
 
+    def __len__(self):
+        return len(self.cache)
+
     def get(self, key, default=None):
         try:
             value = self[key]
