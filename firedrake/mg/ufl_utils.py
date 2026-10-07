@@ -534,6 +534,7 @@ class Injection(object):
         self.manager = manager
 
     def multTranspose(self, mat, x, y):
+        # PCMG expects the transpose of injection.
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
