@@ -463,6 +463,14 @@ def _refine_adaptive(dm):
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
+    # ctx._x holds the last point where the residual was evaluated, which
+    # differs from the solution if the SNES does not evaluate the residual
+    # at the final iterate, as with snes_type ksponly. Outside a solve, the
+    # SNES has no solution and ctx._x is the current state.
+    solution = ctx.snes.getSolution()
+    if solution:
+        with current_solution.dat.vec_wo as x:
+            solution.copy(x)
     solution_mesh = current_solution.function_space().mesh()
     mesh = solution_mesh.unique()
     hierarchy, level = get_level(mesh)

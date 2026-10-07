@@ -320,11 +320,13 @@ def test_goal_oriented_marker_auxiliary_solver_options_survive_refinement(monkey
 
 
 @pytest.mark.parallel([1, 2])
-def test_goal_oriented_marker_effectivity_index():
+@pytest.mark.parametrize("snes_type", ["newtonls", "ksponly"])
+def test_goal_oriented_marker_effectivity_index(snes_type):
     mesh, V, problem, goal = _goal_poisson_problem()
     x, y = SpatialCoordinate(mesh)
     callback = GoalOrientedMarker(goal, exact_solution=x*(1 - x)*y*(1 - y))
     parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 2)
+    parameters["snes_type"] = snes_type
     parameters["goal_monitor"] = None
     solver = NonlinearVariationalSolver(
         problem, solver_parameters=parameters, marking_callback=callback,
@@ -339,6 +341,47 @@ def test_goal_oriented_marker_effectivity_index():
     for estimate in callback.estimates:
         assert estimate.true_error is not None
         assert estimate.effectivity_index == estimate.error_estimate / estimate.true_error
+        # The marker must see the solution, not the initial guess.
+        assert abs(estimate.solver_error) < 1e-10 * abs(estimate.discretisation_error)
+
+
+@pytest.mark.parallel([1, 2])
+def test_goal_oriented_marker_biharmonic():
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    u_exact = x**2*(1 - x)**2*y**2*(1 - y)**2
+    f = div(grad(div(grad(u_exact))))
+    V = FunctionSpace(mesh, "HCT-red", 3)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(grad(u)), grad(grad(v)))*dx - inner(f, v)*dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    problem = NonlinearVariationalProblem(F, u, bcs=bc)
+
+    callback = GoalOrientedMarker(u*dx, exact_solution=u_exact)
+    parameters = {
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "goal_cell_ksp_type": "preonly",
+        "goal_cell_pc_type": "lu",
+        "goal_facet_ksp_type": "preonly",
+        "goal_facet_pc_type": "lu",
+        "snes_adapt_sequence": 6,
+        "adaptor_criterion": "refine",
+        "goal_enriched_family": "HCT",
+        "goal_enrichment_degree": 0,
+        "goal_test_derivative_order": 2,
+    }
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=callback,
+    )
+    solver.solve()
+
+    assert len(callback.estimates) == 6
+    estimate = callback.estimates[-1]
+    assert abs(estimate.true_error) < 1e-5
+    assert abs(estimate.effectivity_index - 1) < 0.05
 
 
 @pytest.mark.parallel([1, 2])

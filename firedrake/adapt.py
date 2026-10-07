@@ -7,7 +7,7 @@ import petsctools
 import ufl
 from finat.ufl import BrokenElement, FiniteElement
 from petsctools.options import DefaultOptionSet, get_default_options
-from ufl import avg, dS, ds, dx, inner, replace
+from ufl import FacetNormal, avg, dS, dot, ds, dx, grad, inner, replace
 
 from firedrake.assemble import assemble
 from firedrake.cython import dmcommon
@@ -169,7 +169,20 @@ def _both(expr):
     return expr("+") + expr("-")
 
 
-def _residual_indicators(F, dual_error, residual_degree, options_prefix):
+def _boundary_integral(expr):
+    return _both(expr) * dS + expr * ds
+
+
+def _normal_derivative(expr, normal, order):
+    for _ in range(order):
+        expr = grad(expr)
+    for _ in range(order):
+        expr = dot(expr, normal)
+    return expr
+
+
+def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
+                         options_prefix):
     """Compute one dual-weighted residual error indicator per cell.
 
     The residual of the primal solution ``u_h`` is written as a sum of
@@ -177,21 +190,29 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
 
     .. math::
 
-        F(u_h; v) = \\sum_K (R_K, v)_K + (R_{\\partial K}, v)_{\\partial K},
+        F(u_h; v) = \\sum_K (R_K, v)_K
+        + \\sum_{j=0}^{m-1} (R^j_{\\partial K}, \\partial_n^j v)_{\\partial K},
 
-    where ``R_K`` is a polynomial on the cell ``K`` and ``R_dK`` is a
+    where ``m`` is the highest derivative of the test function in ``F``,
+    ``R_K`` is a polynomial on the cell ``K``, and each ``R^j_dK`` is a
     polynomial on each facet of ``K``. This representation is computed
     from the form ``F``, so the strong form of the equation is not needed.
-    Two sets of local problems give the residuals. Test functions that are
-    a cell bubble times a polynomial vanish on all facets, so testing ``F``
-    against them gives ``R_K``. Test functions that are a facet bubble
-    times a polynomial then give ``R_dK`` from the remainder
-    ``F(u_h; v) - (R_K, v)_K``. The indicator of a cell ``K`` is
+    Local problems give the residuals. Test functions that are the ``m``-th
+    power of the cell bubble times a polynomial vanish with their first
+    ``m - 1`` derivatives on all facets, so testing ``F`` against them
+    gives ``R_K``. The facet residuals follow from ``j = m - 1`` down to
+    ``j = 0``. A test function that is the ``j``-th power of the cell
+    bubble times a facet bubble times a polynomial vanishes to order
+    ``j + 1`` on the other facets of ``K``, and its normal derivatives of
+    order less than ``j`` vanish on its own facet. Testing the remainder
+    ``F(u_h; v) - (R_K, v)_K`` minus the facet terms of higher order
+    against these functions gives ``R^j_dK``. The indicator of a cell
+    ``K`` is
 
     .. math::
 
-        \\eta_K = \\left| (R_K, z - z_h)_K
-        + (R_{\\partial K}, z - z_h)_{\\partial K} \\right|,
+        \\eta_K = \\left| (R_K, z - z_h)_K + \\sum_{j=0}^{m-1}
+        (R^j_{\\partial K}, \\partial_n^j (z - z_h))_{\\partial K} \\right|,
 
     where the contribution of an interior facet is the average of the
     contributions from its two sides.
@@ -205,6 +226,10 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     residual_degree
         The number of degrees that the localization spaces add to the primal
         space.
+    test_derivative_order
+        The highest derivative ``m`` of the test function in ``F``, for
+        example 1 for a second-order operator and 2 for the biharmonic
+        operator.
     options_prefix
         The options prefix of the solver that this callback is attached to.
 
@@ -217,6 +242,12 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     ----------
     Rognes, M. E. and Logg, A., 2013: "Automated goal-oriented error control
     I: Stationary variational problems". https://doi.org/10.1137/10081962X
+
+    Cao, H., Huang, Y., Yi, N. and Yin, P., 2025: "A posteriori error
+    estimators for fourth order elliptic problems with concentrated loads".
+    The squared cell bubble and the edge bubble that tests the normal
+    derivative are used in Section 3.
+    https://doi.org/10.1007/s10915-025-03089-4
     """
     v, = F.arguments()
     V = v.function_space()
@@ -224,10 +255,12 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     dim = mesh.topological_dimension
     degree = V.ufl_element().degree() + residual_degree
     variant = "integral"
+    normal = FacetNormal(mesh)
 
-    # Testing F against cell bubbles isolates the cell residual.
+    # Testing F against powers of the cell bubble isolates the cell residual.
     bubble_space = FunctionSpace(mesh, "B", dim + 1, variant=variant)
     bubble = Function(bubble_space).assign(1)
+    cell_bubble = bubble**test_derivative_order
     if V.value_shape == ():
         cell_space = FunctionSpace(mesh, "DG", degree, variant=variant)
     else:
@@ -237,15 +270,16 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     cell_test = TestFunction(cell_space)
     cell_residual = Function(cell_space)
     cell_problem = LinearVariationalProblem(
-        inner(cell_trial, bubble * cell_test) * dx,
-        _replace_arguments(F, bubble * cell_test), cell_residual,
+        inner(cell_trial, cell_bubble * cell_test) * dx,
+        _replace_arguments(F, cell_bubble * cell_test), cell_residual,
     )
     cell_solver = LinearVariationalSolver(
         cell_problem, options_prefix=options_prefix + "goal_cell_",
     )
     cell_solver.solve()
 
-    # Testing the remainder against facet bubbles isolates the facet residual.
+    # Testing the remainder against facet bubbles isolates the facet
+    # residuals, from the highest normal derivative down.
     cone_space = FunctionSpace(mesh, "FB", dim, variant=variant)
     cone = Function(cone_space).assign(1)
     cell = mesh.ufl_cell()
@@ -257,28 +291,35 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
         facet_space = TensorFunctionSpace(mesh, element, shape=V.value_shape)
     facet_trial = TrialFunction(facet_space)
     facet_test = TestFunction(facet_space)
-    facet_residual_hat = Function(facet_space)
-    facet_rhs = (_replace_arguments(F, facet_test)
-                 - inner(cell_residual, facet_test) * dx)
-    facet_lhs = (_both(inner(facet_trial / cone, facet_test)) * dS
-                 + inner(facet_trial / cone, facet_test) * ds)
-    facet_problem = LinearVariationalProblem(
-        facet_lhs, facet_rhs, facet_residual_hat
-    )
-    facet_solver = LinearVariationalSolver(
-        facet_problem, options_prefix=options_prefix + "goal_facet_",
-    )
-    facet_solver.solve()
-    facet_residual = facet_residual_hat / cone
+
+    facet_residuals = {}
+    for j in reversed(range(test_derivative_order)):
+        test = bubble**j * facet_test
+        facet_rhs = (_replace_arguments(F, test)
+                     - inner(cell_residual, test) * dx)
+        for i, residual in facet_residuals.items():
+            facet_rhs -= _boundary_integral(
+                inner(residual, _normal_derivative(test, normal, i)))
+        facet_lhs = _boundary_integral(
+            inner(facet_trial / cone, _normal_derivative(test, normal, j)))
+        facet_residual_hat = Function(facet_space)
+        facet_problem = LinearVariationalProblem(
+            facet_lhs, facet_rhs, facet_residual_hat
+        )
+        facet_solver = LinearVariationalSolver(
+            facet_problem, options_prefix=options_prefix + "goal_facet_",
+        )
+        facet_solver.solve()
+        facet_residuals[j] = facet_residual_hat / cone
 
     indicator_space = FunctionSpace(mesh, "DG", 0)
     indicator_test = TestFunction(indicator_space)
-    indicators = assemble(
-        inner(inner(cell_residual, dual_error), indicator_test) * dx
-        + inner(avg(inner(facet_residual, dual_error)),
-                _both(indicator_test)) * dS
-        + inner(inner(facet_residual, dual_error), indicator_test) * ds
-    )
+    indicator_form = inner(inner(cell_residual, dual_error), indicator_test) * dx
+    for j, residual in facet_residuals.items():
+        contribution = inner(residual, _normal_derivative(dual_error, normal, j))
+        indicator_form += (inner(avg(contribution), _both(indicator_test)) * dS
+                           + inner(contribution, indicator_test) * ds)
+    indicators = assemble(indicator_form)
     with indicators.dat.vec as vec:
         vec.abs()
     return indicators
@@ -389,6 +430,19 @@ class GoalOrientedMarker:
     ``goal_enrichment_degree`` (default 1) and ``goal_residual_degree`` (default 1)
         The increases in polynomial degree that the error estimate uses.
         Larger values give a more accurate estimate at a higher cost.
+    ``goal_test_derivative_order`` (default 1)
+        The highest derivative of the test function in the residual, which
+        sets how the error indicators are localized to the cells. Set it to
+        2 for a fourth-order operator, such as the biharmonic operator.
+        Above 1, the ``goal_cell_`` and ``goal_facet_`` local problems no
+        longer have diagonal mass matrices, so they need exact solvers,
+        such as ``pc_type lu``.
+    ``goal_enriched_family`` (default: the family of the solution space)
+        The element family of the space of higher degree. The enriched
+        space must contain the solution space and approximate the solution
+        to a higher order. For example, ``HCT-red`` is defined only at
+        degree 3, but it can be enriched to ``HCT`` with
+        ``goal_enrichment_degree 0``.
     ``goal_monitor`` (default off)
         Print each estimate.
 
@@ -504,9 +558,11 @@ class GoalOrientedMarker:
         options = PETSc.Options(prefix)
         enrichment_degree = options.getInt("goal_enrichment_degree", 1)
         residual_degree = options.getInt("goal_residual_degree", 1)
+        test_derivative_order = options.getInt("goal_test_derivative_order", 1)
         marking_fraction = options.getReal("goal_marking_fraction", 0.5)
+        enriched_family = options.getString("goal_enriched_family", V.ufl_element().family())
         high_degree = V.ufl_element().degree() + enrichment_degree
-        high_space = V.reconstruct(degree=high_degree)
+        high_space = V.reconstruct(family=enriched_family, degree=high_degree)
 
         dual_low = Function(V, name="dwr_dual_low")
         goal_derivative = derivative(self.goal_functional, current_solution)
@@ -514,7 +570,10 @@ class GoalOrientedMarker:
         ctx.solve_jacobian(rhs, dual_low, transpose=True)
 
         primal_high = Function(high_space, name="dwr_primal_high")
-        primal_high.interpolate(current_solution)
+        try:
+            primal_high.interpolate(current_solution)
+        except NotImplementedError:
+            primal_high.project(current_solution)
         high_problem = problem.rediscretise(u=primal_high)
 
         nullspace = None if ctx._nullspace is None else ctx._nullspace.rediscretise(high_space)
@@ -553,6 +612,6 @@ class GoalOrientedMarker:
             return None
 
         indicators = _residual_indicators(
-            problem.F, dual_error, residual_degree, prefix
+            problem.F, dual_error, residual_degree, test_derivative_order, prefix
         )
         return _dorfler_mark(indicators, marking_fraction)
