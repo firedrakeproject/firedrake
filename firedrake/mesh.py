@@ -2785,18 +2785,18 @@ values from f.)"""
 
         Parameters
         ----------
-        xs : np.ndarray
+        xs : numpy.ndarray
             Array of points to locate, of shape (npoints, gdim)
         tolerance : float
             Tolerance for determining if a point is in a cell. By default this is the
             mesh's :attr:`tolerance` property.
-        cells_ignore : np.ndarray
+        cells_ignore : numpy.ndarray
             Array of cell IDs to ignore in the cell location, of shape (npoints, n_points_ignore).
             Each column corresponds to a single coordinate in xs. By default, we don't ignore any cells.
 
         Returns
         -------
-        tuple[np.ndarray, np.ndarray, np.ndarray]
+        tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
             An array of cell IDs containing each point, an array containing the reference coordinates of each point, and an array containing reference L^1 distances to the cell.
             If the point is not found, then the cell ID will be -1.
         """
