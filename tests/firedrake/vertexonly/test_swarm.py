@@ -358,7 +358,7 @@ def test_point_on_partition_boundary(overlap):
     comm = MPI.COMM_WORLD
     parent_mesh = UnitIntervalMesh(
         2,
-        distribution_parameters={"partitioner_type": "simple", "overlap_type": overlap},
+        distribution_parameters={"overlap_type": overlap},
     )
     coords = np.array([[0.5]]) if comm.rank == 0 else np.empty((0, 1))
 
@@ -366,6 +366,7 @@ def test_point_on_partition_boundary(overlap):
         parent_mesh, coords, redundant=False
     )
 
+    # The point should end up on rank 1 since we tie-break by highest rank
     assert n_missing == 0
     assert swarm.getSize() == 1
     assert swarm.getLocalSize() == (comm.rank == 1)
