@@ -1,7 +1,6 @@
 import subprocess
 import sys
 
-import numpy as np
 import pytest
 from firedrake import *
 from firedrake import adapt, dmhooks
@@ -42,8 +41,9 @@ def test_solve_accepts_marking_callback():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     v = TestFunction(V)
+    F = (u - 1.0)*v*dx
 
-    result = solve((u - 1.0)*v*dx == 0, u, marking_callback=mark_cells)
+    result = solve(F == 0, u, marking_callback=mark_cells)
 
     assert result is u
 
@@ -62,8 +62,9 @@ mesh = UnitSquareMesh(2, 2)
 V = FunctionSpace(mesh, "CG", 1)
 u = Function(V)
 v = TestFunction(V)
-problem = NonlinearVariationalProblem(inner(grad(u), grad(v))*dx - inner(1, v)*dx,
-                                      u, bcs=DirichletBC(V, 0, "on_boundary"))
+F = inner(grad(u), grad(v))*dx - inner(1, v)*dx
+bc = DirichletBC(V, 0, "on_boundary")
+problem = NonlinearVariationalProblem(F, u, bcs=bc)
 solver = NonlinearVariationalSolver(
     problem, marking_callback=mark_cells,
     solver_parameters={"ksp_type": "preonly", "pc_type": "lu",
@@ -76,86 +77,6 @@ gc.collect()
 
 def test_collect_mesh_after_adaptive_solve():
     subprocess.run([sys.executable, "-c", _COLLECT_AFTER_ADAPT], check=True)
-
-
-def _jacobian_solver(V, u):
-    v = TestFunction(V)
-    F = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
-    problem = NonlinearVariationalProblem(F, u, bcs=DirichletBC(V, 0, "on_boundary"))
-    return NonlinearVariationalSolver(
-        problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"}
-    )
-
-
-def test_solve_jacobian_uses_its_own_solvers_operator():
-    # A second solver on V must not take over the Jacobian solve of the first
-    # one. Each solver holds its own KSP, and not the KSP that the DM composes.
-    mesh = UnitSquareMesh(4, 4)
-    V = FunctionSpace(mesh, "CG", 1)
-
-    first = _jacobian_solver(V, Function(V))
-    first.solve()
-
-    b = assemble(inner(Constant(1), TestFunction(V))*dx)
-    expected = Function(V)
-    first._ctx.solve_jacobian(b, expected)
-
-    # A second solver on the same V, with a deliberately different Jacobian.
-    u2 = Function(V)
-    v2 = TestFunction(V)
-    second_problem = NonlinearVariationalProblem(
-        Constant(7)*inner(grad(u2), grad(v2))*dx - inner(Constant(1), v2)*dx,
-        u2, bcs=DirichletBC(V, 0, "on_boundary"))
-    second = NonlinearVariationalSolver(
-        second_problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
-    second.solve()
-
-    actual = Function(V)
-    first._ctx.solve_jacobian(b, actual)
-    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
-
-    # ... and the second solver really does have a different operator, so the
-    # check above is not vacuous.
-    other = Function(V)
-    second._ctx.solve_jacobian(b, other)
-    assert not np.allclose(other.dat.data_ro, expected.dat.data_ro)
-
-
-def test_solve_jacobian_matches_assembled_jacobian():
-    mesh = UnitSquareMesh(4, 4)
-    V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V)
-    solver = _jacobian_solver(V, u)
-    solver.solve()
-
-    bc = DirichletBC(V, 0, "on_boundary")
-    b = assemble(inner(Constant(1), TestFunction(V))*dx, bcs=bc)
-    J = assemble(derivative(solver._problem.F, u), bcs=bc)
-
-    for transpose in (False, True):
-        actual = Function(V)
-        solver._ctx.solve_jacobian(b, actual, transpose=transpose)
-        expected = Function(V)
-        solve(J, expected, b, solver_parameters={"ksp_type": "preonly",
-                                                 "pc_type": "lu"})
-        assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
-
-
-def test_solve_jacobian_without_snes_raises():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 1)
-    u = Function(V)
-    solver = _jacobian_solver(V, u)
-    solver.solve()
-
-    # Contexts rebuilt for coarse levels or field splits describe a different
-    # problem than the outer SNES, so they deliberately do not inherit it.
-    reconstructed = solver._ctx.reconstruct()
-    assert reconstructed.snes is None
-
-    b = assemble(inner(Constant(1), TestFunction(V))*dx)
-    with pytest.raises(RuntimeError, match="not attached to a SNES"):
-        reconstructed.solve_jacobian(b, Function(V))
 
 
 def _goal_poisson_solver_parameters(adapt_option, criterion, num_refinements):
@@ -191,13 +112,12 @@ def test_goal_oriented_marker_builds_poisson_markers(adapt_option, criterion):
     goal = u*dx
     callback = GoalOrientedMarker(goal)
 
-    problem = NonlinearVariationalProblem(
-        F, u, bcs=DirichletBC(V, 0, "on_boundary")
-    )
+    bc = DirichletBC(V, 0, "on_boundary")
+    parameters = _goal_poisson_solver_parameters(adapt_option, criterion, 1)
+
+    problem = NonlinearVariationalProblem(F, u, bcs=bc)
     solver = NonlinearVariationalSolver(
-        problem,
-        solver_parameters=_goal_poisson_solver_parameters(adapt_option, criterion, 1),
-        marking_callback=callback,
+        problem, solver_parameters=parameters, marking_callback=callback,
     )
     result = solver.solve()
 
@@ -220,13 +140,12 @@ def test_goal_oriented_marker_multiple_levels():
     goal = u*dx
     callback = GoalOrientedMarker(goal)
 
-    problem = NonlinearVariationalProblem(
-        F, u, bcs=DirichletBC(V, 0, "on_boundary")
-    )
+    bc = DirichletBC(V, 0, "on_boundary")
+    parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 3)
+
+    problem = NonlinearVariationalProblem(F, u, bcs=bc)
     solver = NonlinearVariationalSolver(
-        problem,
-        solver_parameters=_goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 3),
-        marking_callback=callback,
+        problem, solver_parameters=parameters, marking_callback=callback,
     )
     result = solver.solve()
 
@@ -235,8 +154,11 @@ def test_goal_oriented_marker_multiple_levels():
     assert level == 3
     assert len(hierarchy) == 4
     assert hierarchy[0] is mesh
-    adapted_goal = solver.get_marking_callback().goal_functional
-    assert adapted_goal.arguments() == ()
+    # The marker estimates the error on every mesh except the finest one.
+    assert [e.num_dofs for e in callback.estimates] == [
+        FunctionSpace(m, "CG", 1).dim() for m in hierarchy[:-1]
+    ]
+    assert callback.goal_functional.ufl_domain() is hierarchy[2]
 
 
 @pytest.mark.parallel([1, 2])
@@ -250,31 +172,28 @@ def test_goal_oriented_marker_solver_reuse():
     goal = u*dx
     callback = GoalOrientedMarker(goal)
 
-    problem = NonlinearVariationalProblem(
-        F, u, bcs=DirichletBC(V, 0, "on_boundary")
-    )
+    bc = DirichletBC(V, 0, "on_boundary")
+    parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 1)
+
+    problem = NonlinearVariationalProblem(F, u, bcs=bc)
     solver = NonlinearVariationalSolver(
-        problem,
-        solver_parameters=_goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 1),
-        marking_callback=callback,
+        problem, solver_parameters=parameters, marking_callback=callback,
     )
 
     first_result = solver.solve()
     hierarchy, first_level = get_level(first_result.function_space().mesh())
     assert first_level == 1
     first_dim = first_result.function_space().dim()
-    first_goal = assemble(solver.get_marking_callback().goal_functional)
 
     second_result = solver.solve()
     hierarchy, second_level = get_level(second_result.function_space().mesh())
     assert second_level == 2
     assert hierarchy[1] is first_result.function_space().mesh()
     assert second_result.function_space().dim() > first_dim
-    second_goal = assemble(solver.get_marking_callback().goal_functional)
 
     assert first_dim > old_dim
-    assert isinstance(first_goal, float)
-    assert isinstance(second_goal, float)
+    # The second solve marks the mesh that the first solve adapted to.
+    assert [e.num_dofs for e in callback.estimates] == [old_dim, first_dim]
 
 
 def _goal_poisson_problem(n=4):
@@ -283,8 +202,10 @@ def _goal_poisson_problem(n=4):
     u = Function(V)
     v = TestFunction(V)
     F = inner(grad(u), grad(v))*dx - v*dx
-    problem = NonlinearVariationalProblem(F, u, bcs=DirichletBC(V, 0, "on_boundary"))
-    return mesh, V, problem, u*dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    problem = NonlinearVariationalProblem(F, u, bcs=bc)
+    goal = u*dx
+    return mesh, V, problem, goal
 
 
 @pytest.mark.parallel([1, 2])
@@ -303,8 +224,9 @@ def test_goal_oriented_marker_stops_at_tolerance(monkeypatch):
     mesh, V, problem, goal = _goal_poisson_problem()
     parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", requested)
     parameters["goal_atol"] = atol
+    callback = GoalOrientedMarker(goal)
     solver = NonlinearVariationalSolver(
-        problem, solver_parameters=parameters, marking_callback=GoalOrientedMarker(goal),
+        problem, solver_parameters=parameters, marking_callback=callback,
     )
     result = solver.solve()
 
@@ -314,14 +236,21 @@ def test_goal_oriented_marker_stops_at_tolerance(monkeypatch):
     # callback marks nothing.
     assert len(markings) == level + 1
     assert markings[-1] is None
-    assert abs(solver.get_marking_callback().error_estimate) < atol
+    assert len(callback.estimates) == level + 1
+    assert abs(callback.estimates[-1].error_estimate) < atol
 
 
 @pytest.mark.parallel([1, 2])
-def test_goal_oriented_marker_reads_options_after_refinement():
+def test_goal_oriented_marker_reads_options_after_refinement(monkeypatch):
     # Every goal_ option must keep coming from the prefix of the solver the
     # callback was attached to. The reconstructed context is renamed after
     # the multigrid level it becomes.
+    used = []
+    monkeypatch.setattr(adapt, "LinearVariationalSolver",
+                        _recording_solver(LinearVariationalSolver, used))
+    monkeypatch.setattr(adapt, "NonlinearVariationalSolver",
+                        _recording_solver(NonlinearVariationalSolver, used))
+
     mesh, V, problem, goal = _goal_poisson_problem()
     callback = GoalOrientedMarker(goal)
     parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", 3)
@@ -330,7 +259,11 @@ def test_goal_oriented_marker_reads_options_after_refinement():
     )
     solver.solve()
 
-    assert solver._ctx._marking_callback._options_prefix == solver.options_prefix
+    assert solver._ctx._marking_callback is callback
+    prefixes = {prefix for prefix, _ in used}
+    expected = {solver.options_prefix + suffix
+                for suffix in ("goal_enriched_", "goal_cell_", "goal_facet_")}
+    assert prefixes == expected
 
 
 def _recording_solver(base, record):
@@ -369,8 +302,9 @@ def test_goal_oriented_marker_auxiliary_solver_options_survive_refinement(monkey
         "snes_adapt_sequence": refinements,
         "adaptor_criterion": "refine",
     }
+    callback = GoalOrientedMarker(goal)
     solver = NonlinearVariationalSolver(
-        problem, solver_parameters=parameters, marking_callback=GoalOrientedMarker(goal),
+        problem, solver_parameters=parameters, marking_callback=callback,
     )
     solver.solve()
 
@@ -386,7 +320,7 @@ def test_goal_oriented_marker_auxiliary_solver_options_survive_refinement(monkey
 
 
 @pytest.mark.parallel([1, 2])
-def test_goal_oriented_marker_reconstructs_exact_solution():
+def test_goal_oriented_marker_effectivity_index():
     mesh, V, problem, goal = _goal_poisson_problem()
     x, y = SpatialCoordinate(mesh)
     callback = GoalOrientedMarker(goal, exact_solution=x*(1 - x)*y*(1 - y))
@@ -397,11 +331,14 @@ def test_goal_oriented_marker_reconstructs_exact_solution():
     )
     result = solver.solve()
 
-    adapted = solver._ctx._marking_callback
-    adapted_mesh = result.function_space().mesh().unique()
-    assert adapted_mesh is not mesh
-    assert extract_unique_domain(adapted.exact_solution) is adapted_mesh
-    assert solver.get_marking_callback().error_estimate != 0.0
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == 2
+    # The exact solution follows the goal to the last marked mesh.
+    assert extract_unique_domain(callback.exact_solution) is hierarchy[1]
+    assert len(callback.estimates) == 2
+    for estimate in callback.estimates:
+        assert estimate.true_error is not None
+        assert estimate.effectivity_index == estimate.error_estimate / estimate.true_error
 
 
 @pytest.mark.parallel([1, 2])

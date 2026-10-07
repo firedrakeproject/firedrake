@@ -488,10 +488,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
         self._ctx._marking_callback = callback
 
-    def get_marking_callback(self) -> Callable | None:
-        r"""Return the marking callback on the current (possibly adapted) mesh."""
-        return self._ctx._marking_callback
-
     def get_solution(self):
         r"""Return the current (possibly adapted) solution."""
         return self._ctx._problem.u

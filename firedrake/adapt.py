@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import petsctools
 import ufl
@@ -18,6 +20,7 @@ from firedrake.logging import RED, warning
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
 from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
 from firedrake.petsc import PETSc
+from firedrake.solving_utils import _SNESContext
 from firedrake.ufl_expr import TestFunction, TrialFunction, derivative
 from firedrake.variational_solver import (LinearVariationalProblem,
                                           LinearVariationalSolver,
@@ -245,7 +248,8 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     # Testing the remainder against facet bubbles isolates the facet residual.
     cone_space = FunctionSpace(mesh, "FB", dim, variant=variant)
     cone = Function(cone_space).assign(1)
-    element = BrokenElement(FiniteElement("FB", cell=mesh.ufl_cell(),
+    cell = mesh.ufl_cell()
+    element = BrokenElement(FiniteElement("FB", cell=cell,
                                           degree=degree + dim, variant=variant))
     if V.value_shape == ():
         facet_space = FunctionSpace(mesh, element)
@@ -299,47 +303,80 @@ def _dorfler_mark(indicators: Function, fraction: float) -> Function:
     return markers
 
 
-class GoalOrientedMarker:
-    """Mark cells for goal-oriented adaptive refinement.
+@dataclass(frozen=True)
+class GoalEstimate:
+    """The dual-weighted residual error estimate on one mesh.
 
-    This callback refines the mesh where refinement most reduces the error
+    Attributes
+    ----------
+    num_dofs
+        The number of degrees of freedom of the primal space.
+    goal
+        The goal ``J(u_h)``.
+    discretisation_error
+        The discretisation error ``rho(u_h; z - z_h)``.
+    solver_error
+        The solver error ``rho(u_h; z_h)``.
+    true_error
+        The true error ``J(u) - J(u_h)``, or `None` if the exact solution is
+        not known.
+    """
+    num_dofs: int
+    goal: float
+    discretisation_error: float
+    solver_error: float
+    true_error: float | None = None
+
+    @property
+    def error_estimate(self) -> float:
+        """The estimate ``eta`` of ``J(u) - J(u_h)``."""
+        return self.discretisation_error + self.solver_error
+
+    @property
+    def effectivity_index(self) -> float | None:
+        """The ratio of the error estimate to the true error, or `None` if it is undefined."""
+        if not self.true_error:
+            return None
+        return self.error_estimate / self.true_error
+
+
+class GoalOrientedMarker:
+    """A context that marks cells for goal-oriented adaptive refinement.
+
+    This context refines the mesh targeting a localized error estimate
     in a scalar quantity of interest, the goal functional ``J``. It
     estimates the error ``J(u) - J(u_h)`` with the dual-weighted residual
-    method, in the automated form of Rognes and Logg, so it applies to any
-    variational problem without problem-specific derivations.
+    method, which applies to any variational problem without
+    problem-specific derivations.
 
     Pass an instance as the ``marking_callback`` of a
-    `NonlinearVariationalSolver` and set ``snes_adapt_sequence``. Each time
-    that the solver requests a refined mesh, it calls the instance with
-    its solver context and current solution. The instance then returns the
-    cells to refine, or `None` to stop the adaptation once the error
-    estimate meets the tolerances. On each refined mesh, the solver uses a
-    copy of the callback, which `NonlinearVariationalSolver.get_marking_callback`
-    returns.
+    `NonlinearVariationalSolver` and set ``snes_adapt_sequence``. The solver
+    calls the instance on each mesh in the sequence. The instance moves its
+    goal functional to that mesh, records an error estimate in
+    ``estimates``, and returns the cells to refine, or `None` to stop the
+    adaptation once the estimate meets the tolerances.
 
     Parameters
     ----------
     goal_functional
         A scalar UFL 0-form that depends on the solution of the problem.
     exact_solution
-        An optional UFL expression for the exact solution.
-        ``-goal_monitor`` uses it to report the true error and the effectivity
-        index.
+        An optional UFL expression for the exact solution, which gives the
+        true error and the effectivity index of each estimate.
 
     Attributes
     ----------
     goal_functional
-        The goal functional on the current mesh.
-    error_estimate
-        The most recent estimate of ``J(u) - J(u_h)``, or `None` before the
-        first marking. It belongs to the current mesh if adaptation stopped
-        at the tolerance, and to the previous mesh otherwise.
-    converged
-        Whether ``error_estimate`` meets the tolerances.
+        The goal functional on the most recently marked mesh.
+    exact_solution
+        The exact solution on the most recently marked mesh, or `None`.
+    estimates
+        A `GoalEstimate` for each marked mesh, from the coarsest to the finest.
 
     Notes
     -----
-    The callback reads these options from the options prefix of its solver:
+    The marker reads these options from the options prefix of the solver
+    that calls it:
 
     ``goal_atol`` (default 1e-50) and ``goal_rtol`` (default 0)
         Adaptation stops once
@@ -353,10 +390,9 @@ class GoalOrientedMarker:
         The increases in polynomial degree that the error estimate uses.
         Larger values give a more accurate estimate at a higher cost.
     ``goal_monitor`` (default off)
-        Print the goal, the error estimate and, if ``exact_solution`` is
-        given, the true error.
+        Print each estimate.
 
-    The callback solves the problem again in a space of higher degree,
+    The marker solves the problem again in a space of higher degree,
     with the options of the solver and the ``goal_enriched_`` options, which
     take precedence. The ``goal_cell_`` and ``goal_facet_`` options configure
     the local solves that distribute the estimate over the cells. The error
@@ -369,16 +405,17 @@ class GoalOrientedMarker:
     Refine at most three times, or until the estimate is below 0.1% of the
     goal::
 
-        callback = GoalOrientedMarker(u * dx)
+        marker = GoalOrientedMarker(u * dx)
         solver = NonlinearVariationalSolver(
             problem,
-            marking_callback=callback,
+            marking_callback=marker,
             solver_parameters={"snes_adapt_sequence": 3,
                                "adaptor_criterion": "refine",
                                "goal_rtol": 1e-3},
         )
         u_adapted = solver.solve()
-        eta = solver.get_marking_callback().error_estimate
+        for estimate in marker.estimates:
+            print(estimate.num_dofs, estimate.error_estimate)
 
     References
     ----------
@@ -386,49 +423,18 @@ class GoalOrientedMarker:
     I: Stationary variational problems". https://doi.org/10.1137/10081962X
     """
 
-    def __init__(self, goal_functional: ufl.BaseForm,
+    def __init__(self, goal_functional: ufl.Form,
                  exact_solution: ufl.classes.Expr | None = None):
-        if not isinstance(goal_functional, ufl.BaseForm) or goal_functional.arguments():
+        if not isinstance(goal_functional, ufl.Form) or goal_functional.arguments():
             raise ValueError("goal_functional must be a 0-form")
         self.goal_functional = goal_functional
         self.exact_solution = exact_solution
-        self.error_estimate = None
-        self.converged = False
-        # The options prefix of the solver that owns this callback. The
-        # callback is created before its solver, so the first call sets the
-        # prefix from the solver context, and reconstruct() copies it.
-        self._options_prefix = None
-
-    def reconstruct(self, goal_functional: ufl.BaseForm,
-                    exact_solution: ufl.classes.Expr | None) -> GoalOrientedMarker:
-        """Return a copy of this callback for another mesh.
-
-        Parameters
-        ----------
-        goal_functional
-            The goal functional on the other mesh.
-        exact_solution
-            The exact solution on the other mesh, or `None`.
-
-        Returns
-        -------
-        A callback that keeps the options prefix and the error estimate of this one.
-        """
-        callback = type(self)(goal_functional, exact_solution)
-        callback.error_estimate = self.error_estimate
-        callback._options_prefix = self._options_prefix
-        return callback
-
-    def __call__(self, ctx, current_solution: Function) -> Function | None:
-        return self._mark(ctx, current_solution)
+        self.estimates: list[GoalEstimate] = []
 
     def _estimate_error(self, problem, current_solution: Function,
                         dual_low: Function, dual_error: ufl.classes.Expr,
-                        options_prefix: str) -> float:
+                        options_prefix: str) -> GoalEstimate:
         """Estimate ``J(u) - J(u_h)``, and report on it.
-
-        The estimate is the sum of the discretisation error
-        ``rho(u_h; z - z_h)`` and the solver error ``rho(u_h; z_h)``.
 
         Parameters
         ----------
@@ -445,53 +451,62 @@ class GoalOrientedMarker:
 
         Returns
         -------
-        The error estimate ``eta``.
+        The error estimate on the current mesh.
         """
-        options = PETSc.Options(options_prefix)
+        goal = assemble(self.goal_functional)
+        true_error = None
+        if self.exact_solution is not None:
+            exact_goal = assemble(replace(self.goal_functional,
+                                          {current_solution: self.exact_solution}))
+            true_error = exact_goal - goal
+        num_dofs = current_solution.function_space().dim()
         discretisation_error = assemble(_replace_arguments(problem.F, -dual_error))
         solver_error = assemble(_replace_arguments(problem.F, -dual_low))
-        error_estimate = discretisation_error + solver_error
-        goal = assemble(self.goal_functional)
+        estimate = GoalEstimate(
+            num_dofs=num_dofs,
+            goal=goal,
+            discretisation_error=discretisation_error,
+            solver_error=solver_error,
+            true_error=true_error,
+        )
 
-        atol = options.getReal("goal_atol", 1e-50)
-        rtol = options.getReal("goal_rtol", 0.0)
-        self.converged = abs(error_estimate) < max(atol, rtol * abs(goal))
-
-        if abs(solver_error) > abs(discretisation_error):
+        if abs(estimate.solver_error) > abs(estimate.discretisation_error):
             warning(RED % ("DWR: the solver error exceeds the discretisation error. "
                            "Tighten the solver tolerances."))
 
-        if options.getBool("goal_monitor", False):
-            report = [("goal J(u_h)", goal),
-                      ("discretisation error rho(u_h; z-z_h)", discretisation_error),
-                      ("solver error rho(u_h; z_h)", solver_error),
-                      ("error estimate eta", error_estimate)]
-            if self.exact_solution is not None:
-                exact_goal = assemble(replace(self.goal_functional,
-                                              {current_solution: self.exact_solution}))
-                true_error = exact_goal - goal
-                report.append(("exact goal J(u)", exact_goal))
-                report.append(("true error J(u) - J(u_h)", true_error))
-                if true_error != 0:
-                    report.append(("effectivity index", error_estimate / true_error))
+        if PETSc.Options(options_prefix).getBool("goal_monitor", False):
+            report = [("degrees of freedom", estimate.num_dofs),
+                      ("goal J(u_h)", estimate.goal),
+                      ("discretisation error rho(u_h; z-z_h)", estimate.discretisation_error),
+                      ("solver error rho(u_h; z_h)", estimate.solver_error),
+                      ("error estimate eta", estimate.error_estimate),
+                      ("true error J(u) - J(u_h)", estimate.true_error),
+                      ("effectivity index", estimate.effectivity_index)]
             for label, value in report:
-                PETSc.Sys.Print(f"    DWR {label:<38s}{value: 15.8e}",
-                                comm=current_solution.comm)
-        return error_estimate
+                if value is not None:
+                    PETSc.Sys.Print(f"    DWR {label:<38s}{value: 15.8e}",
+                                    comm=current_solution.comm)
+        return estimate
 
-    def _mark(self, ctx, current_solution: Function) -> Function | None:
+    def __call__(self, ctx: _SNESContext, current_solution: Function) -> Function | None:
+        from firedrake.mg.ufl_utils import refine
+
         problem = ctx._problem
         V = current_solution.function_space()
-        if self._options_prefix is None:
-            self._options_prefix = ctx.options_prefix or ""
+        if self.goal_functional.ufl_domain() is not V.mesh():
+            # The solver has refined the mesh since the previous call.
+            mapping = ctx._coefficient_mapping
+            self.goal_functional = refine(self.goal_functional, refine, coefficient_mapping=mapping)
+            self.exact_solution = refine(self.exact_solution, refine, coefficient_mapping=mapping)
         # Refined contexts have a prefix for their multigrid level, so read the
-        # options of the original solver.
-        prefix = self._options_prefix
+        # options of the SNES, which all contexts share.
+        prefix = ctx.snes.getOptionsPrefix() or ""
         options = PETSc.Options(prefix)
         enrichment_degree = options.getInt("goal_enrichment_degree", 1)
         residual_degree = options.getInt("goal_residual_degree", 1)
         marking_fraction = options.getReal("goal_marking_fraction", 0.5)
-        high_space = V.reconstruct(degree=V.ufl_element().degree() + enrichment_degree)
+        high_degree = V.ufl_element().degree() + enrichment_degree
+        high_space = V.reconstruct(degree=high_degree)
 
         dual_low = Function(V, name="dwr_dual_low")
         goal_derivative = derivative(self.goal_functional, current_solution)
@@ -505,8 +520,12 @@ class GoalOrientedMarker:
         nullspace = None if ctx._nullspace is None else ctx._nullspace.rediscretise(high_space)
         transpose_nullspace = None if ctx._nullspace_T is None else ctx._nullspace_T.rediscretise(high_space)
         near_nullspace = None if ctx._near_nullspace is None else ctx._near_nullspace.rediscretise(high_space)
-        parameters = get_default_options(DefaultOptionSet(prefix, ("goal_enriched_",)))
+
+        # Use options not prefixed by goal_ as defaults for the goal_enriched_ solver
+        # This filters out the options given to goal_cell_ and goal_facet_ subsolvers
+        parameters = get_default_options(DefaultOptionSet(prefix, ("goal_",)))
         parameters.pop("snes_adapt_sequence", None)
+
         primal_solver = NonlinearVariationalSolver(
             high_problem,
             options_prefix=prefix + "goal_enriched_",
@@ -519,15 +538,17 @@ class GoalOrientedMarker:
 
         goal_high = replace(self.goal_functional, {current_solution: primal_high})
         dual_high = Function(high_space, name="dwr_dual_high")
-        goal_derivative_high = derivative(goal_high, primal_high)
-        rhs_high = assemble(goal_derivative_high, bcs=high_problem.bcs)
+        rhs_high = assemble(derivative(goal_high, primal_high), bcs=high_problem.bcs)
         primal_solver._ctx.solve_jacobian(rhs_high, dual_high, transpose=True)
 
         dual_error = dual_high - dual_low
-        self.error_estimate = self._estimate_error(
+        estimate = self._estimate_error(
             problem, current_solution, dual_low, dual_error, prefix
         )
-        if self.converged:
+        self.estimates.append(estimate)
+        atol = options.getReal("goal_atol", 1e-50)
+        rtol = options.getReal("goal_rtol", 0.0)
+        if abs(estimate.error_estimate) < max(atol, rtol * abs(estimate.goal)):
             # Returning None tells PETSc to stop adapting.
             return None
 

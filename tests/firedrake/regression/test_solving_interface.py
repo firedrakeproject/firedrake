@@ -463,3 +463,87 @@ def test_la_solve_rejects_unknown_kwarg(mass_system):
     A, x, b = mass_system
     with pytest.raises(RuntimeError, match="Illegal keyword argument"):
         solve(A, x, b, not_a_kwarg=1)
+
+
+def _jacobian_solver(V, u):
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    problem = NonlinearVariationalProblem(F, u, bcs=bc)
+    return NonlinearVariationalSolver(
+        problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"}
+    )
+
+
+def test_solve_jacobian_uses_its_own_solvers_operator():
+    # A second solver on V must not take over the Jacobian solve of the first
+    # one. Each solver holds its own KSP, and not the KSP that the DM composes.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    first = _jacobian_solver(V, Function(V))
+    first.solve()
+
+    L = inner(Constant(1), TestFunction(V))*dx
+    b = assemble(L)
+    expected = Function(V)
+    first._ctx.solve_jacobian(b, expected)
+
+    # A second solver on the same V, with a deliberately different Jacobian.
+    u2 = Function(V)
+    v2 = TestFunction(V)
+    F2 = Constant(7)*inner(grad(u2), grad(v2))*dx - inner(Constant(1), v2)*dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    second_problem = NonlinearVariationalProblem(F2, u2, bcs=bc)
+    second = NonlinearVariationalSolver(
+        second_problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    second.solve()
+
+    actual = Function(V)
+    first._ctx.solve_jacobian(b, actual)
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+    # ... and the second solver really does have a different operator, so the
+    # check above is not vacuous.
+    other = Function(V)
+    second._ctx.solve_jacobian(b, other)
+    assert not np.allclose(other.dat.data_ro, expected.dat.data_ro)
+
+
+def test_solve_jacobian_matches_assembled_jacobian():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    solver = _jacobian_solver(V, u)
+    solver.solve()
+
+    bc = DirichletBC(V, 0, "on_boundary")
+    L = inner(Constant(1), TestFunction(V))*dx
+    b = assemble(L, bcs=bc)
+    J = assemble(derivative(solver._problem.F, u), bcs=bc)
+
+    for transpose in (False, True):
+        actual = Function(V)
+        solver._ctx.solve_jacobian(b, actual, transpose=transpose)
+        expected = Function(V)
+        solve(J, expected, b, solver_parameters={"ksp_type": "preonly",
+                                                 "pc_type": "lu"})
+        assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
+def test_solve_jacobian_without_snes_raises():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    solver = _jacobian_solver(V, u)
+    solver.solve()
+
+    # Contexts rebuilt for coarse levels or field splits describe a different
+    # problem than the outer SNES, so they deliberately do not inherit it.
+    reconstructed = solver._ctx.reconstruct()
+    assert reconstructed.snes is None
+
+    L = inner(Constant(1), TestFunction(V))*dx
+    b = assemble(L)
+    with pytest.raises(RuntimeError, match="not attached to a SNES"):
+        reconstructed.solve_jacobian(b, Function(V))
