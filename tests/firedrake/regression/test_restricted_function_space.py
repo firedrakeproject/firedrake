@@ -23,6 +23,21 @@ def test_composite_restricted_function_space():
     assert V1 == V2
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((2,), (2, 2)))
+@pytest.mark.parametrize("mixed", (False, True))
+def test_restricted_component_numbering(shape: tuple[int, ...], mixed: bool) -> None:
+    """Components retain the restricted parent node set and boundary numbering."""
+    mesh = UnitSquareMesh(2, 2)
+    V = RestrictedFunctionSpace(TensorFunctionSpace(mesh, "CG", 2, shape=shape), [3])
+    if mixed:
+        V = (FunctionSpace(mesh, "CG", 1) * V).sub(1)
+    component = V.sub(0)
+    assert component.boundary_set == V.boundary_set
+    assert component.node_set is V.node_set
+    assert np.array_equal(DirichletBC(component, 0, 3).nodes, DirichletBC(V, 0, 3).nodes)
+
+
 def compare_function_space_assembly(function_space, restricted_function_space,
                                     bcs, res_bcs=[]):
     u = TrialFunction(function_space)
