@@ -223,7 +223,7 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
-        # The solver creates the SNES after this context, so set_snes sets it later.
+        # The solver creates the SNES, and sets it with set_snes.
         self.snes = None
 
         self.fcp = problem.form_compiler_parameters
