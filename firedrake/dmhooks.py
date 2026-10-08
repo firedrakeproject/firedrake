@@ -452,11 +452,11 @@ def coarsen(dm, comm):
         add_hook(parent, setup=partial(push_appctx, cdm, cctx),
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
-        # PETSc makes cdm share the DMKSP of dm after this function returns,
-        # so the callbacks set on dm reach cdm on the first solve. The solvers
-        # on a function space share its DM, so each solve sets them on cdm again.
-        set_ksp_operators(dm)
-        add_hook(parent, setup=partial(set_ksp_operators, cdm))
+        # These callbacks tell the KSPs on the coarse level how to assemble
+        # their matrices. cdm inherits them from dm, and a different solver on
+        # this function space might overwrite them, so we set the callbacks on
+        # dm before each solve.
+        add_hook(parent, setup=partial(set_ksp_operators, dm), call_setup=True)
     return cdm
 
 

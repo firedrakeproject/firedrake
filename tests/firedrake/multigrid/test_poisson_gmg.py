@@ -282,41 +282,40 @@ def test_reinjection_mass_then_poisson(solver_type):
 
 
 def test_mg_after_another_solver_on_the_same_space():
-    # All solvers on V share its DM, and the coarse DMs of the multigrid
-    # solver read their operator callback from it. Setting up another solver
-    # on V must not leave its own callback there for the multigrid solver.
+    # A multigrid solver must give the same result after another solver on
+    # the same function space has been used and deleted. With one refinement,
+    # the coarse level takes its callbacks directly from V.
     mh = MeshHierarchy(UnitSquareMesh(4, 4), 1)
     V = FunctionSpace(mh[-1], "CG", 1)
     v = TestFunction(V)
     bcs = DirichletBC(V, 0, "on_boundary")
 
-    uh = Function(V)
-    F = inner(grad(uh), grad(v)) * dx - inner(Constant(1), v) * dx
+    u_mg = Function(V)
+    F_mg = inner(grad(u_mg), grad(v)) * dx - inner(Constant(1), v) * dx
     mg_parameters = {"snes_type": "ksponly",
                      "mat_type": "aij",
                      "ksp_type": "cg",
                      "ksp_rtol": 1.0E-12,
                      "pc_type": "mg"}
-    mg_solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh, bcs=bcs),
-                                           solver_parameters=mg_parameters)
-    mg_solver.solve()
-    mg_its = mg_solver.snes.ksp.getIterationNumber()
+    problem_mg = NonlinearVariationalProblem(F_mg, u_mg, bcs=bcs)
+    solver_mg = NonlinearVariationalSolver(problem_mg, solver_parameters=mg_parameters)
 
     u_lu = Function(V)
-    F_lu = replace(F, {uh: u_lu})
+    F_lu = replace(F_mg, {u_mg: u_lu})
     lu_parameters = {"snes_type": "ksponly",
                      "ksp_type": "preonly",
                      "pc_type": "lu"}
-    lu_solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F_lu, u_lu, bcs=bcs),
-                                           solver_parameters=lu_parameters)
-    lu_solver.solve()
-    # While the LU solver exists, its callback assembles the same coarse
-    # operators. After it is deleted, a call into it fails.
-    del lu_solver
+    problem_lu = NonlinearVariationalProblem(F_lu, u_lu, bcs=bcs)
+    solver_lu = NonlinearVariationalSolver(problem_lu, solver_parameters=lu_parameters)
 
-    # Each solve assembles the coarse operators again with the callback.
-    # From the same initial guess, the second solve repeats the first one.
-    uh.assign(0)
-    mg_solver.solve()
-    assert mg_solver.snes.ksp.getIterationNumber() == mg_its
-    assert errornorm(u_lu, uh) < 1.0E-10 * norm(u_lu)
+    solver_mg.solve()
+    mg_its = solver_mg.snes.ksp.getIterationNumber()
+
+    solver_lu.solve()
+    # The multigrid solver must not call into the deleted LU solver.
+    del solver_lu
+
+    u_mg.assign(0)
+    solver_mg.solve()
+    assert solver_mg.snes.ksp.getIterationNumber() == mg_its
+    assert errornorm(u_lu, u_mg) < 1.0E-10 * norm(u_lu)
