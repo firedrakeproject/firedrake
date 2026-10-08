@@ -347,6 +347,27 @@ def replace_dual_slot_by_coargument(expr, dual):
     return expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(vhat, *slots))
 
 
+def uncontracted_arguments(N):
+    """Return the arguments of a base form operator that a form using it does not contract.
+
+    A form contracts the dual argument of a base form operator in its integrand,
+    N(u; v*) * v * dx = Action(v1 * v * dx, N(u; v*)), but not the arguments in its
+    other slots, e.g. v in the Gateaux derivative dN/du[v] = dNdu(u; v, v*).
+    """
+    return tuple(a for slot in N.argument_slots(outer_form=True)
+                 for a in ufl.algorithms.extract_type(slot, ufl.Argument, base_form_op_as_expr=True))
+
+
+def last_operator_with_arguments(base_form_operators):
+    """Return the last created base form operator with uncontracted arguments.
+
+    An operator is created after the operators in its argument slots, so no
+    other operator has the last one in its slots.
+    """
+    return max((N for N in base_form_operators if uncontracted_arguments(N)),
+               key=lambda N: N.count(), default=None)
+
+
 def contracted_arguments(lhs, rhs):
     """Return the arguments of the contraction of ``lhs`` with ``rhs``."""
     return lhs.arguments()[:-1] + rhs.arguments()[1:]
@@ -881,6 +902,21 @@ class BaseFormAssembler(AbstractFormAssembler):
                            \
                       dNdu(u; v1, v0*)
 
+            (8) F[v](..., N) with N a base form operator with an uncontracted argument, e.g. dN/du[uhat] = dNdu(u; uhat, v*)
+
+                                                       FormSum
+                                                       /     \
+                 F[v, uhat]     ----->     F[v](..., 0)       Action
+                     |                                        /    \
+                dNdu(u; uhat, v*)                         dFdN[v]   dNdu(u; uhat, v*)
+
+              F is linear in N, so F = F|_{N=0} + Action(dF/dN, N). An Action contracts the last argument
+              of its left operand with the first argument of its right operand, so the Action is Action(N, dF/dN)
+              when the uncontracted argument of N is numbered 0, e.g. dJ/du[v0] = Action(dNdu(u; v0, v1*), dJ/dN[v1]).
+
+            (9) M(...; w*, N) with N a base form operator with an uncontracted argument in an argument slot of M.
+                M is linear in N, so it is restructured as in (8).
+
         It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
         various dag rotations/manipulations in expr.
         """
@@ -941,7 +977,58 @@ class BaseFormAssembler(AbstractFormAssembler):
             # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
             return sum(w*c for w, c in zip(expr.weights(), expr.components()))
 
+        # -- Case (8) -- #
+        if isinstance(expr, ufl.Form):
+            N = last_operator_with_arguments(expr.base_form_operators())
+            if N is not None:
+                term = BaseFormAssembler.restructure_operator_action(N, expr)
+                rest = ufl.replace(expr, {N: ufl.constantvalue.Zero(N.ufl_shape)})
+                if rest.empty():
+                    return term
+                return BaseFormAssembler.restructure_base_form(rest) + term
+
+        # -- Case (9) -- #
+        if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
+            vstar, *slots = expr.argument_slots()
+            N = last_operator_with_arguments(itertools.chain.from_iterable(map(ufl.algorithms.extract_base_form_operators, slots)))
+            if N is not None:
+                term = BaseFormAssembler.restructure_operator_action(N, expr)
+                rest = [ufl.replace(slot, {N: ufl.constantvalue.Zero(N.ufl_shape)}) for slot in slots]
+                if any(isinstance(slot, ufl.constantvalue.Zero) for slot in rest):
+                    return term
+                rest = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(vstar, *rest))
+                return BaseFormAssembler.restructure_base_form(rest) + term
+
         return expr
+
+    @staticmethod
+    def restructure_operator_action(N, F):
+        """Return the Action contracting the dual argument of N with the argument Nhat of dF/dN.
+
+        An Action contracts the last argument of its left operand with the first
+        argument of its right operand, so Action(dF/dN, N) numbers the dual
+        argument of N before its uncontracted arguments, and Action(N, dF/dN)
+        numbers Nhat before the other arguments of dF/dN. The first is possible
+        unless an uncontracted argument of N is numbered 0.
+        """
+        vstar, *slots = N.argument_slots()
+        arguments = uncontracted_arguments(N)
+        numbers = [a.number() for a in arguments]
+        adjoint = min(numbers) == 0
+        if adjoint:
+            Nhat_number, vstar_number = 0, 1 + max(numbers)
+        else:
+            others = [a.number() for a in F.arguments() if a not in arguments]
+            Nhat_number, vstar_number = 1 + max(others, default=-1), 0
+        Nhat = firedrake.Argument(vstar.ufl_function_space().dual(), Nhat_number)
+        dF_dN = ufl.algorithms.expand_derivatives(ufl.derivative(F, N, Nhat))
+        dF_dN = BaseFormAssembler.restructure_base_form(dF_dN)
+        vstar = vstar.reconstruct(number=vstar_number)
+        N = N._ufl_expr_reconstruct_(*N.ufl_operands, argument_slots=(vstar, *slots))
+        N = BaseFormAssembler.restructure_base_form(N)
+        if adjoint:
+            return ufl.Action(N, dF_dN)
+        return ufl.Action(dF_dN, N)
 
     @staticmethod
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
@@ -949,8 +1036,8 @@ class BaseFormAssembler(AbstractFormAssembler):
         original_expr = expr
         if BaseFormAssembler.needs_derivative_expansion(expr, mat_type):
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
-        if not isinstance(expr, (ufl.form.Form, slate.TensorBase)):
-            # => No restructuring needed for Form and slate.TensorBase
+        if not isinstance(expr, slate.TensorBase):
+            # => No restructuring needed for slate.TensorBase
             expr = BaseFormAssembler.restructure_base_form_preorder(expr)
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
