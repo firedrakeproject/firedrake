@@ -469,3 +469,81 @@ def test_snes_adapt_noop_refinement(linear_parameters):
     u_ref = Function(V)
     solve(a == L, u_ref, bcs=bcs, solver_parameters=lu_parameters)
     assert errornorm(u_ref, u) < 1e-10 * norm(u_ref)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("periodic", [False, True])
+@pytest.mark.parametrize("shape", ["scalar", "vector", "mixed"])
+def test_snes_adapt_project_preserves_coefficient_mass(periodic, shape):
+    mesh_type = PeriodicUnitSquareMesh if periodic else UnitSquareMesh
+    mesh = mesh_type(6, 6)
+    V = FunctionSpace(mesh, "CG", 1)
+    if shape == "vector":
+        V = VectorFunctionSpace(mesh, "CG", 1)
+    elif shape == "mixed":
+        V = V * V
+    source = Function(V)
+    u = Function(V)
+    v = TestFunction(V)
+    marker = Constant(1)
+
+    def mark_cells(ctx, solution):
+        mesh = solution.function_space().mesh().unique()
+        x, y = SpatialCoordinate(mesh)
+        return Function(FunctionSpace(mesh, "DG", 0)).interpolate(
+            conditional(gt(marker, 0), conditional(lt(x, 0.4), 1, 0), -1)
+        )
+
+    scale = Function(FunctionSpace(mesh, "R", 0)).assign(1)
+    problem = NonlinearVariationalProblem(inner(u - scale*source, v)*dx, u)
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters={
+            "snes_adapt_sequence": 1,
+            "snes_adapt_transfer": "project",
+            "mat_type": "aij",
+            "ksp_type": "preonly",
+            "pc_type": "lu",
+        },
+        marking_callback=mark_cells,
+    )
+    for _ in range(2):
+        solver.solve()
+    fine_source = solver.get_coefficient(source)
+    fine_mesh = fine_source.function_space().mesh().unique()
+    x, y = SpatialCoordinate(fine_mesh)
+    pulse = exp(-10*(sin(pi*(x - 0.27))**2 + sin(pi*(y - 0.43))**2))
+    if shape == "vector":
+        fine_source.interpolate(as_vector([pulse, 2*pulse]))
+    elif shape == "mixed":
+        fine_source.sub(0).interpolate(pulse)
+        fine_source.sub(1).interpolate(2*pulse)
+    else:
+        fine_source.interpolate(pulse)
+
+    def masses(f):
+        return [assemble(c*dx) for c in (split(f) if f.ufl_shape else (f,))]
+
+    expected = masses(fine_source)
+    marker.assign(-1)
+    for _ in range(2):
+        solution = solver.solve()
+        assert masses(solution) == pytest.approx(expected, rel=0, abs=1e-10)
+        assert masses(solver.get_coefficient(source)) == pytest.approx(expected, rel=0, abs=1e-10)
+    assert solution.function_space().mesh().unique() is mesh
+
+
+def test_snes_adapt_rejects_unknown_transfer():
+    def mark_cells(ctx, current_solution):
+        M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
+        return Function(M).assign(1)
+
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    problem = NonlinearVariationalProblem(inner(u, TestFunction(V))*dx, u)
+    params = {"snes_adapt_sequence": 1, "snes_adapt_transfer": "invalid"}
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_cells)
+    with pytest.raises(PETSc.Error) as error:
+        solver.solve()
+    assert isinstance(error.value.__cause__, ValueError)

@@ -494,6 +494,26 @@ def _reconstructed_coefficients(old_ctx, new_ctx):
     return coefficient_mapping
 
 
+def _project_adapted_coefficient(source: firedrake.Function, target: firedrake.Function) -> None:
+    """Preserve the integral of each primal component during mesh adaptation.
+
+    Parameters
+    ----------
+    source
+        The coefficient on the old mesh.
+    target
+        Its counterpart on the adapted mesh. Real components retain their
+        transferred values; dual coefficients retain the dual transfer.
+    """
+    if isinstance(source, firedrake.Cofunction):
+        return
+    if len(source.function_space()) > 1:
+        for old, new in zip(source.subfunctions, target.subfunctions):
+            _project_adapted_coefficient(old, new)
+    elif source.ufl_element().family() != "Real":
+        target.project(source, solver_parameters={"ksp_rtol": 1e-12, "ksp_atol": 1e-14})
+
+
 def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` reconstructed on the adapted mesh,
@@ -505,7 +525,7 @@ def _refine_adaptive(dm):
     """
     from firedrake.adapt import follow_adaptive_parents
     from firedrake.mg.mesh import MeshHierarchy
-    from firedrake.mg.ufl_utils import coarsen, refine
+    from firedrake.mg.ufl_utils import coarsen, get_root, refine
     from firedrake.mg.utils import get_level
 
     ctx = get_appctx(dm)
@@ -555,10 +575,17 @@ def _refine_adaptive(dm):
     _, adapted_level = get_level(adapted_mesh)
     refined_ctx = ctx
     adapted_coefficients = ctx._adapted_coefficients
+    prefix = get_root(refine, ctx).options_prefix or ""
+    transfer = PETSc.Options(prefix).getString("snes_adapt_transfer", "interpolate")
+    if transfer not in ("interpolate", "project"):
+        raise ValueError("snes_adapt_transfer must be 'interpolate' or 'project'")
     for _ in range(abs(adapted_level - level)):
         old_ctx = refined_ctx
         refined_ctx = reconstruct(old_ctx, reconstruct, coefficient_mapping={})
         coefficient_mapping = _reconstructed_coefficients(old_ctx, refined_ctx)
+        if transfer == "project":
+            for source, target in coefficient_mapping.items():
+                _project_adapted_coefficient(source, target)
         adapted_coefficients = {c: coefficient_mapping[v] for c, v in adapted_coefficients.items()}
     refined_ctx._adapted_coefficients = adapted_coefficients
     set_refine_level(refined_ctx._problem.u_restrict.function_space())

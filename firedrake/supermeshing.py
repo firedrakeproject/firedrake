@@ -109,14 +109,13 @@ def assemble_mixed_mass_matrix(V_A, V_B):
             if level_A > level_B:
                 cell_map = mh_A.fine_to_coarse_cells[level_A]
 
-                def likely(cell_A):
-                    return cell_map[cell_A]
-
             elif level_A < level_B:
                 cell_map = mh_A.coarse_to_fine_cells[level_A]
 
-                def likely(cell_A):
-                    return cell_map[cell_A]
+            def likely(cell_A):
+                cells = cell_map[cell_A]
+                # Adaptive maps pad rows with -1 or a repeated valid cell.
+                return numpy.unique(cells[cells >= 0])
 
     assert V_A.block_size == V_B.block_size
     orig_block_size = V_A.block_size

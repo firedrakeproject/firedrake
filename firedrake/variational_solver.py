@@ -297,7 +297,16 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
-    r"""Solves a :class:`NonlinearVariationalProblem`."""
+    r"""Solves a :class:`NonlinearVariationalProblem`.
+
+    Notes
+    -----
+    Set ``snes_adapt_transfer="project"`` in ``solver_parameters`` to transfer
+    primal coefficients by unconstrained supermesh L2 projection during mesh
+    adaptation. The default is ``"interpolate"``. Projection preserves
+    integrals if the target space contains constants. It does not impose
+    Dirichlet boundary values on coefficients.
+    """
 
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
