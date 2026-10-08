@@ -385,6 +385,34 @@ def test_goal_oriented_marker_biharmonic():
 
 
 @pytest.mark.parallel([1, 2])
+def test_goal_oriented_marker_mixed_space():
+    mesh = UnitSquareMesh(2, 2)
+    W = FunctionSpace(mesh, "RT", 1) * FunctionSpace(mesh, "DG", 0)
+    w = Function(W)
+    sigma, u = split(w)
+    tau, v = TestFunctions(W)
+    F = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v) + inner(1, v))*dx
+    n = FacetNormal(mesh)
+    goal = inner(sigma, n)*ds(2)
+
+    num_refinements = 2
+    parameters = _goal_poisson_solver_parameters("snes_adapt_sequence", "refine", num_refinements)
+    parameters["pc_factor_mat_solver_type"] = "mumps"
+    problem = NonlinearVariationalProblem(F, w)
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=GoalOrientedMarker(goal),
+    )
+    result = solver.solve()
+
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == num_refinements
+    assert result.function_space().ufl_element() == W.ufl_element()
+    assert result.function_space().dim() > W.dim()
+    assert np.isfinite(solver.get_marking_callback().error_estimate)
+    assert solver.get_marking_callback().error_estimate != 0.0
+
+
+@pytest.mark.parallel([1, 2])
 def test_adaptive_refine_without_marking_callback_is_uniform():
     mesh, V, problem, _ = _goal_poisson_problem(n=2)
     solver = NonlinearVariationalSolver(
