@@ -1,5 +1,4 @@
 from firedrake import *
-import gc
 import numpy
 import pytest
 import warnings
@@ -176,7 +175,6 @@ def test_preconditioner_coarsening(solver_type):
 @pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 @pytest.mark.parametrize("mixed", [False, True], ids=["scalar", "mixed"])
-@pytest.mark.skip(reason="Test stochastically fails. See https://github.com/firedrakeproject/firedrake/issues/5421")
 def test_baseform_coarsening(solver_type, mixed):
     parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
@@ -284,36 +282,40 @@ def test_reinjection_mass_then_poisson(solver_type):
 
 
 def test_mg_after_another_solver_on_the_same_space():
-    # Every solver on V shares its DM. The multigrid solver must keep its own
-    # coarse operators after another solver on V has been set up and freed.
+    # A multigrid solver must give the same result after another solver on
+    # the same function space has been used and deleted. With one refinement,
+    # the coarse level takes its callbacks directly from V.
     mh = MeshHierarchy(UnitSquareMesh(4, 4), 1)
     V = FunctionSpace(mh[-1], "CG", 1)
-    c = Constant(1)
-    uh = Function(V)
     v = TestFunction(V)
-    F = c * inner(grad(uh), grad(v)) * dx - inner(Constant(1), v) * dx
     bcs = DirichletBC(V, 0, "on_boundary")
-    parameters = {"snes_type": "ksponly",
-                  "mat_type": "aij",
-                  "ksp_type": "cg",
-                  "ksp_rtol": 1.0E-12,
-                  "pc_type": "mg"}
-    problem = NonlinearVariationalProblem(F, uh, bcs=bcs)
-    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
-    solver.solve()
 
-    u_other = Function(V)
-    F_other = replace(F, {uh: u_other})
-    solve(F_other == 0, u_other, bcs=bcs,
-          solver_parameters={"snes_type": "ksponly", "ksp_type": "preonly", "pc_type": "lu"})
-    del u_other, F_other
-    gc.collect()
-    PETSc.garbage_cleanup(V.mesh().comm)
+    u_mg = Function(V)
+    F_mg = inner(grad(u_mg), grad(v)) * dx - inner(Constant(1), v) * dx
+    mg_parameters = {"snes_type": "ksponly",
+                     "mat_type": "aij",
+                     "ksp_type": "cg",
+                     "ksp_rtol": 1.0E-12,
+                     "pc_type": "mg"}
+    problem_mg = NonlinearVariationalProblem(F_mg, u_mg, bcs=bcs)
+    solver_mg = NonlinearVariationalSolver(problem_mg, solver_parameters=mg_parameters)
 
-    # A new coefficient sets up the coarse levels again.
-    c.assign(2)
-    solver.solve()
-    u_ref = Function(V)
-    F_ref = replace(F, {uh: u_ref})
-    solve(F_ref == 0, u_ref, bcs=bcs)
-    assert errornorm(u_ref, uh) < 1.0E-10 * norm(u_ref)
+    u_lu = Function(V)
+    F_lu = replace(F_mg, {u_mg: u_lu})
+    lu_parameters = {"snes_type": "ksponly",
+                     "ksp_type": "preonly",
+                     "pc_type": "lu"}
+    problem_lu = NonlinearVariationalProblem(F_lu, u_lu, bcs=bcs)
+    solver_lu = NonlinearVariationalSolver(problem_lu, solver_parameters=lu_parameters)
+
+    solver_mg.solve()
+    mg_its = solver_mg.snes.ksp.getIterationNumber()
+
+    solver_lu.solve()
+    # The multigrid solver must not call into the deleted LU solver.
+    del solver_lu
+
+    u_mg.assign(0)
+    solver_mg.solve()
+    assert solver_mg.snes.ksp.getIterationNumber() == mg_its
+    assert errornorm(u_lu, u_mg) < 1.0E-10 * norm(u_lu)

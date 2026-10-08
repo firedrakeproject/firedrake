@@ -405,6 +405,18 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subspace.dm
 
 
+def set_ksp_operators(dm: PETSc.DM) -> None:
+    """Make the KSPs on a DM assemble their operators from the application context.
+
+    Parameters
+    ----------
+    dm
+        The DM that receives the operator callbacks of :class:`~firedrake.solving_utils._SNESContext`.
+    """
+    dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
+    dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+
+
 @PETSc.Log.EventDecorator()
 def coarsen(dm, comm):
     """Callback to coarsen a DM.
@@ -440,11 +452,11 @@ def coarsen(dm, comm):
         add_hook(parent, setup=partial(push_appctx, cdm, cctx),
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
-        # Necessary for MG inside a fieldsplit in a SNES.
-        dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
-        dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
-        cdm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
-        cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+        # These callbacks tell the KSPs on the coarse level how to assemble
+        # their matrices. cdm inherits them from dm, and a different solver on
+        # this function space might overwrite them, so we set the callbacks on
+        # dm before each solve.
+        add_hook(parent, setup=partial(set_ksp_operators, dm), call_setup=True)
     return cdm
 
 
