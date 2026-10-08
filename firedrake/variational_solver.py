@@ -566,9 +566,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.solve(None, work)
                 # Adaptivity changes the DM, keep the _SNESContext up to date
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
-
-        solution = self.snes.getSolution()
         problem = self._ctx._problem
+        solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             solution.copy(u)
         if self.snes.getDM() != solution_dm:
