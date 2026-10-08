@@ -308,8 +308,7 @@ jobs:
         include: ${{ fromJSON(needs.gen_linux_extra_matrix.outputs.matrix) }}
     runs-on: [self-hosted, Linux, gpu]
     container:
-      # TODO: set to 'ubuntu:latest' for GPU case
-      image: ${{ case(matrix.gpu == 'cuda', 'ubuntu:noble', 'ubuntu:latest') }}
+      image: ubuntu:latest
       options: --gpus all
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs

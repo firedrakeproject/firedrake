@@ -534,6 +534,7 @@ class Injection(object):
         self.manager = manager
 
     def multTranspose(self, mat, x, y):
+        # PCMG expects the transpose of injection.
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
@@ -562,14 +563,7 @@ def create_interpolation(dmc, dmf):
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
     mat.setUp()
-    if row_size[1] == col_size[1]:
-        # PETSc cannot determine the coarse space if the global dimensions are equal.
-        # The coarse space is identified by the dimension of rscale, so we provide one.
-        rscale = mat.createVecRight()
-        rscale.set(1.0)
-    else:
-        rscale = None
-    return mat, rscale
+    return mat, None
 
 
 def create_injection(dmc, dmf):
@@ -579,8 +573,7 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    # The matrix maps coarse to fine like the interpolation, so that MatRestrict()
-    # applies its transpose even when both spaces have the same dimension.
+    # PCMG calls MatRestrict() on the transpose of injection going from coarse to fine
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
 

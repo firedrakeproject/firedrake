@@ -1,3 +1,6 @@
+import gc
+import weakref
+
 import pytest
 from firedrake import *
 from firedrake import dmhooks
@@ -148,13 +151,53 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     assert u_adapted.function_space().dim() > old_dim
 
 
+def mark_no_cells(ctx, current_solution):
+    mesh = current_solution.function_space().mesh()
+    return Function(FunctionSpace(mesh, "DG", 0))
+
+
+def mark_all_cells(ctx, current_solution):
+    mesh = current_solution.function_space().mesh()
+    return Function(FunctionSpace(mesh, "DG", 0)).assign(1)
+
+
+@pytest.mark.parallel([1, 3])
+def test_snes_adapt_solution_survives_solver_destruction():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(u - 1, v) * dx
+    params = {
+        "snes_type": "ksponly",
+        "snes_adapt_sequence": 1,
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+    }
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, u),
+        solver_parameters=params,
+        marking_callback=mark_all_cells,
+    )
+    adapted = solver.solve()
+    assert adapted.function_space().dim() > V.dim()
+    assert norm(adapted - 1) < 1e-12
+
+    del solver
+    gc.collect()
+    PETSc.garbage_cleanup(mesh.comm)
+
+    u.assign(2)
+    adapted.assign(3)
+    assert norm(u - 2) < 1e-12
+    assert norm(adapted - 3) < 1e-12
+
+
 @pytest.mark.parallel([1, 3])
 def test_snes_adapt_noop_refinement_with_multigrid():
-    # The adapted level has the same dimension as the original level.
-    def mark_no_cells(ctx, current_solution):
-        return Function(FunctionSpace(current_solution.function_space().mesh(), "DG", 0))
-
-    mesh = UnitSquareMesh(4, 4)
+    base = UnitSquareMesh(2, 2)
+    mh = MeshHierarchy(mesh, 1)
+    mesh = mh[-1]
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     v = TestFunction(V)
@@ -170,14 +213,16 @@ def test_snes_adapt_noop_refinement_with_multigrid():
         "mg_levels": {"ksp_type": "chebyshev", "pc_type": "jacobi"},
         "mg_coarse": {"ksp_type": "preonly", "pc_type": "lu"},
     }
-    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, bcs=bcs),
-                                        solver_parameters=params,
-                                        marking_callback=mark_no_cells)
-    uh = solver.solve()
-    _, level = get_level(uh.function_space().mesh())
-    assert level == 1
-    assert uh.function_space().dim() == V.dim()
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, u, bcs=bcs),
+        solver_parameters=params,
+        marking_callback=mark_no_cells,
+    )
+    adapted = solver.solve()
+    _, level = get_level(adapted.function_space().mesh())
+    assert level == 2
+    assert adapted.function_space().dim() == V.dim()
 
     u_ref = Function(V)
     solve(replace(F, {u: u_ref}) == 0, u_ref, bcs=bcs)
-    assert abs(norm(uh) - norm(u_ref)) < 1e-10 * norm(u_ref)
+    assert abs(norm(adapted) - norm(u_ref)) < 1e-10 * norm(u_ref)
