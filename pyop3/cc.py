@@ -96,6 +96,7 @@ MLIR_OPT_PASSES = {
         "--buffer-deallocation-pipeline",
         "--convert-scf-to-cf",
         "--canonicalize",
+        "--convert-math-to-llvm",
         "--convert-cf-to-llvm",
         "--convert-func-to-llvm",
         "--finalize-memref-to-llvm",

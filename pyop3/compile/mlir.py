@@ -24,6 +24,7 @@ from xdsl.dialects.builtin import (
     ArrayAttr,
     DenseIntOrFPElementsAttr,
     DictionaryAttr,
+    DYNAMIC_INDEX,
     IntegerType,
     IndexType,
     IntegerAttr,
@@ -136,12 +137,13 @@ class MLIRBuilder():
       # Going to need this for globally defined constants - like quadrature weights 
       self.global_ops: list[Operations] = list()
       self.globals: dict[Any, SSAValue] = dict() 
+      self.literal_to_name: dict[gem.Literal, str] = dict()
 
       self._name_generator = utils.UniqueNameGenerator()
 
       # Arguments to return to buffer
       self._arguments: list[Argument] = list()
-      
+
 
     @property
     def builder(self) -> Builder:
@@ -159,10 +161,6 @@ class MLIRBuilder():
       :arg name: Name of generated MLIR kernel
       :arg args: gem.Variable in desired argument order. gem.Variables not provided are appended in order of visitation
       """
-      # FIXME: Come back to this. To determine if I want args in advance of build. 
-      # for variable in args:
-      #     self.register_buffer(variable)
-
       self.process(root)
       n = len(self._arguments)
 
@@ -305,6 +303,7 @@ class MLIRBuilder():
 
     # {{{ buffers and temporaries
   
+    @functools.singledispatchmethod
     def collect_buffer(self, node) -> SSAValue:
       """ Returns SSA value corresponding to buffer 
 
@@ -314,14 +313,24 @@ class MLIRBuilder():
 
       If it does not exist, the buffer is registered
       """
+      utils.raise_missing_dispatch_handler(node)
 
-      if node not in self._buffer_args and node not in self.globals:
-        self.register_buffer(node)
-      
-      if node in self.globals:
-        return self.globals[node]
+    @collect_buffer.register(gem.Literal)
+    def _(self, literal) -> SSAValue:
+      # This confusing indirection is because I have not added a name to the gem.Literal object
+      if literal not in self.literal_to_name:
+        self.register_buffer(literal)
 
-      return self._buffer_args[node] 
+      name = self.literal_to_name[literal]
+      return self.globals[name]
+        
+
+    @collect_buffer.register(gem.Variable)
+    def _(self, variable) -> SSAValue:
+      if variable.name not in self._buffer_args:
+        self.register_buffer(variable) 
+
+      return self._buffer_args[variable.name] 
     
     @functools.singledispatchmethod
     def register_buffer(self, node) -> SSAValue:
@@ -344,27 +353,41 @@ class MLIRBuilder():
       
       # Working with temporary 
       if isinstance(node.data.buffer, NullBuffer):
-        # We want to allocate here with this size and shape 
-        # TODO: Fix _alloc_temp and refactor this to use it
+        """
+        NOTE: AllocOps are used because AllocaOp bad on GPU
+        Compiler pass can raise Alloc to Alloca
+        Alloca = stack allocate, Alloc = heap allocate
+        Deallocations required for alloc (and inserted with compiler pass)
+        """
         op = memref.AllocOp.get(mlir_type, shape=shape)
         
         # Insert temporary tensor at highest level (outside current brace nesting) 
         Builder(InsertPoint.at_start(self._entry_block)).insert(op)
-        self._buffer_args[node] = op.results[0]
+        self._buffer_args[node.name] = op.results[0]
+        
+        # Allocate to 0 values, iterating over allocated shape  
+        # The positioning of this is very wrong. 
+        # I can come back to this. Focus on segfault now
+        zero = self._const(0, mlir_type)
+        extent = shape[0]
+        with self.enter_for(extent):
+          i = self.symbol_table[extent]
+          self.insert(memref.StoreOp.get(zero, op.results[0], [i]))
+
 
       # Working with function argument
       # TODO: Maybe want to assign as dynamic indices here...
       elif isinstance(node.data.buffer, ArrayBuffer):
-        memref_type = MemRefType(mlir_type, shape=shape)
+        memref_type = MemRefType(mlir_type, shape=[DYNAMIC_INDEX])
         arg = self._entry_block.insert_arg(memref_type, len(self._entry_block.args)) 
         arg.name_hint = node.name 
-        self._buffer_args[node] = arg 
+        self._buffer_args[node.name] = arg 
 
         self._arguments.append(Argument(node.name, node.dtype, shape))
           
         # At this point, we need to add to buffer
       
-      return self._buffer_args[node]
+      return self._buffer_args[node.name]
 
     @register_buffer.register(gem.Literal)
     def _(self, node: gem.Literal) -> SSAValue:
@@ -377,6 +400,7 @@ class MLIRBuilder():
       memref_type = MemRefType(mlir_type, arr.shape)
       # FIXME: Likely that the unique name portion of this is not working correctly 
       name = self.unique_name("literal")
+      self.literal_to_name[node] = name 
       
       value = DenseIntOrFPElementsAttr.from_list(
         TensorType(mlir_type, arr.shape), arr.data
@@ -394,27 +418,9 @@ class MLIRBuilder():
 
       get_ssa = self.insert(memref.GetGlobalOp(name, memref_type))
 
-      self.globals[node] = get_ssa
+      self.globals[name] = get_ssa
 
-      return self.globals[node]
-
-    def _alloc_temp(self, key, free_indices, elem_type) -> SSAValue:
-      """
-      NOTE: AllocOps are used because AllocaOp bad on GPU
-      Compiler pass can raise Alloc to Alloca
-      Alloca = stack allocate, Alloc = heap allocate
-      Deallocations required for alloc (and inserted with compiler pass)
-      """
-
-      if key in self._temporaries:
-          return self._temporaries[key][0]
-      # TODO: Come back to fix this extent function
-      shape = tuple(self._extent(i) for i in free_indices)
-      op = memref.AllocOp.get(elem_type, shape=shape)
-
-      Builder(InsertPoint.at_start(self._entry_block)).insert(op)
-      self._temporaries[key] = (op.results[0], tuple(free_indices))
-      return op.results[0]
+      return self.globals[name]
     
     def _temp_indices(self, key) -> list[SSAValue]:
       _, free = self._temporaries[key]
@@ -438,7 +444,10 @@ class MLIRBuilder():
       
     @get_index_ssa.register(gem.VariableIndex)
     def _(self, idx: gem.VariableIndex):
-      return self._to_index(self.emit(idx.expression))
+      emitted = self.emit(idx.expression)
+      res = self._to_index(emitted)
+      
+      return res 
 
     @get_index_ssa.register(gem.Index)
     def _(self, idx: gem.Index):
@@ -458,20 +467,16 @@ class MLIRBuilder():
       """(memref, indices) for an lvalue: Variable, or Indexed/Gather of one."""
       utils.raise_missing_dispatch_handler(node)
 
-    # FIXME: Again, a misunderstanding of gem.Variable
-    @get_address.register(gem.Variable)
-    def _(self, node):
-      raise NotImplementedError
-      return self.collect_buffer(node), []
-
     @get_address.register(gem.Indexed)
     @get_address.register(gem.Gather)
     def _(self, node): 
       # TODO: Figure out why this assert is actually true
       assert isinstance(node.children[0], gem.Variable)
-      return (self.collect_buffer(node.children[0]), self.get_strided_index(node.children[0], node.multiindex))  
+      buffer, strided_index = (self.collect_buffer(node.children[0]), self.get_strided_index(node.children[0], node.multiindex)) 
+      return (buffer, strided_index) 
 
     # NOTE: Might avoid a dispatch function at this point 
+    # TODO: Get rid of this function. Overlaps with 'process'
     def emit(self, expr) -> SSAValue:
       """Value of a GEM expression, reusing an Evaluate/IndexSum temporary if one exists."""
       if isinstance(expr, numbers.Number):
@@ -528,7 +533,7 @@ class MLIRBuilder():
     def _(self, aggregate, multiindex) -> SSAValue:
       buf = self.collect_buffer(aggregate)
 
-      strides = aggregate.shape
+      strides = [1]
 
       linearised = [self.linearise_index(strides, multiindex)]
 
@@ -637,13 +642,15 @@ class MLIRBuilder():
       with self.enter_for(tree.index):
         self.process(tree.children[0])
 
+    # NOTE: This is not being used. Not sure why. 
     @process.register(imp.Initialise)
     def process_initialise(self, leaf): 
-      isum = leaf.indexsum 
-      dtype = get_mlir_type(isum.dtype)
-      buf = self._alloc_temp(isum, isum.free_indices, dtype)
-      sop = memref.StoreOp.get(self._const(0, dtype), buf, self._temp_indices(isum))
-      self.insert(sop)
+      raise NotImplementedError
+      # isum = leaf.indexsum 
+      # dtype = get_mlir_type(isum.dtype)
+      # buf = self._alloc_temp(isum, isum.free_indices, dtype)
+      # sop = memref.StoreOp.get(self._const(0, dtype), buf, self._temp_indices(isum))
+      # self.insert(sop)
 
     @process.register(imp.Accumulate)
     def process_accumulate(self, leaf): 
@@ -668,12 +675,6 @@ class MLIRBuilder():
       If variable is not Indexed, we just store by name into symbol table
     
       """ 
-      
-      """
-      Fix the memref type: 
-      The "processed" value gives a f64 type but it should be a ?xf64 aligned with the memref type
-        
-      """
         
       var = leaf.variable 
       
@@ -690,10 +691,14 @@ class MLIRBuilder():
       self.insert(sop)
       return 
 
+    # FIXME: Bug is here. 
     @process.register(imp.Evaluate)
     def process_evaluate(self, leaf):
       """ Calculate value within expression and assign to temporary """
       expr = leaf.expression
+      
+      # if "'t_2" in repr(expr):
+      #   breakpoint()
       
       if expr in self.symbol_table:
         return self.symbol_table[expr]
@@ -859,9 +864,13 @@ class MLIRBuilder():
     @contextlib.contextmanager
     def enter_for(self, index): 
       # Define SSA for extent, if it does not exist 
+      if hasattr(index, "extent"):
+        extent = index.extent
+      elif isinstance(index, numbers.Integral):
+        extent = index
 
       lb = self._const(0, INDEX_TYPE)
-      ub = self.get_index_ssa(index.extent)
+      ub = self.get_index_ssa(extent)
       step = self._const(1, INDEX_TYPE)
 
       for_op = scf.ForOp(lb, ub, step, [], Region(Block(arg_types=[INDEX_TYPE])))
