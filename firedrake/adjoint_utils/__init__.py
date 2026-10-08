@@ -13,7 +13,7 @@ from firedrake.adjoint_utils.projection import annotate_project  # noqa F401
 from firedrake.adjoint_utils.variational_solver import (  # noqa F401
     NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 )
-from firedrake.adjoint_utils.solving import annotate_solve, get_solve_blocks  # noqa F401
+from firedrake.adjoint_utils.solving import get_solve_blocks  # noqa F401
 from firedrake.adjoint_utils.mesh import MeshGeometryMixin  # noqa F401
 from firedrake.adjoint_utils.checkpointing import (  # noqa F401
     enable_disk_checkpointing, disk_checkpointing,

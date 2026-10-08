@@ -89,9 +89,11 @@ def test_assemble_1_forms_tlm(rg):
 
     h = rg.uniform(V)
     g = f.copy(deepcopy=True)
-    f.block_variable.tlm_value = h
-    tape.evaluate_tlm()
-    assert (taylor_test(Jhat, g, h, dJdm=J.block_variable.tlm_value) > 1.9)
+    Jhat(g)
+    assert (taylor_test(Jhat, g, h, dJdm=Jhat.tlm(h)) > 1.9)
+    # f.block_variable.tlm_value = h
+    # tape.evaluate_tlm()
+    # assert (taylor_test(Jhat, g, h, dJdm=J.block_variable.tlm_value) > 1.9)
 
 
 @pytest.mark.skipcomplex
