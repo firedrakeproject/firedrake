@@ -1030,10 +1030,10 @@ When run, this produces the following output:
      File "pyop2/profiling.py", line 203, in wrapper
        return f(*args, **kwargs)
      File "firedrake/variational_solver.py", line 175, in solve
-       solving_utils.check_snes_convergence(self.snes)
-     File "firedrake/solving_utils.py", line 62, in check_snes_convergence
-       """%s""" % (snes.getIterationNumber(), msg))
-   RuntimeError: Nonlinear solve failed to converge after 50 nonlinear iterations.
+       solving_utils.check_convergence(self.snes)
+     File "firedrake/solving_utils.py", line 142, in check_convergence
+       raise error
+   RuntimeError: Nonlinear solve failed to converge after 50 iterations.
    Reason:
        DIVERGED_MAX_IT
 

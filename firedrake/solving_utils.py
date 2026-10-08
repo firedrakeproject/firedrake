@@ -113,30 +113,38 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         return parameters
 
 
-def check_snes_convergence(snes):
-    r = snes.getConvergedReason()
-    try:
-        reason = SNESReasons[r]
-        inner = False
-    except KeyError:
-        r = snes.getKSP().getConvergedReason()
-        try:
-            inner = True
-            reason = KSPReasons[r]
-        except KeyError:
-            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_converged_reason and -ksp_converged_reason"
+def check_convergence(solver: PETSc.SNES | PETSc.KSP) -> None:
+    """Raise an error if a nonlinear or a linear solve does not converge.
+
+    Parameters
+    ----------
+    solver
+        The `PETSc.SNES` or `PETSc.KSP` that has just solved.
+
+    Raises
+    ------
+    ConvergenceError
+        If the solver reports a negative converged reason. If the KSP of a
+        failed SNES also failed, its error is the cause of the SNES error.
+    """
+    r = solver.getConvergedReason()
     if r < 0:
-        if inner:
-            msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
-                  (snes.getKSP().getIterationNumber(), reason)
+        is_snes = isinstance(solver, PETSc.SNES)
+        kind, reasons = ("Nonlinear", SNESReasons) if is_snes else ("Linear", KSPReasons)
+        reason = reasons.get(r, "unknown reason (petsc4py enum incomplete?), "
+                                "try with -snes_converged_reason and -ksp_converged_reason")
+        error = ConvergenceError(f"{kind} solve failed to converge after "
+                                 f"{solver.getIterationNumber()} iterations.\nReason:\n   {reason}")
+        if is_snes:
+            try:
+                check_convergence(solver.getKSP())
+            except ConvergenceError as cause:
+                raise error from cause
         else:
-            msg = reason
-        raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
-Reason:
-   %s""" % (snes.getIterationNumber(), msg))
+            raise error
 
 
-class _SNESContext(object):
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -361,6 +369,37 @@ class _SNESContext(object):
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    def solve_jacobian(self, b: Cofunction, x: Function, *,
+                       transpose: bool = False) -> None:
+        """Solve with the Jacobian and preconditioner of the most recent solve.
+
+        Parameters
+        ----------
+        b
+            The dual right-hand side.
+        x
+            The Function in which to store the solution.
+        transpose
+            If `True`, solve with the transposed Jacobian. The preconditioner
+            must then implement ``applyTranspose``.
+
+        Raises
+        ------
+        RuntimeError
+            If this context has no SNES.
+        ConvergenceError
+            If the linear solve fails to converge.
+        """
+        snes = self.snes
+        if snes is None:
+            raise RuntimeError("This context is not attached to a SNES")
+        ksp = snes.getKSP()
+        solve = ksp.solveTranspose if transpose else ksp.solve
+        with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
+            with dmhooks.add_hooks(self._problem.dm, self, appctx=self):
+                solve(bvec, xvec)
+        check_convergence(ksp)
 
     @property
     def transfer_manager(self):
