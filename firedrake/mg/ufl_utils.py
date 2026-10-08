@@ -120,6 +120,16 @@ def get_relative(dispatch, old, reverse=False):
     return new
 
 
+def get_root(dispatch, old):
+    """Return the context that the dispatch chain ending at old started from."""
+    root = old
+    parent = get_relative(dispatch, root, reverse=True)
+    while parent is not None:
+        root = parent
+        parent = get_relative(dispatch, root, reverse=True)
+    return root
+
+
 def attach_relative(dispatch, old, new, reverse=False):
     """Set old._coarse or old._fine to new depending on dispatch."""
     if reverse:
@@ -390,13 +400,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                 new_appctx[k] = v
 
     # Get options prefix for current level
-    parent_context = context
-    parent = get_relative(self, parent_context, reverse=True)
-    while parent is not None:
-        parent_context = parent
-        parent = get_relative(self, parent_context, reverse=True)
-
-    parent_prefix = parent_context.options_prefix
+    parent_prefix = get_root(self, context).options_prefix
     opts = PETSc.Options(parent_prefix)
     if opts.getString("snes_type", "") == "fas":
         solver_prefix = "fas_"
