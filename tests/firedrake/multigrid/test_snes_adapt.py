@@ -1,5 +1,4 @@
 import gc
-import weakref
 
 import pytest
 from firedrake import *
@@ -162,6 +161,31 @@ def mark_all_cells(ctx, current_solution):
 
 
 @pytest.mark.parallel([1, 3])
+def test_snes_adapt_reuse():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v)) * dx - inner(Constant(1), v)*dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+    params = {
+        "snes_type": "ksponly",
+        "snes_adapt_sequence": 1,
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+    }
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, u, bcs=bcs),
+        solver_parameters=params,
+        marking_callback=mark_all_cells,
+    )
+    u1 = solver.solve()
+    assert u1.function_space().dim() > u.function_space().dim()
+    u2 = solver.solve()
+    assert u2.function_space().dim() > u1.function_space().dim()
+
+
+@pytest.mark.parallel([1, 3])
 def test_snes_adapt_solution_survives_solver_destruction():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
@@ -196,7 +220,7 @@ def test_snes_adapt_solution_survives_solver_destruction():
 @pytest.mark.parallel([1, 3])
 def test_snes_adapt_noop_refinement_with_multigrid():
     base = UnitSquareMesh(2, 2)
-    mh = MeshHierarchy(mesh, 1)
+    mh = MeshHierarchy(base, 1)
     mesh = mh[-1]
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
