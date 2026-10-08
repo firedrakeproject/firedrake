@@ -168,7 +168,7 @@ def get_assembler(form, *args, **kwargs):
         # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
         default_mat_type = "matfree" if len(form.arguments()) < 2 else None
         mat_type = kwargs.get('mat_type', default_mat_type)
-        # Preprocess the DAG and restructure the DAG
+        # Preprocessing can change the root BaseForm before assembler dispatch.
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
@@ -188,7 +188,7 @@ def get_assembler(form, *args, **kwargs):
         else:
             raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
-        # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
+        # Preprocessing can turn a BaseForm into a pointwise expression.
         return ExprAssembler(form)
     elif isinstance(form, ufl.form.BaseForm):
         return BaseFormAssembler(form, *args, **kwargs)
@@ -321,51 +321,33 @@ class AbstractFormAssembler(abc.ABC):
 
 
 def replace_dual_slot_by_coargument(expr, dual):
-    """Replace the dual slot of a base form operator by a coargument.
+    """Give an operator a symbolic dual slot after its original slot is assembled.
 
     Parameters
     ----------
     expr : ufl.core.base_form_operator.BaseFormOperator
-        The base form operator N(u; v*).
+        The base form operator whose dual slot was assembled.
     dual : firedrake.cofunction.Cofunction or firedrake.matrix.MatrixBase
-        The assembled dual slot v*.
+        The assembled value of the operator's dual slot.
 
     Returns
     -------
     ufl.core.base_form_operator.BaseFormOperator
-        N(u; vhat), whose contraction with ``dual`` is N(u; v*). The coargument vhat
-        is numbered after the other arguments of N, so that it is contracted.
+        The operator with a new coargument in its dual slot. The coargument is numbered
+        after the operator's other arguments, so assembly produces a matrix that can be
+        contracted with ``dual``.
     """
     _, *slots = expr.argument_slots()
-    number = 1 + max((a.number() for slot in slots for a in ufl.algorithms.extract_arguments(slot)), default=-1)
+    number = max(
+        (a.number() for slot in slots for a in ufl.algorithms.extract_arguments(slot)),
+        default=-1,
+    ) + 1
     if isinstance(dual, MatrixBase):
-        test, _ = dual.arguments()
-        V = test.function_space().dual()
+        dual_space = dual.arguments()[0].function_space().dual()
     else:
-        V = dual.function_space()
-    vhat = firedrake.Argument(V, number)
+        dual_space = dual.function_space()
+    vhat = firedrake.Coargument(dual_space, number)
     return expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(vhat, *slots))
-
-
-def uncontracted_arguments(N):
-    """Return the arguments of a base form operator that a form using it does not contract.
-
-    A form contracts the dual argument of a base form operator in its integrand,
-    N(u; v*) * v * dx = Action(v1 * v * dx, N(u; v*)), but not the arguments in its
-    other slots, e.g. v in the Gateaux derivative dN/du[v] = dNdu(u; v, v*).
-    """
-    return tuple(a for slot in N.argument_slots(outer_form=True)
-                 for a in ufl.algorithms.extract_type(slot, ufl.Argument, base_form_op_as_expr=True))
-
-
-def last_operator_with_arguments(base_form_operators):
-    """Return the last created base form operator with uncontracted arguments.
-
-    An operator is created after the operators in its argument slots, so no
-    other operator has the last one in its slots.
-    """
-    return max((N for N in base_form_operators if uncontracted_arguments(N)),
-               key=lambda N: N.count(), default=None)
 
 
 def contracted_arguments(lhs, rhs):
@@ -743,7 +725,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
 
     @staticmethod
-    def base_form_postorder_traversal(expr, visitor, visited={}):
+    def base_form_postorder_traversal(expr, visitor, visited=None):
+        if visited is None:
+            visited = {}
         if expr in visited:
             return visited[expr]
 
@@ -761,27 +745,6 @@ class BaseFormAssembler(AbstractFormAssembler):
                 stack.extend(unvisited_children)
             else:
                 visited[e] = visitor(e, *(visited[arg] for arg in operands))
-
-        return visited[expr]
-
-    @staticmethod
-    def base_form_preorder_traversal(expr, visitor, visited={}):
-        if expr in visited:
-            return visited[expr]
-
-        stack = [expr]
-        while stack:
-            e = stack.pop()
-            unvisited_children = []
-            operands = BaseFormAssembler.base_form_operands(e)
-            for arg in operands:
-                if arg not in visited:
-                    unvisited_children.append(arg)
-
-            if unvisited_children:
-                stack.extend(unvisited_children)
-
-            visited[e] = visitor(e)
 
         return visited[expr]
 
@@ -809,236 +772,89 @@ class BaseFormAssembler(AbstractFormAssembler):
         return []
 
     @staticmethod
-    def restructure_base_form_postorder(expression, visited=None):
-        visited = visited or {}
-
+    def restructure_base_form_postorder(expression):
         def visitor(expr, *operands):
             # Need to reconstruct the expression with its visited operands!
             expr = BaseFormAssembler.reconstruct_node_from_operands(expr, operands)
             # Perform the DAG restructuring when needed
-            return BaseFormAssembler.restructure_base_form(expr, visited)
+            return BaseFormAssembler.restructure_base_form(expr)
 
-        return BaseFormAssembler.base_form_postorder_traversal(expression, visitor, visited)
-
-    @staticmethod
-    def restructure_base_form_preorder(expression, visited=None):
-        visited = visited or {}
-
-        def visitor(expr):
-            # Perform the DAG restructuring when needed
-            return BaseFormAssembler.restructure_base_form(expr, visited)
-
-        expression = BaseFormAssembler.base_form_preorder_traversal(expression, visitor, visited)
-        # Need to reconstruct the expression at the end when all its operands have been visited!
-        operands = [visited.get(args, args) for args in BaseFormAssembler.base_form_operands(expression)]
-        return BaseFormAssembler.reconstruct_node_from_operands(expression, operands)
+        return BaseFormAssembler.base_form_postorder_traversal(expression, visitor)
 
     @staticmethod
-    def restructure_base_form(expr, visited=None):
-        r"""Perform a preorder traversal to simplify and optimize the DAG.
-        Example: Let's consider F(u, N(u; v*); v) with N(u; v*) a base form operator.
+    def restructure_base_form(expr):
+        """Split forms around operators that retain arguments in their outer form."""
+        if not isinstance(expr, ufl.Form):
+            return expr
 
-                 We have: dFdu = \frac{\partial F}{\partial u} + Action(dFdN, dNdu)
-                 Now taking the action on a rank-1 object w (e.g. Coefficient/Cofunction) results in:
+        rest = expr
+        terms = []
+        while True:
+            operator = next(
+                (operator for operator in rest.base_form_operators()
+                 if operator.argument_slots(outer_form=True)),
+                None,
+            )
+            if operator is None:
+                break
 
-            (1) Action(Action(dFdN, dNdu), w)
+            terms.append(BaseFormAssembler.restructure_operator_action(operator, rest))
+            rest = ufl.replace(rest, {operator: ufl.constantvalue.Zero(operator.ufl_shape)})
+            if rest.empty():
+                rest = None
+                break
 
-                    Action                     Action
-                    /    \                     /     \
-                  Action  w     ----->       dFdN   Action
-                  /    \                            /    \
-                dFdN    dNdu                      dNdu    w
+        if not terms:
+            return expr
 
-            This situations does not only arise for BaseFormOperator but also when we have a 2-form instead of dNdu!
-
-            (2) Action(dNdu, w)
-
-                 Action
-                  /   \
-                 /     w        ----->   dNdu(u; w, v*)
-                /
-           dNdu(u; uhat, v*)
-
-            (3) Action(F, N)
-
-                 Action                                       F
-                  /   \         ----->   F(..., N)[v]  =      |
-                F[v]   N                                      N
-
-            (4) Adjoint(dNdu)
-
-                 Adjoint
-                    |           ----->   dNdu(u; v*, uhat)
-               dNdu(u; uhat, v*)
-
-            (5) N(u; w) (scalar valued) is not restructured: UFL simplifies Action(N(u; v*), w) to N(u; w).
-                It is assembled as the contraction of N(u; v*) with w (see `replace_dual_slot_by_coargument`).
-
-        So from Action(Action(dFdN, dNdu(u; v*)), w) we get:
-
-                 Action             Action               Action
-                 /    \    (1)      /     \      (2)     /     \               (4)                                dFdN
-               Action  w  ---->  dFdN   Action  ---->  dFdN   dNdu(u; w, v*)  ---->  dFdN(..., dNdu(u; w, v*)) =    |
-               /    \                    /    \                                                                  dNdu(u; w, v*)
-             dFdN    dNdu              dNdu    w
-
-            (6) ufl.FormSum(dN1du(u; w, v*), dN2du(u; w, v*)) -> ufl.Sum(dN1du(u; w, v*), dN2du(u; w, v*))
-
-              Let's consider `Action(dN1du, w) + Action(dN2du, w)`, we have:
-
-                          FormSum                 (2)         FormSum                    (6)                     Sum
-                          /     \                ---->        /     \                   ---->                    /  \
-                         /       \                           /       \                                          /    \
-              Action(dN1du, w)  Action(dN2du, w)    dN1du(u; w, v*) dN2du(u; w, v*)                 dN1du(u; w, v*)  dN2du(u; w, v*)
-
-            This case arises as a consequence of (2) which turns sum of `Action`s (i.e. ufl.FormSum since Action is a BaseForm)
-            into sum of `BaseFormOperator`s (i.e. ufl.Sum since BaseFormOperator is an Expr as well).
-
-            (7) Action(w*, dNdu)
-
-                     Action
-                     /   \
-                    w*    \        ----->   dNdu(u; v0, w*)
-                           \
-                      dNdu(u; v1, v0*)
-
-            (8) F[v](..., N) with N a base form operator with an uncontracted argument, e.g. dN/du[uhat] = dNdu(u; uhat, v*)
-
-                                                       FormSum
-                                                       /     \
-                 F[v, uhat]     ----->     F[v](..., 0)       Action
-                     |                                        /    \
-                dNdu(u; uhat, v*)                         dFdN[v]   dNdu(u; uhat, v*)
-
-              F is linear in N, so F = F|_{N=0} + Action(dF/dN, N). An Action contracts the last argument
-              of its left operand with the first argument of its right operand, so the Action is Action(N, dF/dN)
-              when the uncontracted argument of N is numbered 0, e.g. dJ/du[v0] = Action(dNdu(u; v0, v1*), dJ/dN[v1]).
-
-            (9) M(...; w*, N) with N a base form operator with an uncontracted argument in an argument slot of M.
-                M is linear in N, so it is restructured as in (8).
-
-        It uses a recursive approach to reconstruct the DAG as we traverse it, enabling to take into account
-        various dag rotations/manipulations in expr.
-        """
-        if isinstance(expr, ufl.Action):
-            left, right = expr.ufl_operands
-            is_rank_1 = lambda x: isinstance(x, (firedrake.Cofunction, firedrake.Function, firedrake.Argument)) or len(x.arguments()) == 1
-            is_rank_2 = lambda x: len(x.arguments()) == 2
-
-            # -- Case (1) -- #
-            # If left is Action and has a rank 2, then it is an action of a 2-form on a 2-form
-            if isinstance(left, ufl.Action) and is_rank_2(left):
-                return ufl.action(left.left(), ufl.action(left.right(), right))
-            # -- Case (2) (except if left has only 1 argument, i.e. its dual slot) -- #
-            if isinstance(left, ufl.core.base_form_operator.BaseFormOperator) and is_rank_1(right) and len(left.arguments()) != 1:
-                # Retrieve the highest numbered argument
-                arg = max(left.arguments(), key=lambda v: v.number())
-                return ufl.replace(left, {arg: right})
-            # -- Case (3) -- #
-            if isinstance(left, ufl.Form) and is_rank_1(right):
-                # 1) Replace the highest-numbered argument of left by right when needed
-                #    -> e.g. if right is a BaseFormOperator with 1 argument.
-                # Or
-                # 2) Let expr as it is by returning `ufl.Action(left, right)`.
-                return ufl.action(left, right)
-            # -- Case (7) -- #
-            if is_rank_1(left) and isinstance(right, ufl.core.base_form_operator.BaseFormOperator) and len(right.arguments()) != 1:
-                # Action(w*, dNdu(u; v1, v*)) -> dNdu(u; v0, w*)
-                # Get lowest numbered argument
-                arg = min(right.arguments(), key=lambda v: v.number())
-                # Need to replace lowest numbered argument of right by left
-                replace_map = {arg: left}
-                # Decrease number for all the other arguments since the lowest numbered argument will be replaced.
-                other_args = [a for a in right.arguments() if a is not arg]
-                new_args = [a.reconstruct(number=a.number()-1) for a in other_args]
-                replace_map.update(dict(zip(other_args, new_args)))
-                # Replace arguments
-                return ufl.replace(right, replace_map)
-
-            # Action(Adjoint(A), w*) -> Action(w*, A)
-            if isinstance(left, ufl.Adjoint) and not isinstance(right, firedrake.Function) and is_rank_1(right):
-                # TODO: ufl.action(Coefficient, Form) currently fails. When it is fixed, we can remove the
-                # `not isinstance(right, firedrake.Function)` check.
-                return ufl.action(right, left.form())
-
-        # -- Case (4) -- #
-        if isinstance(expr, ufl.Adjoint) and isinstance(expr.form(), ufl.core.base_form_operator.BaseFormOperator):
-            B = expr.form()
-            u, v = B.arguments()
-            # Let V1 and V2 be primal spaces, B: V1 -> V2 and B*: V2* -> V1*:
-            # Adjoint(B(Argument(V1, 1), Argument(V2.dual(), 0))) = B(Argument(V1, 0), Argument(V2.dual(), 1))
-            reordered_arguments = {u: u.reconstruct(number=v.number()),
-                                   v: v.reconstruct(number=u.number())}
-            # Replace arguments in argument slots
-            return ufl.replace(B, reordered_arguments)
-
-        # -- Case (6) -- #
-        if isinstance(expr, ufl.FormSum) and all(ufl.duals.is_dual(a.function_space()) for a in expr.arguments()):
-            # Return ufl.Sum if we are assembling a FormSum with Coarguments (a primal expression)
-            return sum(w*c for w, c in zip(expr.weights(), expr.components()))
-
-        # -- Case (8) -- #
-        if isinstance(expr, ufl.Form):
-            N = last_operator_with_arguments(expr.base_form_operators())
-            if N is not None:
-                term = BaseFormAssembler.restructure_operator_action(N, expr)
-                rest = ufl.replace(expr, {N: ufl.constantvalue.Zero(N.ufl_shape)})
-                if rest.empty():
-                    return term
-                return BaseFormAssembler.restructure_base_form(rest) + term
-
-        # -- Case (9) -- #
-        if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-            vstar, *slots = expr.argument_slots()
-            N = last_operator_with_arguments(itertools.chain.from_iterable(map(ufl.algorithms.extract_base_form_operators, slots)))
-            if N is not None:
-                term = BaseFormAssembler.restructure_operator_action(N, expr)
-                rest = [ufl.replace(slot, {N: ufl.constantvalue.Zero(N.ufl_shape)}) for slot in slots]
-                if any(isinstance(slot, ufl.constantvalue.Zero) for slot in rest):
-                    return term
-                rest = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(vstar, *rest))
-                return BaseFormAssembler.restructure_base_form(rest) + term
-
-        return expr
+        result = rest
+        for term in terms:
+            result = term if result is None else result + term
+        return result
 
     @staticmethod
     def restructure_operator_action(N, F):
-        """Return the Action contracting the dual argument of N with the argument Nhat of dF/dN.
+        """Replace N by a fresh argument, then contract that argument with N."""
+        from ufl.algorithms.analysis import extract_base_form_operators
 
-        An Action contracts the last argument of its left operand with the first
-        argument of its right operand, so Action(dF/dN, N) numbers the dual
-        argument of N before its uncontracted arguments, and Action(N, dF/dN)
-        numbers Nhat before the other arguments of dF/dN. The first is possible
-        unless an uncontracted argument of N is numbered 0.
-        """
         vstar, *slots = N.argument_slots()
-        arguments = uncontracted_arguments(N)
+        arguments = tuple(
+            argument
+            for slot in N.argument_slots(outer_form=True)
+            for argument in ufl.algorithms.extract_type(
+                slot, ufl.Argument, base_form_op_as_expr=True
+            )
+        )
         numbers = [a.number() for a in arguments]
-        adjoint = min(numbers) == 0
-        if adjoint:
+        has_argument_zero = 0 in numbers
+        if has_argument_zero:
             Nhat_number, vstar_number = 0, 1 + max(numbers)
         else:
             others = [a.number() for a in F.arguments() if a not in arguments]
             Nhat_number, vstar_number = 1 + max(others, default=-1), 0
         Nhat = firedrake.Argument(vstar.ufl_function_space().dual(), Nhat_number)
-        dF_dN = ufl.algorithms.expand_derivatives(ufl.derivative(F, N, Nhat))
-        dF_dN = BaseFormAssembler.restructure_base_form(dF_dN)
+
+        integrals = [
+            integral.reconstruct(ufl.replace(integral.integrand(), {N: Nhat}))
+            for integral in F.integrals()
+            if N in extract_base_form_operators(integral.integrand())
+        ]
+        form_with_Nhat = ufl.Form(integrals)
+        form_with_Nhat = BaseFormAssembler.restructure_base_form(form_with_Nhat)
         vstar = vstar.reconstruct(number=vstar_number)
         N = N._ufl_expr_reconstruct_(*N.ufl_operands, argument_slots=(vstar, *slots))
-        N = BaseFormAssembler.restructure_base_form(N)
-        if adjoint:
-            return ufl.Action(N, dF_dN)
-        return ufl.Action(dF_dN, N)
+        if has_argument_zero:
+            return ufl.Action(N, form_with_Nhat)
+        return ufl.Action(form_with_Nhat, N)
 
     @staticmethod
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
-        """Preprocess ufl.BaseForm objects"""
+        """Expand derivatives and split forms before BaseForm assembly."""
         original_expr = expr
         if BaseFormAssembler.needs_derivative_expansion(expr, mat_type):
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
         if not isinstance(expr, slate.TensorBase):
             # => No restructuring needed for slate.TensorBase
-            expr = BaseFormAssembler.restructure_base_form_preorder(expr)
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
@@ -1061,15 +877,14 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @staticmethod
     def expand_derivatives_form(form, fc_params):
-        """Expand derivatives of ufl.BaseForm objects
+        """Expand derivatives before dispatching a BaseForm to its assembler.
+
         :arg form: a :class:`~ufl.classes.BaseForm`
         :arg fc_params:: Dictionary of parameters to pass to the form compiler.
 
         :returns: The resulting preprocessed :class:`~ufl.classes.BaseForm`.
-        This function preprocess the form, mainly by expanding the derivatives, in order to determine
-        if we are dealing with a :class:`~ufl.classes.Form` or another :class:`~ufl.classes.BaseForm` object.
-        This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
-        we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
+        Form preprocessing uses the form compiler parameters. Other BaseForm objects
+        use UFL's derivative expansion directly.
         """
         if isinstance(form, ufl.form.Form):
             from firedrake.parameters import parameters as default_parameters

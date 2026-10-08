@@ -19,12 +19,8 @@ def annotate_assemble(assemble):
             from firedrake.assemble import BaseFormAssembler
             from firedrake.slate import slate
             if not isinstance(form, slate.TensorBase):
-                # Preprocess the form at the annotation stage so that the `AssembleBlock`
-                # records the preprocessed form. This facilitates derivation of the tangent linear/adjoint models.
-                # For example,
-                # -> `interp = Action(Interpolate(v1, v0), f)` with `v1` and `v0` being respectively `Argument`
-                # and `Coargument`. Differentiating `interp` is not currently supported as the action's left slot
-                # is a 2-form. However, after preprocessing, we obtain `Interpolate(f, v0)`, which can be differentiated.
+                # Expand derivatives before the AssembleBlock records the form
+                # used to derive tangent linear and adjoint models.
                 form = BaseFormAssembler.preprocess_base_form(form)
                 kwargs['is_base_form_preprocessed'] = True
             output = assemble(form, *args, **kwargs)
