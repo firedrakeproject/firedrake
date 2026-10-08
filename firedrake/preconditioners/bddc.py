@@ -57,7 +57,7 @@ class BDDCPC(PCBase):
         prefix = (pc.getOptionsPrefix() or "") + self._prefix
 
         dm = pc.getDM()
-        V = get_function_space(dm)
+        V = get_function_space(dm).collapse()
 
         # Create new PC object as BDDC type
         bddcpc = PETSc.PC().create(comm=pc.comm)
@@ -475,4 +475,4 @@ def get_entity_coordinates(V):
     op2.par_loop(kernel, mesh.cell_set,
                  out_coords.dat(op2.WRITE, out_coords.cell_node_map()),
                  cg1_coords.dat(op2.READ, cg1_coords.cell_node_map()))
-    return out_coords.dat.data.repeat(V.block_size, axis=0)
+    return out_coords.dat.data.real.repeat(V.block_size, axis=0)

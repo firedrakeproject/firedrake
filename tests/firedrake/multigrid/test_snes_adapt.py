@@ -13,7 +13,8 @@ def test_marking_callback_configures_refine_adaptor():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     v = TestFunction(V)
-    problem = NonlinearVariationalProblem((u - 1.0)*v*dx, u)
+    F = inner(u - 1.0, v) * dx
+    problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, marking_callback=mark_cells)
 
     assert solver.parameters["adaptor_criterion"] == "refine"
@@ -40,9 +41,9 @@ def test_marking_callback_refine_hook_reconstructs_problem():
     old_dim = V.dim()
     u = Function(V)
     v = TestFunction(V)
-    problem = NonlinearVariationalProblem((u - 1.0)*v*dx, u)
+    F = inner(u - 1.0, v) * dx
+    problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, marking_callback=mark_cells)
-    solver.set_transfer_manager(AdaptiveTransferManager())
 
     dm = solver.snes.getDM()
     with dmhooks.add_hooks(dm, solver, appctx=solver._ctx):
@@ -62,14 +63,14 @@ def test_marking_callback_refine_hook_reconstructs_problem():
 
 
 @pytest.mark.skipnetgen
+@pytest.mark.parallel([1, 2])
 def test_snes_adapt_sequence_with_adaptive_multigrid():
     from netgen.occ import WorkPlane, Axes, OCCGeometry, X, Z
 
     rect1 = WorkPlane(Axes((0, 0, 0), n=Z, h=X)).Rectangle(1, 2).Face()
     rect2 = WorkPlane(Axes((0, 1, 0), n=Z, h=X)).Rectangle(2, 1).Face()
     mesh = Mesh(OCCGeometry(rect1 + rect2, dim=2).GenerateMesh(maxh=0.8))
-    amh = AdaptiveMeshHierarchy(mesh)
-    atm = AdaptiveTransferManager()
+    mh = MeshHierarchy(mesh)
 
     V = FunctionSpace(mesh, "CG", 1)
     old_dim = V.dim()
@@ -108,7 +109,7 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
         with eta.dat.vec_ro as eta_vec:
             _, eta_max = eta_vec.max()
         markers = Function(eta.function_space())
-        markers.interpolate(conditional(gt(eta, 0.5 * eta_max), 1, 0))
+        markers.interpolate(conditional(gt(abs(eta), 0.5 * eta_max), 1, 0))
         return markers
 
     refinements = 5
@@ -133,16 +134,15 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     solver = LinearVariationalSolver(problem,
                                      solver_parameters=params,
                                      marking_callback=mark_cells)
-    solver.set_transfer_manager(atm)
     u_adapted = solver.solve()
 
     adapted_mesh = u_adapted.function_space().mesh()
     hierarchy, level = get_level(adapted_mesh)
 
     assert seen[0] == mesh
-    assert hierarchy is amh
+    assert hierarchy is mh
     assert level == refinements
-    assert len(amh) == refinements + 1
+    assert len(mh) == refinements + 1
     assert adapted_mesh is not mesh
     assert u_adapted is not uh
     assert u_adapted.function_space().dim() > old_dim

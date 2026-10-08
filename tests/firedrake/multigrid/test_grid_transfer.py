@@ -1,7 +1,6 @@
 import pytest
 import numpy
 from firedrake import *
-from firedrake.utils import complex_mode
 
 
 @pytest.fixture(params=["interval", "triangle",
@@ -170,11 +169,7 @@ def run_transfer(mh, shp, family, deg, transfer_op):
     if transfer_op == "injection":
         if not mh.nested:
             pytest.skip("Supermesh projections not implemented yet")
-        if family in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(mh, shp, family, deg)
-        else:
-            run_injection(mh, shp, family, deg)
+        run_injection(mh, shp, family, deg)
     elif transfer_op == "restriction":
         run_restriction(mh, shp, family, deg)
     elif transfer_op == "prolongation":
@@ -197,11 +192,11 @@ def test_grid_transfer_parallel(hierarchy, transfer_type):
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("transfer_type", ["prolongation", "restriction", "injection"])
-def test_grid_transfer_symmetric(transfer_type):
+@pytest.mark.parametrize("space", ("CG", "DG"))
+def test_grid_transfer_symmetric(transfer_type, space):
     base = UnitSquareMesh(3, 3)
     hierarchy = MeshHierarchy(base, 1)
 
-    space = "Lagrange"
     degrees = (1,)
     shape = "symmetric-tensor"
     run_transfer(hierarchy, shape, space, degrees, transfer_type)
@@ -333,10 +328,6 @@ def exact_primal_periodic(mesh, shape, degree):
 def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
     degrees = [4]
     shape = "scalar"
-    if periodic_space in {"DG", "DQ"} and complex_mode:
-        with pytest.raises(NotImplementedError):
-            run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
-    else:
-        run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
+    run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
     run_prolongation(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
     run_restriction(periodic_hierarchy, shape, periodic_space, degrees)

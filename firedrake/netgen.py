@@ -15,7 +15,7 @@ import firedrake
 try:
     import netgen.meshing as ngm
     from netgen.meshing import MeshingParameters
-    from ngsPETSc import MeshMapping
+    from ngsPETSc import MeshMapping, createNetgenMesh
 except ImportError:
     pass
 
@@ -62,7 +62,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
         dtype = netgen_data.dtype
 
         sfBCInv = sf.createInverse()
-        section = V.dm.getDefaultSection()
+        section = V.dm.getLocalSection()
         vec = V.dof_dset.layout_vec
         section0, vec0 = plex.distributeField(sfBCInv, section, vec)
         vec0.set(0)
@@ -80,8 +80,7 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
 
 
 @PETSc.Log.EventDecorator()
-def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
-                     tol: float = 1e-5):
+def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
     """ Find all permutations between a list of two sets of points.
 
     Given two numpy arrays of shape (ncells, npoints, dim) containing
@@ -95,7 +94,20 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
     if points_a.shape != points_b.shape:
         raise ValueError("`points_a` and `points_b` must have the same shape.")
 
-    p = [np.where(cdist(a, b).T < tol)[1] for a, b in zip(points_a, points_b)]
+    # Match reference points instead of physical points to ensure scale invariance
+    dim = points_a.shape[-1]
+    vids = list(range(dim+1))
+    # Infer the affine mapping (A, b) from the image of the vertices (first dim+1 dofs)
+    bs = points_a[:, vids[:1], :]
+    As = points_a[:, vids[1:], :]
+    As -= bs
+    Ainvs = np.linalg.inv(As)
+    # x_phys = A * x_ref + b <==> x_ref = inv(A) * (x_phys - b)
+    # Multiply inv(A) from the right, since the data is row-major
+    ref_points_a = np.matmul(points_a - bs, Ainvs)
+    ref_points_b = np.matmul(points_b - bs, Ainvs)
+
+    p = [np.argmin(cdist(a, b), axis=0) for a, b in zip(ref_points_a, ref_points_b)]
 
     if len(p) == 0:
         return p
@@ -115,6 +127,70 @@ def find_permutation(points_a: np.ndarray, points_b: np.ndarray,
         )
 
     return permutation
+
+
+def _snap_to_netgen(plex: PETSc.DMPlex, geometry: "ngm.Mesh") -> "ngm.Mesh":
+    """Project the boundary vertices of a refined DMPlex onto a Netgen geometry.
+
+    A refined DMPlex must be snapped before it is refined again, so that each
+    level subdivides a mesh that already lies on the geometry.
+
+    Parameters
+    ----------
+    plex
+        A DMPlex with linear coordinates. Its coordinates are modified in place.
+    geometry
+        The Netgen mesh of the coarse mesh.
+
+    Returns
+    -------
+    netgen.meshing.Mesh
+        The Netgen mesh of the local part of ``plex``.
+
+    """
+    ngmesh = createNetgenMesh(plex, geometry)
+    coordinates = plex.getCoordinatesLocal()
+    coordinates.array[:] = ngmesh.Coordinates().reshape(-1)
+    plex.setCoordinatesLocal(coordinates)
+    return ngmesh
+
+
+def _curve_netgen_mesh(mesh, order, cg_field=None):
+    """Curve the coordinates of a mesh that has a Netgen mesh.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        A mesh with Netgen attributes.
+    order : int
+        The polynomial degree of the curved coordinates.
+    cg_field : bool
+        Whether the curved coordinates are continuous. Defaults to the
+        continuity of the coordinates of ``mesh``.
+
+    Returns
+    -------
+    MeshGeometry
+        A mesh that shares the topology of ``mesh``.
+
+    """
+    if order == mesh.coordinates.function_space().ufl_element().degree():
+        return mesh
+    coordinates = mesh.curve_field(order=order, cg_field=cg_field)
+    curved_mesh = firedrake.Mesh(coordinates,
+                                 name=mesh.name,
+                                 reorder=None,
+                                 perm_is=mesh._dm_renumbering,
+                                 distribution_parameters=firedrake.mesh.DISTRIBUTION_PARAMETERS_NOOP,
+                                 tolerance=mesh.tolerance,
+                                 comm=mesh.comm)
+    curved_mesh.netgen_mesh = mesh.netgen_mesh
+    curved_mesh.netgen_flags = mesh.netgen_flags
+    curved_mesh.sfBC = mesh.sfBC
+    curved_mesh.sfBC_orig = mesh.sfBC_orig
+    curved_mesh._distribution_parameters = mesh._distribution_parameters
+    curved_mesh._did_reordering = mesh._did_reordering
+    return curved_mesh
 
 
 def splitToQuads(plex, dim, comm):
