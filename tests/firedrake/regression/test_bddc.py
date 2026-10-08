@@ -320,6 +320,9 @@ def test_create_matis(local_mat_type, cellwise):
     A = assemble(a, mat_type="matfree").petscmat
 
     A, assembler = create_matis(A, local_mat_type, cellwise=cellwise)
+    assert A.type == "is" and A.getISAllowRepeated() == cellwise
+    assembler()
+    assert A.getISAllowRepeated() == cellwise
     B = assemble(a, mat_type=local_mat_type).petscmat
     if local_mat_type == "matfree":
         Ax, x = A.createVecs()
@@ -332,3 +335,171 @@ def test_create_matis(local_mat_type, cellwise):
         A.convert("aij")
         B.axpy(-1, A)
         assert np.isclose(B.norm(PETSc.NormType.FROBENIUS), 0)
+
+
+@pytest.fixture(params=("quad", "hex", "extruded"))
+def bddc_boundary_mesh(request):
+    if request.param == "quad":
+        return UnitSquareMesh(2, 2, quadrilateral=True), ("on_boundary",)
+    if request.param == "hex":
+        return UnitCubeMesh(2, 2, 2, hexahedral=True), ("on_boundary",)
+    mesh = ExtrudedMesh(UnitSquareMesh(2, 2, quadrilateral=True), 2)
+    return mesh, ("on_boundary", "bottom", "top")
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("cellwise", (False, True))
+@pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
+@pytest.mark.parametrize("vector", (False, True))
+def test_create_matis_boundary(bddc_boundary_mesh, restricted, cellwise, local_mat_type, vector):
+    """Local operators preserve exterior boundaries and coefficient updates."""
+    from firedrake.preconditioners.bddc import create_matis
+    mesh, markers = bddc_boundary_mesh
+    if local_mat_type == "matfree" and mesh.extruded and mesh.comm.size > 1:
+        pytest.skip("Submesh does not support extruded meshes")
+    fs = VectorFunctionSpace if vector else FunctionSpace
+    V = fs(mesh, "Q", 2)
+    if restricted:
+        V = RestrictedFunctionSpace(V, boundary_set=markers)
+    bcs = [DirichletBC(V, 0, marker) for marker in markers]
+    u, v = TrialFunction(V), TestFunction(V)
+    coefficient = Constant(1.)
+    form = (coefficient * inner(grad(u), grad(v)) + inner(u, v)) * dx
+    source = assemble(form, bcs=bcs, mat_type="matfree").petscmat
+    A, update = create_matis(source, local_mat_type, cellwise=cellwise)
+    x, actual = A.createVecs()
+    expected = actual.duplicate()
+    x.setRandom()
+    if local_mat_type == "matfree" and not cellwise:
+        # Process-local implicit operators retain a diagonal on each copy.
+        probe = Function(V)
+        with probe.dat.vec as vec:
+            x.copy(vec)
+        for bc in bcs:
+            bc.apply(probe)
+        with probe.dat.vec_ro as vec:
+            vec.copy(x)
+    for value in (1., 3.):
+        coefficient.assign(value)
+        update()
+        assembled = assemble(form, bcs=bcs, mat_type="aij").petscmat
+        A.mult(x, actual)
+        assembled.mult(x, expected)
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-11 * expected.norm()
+        if restricted and local_mat_type == "aij":
+            converted = A.convert("aij", out=PETSc.Mat())
+            converted.axpy(-1, assembled)
+            assert converted.norm() < 1.e-11 * assembled.norm()
+            if cellwise:
+                from scipy.sparse import csr_matrix
+                from scipy.sparse.csgraph import connected_components
+                local = A.getISLocalMat()
+                indptr, indices, values = local.getValuesCSR()
+                graph = csr_matrix((values, indices, indptr), shape=local.getSize())
+                graph.eliminate_zeros()
+                count, _ = connected_components(graph)
+                components = V.value_size if vector else 1
+                cells = FunctionSpace(mesh, "DG", 0).dof_dset.layout_vec.local_size
+                assert count == cells * components
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+@pytest.mark.parametrize("restricted", (False, True))
+def test_bddc_entity_coordinates(bddc_boundary_mesh, shape, restricted):
+    """Coordinate rows follow the scalar, vector, or tensor algebraic layout."""
+    from firedrake.preconditioners.bddc import get_entity_coordinates
+    mesh, markers = bddc_boundary_mesh
+    element = FiniteElement("Q", mesh.ufl_cell(), 2)
+    if shape:
+        element = TensorElement(element, shape=shape)
+    V = FunctionSpace(mesh, element)
+    if restricted:
+        V = RestrictedFunctionSpace(V, boundary_set=markers)
+    x = SpatialCoordinate(mesh)
+    columns = []
+    for component in range(mesh.geometric_dimension):
+        f = Function(V).interpolate(x[component] * Constant(np.ones(shape)))
+        with f.dat.vec_ro as vec:
+            columns.append(vec.array_r.real.copy())
+    expected = np.column_stack(columns)
+    actual = get_entity_coordinates(V)
+    assert actual.shape == expected.shape
+    assert np.allclose(actual, expected)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("matfree", (False, True))
+def test_bddc_restricted_solve(bddc_boundary_mesh, restricted: bool, matfree: bool) -> None:
+    """Cellwise BDDC solves preserve constraints with explicit and implicit operators."""
+    mesh, markers = bddc_boundary_mesh
+    if matfree and mesh.extruded and mesh.comm.size > 1:
+        pytest.skip("Submesh does not support extruded meshes")
+    V = FunctionSpace(mesh, "Q", 2)
+    bcs = [DirichletBC(V, 0, marker) for marker in markers]
+    u, v = TrialFunction(V), TestFunction(V)
+    form = (inner(grad(u), grad(v)) + u * v) * dx
+    exact = Function(V).interpolate(SpatialCoordinate(mesh)[0])
+    for bc in bcs:
+        bc.apply(exact)
+    solution = Function(V)
+    parameters = solver_parameters(cellwise=True)
+    parameters["bddc_matfree"] = matfree
+    solve(form == action(form, exact), solution, bcs=bcs,
+          solver_parameters=parameters,
+          restrict=restricted,
+          near_nullspace=VectorSpaceBasis(constant=True, comm=mesh.comm))
+    assert errornorm(exact, solution) < 1.e-10
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("cellwise", (False, True))
+@pytest.mark.parametrize("local_mat_type", ("aij", "matfree"))
+def test_create_matis_component_bc(cellwise, local_mat_type):
+    """Local form assembly preserves conditions on one vector component."""
+    from firedrake.preconditioners.bddc import create_matis
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = VectorFunctionSpace(mesh, "Q", 2)
+    bc = DirichletBC(V.sub(1), 0, 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    form = (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    A, _ = create_matis(form, local_mat_type, cellwise=cellwise, bcs=[bc])
+    B = assemble(form, bcs=bc, mat_type="aij").petscmat
+    probe = Function(V).interpolate(as_vector(SpatialCoordinate(mesh)))
+    bc.apply(probe)
+    with probe.dat.vec_ro as x:
+        actual, expected = A.createVecLeft(), B.createVecLeft()
+        A.mult(x, actual)
+        B.mult(x, expected)
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-11 * expected.norm()
+
+
+@pytest.mark.parametrize("extrusion,restricted", [("variable", False), ("periodic", False), ("periodic", True)])
+@pytest.mark.parametrize("cellwise", (False, True))
+def test_create_matis_extruded_node_map(rg, extrusion, cellwise, restricted):
+    """Node maps preserve layer offsets, periodic wrapping, and tensor blocks."""
+    from firedrake.preconditioners.bddc import create_matis
+    base = UnitIntervalMesh(2)
+    if extrusion == "variable":
+        mesh = ExtrudedMesh(base, layers=[[0, 3], [1, 2]], layer_height=0.25)
+    else:
+        mesh = ExtrudedMesh(base, layers=3, periodic=True)
+    V = TensorFunctionSpace(mesh, "Q", 3, shape=(2, 2))
+    if restricted:
+        V = RestrictedFunctionSpace(V, boundary_set=[1])
+    bc = DirichletBC(V, 0, 1)
+    form = inner(TrialFunction(V), TestFunction(V)) * dx
+    A, _ = create_matis(form, "aij", cellwise=cellwise, bcs=[bc])
+    B = assemble(form, bcs=bc, mat_type="aij").petscmat
+    probe = rg.uniform(V, -1, 1)
+    bc.apply(probe)
+    with probe.dat.vec_ro as x:
+        actual, expected = A.createVecLeft(), B.createVecLeft()
+        A.mult(x, actual)
+        B.mult(x, expected)
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-11 * expected.norm()

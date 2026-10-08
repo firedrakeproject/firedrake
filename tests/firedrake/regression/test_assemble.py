@@ -5,6 +5,168 @@ from firedrake.assemble import TwoFormAssembler
 from firedrake.utils import ScalarType, IntType
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("quadrilateral", (False, True))
+@pytest.mark.parametrize("degrees", ((1, 1), (1, 2)))
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+@pytest.mark.parametrize("sub_mat_type", ("aij", "matfree"))
+@pytest.mark.usefixtures("garbage_cleanup")
+def test_assemble_matis_cellwise(quadrilateral: bool, degrees: tuple[int, int], restricted: bool,
+                                 shape: tuple[int, ...], sub_mat_type: str) -> None:
+    """Cellwise MATIS preserves cell blocks, global layouts, and reassembly."""
+    mesh = UnitSquareMesh(2, 2, quadrilateral=quadrilateral)
+    V, W = (FunctionSpace(mesh, "CG", degree) if not shape else TensorFunctionSpace(mesh, "CG", degree, shape=shape)
+            for degree in degrees)
+    if restricted:
+        V, W = RestrictedFunctionSpace(V, [1]), RestrictedFunctionSpace(W, [3])
+    v, u = TestFunction(V), TrialFunction(W)
+    coefficient = Constant(1.)
+    x = SpatialCoordinate(mesh)
+    field = Function(FunctionSpace(mesh, "CG", 1)).interpolate(1 + x[0] + x[1])
+    form = coefficient * field * (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    tensor = assemble(form, mat_type="iscellwise", sub_mat_type=sub_mat_type)
+    mat = tensor.petscmat
+    assert tensor.arguments() == form.arguments()
+    if sub_mat_type == "aij":
+        assert tensor.M.sparsity.dsets == (V.dof_dset, W.dof_dset)
+    assert mat.type == "is" and mat.getISAllowRepeated()
+    active_counts = tuple(space.block_size * np.count_nonzero(space.dof_dset.lgmap.block_indices[space.cell_node_map().values] >= 0, axis=1)
+                          for space in (V, W))
+    local = mat.getISLocalMat()
+    assert local.getSize() == tuple(counts.sum() for counts in active_counts)
+    assert local.getBlockSizes() == (V.block_size, W.block_size)
+    assert tuple(np.count_nonzero(lgmap.indices >= 0) for lgmap in local.getLGMap()) == local.getSize()
+    if sub_mat_type == "aij":
+        assert local.getInfo()["nz_used"] == np.dot(*active_counts)
+    assembler = TwoFormAssembler(form, mat_type="iscellwise", sub_mat_type=sub_mat_type)
+    x, actual = mat.createVecs()
+    expected = actual.duplicate()
+    x.setRandom()
+    for value in (1., 3.):
+        coefficient.assign(value)
+        assembler.assemble(tensor=tensor)
+        reference = assemble(form, mat_type="aij").petscmat
+        assert mat.getSizes() == reference.getSizes()
+        mat.mult(x, actual)
+        reference.mult(x, expected)
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-12 * expected.norm()
+        if sub_mat_type == "aij":
+            difference = mat.convert("aij", out=PETSc.Mat())
+            difference.axpy(-1, reference)
+            assert difference.norm() < 1.e-12 * reference.norm()
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("quadrilateral", (False, True))
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("weight", (0., 2.5))
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+@pytest.mark.usefixtures("garbage_cleanup")
+def test_assemble_matis_cellwise_bcs(quadrilateral: bool, restricted: bool, weight: float,
+                                     shape: tuple[int, ...]) -> None:
+    """Dirichlet diagonals have the prescribed global weight after updates."""
+    mesh = UnitSquareMesh(2, 2, quadrilateral=quadrilateral)
+    V = FunctionSpace(mesh, "CG", 2) if not shape else TensorFunctionSpace(mesh, "CG", 2, shape=shape)
+    if restricted:
+        V = RestrictedFunctionSpace(V, [1, 2])
+    u, v = TrialFunction(V), TestFunction(V)
+    coefficient = Constant(1.)
+    form = coefficient * (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    bc = DirichletBC(V.sub(0) if shape and not restricted else V, 0, (1, 2))
+    tensor = assemble(form, bcs=bc, mat_type="iscellwise", weight=weight)
+    assembler = TwoFormAssembler(form, bcs=bc, mat_type="iscellwise", weight=weight)
+    for value in (1., 3.):
+        coefficient.assign(value)
+        assembler.assemble(tensor=tensor)
+        expected = assemble(form, bcs=bc, mat_type="aij", weight=weight).petscmat
+        actual = tensor.petscmat.convert("aij", out=PETSc.Mat())
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-12 * expected.norm()
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("quadrilateral", (False, True))
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("dirichlet_bcs", (False, True))
+@pytest.mark.parametrize("sub_mat_type", ("aij", "matfree"))
+@pytest.mark.usefixtures("garbage_cleanup")
+def test_assemble_matis_cellwise_mixed(quadrilateral: bool, restricted: bool, dirichlet_bcs: bool,
+                                       sub_mat_type: str) -> None:
+    """Mixed cell blocks preserve coupling and component boundary conditions."""
+    mesh = UnitSquareMesh(2, 2, quadrilateral=quadrilateral)
+    V, Q = FunctionSpace(mesh, "CG", 1), VectorFunctionSpace(mesh, "CG", 2)
+    if restricted:
+        V, Q = RestrictedFunctionSpace(V, [1]), RestrictedFunctionSpace(Q, [3])
+    Z = V * Q
+    p, u = TrialFunctions(Z)
+    q, v = TestFunctions(Z)
+    coefficient = Constant(1.)
+    form = coefficient * (inner(grad(p), grad(q)) + p * q
+                          + inner(grad(u), grad(v)) + inner(u, v)
+                          + inner(u, grad(q)) + inner(v, grad(p))) * dx
+    bcs = [DirichletBC(Z.sub(0), 0, 1), DirichletBC(Z.sub(1).sub(0), 0, 3)] if dirichlet_bcs else None
+    tensor = assemble(form, bcs=bcs, mat_type="iscellwise", sub_mat_type=sub_mat_type, weight=2.5)
+    if sub_mat_type == "aij":
+        assert tensor.M.sparsity.dsets == (Z.dof_dset, Z.dof_dset)
+    assembler = TwoFormAssembler(form, bcs=bcs, mat_type="iscellwise", sub_mat_type=sub_mat_type, weight=2.5)
+    x, actual = tensor.petscmat.createVecs()
+    expected = actual.duplicate()
+    x.setRandom()
+    for value in (1., 3.):
+        coefficient.assign(value)
+        assembler.assemble(tensor=tensor)
+        reference = assemble(form, bcs=bcs, mat_type="aij", weight=2.5).petscmat
+        tensor.petscmat.mult(x, actual)
+        reference.mult(x, expected)
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-12 * expected.norm()
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((), (2,)))
+@pytest.mark.parametrize("restricted", (False, True))
+@pytest.mark.parametrize("dirichlet_bcs", (False, True))
+@pytest.mark.parametrize("weight", (0., 2.5))
+@pytest.mark.usefixtures("garbage_cleanup")
+def test_assemble_matis_cellwise_matfree(shape: tuple[int, ...], restricted: bool,
+                                         dirichlet_bcs: bool, weight: float) -> None:
+    """Matrix-free cell operators use compact maps and preserve global boundary weights."""
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", 2) if not shape else TensorFunctionSpace(mesh, "CG", 2, shape=shape)
+    if restricted:
+        V = RestrictedFunctionSpace(V, [1])
+    u, v = TrialFunction(V), TestFunction(V)
+    coefficient = Constant(1.)
+    xcoord = SpatialCoordinate(mesh)
+    field = Function(FunctionSpace(mesh, "CG", 1)).interpolate(1 + xcoord[0] + xcoord[1])
+    form = coefficient * field * (inner(grad(u), grad(v)) + inner(u, v)) * dx
+    bcs = [DirichletBC(V.sub(0) if shape else V, 0, 1)] if dirichlet_bcs else None
+    assembler = TwoFormAssembler(form, bcs=bcs, mat_type="iscellwise", sub_mat_type="matfree", weight=weight)
+    tensor = assembler.assemble()
+    assert tensor.petscmat.getISLocalMat().type == "python"
+    x, actual = tensor.petscmat.createVecs()
+    expected = actual.duplicate()
+    x.setRandom()
+    for value in (1., 3.):
+        coefficient.assign(value)
+        field.interpolate(1 + value * xcoord[0] + xcoord[1])
+        assembler.assemble(tensor=tensor)
+        tensor.petscmat.mult(x, actual)
+        reference = assemble(form, bcs=bcs, mat_type="aij", weight=weight).petscmat
+        reference.mult(x, expected)
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-12 * expected.norm()
+        diagonal = tensor.petscmat.getDiagonal()
+        diagonal.axpy(-1, reference.getDiagonal())
+        assert diagonal.norm() < 1.e-12 * reference.getDiagonal().norm()
+        tensor.petscmat.multTranspose(x, actual)
+        reference.multTranspose(x, expected)
+        actual.axpy(-1, expected)
+        assert actual.norm() < 1.e-12 * expected.norm()
+
+
 @pytest.fixture(scope='module')
 def mesh():
     return UnitSquareMesh(5, 5)

@@ -43,6 +43,17 @@ _FORM_CACHE_KEY = "firedrake.assemble.FormAssembler"
 """Entry used in form cache to try and reuse assemblers where possible."""
 
 
+def _bc_dofs(bc: DirichletBC, V: WithGeometry) -> numpy.ndarray:
+    """Return scalar local indices of boundary nodes in the parent space."""
+    space = bc.function_space()
+    component = space.component
+    if component is not None:
+        space = space.parent
+    index = 0 if space.index is None else space.index
+    dofs = V.dof_dset.local_ises[index].indices.reshape(-1, space.block_size)[bc.nodes]
+    return dofs.reshape(-1) if component is None else dofs[:, component]
+
+
 @PETSc.Log.EventDecorator()
 @annotate_assemble
 def assemble(expr, *args, **kwargs):
@@ -74,6 +85,10 @@ def assemble(expr, *args, **kwargs):
         savings, but does not work with all PETSc preconditioners.
         ``"baij"`` matrices only make sense for non-mixed matrices with arguments
         on a :func:`firedrake.functionspace.VectorFunctionSpace`.
+        ``"iscellwise"`` creates a MATIS matrix with separate local degrees of
+        freedom for each cell and the original global layout. It currently
+        supports cell integrals and Dirichlet boundary conditions.
+        Use ``sub_mat_type="matfree"`` for matrix-free local operators.
 
         NOTE
         ----
@@ -84,6 +99,8 @@ def assemble(expr, *args, **kwargs):
         use *inside* a nested block matrix.  Only makes sense if
         ``mat_type`` is ``nest``.  May be one of ``"aij"`` or ``"baij"``.  If
         not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
+        For ``mat_type="iscellwise"``, ``"matfree"`` selects matrix-free
+        operators on the cell subdomains.
     options_prefix : str
         PETSc options prefix to apply to matrices.
     appctx : dict
@@ -1310,6 +1327,10 @@ def TwoFormAssembler(form, *args, **kwargs):
         kwargs.pop('weight', None)
         kwargs.pop('allocation_integral_types', None)
         return MatrixFreeAssembler(form, *args, **kwargs)
+    elif mat_type == "iscellwise" and sub_mat_type == "matfree":
+        kwargs.pop('needs_zeroing', None)
+        kwargs.pop('allocation_integral_types', None)
+        return CellwiseMatrixFreeAssembler(form, *args, **kwargs)
     else:
         return ExplicitMatrixAssembler(form, *args, mat_type=mat_type, sub_mat_type=sub_mat_type, **kwargs)
 
@@ -1339,10 +1360,12 @@ def _get_mat_type(mat_type, sub_mat_type, arguments):
                for arg in arguments
                for V in arg.function_space()):
             mat_type = "nest"
-    if mat_type not in {"matfree", "aij", "baij", "nest", "dense", "is"}:
+    if mat_type not in {"matfree", "aij", "baij", "nest", "dense", "is", "iscellwise"}:
         raise ValueError(f"Unrecognised matrix type, '{mat_type}'")
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
+    if sub_mat_type == "matfree" and mat_type == "iscellwise":
+        return mat_type, sub_mat_type
     if sub_mat_type not in {"aij", "baij", "is"}:
         raise ValueError(f"Invalid submatrix type, '{sub_mat_type}' (not 'aij', 'baij', or 'is')")
     return mat_type, sub_mat_type
@@ -1353,7 +1376,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     Parameters
     ----------
-    form : ufl.Form or slate.TensorBasehe
+    form : ufl.Form or slate.TensorBase
         2-form.
 
     Notes
@@ -1373,6 +1396,16 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_type=None, sub_mat_type=None, options_prefix=None, appctx=None, weight=1.0,
                  allocation_integral_types=None):
+        self._matrix_form = form
+        if mat_type == "iscellwise":
+            bcs = solving._extract_bcs(bcs)
+            if any(not isinstance(bc, DirichletBC) for bc in bcs):
+                raise NotImplementedError("Cellwise MATIS assembly only supports Dirichlet boundary conditions")
+            if not isinstance(form, ufl.Form) or any(it.integral_type() != "cell" for it in form.integrals()):
+                raise NotImplementedError("Cellwise MATIS assembly requires cell integrals")
+            replacements = {arg: arg.reconstruct(function_space=arg.function_space().broken_space())
+                            for arg in form.arguments()}
+            form = ufl.replace(form, replacements)
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, needs_zeroing=needs_zeroing)
         self._mat_type = mat_type
         self._sub_mat_type = sub_mat_type
@@ -1381,17 +1414,72 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self.weight = weight
         self._allocation_integral_types = allocation_integral_types
 
+    @staticmethod
+    def _cellwise_lgmaps(V: WithGeometry, W: WithGeometry) -> tuple[PETSc.LGMap, PETSc.LGMap]:
+        """Map cell copies globally and broken nodes into the local matrix."""
+        field_indices = []
+        for i, (Vi, Wi) in enumerate(zip(V, W)):
+            bs = Vi.block_size
+            indices = V.dof_dset.lgmap.indices[V.dof_dset.local_ises[i].indices]
+            source = op2.Dat(Vi.node_set ** bs, indices.reshape(-1, bs), dtype=utils.IntType)
+            target = op2.Dat(Wi.node_set ** bs, dtype=utils.IntType)
+            source_map = Vi.topological.entity_node_map(Wi.mesh().topology, "cell", "everywhere", None)
+            kernel = op2.Kernel(f"""
+                void cellwise_map({utils.IntType_c} *restrict target, const {utils.IntType_c} *restrict source) {{
+                    for (int i = 0; i < {source_map.arity * bs}; i++) target[i] = source[i];
+                }}""", "cellwise_map", requires_zeroed_output_arguments=False)
+            op2.par_loop(kernel, Wi.mesh().cell_set,
+                         target(op2.WRITE, Wi.cell_node_map()), source(op2.READ, source_map))
+            indices = numpy.full(Wi.node_set.total_size * bs, -1, dtype=utils.IntType)
+            indices[:Wi.node_set.size * bs] = target.data_ro.reshape(-1)
+            field_indices.append(indices)
+        indices = numpy.concatenate(field_indices)
+        active = indices >= 0
+        bs = V.dof_dset.lgmap.getBlockSize()
+        global_map = PETSc.LGMap().create(indices[::bs] // bs, bsize=bs, comm=V.comm)
+        local_indices = numpy.where(active, numpy.cumsum(active, dtype=utils.IntType) - 1, -1)
+        local_map = PETSc.LGMap().create(local_indices[::bs] // bs, bsize=bs, comm=PETSc.COMM_SELF)
+        return global_map, local_map
+
     def allocate(self):
-        test, trial = self._form.arguments()
-        sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial,
-                                                          self._mat_type,
-                                                          self._sub_mat_type,
-                                                          self._make_maps_and_regions())
+        test, trial = self._matrix_form.arguments()
+        if self._mat_type == "iscellwise":
+            mat_type = "is"
+            maps_and_regions = self._make_maps_and_regions_default(test, trial, ("cell",))
+            sparsity = self._make_sparsity(test, trial, mat_type, self._sub_mat_type, maps_and_regions)
+        else:
+            mat_type = self._mat_type
+            sparsity = ExplicitMatrixAssembler._make_sparsity(
+                test, trial, mat_type, self._sub_mat_type,
+                self._make_maps_and_regions())
         op2mat = op2.Mat(
-            sparsity, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
+            sparsity, mat_type=mat_type, sub_mat_type=self._sub_mat_type,
             dtype=ScalarType
         )
-        return Matrix(self._form, op2mat, bcs=self._bcs,
+        if self._mat_type == "iscellwise":
+            from pyop2.sparsity import fill_with_zeros
+            lgmaps = tuple(self._cellwise_lgmaps(arg.function_space(), local_arg.function_space())
+                           for arg, local_arg in zip(self._matrix_form.arguments(), self._form.arguments()))
+            mat = op2mat.handle
+            mat.setISAllowRepeated(True)
+            mat.setLGMap(*(maps[0] for maps in lgmaps))
+            local_mat = mat.getISLocalMat()
+            local_mat.setLGMap(*(maps[1] for maps in lgmaps))
+            local_test, local_trial = self._form.arguments()
+            local_spaces = tuple(arg.function_space() for arg in (local_test, local_trial))
+            local_mat.setPreallocationNNZ(sum(space.cell_node_map().arity * space.block_size for space in local_spaces[1]))
+            local_mat.setOption(PETSc.Mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+            for i, j in numpy.ndindex(op2mat.sparsity.shape):
+                block = op2mat[i, j]
+                if op2mat.is_mixed:
+                    block.handle = mat.getLocalSubMatrix(
+                        local_spaces[0].dof_dset.local_ises[i], local_spaces[1].dof_dset.local_ises[j])
+                    block.local_to_global_maps = block.handle.getLGMap()
+                local_maps = (local_spaces[0][i].cell_node_map(), local_spaces[1][j].cell_node_map())
+                fill_with_zeros(block.handle, block.dims[0][0], [local_maps], [(op2.ALL,)], set_diag=False)
+            mat.assemble()
+            local_mat.setOption(PETSc.Mat.Option.NEW_NONZERO_LOCATION_ERR, True)
+        return Matrix(self._matrix_form, op2mat, bcs=self._bcs,
                       fc_params=self._form_compiler_params, options_prefix=self._options_prefix)
 
     @staticmethod
@@ -1404,9 +1492,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             baij = mat_type == "baij"
         if any(len(a.function_space()) > 1 for a in [test, trial]) and mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
+        dsets = (test.function_space().dof_dset, trial.function_space().dof_dset)
         try:
-            sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                     trial.function_space().dof_dset),
+            sparsity = op2.Sparsity(dsets,
                                     maps_and_regions,
                                     nest=nest,
                                     block_sparse=baij)
@@ -1505,6 +1593,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 # Not on a diagonal block, we cannot set diagonal entries
                 return
 
+            if self._mat_type == "iscellwise":
+                op2tensor.assemble()
+                dset = spaces[0].dof_dset
+                rows = dset.lgmap.indices[_bc_dofs(bc, spaces[0])]
+                op2tensor.handle.zeroRowsColumns(rows[rows >= 0], diag=self.weight)
+                return
+
             # Set diagonal entries on bc nodes to 1 if the current
             # block is on the matrix diagonal and its index matches the
             # index of the function space the bc is defined on.
@@ -1539,8 +1634,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         dat.zero(subset=node_set)
 
     def _check_tensor(self, tensor):
-        if tensor.a.arguments() != self._form.arguments():
+        if tensor.a.arguments() != self._matrix_form.arguments():
             raise ValueError("Form's arguments do not match provided result tensor")
+        if self._mat_type == "iscellwise" and (tensor.petscmat.type != "is" or not tensor.petscmat.getISAllowRepeated()):
+            raise ValueError("Cellwise MATIS assembly requires a cellwise result tensor")
 
     @staticmethod
     def _as_pyop2_type(tensor, indices=None):
@@ -1614,6 +1711,112 @@ class MatrixFreeAssembler(FormAssembler):
     def _check_tensor(self, tensor):
         if tensor.a.arguments() != self._form.arguments():
             raise ValueError("Form's arguments do not match provided result tensor")
+
+
+class CellwiseMatrixFreeAssembler(MatrixFreeAssembler):
+    """Assemble MATIS with matrix-free operators on the cell subdomains.
+
+    Parameters
+    ----------
+    form : ufl.Form
+        Bilinear form containing cell integrals.
+    weight : float
+        Global diagonal value on Dirichlet nodes.
+
+    Notes
+    -----
+    See :class:`MatrixFreeAssembler` and :func:`assemble` for the other parameters.
+    """
+
+    @FormAssembler._skip_if_initialised
+    def __init__(self, form: ufl.Form, bcs: Sequence | DirichletBC | None = None,
+                 form_compiler_parameters: dict | None = None, options_prefix: str | None = None,
+                 appctx: dict | None = None, weight: float = 1.0) -> None:
+        self._weight = weight
+        bcs = solving._extract_bcs(bcs)
+        if not isinstance(form, ufl.Form) or any(it.integral_type() != "cell" for it in form.integrals()):
+            raise NotImplementedError("Cellwise MATIS assembly requires cell integrals")
+        if any(not isinstance(bc, DirichletBC) for bc in bcs):
+            raise NotImplementedError("Cellwise MATIS assembly only supports Dirichlet boundary conditions")
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
+                         options_prefix=options_prefix, appctx=appctx)
+
+    @staticmethod
+    @functools.cache
+    def _local_mesh(mesh: ufl.Mesh) -> ufl.Mesh:
+        if mesh.comm.Compare(op2.MPI.COMM_SELF) in (op2.MPI.IDENT, op2.MPI.CONGRUENT):
+            return mesh
+        return firedrake.Submesh(mesh, ignore_halo=True, comm=op2.MPI.COMM_SELF)
+
+    @classmethod
+    def _local_space(cls, V: WithGeometry) -> WithGeometry:
+        spaces = [type(Vi).make_function_space(cls._local_mesh(Vi.mesh()), Vi.ufl_element()).broken_space()
+                  for Vi in V]
+        return spaces[0] if len(spaces) == 1 else firedrake.MixedFunctionSpace(spaces)
+
+    def allocate(self) -> Matrix:
+        """Allocate a MATIS matrix with a matrix-free local operator.
+
+        Returns
+        -------
+        Matrix
+            Matrix with the original global layout and compact cell subdomains.
+        """
+        from firedrake.matrix_free.operators import CellwiseImplicitMatrixContext
+
+        replacements = {arg: arg.reconstruct(function_space=self._local_space(arg.function_space()))
+                        for arg in self._form.arguments()}
+        local_form = ufl.replace(self._form, replacements)
+        local_form = ufl.Form([
+            it.reconstruct(domain=self._local_mesh(it.ufl_domain()),
+                           extra_domain_integral_type_map={**dict(it.extra_domain_integral_type_map()),
+                                                           it.ufl_domain(): it.integral_type()})
+            for it in local_form.integrals()])
+        local_spaces = tuple(arg.function_space() for arg in local_form.arguments())
+        spaces = tuple(arg.function_space() for arg in self._form.arguments())
+        maps = tuple(ExplicitMatrixAssembler._cellwise_lgmaps(V, W) for V, W in zip(spaces, local_spaces))
+        sizes = tuple(V.dof_dset.layout_vec.getSizes() for V in spaces)
+        mat = PETSc.Mat().createIS(sizes, comm=spaces[0].comm)
+        mat.setISAllowRepeated(True)
+        mat.setLGMap(*(pair[0] for pair in maps))
+        ctx = CellwiseImplicitMatrixContext(local_form, maps[0][1], maps[1][1], fc_params=self._form_compiler_params,
+                                            appctx=self._appctx)
+        local = PETSc.Mat().create(comm=ctx.comm)
+        local.setType("python")
+        local.setSizes((ctx.row_sizes, ctx.col_sizes), bsize=ctx.block_size)
+        local.setPythonContext(ctx)
+        local.setLGMap(*(pair[1] for pair in maps))
+        local.setUp()
+        mat.setISLocalMat(local)
+        return Matrix(self._form, mat, bcs=self._bcs, fc_params=self._form_compiler_params,
+                      options_prefix=self._options_prefix)
+
+    def assemble(self, tensor: Matrix | None = None, current_state: "firedrake.Function | None" = None) -> Matrix:
+        """Update the matrix and apply Dirichlet conditions through PETSc.
+
+        Parameters
+        ----------
+        tensor : Matrix or None
+            Matrix to update. Allocate a new matrix when this is ``None``.
+        current_state : firedrake.Function or None
+            Unused for bilinear forms.
+
+        Returns
+        -------
+        Matrix
+            Cellwise MATIS matrix with zero Dirichlet rows and columns.
+        """
+        if tensor is None:
+            tensor = self.allocate()
+        else:
+            self._check_tensor(tensor)
+        tensor.petscmat.assemble()
+        V = self._form.arguments()[0].function_space()
+        for bc in self._bcs:
+            rows = V.dof_dset.lgmap.indices[_bc_dofs(bc, V)]
+            rows = rows[rows >= 0]
+            tensor.petscmat.zeroRowsColumns(rows, diag=self._weight)
+        return tensor
 
 
 def _global_kernel_cache_key(form, local_knl, subdomain_id, all_integer_subdomain_ids, **kwargs):
@@ -2082,14 +2285,17 @@ class ParloopBuilder:
     def collect_lgmaps(self):
         """Return any local-to-global maps that need to be swapped out.
 
-        This is only needed when applying boundary conditions to 2-forms.
+        Boundary conditions mask the function spaces' local-to-global maps.
 
-        :param local_knl: A :class:`tsfc_interface.SplitKernel`.
-        :param bcs: Iterable of boundary conditions.
+        Returns
+        -------
+        tuple or None
+            Row and column maps for each assembled block, or ``None`` when no
+            boundary maps are required.
         """
 
         if len(self._form.arguments()) == 2 and not self._diagonal:
-            if not self._bcs:
+            if not self._bcs or self._tensor.handle.type == "is":
                 return None
 
             if any(i is not None for i in self._local_knl.indices):

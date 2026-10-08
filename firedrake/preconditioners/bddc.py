@@ -1,5 +1,7 @@
-from itertools import repeat
+from collections.abc import Callable, Sequence
+from functools import cache
 
+from firedrake.bcs import DirichletBC
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.patch import bcdofs
 from firedrake.preconditioners.facet_split import get_restriction_indices
@@ -8,16 +10,15 @@ from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
-from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
-from firedrake.preconditioners.hiptmair import curl_to_grad
-from functools import cached_property
+from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+from firedrake.preconditioners.hiptmair import BCFromNodes, curl_to_grad
 
 from firedrake.parloops import par_loop, INC, READ
-from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
-from finat.ufl import BrokenElement, TensorElement, VectorElement
+from finat.ufl import TensorElement, VectorElement
 from pyop2.mpi import COMM_SELF
+from pyop2.datatypes import as_cstr
 from pyop2.utils import as_tuple
 import numpy
 
@@ -190,23 +191,58 @@ class BDDCPC(PCBase):
         self.pc.applyTranspose(x, y)
 
 
-class BrokenDirichletBC(DirichletBC):
-    def __init__(self, bc):
-        self.bc = bc
-        V = bc.function_space().broken_space()
-        g = bc._original_arg
-        super().__init__(V, g, bc.sub_domain)
+def create_matis(a: Form | PETSc.Mat, local_mat_type: str, cellwise: bool = False,
+                 bcs: Sequence[DirichletBC] = ()) -> tuple[PETSc.Mat, Callable[[], None]]:
+    """Assemble an unassembled matrix on process or cell subdomains.
 
-    @cached_property
-    def nodes(self):
-        u = Function(self.bc.function_space())
-        self.bc.set(u, 1)
-        u = broken_function(u.function_space(), val=u.dat)
-        return numpy.flatnonzero(u.dat.data)
+    Parameters
+    ----------
+    a : ufl.Form or PETSc.Mat
+        Bilinear form or a Firedrake matrix-free matrix.
+    local_mat_type : str
+        Matrix type for the subdomain operator: ``"aij"`` or ``"matfree"``.
+    cellwise : bool
+        Whether each cell is a separate subdomain.
+    bcs : sequence of DirichletBC
+        Dirichlet conditions for a form input.
 
-
-def create_matis(a, local_mat_type, cellwise=False, bcs=()):
+    Returns
+    -------
+    PETSc.Mat
+        The assembled MATIS matrix.
+    callable
+        Callback that reassembles the local operator.
+    """
     from firedrake.assemble import get_assembler
+    from pyop2 import op2
+
+    if local_mat_type not in {"aij", "matfree"}:
+        raise ValueError("Local MATIS operators must have type aij or matfree")
+
+    if isinstance(a, Form):
+        form = a
+        args = a.arguments()
+        comm = args[0].function_space().comm
+        sizes = tuple(arg.function_space().dof_dset.layout_vec.getSizes() for arg in args)
+    elif isinstance(a, PETSc.Mat):
+        if a.type != "python":
+            raise ValueError("Expected a Firedrake matrix-free matrix.")
+        ctx = a.getPythonContext()
+        form = ctx.a
+        bcs = ctx.bcs
+        comm = a.comm
+        sizes = a.getSizes()
+    else:
+        raise TypeError("Expected a bilinear UFL form or a Firedrake matrix-free matrix.")
+
+    if local_mat_type == "aij" or cellwise:
+        assembler = get_assembler(form, bcs=bcs, mat_type="iscellwise" if cellwise else "is",
+                                  sub_mat_type=local_mat_type)
+        tensor = assembler.assemble()
+
+        def update():
+            assembler.assemble(tensor=tensor)
+        return tensor.petscmat, update
 
     def local_mesh(mesh):
         key = "local_submesh"
@@ -220,13 +256,18 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
                 submesh = None
             return cache.setdefault(key, submesh)
 
-    def local_space(V, cellwise):
-        mesh = local_mesh(V.mesh().unique())
-        element = BrokenElement(V.ufl_element()) if cellwise else None
-        return V.reconstruct(mesh=mesh, element=element)
+    def local_space(V):
+        if V.parent is not None:
+            index = V.index if V.index is not None else V.component
+            return local_space(V.parent).sub(index)
+        mesh = local_mesh(V.mesh().unique()) or V.mesh()
+        # Apply constraints through the global map. Reconstructing restricted
+        # spaces here would also constrain artificial subdomain boundaries.
+        V = type(V).make_function_space(mesh, V.ufl_element())
+        return V
 
-    def local_argument(arg, cellwise):
-        return arg.reconstruct(function_space=local_space(arg.function_space(), cellwise))
+    def local_argument(arg):
+        return arg.reconstruct(function_space=local_space(arg.function_space()))
 
     def local_integral(it):
         extra_domain_integral_type_map = dict(it.extra_domain_integral_type_map())
@@ -234,65 +275,66 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
         return it.reconstruct(domain=local_mesh(it.ufl_domain()),
                               extra_domain_integral_type_map=extra_domain_integral_type_map)
 
-    def local_bc(bc, cellwise):
+    @cache
+    def local_node_map(V):
+        W = local_space(V)
+        source_map = V.topological.entity_node_map(W.mesh().topology, "cell", "everywhere", None)
+        # Include parent halo nodes in their rank-local numbering. PyOP2
+        # applies the cell maps with their extrusion offsets and permutations.
+        source = op2.Dat(V.node_set, numpy.arange(V.node_set.total_size, dtype=PETSc.IntType))
+        target = op2.Dat(W.node_set, dtype=PETSc.IntType)
+        ctype = as_cstr(PETSc.IntType)
+        kernel = op2.Kernel(f"""
+            void node_map({ctype} *restrict target, const {ctype} *restrict source) {{
+                for (int i = 0; i < {source_map.arity}; i++) target[i] = source[i];
+            }}""", "node_map", requires_zeroed_output_arguments=False)
+        op2.par_loop(kernel, W.mesh().cell_set,
+                     target(op2.WRITE, W.cell_node_map()), source(op2.READ, source_map))
+        return target.data_ro
+
+    def local_bc(bc):
         V = bc.function_space()
-        Vsub = local_space(V, False)
-        sub_domain = list(bc.sub_domain)
-        if "on_boundary" in sub_domain:
-            sub_domain.remove("on_boundary")
-            sub_domain.extend(V.mesh().unique().exterior_facets.unique_markers)
+        nodes = numpy.flatnonzero(numpy.isin(local_node_map(V), bc.nodes))
+        return BCFromNodes(local_space(V), 0, nodes)
 
-        valid_markers = Vsub.mesh().unique().exterior_facets.unique_markers
-        sub_domain = list(set(sub_domain) & set(valid_markers))
-        bc = bc.reconstruct(V=Vsub, g=0, sub_domain=sub_domain)
-        if cellwise:
-            bc = BrokenDirichletBC(bc)
-        return bc
-
-    def local_to_global_map(V, cellwise):
-        u = Function(V)
-        shp = u.dat.data_ro.shape
-        u.dat.data_wo[...] = numpy.arange(*V.dof_dset.layout_vec.getOwnershipRange()).reshape(shp)
-
-        Vsub = local_space(V, False)
-        usub = Function(Vsub).assign(u)
-        if cellwise:
-            usub = broken_function(usub.function_space(), val=usub.dat)
-        indices = usub.dat.data_ro.astype(PETSc.IntType)
+    def local_to_global_map(V):
+        numbering = V.dof_dset.lgmap.indices.reshape(-1, V.block_size)
+        indices = numbering[local_node_map(V)].reshape(-1)
         return PETSc.LGMap().create(indices, comm=V.comm)
 
-    if isinstance(a, Form):
-        form = a
-        args = a.arguments()
-        comm = args[0].function_space().comm
-        sizes = tuple(arg.function_space().dof_dset.layout_vec.getSizes() for arg in args)
-    elif isinstance(a, PETSc.Mat):
-        assert a.type == "python"
-        ctx = a.getPythonContext()
-        form = ctx.a
-        bcs = ctx.bcs
-        comm = a.comm
-        sizes = a.getSizes()
-
-    local_form = replace(form, {arg: local_argument(arg, cellwise) for arg in form.arguments()})
+    local_form = replace(form, {arg: local_argument(arg) for arg in form.arguments()})
     local_form = Form(list(map(local_integral, local_form.integrals())))
-    local_bcs = tuple(map(local_bc, bcs, repeat(cellwise)))
+    local_bcs = tuple(local_bc(bc) for bc in bcs)
 
-    assembler = get_assembler(local_form, bcs=local_bcs, mat_type=local_mat_type)
+    rmap = local_to_global_map(form.arguments()[0].function_space())
+    cmap = local_to_global_map(form.arguments()[1].function_space())
+
+    rindices, cindices = rmap.indices, cmap.indices
+    restricted = numpy.any(rindices < 0) or numpy.any(cindices < 0)
+    assembler = get_assembler(local_form, bcs=local_bcs, mat_type="matfree")
     tensor = assembler.assemble()
+    local_mat = tensor.petscmat
+    if restricted:
+        rows = PETSc.IS().createGeneral(numpy.flatnonzero(rindices >= 0).astype(PETSc.IntType), comm=COMM_SELF)
+        cols = PETSc.IS().createGeneral(numpy.flatnonzero(cindices >= 0).astype(PETSc.IntType), comm=COMM_SELF)
+        local_mat = tensor.petscmat.createSubMatrix(rows, cols)
+        rmap = PETSc.LGMap().create(rindices[rindices >= 0], comm=comm)
+        cmap = PETSc.LGMap().create(cindices[cindices >= 0], comm=comm)
 
-    rmap = local_to_global_map(form.arguments()[0].function_space(), cellwise)
-    cmap = local_to_global_map(form.arguments()[1].function_space(), cellwise)
-
+    # Only non-cellwise matrix-free operators reach this branch. Cellwise
+    # operators and explicit operators return through the assembler above.
+    # Each process has one subdomain with no repeated local entries, so the
+    # default value of False for allow_repeated applies.
     Amatis = PETSc.Mat().createIS(sizes, comm=comm)
-    Amatis.setISAllowRepeated(cellwise)
     Amatis.setLGMap(rmap, cmap)
-    Amatis.setISLocalMat(tensor.petscmat)
+    Amatis.setISLocalMat(local_mat)
     Amatis.setUp()
     Amatis.assemble()
 
     def update():
         assembler.assemble(tensor=tensor)
+        if restricted:
+            tensor.petscmat.createSubMatrix(rows, cols, submat=local_mat)
         Amatis.assemble()
     return Amatis, update
 
@@ -374,9 +416,17 @@ def get_primal_indices(V, primal_markers):
 
 
 def get_entity_coordinates(V):
-    """
-    Return a Function on fd.VectorFunctionSpace(mesh, V.ufl_element()) containing
-    the physical coordinates of the entity associated with each degree of freedom of V.
+    """Return entity coordinates in the algebraic ordering of a space.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        Space whose degrees of freedom are associated with mesh entities.
+
+    Returns
+    -------
+    numpy.ndarray
+        Entity coordinates for owned, unconstrained degrees of freedom.
     """
     import firedrake as fd
     from pyop2 import op2
@@ -389,6 +439,8 @@ def get_entity_coordinates(V):
     if isinstance(base_element, (TensorElement, VectorElement)):
         base_element = base_element._sub_element
     V_target = fd.VectorFunctionSpace(mesh, base_element)
+    if V.boundary_set:
+        V_target = fd.RestrictedFunctionSpace(V_target, boundary_set=V.boundary_set)
     cg1_coord = fd.VectorFunctionSpace(mesh, "CG", 1)
 
     out_coords = fd.Function(V_target)
@@ -475,4 +527,5 @@ def get_entity_coordinates(V):
     op2.par_loop(kernel, mesh.cell_set,
                  out_coords.dat(op2.WRITE, out_coords.cell_node_map()),
                  cg1_coords.dat(op2.READ, cg1_coords.cell_node_map()))
-    return out_coords.dat.data.real.repeat(V.block_size, axis=0)
+    with out_coords.dat.vec_ro as vec:
+        return vec.array_r.real.reshape(-1, gdim).repeat(V.block_size, axis=0)
