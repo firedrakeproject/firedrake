@@ -317,7 +317,7 @@ class MLIRBuilder():
 
     @collect_buffer.register(gem.Literal)
     def _(self, literal) -> SSAValue:
-      # This confusing indirection is because I have not added a name to the gem.Literal object
+      # FIXME: This confusing indirection is because I have not added a name to the gem.Literal object
       if literal not in self.literal_to_name:
         self.register_buffer(literal)
 
@@ -366,17 +366,15 @@ class MLIRBuilder():
         self._buffer_args[node.name] = op.results[0]
         
         # Allocate to 0 values, iterating over allocated shape  
-        # The positioning of this is very wrong. 
-        # I can come back to this. Focus on segfault now
+        # Update this to lift allocation to head
         zero = self._const(0, mlir_type)
         extent = shape[0]
-        with self.enter_for(extent):
-          i = self.symbol_table[extent]
-          self.insert(memref.StoreOp.get(zero, op.results[0], [i]))
+        # with self.enter_for(extent):
+        #   i = self.symbol_table[extent]
+        #   self.insert(memref.StoreOp.get(zero, op.results[0], [i]))
 
 
       # Working with function argument
-      # TODO: Maybe want to assign as dynamic indices here...
       elif isinstance(node.data.buffer, ArrayBuffer):
         memref_type = MemRefType(mlir_type, shape=[DYNAMIC_INDEX])
         arg = self._entry_block.insert_arg(memref_type, len(self._entry_block.args)) 
@@ -400,7 +398,6 @@ class MLIRBuilder():
       memref_type = MemRefType(mlir_type, arr.shape)
       # FIXME: Likely that the unique name portion of this is not working correctly 
       name = self.unique_name("literal")
-      self.literal_to_name[node] = name 
       
       value = DenseIntOrFPElementsAttr.from_list(
         TensorType(mlir_type, arr.shape), arr.data
@@ -418,6 +415,7 @@ class MLIRBuilder():
 
       get_ssa = self.insert(memref.GetGlobalOp(name, memref_type))
 
+      self.literal_to_name[node] = name 
       self.globals[name] = get_ssa
 
       return self.globals[name]
@@ -446,7 +444,6 @@ class MLIRBuilder():
     def _(self, idx: gem.VariableIndex):
       emitted = self.emit(idx.expression)
       res = self._to_index(emitted)
-      
       return res 
 
     @get_index_ssa.register(gem.Index)
@@ -486,11 +483,11 @@ class MLIRBuilder():
         return self.insert(memref.LoadOp.get(buf, self._temp_indices(expr)))
       return self.process(expr)
 
-
     def linearise_index(self, strides, multiindex) -> SSAValue:
       """ Receives a list of ints and gem.{Index, VariableIndex} and returns SSA linearised access """
-      linearised = None
+      assert len(multiindex) == len(strides), "Strides length must match indices" 
 
+      linearised = None
       # linearised = sum(index * stride)
       for ind, step in zip(multiindex, strides):
         term = self._binary(
@@ -500,18 +497,6 @@ class MLIRBuilder():
 
         linearised = term if linearised is None else self._binary(linearised, term, arith.AddfOp, arith.AddiOp)
       return linearised 
-
-#       # Simulating a ternary operator in MLIR
-#       # Nested Select(Select(Select(...)))
-#       # Each element expression is eagerly evaluated this way 
-#       acc = self.emit(arr.flat[-1])
-#       for k in range(arr.size-2, -1, -1):
-#         hit = self.insert(arith.CmpiIOp(linearised, self._const(k, INDEX_TYPE), "eq"))
-#         val = self.emit(arr.flat[k])
-#         val, acc = self._align_scalars(val, acc)
-            
-#         acc = self.insert(arith.SelectOp(hit, val, acc))
-#       return acc
 
     @functools.singledispatchmethod
     def index_into(self, aggregate, multiindex) -> SSAValue: 
@@ -532,7 +517,8 @@ class MLIRBuilder():
     @index_into.register(gem.Literal)
     def _(self, aggregate, multiindex) -> SSAValue:
       buf = self.collect_buffer(aggregate)
-
+      
+      # Assuming one-step stride but this seems right 
       strides = [1]
 
       linearised = [self.linearise_index(strides, multiindex)]
@@ -547,11 +533,7 @@ class MLIRBuilder():
     def _(self, aggregate, multiindex) -> SSAValue:
       buf = self.collect_buffer(aggregate)
 
-      # TODO: Maybe find a way to refactor this in future 
-      variable, dim2idxs, indexes = gem.decompose_variable_view(aggregate)
-      strides = [stride for _, idxs in dim2idxs for _, stride in idxs] 
-
-      linearised = [self.linearise_index(strides, multiindex)]
+      linearised = self.get_strided_index(aggregate, multiindex) 
 
       return self.insert(
         memref.LoadOp.get(
@@ -559,63 +541,57 @@ class MLIRBuilder():
         )
       )
 
+    # NOTE: This is not being used. Don't know why. 
     @index_into.register(gem.ListTensor)
     def _(self, aggregate: gem.ListTensor, multiindex) -> SSAValue:
-      """ Indexing into ListTensor (stack or list of tensors essentially) 
-
-      I think there is some optimisations to make here regarding the loading of the required elements.
-      All elements are evaluated here, regardless of indexing, which is not ideal
-      """
-      
-      arr = aggregate.array
-
-      # If multiindex all compile-time integers, return the indices
-      if all(isinstance(i, numbers.Integral) for i in multiindex):
-        return self.emit(arr[tuple(int(i) for i in multiindex)])
-
-      # Else, parse indices for runtime-indices of tensor and accumulate
-      strides = np.cumprod((1,) + arr.shape[:0:-1])[::-1]
-      linearised = None
-
-      # linearised = sum(index * stride)
-      for ind, step in zip(multiindex, strides):
-        term = self._binary(
-          self.get_index_ssa(ind), self._const(int(step), INDEX_TYPE),
-          arith.MulfOp, arith.MuliOp
-        )
-
-        linearised = term if linearised is None else self._binary(linearised, term, arith.AddfOp, arith.AddiOp)
-
-      # Simulating a ternary operator in MLIR
-      # Nested Select(Select(Select(...)))
-      # Each element expression is eagerly evaluated this way 
-      acc = self.emit(arr.flat[-1])
-      for k in range(arr.size-2, -1, -1):
-        hit = self.insert(arith.CmpiIOp(linearised, self._const(k, INDEX_TYPE), "eq"))
-        val = self.emit(arr.flat[k])
-        val, acc = self._align_scalars(val, acc)
-            
-        acc = self.insert(arith.SelectOp(hit, val, acc))
-      return acc
-
-    @index_into.register(gem.ComponentTensor)
-    def _(self, aggregate, multiindex) -> SSAValue:
-      values = [self.get_index_ssa(i) for i in multiindex]
-
-      # New symbol table so that operations within ComponentTensor use local SSA  
-      self.symbol_table.push()
-      try:
-        for j, v in zip(aggregate.multiindex, values):
-          self.symbol_table.define(j, v)
-        return self.emit(aggregate.children[0])
-      finally:
-        self.symbol_table.pop()
+      raise NotImplementedError
     
     # }}} 
+    def get_layout_strides(self, shape):
+      """ Calculating layout strides given a gem.Variable shape """
+      strides, run = [None] * len(shape), 1
+      for k in reversed(range(len(shape))):
+        strides[k] = run
+        if k > 0:
+          ext = shape[k]
+          ext = ext if isinstance(ext, int) else self.process(ext)
+          run = self._mul(run, ext)
+      return strides
 
     def get_strided_index(self, aggregate, multiindex) -> SSAValue: 
+      # WILO: This portion of code is wrong.
+
+      """
+      We are assuming that the strides from dim2idxs for variable 
+      Rather, we are looking for:
+        dat_0[idat_0[3 * i_0 + i_2] + i_3] 
+
+      I don't think we are fully unravelling the mulitindices.
+
+      What I want to figure out is:
+        1. Am I fully unravelling each index? 
+        2. How do I combine the unravelled indices?
+
+      Once I figure this out, I think I am in a good spot. 
+
+      1. I think this should just be "get_index_ssa" - which should be recursive. 
+      2. This is harder. I think this is tomorrow's task.  
+
+
+      I think I am reading Indexed incorrectly.
+
+      We receive a target aggregate variable, that we wish to target into.
+      We have the multiindex in order to parse into it
+
+      """
+
       variable, dim2idxs, indexes = gem.decompose_variable_view(aggregate)
       strides = [stride for _, idxs in dim2idxs for _, stride in idxs] 
+
+      if len(multiindex) > 1 and isinstance(multiindex[1], gem.VariableIndex):
+        if isinstance(multiindex[1].expression, gem.Indexed):
+          breakpoint()
+          # layout_strides = self.get_layout_strides(variable.shape)
 
       linearised = [self.linearise_index(strides, multiindex)]
       return linearised
@@ -628,7 +604,6 @@ class MLIRBuilder():
 
     @process.register(imp.Block)
     def process_block(self, tree): 
-      # NOTE: Don't think Blocks are needed in MLIR relative to IR 
       for child in tree.children:
         self.process(child)
 
@@ -652,20 +627,22 @@ class MLIRBuilder():
       # sop = memref.StoreOp.get(self._const(0, dtype), buf, self._temp_indices(isum))
       # self.insert(sop)
 
+    # NOTE: This is not being used 
     @process.register(imp.Accumulate)
     def process_accumulate(self, leaf): 
-      """ Process gem.IndexSum  """ 
-      isum = leaf.indexsum
-      if isum not in self._temporaries:
-          raise KeyError(f"Accumulate before Initialise for {isum}")
-      buf, _ = self._temporaries[isum]
-      idx = self._temp_indices(isum)
-      term = self._convert_type(self.emit(isum.children[0]), buf.type.element_type)
-      old = self.insert(memref.LoadOp.get(buf, idx))
-      new = self._binary(old, term, arith.AddfOp, arith.AddiOp)
-      sop = memref.StoreOp.get(new, buf, idx) 
+      raise NotImplementedError
+      # """ Process gem.IndexSum  """ 
+      # isum = leaf.indexsum
+      # if isum not in self._temporaries:
+      #     raise KeyError(f"Accumulate before Initialise for {isum}")
+      # buf, _ = self._temporaries[isum]
+      # idx = self._temp_indices(isum)
+      # term = self._convert_type(self.emit(isum.children[0]), buf.type.element_type)
+      # old = self.insert(memref.LoadOp.get(buf, idx))
+      # new = self._binary(old, term, arith.AddfOp, arith.AddiOp)
+      # sop = memref.StoreOp.get(new, buf, idx) 
       
-      self.insert(sop)
+      # self.insert(sop)
 
     @process.register(imp.Return)
     def process_return(self, leaf):
@@ -697,9 +674,6 @@ class MLIRBuilder():
       """ Calculate value within expression and assign to temporary """
       expr = leaf.expression
       
-      # if "'t_2" in repr(expr):
-      #   breakpoint()
-      
       if expr in self.symbol_table:
         return self.symbol_table[expr]
 
@@ -725,13 +699,10 @@ class MLIRBuilder():
       else:    
         return self._const(leaf.value, get_mlir_type(leaf.dtype))
 
-    # FIXME: This implementation makes no sense 
+    # FIXME: This is not getting used. Seems like a smell imo  
     @process.register(gem.Variable)
     def _(self, leaf):
       raise NotImplementedError
-      if leaf.shape:
-        raise NotImplementedError(f"Variable {leaf.name} is tensor-valued; it must be indexed")
-      return self.insert(memref.LoadOp.get(self.collect_buffer(leaf), []))
 
     @process.register(gem.Index)
     def _(self, leaf):
@@ -753,10 +724,6 @@ class MLIRBuilder():
     @process.register(gem.ListTensor)
     def _(self, leaf):
       raise NotImplementedError("ListTensor is only valid beneath Indexed")
-      
-    @process.register(gem.ComponentTensor)
-    def _(self, leaf):
-      raise NotImplementedError("ComponentTensor is only valid beneath Indexed")
 
     @process.register(gem.IndexSum)
     def _(self, leaf):
