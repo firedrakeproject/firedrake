@@ -85,7 +85,8 @@ runs:
       run: |
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
-          git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pcpatch-fixups
+          : # git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pcpatch-fixups
+          git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pyop3
           EXTRA_CONFIGURE_OPTIONS=""
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \

@@ -290,6 +290,7 @@ class WithGeometryBase:
             return self._components[indices]
 
     @cached_property
+    @_mesh_cached
     def dm(self):
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
