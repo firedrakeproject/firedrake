@@ -2753,8 +2753,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         V = functionspaceimpl.WithGeometry(coordinates.function_space(), self)
         self._coordinates_function = function.Function(V, val=coordinates)
 
-        self._topology_version = 0
-
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
