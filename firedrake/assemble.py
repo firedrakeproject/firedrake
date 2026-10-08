@@ -1055,11 +1055,8 @@ class BaseFormAssembler(AbstractFormAssembler):
         into another BaseForm, which determines how it is assembled. TSFC expands
         the derivatives of any other Form, and Slate tensors.
         """
-        if isinstance(expr, slate.TensorBase):
+        if isinstance(expr, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(expr):
             return False
-        if isinstance(expr, ufl.form.Form) and not expr.base_form_operators():
-            return False
-        # A 'matfree' matrix is expanded when its action is taken.
         return mat_type != "matfree" or len(expr.arguments()) < 2
 
     @staticmethod
