@@ -8,6 +8,7 @@ from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.mesh import Mesh, DISTRIBUTION_PARAMETERS_NOOP
+from firedrake.mg.mesh import _prolong_coordinates
 from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
 from firedrake.petsc import PETSc
 
@@ -136,6 +137,9 @@ def refine_marked_elements(mesh, cell_marker):
         with PETSc.Log.Event("AdaptiveRefine: recurve netgen coords"):
             final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
                                             cg_field=not coordinates.finat_element.is_dg())
+    else:
+        with PETSc.Log.Event("AdaptiveRefine: prolong coords"):
+            final_mesh = _prolong_coordinates(mesh, final_mesh, fine_to_coarse_points)
 
     final_mesh._adaptive_parent = mesh
     final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
