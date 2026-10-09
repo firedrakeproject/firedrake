@@ -164,7 +164,7 @@ def get_assembler(form, *args, **kwargs):
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     fc_params = kwargs.get('form_compiler_parameters', None)
     if (isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed
-            and not needs_matfree_assembler(form, kwargs.get('mat_type'), kwargs.get('diagonal', False))):
+            and not BaseFormAssembler.needs_matfree_assembler(form, kwargs.get('mat_type'), kwargs.get('diagonal', False))):
         # If not assembling a matrix, internal BaseForm nodes are matfree by default
         # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
         default_mat_type = "matfree" if len(form.arguments()) < 2 else None
@@ -357,6 +357,13 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._weight = weight
         self._allocation_integral_types = allocation_integral_types
 
+    @staticmethod
+    def needs_matfree_assembler(form, mat_type, diagonal=False):
+        """Return whether ``form`` needs a matrix-free assembler."""
+        return (mat_type == "matfree" and not diagonal
+                and len(form.arguments()) == 2
+                and not isinstance(form, (MatrixBase, ufl.core.base_form_operator.BaseFormOperator)))
+
     @cached_property
     def _matrix_free_assembler(self):
         return MatrixFreeAssembler(self._form, bcs=self._bcs,
@@ -468,7 +475,7 @@ class BaseFormAssembler(AbstractFormAssembler):
         in a post-order fashion and evaluating the nodes on the fly.
 
         """
-        if needs_matfree_assembler(self._form, self._mat_type, self._diagonal):
+        if self.needs_matfree_assembler(self._form, self._mat_type, self._diagonal):
             # Keep the full 2-form tree intact so one implicit matrix can assemble its action.
             return self._matrix_free_assembler.assemble(tensor=tensor)
 
@@ -1145,13 +1152,6 @@ def TwoFormAssembler(form, *args, **kwargs):
         return MatrixFreeAssembler(form, *args, **kwargs)
     else:
         return ExplicitMatrixAssembler(form, *args, mat_type=mat_type, sub_mat_type=sub_mat_type, **kwargs)
-
-
-def needs_matfree_assembler(form, mat_type, diagonal=False):
-    """Return whether ``form`` needs a matrix-free assembler."""
-    return (mat_type == "matfree" and not diagonal
-            and len(form.arguments()) == 2
-            and not isinstance(form, (MatrixBase, ufl.core.base_form_operator.BaseFormOperator)))
 
 
 def _get_mat_type(mat_type, sub_mat_type, arguments):
