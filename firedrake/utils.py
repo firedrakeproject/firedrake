@@ -125,7 +125,6 @@ def device_matrix_type(*, warn: bool = True) -> str | None:
     return _device_mat_type_map[dev_type]
 
 
-@pyop3.mpi.collective
 def _new_uid(comm):
     uid = comm.Get_attr(FIREDRAKE_UID)
     if uid is None:

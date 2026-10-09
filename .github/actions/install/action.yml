@@ -85,8 +85,7 @@ runs:
       run: |
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
-          : # git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pcpatch-fixups
-          git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pyop3
+          git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pcpatch-fixups
           EXTRA_CONFIGURE_OPTIONS=""
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \
@@ -115,8 +114,7 @@ runs:
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
           --gpu-arch ${{ inputs.gpu }} \
-          --show-petsc-configure-options \
-          -- --with-debugging=1 --COPTFLAGS='-O0 -g' | \
+          --show-petsc-configure-options | \
           xargs -L1 ./configure \
             $EXTRA_CONFIGURE_OPTIONS \
             --with-make-np=$NPROCS \
