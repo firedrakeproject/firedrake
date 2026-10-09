@@ -571,8 +571,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with problem.u_restrict.dat.vec as u:
             solution.copy(u)
         if self.snes.getDM() != solution_dm:
-            # The saved hooks belong to the DM before adaptation. The next
-            # solve adds new hooks on the new DM.
+            # The saved hooks belong to the DM before adaptation.
+            # The next solve needs to add new hooks on the new DM.
             del self.setup_hooks
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
