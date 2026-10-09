@@ -3,7 +3,10 @@ import numpy as np
 from firedrake import *
 from firedrake.utils import complex_mode
 from firedrake.matrix import MatrixBase
+from firedrake.assemble import BaseFormAssembler
+from firedrake.petsc import PETSc
 import ufl
+from ufl.algorithms.restructure_base_form import restructure_base_form
 
 
 @pytest.fixture(scope='module')
@@ -288,6 +291,74 @@ def test_solve_interp_u(mesh):
     assert np.allclose(u.dat.data, u2.dat.data)
 
 
+@pytest.mark.parallel([1, 3])
+def test_solve_interp_hessian():
+    # Fit a field to observations at a point cloud, regularised with a Laplacian term:
+    #   J(u) = 1/2 sum_k |u(x_k) - p_k|^2 + alpha/2 |grad(u)|^2
+    # The Hessian of the data term is I^T M I, with I the interpolation matrix from V
+    # into the vertex-only mesh and M the mass matrix of the vertex-only mesh.
+    mesh = UnitSquareMesh(5, 5)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    points = np.array([[0.1, 0.2], [0.5, 0.5], [0.9, 0.7], [0.3, 0.8]])
+    vom = VertexOnlyMesh(mesh, points)
+    P = FunctionSpace(vom, "DG", 0)
+    p_obs = assemble(interpolate(1.0 + x + 2 * y, P))
+
+    alpha = Constant(1e-2)
+    u = Function(V)
+    E = 0.5 * (interpolate(u, P) - p_obs)**2 * dx(vom)
+    R = 0.5 * alpha * inner(grad(u), grad(u)) * dx
+    J = E + R
+    F = derivative(J, u)
+    H = derivative(F, u)
+
+    # -- Symbolic Hessian against explicit matrix products
+    I = assemble(interpolate(TrialFunction(V), P)).petscmat
+    M = assemble(inner(TrialFunction(P), TestFunction(P)) * dx).petscmat
+    H_ref = assemble(derivative(derivative(R, u), u)).petscmat
+    H_ref.axpy(1.0, M.ptap(I))
+    H_diff = assemble(H).petscmat.copy()
+    H_diff.axpy(-1.0, H_ref)
+    assert H_diff.norm() < 1e-12 * H_ref.norm()
+
+    # -- The nested derivative agrees with the derivative of the expanded residual
+    F_expanded = BaseFormAssembler.preprocess_base_form(F)
+    H_diff = assemble(derivative(F_expanded, u)).petscmat.copy()
+    H_diff.axpy(-1.0, H_ref)
+    assert H_diff.norm() < 1e-12 * H_ref.norm()
+
+    # -- Solve the minimisation problem with the assembled Hessian
+    solve(F == 0, u, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+    with assemble(F).dat.vec_ro as residual:
+        assert residual.norm() < 1e-10
+
+    # -- Reference solve of (H_R + I^T M I) u = I^T p_obs with explicit matrices
+    u_ref = Function(V)
+    with u_ref.dat.vec as uv, p_obs.dat.vec_ro as pv:
+        rhs = uv.duplicate()
+        I.multTranspose(pv, rhs)
+        ksp = PETSc.KSP().create(comm=mesh.comm)
+        ksp.setOperators(H_ref)
+        ksp.setType("preonly")
+        ksp.getPC().setType("lu")
+        ksp.solve(rhs, uv)
+    assert np.allclose(u.dat.data_ro, u_ref.dat.data_ro)
+
+    # -- The matrix-free Hessian applies the interpolation operator to a Function,
+    # instead of assembling it into an intermediate matrix.
+    w = Function(V).interpolate(cos(x) * sin(y))
+    Hw_ref = Function(V.dual())
+    with w.dat.vec_ro as wv, Hw_ref.dat.vec as rv:
+        H_ref.mult(wv, rv)
+    for expr in (H, BaseFormAssembler.preprocess_base_form(H)):
+        H_matfree = assemble(expr, mat_type="matfree")
+        Hw = Function(V.dual())
+        with w.dat.vec_ro as wv, Hw.dat.vec as v:
+            H_matfree.petscmat.mult(wv, v)
+        assert np.allclose(Hw.dat.data_ro, Hw_ref.dat.data_ro)
+
+
 @pytest.fixture(params=[("DG", 1, "CG", 2),
                         ("DG", 0, "RT", 1),
                         ("CG", 1),
@@ -370,8 +441,8 @@ def test_assemble_action_adjoint(V1, V2):
         assert isinstance(res, Cofunction)
         assert res.function_space() == V1.dual()
 
-        expr2 = action(f, a)  # This simplifies into an Interpolate
-        assert isinstance(expr2, Interpolate)
+        expr2 = action(f, a)  # This restructures into an Interpolate
+        assert isinstance(restructure_base_form(expr2), Interpolate)
         res2 = assemble(expr2)
         assert isinstance(res2, Cofunction)
         assert res2.function_space() == V1.dual()
@@ -388,10 +459,18 @@ def test_assemble_action_adjoint(V1, V2):
         assert res3.function_space() == V1.dual()
         assert np.allclose(res.dat.data, res3.dat.data)
 
-        # This is simplified into action(f, A) to avoid explicit assembly of adjoint(A)
+        # This is restructured into action(f, A) to avoid explicit assembly of adjoint(A)
         expr4 = action(adjoint(A), f)
         assert isinstance(expr4, Action)
         res4 = assemble(expr4)
         assert isinstance(res4, Cofunction)
         assert res4.function_space() == V1.dual()
         assert np.allclose(res.dat.data, res4.dat.data)
+
+    # A Function is the vector that adjoint(B) acts on when B is assembled from a Form
+    b = inner(TrialFunction(V1), TestFunction(V2)) * dx
+    w = Function(V2).assign(1)
+    expected = assemble(action(adjoint(b), w))
+    res = assemble(action(adjoint(assemble(b)), w))
+    assert res.function_space() == V1.dual()
+    assert np.allclose(res.dat.data_ro, expected.dat.data_ro)

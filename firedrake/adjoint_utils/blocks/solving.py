@@ -25,6 +25,11 @@ def extract_subfunction(u, V):
         return u
 
 
+def is_zero(form):
+    """Return whether a BaseForm is zero."""
+    return isinstance(form, ufl.ZeroBaseForm) or (isinstance(form, ufl.Form) and form.empty())
+
+
 class Solver(Enum):
     """Enum for solver types."""
     FORWARD = 0
@@ -352,7 +357,7 @@ class GenericSolveBlock(Block):
     def _assemble_soa_eq_rhs(self, dFdu_form, adj_sol, hessian_input, d2Fdu2):
         # Start piecing together the rhs of the soa equation
         b = hessian_input.copy()
-        if len(d2Fdu2.integrals()) > 0:
+        if not is_zero(d2Fdu2):
             b_form = firedrake.action(firedrake.adjoint(d2Fdu2), adj_sol)
         else:
             b_form = d2Fdu2
@@ -371,7 +376,7 @@ class GenericSolveBlock(Block):
                                             adj_sol)
                 d2Fdudm = ufl.algorithms.expand_derivatives(
                     firedrake.derivative(dFdu_adj, X, tlm_input))
-                if len(d2Fdudm.integrals()) > 0:
+                if not is_zero(d2Fdudm):
                     b_form += d2Fdudm
             elif not isinstance(c, firedrake.DirichletBC):
                 dFdu_adj = firedrake.action(firedrake.adjoint(dFdu_form),
@@ -379,7 +384,7 @@ class GenericSolveBlock(Block):
                 b_form += firedrake.derivative(dFdu_adj, c_rep, tlm_input)
 
         b_form = ufl.algorithms.expand_derivatives(b_form)
-        if len(b_form.integrals()) > 0:
+        if not is_zero(b_form):
             b -= firedrake.assemble(b_form)
 
         return b
@@ -512,7 +517,7 @@ class GenericSolveBlock(Block):
             d2Fdm2 + dFdm_adj2 + d2Fdudm
         )
         hessian_output = 0
-        if not hessian_form.empty():
+        if not is_zero(hessian_form):
             hessian_output = firedrake.assemble(hessian_form)
             hessian_output *= -1.
 

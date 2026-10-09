@@ -160,6 +160,10 @@ runs:
           exit 1
         fi
 
+        : # DROP BEFORE MERGE: install the matching UFL branch under test.
+        pip install --verbose --ignore-installed --no-deps --no-build-isolation \
+          git+https://github.com/FEniCS/ufl.git@pbrubeck/bfo-dual-slot-derivative
+
         pip install --verbose $EXTRA_PIP_FLAGS \
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
