@@ -187,7 +187,7 @@ def get_assembler(form, *args, **kwargs):
             return TwoFormAssembler(form, *args, **kwargs)
         else:
             raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
-    elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
+    elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.form.BaseForm):
         # Preprocessing can turn a BaseForm into a pointwise expression.
         return ExprAssembler(form)
     elif isinstance(form, ufl.form.BaseForm):
@@ -749,14 +749,6 @@ class BaseFormAssembler(AbstractFormAssembler):
         return visited[expr]
 
     @staticmethod
-    def reconstruct_node_from_operands(expr, operands):
-        if isinstance(expr, (ufl.Adjoint, ufl.Action)):
-            return expr._ufl_expr_reconstruct_(*operands)
-        elif isinstance(expr, ufl.FormSum):
-            return ufl.FormSum(*[(op, w) for op, w in zip(operands, expr.weights())])
-        return expr
-
-    @staticmethod
     def base_form_operands(expr):
         if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
             return expr.ufl_operands
@@ -772,90 +764,11 @@ class BaseFormAssembler(AbstractFormAssembler):
         return []
 
     @staticmethod
-    def restructure_base_form_postorder(expression):
-        def visitor(expr, *operands):
-            # Need to reconstruct the expression with its visited operands!
-            expr = BaseFormAssembler.reconstruct_node_from_operands(expr, operands)
-            # Perform the DAG restructuring when needed
-            return BaseFormAssembler.restructure_base_form(expr)
-
-        return BaseFormAssembler.base_form_postorder_traversal(expression, visitor)
-
-    @staticmethod
-    def restructure_base_form(expr):
-        """Split forms around operators that retain arguments in their outer form."""
-        if not isinstance(expr, ufl.Form):
-            return expr
-
-        rest = expr
-        terms = []
-        while True:
-            operator = next(
-                (operator for operator in rest.base_form_operators()
-                 if operator.argument_slots(outer_form=True)),
-                None,
-            )
-            if operator is None:
-                break
-
-            terms.append(BaseFormAssembler.restructure_operator_action(operator, rest))
-            rest = ufl.replace(rest, {operator: ufl.constantvalue.Zero(operator.ufl_shape)})
-            if rest.empty():
-                rest = None
-                break
-
-        if not terms:
-            return expr
-
-        result = rest
-        for term in terms:
-            result = term if result is None else result + term
-        return result
-
-    @staticmethod
-    def restructure_operator_action(N, F):
-        """Replace N by a fresh argument, then contract that argument with N."""
-        from ufl.algorithms.analysis import extract_base_form_operators
-
-        vstar, *slots = N.argument_slots()
-        arguments = tuple(
-            argument
-            for slot in N.argument_slots(outer_form=True)
-            for argument in ufl.algorithms.extract_type(
-                slot, ufl.Argument, base_form_op_as_expr=True
-            )
-        )
-        numbers = [a.number() for a in arguments]
-        has_argument_zero = 0 in numbers
-        if has_argument_zero:
-            Nhat_number, vstar_number = 0, 1 + max(numbers)
-        else:
-            others = [a.number() for a in F.arguments() if a not in arguments]
-            Nhat_number, vstar_number = 1 + max(others, default=-1), 0
-        Nhat = firedrake.Argument(vstar.ufl_function_space().dual(), Nhat_number)
-
-        integrals = [
-            integral.reconstruct(ufl.replace(integral.integrand(), {N: Nhat}))
-            for integral in F.integrals()
-            if N in extract_base_form_operators(integral.integrand())
-        ]
-        form_with_Nhat = ufl.Form(integrals)
-        form_with_Nhat = BaseFormAssembler.restructure_base_form(form_with_Nhat)
-        vstar = vstar.reconstruct(number=vstar_number)
-        N = N._ufl_expr_reconstruct_(*N.ufl_operands, argument_slots=(vstar, *slots))
-        if has_argument_zero:
-            return ufl.Action(N, form_with_Nhat)
-        return ufl.Action(form_with_Nhat, N)
-
-    @staticmethod
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
-        """Expand derivatives and split forms before BaseForm assembly."""
+        """Expand derivatives before BaseForm assembly."""
         original_expr = expr
         if BaseFormAssembler.needs_derivative_expansion(expr, mat_type):
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
-        if not isinstance(expr, slate.TensorBase):
-            # => No restructuring needed for slate.TensorBase
-            expr = BaseFormAssembler.restructure_base_form_postorder(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
