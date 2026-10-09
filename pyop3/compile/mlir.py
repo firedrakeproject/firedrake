@@ -463,7 +463,7 @@ class MLIRBuilder():
 
     @functools.singledispatchmethod
     def get_address(self, node: Any):
-      """(memref, indices) for an lvalue: Variable, or Indexed/Gather of one."""
+      # TODO: Remove this dispatch method. 
       utils.raise_missing_dispatch_handler(node)
 
     @get_address.register(gem.Indexed)
@@ -562,43 +562,17 @@ class MLIRBuilder():
 
     def get_strided_index(self, aggregate, multiindex) -> SSAValue: 
       """
-      We are assuming that the strides from dim2idxs for variable 
-      Rather, we are looking for:
-        dat_0[idat_0[3 * i_0 + i_2] + i_3] 
+      This is artefact from old lower_buffer_access implementation
 
-      I don't think we are fully unravelling the mulitindices.
-
-      What I want to figure out is:
-        1. Am I fully unravelling each index? 
-        2. How do I combine the unravelled indices?
-
-      Once I figure this out, I think I am in a good spot. 
-
-      1. I think this should just be "get_index_ssa" - which should be recursive. 
-      2. This is harder. I think this is tomorrow's task.  
-
-
-      I think I am reading Indexed incorrectly.
-
-      We receive a target aggregate variable, that we wish to target into.
-      We have the multiindex in order to parse into it
-
-      So we should do: 
-        indices = [self.get_index_ssa(mi) for mi in multiindex]
-        summation = get_row_strides([mi.extent for mi in multiindex])
-
-      This means that we can now get the extents 
+      This function now deciphers multiindex with aggregate.
+      The strided component is removed as we do not have multi-level indices
 
       """
 
-      # variable, dim2idxs, indexes = gem.decompose_variable_view(aggregate)
-      # strides = [stride for _, idxs in dim2idxs for _, stride in idxs] 
-
       # NOTE: This is while Connor debugs multiindices in GEM 
       strides = [1] 
-      actual_multiindex = [multiindex[-1]]
 
-      linearised = [self.linearise_index(strides, actual_multiindex)]
+      linearised = [self.linearise_index(strides, multiindex)]
       return linearised
 
     @functools.singledispatchmethod
@@ -670,15 +644,10 @@ class MLIRBuilder():
       buf, idx = self.get_address(var) 
       value = self.process(leaf.expression)
       
-      # WILO:
-      # if "dat_4" in repr(var):
-      #   breakpoint()
-
       sop = memref.StoreOp.get(value, buf, idx)
       self.insert(sop)
       return 
 
-    # FIXME: Bug is here. 
     @process.register(imp.Evaluate)
     def process_evaluate(self, leaf):
       """ Calculate value within expression and assign to temporary """
@@ -716,13 +685,15 @@ class MLIRBuilder():
 
     @process.register(gem.Index)
     def _(self, leaf):
+      # WILO 
       if leaf not in self.symbol_table:
-        # Really hope that this exists for all indices
-        assert leaf.extent.value 
-        
-        # TODO: Should be using get_index_ssa
-        index_ssa = self._const(leaf.extent.value, INDEX_TYPE) 
-        self.symbol_table.define(leaf, index_ssa)
+        if isinstance(leaf.extent, numbers.Integral):
+          # TODO: Should be using get_index_ssa 
+          index_ssa = self._const(leaf.extent.value, INDEX_TYPE) 
+        elif isinstance(leaf.extent, gem.Node):
+          index_ssa = self.process(leaf.extent)
+
+        self.symbol_table.define(leaf, index_ssa) 
 
       return self.symbol_table[leaf] 
 
