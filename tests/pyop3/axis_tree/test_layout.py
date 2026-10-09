@@ -14,7 +14,6 @@ def as_path(path):
     return idict(path)
 
 
-
 def check_layout(axis_tree, path, indices, offset_pattern, offset_fn):
     path = as_path(path)
     layout_expr = axis_tree.layouts[path]

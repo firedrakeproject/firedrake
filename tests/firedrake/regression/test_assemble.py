@@ -168,7 +168,6 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
         bcs = None
 
     aij_ref = assemble(a, bcs=bcs, mat_type="aij").petscmat
-    myaij_ref = aij_ref.copy()
     ais = assemble(a, bcs=bcs, mat_type=mat_type, sub_mat_type="is").petscmat
 
     aij = PETSc.Mat()

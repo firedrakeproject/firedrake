@@ -112,10 +112,10 @@ def test_dat_state_tracking(dat):
     assert d2.dat_version == 1
 
     # Context managers (modify d1 and d2)
-    with d1.vec_wo as x:
+    with d1.vec_wo:
         pass
 
-    with d2.vec_rw as x:
+    with d2.vec_rw:
         pass
 
     assert d1.dat_version == 4

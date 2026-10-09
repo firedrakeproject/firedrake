@@ -8,7 +8,6 @@ import functools
 from pyop3.mpi import COMM_WORLD
 from firedrake.mesh import make_mesh_from_coordinates
 from firedrake.embedding import get_embedding_method_for_checkpointing
-from firedrake.utils import IntType
 
 
 cwd = abspath(dirname(__file__))

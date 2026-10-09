@@ -2,7 +2,6 @@ import os
 import pytest
 
 import pyop3 as op3
-from firedrake import *
 from firedrake.configuration import setup_cache_dirs
 
 

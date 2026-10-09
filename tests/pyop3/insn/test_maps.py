@@ -135,7 +135,7 @@ def test_inc_from_tabulated_map(
     })
 
     if nested:
-        loop = op3.loop(
+        op3.loop(
             p := axis.iter(),
             op3.loop(q := map0(p).iter(), factory.inc_kernel(1)(dat0[q], dat1[p])),
             eager=True,
@@ -391,7 +391,7 @@ def test_partial_map_connectivity(vector2_inc_kernel):
             idict({"ax0": "pt0"}): [[
                 op3.TabulatedMapComponent("ax0", "pt0", map_dat),
                 op3.TabulatedMapComponent("not_ax0", "not_pt0", map_dat),
-                ]]
+            ]]
         },
     )
 
@@ -794,7 +794,7 @@ def test_sum_with_consecutive_maps():
         {
             idict({"ax0": "pt0"}): [[
                 op3.TabulatedMapComponent("ax2", "pt0", map_dat1),
-                ]],
+            ]],
         },
     )
 

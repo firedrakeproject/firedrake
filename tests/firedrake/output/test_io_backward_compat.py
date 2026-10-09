@@ -13,7 +13,7 @@ import pytest
 
 from firedrake import *
 from firedrake.mesh import make_mesh_from_coordinates
-from firedrake.utils import IntType, complex_mode
+from firedrake.utils import complex_mode
 
 
 cwd = abspath(dirname(__file__))

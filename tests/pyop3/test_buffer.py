@@ -3,7 +3,6 @@ from operator import attrgetter
 import numpy as np
 import pytest
 from mpi4py import MPI
-from petsc4py import PETSc
 
 import pyop3 as op3
 

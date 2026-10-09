@@ -32,33 +32,26 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-import pytest
 import tempfile
 import time
-import numpy
 from itertools import chain
 from textwrap import dedent
+
+import pytest
 from pytest_mpi import parallel_assert
 
-import pyop3 as op3
 import pyop3.config
 from pyop3.cache import (
+    _KNOWN_CACHES,
     DEFAULT_CACHE,
+    clear_memory_cache,
     disk_only_cache,
     get_comm_caches,
-    memory_cache,
     memory_and_disk_cache,
-    clear_memory_cache,
-    _KNOWN_CACHES,
+    memory_cache,
 )
 from pyop3.cc import load
-from pyop3.mpi import (
-    MPI,
-    COMM_WORLD,
-    COMM_SELF,
-    internal_comm,
-    temp_internal_comm
-)
+from pyop3.mpi import COMM_SELF, COMM_WORLD, MPI, temp_internal_comm
 
 
 def _seed():
@@ -67,68 +60,6 @@ def _seed():
 
 nelems = 8
 default_cache_name = DEFAULT_CACHE().__class__.__name__
-
-
-@pytest.fixture
-def iterset():
-    return op2.Set(nelems, "iterset")
-
-
-@pytest.fixture
-def indset():
-    return op2.Set(nelems, "indset")
-
-
-@pytest.fixture
-def diterset(iterset):
-    return op2.DataSet(iterset, 1, "diterset")
-
-
-@pytest.fixture
-def dindset(indset):
-    return op2.DataSet(indset, 1, "dindset")
-
-
-@pytest.fixture
-def dindset2(indset):
-    return op2.DataSet(indset, 2, "dindset2")
-
-
-@pytest.fixture
-def g():
-    return op2.Global(1, 0, numpy.uint32, "g", comm=COMM_WORLD)
-
-
-@pytest.fixture
-def x(dindset):
-    return op2.Dat(dindset, list(range(nelems)), numpy.uint32, "x")
-
-
-@pytest.fixture
-def x2(dindset2):
-    return op2.Dat(dindset2, list(range(nelems)) * 2, numpy.uint32, "x2")
-
-
-@pytest.fixture
-def xl(dindset):
-    return op2.Dat(dindset, list(range(nelems)), numpy.uint64, "xl")
-
-
-@pytest.fixture
-def y(dindset):
-    return op2.Dat(dindset, [0] * nelems, numpy.uint32, "y")
-
-
-@pytest.fixture
-def iter2ind1(iterset, indset):
-    u_map = numpy.array(list(range(nelems)), dtype=numpy.uint32)[::-1]
-    return op2.Map(iterset, indset, 1, u_map, "iter2ind1")
-
-
-@pytest.fixture
-def iter2ind2(iterset, indset):
-    u_map = numpy.array(list(range(nelems)) * 2, dtype=numpy.uint32)[::-1]
-    return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
 
 
 def get_cache(comm, func_name):
@@ -391,7 +322,7 @@ def test_writing_large_so():
         os.remove("big.c")
 
     dll = load(program, "c", comm=COMM_WORLD)
-    fn = getattr(dll, "big")
+    fn = dll.big
     assert fn is not None
 
 
@@ -407,7 +338,7 @@ def test_two_comms_compile_the_same_code():
         """)
 
     dll = load(code, "c", comm=COMM_WORLD)
-    fn = getattr(dll, "noop")
+    fn = dll.noop
     assert fn is not None
 
 

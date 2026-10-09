@@ -11,7 +11,6 @@ conditions.
 """
 from os.path import abspath, dirname, join
 import numpy.linalg as linalg
-import numpy
 from firedrake import *
 import pytest
 

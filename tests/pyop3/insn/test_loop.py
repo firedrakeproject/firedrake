@@ -1,7 +1,6 @@
 import loopy as lp
 import numpy as np
 import pytest
-from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -57,7 +56,7 @@ def test_multi_component_vector_copy(factory, use_slice):
         )
 
     assert (dat1.data_ro[: m * a] == 0).all()
-    assert (dat1.data_ro[m * a :] == dat0.data_ro[m * a :]).all()
+    assert (dat1.data_ro[m * a:] == dat0.data_ro[m * a:]).all()
 
 
 def test_copy_multi_component_inner(factory):
@@ -94,7 +93,7 @@ def test_multi_component_scalar_copy_with_two_outer_loops(factory):
     kernel = factory.copy_kernel(1)
     op3.loop(p := axes["pt1", :].iter(), kernel(dat0[p], dat1[p]), eager=True)
     assert all(dat1.data_ro[: m * a] == 0)
-    assert all(dat1.data_ro[m * a :] == dat0.data_ro[m * a :])
+    assert all(dat1.data_ro[m * a:] == dat0.data_ro[m * a:])
 
 
 def test_loop_over_parametrised_length(factory):
@@ -258,7 +257,7 @@ def test_scalar_copy_ragged_axis_inside_two_fixed_axes(factory):
     nnz_data = np.asarray([[1, 2], [1, 2]]).flatten()
 
     axis0 = op3.Axis(m)
-    axis1 = op3.Axis(m)
+    axis1 = op3.Axis(n)
     nnz_axes = op3.AxisTree.from_nest({axis0: axis1})
     nnz = op3.Dat(nnz_axes, data=nnz_data)
 
@@ -301,8 +300,8 @@ def test_scalar_copy_of_ragged_component_in_multi_component_axis(factory):
 
     off = np.cumsum([m0 * n0, sum(nnz_data), m2 * n1])
     assert np.allclose(dat1.data_ro[: off[0]], 0)
-    assert np.allclose(dat1.data_ro[off[0] : off[1]], dat0.data_ro[off[0] : off[1]])
-    assert np.allclose(dat1.data_ro[off[1] :], 0)
+    assert np.allclose(dat1.data_ro[off[0]:off[1]], dat0.data_ro[off[0]:off[1]])
+    assert np.allclose(dat1.data_ro[off[1]:], 0)
 
 
 @pytest.mark.xfail(reason="Index tree construction does not work perfectly")
@@ -338,7 +337,6 @@ def test_different_axis_orderings_do_not_change_packing_order():
     dat1 = op3.Dat.zeros(axes0, dtype=dat0_0.dtype)
 
     p = axis0.iter()
-    path = idict({axis0.label: axis0.component.label})
     slice0 = op3.Slice(axis1.label, [op3.AffineSliceComponent(axis1.component.label)])
     slice1 = op3.Slice(axis2.label, [op3.AffineSliceComponent(axis2.component.label)])
     q = op3.IndexTree({p: [slice0, slice1]})
