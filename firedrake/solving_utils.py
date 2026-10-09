@@ -1,4 +1,5 @@
 import typing
+import weakref
 from itertools import chain
 
 import numpy
@@ -222,6 +223,8 @@ class _SNESContext(object):
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
         self._marking_callback = marking_callback
+        # The solver creates the SNES, and sets it with set_snes.
+        self.snes = None
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -293,6 +296,25 @@ class _SNESContext(object):
         self._near_nullspace = None
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
+
+    def set_snes(self, snes: "PETSc.SNES | weakref.ProxyType") -> None:
+        """Stash a weakref to the SNES wrapping this _SNESContext.
+
+        Parameters
+        ----------
+        snes
+            The SNES associated with this context, or a ``weakref.proxy`` to it.
+
+        Raises
+        ------
+        RuntimeError
+            If an SNES is already associated with this context.
+        """
+        if self.snes is not None:
+            raise RuntimeError("This _SNESContext already has an SNES.")
+        if not isinstance(snes, weakref.ProxyTypes):
+            snes = weakref.proxy(snes)
+        self.snes = snes
 
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
