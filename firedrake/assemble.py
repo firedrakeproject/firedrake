@@ -15,6 +15,7 @@ from tsfc import kernel_args
 from finat.element_factory import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
+from ufl.algorithms.restructure_base_form import restructure_base_form
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, parameters, solving,
                        tsfc_interface, utils)
@@ -765,10 +766,12 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @staticmethod
     def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
-        """Expand derivatives before BaseForm assembly."""
+        """Expand derivatives and restructure before BaseForm assembly."""
         original_expr = expr
         if BaseFormAssembler.needs_derivative_expansion(expr, mat_type):
             expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
+        if not isinstance(expr, slate.TensorBase):
+            expr = restructure_base_form(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. All of this only holds when both are `ufl.Form` objects.

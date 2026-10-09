@@ -6,6 +6,7 @@ from firedrake.matrix import MatrixBase
 from firedrake.assemble import BaseFormAssembler
 from firedrake.petsc import PETSc
 import ufl
+from ufl.algorithms.restructure_base_form import restructure_base_form
 
 
 @pytest.fixture(scope='module')
@@ -440,8 +441,8 @@ def test_assemble_action_adjoint(V1, V2):
         assert isinstance(res, Cofunction)
         assert res.function_space() == V1.dual()
 
-        expr2 = action(f, a)  # This simplifies into an Interpolate
-        assert isinstance(expr2, Interpolate)
+        expr2 = action(f, a)  # This restructures into an Interpolate
+        assert isinstance(restructure_base_form(expr2), Interpolate)
         res2 = assemble(expr2)
         assert isinstance(res2, Cofunction)
         assert res2.function_space() == V1.dual()
@@ -458,10 +459,18 @@ def test_assemble_action_adjoint(V1, V2):
         assert res3.function_space() == V1.dual()
         assert np.allclose(res.dat.data, res3.dat.data)
 
-        # This is simplified into action(f, A) to avoid explicit assembly of adjoint(A)
+        # This is restructured into action(f, A) to avoid explicit assembly of adjoint(A)
         expr4 = action(adjoint(A), f)
         assert isinstance(expr4, Action)
         res4 = assemble(expr4)
         assert isinstance(res4, Cofunction)
         assert res4.function_space() == V1.dual()
         assert np.allclose(res.dat.data, res4.dat.data)
+
+    # A Function is the vector that adjoint(B) acts on when B is assembled from a Form
+    b = inner(TrialFunction(V1), TestFunction(V2)) * dx
+    w = Function(V2).assign(1)
+    expected = assemble(action(adjoint(b), w))
+    res = assemble(action(adjoint(assemble(b)), w))
+    assert res.function_space() == V1.dual()
+    assert np.allclose(res.dat.data_ro, expected.dat.data_ro)
