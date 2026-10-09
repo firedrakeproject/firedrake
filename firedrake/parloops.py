@@ -4,34 +4,20 @@ non-finite element operations such as slope limiters."""
 from __future__ import annotations
 
 import collections
-import functools
-import warnings
 from cachetools import LRUCache
-from immutabledict import immutabledict as idict
-from typing import Any
 
-import FIAT
-import finat
 import loopy
-import numpy as np
 import pyop3 as op3
-import ufl
-from pyop3.cache import heavy_caches, serial_cache
+from pyop3.cache import heavy_caches
 from pyop3 import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
-from pyop3.expr.visitors import evaluate as eval_expr
-from pyop3.utils import readonly
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from firedrake import utils
 from firedrake.constant import Constant
-from firedrake.functionspaceimpl import WithGeometry, MixedFunctionSpace
-from firedrake.matrix import Matrix
 from firedrake.pack import pack
 from firedrake.petsc import PETSc
 from firedrake.parameters import target
 from firedrake.ufl_expr import extract_domains
-from firedrake.utils import IntType, assert_empty, tuplify
 
 
 # Set a default loopy language version (should be in __init__.py)

@@ -1,42 +1,33 @@
 import abc
-import contextlib
 import functools
 import itertools
 import numbers
-import operator
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from collections.abc import Mapping
-from itertools import product
 from functools import cached_property
 
-import cachetools
-import finat
-import loopy as lp
 import firedrake
 import numpy
 from pyadjoint.tape import annotate_tape
 from pyop3.cache import with_heavy_caches
 from tsfc import kernel_args
-from finat.element_factory import create_element
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 import pyop3 as op3
-import finat.ufl
-from firedrake import (extrusion_utils as eutils, parameters, solving,
+from firedrake import (parameters, solving,
                        tsfc_interface, utils)
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
-from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace, is_mixed
+from firedrake.functionspaceimpl import is_mixed
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
 from firedrake.mesh import get_mesh_topologies, MeshLoopIndex
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
-from firedrake.utils import ScalarType, assert_empty, tuplify
-from functools import cached_property
+from firedrake.utils import ScalarType, tuplify
 
 
 __all__ = "assemble",
@@ -1062,7 +1053,6 @@ class ParloopFormAssembler(FormAssembler):
                 "Use assemble instead."
             )
 
-        mesh = self._form.ufl_domains()[0]
         pyop3_compiler_parameters = {"optimize": True}
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
@@ -1180,17 +1170,6 @@ class ParloopFormAssembler(FormAssembler):
     @abc.abstractmethod
     def result(self, tensor):
         """The result of the assembly operation."""
-
-    @staticmethod
-    def _as_pyop3_type(tensor):
-        if isinstance(tensor, op3.Dat):
-            return tensor
-        elif isinstance(tensor, firedrake.Cofunction):
-            return tensor.dat
-        elif isinstance(tensor, matrix.Matrix):
-            return tensor.M
-        else:
-            raise AssertionError
 
 
 class ZeroFormAssembler(ParloopFormAssembler):

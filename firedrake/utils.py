@@ -4,15 +4,12 @@ import functools
 import warnings
 from typing import Callable, Self, Hashable
 
-from decorator import decorator
 from petsc4py import PETSc
 
-import pyop3
 from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict, as_tuple  # noqa: F401
 from pyop3.dtypes import ScalarType, as_cstr
 from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
 from pyop3.mpi import MPI
-from pyop3.cache import cached_method
 from pyop3.utils import (  # noqa: F401
     readonly,
     pairwise,
@@ -35,7 +32,6 @@ from pyop3.utils import (  # noqa: F401
 from functools import cache
 from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
-
 
 
 # MPI key value for storing a per communicator universal identifier
@@ -227,6 +223,7 @@ def safe_is(is_: PETSc.IS, *, comm=MPI.COMM_SELF) -> PETSc.IS:
 
     """
     return is_ if is_ else PETSc.IS().createStride(0, comm=comm).toGeneral()
+
 
 def check_netgen_installed() -> None:
     """Check that netgen and ngsPETSc are available.

@@ -10,7 +10,6 @@ from firedrake.exceptions import NonUniqueMeshSequenceError
 from tinyasm import _tinyasm as tinyasm
 from mpi4py import MPI
 import numpy
-import firedrake.exceptions
 from firedrake import utils
 
 

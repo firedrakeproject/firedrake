@@ -1,5 +1,4 @@
 from functools import wraps
-from pyop3.mpi import temp_internal_comm
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType

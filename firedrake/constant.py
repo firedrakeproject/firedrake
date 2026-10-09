@@ -19,7 +19,6 @@ from functools import cached_property
 from ufl.utils.counted import Counted
 
 
-import firedrake.utils as utils
 from firedrake.adjoint_utils.constant import ConstantMixin
 
 

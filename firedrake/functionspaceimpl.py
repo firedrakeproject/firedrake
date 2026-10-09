@@ -9,27 +9,23 @@ import abc
 import collections
 import dataclasses
 import functools
-import numbers
 import warnings
-import operator
 from collections import OrderedDict, defaultdict
 from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
-from functools import cached_property, reduce
+from functools import cached_property
 from immutabledict import immutabledict as idict
-from typing import Literal, Optional
+from typing import Any, Literal, Self
 from mpi4py import MPI
 
 import finat.ufl
 from finat.element_factory import create_element as _create_element
-import warnings
-from collections import OrderedDict
 
 import numpy
 import pyop3 as op3
 import ufl
 from pyop3 import mpi
-from pyop3.utils import just_one, single_valued
+from pyop3.utils import single_valued
 from pyop3.cache import cached_on, with_heavy_caches, cached_method
 from pyop3.device import on_host
 from finat.quadrature import QuadratureRule
@@ -38,14 +34,12 @@ from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
 from pyop3.pyop2_utils import as_tuple
 
-import firedrake.logging
-from firedrake import dmhooks, utils, extrusion_utils as eutils
+from firedrake import dmhooks, utils
 from firedrake.cython import dmcommon
-from firedrake.extrusion_utils import is_real_tensor_product_element
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, deprecated
+from firedrake.utils import IntType
 
 from firedrake._functionspaceimpl_cy import _get_ndofs_extruded, _partition_constrained_points
 
@@ -682,18 +676,18 @@ class AbstractFunctionSpace:
 
     @property
     @abc.abstractmethod
-    def layout(self) -> "TODO":
-         pass
+    def layout(self):
+        pass
 
     @property
     @abc.abstractmethod
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
-         pass
+        pass
 
     @property
     @abc.abstractmethod
     def nodal_axis_constraints(self) -> tuple[AxisConstraint, ...]:
-         pass
+        pass
 
     @cached_property
     @_mesh_cached
@@ -805,7 +799,7 @@ class AbstractFunctionSpace:
             block_shape = self.shape
         return self.dm_axes.template_vec(block_shape)
 
-    def lgmap(self, bcs: Iterable[DirichletBC] = ()) -> PETSc.LGMap:
+    def lgmap(self, bcs=()) -> PETSc.LGMap:
         """Return a map from process-local to global DoF numbering.
 
         Parameters
@@ -879,7 +873,7 @@ class AbstractFunctionSpace:
                 idict({src_axis.label: src_axis.component.label}): [
                     [op3.TabulatedMapComponent("nodes", None, map_dat)]
                 ],
-            }, 
+            },
         )
 
     @cached_property
@@ -1088,7 +1082,6 @@ class AbstractFunctionSpace:
     # }}}
 
 
-
 class FunctionSpace(AbstractFunctionSpace):
     r"""A representation of a function space.
 
@@ -1169,11 +1162,6 @@ class FunctionSpace(AbstractFunctionSpace):
         self.element = element
         self.finat_element = create_element(element)
 
-        entity_dofs = self.finat_element.entity_dofs()
-        nodes_per_entity = tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))
-        real_tensor_product = is_real_tensor_product_element(self.finat_element)
-        key = (nodes_per_entity, real_tensor_product, self.shape)
-
         if layout is None:
             # NOTE: Indicates bad inheritance
             if isinstance(self, RealFunctionSpace):
@@ -1247,8 +1235,6 @@ class FunctionSpace(AbstractFunctionSpace):
     @_mesh_cached
     @_with_mesh_heavy_cache
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
-        from firedrake import FunctionSpace
-
         if self._is_real_tensor_product:
             # TODO: introduce 'mesh._product_meshes'
             # What if the 'R' dimension is on the base mesh?
@@ -1260,7 +1246,6 @@ class FunctionSpace(AbstractFunctionSpace):
 
         mesh_axis = base_mesh.flat_points
         num_points = mesh_axis.local_size
-        plex = base_mesh.topology_dm
 
         constraints = [AxisConstraint(mesh_axis)]
 
@@ -1566,7 +1551,6 @@ class FunctionSpace(AbstractFunctionSpace):
     def _base_mesh_section(self):
         """Return a PETSc section for this function space as seen by the base mesh."""
         assert isinstance(self.mesh(), ExtrudedMeshTopology)
-        extr_dm = self.mesh().topology_dm
         base_mesh = self.mesh()._base_mesh
         base_dm = self.mesh()._base_mesh.topology_dm
 
@@ -2485,7 +2469,6 @@ class RealFunctionSpace(FunctionSpace):
             fake_axes, unindexed=unindexed, targets=targets,
         )
 
-
     # used?
     global_numbering = None
 
@@ -2503,6 +2486,7 @@ class RealFunctionSpace(FunctionSpace):
 
     def __hash__(self):
         return hash((self.mesh(), self.ufl_element()))
+
 
 class InvalidFunctionSpaceLayoutException(Exception):
     pass
@@ -2625,7 +2609,6 @@ def _axis_nest_from_constraints(axis_constraints: Sequence[AxisConstraint], visi
     return idict(axis_nest) if axis_nest else axis
 
 
-
 def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequence[AxisConstraint]]) -> tuple[AxisConstraint]:
     # start by collecting like axes
     axis_info: defaultdict[op3.Axis, dict[op3.ComponentLabelT, idict]] = defaultdict(dict)
@@ -2699,43 +2682,6 @@ def _(index: int, shape: tuple[int, ...]) -> tuple[int, ...]:
             FutureWarning,
         )
     return list(numpy.ndindex(shape))[index]
-
-
-def entity_dofs_key(entity_dofs):
-    """Provide a canonical key for an entity_dofs dict.
-
-    :arg entity_dofs: The FInAT entity_dofs.
-    :returns: A tuple of canonicalised entity_dofs (suitable for
-        caching).
-    """
-    key = []
-    for k in sorted(entity_dofs.keys()):
-        sub_key = [k]
-        for sk in sorted(entity_dofs[k]):
-            sub_key.append(tuple(entity_dofs[k][sk]))
-        key.append(tuple(sub_key))
-    key = tuple(key)
-    return key
-
-
-def entity_permutations_key(entity_permutations):
-    """Provide a canonical key for an entity_permutations dict.
-
-    :arg entity_permutations: The FInAT entity_permutations.
-    :returns: A tuple of canonicalised entity_permutations (suitable for
-        caching).
-    """
-    key = []
-    for k in sorted(entity_permutations.keys()):
-        sub_key = [k]
-        for sk in sorted(entity_permutations[k]):
-            subsub_key = [sk]
-            for ssk in sorted(entity_permutations[k][sk]):
-                subsub_key.append((ssk, tuple(entity_permutations[k][sk][ssk])))
-            sub_key.append(tuple(subsub_key))
-        key.append(tuple(sub_key))
-    key = tuple(key)
-    return key
 
 
 @functools.singledispatch

@@ -1,4 +1,3 @@
-import textwrap
 from functools import partial
 
 from firedrake.dmhooks import (attach_hooks, get_appctx, push_appctx, pop_appctx,

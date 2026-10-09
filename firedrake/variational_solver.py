@@ -6,6 +6,7 @@ from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
 
+import pyop3 as op3
 from pyop3.cache import with_heavy_caches
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
@@ -158,7 +159,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         # is a very heavy-handed way to fix that
         try:
             return op3.collections.OrderedFrozenSet([d.topology for d in extract_domains(self.F)])
-        except:
+        except:  # noqa: E722
             return ()
 
     def rediscretise(self,

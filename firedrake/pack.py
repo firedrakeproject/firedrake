@@ -1,13 +1,11 @@
 import collections
 import contextlib
 import functools
-import itertools
 from typing import Any
 
 import numpy as np
 import pyop3 as op3
 import finat
-import ufl
 from immutabledict import immutabledict as idict
 
 import firedrake.constant
@@ -235,9 +233,6 @@ def transform_packed_cell_closure_mat(
     row_depth: int = 0,
     column_depth: int = 0,
 ) -> op3.Mat:
-    row_element = row_space.finat_element
-    column_element = column_space.finat_element
-
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     packed_mat = _orient_mat_dofs(
         packed_mat,
@@ -320,7 +315,7 @@ def _orient_mat_dofs(packed_mat: op3.Mat, row_space: WithGeometry, column_space:
         if column_space.mesh().dimension > 0:  # i.e. not a VoM
             permuted_column_axes = _orient_axis_tree(packed_mat.column_axes, column_space, column_cell_index, depth=column_depth)
         else:
-            permuted_column_axes  = packed_mat.column_axes
+            permuted_column_axes = packed_mat.column_axes
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
@@ -441,7 +436,6 @@ def _prepare_entity_permutations(element, dim_label):
         new_perms.append(new_perm)
 
     return new_perms
-
 
 
 @op3.cache.serial_cache()

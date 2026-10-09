@@ -1,34 +1,26 @@
 import enum
 import functools
 import numbers
-import operator
 import types
 import warnings
 from functools import cached_property
-from typing import Any, Literal, Callable
+from typing import Any, Callable
 
 import numpy as np
-from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 from pyadjoint.tape import annotate_tape
-import finat.ufl
-import numpy as np
 import pyop3 as op3
-import pytools
 import ufl.classes
-from pyadjoint.tape import annotate_tape
-from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.dag_traverser import DAGTraverser
 
 import firedrake.ufl_expr
-from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
 from firedrake.function import Function
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, ScalarType, split_by
+from firedrake.utils import IntType
 
 
 class AssignExprBuilder(DAGTraverser):

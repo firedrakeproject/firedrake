@@ -7,9 +7,7 @@ import math
 from scipy.special import factorial
 import petsctools
 from loopy import generate_code_v2
-import loopy as lp
 import pyop3 as op3
-import tsfc
 import firedrake
 from firedrake.mesh import extract_mesh_topologies
 from firedrake.pack import pack
@@ -292,15 +290,10 @@ class PetscNoiseBackend(NoiseBackendBase):
     def interpolator(self):
         return firedrake.get_interpolator(firedrake.interpolate(TestFunction(self.function_space), self.Cz))
 
-        v, = self.arguments()
-        interp = interpolate(v, expression, **kwargs)
-        return assemble(interp, tensor=self, ad_block_tag=ad_block_tag)
-
     @_with_mesh_heavy_cache
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
-        V = self.function_space
         rng = rng or self.rng
 
         # z

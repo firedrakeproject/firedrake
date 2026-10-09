@@ -8,7 +8,6 @@ from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.bcs import restricted_function_space
 import firedrake.dmhooks as dmhooks
-import firedrake.mesh
 import numpy
 
 

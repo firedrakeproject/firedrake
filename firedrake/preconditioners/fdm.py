@@ -6,18 +6,16 @@ from itertools import chain, product
 from firedrake.petsc import PETSc
 from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
-from firedrake.formmanipulation import ExtractSubBlock
-from firedrake.functionspace import FunctionSpace, MixedFunctionSpace
+from firedrake.functionspace import FunctionSpace
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.cython.dmcommon import get_preallocation
 from firedrake.parloops import par_loop, READ, WRITE
-from firedrake.ufl_expr import TestFunction, TrialFunction, TestFunctions, TrialFunctions
+from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.utils import IntType, ScalarType
 from firedrake.pack import pack
 from firedrake.interpolation import interpolate
 from ufl.algorithms.ad import expand_derivatives
-from ufl.algorithms.expand_indices import expand_indices
 from finat.element_factory import create_element
 import pyop3 as op3
 from pyop3.cc import load
@@ -26,6 +24,8 @@ from pyop3.pyop2_utils import as_tuple
 from pyop3.cache import serial_cache
 from tsfc.ufl_utils import extract_firedrake_constants
 from firedrake.tsfc_interface import compile_form
+
+from mpi4py import MPI
 
 import firedrake.dmhooks as dmhooks
 import petsctools
@@ -378,55 +378,55 @@ class FDMPC(PCBase):
             ``[[inv(A00), A01], [A10, inv(S)]]``.
         """
         raise NotImplementedError
-        Smats = {}
-        V = J.arguments()[0].function_space()
-        V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
-        V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
-        if V0 is None:
-            V0 = V.reconstruct(element=restrict_element(self.embedding_element, "interior"))
-        if V1 is None:
-            V1 = V.reconstruct(element=restrict_element(self.embedding_element, "facet"))
-        if len(V) == 1:
-            J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
-        elif len(V) == 2:
-            J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
-            ises = V.field_ises
-            Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
-            Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
-            unindexed = {Vsub: Vsub.collapse() for Vsub in V}
-            bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
-        else:
-            raise ValueError("Expecting at most 2 components")
-
-        Pmats = dict(Smats)
-        C0 = self.assemble_reference_tensor(V0)
-        R0 = self.assemble_reference_tensor(V0, transpose=True)
-
-        A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
-        K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
-        K1 = ImplicitSchurComplementKernel(K0)
-        kernels = {V0: K0, V1: K1}
-        comm = self.comm
-        args = [self.coefficients["cell"], V0.mesh().coordinates, *J00.coefficients(), *extract_firedrake_constants(J00)]
-        args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
-        for Vsub in V:
-            K = kernels[Vsub]
-            x = Function(Vsub)
-            y = Function(Vsub)
-            sizes = (Vsub.template_vec.getSizes(),) * 2
-            raise NotImplementedError
-            parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
-                                  op3.OpaqueTerminal(op3.PetscMatBuffer(K.result, comm=V.comm)),
-                                  *args_acc,
-                                  x.dat(op2.READ, x.cell_node_map()),
-                                  y.dat(op2.INC, y.cell_node_map()))
-            ctx = PythonMatrixContext(parloop, x, y, bcs=bcs)
-            Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
-            if Vsub == V0:
-                Pmats[Vsub, Vsub] = Smats[Vsub, Vsub]
-                Smats[Vsub, Vsub] = A.createSubMatrix(ises[Vsub.index], ises[Vsub.index])
-        Smat = Smats[V, V] if len(V) == 1 else PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
-        return Smat, Pmats
+        # Smats = {}
+        # V = J.arguments()[0].function_space()
+        # V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
+        # V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
+        # if V0 is None:
+        #     V0 = V.reconstruct(element=restrict_element(self.embedding_element, "interior"))
+        # if V1 is None:
+        #     V1 = V.reconstruct(element=restrict_element(self.embedding_element, "facet"))
+        # if len(V) == 1:
+        #     J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
+        # elif len(V) == 2:
+        #     J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
+        #     ises = V.field_ises
+        #     Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
+        #     Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
+        #     unindexed = {Vsub: Vsub.collapse() for Vsub in V}
+        #     bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
+        # else:
+        #     raise ValueError("Expecting at most 2 components")
+        #
+        # Pmats = dict(Smats)
+        # C0 = self.assemble_reference_tensor(V0)
+        # R0 = self.assemble_reference_tensor(V0, transpose=True)
+        #
+        # A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
+        # K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
+        # K1 = ImplicitSchurComplementKernel(K0)
+        # kernels = {V0: K0, V1: K1}
+        # comm = self.comm
+        # args = [self.coefficients["cell"], V0.mesh().coordinates, *J00.coefficients(), *extract_firedrake_constants(J00)]
+        # args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
+        # for Vsub in V:
+        #     K = kernels[Vsub]
+        #     x = Function(Vsub)
+        #     y = Function(Vsub)
+        #     sizes = (Vsub.template_vec.getSizes(),) * 2
+        #     raise NotImplementedError
+        #     parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
+        #                           op3.OpaqueTerminal(op3.PetscMatBuffer(K.result, comm=V.comm)),
+        #                           *args_acc,
+        #                           x.dat(op2.READ, x.cell_node_map()),
+        #                           y.dat(op2.INC, y.cell_node_map()))
+        #     ctx = PythonMatrixContext(parloop, x, y, bcs=bcs)
+        #     Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
+        #     if Vsub == V0:
+        #         Pmats[Vsub, Vsub] = Smats[Vsub, Vsub]
+        #         Smats[Vsub, Vsub] = A.createSubMatrix(ises[Vsub.index], ises[Vsub.index])
+        # Smat = Smats[V, V] if len(V) == 1 else PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
+        # return Smat, Pmats
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=False):
@@ -441,96 +441,97 @@ class FDMPC(PCBase):
 
         :returns: a 2-tuple of a dict of coefficients and a list of assembly callables.
         """
-        assembly_callables = []
-        # Basic idea: take the original bilinear form and
-        # replace the exterior derivatives with arguments in broken(V^{k+1}).
-        # Then, replace the original arguments with arguments in broken(V^k).
-        # Where the broken spaces have L2-orthogonal FDM basis functions.
-        index = len(J.arguments()[0].function_space())-1
-        if index:
-            splitter = ExtractSubBlock()
-            J = splitter.split(J, argument_indices=(index, index))
-        args_J = J.arguments()
-        e = args_J[0].ufl_element()
-        mesh = args_J[0].function_space().mesh()
-        tdim = mesh.topological_dimension
-        if isinstance(e, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
-            e = e._sub_element
-        e = unrestrict_element(e)
-        sobolev = e.sobolev_space
-
-        # Replacement rule for the exterior derivative = grad(arg) * eps
-        map_grad = None
-        if sobolev == ufl.H1:
-            map_grad = lambda p: p
-        elif sobolev in [ufl.HCurl, ufl.HDiv]:
-            u = ufl.Coefficient(ufl.FunctionSpace(mesh, e))
-            du = ufl.variable(ufl.grad(u))
-            dku = ufl.div(u) if sobolev == ufl.HDiv else ufl.curl(u)
-            eps = expand_derivatives(ufl.diff(ufl.replace(expand_derivatives(dku), {ufl.grad(u): du}), du))
-            if sobolev == ufl.HDiv:
-                map_grad = lambda p: ufl.conj(ufl.outer(p, eps/tdim))
-            elif len(eps.ufl_shape) == 3:
-                map_grad = lambda p: ufl.dot(p, eps/2)
-            else:
-                map_grad = lambda p: p*(eps/2)
-
-        # Construct Z = broken(V^k) * broken(V^{k+1})
-        V = args_J[0].function_space()
-        fe = V.finat_element
-        formdegree = fe.formdegree
-        degree, = set(as_tuple(fe.degree))
-        qdeg = degree
-        if formdegree == tdim:
-            qfam = "DG" if tdim == 1 else "DQ"
-            qdeg = 0
-        elif formdegree == 0:
-            qfam = "DG" if tdim == 1 else "RTCE" if tdim == 2 else "NCE"
-        elif formdegree == 1 and tdim == 3:
-            qfam = "NCF"
-        else:
-            qfam = "DQ L2"
-            qdeg = degree - 1
-
-        qvariant = "fdm_quadrature"
-        elements = [e.reconstruct(variant=qvariant),
-                    finat.ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
-        elements = list(map(finat.ufl.BrokenElement, elements))
-        if V.shape:
-            elements = [finat.ufl.TensorElement(ele, shape=V.shape) for ele in elements]
-        Z = FunctionSpace(mesh, finat.ufl.MixedElement(elements))
-
-        # Transform the exterior derivative and the original arguments of J to arguments in Z
-        args = (TestFunctions(Z), TrialFunctions(Z))
-        repargs = {t: v[0] for t, v in zip(args_J, args)}
-        repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else {}
-        Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
-        mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
-
-        # Return coefficients and assembly callables
-        if block_diagonal and V.shape:
-            from firedrake.assemble import assemble
-            bdiags = []
-            M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
-            for iset in Z.field_ises:
-                sub = M.petscmat.createSubMatrix(iset, iset)
-                ctx = sub.getPythonContext()
-                bdiags.append(ctx._block_diagonal)
-                assembly_callables.append(ctx._assemble_block_diagonal)
-            W = MixedFunctionSpace([c.function_space() for c in bdiags])
-            tensor = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
-        else:
-            from firedrake.assemble import get_assembler
-            tensor = Function(Z.dual())
-            assembly_callables.append(partial(get_assembler(mixed_form, form_compiler_parameters=fcp, diagonal=True).assemble, tensor=tensor))
-        coefficients = {"cell": tensor}
-        facet_integrals = [i for i in J.integrals() if "facet" in i.integral_type()]
-        J_facet = expand_indices(expand_derivatives(ufl.Form(facet_integrals)))
-        if len(J_facet.integrals()) > 0:
-            from firedrake.assemble import get_assembler
-            gamma = coefficients.setdefault("facet", Function(V.dual()))
-            assembly_callables.append(partial(get_assembler(J_facet, form_compiler_parameters=fcp, tensor=gamma, diagonal=True).assemble, tensor=gamma))
-        return coefficients, assembly_callables
+        raise NotImplementedError
+        # assembly_callables = []
+        # # Basic idea: take the original bilinear form and
+        # # replace the exterior derivatives with arguments in broken(V^{k+1}).
+        # # Then, replace the original arguments with arguments in broken(V^k).
+        # # Where the broken spaces have L2-orthogonal FDM basis functions.
+        # index = len(J.arguments()[0].function_space())-1
+        # if index:
+        #     splitter = ExtractSubBlock()
+        #     J = splitter.split(J, argument_indices=(index, index))
+        # args_J = J.arguments()
+        # e = args_J[0].ufl_element()
+        # mesh = args_J[0].function_space().mesh()
+        # tdim = mesh.topological_dimension
+        # if isinstance(e, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+        #     e = e._sub_element
+        # e = unrestrict_element(e)
+        # sobolev = e.sobolev_space
+        #
+        # # Replacement rule for the exterior derivative = grad(arg) * eps
+        # map_grad = None
+        # if sobolev == ufl.H1:
+        #     map_grad = lambda p: p
+        # elif sobolev in [ufl.HCurl, ufl.HDiv]:
+        #     u = ufl.Coefficient(ufl.FunctionSpace(mesh, e))
+        #     du = ufl.variable(ufl.grad(u))
+        #     dku = ufl.div(u) if sobolev == ufl.HDiv else ufl.curl(u)
+        #     eps = expand_derivatives(ufl.diff(ufl.replace(expand_derivatives(dku), {ufl.grad(u): du}), du))
+        #     if sobolev == ufl.HDiv:
+        #         map_grad = lambda p: ufl.conj(ufl.outer(p, eps/tdim))
+        #     elif len(eps.ufl_shape) == 3:
+        #         map_grad = lambda p: ufl.dot(p, eps/2)
+        #     else:
+        #         map_grad = lambda p: p*(eps/2)
+        #
+        # # Construct Z = broken(V^k) * broken(V^{k+1})
+        # V = args_J[0].function_space()
+        # fe = V.finat_element
+        # formdegree = fe.formdegree
+        # degree, = set(as_tuple(fe.degree))
+        # qdeg = degree
+        # if formdegree == tdim:
+        #     qfam = "DG" if tdim == 1 else "DQ"
+        #     qdeg = 0
+        # elif formdegree == 0:
+        #     qfam = "DG" if tdim == 1 else "RTCE" if tdim == 2 else "NCE"
+        # elif formdegree == 1 and tdim == 3:
+        #     qfam = "NCF"
+        # else:
+        #     qfam = "DQ L2"
+        #     qdeg = degree - 1
+        #
+        # qvariant = "fdm_quadrature"
+        # elements = [e.reconstruct(variant=qvariant),
+        #             finat.ufl.FiniteElement(qfam, cell=mesh.ufl_cell(), degree=qdeg, variant=qvariant)]
+        # elements = list(map(finat.ufl.BrokenElement, elements))
+        # if V.shape:
+        #     elements = [finat.ufl.TensorElement(ele, shape=V.shape) for ele in elements]
+        # Z = FunctionSpace(mesh, finat.ufl.MixedElement(elements))
+        #
+        # # Transform the exterior derivative and the original arguments of J to arguments in Z
+        # args = (TestFunctions(Z), TrialFunctions(Z))
+        # repargs = {t: v[0] for t, v in zip(args_J, args)}
+        # repgrad = {ufl.grad(t): map_grad(v[1]) for t, v in zip(args_J, args)} if map_grad else {}
+        # Jcell = expand_indices(expand_derivatives(ufl.Form(J.integrals_by_type("cell"))))
+        # mixed_form = ufl.replace(ufl.replace(Jcell, repgrad), repargs)
+        #
+        # # Return coefficients and assembly callables
+        # if block_diagonal and V.shape:
+        #     from firedrake.assemble import assemble
+        #     bdiags = []
+        #     M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
+        #     for iset in Z.field_ises:
+        #         sub = M.petscmat.createSubMatrix(iset, iset)
+        #         ctx = sub.getPythonContext()
+        #         bdiags.append(ctx._block_diagonal)
+        #         assembly_callables.append(ctx._assemble_block_diagonal)
+        #     W = MixedFunctionSpace([c.function_space() for c in bdiags])
+        #     tensor = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
+        # else:
+        #     from firedrake.assemble import get_assembler
+        #     tensor = Function(Z.dual())
+        #     assembly_callables.append(partial(get_assembler(mixed_form, form_compiler_parameters=fcp, diagonal=True).assemble, tensor=tensor))
+        # coefficients = {"cell": tensor}
+        # facet_integrals = [i for i in J.integrals() if "facet" in i.integral_type()]
+        # J_facet = expand_indices(expand_derivatives(ufl.Form(facet_integrals)))
+        # if len(J_facet.integrals()) > 0:
+        #     from firedrake.assemble import get_assembler
+        #     gamma = coefficients.setdefault("facet", Function(V.dual()))
+        #     assembly_callables.append(partial(get_assembler(J_facet, form_compiler_parameters=fcp, tensor=gamma, diagonal=True).assemble, tensor=gamma))
+        # return coefficients, assembly_callables
 
     @PETSc.Log.EventDecorator("FDMRefTensor")
     def assemble_reference_tensor(self, V, transpose=False, sort_interior=False):
@@ -2539,9 +2540,9 @@ def extrude_node_map(node_map, bsize=1):
 
 
 def cache_generate_code(kernel, comm):
-    _cachedir = os.environ.get('PYOP2_CACHE_DIR',
+    _cachedir = os.environ.get('PYOP3_CACHE_DIR',
                                os.path.join(tempfile.gettempdir(),
-                                            'pyop2-cache-uid%d' % os.getuid()))
+                                            f'pyop3-cache-uid{os.getuid()}'))
 
     key = kernel.cache_key[0]
     shard, disk_key = key[:2], key[2:]

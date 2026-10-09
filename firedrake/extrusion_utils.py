@@ -1,11 +1,9 @@
-import collections
-import itertools
 import numpy
 import islpy as isl
 
 import finat
 import pyop3 as op3
-from pyop3.cache import serial_cache, with_heavy_caches
+from pyop3.cache import with_heavy_caches
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType, RealType, ScalarType
 from finat.element_factory import create_element
@@ -73,13 +71,13 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     if kernel is not None:
         raise NotImplementedError
-        op2.ParLoop(kernel,
-                    ext_coords.cell_set,
-                    ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-                    base_coords.dat(op2.READ, base_coords.cell_node_map()),
-                    layer_height(op2.READ),
-                    pass_layer_arg=True).compute()
-        return
+        # op2.ParLoop(kernel,
+        #             ext_coords.cell_set,
+        #             ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+        #             base_coords.dat(op2.READ, base_coords.cell_node_map()),
+        #             layer_height(op2.READ),
+        #             pass_layer_arg=True).compute()
+        # return
     ext_fe = create_element(ext_coords.ufl_element())
     ext_shape = ext_fe.index_shape
     base_fe = create_element(base_coords.ufl_element())
@@ -223,7 +221,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         raise NotImplementedError(f"Unsupported extrusion type '{extrusion_type}'")
 
     ast = lp.make_kernel(domains, instructions, data, name=name, target=target,
-                           seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
+                         seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
     kernel = op3.Function(ast, [op3.WRITE, op3.READ, op3.READ, op3.READ])
 
     extr_mesh = ext_coords.function_space().mesh()
@@ -237,7 +235,6 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     for base_cell, extr_cell in numpy.ndindex(my_layer_data.shape):
         my_layer_data[base_cell, extr_cell] = extr_cell
     my_layer_dat = op3.Dat(extr_mesh.cells.owned.materialize(), data=my_layer_data.flatten())
-
 
     op3.loop(
         p := loop_index,

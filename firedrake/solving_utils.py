@@ -2,7 +2,6 @@ import typing
 from itertools import chain
 
 import numpy
-import pyop3 as op3
 
 from firedrake import dmhooks, parameters
 from firedrake.function import Function

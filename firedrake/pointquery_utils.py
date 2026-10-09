@@ -5,11 +5,9 @@ import sympy
 from sympy.printing.c import ccode
 import loopy as lp
 
-import pyop3 as op3
-
 from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, RealType, IntType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, IntType_c
 
 import ufl
 import finat.ufl

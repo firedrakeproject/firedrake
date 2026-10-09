@@ -1,44 +1,41 @@
 from __future__ import annotations
 
 import dataclasses
-import functools
 import itertools
 import numpy as np
-import collections
 import ctypes
 from contextlib import contextmanager
 import os
 import sys
-from pyop3.cache import cached_on, serial_cache
+from pyop3.cache import cached_on
 import ufl
 import finat.ufl
 import FIAT
 import weakref
-from typing import Hashable, Literal, NoReturn, Tuple
 from collections import OrderedDict, defaultdict
-from collections.abc import Sequence, Generator
+from collections.abc import Sequence, Generator, Callable
 from ufl.classes import ReferenceGrad
 from ufl.cell import CellSequence
 from ufl.domain import extract_unique_domain, extract_domains
 import enum
 import numbers
-from functools import cache, cached_property
+from functools import cached_property
 import abc
 from immutabledict import immutabledict as idict
-from typing import Any, Iterable, Mapping, Optional
 import firedrake_rtree
 from textwrap import dedent
 from pathlib import Path
 import typing
 import warnings
+from typing import Any, Iterable
+from typing import Literal, Tuple
 
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
 )
-from pyop3.cache import memory_cache, with_self_heavy_cache, cached_method
-from pyop3.pyop2_utils import as_tuple, tuplify
+from pyop3.cache import with_self_heavy_cache, cached_method
 import pyop3 as op3
-from pyop3.utils import pairwise, steps, debug_assert, just_one, single_valued, readonly
+from pyop3.utils import readonly
 from finat.element_factory import as_fiat_cell
 import petsctools
 from petsctools import OptionsManager, get_external_packages
@@ -63,7 +60,6 @@ except ImportError:
     ngsPETSc = None
 # Only for docstring
 import mpi4py  # noqa: F401
-from finat.element_factory import as_fiat_cell
 
 
 if typing.TYPE_CHECKING:
@@ -471,7 +467,6 @@ class AbstractMeshTopology(abc.ABC):
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
                     if reorder:
                         swarm = self.topology_dm
-                        parent = self._parent_mesh.topology_dm
                         cell_id_name = swarm.getCellDMActive().getCellID()
                         swarm_parent_cell_nums = swarm.getField(cell_id_name).flatten()
                         old_to_new_parent_cell_indices = \
@@ -585,7 +580,6 @@ class AbstractMeshTopology(abc.ABC):
 
         point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_renumbering)
         point_sf_renum = op3.StarForest(point_sf_renum, self.comm)
-
 
         # TODO: Allow the label here to be None
         return op3.Axis(
@@ -1048,7 +1042,6 @@ class AbstractMeshTopology(abc.ABC):
     def _new_to_old_exterior_facet_numbering(self) -> np.ndarray[IntType]:
         return self._new_to_old_exterior_facet_numbering_is.indices
 
-
     # }}}
 
     # {{{ facet helper attrs
@@ -1259,7 +1252,7 @@ class AbstractMeshTopology(abc.ABC):
                 iterset = self.cells
                 dmlabel_name = dmcommon.CELL_SETS_LABEL
                 plex_indices_is = self._entity_indices_is("plex", "cell")
-                old_to_new_entity_numbering  = self._plex_to_entity_numbering_sec("cell")
+                old_to_new_entity_numbering = self._plex_to_entity_numbering_sec("cell")
             case "exterior_facet":
                 iterset = self.exterior_facets
                 dmlabel_name = dmcommon.FACE_SETS_LABEL
@@ -1505,7 +1498,7 @@ class AbstractMeshTopology(abc.ABC):
                 owned_map_components.append(owned_map_component)
 
             full_from_path = idict({iterset.as_axis().label: iterset.as_axis().component.label})
-            owned_from_path  = idict({iterset.owned.as_axis().label: iterset.owned.as_axis().component.label})
+            owned_from_path = idict({iterset.owned.as_axis().label: iterset.owned.as_axis().component.label})
 
             closures[full_from_path] = [full_map_components]
             closures[owned_from_path] = [owned_map_components]
@@ -2033,7 +2026,7 @@ class AbstractMeshTopology(abc.ABC):
             if vert_unit_periodic:
                 closure_tmp = np.empty(closure_size, dtype=IntType)
 
-                def closure_func(_pt):
+                def closure_func(_pt):  # noqa: F811
                     closure = self.topology_dm.getTransitiveClosure(_pt)[0]
                     closure_tmp[0] = closure[0]
                     closure_tmp[1] = closure[1]
@@ -2048,7 +2041,7 @@ class AbstractMeshTopology(abc.ABC):
             elif horiz_unit_periodic:
                 closure_tmp = np.empty(closure_size, dtype=IntType)
 
-                def closure_func(_pt):
+                def closure_func(_pt):  # noqa: F811
                     closure = self.topology_dm.getTransitiveClosure(_pt)[0]
                     closure_tmp[0] = closure[0]
                     closure_tmp[1] = closure[1]
@@ -2703,7 +2696,7 @@ class MeshTopology(AbstractMeshTopology):
             )
             with temp_internal_comm(self.comm) as icomm:
                 includes_exterior_facets = icomm.allreduce(
-                    target_exterior_facets.size>0, MPI.LOR
+                    target_exterior_facets.size > 0, MPI.LOR
                 )
 
             target_interior_facets = dmcommon.intersect_is(
@@ -2712,7 +2705,7 @@ class MeshTopology(AbstractMeshTopology):
             )
             with temp_internal_comm(self.comm) as icomm:
                 includes_interior_facets = icomm.allreduce(
-                    target_interior_facets.size>0, MPI.LOR
+                    target_interior_facets.size > 0, MPI.LOR
                 )
 
             if includes_exterior_facets and includes_interior_facets:
@@ -2999,37 +2992,10 @@ class ExtrudedMeshTopology(MeshTopology):
         (To see this recall that points are numbered cells then vertices then edges.)
 
         """
-        n_extr_cells = int(self.layers) - 1
-
         # we always have 2n+1 entities when we extrude
         base_indices = self._base_mesh._old_to_new_point_renumbering.indices
 
         indices = dmcommon.extrude_point_renumbering(self.topology_dm, self._base_mesh.topology_dm, base_indices, self.layers-1, self.periodic, self._extruded_to_base_point_map, self._extruded_to_offset_map)
-
-        # column_height = 2*n_extr_cells+1
-        # if self.periodic:
-        #     column_height -= 1
-        # indices = np.empty(base_indices.size * column_height, dtype=base_indices.dtype)
-        # for base_dim in range(self._base_mesh.topology_dm.getDimension()+1):
-        #     c_start, c_end = self.topology_dm.getDepthStratum(base_dim+1)
-        #     v_start, v_end = self.topology_dm.getDepthStratum(base_dim)
-        #     for base_pt in range(*self._base_mesh.topology_dm.getDepthStratum(base_dim)):
-        #         extruded_points = np.flatnonzero(base_point_label == base_pt)
-        #
-        #         ic = 0
-        #         iv = 0
-        #         for ep in extruded_points:
-        #             if c_start <= ep < c_end:
-        #                 indices[ep] = base_indices[base_pt] * column_height + (2*ic+1)
-        #                 ic += 1
-        #             else:
-        #                 assert v_start <= ep < v_end
-        #                 indices[ep] = base_indices[base_pt] * column_height + 2*iv
-        #                 iv += 1
-        # print(base_indices)
-        # print(indices)
-        # breakpoint()
-
         return PETSc.IS().createGeneral(indices, comm=MPI.COMM_SELF)
 
     @cached_method()
@@ -3520,50 +3486,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             },
         )
 
-    @cached_property  # TODO: Recalculate if mesh moves
-    def cell_parent_base_cell_list(self):
-        """Return a list of parent mesh base cells numbers in vertex only
-        mesh cell order.
-        """
-        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
-            raise AttributeError("Parent mesh is not extruded")
-        with self.topology_dm.field("parentcellbasenum") as parentcellbasenum_field:
-            cell_parent_base_cell_list = parentcellbasenum_field.ravel().copy()
-        return cell_parent_base_cell_list[self._new_to_old_cell_numbering]
-
-    @cached_property  # TODO: Recalculate if mesh moves
-    def cell_parent_base_cell_map(self):
-        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
-        parent mesh base cells.
-        """
-        raise NotImplementedError
-        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
-            raise AttributeError("Parent mesh is not extruded.")
-        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
-                       self.cell_parent_base_cell_list, "cell_parent_base_cell")
-
-    @cached_property  # TODO: Recalculate if mesh moves
-    def cell_parent_extrusion_height_list(self):
-        """Return a list of parent mesh extrusion heights in vertex only
-        mesh cell order.
-        """
-        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
-            raise AttributeError("Parent mesh is not extruded.")
-        with self.topology_dm.field("parentcellextrusionheight") as parentcellextrusionheight_field:
-            cell_parent_extrusion_height_list = parentcellextrusionheight_field.flatten()
-        return cell_parent_extrusion_height_list[self._new_to_old_cell_numbering]
-
-    @cached_property  # TODO: Recalculate if mesh moves
-    def cell_parent_extrusion_height_map(self):
-        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
-        parent mesh extrusion heights.
-        """
-        raise NotImplementedError
-        if not isinstance(self._parent_mesh, ExtrudedMeshTopology):
-            raise AttributeError("Parent mesh is not extruded.")
-        return op2.Map(self.cell_set, self._parent_mesh.cell_set, 1,
-                       self.cell_parent_extrusion_height_list, "cell_parent_extrusion_height")
-
     def mark_entities(self, tf, label_value, label_name=None):
         raise NotImplementedError("Currently not implemented for VertexOnlyMesh")
 
@@ -3832,7 +3754,6 @@ values from f.)"""
         Hence the bounding box will contain the entire element.
         """
         from firedrake import function, functionspace
-        from firedrake.parloops import par_loop, READ
 
         coord_element = self.ufl_coordinate_element()
         coord_degree = coord_element.degree()
@@ -6475,7 +6396,7 @@ def get_mesh_topologies(expr) -> frozenset[AbstractMeshTopology]:
     # is a very heavy-handed way to fix that
     try:
         return op3.collections.OrderedFrozenSet([d_.topology for d in extract_domains(expr) for d_ in d])
-    except:
+    except:  # noqa: E722
         return ()
 
 

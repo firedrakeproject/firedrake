@@ -6,12 +6,16 @@ from copy import deepcopy
 from types import MappingProxyType
 from typing import Any
 from warnings import warn
+import typing
 
 import petsctools
 from mpi4py import MPI
 from petsc4py import PETSc
 from pyop3 import mpi
-from firedrake import utils
+
+
+if typing.TYPE_CHECKING:
+    from firedrake.functionspaceimpl import WithGeometry
 
 
 __all__ = ("PETSc",)

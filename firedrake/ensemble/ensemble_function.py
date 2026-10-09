@@ -1,8 +1,6 @@
 from functools import cached_property
 from contextlib import contextmanager
 
-import pyop3 as op3
-
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)

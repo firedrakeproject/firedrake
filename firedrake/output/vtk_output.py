@@ -9,7 +9,6 @@ from itertools import chain
 from pyop3.mpi import COMM_WORLD, temp_internal_comm
 from pyop3.pyop2_utils import as_tuple
 from pyadjoint import no_annotations
-from firedrake.mesh import ExtrudedMeshTopology
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 from .paraview_reordering import *

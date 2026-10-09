@@ -10,17 +10,14 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from ufl import H1, H2, inner, dx, JacobianDeterminant
+from ufl import H1, H2, inner, dx, JacobianDeterminant, replace, Form, div
+from finat.ufl import BrokenElement, TensorElement, VectorElement
 from pyop3.pyop2_utils import as_tuple
-import gem
 
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
-from ufl import Form, H1, H2, JacobianDeterminant, dx, inner, replace
-from finat.ufl import BrokenElement, TensorElement, VectorElement
 from pyop3.mpi import COMM_SELF
-from pyop3.pyop2_utils import as_tuple
 import numpy
 
 __all__ = ("BDDCPC",)

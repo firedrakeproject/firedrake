@@ -1,6 +1,4 @@
 """The parameters dictionary contains global parameter settings."""
-import dataclasses
-
 from pyop3.compile import LOOPY_TARGET
 from tsfc import default_parameters
 import sys

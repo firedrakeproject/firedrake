@@ -1,4 +1,3 @@
-import textwrap
 import numpy
 import string
 from collections import defaultdict
@@ -350,9 +349,7 @@ def prolong_matrix_kernel(Vc, Vf):
                         B[i*%(source_cell_inc)d + j];
                 }
             }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
                "ncandidate": ncandidate,
                "row_dim": row_dim,
                "source_cell_inc": source_cell_inc,

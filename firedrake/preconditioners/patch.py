@@ -7,6 +7,9 @@ import functools
 import numbers
 import textwrap
 import typing
+from collections.abc import Hashable
+from typing import Any
+
 from firedrake.preconditioners.base import PCBase, SNESBase, PCSNESBase
 from firedrake.preconditioners.asm import validate_overlap
 from firedrake.petsc import PETSc
@@ -14,12 +17,11 @@ import firedrake.cython.patchimpl
 from firedrake.solving_utils import _SNESContext
 from firedrake.utils import complex_mode
 from firedrake.dmhooks import get_appctx, push_appctx, pop_appctx
-from firedrake.functionspaceimpl import is_mixed
+from firedrake.functionspaceimpl import WithGeometry
 from firedrake.interpolation import interpolate
 from firedrake.tsfc_interface import compile_form, KernelInfo
 from firedrake.ufl_expr import extract_domains
 from pyop3.dtypes import as_cstr
-from typing import Any
 
 import loopy as lp
 
@@ -28,7 +30,6 @@ import ufl
 import operator
 from functools import cached_property, partial
 import numpy
-from finat.ufl import VectorElement, MixedElement
 from tsfc.ufl_utils import extract_firedrake_constants
 import weakref
 import petsctools
@@ -74,7 +75,7 @@ class EntityNodeMap:
     dtype = PETSc.IntType
 
     @cached_property
-    def values(self) -> np.ndarray:
+    def values(self) -> numpy.ndarray:
         if self.space.index is not None:
             parent_space = self.space.parent
             selector = (slice(None), parent_space._labels[self.space.index])
@@ -166,7 +167,7 @@ class PatchCallable:
         return ctypes.addressof(self._ctypes_struct)
 
     def _set_up(self) -> tuple[
-        list[tuple[op3.Dat, tuple[Hashable, np.ndarray] | None] | op3.Scalar],
+        list[tuple[op3.Dat, tuple[Hashable, numpy.ndarray] | None] | op3.Scalar],
         dict[Hashable, str],
         int | None,
     ]:

@@ -155,9 +155,6 @@ each supermesh cell.
     preallocator = PETSc.Mat().create(comm=mesh_A.comm)
     preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
 
-    nrows = V_B.template_vec.getSizes()
-    ncols = V_A.template_vec.getSizes()
-
     sparsity = op3.Mat.sparsity(V_B.axes, V_A.axes)
     zeros = numpy.zeros(
         (

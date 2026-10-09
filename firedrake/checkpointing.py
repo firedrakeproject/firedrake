@@ -1460,7 +1460,6 @@ class CheckpointFile:
             V_name = self._get_mixed_function_name_mixed_function_space_name_map(mesh.name)[name]
             V = self._load_function_space(mesh, V_name)
             base_path = self._path_to_mixed_function(mesh.name, V_name, name)
-            fsub_list = []
             dat = V.make_dat()
             for i, Vsub in enumerate(V):
                 path = os.path.join(base_path, str(i))

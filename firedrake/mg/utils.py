@@ -109,7 +109,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         node_map = op3.Map(
             {
                 idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
-            }, 
+            },
         )
         return cache.setdefault(key, node_map)
 
@@ -155,16 +155,16 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         node_map = op3.Map(
             {
                 idict({src_axis.label: src_axis.component.label}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
-            }, 
+            },
         )
         return cache.setdefault(key, node_map)
 
 
-#NOTE: doesn't need spaces, just meshes
+# NOTE: doesn't need spaces, just meshes
 def coarse_cell_child_count(
     Vc: firedrake.functionspaceimpl.WithGeometry,
     Vf: firedrake.functionspaceimpl.WithGeometry,
-) -> op2.Dat:
+) -> op3.Dat:
     """Count the fine cells that each coarse cell was refined into.
 
     A row of `HierarchyBase.coarse_to_fine_cells` is as wide as the busiest
@@ -181,7 +181,7 @@ def coarse_cell_child_count(
 
     Returns
     -------
-    pyop2.types.dat.Dat
+    pyop3.Dat
         One count per cell of ``Vc``'s mesh, over that mesh's cell set. Halo
         cells are left at zero: a par_loop visits the core and owned parts
         only, so the kernel never reads them.

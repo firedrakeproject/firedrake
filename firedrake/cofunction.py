@@ -1,11 +1,9 @@
 from functools import cached_property
 import numpy as np
-import finat
 import ufl
 
 import pyop3 as op3
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
-from pyop3 import mpi
 from pyop3.cache import with_heavy_caches
 from ufl.form import BaseForm
 from finat.ufl import MixedElement
@@ -340,7 +338,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             self.dat += expr
             return self
         if isinstance(expr, Cofunction) and \
-            expr.function_space() == self.function_space():
+                expr.function_space() == self.function_space():
             self.dat.data_rw[...] += expr.dat.data_ro
             return self
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.

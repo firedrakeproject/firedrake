@@ -11,7 +11,6 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import extract_unique_domain
 
 import gem
-import ufl
 
 import tsfc
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -151,8 +150,6 @@ def compile_element(expression, coordinates, parameters=None):
     kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
     # Fill the code template
-    extruded = isinstance(cell, ufl.TensorProductCell)
-
     code = {
         "geometric_dimension": domain.geometric_dimension,
         "IntType": as_cstr(IntType),

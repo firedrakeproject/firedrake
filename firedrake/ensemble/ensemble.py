@@ -1,7 +1,6 @@
 from functools import wraps
 import weakref
 from contextlib import contextmanager
-from itertools import zip_longest
 from types import SimpleNamespace
 
 from firedrake.petsc import PETSc

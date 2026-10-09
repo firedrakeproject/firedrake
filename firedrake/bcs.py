@@ -2,10 +2,6 @@
 
 from functools import partial, reduce, cached_property
 import itertools
-from functools import cached_property
-
-import numpy as np
-from mpi4py import MPI
 
 import numpy as np
 from mpi4py import MPI
@@ -14,13 +10,14 @@ import ufl
 from ufl import as_ufl, as_tensor
 from finat.ufl import VectorElement
 import finat
+from immutabledict import immutabledict as idict
 
 import pyop3 as op3
 from pyop3.pyop2_utils import as_tuple
 from pyop3.mpi import temp_internal_comm
 
 import firedrake
-from firedrake import ufl_expr, slate, solving, utils
+from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
@@ -84,13 +81,6 @@ class BCBase:
         be applied.'''
 
         return self._function_space
-
-    @cached_property
-    def parent_function_space(self):
-        space = self._function_space
-        while space.parent is not None:
-            space = space.parent
-        return space
 
     def function_space_index(self):
         fs = self._function_space
@@ -171,20 +161,20 @@ class BCBase:
                     bcnodes = np.setdiff1d(bcnodes, deriv_ids)
             return bcnodes
 
-         # 'subdomain_id' has the form
-         #
-         #     (A, B, C)
-         #
-         # where each entry is either itself a tuple or a string. For instance
-         # 'A' may be
-         #
-         #     (1, 2, 3)
-         #
-         # or a special string like "on_boundary".
-         #
-         # The points constrained by the boundary condition is the *intersection
-         # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
-         # entries* (e.g. A ∪ B ∪ C).
+        # 'subdomain_id' has the form
+        #
+        #     (A, B, C)
+        #
+        # where each entry is either itself a tuple or a string. For instance
+        # 'A' may be
+        #
+        #     (1, 2, 3)
+        #
+        # or a special string like "on_boundary".
+        #
+        # The points constrained by the boundary condition is the *intersection
+        # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
+        # entries* (e.g. A ∪ B ∪ C).
         sub_d = (self.sub_domain,) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []

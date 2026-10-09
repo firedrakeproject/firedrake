@@ -113,7 +113,7 @@ from firedrake.parameters import (  # noqa: F401
 )
 from firedrake.pack import pack  # noqa: F401
 from firedrake.parloops import (  # noqa: F401
-    par_loop, direct, READ, WRITE, RW, INC, MIN, MAX
+    par_loop, direct, MIN, MAX
 )
 from firedrake.projection import (  # noqa: F401
     project, Projector

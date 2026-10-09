@@ -10,18 +10,15 @@ from ufl.formatting.ufl2unicode import ufl2unicode
 from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
 import ctypes
-from ctypes import POINTER, c_int, c_double, c_void_p, c_bool
+from ctypes import POINTER, c_int, c_double, c_void_p
 from collections.abc import Collection
 from numbers import Number
-from pathlib import Path
-from immutabledict import immutabledict as idict
-from functools import partial, cached_property
+from functools import partial
 from typing import Tuple
 from mpi4py import MPI
 
 import pyop3 as op3
 from pyop3.cache import with_heavy_caches
-from pyop3.mpi import internal_comm
 import petsctools
 
 from finat.ufl import MixedElement
@@ -31,7 +28,7 @@ from firedrake import functionspaceimpl
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.functionspaceimpl import MixedFunctionSpace, parse_component_indices, is_mixed
+from firedrake.functionspaceimpl import parse_component_indices, is_mixed
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh, extract_mesh_topologies
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.exceptions import PointNotInDomainError
@@ -554,7 +551,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         function_space = self.function_space()
         mesh = function_space.mesh()
         coordinates = mesh.coordinates
-        coordinates_space = coordinates.function_space()
 
         # Store data into ``C struct''
         c_function = _CFunction()
@@ -570,7 +566,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         if self.function_space().index:
             # component of a mixed space
             label = self.function_space().parent._labels[self.function_space().index]
-            map_dat =  self.function_space().parent.cell_dof_map_dat[:, label]
+            map_dat = self.function_space().parent.cell_dof_map_dat[:, label]
         else:
             map_dat = self.function_space().cell_dof_map_dat
         return map_dat.data_ro

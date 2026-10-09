@@ -7,7 +7,6 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.domain import as_domain
 import firedrake
-from firedrake import utils
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 from functools import cached_property

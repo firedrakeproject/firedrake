@@ -292,7 +292,7 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     if mesh.extruded:
         cell_dim, vert_facet_dim, horiz_facet_dim = (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
     else:
-        cell_dim, facet_dim = tdim, tdim-1
+        cell_dim = tdim
 
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
     cell_nodes = coordinates.function_space().cell_node_list
