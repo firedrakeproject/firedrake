@@ -21,8 +21,8 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
     surrounds this is declared in pointquery_utils.py. We cast when we use the
     ref_coords_copy function and trust that the underlying memory which the
     pointers refer to is updated as necessary. */
-    PetscReal ref_cell_dist_l1 = PETSC_MAX_REAL;
-    PetscReal current_ref_cell_dist_l1 =  -0.5;
+    PetscReal best_distance = PETSC_MAX_REAL;
+    PetscInt best_cell = -1;
     /* NOTE: `tolerance`, which is used throughout this function, is a static
        variable defined outside this function when putting together all the C
        code that needs to be compiled - see pointquery_utils.py */
@@ -47,33 +47,33 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
             continue;
         }
 
+        PetscReal distance;
         if (f->extruded) {
             PetscInt nlayers = f->n_layers;
             PetscInt c = candidate / nlayers;
             PetscInt l = candidate % nlayers;
-            current_ref_cell_dist_l1 = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
+            distance = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
         }
         else {
-            current_ref_cell_dist_l1 = (*try_candidate)(temp_ref_coords, f, candidate, x);
+            distance = (*try_candidate)(temp_ref_coords, f, candidate, x);
         }
-
-        if (current_ref_cell_dist_l1 <= 0.0) {
-            /* Found cell! */
-            *cell_out = candidate;
+        /* Select a cell by minimum L1 distance. */
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_cell = candidate;
             memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-            found_ref_cell_dist_l1[0] = current_ref_cell_dist_l1;
-            break;
-        }
-        else if (current_ref_cell_dist_l1 < ref_cell_dist_l1) {
-            /* getting closer... */
-            ref_cell_dist_l1 = current_ref_cell_dist_l1;
-            if (ref_cell_dist_l1 < tolerance) {
-                /* Close to cell within tolerance so could be this cell */
-                *cell_out = candidate;
-                memcpy(found_ref_coords, temp_ref_coords, sizeof(struct ReferenceCoords));
-                found_ref_cell_dist_l1[0] = ref_cell_dist_l1;
+            /* If distance == 0.0, the point is inside the cell, so we break early.
+            * NOTE: FIAT's `distance_to_point_l1` returns exactly 0.0 for points inside the cell,
+            * so exact floating point comparison is intentional here. */
+            if (distance == 0.0) {
+                break;
             }
         }
+    }
+
+    if (best_cell != -1 && (best_distance <= 0.0 || best_distance < tolerance)) {
+        *cell_out = best_cell;
+        *found_ref_cell_dist_l1 = best_distance;
     }
     return PETSC_SUCCESS;
 }

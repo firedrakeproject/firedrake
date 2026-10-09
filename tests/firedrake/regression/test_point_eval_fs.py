@@ -245,6 +245,14 @@ def test_changing_coordinates_invalidates_rtree():
     assert mesh.rtree != saved_rtree
 
 
+def test_changing_coordinates_invalidates_partition_rtree():
+    mesh = UnitSquareMesh(2, 2)
+
+    saved_rtree = mesh.partition_rtree
+    mesh.coordinates.assign(mesh.coordinates * 2)
+    assert mesh.partition_rtree != saved_rtree
+
+
 def test_changing_coordinates_invalidates_bounding_box():
     mesh = UnitSquareMesh(2, 2)
     assert mesh.bounding_box_coords is mesh.bounding_box_coords
