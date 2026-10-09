@@ -438,7 +438,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -463,10 +462,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         dm = self.snes.getDM()
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
-
-        # Used for custom grid transfer.
-        self._transfer_operators = ()
-        self._setup = False
 
     @property
     def _problem(self):
@@ -559,24 +554,26 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
+        work = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
                 for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
-                                 self._transfer_operators):
+                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
-                # The appctx might have been refined
+                # Adaptivity changes the DM, keep the _SNESContext up to date
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
         problem = self._ctx._problem
         solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             solution.copy(u)
-        self._setup = True
+        if self.snes.getDM() != solution_dm:
+            # The saved hooks belong to the DM before adaptation.
+            # The next solve needs to add new hooks on the new DM.
+            del self.setup_hooks
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
