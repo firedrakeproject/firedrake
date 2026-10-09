@@ -16,13 +16,6 @@ def annotate_assemble(assemble):
         ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
         with stop_annotating():
-            from firedrake.assemble import BaseFormAssembler
-            from firedrake.slate import slate
-            if not isinstance(form, slate.TensorBase):
-                # Expand derivatives before the AssembleBlock records the form
-                # used to derive tangent linear and adjoint models.
-                form = BaseFormAssembler.preprocess_base_form(form)
-                kwargs['is_base_form_preprocessed'] = True
             output = assemble(form, *args, **kwargs)
 
         from firedrake.function import Function
