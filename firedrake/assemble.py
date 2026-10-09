@@ -321,102 +321,6 @@ class AbstractFormAssembler(abc.ABC):
         """
 
 
-def replace_dual_slot_by_coargument(expr, dual):
-    """Give an operator a symbolic dual slot after its original slot is assembled.
-
-    Parameters
-    ----------
-    expr : ufl.core.base_form_operator.BaseFormOperator
-        The base form operator whose dual slot was assembled.
-    dual : firedrake.cofunction.Cofunction or firedrake.matrix.MatrixBase
-        The assembled value of the operator's dual slot.
-
-    Returns
-    -------
-    ufl.core.base_form_operator.BaseFormOperator
-        The operator with a new coargument in its dual slot. The coargument is numbered
-        after the operator's other arguments, so assembly produces a matrix that can be
-        contracted with ``dual``.
-    """
-    _, *slots = expr.argument_slots()
-    number = max(
-        (a.number() for slot in slots for a in ufl.algorithms.extract_arguments(slot)),
-        default=-1,
-    ) + 1
-    if isinstance(dual, MatrixBase):
-        dual_space = dual.arguments()[0].function_space().dual()
-    else:
-        dual_space = dual.function_space()
-    vhat = firedrake.Coargument(dual_space, number)
-    return expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(vhat, *slots))
-
-
-def contracted_arguments(lhs, rhs):
-    """Return the arguments of the contraction of ``lhs`` with ``rhs``."""
-    return lhs.arguments()[:-1] + rhs.arguments()[1:]
-
-
-def contract(a, lhs, rhs, tensor=None, bcs=(), options_prefix=None):
-    """Contract the last argument of ``lhs`` with the first argument of ``rhs``.
-
-    Parameters
-    ----------
-    a : ufl.BaseForm or tuple
-        The form whose assembled value is the contraction, e.g. ``Action(lhs, rhs)``,
-        or its arguments.
-    lhs : firedrake.function.Function or firedrake.cofunction.Cofunction or firedrake.matrix.MatrixBase
-        The assembled left operand.
-    rhs : firedrake.function.Function or firedrake.cofunction.Cofunction or firedrake.matrix.MatrixBase
-        The assembled right operand.
-    tensor : firedrake.function.Function or firedrake.cofunction.Cofunction or firedrake.matrix.MatrixBase
-        Output tensor.
-    bcs : Iterable[DirichletBC]
-        Boundary conditions of an output matrix.
-    options_prefix : str
-        PETSc options prefix of an output matrix.
-
-    Returns
-    -------
-    numbers.Number or firedrake.function.Function or firedrake.cofunction.Cofunction or firedrake.matrix.MatrixBase
-        The contraction.
-    """
-    if isinstance(lhs, MatrixBase):
-        if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
-            petsc_mat = lhs.petscmat
-            (row, col) = lhs.arguments()
-            # The matrix-vector product lives in the dual of the test space.
-            res = tensor if tensor else firedrake.Function(row.function_space().dual())
-            with rhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
-                petsc_mat.mult(v_vec, res_vec)
-            return res
-        elif isinstance(rhs, MatrixBase):
-            result = tensor.petscmat if tensor else PETSc.Mat()
-            lhs.petscmat.matMult(rhs.petscmat, result=result)
-            if tensor is None:
-                tensor = Matrix(a, result, bcs=bcs, options_prefix=options_prefix)
-            return tensor
-        else:
-            raise TypeError("Incompatible RHS for contraction.")
-    elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
-        if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
-            # Return scalar value
-            with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
-                res = x.dot(y)
-            return res
-        elif isinstance(rhs, MatrixBase):
-            # Compute action(Cofunc, Mat) => Mat^* @ Cofunc
-            petsc_mat = rhs.petscmat
-            (_, col) = rhs.arguments()
-            res = tensor if tensor else firedrake.Function(col.function_space().dual())
-            with lhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
-                petsc_mat.multHermitian(v_vec, res_vec)
-            return res
-        else:
-            raise TypeError("Incompatible RHS for contraction.")
-    else:
-        raise TypeError("Incompatible LHS for contraction.")
-
-
 class BaseFormAssembler(AbstractFormAssembler):
     """Base form assembler.
 
@@ -502,6 +406,45 @@ class BaseFormAssembler(AbstractFormAssembler):
         else:
             assert indices is None
             return tensor
+
+    @staticmethod
+    def contract(a, lhs, rhs, tensor=None, bcs=(), options_prefix=None):
+        """Contract the last argument of ``lhs`` with the first argument of ``rhs``."""
+        if isinstance(lhs, MatrixBase):
+            if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
+                petsc_mat = lhs.petscmat
+                (row, col) = lhs.arguments()
+                # The matrix-vector product lives in the dual of the test space.
+                res = tensor if tensor else firedrake.Function(row.function_space().dual())
+                with rhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                    petsc_mat.mult(v_vec, res_vec)
+                return res
+            elif isinstance(rhs, MatrixBase):
+                result = tensor.petscmat if tensor else PETSc.Mat()
+                lhs.petscmat.matMult(rhs.petscmat, result=result)
+                if tensor is None:
+                    tensor = Matrix(a, result, bcs=bcs, options_prefix=options_prefix)
+                return tensor
+            else:
+                raise TypeError("Incompatible RHS for contraction.")
+        elif isinstance(lhs, (firedrake.Cofunction, firedrake.Function)):
+            if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
+                # Return scalar value
+                with lhs.dat.vec_ro as x, rhs.dat.vec_ro as y:
+                    res = x.dot(y)
+                return res
+            elif isinstance(rhs, MatrixBase):
+                # Compute action(Cofunc, Mat) => Mat^* @ Cofunc
+                petsc_mat = rhs.petscmat
+                (_, col) = rhs.arguments()
+                res = tensor if tensor else firedrake.Function(col.function_space().dual())
+                with lhs.dat.vec_ro as v_vec, res.dat.vec as res_vec:
+                    petsc_mat.multHermitian(v_vec, res_vec)
+                return res
+            else:
+                raise TypeError("Incompatible RHS for contraction.")
+        else:
+            raise TypeError("Incompatible LHS for contraction.")
 
     def assemble(self, tensor=None, current_state=None):
         """Assemble the form.
@@ -595,7 +538,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if len(args) != 2:
                 raise TypeError("Not enough operands for Action")
             lhs, rhs = args
-            return contract(expr, lhs, rhs, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
+            return self.contract(expr, lhs, rhs, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
         elif isinstance(expr, ufl.FormSum):
             if len(args) != len(expr.weights()):
                 raise TypeError("Mismatching weights and operands in FormSum")
@@ -675,6 +618,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                     'mat_type': self._mat_type, 'sub_mat_type': self._sub_mat_type,
                     'appctx': self._appctx, 'options_prefix': self._options_prefix,
                     'diagonal': self._diagonal}
+            dual = None
             # External operators might not have any children that needs to be assembled
             # -> e.g. N(u; v0, w) with v0 a ufl.Argument and w a ufl.Coefficient
             if args:
@@ -684,16 +628,18 @@ class BaseFormAssembler(AbstractFormAssembler):
                     _, *children = BaseFormAssembler.base_form_operands(expr)
                     # Replace assembled children by their results
                     expr = ufl.replace(expr, dict(zip(children, assembled_children)))
+                if expr.assembly_method() is None and isinstance(v, firedrake.Cofunction):
+                    # Without an assembly method for its assembled dual slot, assemble the
+                    # operator with a coargument numbered last, and contract it with the dual slot.
+                    number = max((a.number() for a in expr.arguments()), default=-1) + 1
+                    dual, v = v, firedrake.Coargument(v.function_space(), number)
                 # Always reconstruct the dual argument (0-slot argument) since it is a BaseForm
                 # It is also convenient when we have a Form in that slot since Forms don't play well with `ufl.replace`
                 expr = expr._ufl_expr_reconstruct_(*expr.ufl_operands, argument_slots=(v,) + expr.argument_slots()[1:])
-            if expr.assembly_method() is None and isinstance(v, (firedrake.Cofunction, MatrixBase)):
-                # Contract the external operator with its assembled dual slot.
-                expr = replace_dual_slot_by_coargument(expr, v)
-                result = expr.assemble(assembly_opts=opts)
-                return contract(contracted_arguments(expr, v), result, v, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
             # Call the external operator assembly
             result = expr.assemble(assembly_opts=opts)
+            if dual is not None:
+                return self.contract(expr, result, dual, tensor=tensor)
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
             # Replace assembled children
@@ -706,11 +652,6 @@ class BaseFormAssembler(AbstractFormAssembler):
             if (v, operand) != expr.argument_slots():
                 expr = expr._ufl_expr_reconstruct_(operand, v=v)
 
-            if isinstance(v, MatrixBase):
-                # Contract the interpolation with its assembled dual slot.
-                expr = replace_dual_slot_by_coargument(expr, v)
-                result = get_interpolator(expr).assemble(bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
-                return contract(contracted_arguments(expr, v), result, v, tensor=tensor, bcs=bcs, options_prefix=self._options_prefix)
             rank = len(expr.arguments())
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
