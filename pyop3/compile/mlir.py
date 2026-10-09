@@ -394,13 +394,15 @@ class MLIRBuilder():
         return self.globals[node] 
       
       arr = node.array 
+      flattened = arr.flatten()
       mlir_type = get_mlir_type(node.dtype)
-      memref_type = MemRefType(mlir_type, arr.shape)
+      memref_type = MemRefType(mlir_type, flattened.shape)
+
       # FIXME: Likely that the unique name portion of this is not working correctly 
       name = self.unique_name("literal")
       
       value = DenseIntOrFPElementsAttr.from_list(
-        TensorType(mlir_type, arr.shape), arr.data
+        TensorType(mlir_type, flattened.shape), flattened.data
       )
       
       # Registering the constant array 
@@ -518,8 +520,8 @@ class MLIRBuilder():
     def _(self, aggregate, multiindex) -> SSAValue:
       buf = self.collect_buffer(aggregate)
       
-      # Assuming one-step stride but this seems right 
-      strides = [1]
+      extents = [mi.extent for mi in multiindex]
+      strides = self.row_major_strides(extents)
 
       linearised = [self.linearise_index(strides, multiindex)]
 
@@ -559,8 +561,6 @@ class MLIRBuilder():
       return strides
 
     def get_strided_index(self, aggregate, multiindex) -> SSAValue: 
-      # WILO: This portion of code is wrong.
-
       """
       We are assuming that the strides from dim2idxs for variable 
       Rather, we are looking for:
@@ -583,17 +583,22 @@ class MLIRBuilder():
       We receive a target aggregate variable, that we wish to target into.
       We have the multiindex in order to parse into it
 
+      So we should do: 
+        indices = [self.get_index_ssa(mi) for mi in multiindex]
+        summation = get_row_strides([mi.extent for mi in multiindex])
+
+      This means that we can now get the extents 
+
       """
 
-      variable, dim2idxs, indexes = gem.decompose_variable_view(aggregate)
-      strides = [stride for _, idxs in dim2idxs for _, stride in idxs] 
+      # variable, dim2idxs, indexes = gem.decompose_variable_view(aggregate)
+      # strides = [stride for _, idxs in dim2idxs for _, stride in idxs] 
 
-      if len(multiindex) > 1 and isinstance(multiindex[1], gem.VariableIndex):
-        if isinstance(multiindex[1].expression, gem.Indexed):
-          breakpoint()
-          # layout_strides = self.get_layout_strides(variable.shape)
+      # NOTE: This is while Connor debugs multiindices in GEM 
+      strides = [1] 
+      actual_multiindex = [multiindex[-1]]
 
-      linearised = [self.linearise_index(strides, multiindex)]
+      linearised = [self.linearise_index(strides, actual_multiindex)]
       return linearised
 
     @functools.singledispatchmethod
@@ -604,7 +609,8 @@ class MLIRBuilder():
 
     @process.register(imp.Block)
     def process_block(self, tree): 
-      for child in tree.children:
+      # FIXME: I am getting children in opposite order to intuition
+      for child in tree.children[::-1]:
         self.process(child)
 
     @process.register(imp.For)
@@ -663,6 +669,10 @@ class MLIRBuilder():
 
       buf, idx = self.get_address(var) 
       value = self.process(leaf.expression)
+      
+      # WILO:
+      # if "dat_4" in repr(var):
+      #   breakpoint()
 
       sop = memref.StoreOp.get(value, buf, idx)
       self.insert(sop)
@@ -853,3 +863,11 @@ class MLIRBuilder():
       self.insert(scf.YieldOp())
       self._builder_stack.pop()
       self.symbol_table.pop()
+
+    def row_major_strides(self, shape):
+      strides = []
+      acc = 1
+      for extent in reversed(shape):
+          strides.append(acc)
+          acc *= extent
+      return strides[::-1]
