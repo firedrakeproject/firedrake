@@ -25,24 +25,24 @@ class GTMGPC(PCBase):
         * `V`: the fine space on which the problem is formulated
         * `V_coarse`: a user-defined coarse space
 
-    The following options must be passed through the `appctx` dictionary:
+    The following options must be passed through the solver parameters:
 
-        * `get_coarse_space`: method which returns the user-defined coarse space
-        * `get_coarse_operator`: method which returns the operator on the coarse space
+        * `gt_get_coarse_space`: method which returns the user-defined coarse space
+        * `gt_get_coarse_operator`: method which returns the operator on the coarse space
 
-    The following options (also passed through the `appctx`) are optional:
+    The following options are optional:
 
-        * `form_compiler_parameters`: parameters for assembling operators on
+        * `gt_form_compiler_parameters`: parameters for assembling operators on
           both levels of the hierarchy.
-        * `coarse_space_bcs`: boundary conditions to be used on coarse space.
-        * `get_coarse_op_nullspace`: method which returns the nullspace of the
+        * `gt_coarse_space_bcs`: boundary conditions to be used on coarse space.
+        * `gt_get_coarse_op_nullspace`: method which returns the nullspace of the
           coarse operator.
-        * `get_coarse_op_transpose_nullspace`: method which returns the
+        * `gt_get_coarse_op_transpose_nullspace`: method which returns the
           nullspace of the transpose of the coarse operator.
-        * `interpolation_matrix`: PETSc Mat which describes the interpolation
+        * `gt_interpolation_matrix`: PETSc Mat which describes the interpolation
           from the coarse to the fine space. If omitted, this will be
           constructed automatically with an :class:`.Interpolate` object.
-        * `restriction_matrix`: PETSc Mat which describes the restriction
+        * `gt_restriction_matrix`: PETSc Mat which describes the restriction
           from the fine space dual to the coarse space dual. It defaults
           to the transpose of the interpolation matrix.
 
@@ -69,17 +69,16 @@ class GTMGPC(PCBase):
 
         petsctools.cite("Gopalakrishnan2009")
         _, P = pc.getOperators()
-        appctx = self.get_appctx(pc)
-        fcp = appctx.get("form_compiler_parameters")
-
-        if pc.getType() != "python":
-            raise ValueError("Expecting PC type python")
-
         ctx = dmhooks.get_appctx(pc.getDM())
         if ctx is None:
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
             raise ValueError("Don't know how to get form from %r" % ctx)
+
+        fcp = ctx.fcp
+
+        if pc.getType() != "python":
+            raise ValueError("Expecting PC type python")
 
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
@@ -119,21 +118,23 @@ class GTMGPC(PCBase):
         coarse_mat_type = opts.getString(coarse_options_prefix + "mat_type",
                                          parameters["default_matrix_type"])
 
-        get_coarse_space = appctx.get("get_coarse_space", None)
-        if not get_coarse_space:
+        try:
+            get_coarse_space = ctx.get_python_option(options_prefix, "get_coarse_space")
+        except KeyError:
             raise ValueError("Need to provide a callback which provides the coarse space.")
         coarse_space = get_coarse_space()
 
-        get_coarse_operator = appctx.get("get_coarse_operator", None)
-        if not get_coarse_operator:
+        try:
+            get_coarse_operator = ctx.get_python_option(options_prefix, "get_coarse_operator")
+        except KeyError:
             raise ValueError("Need to provide a callback which provides the coarse operator.")
         coarse_operator = get_coarse_operator()
 
-        coarse_space_bcs = appctx.get("coarse_space_bcs", None)
+        coarse_space_bcs = ctx.get_python_option(options_prefix, "coarse_space_bcs", None)
 
         # These should be callbacks which return the relevant nullspaces
-        get_coarse_nullspace = appctx.get("get_coarse_op_nullspace", None)
-        get_coarse_transpose_nullspace = appctx.get("get_coarse_op_transpose_nullspace", None)
+        get_coarse_nullspace = ctx.get_python_option(options_prefix, "get_coarse_op_nullspace", None)
+        get_coarse_transpose_nullspace = ctx.get_python_option(options_prefix, "get_coarse_op_transpose_nullspace", None)
 
         coarse_form_assembler = get_assembler(coarse_operator, bcs=coarse_space_bcs, form_compiler_parameters=fcp, mat_type=coarse_mat_type, options_prefix=coarse_options_prefix)
         self.coarse_op = coarse_form_assembler.allocate()
@@ -150,14 +151,15 @@ class GTMGPC(PCBase):
             tnsp = get_coarse_transpose_nullspace()
             coarse_opmat.setTransposeNullSpace(tnsp.nullspace())
 
-        interp_petscmat = appctx.get("interpolation_matrix", None)
-        if interp_petscmat is None:
+        try:
+            interp_petscmat = ctx.get_python_option(options_prefix, "interpolation_matrix")
+        except KeyError:
             # Create interpolation matrix from coarse space to fine space
             fine_space = ctx.J.arguments()[0].function_space()
             coarse_test, coarse_trial = coarse_operator.arguments()
             interp = assemble(interpolate(coarse_trial, fine_space))
             interp_petscmat = interp.petscmat
-        restr_petscmat = appctx.get("restriction_matrix", None)
+        restr_petscmat = ctx.get_python_option(options_prefix, "restriction_matrix", None)
 
         # We set up a PCMG object that uses the constructed interpolation
         # matrix to generate the restriction/prolongation operators.

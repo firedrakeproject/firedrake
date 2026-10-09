@@ -6,9 +6,14 @@ example is that of a lid-driven cavity.
 
 .. code-block:: python
 
+  import os
   from firedrake import *
 
-  N = 64
+  if os.getenv("FIREDRAKE_CI") == "1":
+      # trick to speed up the Firedrake test suite
+      N = 8
+  else:
+      N = 64
 
   M = UnitSquareMesh(N, N)
 
@@ -34,20 +39,6 @@ example is that of a lid-driven cavity.
 
   nullspace = MixedVectorSpaceBasis(
       Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
-
-Having set up the problem, we now move on to solving it.  Some
-preconditioners, for example pressure convection-diffusion (PCD), require
-information about the the problem that is not easily accessible from
-the bilinear form.  In the case of PCD, we need the Reynolds number
-and additionally which part of the mixed velocity-pressure space the
-velocity corresponds to.  We provide this information to
-preconditioners by passing in a dictionary context to the solver.
-This is propagated down through the matrix-free operators and is
-therefore accessible to custom preconditioners.
-
-.. code-block:: python
-
-  appctx = {"Re": Re, "velocity_space": 0}
 
 Now we'll solve the problem.  First, using a direct solver.  Again, if
 MUMPS is not installed, this solve will not work, so we wrap the solve
@@ -116,6 +107,16 @@ with PCD.
                "fieldsplit_1_pc_type": "python",
                "fieldsplit_1_pc_python_type": "firedrake.PCDPC",
 
+This preconditioner requires information about the the problem that
+is not easily accessible from the bilinear form. Specifically, we need
+the Reynolds number and which part of the mixed velocity-pressure space
+the velocity corresponds to.
+
+.. code-block:: python
+
+               "fieldsplit_1_pcd_Re": Re,
+               "fieldsplit_1_pcd_velocity_space": u,
+
 We now need to configure the mass and stiffness solvers in the PCD
 preconditioner.  For this example, we will just invert them with LU,
 although of course we can use a scalable method if we wish. First the
@@ -149,8 +150,7 @@ find the Reynolds number.
 
   up.assign(0)
 
-  solve(F == 0, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters,
-        appctx=appctx)
+  solve(F == 0, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters)
 
 And finally we write the results to a file for visualisation.
 

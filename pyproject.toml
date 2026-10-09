@@ -33,7 +33,8 @@ dependencies = [
   "packaging",
   # TODO RELEASE
   # "petsc4py==XXX",
-  "petsctools>=2026.1",
+  # UNDO ME
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@connorjward/options-manager-fix",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2026.10",

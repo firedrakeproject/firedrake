@@ -37,9 +37,13 @@ fieldsplit preconditioning, without having to set everything up in
 advance.
 """
 
+import dataclasses
 import weakref
-import numpy
+from collections.abc import Callable
 from functools import partial
+from typing import Any, Self
+
+import numpy
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -569,3 +573,62 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     # a non-mixed space)
     dm.setCreateFieldDecomposition(create_field_decomposition)
     dm.setCreateSubDM(create_subdm)
+
+
+@dataclasses.dataclass(frozen=True)
+class Hooked:
+    """Object that can be passed through a solver stack in the appctx.
+
+    ``Hooked`` objects wrap arbitrary types and associate transformation
+    callbacks with them that get triggered during the solve.
+
+    This is useful for cases like passing a coefficient to all
+    levels of a multigrid solver. It is convenient to be able to pass a
+    single coefficient, defined on the finest mesh, that then gets coarsened
+    for each level using the provided callback, instead of passing
+    separate coefficients for each of the levels.
+
+    In practice Firedrake already knows how to transform coefficients, and so
+    one can do ``appctx={"some_key": some_function}`` and ``some_function``
+    will get cast into a ``Hooked`` object implicitly. Users should only look
+    to use this class directly if they wish to pass objects through the solver
+    that Firedrake does not already recognise.
+
+    Parameters
+    ----------
+    obj
+        The wrapped object (e.g. a `firedrake.Function`).
+    refine_callback
+        Callback to refine ``obj``. The callback takes one argument (``obj``)
+        and returns a refined ``obj``.
+    coarsen_callback
+        Callback to coarsen ``obj``. The callback takes one argument (``obj``)
+        and returns a coarsened ``obj``.
+
+    """
+    obj: Any
+    refine_callback: Callable[[Any], Any] | None = dataclasses.field(default=None, kw_only=True)
+    coarsen_callback: Callable[[Any], Any] | None = dataclasses.field(default=None, kw_only=True)
+
+    def refine(self) -> Self:
+        if self.refine_callback is None:
+            raise NotImplementedError("No implementation for 'refine_callback' found")
+        return dataclasses.replace(self, obj=self.refine_callback(self.obj))
+
+    def coarsen(self) -> Self:
+        if self.coarsen_callback is None:
+            raise NotImplementedError("No implementation for 'coarsen_callback' found")
+        return dataclasses.replace(self, obj=self.coarsen_callback(self.obj))
+
+    @classmethod
+    def identity(cls, obj: Any) -> Self:
+        """Return an object that always transforms into itself."""
+        return cls(
+            obj,
+            refine_callback=cls._identity_callback,
+            coarsen_callback=cls._identity_callback,
+        )
+
+    @staticmethod
+    def _identity_callback(obj):
+        return obj
