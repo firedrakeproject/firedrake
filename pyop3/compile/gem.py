@@ -84,6 +84,7 @@ class GemExecutable(Executable):
             )
             insns.append(new_insn)
         impero = gem.impero_utils.compile_gem_new(insns, ())
+
         builder = MLIRBuilder() 
 
         modop, kernel_args, func_name = builder.build(impero.tree) 
@@ -136,7 +137,7 @@ class GemCodegenContext(CodegenContext):
 
     def arg(self, name, dtype, shape):
         # wrong abstraction I think?
-        print("not doing arg")
+        # print("not doing arg")
         pass
 
     def var(self, iname: str, *args) -> pym.primitives.Variable:
