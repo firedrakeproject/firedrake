@@ -526,7 +526,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         if isinstance(coefficient, Constant):
             return coefficient
         try:
-            return self._ctx._adapted_coefficients[coefficient]
+            return self._ctx._coefficient_mapping[coefficient]
         except KeyError:
             raise ValueError(f"{coefficient!r} is not a coefficient of the problem") from None
 

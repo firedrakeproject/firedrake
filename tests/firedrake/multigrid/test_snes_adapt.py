@@ -449,6 +449,42 @@ def test_snes_adapt_hierarchy_follows_adaptive_parents(markers, levels):
 
 
 @pytest.mark.parallel([1, 3])
+def test_snes_adapt_multigrid_coarse_coefficients():
+    # The coarse level of PCMG on the adapted hierarchy is linearised about
+    # the coefficients on the adapted mesh.
+    refinements = Constant(1)
+
+    def mark_cells(ctx, current_solution):
+        M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
+        return Function(M).assign(refinements)
+
+    def operator(g):
+        V = g.function_space()
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        return inner(g * u, v) * dx + inner(grad(u), grad(v)) * dx
+
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    g = Function(V).assign(1)
+    L = inner(Constant(1), TestFunction(V)) * dx
+    uh = Function(V)
+    problem = LinearVariationalProblem(operator(g), L, uh)
+    params = {"snes_adapt_sequence": 1, **mg_parameters}
+    solver = LinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_cells)
+    solver.solve()
+
+    refinements.assign(0)
+    solver.get_coefficient(g).assign(5)
+    solver.solve()
+
+    coarse_operator, _ = solver.snes.ksp.pc.getMGCoarseSolve().getOperators()
+    expected = assemble(operator(Function(V).assign(5)), mat_type="aij").petscmat
+    expected.axpy(-1, coarse_operator)
+    assert expected.norm() < 1e-12 * coarse_operator.norm()
+
+
+@pytest.mark.parallel([1, 3])
 def test_snes_adapt_noop_refinement(linear_parameters):
     # Marking no cells keeps the mesh and the solution.
     def mark_no_cells(ctx, current_solution):
