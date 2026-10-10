@@ -388,7 +388,9 @@ class _SNESContext(object):
                 from firedrake import TransferManager
                 mat_type = get_transfer_option("mg_transfer_mat_type", "fas_transfer_mat_type",
                                                default="matfree")
-                transfer = TransferManager(use_averaging=True, mat_type=mat_type)
+                transfer_type = opts.getString("snes_adapt_transfer_type", "interpolate")
+                transfer = TransferManager(use_averaging=True, mat_type=mat_type,
+                                           transfer_type=transfer_type)
             else:
                 (modname, objname) = managername.rsplit('.', 1)
                 mod = __import__(modname)
