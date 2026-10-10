@@ -236,16 +236,11 @@ class ProjectorBase(metaclass=abc.ABCMeta):
 
 
 class RealProjector(ProjectorBase):
-    """Projects onto a Real space by the mean value of the source over the target mesh.
-
-    The mass matrix of the Real space is the volume of the target mesh, so
-    solving with it divides the integral of the source by that volume.
-    """
+    """Projects onto a Real space by the mean value of the source."""
     @property
     def rhs(self):
-        # The integral cannot be assembled into residual, because the source lives on another mesh.
-        # Instead, write the scalar into the dat.
-        self.residual.dat.data[:] = firedrake.assemble(self.source*ufl.dx)
+        # The source can live on another mesh, so its integral is written into the dat.
+        self.residual.dat.data_wo[:] = firedrake.assemble(self.source*ufl.dx)
         return self.residual
 
     @property
@@ -253,7 +248,7 @@ class RealProjector(ProjectorBase):
         volume = firedrake.assemble(1*ufl.dx(self.target.function_space().mesh()))
 
         def solve(x, b):
-            x.dat.data[:] = b.dat.data_ro / volume
+            x.dat.data_wo[:] = b.dat.data_ro / volume
         return solve
 
 

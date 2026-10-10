@@ -125,6 +125,33 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
         raise ValueError(f"Unrecognized action {action}")
 
 
+@pytest.mark.parametrize("coarse_element, fine_element", [
+    (("DG", 1), ("CG", 1)),
+    (("CG", 2), ("CG", 1)),
+])
+def test_transfer_manager_project_restrict_is_adjoint(hierarchy, coarse_element, fine_element):
+    Vcoarse = FunctionSpace(hierarchy[-2], *coarse_element)
+    Vfine = FunctionSpace(hierarchy[-1], *fine_element)
+    options_prefix = "test_project_transfer_"
+    manager = TransferManager(options_prefix=options_prefix)
+    opts = PETSc.Options(options_prefix)
+    opts["type"] = "project"
+    rg = numpy.random.default_rng(0)
+
+    uc = Function(Vcoarse)
+    uc.dat.data_wo[...] = rg.standard_normal(uc.dat.data_ro.shape)
+    uf = Function(Vfine)
+    manager.prolong(uc, uf)
+
+    rf = Cofunction(Vfine.dual())
+    rf.dat.data_wo[...] = rg.standard_normal(rf.dat.data_ro.shape)
+    rc = Cofunction(Vcoarse.dual())
+    manager.restrict(rf, rc)
+    opts.delValue("type")
+
+    assert numpy.isclose(assemble(action(rc, uc)), assemble(action(rf, uf)), rtol=1e-8)
+
+
 @pytest.mark.parametrize("family, degree, shape, coefficient", [
     ("CG", 1, "scalar", "repeated"),
     ("CG", 1, "scalar", "mixed"),

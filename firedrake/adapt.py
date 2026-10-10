@@ -273,22 +273,15 @@ def adapted_cell_maps(coarse, fine):
 
 
 def follow_adaptive_parents(mesh: MeshGeometry | MeshSequenceGeometry) -> None:
-    """Make an adapted mesh the finest level, above its adaptive ancestors.
+    """Make each component of an adapted mesh the finest level of its hierarchy.
 
-    For each distinct component of ``mesh``, the chain of adaptive parents
-    is followed down to the first mesh that is a level of the hierarchy of
-    that component. The levels above that mesh are replaced by the chain
-    and the component. If no adaptive ancestor is a level, the component is
-    put directly above the coarsest level, unless the component is the
-    coarsest level. A `~firedrake.mesh.MeshSequenceGeometry` then takes its
-    levels from its components again.
+    The levels above the nearest adaptive ancestor that is a level are
+    replaced by the chain of adaptive parents.
 
     Parameters
     ----------
     mesh
-        A mesh whose components are adapted from levels of their
-        hierarchies. A component can itself be a level, if the adaptation
-        returned an ancestor of the finest mesh.
+        An adapted mesh, or a sequence of adapted meshes.
 
     """
     from firedrake.mg.utils import get_level

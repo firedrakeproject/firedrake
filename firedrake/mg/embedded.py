@@ -35,8 +35,7 @@ class TransferManager(object):
             self._work_vec = {}
             self._V_dof_weights = {}
 
-    def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree",
-                 transfer_type="interpolate"):
+    def __init__(self, *, native_transfers=None, use_averaging=True, options_prefix=None):
         """Manage transfers between levels in a multigrid hierarchy.
 
         Parameters
@@ -48,24 +47,40 @@ class TransferManager(object):
         use_averaging : bool
             Whether to use averaging to approximate the projection out of an
             embedded DG space. If false, perform a global L2 projection.
-        mat_type : str
-            The matrix assembly type for prolongation and restriction.
-        transfer_type : str
-            Either ``"interpolate"``, which transfers primal functions by the
-            interpolation or projection described above, or ``"project"``,
-            which transfers each primal function by an unconstrained
-            supermesh L2 projection. Projection preserves integrals if the
-            target space contains constants. Neither type imposes Dirichlet
-            boundary values on the target.
+        options_prefix : str or None
+            The prefix of the options that configure the transfers.
+
+        Notes
+        -----
+        Each transfer reads these options with ``options_prefix``:
+
+        - ``type``: ``"interpolate"`` (default) or ``"project"``. With
+          ``"project"``, primal functions are transferred by supermesh L2
+          projection, and cofunctions are restricted by its transpose.
+        - ``mat_type``: ``"matfree"`` (default) or ``"aij"``.
         """
-        if transfer_type not in ("interpolate", "project"):
-            raise ValueError("transfer_type must be 'interpolate' or 'project'")
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
+        self.options_prefix = options_prefix
         self.caches = {}
-        self.mat_type = mat_type
-        self.transfer_type = transfer_type
         self._mat_cache = {}
+
+    def _options(self):
+        """Return the transfer type and the matrix type set by the options.
+
+        Returns
+        -------
+        tuple[str, str]
+            The values of the ``type`` and ``mat_type`` options.
+        """
+        if self.options_prefix is None:
+            return "interpolate", "matfree"
+        opts = PETSc.Options(self.options_prefix)
+        transfer_type = opts.getString("type", "interpolate")
+        if transfer_type not in ("interpolate", "project"):
+            raise ValueError(f"{self.options_prefix}type must be 'interpolate' or 'project'")
+        mat_type = opts.getString("mat_type", "matfree")
+        return transfer_type, mat_type
 
     def is_native(self, element, gdim, op):
         if element in self.native_transfers:
@@ -92,18 +107,18 @@ class TransferManager(object):
         else:
             return True
 
-    def _native_transfer(self, element, gdim, op):
+    def _native_transfer(self, element, gdim, op, mat_type):
         try:
             return self.native_transfers[element][op]
         except KeyError:
             if self.is_native(element, gdim, op):
-                if self.mat_type == "aij":
+                if mat_type == "aij":
                     ops = self._prolong_aij, self._restrict_aij, firedrake.inject
-                elif self.mat_type == "matfree":
+                elif mat_type == "matfree":
                     ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 else:
-                    raise ValueError(f"Unsupported mat_type {self.mat_type}")
-                return self.native_transfers.setdefault(element, ops)[op]
+                    raise ValueError(f"Unsupported mat_type {mat_type}")
+                return ops[op]
         return None
 
     def cache(self, V):
@@ -242,19 +257,19 @@ class TransferManager(object):
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
-    def requires_transfer(self, V, transfer_op, source, target):
+    def requires_transfer(self, V, transfer_op, source, target, transfer_type="interpolate"):
         """Determine whether either the source or target have been modified since
-        the last time a grid transfer was executed with them."""
-        key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
+        the last time a grid transfer of this type was executed with them."""
+        key = (transfer_op, transfer_type, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         try:
             return self.cache(V)._dat_versions[key] != dat_versions
         except KeyError:
             return True
 
-    def cache_dat_versions(self, V, transfer_op, source, target):
+    def cache_dat_versions(self, V, transfer_op, source, target, transfer_type="interpolate"):
         """Record the returned dat_versions of the source and target."""
-        key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
+        key = (transfer_op, transfer_type, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         self.cache(V)._dat_versions[key] = dat_versions
 
@@ -262,9 +277,14 @@ class TransferManager(object):
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
 
-        :arg source: The source :class:`.Function`.
-        :arg target: The target :class:`.Function`.
-        :arg transfer_op: The transfer operation for the DG space.
+        Parameters
+        ----------
+        source : Function
+            The source function.
+        target : Function
+            The target function.
+        transfer_op : Op
+            The transfer operation for the DG space.
         """
         Vs = source.function_space()
         Vt = target.function_space()
@@ -280,15 +300,17 @@ class TransferManager(object):
                 self.op(source_, target_, transfer_op=transfer_op)
             return
 
-        if not self.requires_transfer(Vs, transfer_op, source, target):
+        transfer_type, mat_type = self._options()
+        if not self.requires_transfer(Vs, transfer_op, source, target, transfer_type):
             return
 
         gdim = Vt.mesh().geometric_dimension
-        if self.transfer_type == "project":
-            # Supermesh L2 projection, which can be applied between any two meshes.
-            target.project(source, solver_parameters={"ksp_rtol": 1e-12, "ksp_atol": 1e-14})
+        if transfer_type == "project":
+            projector = self._projector(Vs, Vt)
+            projector.source.assign(source)
+            target.assign(projector.project())
         elif self.is_native(target_element, gdim, transfer_op):
-            self._native_transfer(target_element, gdim, transfer_op)(source, target)
+            self._native_transfer(target_element, gdim, transfer_op, mat_type)(source, target)
         else:
             # Get some work vectors
             dgsource = self.DG_work(Vs)
@@ -317,13 +339,17 @@ class TransferManager(object):
                     work = self.work_vec(Vt)
                     self.V_DG_mass(Vt, VDGt).multTranspose(dgv, work)
                     self.V_inv_mass_ksp(Vt).solve(work, t)
-        self.cache_dat_versions(Vs, transfer_op, source, target)
+        self.cache_dat_versions(Vs, transfer_op, source, target, transfer_type)
 
     def transfer(self, x, y):
         """Transfer a function/cofunction.
 
-        :arg x: The source (co)function.
-        :arg y: The target (co)function.
+        Parameters
+        ----------
+        x : Function or Cofunction
+            The source (co)function.
+        y : Function or Cofunction
+            The target (co)function.
         """
         _, xlevel = get_level(x.function_space().mesh())
         _, ylevel = get_level(y.function_space().mesh())
@@ -339,24 +365,36 @@ class TransferManager(object):
     def prolong(self, uc, uf):
         """Prolong a function.
 
-        :arg uc: The source (coarse grid) function.
-        :arg uf: The target (fine grid) function.
+        Parameters
+        ----------
+        uc : Function
+            The source (coarse grid) function.
+        uf : Function
+            The target (fine grid) function.
         """
         self.op(uc, uf, transfer_op=Op.PROLONG)
 
     def inject(self, uf, uc):
-        """Inject a function (primal restriction)
+        """Inject a function (primal restriction).
 
-        :arg uf: The source (fine grid) function.
-        :arg uc: The target (coarse grid) function.
+        Parameters
+        ----------
+        uf : Function
+            The source (fine grid) function.
+        uc : Function
+            The target (coarse grid) function.
         """
         self.op(uf, uc, transfer_op=Op.INJECT)
 
     def restrict(self, source, target):
         """Restrict a cofunction.
 
-        :arg source: The source (fine grid) :class:`.Cofunction`.
-        :arg target: The target (coarse grid) :class:`.Cofunction`.
+        Parameters
+        ----------
+        source : Cofunction
+            The source (fine grid) cofunction.
+        target : Cofunction
+            The target (coarse grid) cofunction.
         """
         Vs_star = source.function_space()
         Vt_star = target.function_space()
@@ -372,12 +410,18 @@ class TransferManager(object):
                 self.restrict(source_, target_)
             return
 
-        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
+        transfer_type, mat_type = self._options()
+        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target, transfer_type):
             return
 
         gdim = Vs_star.mesh().geometric_dimension
-        if self.is_native(source_element, gdim, Op.RESTRICT):
-            self._native_transfer(source_element, gdim, Op.RESTRICT)(source, target)
+        if transfer_type == "project" and source_element.family() != "Real":
+            projector = self._projector(Vt_star.dual(), Vs_star.dual())
+            projector.apply_massinv(projector.target, source)
+            with projector.target.dat.vec_ro as w, target.dat.vec_wo as t:
+                projector.mixed_mass.multTranspose(w, t)
+        elif self.is_native(source_element, gdim, Op.RESTRICT):
+            self._native_transfer(source_element, gdim, Op.RESTRICT, mat_type)(source, target)
         else:
             Vs = Vs_star.dual()
             Vt = Vt_star.dual()
@@ -405,7 +449,7 @@ class TransferManager(object):
             with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
-        self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
+        self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target, transfer_type)
 
     def _prolongation_matrix(self, Vc, Vf):
         """Assemble and cache the prolongation matrix mapping Vc to Vf.
@@ -429,6 +473,30 @@ class TransferManager(object):
         except KeyError:
             P = assemble_prolongation_aij(Vc, Vf)
             return self._mat_cache.setdefault(key, P)
+
+    def _projector(self, Vs, Vt):
+        """Return a cached L2 projector from Vs to Vt.
+
+        Parameters
+        ----------
+        Vs : WithGeometry
+            The source function space.
+        Vt : WithGeometry
+            The target function space.
+
+        Returns
+        -------
+        Assigner or ProjectorBase
+            The projector between work functions in Vs and Vt.
+
+        """
+        key = ("project", Vs, Vt)
+        try:
+            return self._mat_cache[key]
+        except KeyError:
+            projector = firedrake.Projector(firedrake.Function(Vs), firedrake.Function(Vt),
+                                            solver_parameters={"ksp_rtol": 1e-12, "ksp_atol": 1e-14})
+            return self._mat_cache.setdefault(key, projector)
 
     def _prolong_aij(self, uc, uf):
         """Prolong a function by explicit matrix-vector product.
