@@ -285,12 +285,8 @@ class TransferManager(object):
 
         gdim = Vt.mesh().geometric_dimension
         if self.transfer_type == "project":
-            if source_element.family() == "Real":
-                # The L2 projection of a constant onto constants is that constant.
-                target.assign(source)
-            else:
-                # Supermesh L2 projection, which can be applied between any two meshes.
-                target.project(source, solver_parameters={"ksp_rtol": 1e-12, "ksp_atol": 1e-14})
+            # Supermesh L2 projection, which can be applied between any two meshes.
+            target.project(source, solver_parameters={"ksp_rtol": 1e-12, "ksp_atol": 1e-14})
         elif self.is_native(target_element, gdim, transfer_op):
             self._native_transfer(target_element, gdim, transfer_op)(source, target)
         else:
