@@ -304,10 +304,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     These ``solver_parameters`` set how :class:`~.TransferManager`
     transfers functions:
 
-    - ``mg_transfer_type``, ``mg_transfer_mat_type``: between the levels
-      of PCMG and SNESFAS.
-    - ``snes_adapt_transfer_type``, ``snes_adapt_transfer_mat_type``:
+    - ``mg_transfer_mat_type``: the prolongation and the restriction
+      between the levels of PCMG and SNESFAS, and the prolongation of the
       coefficients onto an adapted mesh.
+    - ``mg_transfer_inject_type``: the injection of the solution and the
+      coefficients onto the coarser levels of PCMG and SNESFAS, and of the
+      solution onto an adapted mesh.
     """
 
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
@@ -422,6 +424,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         if marking_callback is not None:
             snes_defaults = dict(snes_defaults)
             snes_defaults.setdefault("adaptor_criterion", "refine")
+            snes_defaults.setdefault("adaptor_transfer_injection", True)
 
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),

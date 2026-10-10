@@ -273,25 +273,6 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
     return new
 
 
-def transfer_coefficients(ctx: _SNESContext, coefficient_mapping: dict, manager) -> None:
-    """Transfer coefficients onto those of a context, then apply its boundary conditions.
-
-    Parameters
-    ----------
-    ctx
-        The context that receives the coefficients.
-    coefficient_mapping
-        Maps each source coefficient to the coefficient of ``ctx`` that receives it.
-    manager
-        The object that transfers each coefficient, typically a :class:`~.TransferManager`.
-    """
-    for c, mapped in coefficient_mapping.items():
-        manager.transfer(c, mapped)
-    if ctx.pre_apply_bcs:
-        for bc in ctx._problem.dirichlet_bcs():
-            bc.apply(ctx._x)
-
-
 @_reconstruct.register(firedrake.NonlinearVariationalProblem)
 def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     new_problem = get_relative(self, problem)
@@ -300,7 +281,18 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
 
     def transfer_callback(fine, restriction, rscale, injection, coarse):
         cctx = get_appctx(coarse)
-        transfer_coefficients(cctx, cctx._coefficient_mapping, get_transfer_manager(fine))
+        cmapping = cctx._coefficient_mapping
+        if cmapping is None:
+            return
+
+        manager = get_transfer_manager(fine)
+        for c, mapped in cmapping.items():
+            manager.transfer(c, mapped)
+
+        # Apply bcs
+        if cctx.pre_apply_bcs:
+            for bc in cctx._problem.dirichlet_bcs():
+                bc.apply(cctx._x)
 
     def coarsen_callback(fine, coarse):
         if not coarse.getAttr("_coarsen_hook"):
@@ -564,11 +556,6 @@ def create_interpolation(dmc, dmf):
 
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
-    _, clevel = utils.get_level(V_c.mesh())
-    _, flevel = utils.get_level(V_f.mesh())
-    if clevel > flevel:
-        # MatInterpolate() applies the transpose of the injection from dmc onto the coarser dmf.
-        return create_injection(dmf, dmc), None
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
@@ -605,7 +592,8 @@ def create_injection(dmc, dmf):
         return PETSc.Mat().createDiagonal(dvec)
 
     manager = get_transfer_manager(dmf)
-    ctx = Injection(V_c, V_f, manager)
+    cbcs = tuple(cctx._problem.dirichlet_bcs())
+    ctx = Injection(V_c, V_f, manager, cbcs)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)

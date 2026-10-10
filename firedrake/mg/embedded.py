@@ -54,9 +54,8 @@ class TransferManager(object):
         -----
         Each transfer reads these options with ``options_prefix``:
 
-        - ``type``: ``"interpolate"`` (default) or ``"project"``. With
-          ``"project"``, primal functions are transferred by supermesh L2
-          projection, and cofunctions are restricted by its transpose.
+        - ``inject_type``: ``"interpolate"`` (default) or ``"project"``.
+          With ``"project"``, injection is a supermesh L2 projection.
         - ``mat_type``: ``"matfree"`` (default) or ``"aij"``.
         """
         self.native_transfers = native_transfers or {}
@@ -65,20 +64,28 @@ class TransferManager(object):
         self.caches = {}
         self._mat_cache = {}
 
-    def _options(self):
+    def _options(self, transfer_op):
         """Return the transfer type and the matrix type set by the options.
+
+        Parameters
+        ----------
+        transfer_op : Op
+            The transfer operation. Only injection reads ``inject_type``;
+            the other operations interpolate.
 
         Returns
         -------
         tuple[str, str]
-            The values of the ``type`` and ``mat_type`` options.
+            The transfer type and the value of the ``mat_type`` option.
         """
         if self.options_prefix is None:
             return "interpolate", "matfree"
         opts = PETSc.Options(self.options_prefix)
-        transfer_type = opts.getString("type", "interpolate")
+        transfer_type = "interpolate"
+        if transfer_op == Op.INJECT:
+            transfer_type = opts.getString("inject_type", transfer_type)
         if transfer_type not in ("interpolate", "project"):
-            raise ValueError(f"{self.options_prefix}type must be 'interpolate' or 'project'")
+            raise ValueError(f"{self.options_prefix}inject_type must be 'interpolate' or 'project'")
         mat_type = opts.getString("mat_type", "matfree")
         return transfer_type, mat_type
 
@@ -300,7 +307,7 @@ class TransferManager(object):
                 self.op(source_, target_, transfer_op=transfer_op)
             return
 
-        transfer_type, mat_type = self._options()
+        transfer_type, mat_type = self._options(transfer_op)
         if not self.requires_transfer(Vs, transfer_op, source, target, transfer_type):
             return
 
@@ -410,17 +417,12 @@ class TransferManager(object):
                 self.restrict(source_, target_)
             return
 
-        transfer_type, mat_type = self._options()
-        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target, transfer_type):
+        _, mat_type = self._options(Op.RESTRICT)
+        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
             return
 
         gdim = Vs_star.mesh().geometric_dimension
-        if transfer_type == "project" and source_element.family() != "Real":
-            projector = self._projector(Vt_star.dual(), Vs_star.dual())
-            projector.apply_massinv(projector.target, source)
-            with projector.target.dat.vec_ro as w, target.dat.vec_wo as t:
-                projector.mixed_mass.multTranspose(w, t)
-        elif self.is_native(source_element, gdim, Op.RESTRICT):
+        if self.is_native(source_element, gdim, Op.RESTRICT):
             self._native_transfer(source_element, gdim, Op.RESTRICT, mat_type)(source, target)
         else:
             Vs = Vs_star.dual()
@@ -449,7 +451,7 @@ class TransferManager(object):
             with dgtarget.dat.vec_ro as dgv, target.dat.vec_wo as t:
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
-        self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target, transfer_type)
+        self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
 
     def _prolongation_matrix(self, Vc, Vf):
         """Assemble and cache the prolongation matrix mapping Vc to Vf.

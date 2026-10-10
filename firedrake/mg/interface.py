@@ -16,7 +16,7 @@ from . import kernels
 __all__ = ["prolong", "restrict", "inject", "assemble_prolongation_aij"]
 
 
-def check_arguments(coarse, fine, needs_dual=False):
+def check_arguments(coarse, fine, needs_dual=False, ordered=True):
     if is_dual(coarse) != needs_dual:
         expected_type = Cofunction if needs_dual else Function
         raise TypeError("Coarse argument is a %s, not a %s" % (type(coarse).__name__, expected_type.__name__))
@@ -29,7 +29,9 @@ def check_arguments(coarse, fine, needs_dual=False):
     if hierarchy is None:
         raise ValueError("Coarse argument not from hierarchy")
     fhierarchy, flvl = utils.get_level(ffs.mesh())
-    if lvl >= flvl:
+    if lvl == flvl:
+        raise ValueError("Arguments must be from different levels")
+    if ordered and lvl > flvl:
         raise ValueError("Coarse argument must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't transfer between functions from different hierarchies")
@@ -39,7 +41,22 @@ def check_arguments(coarse, fine, needs_dual=False):
 
 @PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
-    check_arguments(coarse, fine)
+    """Interpolate a function onto another level of its hierarchy.
+
+    Parameters
+    ----------
+    coarse : Function
+        The source function.
+    fine : Function
+        The target function. Its level can be finer or coarser than the
+        level of ``coarse``.
+
+    Returns
+    -------
+    Function
+        ``fine``, which holds the interpolant of ``coarse``.
+    """
+    check_arguments(coarse, fine, ordered=False)
     Vc = coarse.function_space()
     Vf = fine.function_space()
     if len(Vc) > 1:
@@ -60,8 +77,16 @@ def prolong(coarse, fine):
     hierarchy, coarse_level = utils.get_level(ufl_expr.extract_unique_domain(coarse))
     _, fine_level = utils.get_level(ufl_expr.extract_unique_domain(fine))
     refinements_per_level = hierarchy.refinements_per_level
-    repeat = (fine_level - coarse_level)*refinements_per_level
+    repeat = abs(fine_level - coarse_level)*refinements_per_level
     next_level = coarse_level * refinements_per_level
+    if fine_level > coarse_level:
+        step = 1
+        # The candidates for each fine node are the parents of its cells.
+        node_map = utils.fine_node_to_coarse_node_map
+    else:
+        step = -1
+        # The candidates for each coarse node are the children of its cells.
+        node_map = utils.coarse_node_to_fine_node_map
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature target space
@@ -71,14 +96,14 @@ def prolong(coarse, fine):
     Vfinest = finest.function_space()
     meshes = hierarchy._meshes
     for j in range(repeat):
-        next_level += 1
+        next_level += step
         if j == repeat - 1 and not needs_quadrature:
             fine = finest
         else:
             fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
         Vf = fine.function_space()
         Vc = coarse.function_space()
-        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
+        compose_map = lambda u: node_map(Vf, u.function_space())
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
@@ -195,7 +220,26 @@ def restrict(fine_dual, coarse_dual):
 
 @PETSc.Log.EventDecorator()
 def inject(fine, coarse):
-    check_arguments(coarse, fine)
+    """Inject a function onto another level of its hierarchy.
+
+    Parameters
+    ----------
+    fine : Function
+        The source function.
+    coarse : Function
+        The target function. If its level is finer than the level of
+        ``fine``, the injection is the prolongation.
+
+    Returns
+    -------
+    Function
+        ``coarse``, which holds the injection of ``fine``.
+    """
+    check_arguments(coarse, fine, ordered=False)
+    _, source_level = utils.get_level(fine.function_space().mesh())
+    _, target_level = utils.get_level(coarse.function_space().mesh())
+    if target_level > source_level:
+        return prolong(fine, coarse)
     Vf = fine.function_space()
     Vc = coarse.function_space()
     if len(Vc) > 1:
