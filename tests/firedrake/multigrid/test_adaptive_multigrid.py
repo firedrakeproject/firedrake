@@ -249,6 +249,27 @@ def test_add_mesh_rejects_unrelated_mesh():
         mh.add_mesh(foreign)
 
 
+@pytest.mark.parallel([1, 3])
+def test_set_finest_mesh():
+    """The finest mesh replaces the levels above its adaptive ancestors, and
+    the return value reports whether the levels below it have changed."""
+    base = UnitSquareMesh(8, 8)
+    mh = MeshHierarchy(base)
+    fine = mh.add_mesh(_adapt(base, lambda x: conditional(lt(x[0], 0.5), 1, 0)))
+    assert not mh.set_finest_mesh(fine)
+    assert list(mh) == [base, fine]
+
+    finer = mh.add_mesh(_adapt(fine, lambda x: conditional(lt(x[0], 0.25), 1, 0)))
+    # This coarsening undoes the refinement of fine, so its adaptive parent is base.
+    coarsened = mh.add_mesh(_adapt(finer, lambda x: conditional(gt(x[0], 0.75), 1, -1)))
+    assert coarsened._adaptive_parent is base
+    assert mh.set_finest_mesh(coarsened)
+    assert list(mh) == [base, coarsened]
+
+    assert not mh.set_finest_mesh(base)
+    assert list(mh) == [base]
+
+
 def test_hierarchy_rejects_partial_cell_maps():
     mesh = UnitSquareMesh(1, 1)
     with pytest.raises(ValueError, match="must be provided together"):
