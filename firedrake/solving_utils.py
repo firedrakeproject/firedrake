@@ -292,14 +292,15 @@ class _SNESContext(object):
         self._nullspace = None
         self._nullspace_T = None
         self._near_nullspace = None
-        self._coefficient_mapping = {}
         forms = (problem.F, problem.J, problem.Jp, problem.E)
         coefficients = chain(chain.from_iterable(form.coefficients() for form in forms if form is not None),
                              (bc.function_arg for bc in problem.dirichlet_bcs()),
                              (v for k, v in self.appctx.items() if k != "state"),
                              (problem.u_restrict,))
-        # Maps each coefficient of the problem to its counterpart on the adapted mesh.
-        self._adapted_coefficients = {c: c for c in coefficients if isinstance(c, (Function, Cofunction))}
+        # Maps each coefficient of the original problem to its counterpart in
+        # this context. A reconstructed context composes the map of the
+        # context that it was reconstructed from.
+        self._coefficient_mapping = {c: c for c in coefficients if isinstance(c, (Function, Cofunction))}
         self._transfer_manager = transfer_manager
 
     def reconstruct(self,

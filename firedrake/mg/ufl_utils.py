@@ -280,31 +280,38 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
         return new_problem
 
     def transfer_callback(fine, restriction, rscale, injection, coarse):
+        fctx = get_appctx(fine)
         cctx = get_appctx(coarse)
-        cmapping = cctx._coefficient_mapping
-        if cmapping is None:
-            return
-
+        # The coarse context can be an ancestor that the fine context was
+        # adapted from, so the coefficients are matched by the original problem.
+        fmapping = fctx._coefficient_mapping
         manager = get_transfer_manager(fine)
-        for c, mapped in cmapping.items():
-            manager.transfer(c, mapped)
+        for c, mapped in cctx._coefficient_mapping.items():
+            if c in fmapping:
+                manager.transfer(fmapping[c], mapped)
 
         # Apply bcs
         if cctx.pre_apply_bcs:
             for bc in cctx._problem.dirichlet_bcs():
                 bc.apply(cctx._x)
 
-    def coarsen_callback(fine, coarse):
-        if not coarse.getAttr("_coarsen_hook"):
-            coarse.addCoarsenHook(coarsen_callback, transfer_callback)
-            coarse.setAttr("_coarsen_hook", True)
+    def add_hooks(dm):
+        # The hooks are persistent and cumulative, but also problem-independent.
+        # Therefore, we are only adding them once.
+        if not dm.getAttr("_coarsen_hook"):
+            dm.addCoarsenHook(coarsen_callback, transfer_callback)
+            dm.addRefineHook(refine_callback, None)
+            dm.setAttr("_coarsen_hook", True)
 
-    dm = problem.u_restrict.function_space().dm
-    if not dm.getAttr("_coarsen_hook"):
-        # The hook is persistent and cumulative, but also problem-independent.
-        # Therefore, we are only adding it once.
-        dm.addCoarsenHook(coarsen_callback, transfer_callback)
-        dm.setAttr("_coarsen_hook", True)
+    def coarsen_callback(fine, coarse):
+        add_hooks(coarse)
+
+    def refine_callback(coarse, fine):
+        # An adapted DM is refined from the DM of the problem, and is then
+        # coarsened by PCMG and SNESFAS.
+        add_hooks(fine)
+
+    add_hooks(problem.u_restrict.function_space().dm)
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
@@ -435,7 +442,10 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       appctx=new_appctx,
                                       options_prefix=options_prefix,
                                       )
-    new_context._coefficient_mapping = coefficient_mapping
+    # A coefficient that cannot be reconstructed is shared, and is not transferred.
+    new_context._coefficient_mapping = {c: coefficient_mapping[v]
+                                        for c, v in context._coefficient_mapping.items()
+                                        if v in coefficient_mapping}
     attach_relative(self, new_context, context, reverse=True)
     attach_relative(self, context, new_context)
 
