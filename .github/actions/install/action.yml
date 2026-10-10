@@ -116,6 +116,9 @@ runs:
           git fetch --depth=2 origin "refs/merge-requests/$mr/head"
           git show --format= --binary FETCH_HEAD | git apply
         done
+        : # DROP BEFORE MERGE: petsc!9704 has two commits
+        git fetch --depth=3 origin "refs/merge-requests/9704/head"
+        git diff --binary FETCH_HEAD~2 FETCH_HEAD | git apply
 
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
