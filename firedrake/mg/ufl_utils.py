@@ -273,6 +273,25 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
     return new
 
 
+def transfer_coefficients(ctx: _SNESContext, coefficient_mapping: dict, manager) -> None:
+    """Transfer coefficients onto those of a context, then apply its boundary conditions.
+
+    Parameters
+    ----------
+    ctx
+        The context that receives the coefficients.
+    coefficient_mapping
+        Maps each source coefficient to the coefficient of ``ctx`` that receives it.
+    manager
+        The object that transfers each coefficient, typically a :class:`~.TransferManager`.
+    """
+    for c, mapped in coefficient_mapping.items():
+        manager.transfer(c, mapped)
+    if ctx.pre_apply_bcs:
+        for bc in ctx._problem.dirichlet_bcs():
+            bc.apply(ctx._x)
+
+
 @_reconstruct.register(firedrake.NonlinearVariationalProblem)
 def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     new_problem = get_relative(self, problem)
@@ -281,18 +300,7 @@ def reconstruct_nlvp(problem, self, coefficient_mapping=None):
 
     def transfer_callback(fine, restriction, rscale, injection, coarse):
         cctx = get_appctx(coarse)
-        cmapping = cctx._coefficient_mapping
-        if cmapping is None:
-            return
-
-        manager = get_transfer_manager(fine)
-        for c, mapped in cmapping.items():
-            manager.transfer(c, mapped)
-
-        # Apply bcs
-        if cctx.pre_apply_bcs:
-            for bc in cctx._problem.dirichlet_bcs():
-                bc.apply(cctx._x)
+        transfer_coefficients(cctx, cctx._coefficient_mapping, get_transfer_manager(fine))
 
     def coarsen_callback(fine, coarse):
         if not coarse.getAttr("_coarsen_hook"):
