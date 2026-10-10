@@ -203,6 +203,44 @@ class HierarchyBase(object):
                 cache.clear()
         return mesh
 
+    def set_finest_mesh(self, mesh) -> bool:
+        """Make an adapted mesh the finest level of the hierarchy.
+
+        The levels above the nearest adaptive ancestor of ``mesh`` that is a
+        level are replaced by the chain of adaptive parents of ``mesh``.
+
+        Parameters
+        ----------
+        mesh : MeshGeometry
+            An adapted mesh on a level of the hierarchy.
+
+        Returns
+        -------
+        bool
+            Whether the levels that are coarser than ``mesh`` have changed.
+
+        """
+        _, level = get_level(mesh)
+        coarse_levels = self[:level]
+        chain = [mesh]
+        ancestor = mesh._adaptive_parent
+        while ancestor is not None and ancestor not in self:
+            chain.append(ancestor)
+            ancestor = ancestor._adaptive_parent
+        if ancestor is None:
+            ancestor = self[0]
+            chain = [] if mesh is ancestor else [mesh]
+        target = [*self[:self.meshes.index(ancestor) + 1], *reversed(chain)]
+        # The levels that already match the target keep their cell maps.
+        keep = 0
+        while keep < min(len(self), len(target)) and self[keep] is target[keep]:
+            keep += 1
+        while len(self) > keep:
+            self.remove_mesh()
+        for m in target[keep:]:
+            self.add_mesh(m)
+        return list(map(id, coarse_levels)) != list(map(id, target[:-1]))
+
     def adapt(self, eta, theta: float):
         """Add a new mesh to the hierarchy by locally refining the finest mesh
         with a simplified variant of Dorfler marking.

@@ -7,7 +7,7 @@ from firedrake.cython import mgimpl as impl
 from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
-from firedrake.mesh import Mesh, MeshGeometry, MeshSequenceGeometry, DISTRIBUTION_PARAMETERS_NOOP
+from firedrake.mesh import Mesh, MeshGeometry, DISTRIBUTION_PARAMETERS_NOOP
 from firedrake.netgen import _snap_to_netgen, _curve_netgen_mesh
 from firedrake.petsc import PETSc
 
@@ -235,40 +235,3 @@ def adapted_cell_maps(coarse: MeshGeometry, fine: MeshGeometry) -> tuple | None:
     fine_to_coarse = np.where(fine_to_coarse < 0, fine_to_coarse[:, :1], fine_to_coarse)
     fine_to_coarse_points = fine_points if ancestor is coarse else None
     return coarse_to_fine, fine_to_coarse, fine_to_coarse_points
-
-
-def follow_adaptive_parents(mesh: MeshGeometry | MeshSequenceGeometry) -> None:
-    """Make each component of an adapted mesh the finest level of its hierarchy.
-
-    The levels above the nearest adaptive ancestor that is a level are
-    replaced by the chain of adaptive parents.
-
-    Parameters
-    ----------
-    mesh
-        An adapted mesh, or a sequence of adapted meshes.
-
-    """
-    from firedrake.mg.utils import get_level
-
-    for component in set(mesh):
-        hierarchy, _ = get_level(component)
-        chain = [component]
-        ancestor = component._adaptive_parent
-        while ancestor is not None and ancestor not in hierarchy:
-            chain.append(ancestor)
-            ancestor = ancestor._adaptive_parent
-        if ancestor is None:
-            ancestor = hierarchy[0]
-            chain = [] if component is ancestor else [component]
-        target = [*hierarchy[:hierarchy.meshes.index(ancestor) + 1], *reversed(chain)]
-        # The levels that already match the target keep their cell maps.
-        keep = 0
-        while keep < min(len(hierarchy), len(target)) and hierarchy[keep] is target[keep]:
-            keep += 1
-        while len(hierarchy) > keep:
-            hierarchy.remove_mesh()
-        for m in target[keep:]:
-            hierarchy.add_mesh(m)
-    if isinstance(mesh, MeshSequenceGeometry):
-        mesh.set_hierarchy()
