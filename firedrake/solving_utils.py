@@ -410,11 +410,6 @@ class _SNESContext(object):
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
                          P=self._pjac.petscmat)
-        # Every solver on this function space shares its DM, and the coarse
-        # DMs of a multigrid hierarchy share its DMKSP. The setup of another
-        # SNES writes that SNES into the DMKSP, so the hook that reads the
-        # application context of the DM is put back before each solve.
-        snes.getDM().setKSPComputeOperators(self.compute_operators)
 
     def set_nullspace(self, nullspace, ises=None, transpose=False, near=False):
         if nullspace is None:
