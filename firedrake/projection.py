@@ -170,7 +170,8 @@ class ProjectorBase(metaclass=abc.ABCMeta):
             slate_supported = False
             needs_trace = False
         else:
-            slate_supported = F.finat_element.is_dg() and not F.mesh().variable_layers
+            slate_supported = F.finat_element is not None and F.finat_element.is_dg() \
+                and not F.mesh().variable_layers
             needs_trace = F.ufl_element().family() in {"HDiv Trace", "Boundary Quadrature"}
 
         self.use_slate_for_inverse = use_slate_for_inverse and slate_supported
@@ -232,6 +233,22 @@ class ProjectorBase(metaclass=abc.ABCMeta):
     def project(self):
         self.apply_massinv(self.target, self.rhs)
         return self.target
+
+
+class RealProjector(ProjectorBase):
+    """Projects the mean value of the source, when the source or the target is in a Real space.
+
+    The source and the target can be on different meshes. The projection is
+    the mean value of the source on its own mesh when the target is Real, and
+    the value of the source when the source is Real.
+    """
+    @property
+    def rhs(self):
+        source_mesh = extract_unique_domain(self.source)
+        mean = firedrake.assemble(self.source*ufl.dx) / firedrake.assemble(1*ufl.dx(source_mesh))
+        v = firedrake.TestFunction(self.target.function_space())
+        self.residual.assign(mean * firedrake.assemble(firedrake.conj(v)*firedrake.dx))
+        return self.residual
 
 
 class BasicProjector(ProjectorBase):
@@ -344,8 +361,21 @@ def Projector(
     if source.ufl_shape != target.ufl_shape:
         raise ValueError("Shape mismatch between source %s and target %s in project" %
                          (source.ufl_shape, target.ufl_shape))
+    if target.ufl_element().family() == "Real" and ufl.checks.is_scalar_constant_expression(source):
+        return Assigner(source, target)
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
         return Assigner(source, target)
+    elif "Real" in {target.ufl_element().family(),
+                    isinstance(source, function.Function) and source.ufl_element().family()}:
+        # The mass matrix of a Real space can only be applied matrix-free.
+        return RealProjector(
+            source, target, bcs=bcs,
+            solver_parameters={"mat_type": "matfree", **(solver_parameters or {})},
+            form_compiler_parameters=form_compiler_parameters,
+            constant_jacobian=constant_jacobian,
+            use_slate_for_inverse=use_slate_for_inverse,
+            quadrature_degree=quadrature_degree
+        )
     elif source_mesh == target_mesh:
         return BasicProjector(
             source, target, bcs=bcs, solver_parameters=solver_parameters,
@@ -357,7 +387,7 @@ def Projector(
     else:
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
-        if not isinstance(source, function.Function) or source.ufl_element().family() == "Real":
+        if not isinstance(source, function.Function):
             raise NotImplementedError("Only for source Functions, not %s" % type(source))
         return SupermeshProjector(
             source, target, bcs=bcs, solver_parameters=solver_parameters,

@@ -51,11 +51,18 @@ def test_mismatching_meshes_indexed_function(mesh1, mesh3):
 def test_mismatching_meshes_real_space(mesh1, mesh3):
     V2 = FunctionSpace(mesh3, "CG", 1)
 
-    donor = Function(FunctionSpace(mesh1, "R")).assign(1)
+    donor = Function(FunctionSpace(mesh1, "R", 0)).assign(3)
     target = Function(V2)
 
-    with pytest.raises(NotImplementedError):
-        project(donor, target)
+    project(donor, target)
+    assert np.allclose(target.dat.data_ro, 3)
+
+    x = SpatialCoordinate(mesh3)
+    donor = Function(V2).interpolate(x[0])
+    target = Function(FunctionSpace(mesh1, "R", 0))
+
+    project(donor, target)
+    assert np.allclose(target.dat.data_ro, assemble(x[0]*dx) / assemble(1*dx(domain=mesh3)))
 
 
 def test_functional(mesh1, mesh2):
