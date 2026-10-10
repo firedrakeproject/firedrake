@@ -540,6 +540,7 @@ class Injection(object):
         self.manager = manager
 
     def multTranspose(self, mat, x, y):
+        # PCMG expects the transpose of the injection.
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
         self.manager.inject(self.ffn, self.cfn)
@@ -583,8 +584,7 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    # The matrix maps coarse to fine like the interpolation, so that MatRestrict()
-    # applies its transpose even when both spaces have the same dimension.
+    # PCMG applies MatRestrict() to the transpose of the injection from coarse to fine.
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
 
