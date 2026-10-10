@@ -467,6 +467,31 @@ def set_refine_level(V):
         W.dm.setRefineLevel(level)
 
 
+def _transfer_adapted_coefficients(source, interp, target):
+    """Transfer the coefficients of the problem onto an adapted DM.
+
+    DMAdaptorAdapt() calls this interpolate hook of the adapted DM through
+    DMInterpolate(). The ``snes_adapt_transfer_`` options configure the
+    :class:`~.TransferManager`.
+
+    Parameters
+    ----------
+    source : PETSc.DM
+        The solution DM before the adaptation.
+    interp : PETSc.Mat
+        The interpolation matrix from ``source`` to ``target`` (unused).
+    target : PETSc.DM
+        The adapted solution DM.
+    """
+    from firedrake.mg.ufl_utils import transfer_coefficients
+    source_ctx = get_appctx(source)
+    target_ctx = get_appctx(target)
+    coefficient_mapping = {source_ctx._adapted_coefficients[c]: v
+                           for c, v in target_ctx._adapted_coefficients.items()}
+    manager = firedrake.TransferManager(options_prefix=f"{target_ctx.options_prefix or ''}snes_adapt_transfer_")
+    transfer_coefficients(target_ctx, coefficient_mapping, manager)
+
+
 def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` reconstructed on the adapted mesh,
@@ -526,32 +551,29 @@ def _refine_adaptive(dm):
             mesh_sequence.set_hierarchy()
         reconstruct = refine
     _, adapted_level = get_level(adapted_mesh)
-    options_prefix = f"{ctx.options_prefix or ''}snes_adapt_transfer_"
-    manager = firedrake.TransferManager(options_prefix=options_prefix)
     refined_ctx = ctx
-    adapted_coefficients = ctx._adapted_coefficients
     for _ in range(abs(adapted_level - level)):
         old_ctx = refined_ctx
         refined_ctx = reconstruct(old_ctx, reconstruct, coefficient_mapping={})
-        if old_ctx._x in refined_ctx._coefficient_mapping:
-            coefficient_mapping = refined_ctx._coefficient_mapping
-        else:
-            # The coarsening returned the context that old_ctx was refined from.
-            coefficient_mapping = {v: c for c, v in old_ctx._coefficient_mapping.items()}
-        for c, v in coefficient_mapping.items():
-            manager.transfer(c, v)
-        adapted_coefficients = {c: coefficient_mapping[v] for c, v in adapted_coefficients.items()}
-    refined_ctx._adapted_coefficients = adapted_coefficients
+        coefficient_mapping = refined_ctx._coefficient_mapping
+        if old_ctx._x in coefficient_mapping:
+            refined_ctx._adapted_coefficients = {c: coefficient_mapping[v]
+                                                 for c, v in old_ctx._adapted_coefficients.items()}
+        # Otherwise the coarsening returned the context that old_ctx was
+        # refined from, which keeps its own counterparts.
     set_refine_level(refined_ctx._problem.u_restrict.function_space())
+    refined_dm = refined_ctx._problem.dm
+    if not refined_dm.getAttr("_adapt_hook"):
+        refined_dm.addRefineHook(None, _transfer_adapted_coefficients)
+        refined_dm.setAttr("_adapt_hook", True)
     parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
     # Get all DMs from the refined problem
-    dms = [refined_ctx._problem.u_restrict.function_space().dm]
-    for value in coefficient_mapping.values():
-        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
-            value_dm = value.function_space().dm
-            if value_dm not in dms:
-                dms.append(value_dm)
+    dms = [refined_dm]
+    for value in refined_ctx._adapted_coefficients.values():
+        value_dm = value.function_space().dm
+        if value_dm not in dms:
+            dms.append(value_dm)
     # Attach refined context
     for refined_dm in dms:
         add_hook(parent, setup=partial(push_parent, refined_dm, parent),
