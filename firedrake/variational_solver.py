@@ -477,10 +477,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
-        # Used for custom grid transfer.
-        self._transfer_operators = ()
-        self._setup = False
-
     @property
     def _problem(self):
         """The :class:`NonlinearVariationalProblem` to solve"""
@@ -600,16 +596,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        # An adaptation replaces the problem, and with it the layout of the solution.
-        work = problem.u_restrict.dof_dset.layout_vec.duplicate()
+        work = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
                 for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
-                                 self._transfer_operators):
+                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
                 adapted = self.snes.getSolution() != work
@@ -617,7 +611,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                     # DMAdaptorAdapt() consumed a reference to work when it put
                     # a vector of its own in place.
                     work.incRef()
-                # The appctx might have been refined
+                # Adaptivity changes the DM, so keep the _SNESContext up to date.
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
         if adapted:
             from firedrake.adapt import follow_adaptive_parents
@@ -634,7 +628,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             solution.copy(u)
-        self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
