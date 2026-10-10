@@ -35,7 +35,8 @@ class TransferManager(object):
             self._work_vec = {}
             self._V_dof_weights = {}
 
-    def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree"):
+    def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree",
+                 transfer_type="interpolate"):
         """Manage transfers between levels in a multigrid hierarchy.
 
         Parameters
@@ -49,11 +50,21 @@ class TransferManager(object):
             embedded DG space. If false, perform a global L2 projection.
         mat_type : str
             The matrix assembly type for prolongation and restriction.
+        transfer_type : str
+            Either ``"interpolate"``, which transfers primal functions by the
+            interpolation or projection described above, or ``"project"``,
+            which transfers each primal function by an unconstrained
+            supermesh L2 projection. Projection preserves integrals if the
+            target space contains constants. Neither type imposes Dirichlet
+            boundary values on the target.
         """
+        if transfer_type not in ("interpolate", "project"):
+            raise ValueError("transfer_type must be 'interpolate' or 'project'")
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
         self.caches = {}
         self.mat_type = mat_type
+        self.transfer_type = transfer_type
         self._mat_cache = {}
 
     def is_native(self, element, gdim, op):
@@ -273,7 +284,14 @@ class TransferManager(object):
             return
 
         gdim = Vt.mesh().geometric_dimension
-        if self.is_native(target_element, gdim, transfer_op):
+        if self.transfer_type == "project":
+            if source_element.family() == "Real":
+                # The L2 projection of a constant onto constants is that constant.
+                target.assign(source)
+            else:
+                # Supermesh L2 projection, which can be applied between any two meshes.
+                target.project(source, solver_parameters={"ksp_rtol": 1e-12, "ksp_atol": 1e-14})
+        elif self.is_native(target_element, gdim, transfer_op):
             self._native_transfer(target_element, gdim, transfer_op)(source, target)
         else:
             # Get some work vectors
