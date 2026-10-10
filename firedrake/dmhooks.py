@@ -253,6 +253,51 @@ class add_hooks(object):
         hooks.teardown()
 
 
+def push_setup_hooks(dm: PETSc.DM, hooks: SetupHooks) -> None:
+    """Attach a set of setup hooks to a DM and run its setup hooks.
+
+    Parameters
+    ----------
+    dm
+        The DM that records the hooks of its subproblems in ``hooks``.
+    hooks
+        The setup hooks to attach.
+    """
+    push_attr("__setup_hooks__", dm, hooks)
+    hooks.setup()
+
+
+def pop_setup_hooks(dm: PETSc.DM, hooks: SetupHooks) -> None:
+    """Detach a set of setup hooks from a DM and run its teardown hooks.
+
+    Parameters
+    ----------
+    dm
+        The DM that :func:`push_setup_hooks` attached ``hooks`` to.
+    hooks
+        The setup hooks to detach.
+    """
+    pop_attr("__setup_hooks__", dm, hooks)
+    hooks.teardown()
+
+
+def get_setup_hooks(dm: PETSc.DM) -> SetupHooks | None:
+    """Return the setup hooks that are currently attached to a DM.
+
+    Parameters
+    ----------
+    dm
+        The DM to query.
+
+    Returns
+    -------
+    SetupHooks | None
+        The setup hooks that record the hooks of the subproblems of ``dm``,
+        or ``None`` if no setup hooks are attached.
+    """
+    return get_attr("__setup_hooks__", dm)
+
+
 # Things we're going to transfer around DMs
 push_parent = partial(push_attr, "__parent__")
 pop_parent = partial(pop_attr, "__parent__")
@@ -518,7 +563,6 @@ def _refine_adaptive(dm):
     markers change no cell, so that DMAdaptorAdapt() keeps the current DM and
     solution.
     """
-    from firedrake.adapt import follow_adaptive_parents
     from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import coarsen, refine
     from firedrake.mg.utils import get_level
@@ -534,7 +578,9 @@ def _refine_adaptive(dm):
         if hierarchy[level+1]._adaptive_parent is not mesh:
             raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
         # An earlier adaptation returned this mesh as an ancestor of finer levels.
-        follow_adaptive_parents(mesh_sequence)
+        hierarchy.set_finest_mesh(mesh)
+        if mesh_sequence is not mesh:
+            mesh_sequence.set_hierarchy()
     if ctx._marking_callback is None:
         raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
 
@@ -576,8 +622,15 @@ def _refine_adaptive(dm):
     if not refined_dm.getAttr("_adapt_hook"):
         refined_dm.addRefineHook(None, _transfer_adapted_coefficients)
         refined_dm.setAttr("_adapt_hook", True)
-    parent = get_parent(dm)
     coarsener = get_ctx_coarsener(dm)
+    # The refined DM is the parent of the refined problem. Its own setup hooks
+    # record the hooks of its subproblems, so that the solver can keep them
+    # after the adaptation.
+    parent = refined_dm
+    hooks = SetupHooks()
+    add_hook(get_parent(dm), setup=partial(push_setup_hooks, parent, hooks),
+             teardown=partial(pop_setup_hooks, parent, hooks),
+             call_setup=True)
     # Get all DMs from the refined problem
     dms = [refined_dm]
     for value in refined_ctx._coefficient_mapping.values():
