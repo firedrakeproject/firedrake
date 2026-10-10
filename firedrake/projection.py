@@ -148,6 +148,10 @@ class ProjectorBase(metaclass=abc.ABCMeta):
             solver_parameters = solver_parameters.copy()
         solver_parameters.setdefault("ksp_type", "cg")
         solver_parameters.setdefault("ksp_rtol", 1e-8)
+        if target.ufl_element().family() == "Real":
+            # The assembled mass matrix of a Real space has no factorization,
+            # so it is applied matrix-free.
+            solver_parameters.setdefault("mat_type", "matfree")
         mat_type = solver_parameters.get("mat_type", firedrake.parameters["default_matrix_type"])
         if mat_type == "nest":
             solver_parameters.setdefault("pc_type", "fieldsplit")
@@ -236,11 +240,11 @@ class ProjectorBase(metaclass=abc.ABCMeta):
 
 
 class RealProjector(ProjectorBase):
-    """Projects the mean value of the source, when the source or the target is in a Real space.
+    """Projects between a Real space and a space on another mesh.
 
-    The source and the target can be on different meshes. The projection is
-    the mean value of the source on its own mesh when the target is Real, and
-    the value of the source when the source is Real.
+    Both meshes must cover the same domain. The projection is the mean value
+    of the source on its own mesh when the target is Real, and the value of
+    the source when the source is Real.
     """
     @property
     def rhs(self):
@@ -361,23 +365,19 @@ def Projector(
     if source.ufl_shape != target.ufl_shape:
         raise ValueError("Shape mismatch between source %s and target %s in project" %
                          (source.ufl_shape, target.ufl_shape))
-    if target.ufl_element().family() == "Real" and ufl.checks.is_scalar_constant_expression(source):
-        return Assigner(source, target)
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
         return Assigner(source, target)
-    elif "Real" in {target.ufl_element().family(),
-                    isinstance(source, function.Function) and source.ufl_element().family()}:
-        # The mass matrix of a Real space can only be applied matrix-free.
-        return RealProjector(
-            source, target, bcs=bcs,
-            solver_parameters={"mat_type": "matfree", **(solver_parameters or {})},
+    elif source_mesh == target_mesh:
+        return BasicProjector(
+            source, target, bcs=bcs, solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
             use_slate_for_inverse=use_slate_for_inverse,
             quadrature_degree=quadrature_degree
         )
-    elif source_mesh == target_mesh:
-        return BasicProjector(
+    elif "Real" in {target.ufl_element().family(),
+                    isinstance(source, function.Function) and source.ufl_element().family()}:
+        return RealProjector(
             source, target, bcs=bcs, solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
