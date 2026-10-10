@@ -221,7 +221,6 @@ class HierarchyBase(object):
 
         """
         _, level = get_level(mesh)
-        coarse_levels = self[:level]
         chain = [mesh]
         ancestor = mesh._adaptive_parent
         while ancestor is not None and ancestor not in self:
@@ -239,7 +238,7 @@ class HierarchyBase(object):
             self.remove_mesh()
         for m in target[keep:]:
             self.add_mesh(m)
-        return list(map(id, coarse_levels)) != list(map(id, target[:-1]))
+        return keep < level or len(target) != level + 1
 
     def adapt(self, eta, theta: float):
         """Add a new mesh to the hierarchy by locally refining the finest mesh

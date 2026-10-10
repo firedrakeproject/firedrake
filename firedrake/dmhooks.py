@@ -229,28 +229,26 @@ class add_hooks(object):
     def __enter__(self):
         if not self.first_time:
             # We've already run setup, so just attach the data to the subdms.
-            hooks = self.obj.setup_hooks
-            push_attr("__setup_hooks__", self.dm, hooks)
-            hooks.setup()
+            push_setup_hooks(self.dm, self.obj.setup_hooks)
         else:
             # Not yet seen, let's save the relevant information.
             hooks = SetupHooks()
             if self.save:
                 # Remember it for later
                 self.obj.setup_hooks = hooks
-            push_attr("__setup_hooks__", self.dm, hooks)
+            push_setup_hooks(self.dm, hooks)
             if self.appctx is not None:
                 add_hook(self.dm, setup=partial(push_appctx, self.dm, self.appctx),
                          teardown=partial(pop_appctx, self.dm, self.appctx),
                          call_setup=True)
 
     def __exit__(self, typ, value, traceback):
-        hooks = pop_attr("__setup_hooks__", self.dm)
+        hooks = get_setup_hooks(self.dm)
         if self.first_time:
             assert hooks is not None
         else:
             assert hooks == self.obj.setup_hooks
-        hooks.teardown()
+        pop_setup_hooks(self.dm, hooks)
 
 
 def push_setup_hooks(dm: PETSc.DM, hooks: SetupHooks) -> None:
@@ -259,7 +257,7 @@ def push_setup_hooks(dm: PETSc.DM, hooks: SetupHooks) -> None:
     Parameters
     ----------
     dm
-        The DM that records the hooks of its subproblems in ``hooks``.
+        The DM to attach the hooks to.
     hooks
         The setup hooks to attach.
     """
@@ -273,7 +271,7 @@ def pop_setup_hooks(dm: PETSc.DM, hooks: SetupHooks) -> None:
     Parameters
     ----------
     dm
-        The DM that :func:`push_setup_hooks` attached ``hooks`` to.
+        The DM to detach the hooks from.
     hooks
         The setup hooks to detach.
     """
@@ -292,8 +290,8 @@ def get_setup_hooks(dm: PETSc.DM) -> SetupHooks | None:
     Returns
     -------
     SetupHooks | None
-        The setup hooks that record the hooks of the subproblems of ``dm``,
-        or ``None`` if no setup hooks are attached.
+        The setup hooks that were attached last, or ``None`` if no setup
+        hooks are attached.
     """
     return get_attr("__setup_hooks__", dm)
 
@@ -599,9 +597,6 @@ def _refine_adaptive(dm):
     adapted_mesh = mesh.refine_marked_elements(markers)
     if adapted_mesh is mesh:
         return PETSc.DM()
-    # DMAdaptorAdapt() destroys its input DM after an adaptation, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    dm.incRef()
     if hierarchy is None:
         hierarchy, level = MeshHierarchy(mesh), 0
     adapted_hierarchy, _ = get_level(adapted_mesh)
@@ -623,9 +618,8 @@ def _refine_adaptive(dm):
         refined_dm.addRefineHook(None, _transfer_adapted_coefficients)
         refined_dm.setAttr("_adapt_hook", True)
     coarsener = get_ctx_coarsener(dm)
-    # The refined DM is the parent of the refined problem. Its own setup hooks
-    # record the hooks of its subproblems, so that the solver can keep them
-    # after the adaptation.
+    # The refined DM records the hooks of its subproblems in its own setup
+    # hooks, which the solver keeps after the adaptation.
     parent = refined_dm
     hooks = SetupHooks()
     add_hook(get_parent(dm), setup=partial(push_setup_hooks, parent, hooks),
