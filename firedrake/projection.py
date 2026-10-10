@@ -242,17 +242,19 @@ class ProjectorBase(metaclass=abc.ABCMeta):
 class RealProjector(ProjectorBase):
     """Projects between a Real space and a space on another mesh.
 
-    Both meshes must cover the same domain. The projection is the mean value
-    of the source on its own mesh when the target is Real, and the value of
-    the source when the source is Real.
+    Both meshes must cover the same domain.
     """
     @property
     def rhs(self):
-        source_mesh = extract_unique_domain(self.source)
-        mean = firedrake.assemble(self.source*ufl.dx) / firedrake.assemble(1*ufl.dx(source_mesh))
-        v = firedrake.TestFunction(self.target.function_space())
-        self.residual.assign(mean * firedrake.assemble(firedrake.conj(v)*firedrake.dx))
-        return self.residual
+        if self.target.ufl_element().family() == "Real":
+            # The test function of a Real space is the constant one, so the
+            # right-hand side is the integral of the source on its own mesh.
+            return self.residual.assign(firedrake.assemble(self.source*ufl.dx))
+        else:
+            # A Real source is a constant, which multiplies the integral of
+            # the test function on the target mesh.
+            v = firedrake.TestFunction(self.target.function_space())
+            return self.residual.assign(self.source.dat.data_ro[0] * firedrake.assemble(firedrake.conj(v)*firedrake.dx))
 
 
 class BasicProjector(ProjectorBase):
@@ -375,21 +377,16 @@ def Projector(
             use_slate_for_inverse=use_slate_for_inverse,
             quadrature_degree=quadrature_degree
         )
-    elif "Real" in {target.ufl_element().family(),
-                    isinstance(source, function.Function) and source.ufl_element().family()}:
-        return RealProjector(
-            source, target, bcs=bcs, solver_parameters=solver_parameters,
-            form_compiler_parameters=form_compiler_parameters,
-            constant_jacobian=constant_jacobian,
-            use_slate_for_inverse=use_slate_for_inverse,
-            quadrature_degree=quadrature_degree
-        )
     else:
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
         if not isinstance(source, function.Function):
             raise NotImplementedError("Only for source Functions, not %s" % type(source))
-        return SupermeshProjector(
+        if source.ufl_element().family() == "Real" or target.ufl_element().family() == "Real":
+            projector_type = RealProjector
+        else:
+            projector_type = SupermeshProjector
+        return projector_type(
             source, target, bcs=bcs, solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
