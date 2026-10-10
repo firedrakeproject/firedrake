@@ -159,8 +159,10 @@ def _adapt(mesh, marker):
 
 
 def _assert_same_mesh(mesh, expected):
-    for dim in (0, mesh.topological_dimension):
-        sizes = [m.comm.allreduce(len(range(*m.topology_dm.getDepthStratum(dim)))) for m in (mesh, expected)]
+    # The global dimensions of P1 and DG0 count each vertex and each cell once,
+    # independently of how the mesh is distributed.
+    for family, degree in (("CG", 1), ("DG", 0)):
+        sizes = [FunctionSpace(m, family, degree).dim() for m in (mesh, expected)]
         assert sizes[0] == sizes[1]
     assert np.isclose(assemble(1*dx(mesh)), assemble(1*dx(expected)))
 
