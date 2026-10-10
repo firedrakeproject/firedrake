@@ -297,20 +297,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
 
 
 class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin):
-    r"""Solves a :class:`NonlinearVariationalProblem`.
-
-    Notes
-    -----
-    These ``solver_parameters`` set how :class:`~.TransferManager`
-    transfers functions:
-
-    - ``mg_transfer_mat_type``: the prolongation and the restriction
-      between the levels of PCMG and SNESFAS, and the prolongation of the
-      coefficients onto an adapted mesh.
-    - ``mg_transfer_inject_type``: the injection of the solution and the
-      coefficients onto the coarser levels of PCMG and SNESFAS, and of the
-      solution onto an adapted mesh.
-    """
+    r"""Solves a :class:`NonlinearVariationalProblem`."""
 
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS
 
