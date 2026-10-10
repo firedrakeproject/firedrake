@@ -79,37 +79,32 @@ def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
 def refine_marked_elements(mesh, cell_marker):
     """Adaptively refine or coarsen a mesh using a DG0 marking function.
 
-    Each round of adaptation refines the cells with a positive marker value
-    once, by skeleton-based refinement, and undoes one round of requested
-    refinement for the cells with a negative marker value. PETSc coarsens a
-    cell of an adaptive ancestor only if all the cells that it was refined
-    into ask, and then refines the ancestor again without it. After each
-    round, the vertices of a Netgen mesh are snapped onto its geometry. At the
-    end, the coordinates are curved to their original degree.
+    Positive integer marker values request repeated refinement of the
+    corresponding cells, and negative values request one round of
+    coarsening. PETSc coarsens a cell of an adaptive ancestor only if all the
+    cells that it was refined into ask. The vertices of a Netgen mesh are
+    snapped onto its geometry after each round, and the coordinates are
+    curved to their original degree at the end.
 
     Parameters
     ----------
     mesh
         The mesh to adapt.
     cell_marker
-        A DG0 `~firedrake.function.Function` on ``mesh``. If no value is
-        negative, the cells with a positive value ``n`` are refined ``n``
-        times. Otherwise, one round is done: the cells with a positive value
-        are refined once, and the cells with a negative value are coarsened
-        once, which can go past the adaptive parent of ``mesh`` to its own
-        ancestors. To coarsen by more rounds, call this function again.
+        A DG0 `~firedrake.function.Function` on ``mesh``: cells with a
+        positive value ``n`` are refined ``n`` times. If any value is
+        negative, only one round is done, which can coarsen past the adaptive
+        parent of ``mesh``.
 
     Returns
     -------
     MeshGeometry
-        The adapted mesh, which is ``mesh`` itself if ``cell_marker``
-        changes no cell, and an adaptive ancestor of ``mesh`` if the
-        coarsening undoes all the refinement after it. Its
-        ``_adaptive_parent`` is the closest adaptive ancestor of ``mesh`` that
-        it was transformed from: ``mesh`` after a refinement, and an earlier
-        ancestor after a coarsening. Its ``_adaptive_fine_to_coarse_points``
-        is the DMPlex point of the adaptive parent that each of its DMPlex
-        points comes from.
+        The adapted mesh, with ``_adaptive_parent`` set to the closest
+        adaptive ancestor that it was transformed from, and
+        ``_adaptive_fine_to_coarse_points`` set to the DMPlex point of that
+        ancestor that each of its DMPlex points comes from. This is ``mesh``
+        itself if no cell changes, or an adaptive ancestor of ``mesh`` if the
+        coarsening undoes all the refinement after it.
 
     """
     marker = Function(cell_marker.function_space())
@@ -123,7 +118,7 @@ def refine_marked_elements(mesh, cell_marker):
     if num_rounds <= 0:
         return mesh
 
-    ancestors = _adaptive_ancestor_dms(mesh)
+    ancestors = {m.topology_dm.handle: m for m, _ in _adaptive_ancestors(mesh)}
     current_mesh = mesh
     current_mark = marker
     is_netgen = hasattr(mesh, "netgen_mesh")
@@ -137,6 +132,12 @@ def refine_marked_elements(mesh, cell_marker):
             if highest <= 0:
                 return mesh
             new_dm.setCoarseDM(current_mesh.topology_dm)
+        # Follow the coarse DMs back to the closest adaptive ancestor.
+        dm = new_dm
+        fine_to_coarse_points = np.arange(*dm.getChart(), dtype=IntType)
+        while dm.handle not in ancestors:
+            fine_to_coarse_points = impl.compose_points(dmcommon.transform_source_points(dm), fine_to_coarse_points)
+            dm = dm.getCoarseDM()
         # The transform propagates every label, including the temporary adapt
         # label and the coarse mesh's stale pyop2_core/owned/ghost point
         # classification. Mesh() skips recomputing that classification if it's
@@ -164,7 +165,6 @@ def refine_marked_elements(mesh, cell_marker):
                 # A cell asking for n refinements stays marked until n rounds
                 # have happened, so its descendants inherit n minus the number
                 # of rounds so far.
-                _, fine_to_coarse_points = _closest_adaptive_ancestor(new_dm, ancestors)
                 _, fine_to_coarse = impl.coarse_to_fine_cells(mesh, current_mesh, fine_to_coarse_points)
                 ancestor = fine_to_coarse[:, 0]
                 refined = ancestor >= 0
@@ -179,48 +179,13 @@ def refine_marked_elements(mesh, cell_marker):
             final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
                                             cg_field=not coordinates.finat_element.is_dg())
 
-    final_mesh._adaptive_parent, final_mesh._adaptive_fine_to_coarse_points = \
-        _closest_adaptive_ancestor(final_mesh.topology_dm, ancestors)
+    final_mesh._adaptive_parent = ancestors[dm.handle]
+    final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
     _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh
 
 
-def _adaptive_ancestor_dms(mesh: MeshGeometry) -> dict[int, MeshGeometry]:
-    """Return ``mesh`` and each of its adaptive ancestors, keyed by the handle of its DMPlex."""
-    ancestors = {}
-    while mesh is not None:
-        ancestors[mesh.topology_dm.handle] = mesh
-        mesh = mesh._adaptive_parent
-    return ancestors
-
-
-def _closest_adaptive_ancestor(dm: PETSc.DMPlex, ancestors: dict[int, MeshGeometry]) -> tuple[MeshGeometry, np.ndarray]:
-    """Find the mesh that an adapted DMPlex comes from.
-
-    Parameters
-    ----------
-    dm
-        A DMPlex made by `_adapt_marked_cells`, or by earlier rounds of it.
-    ancestors
-        Meshes keyed by the handle of their DMPlex, as returned by
-        `_adaptive_ancestor_dms`.
-
-    Returns
-    -------
-    tuple
-        The first mesh of ``ancestors`` that the chain of coarse DMs of
-        ``dm`` reaches, and the map of the DMPlex points of ``dm`` to its
-        points, composed from the transforms saved along the chain.
-
-    """
-    points = np.arange(*dm.getChart(), dtype=IntType)
-    while dm.handle not in ancestors:
-        points = impl.compose_points(dmcommon.transform_source_points(dm), points)
-        dm = dm.getCoarseDM()
-    return ancestors[dm.handle], points
-
-
-def _adaptive_ancestors(mesh):
+def _adaptive_ancestors(mesh: MeshGeometry):
     """Yield ``mesh`` and each of its adaptive ancestors, with the map of the DMPlex points of ``mesh`` to theirs."""
     points = np.arange(*mesh.topology_dm.getChart(), dtype=IntType)
     while mesh is not None:
@@ -230,7 +195,7 @@ def _adaptive_ancestors(mesh):
         mesh = mesh._adaptive_parent
 
 
-def adapted_cell_maps(coarse, fine):
+def adapted_cell_maps(coarse: MeshGeometry, fine: MeshGeometry) -> tuple | None:
     """Return the cell maps between two meshes adapted from a common ancestor.
 
     A cell of one mesh is mapped to the cells of the other that come from
@@ -254,13 +219,13 @@ def adapted_cell_maps(coarse, fine):
         is ``None`` if the meshes have no common adaptive ancestor.
 
     """
-    fine_ancestors = list(_adaptive_ancestors(fine))
+    fine_ancestors = dict(_adaptive_ancestors(fine))
     for ancestor, coarse_points in _adaptive_ancestors(coarse):
-        fine_points = next((p for m, p in fine_ancestors if m is ancestor), None)
-        if fine_points is not None:
+        if ancestor in fine_ancestors:
             break
     else:
         return None
+    fine_points = fine_ancestors[ancestor]
     ancestor_to_coarse, coarse_to_ancestor = impl.coarse_to_fine_cells(ancestor, coarse, coarse_points)
     ancestor_to_fine, fine_to_ancestor = impl.coarse_to_fine_cells(ancestor, fine, fine_points)
     coarse_to_fine = ancestor_to_fine[coarse_to_ancestor[:, 0]]
@@ -290,19 +255,15 @@ def follow_adaptive_parents(mesh: MeshGeometry | MeshSequenceGeometry) -> None:
         hierarchy, _ = get_level(component)
         chain = [component]
         ancestor = component._adaptive_parent
-        while ancestor is not None:
-            ancestor_hierarchy, level = get_level(ancestor)
-            if ancestor_hierarchy is hierarchy and hierarchy[level] is ancestor:
-                break
+        while ancestor is not None and ancestor not in hierarchy:
             chain.append(ancestor)
             ancestor = ancestor._adaptive_parent
-        else:
-            chain, level = [component], 0
-        target = [*hierarchy[:level + 1], *reversed(chain)]
-        if target[0] is component:
-            target = [component]
+        if ancestor is None:
+            ancestor = hierarchy[0]
+            chain = [] if component is ancestor else [component]
+        target = [*hierarchy[:hierarchy.meshes.index(ancestor) + 1], *reversed(chain)]
         # The levels that already match the target keep their cell maps.
-        keep = level + 1
+        keep = 0
         while keep < min(len(hierarchy), len(target)) and hierarchy[keep] is target[keep]:
             keep += 1
         while len(hierarchy) > keep:
