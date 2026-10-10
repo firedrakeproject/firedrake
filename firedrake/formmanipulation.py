@@ -14,9 +14,7 @@ from ufl.algorithms.analysis import has_type
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.dag_traverser import DAGTraverser
 
-from pyop2 import MixedDat
-from pyop2.utils import as_tuple
-
+from firedrake import utils
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
@@ -33,7 +31,8 @@ def subspace(V, indices):
     if len(indices) == 1:
         W = V[indices[0]]
     else:
-        W = MixedFunctionSpace([V[i] for i in indices])
+        labels = [V._labels[i] for i in indices]
+        W = MixedFunctionSpace([V[i] for i in indices], _labels=labels)
     return W.collapse()
 
 
@@ -82,7 +81,7 @@ class ExtractSubBlock(DAGTraverser):
             # Convert a UFL sum that contains Slate components into Slate.
             form = as_slate(form)
 
-        return self(form, blocks=tuple(as_tuple(i) for i in argument_indices))
+        return self(form, blocks=tuple(utils.as_tuple(i) for i in argument_indices))
 
     @functools.singledispatchmethod
     def process(self, o, blocks):
@@ -192,10 +191,16 @@ class ExtractSubBlock(DAGTraverser):
 
         # We only need the test space for Cofunction
         W = subspace(V, indices)
-        if len(W) == 1:
-            return Cofunction(W, val=o.dat[indices[0]])
+        # This is needed because the indices and labels do not match when we split things
+        slice_ = [
+            o.dat.axes.trees[0].root.component_labels[i]
+            for i in indices
+        ]
+        if len(indices) == 1:
+            # return a non-mixed thing
+            return Cofunction(W, val=o.dat[utils.just_one(slice_)])
         else:
-            return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
+            return Cofunction(W, val=o.dat[slice_])
 
     @process.register(Matrix)
     def _(self, o, blocks):
@@ -212,12 +217,12 @@ class ExtractSubBlock(DAGTraverser):
             if fields is not None:
                 asplit = self._subspace_argument(a, blocks)
                 for f in fields:
-                    fset = V.dof_dset.field_ises[f]
+                    fset = V.field_ises[f]
                     iset = iset.expand(fset)
             else:
                 fields = tuple(range(len(V)))
                 asplit = a
-                for fset in V.dof_dset.field_ises:
+                for fset in V.field_ises:
                     iset = iset.expand(fset)
 
             ises.append(iset)
@@ -397,5 +402,10 @@ def split_form(form, diagonal=False):
             if i != j:
                 continue
         f = splitter.split(form, idx)
+        # Set any non-mixed components to None, rather than zero
+        idx = tuple(
+            x if shape[i] > 1 else None
+            for i, x in enumerate(idx)
+        )
         forms.append(SplitForm(indices=idx[:rank], form=f))
     return tuple(forms)

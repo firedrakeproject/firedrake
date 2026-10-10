@@ -99,31 +99,11 @@ def test_betti1(space, mesh):
     L0 = assemble((inner(sigma, tau) - inner(u, rot(tau)) + inner(rot(sigma), v)
                    + inner(div(u), div(v))) * dx, bcs=[bc0, bc1])
 
-    dV0 = V0.dof_count
-    dV1 = V1.dof_count
-
-    A = numpy.zeros((dV0+dV1, dV0+dV1), dtype=utils.ScalarType)
-    A[:dV0, :dV0] = L.M[0, 0].values
-    A[:dV0, dV0:dV0+dV1] = L.M[0, 1].values
-    A[dV0:dV0+dV1, :dV0] = L.M[1, 0].values
-    A[dV0:dV0+dV1, dV0:dV0+dV1] = L.M[1, 1].values
-
-    u, s, v = linalg.svd(A)
-
+    u, s, v = linalg.svd(L.M.values)
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
 
-    dV0 = V0.dof_count
-    dV1 = V1.dof_count
-
-    A0 = numpy.zeros((dV0+dV1, dV0+dV1), dtype=utils.ScalarType)
-    A0[:dV0, :dV0] = L0.M[0, 0].values
-    A0[:dV0, dV0:dV0+dV1] = L0.M[0, 1].values
-    A0[dV0:dV0+dV1, :dV0] = L0.M[1, 0].values
-    A0[dV0:dV0+dV1, dV0:dV0+dV1] = L0.M[1, 1].values
-
-    u, s, v = linalg.svd(A0)
-
+    u, s, v = linalg.svd(L0.M.values)
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
 
@@ -158,28 +138,11 @@ def test_betti2(space, mesh):
     bc1 = DirichletBC(W.sub(0), 0, 9)
     L0 = assemble((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx, bcs=[bc1])
 
-    dV1 = V1.dof_count
-    dV2 = V2.dof_count
-
-    A = numpy.zeros((dV1+dV2, dV1+dV2), dtype=utils.ScalarType)
-    A[:dV1, :dV1] = L.M[0, 0].values
-    A[:dV1, dV1:dV1+dV2] = L.M[0, 1].values
-    A[dV1:dV1+dV2, :dV1] = L.M[1, 0].values
-    A[dV1:dV1+dV2, dV1:dV1+dV2] = L.M[1, 1].values
-
-    u, s, v = linalg.svd(A)
-
+    u, s, v = linalg.svd(L.M.values)
     nharmonic = sum(s < 1.0e-5)
     print(nharmonic, V1tag[0])
     assert nharmonic == 0
 
-    A0 = numpy.zeros((dV1+dV2, dV1+dV2), dtype=utils.ScalarType)
-    A0[:dV1, :dV1] = L0.M[0, 0].values
-    A0[:dV1, dV1:dV1+dV2] = L0.M[0, 1].values
-    A0[dV1:dV1+dV2, :dV1] = L0.M[1, 0].values
-    A0[dV1:dV1+dV2, dV1:dV1+dV2] = L0.M[1, 1].values
-
-    u, s, v = linalg.svd(A0)
-
+    u, s, v = linalg.svd(L0.M.values)
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1

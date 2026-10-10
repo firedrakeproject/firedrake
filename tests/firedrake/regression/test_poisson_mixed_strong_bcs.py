@@ -77,7 +77,7 @@ def test_poisson_mixed(parameters, quadrilateral):
     assert poisson_mixed(3, parameters, quadrilateral=quadrilateral) < 2e-5
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(3)
 def test_poisson_mixed_parallel_fieldsplit():
     x = poisson_mixed(3, parameters={'ksp_type': 'fgmres',
                                      'pc_type': 'fieldsplit',
@@ -91,7 +91,7 @@ def test_poisson_mixed_parallel_fieldsplit():
     assert x < 2e-5
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel(3)
 @pytest.mark.parametrize('quadrilateral', [False, True])
 def test_poisson_mixed_parallel(quadrilateral):
     assert poisson_mixed(3, quadrilateral=quadrilateral) < 2e-5

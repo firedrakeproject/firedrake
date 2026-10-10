@@ -74,10 +74,12 @@ def test_slate_mixed_matrix(Wd, mat_type):
     B = assemble(A.inv * A, mat_type=mat_type)
 
     for i, j in numpy.ndindex(B.block_shape):
+        ilabel = W2._labels[i]
+        jlabel = W2._labels[j]
         if i == j:
-            assert numpy.allclose(B.M[i, j].values, numpy.eye(W2.sub(i).dim()))
+            assert numpy.allclose(B.M[ilabel, jlabel].values, numpy.eye(W2.sub(i).dim()))
         else:
-            assert numpy.allclose(B.M[i, j].values, 0)
+            assert numpy.allclose(B.M[ilabel, jlabel].values, 0)
 
 
 @pytest.mark.parametrize("bc_type", ["component", "full"])
@@ -101,4 +103,6 @@ def test_slate_mixed_matrix_stokes(Wc, mat_type, bc_type):
     actual = assemble(A, bcs=bcs, mat_type=mat_type)
 
     for i, j in numpy.ndindex(expect.block_shape):
-        assert numpy.allclose(expect.M[i, j].values, actual.M[i, j].values)
+        ilabel = Wc._labels[i]
+        jlabel = Wc._labels[j]
+        assert numpy.allclose(expect.M[ilabel, jlabel].values, actual.M[ilabel, jlabel].values)

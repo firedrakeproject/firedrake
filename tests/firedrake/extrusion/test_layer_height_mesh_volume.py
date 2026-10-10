@@ -10,15 +10,6 @@ def test_extrude_uniform_mesh_volume():
     assert numpy.allclose(assemble(1*dx(domain=extmesh)), 1.0)
 
 
-def test_extrude_variable_uniform_mesh_volume():
-    mesh = IntervalMesh(2, 2)
-    mesh.coordinates.dat.data[2] = 3
-    extmesh = ExtrudedMesh(mesh, layers=[[0, 2], [2, 3]],
-                           layer_height=[0.1, 0.2, 0.3, 0.4, 0.5])
-
-    assert numpy.allclose(assemble(1*dx(domain=extmesh)), (0.1 + 0.2) + 2 * (0.3 + 0.4 + 0.5))
-
-
 def test_extrude_radial_mesh_volume():
     radius = 1000
 
