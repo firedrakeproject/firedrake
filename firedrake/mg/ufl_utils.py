@@ -408,7 +408,11 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     else:
         levels_prefix = f"{solver_prefix}levels_"
     current_level_prefix = f"{solver_prefix}levels_{level}_"
-    options_prefix = f"{parent_prefix}{current_level_prefix}"
+    if self is refine:
+        # Adaptation hands the refined context to the same SNES.
+        options_prefix = context.options_prefix
+    else:
+        options_prefix = f"{parent_prefix}{current_level_prefix}"
 
     # Use different mat_type on each level
     mat_type = None
@@ -492,7 +496,7 @@ class Interpolation(object):
     def mult(self, mat, x, y, inc=False):
         with self.cprimal.dat.vec_wo as v:
             x.copy(v)
-        self.manager.transfer(self.cprimal, self.fprimal)
+        self.manager.prolong(self.cprimal, self.fprimal)
         for bc in self.fbcs:
             bc.zero(self.fprimal)
         with self.fprimal.dat.vec_ro as v:
@@ -551,6 +555,11 @@ def create_interpolation(dmc, dmf):
 
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
+    _, clevel = utils.get_level(V_c.mesh())
+    _, flevel = utils.get_level(V_f.mesh())
+    if clevel > flevel:
+        # MatInterpolate() applies the transpose of the injection from dmc onto the coarser dmf.
+        return create_injection(dmf, dmc), None
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()

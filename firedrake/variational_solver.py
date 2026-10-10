@@ -301,11 +301,13 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     Notes
     -----
-    Set ``snes_adapt_transfer_type="project"`` in ``solver_parameters`` to transfer
-    primal functions by unconstrained supermesh L2 projection, as
-    :class:`~.TransferManager` does. The default is ``"interpolate"``.
-    Projection preserves integrals if the target space contains constants.
-    Neither transfer type imposes Dirichlet boundary values on coefficients.
+    These ``solver_parameters`` set how :class:`~.TransferManager`
+    transfers functions:
+
+    - ``mg_transfer_type``, ``mg_transfer_mat_type``: between the levels
+      of PCMG and SNESFAS.
+    - ``snes_adapt_transfer_type``, ``snes_adapt_transfer_mat_type``:
+      coefficients onto an adapted mesh.
     """
 
     DEFAULT_SNES_PARAMETERS = DEFAULT_SNES_PARAMETERS

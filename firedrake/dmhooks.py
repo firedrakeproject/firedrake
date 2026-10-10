@@ -467,33 +467,6 @@ def set_refine_level(V):
         W.dm.setRefineLevel(level)
 
 
-def _reconstructed_coefficients(old_ctx, new_ctx):
-    """Return the map from the coefficients of a `_SNESContext` to those of its reconstruction.
-
-    Parameters
-    ----------
-    old_ctx : _SNESContext
-        The context that was reconstructed.
-    new_ctx : _SNESContext
-        The context returned by reconstructing ``old_ctx`` on another level.
-        It can be the context that ``old_ctx`` was itself reconstructed from.
-
-    Returns
-    -------
-    dict
-        The counterpart in ``new_ctx`` of each coefficient of ``old_ctx``.
-    """
-    if new_ctx._x not in old_ctx._coefficient_mapping:
-        return new_ctx._coefficient_mapping
-    # The reconstruction returned the context that old_ctx was reconstructed
-    # from, so its coefficients still have the values from that time.
-    coefficient_mapping = {v: c for c, v in old_ctx._coefficient_mapping.items()}
-    manager = get_transfer_manager(old_ctx._x.function_space().dm)
-    for v, c in coefficient_mapping.items():
-        manager.transfer(v, c)
-    return coefficient_mapping
-
-
 def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` reconstructed on the adapted mesh,
@@ -522,8 +495,6 @@ def _refine_adaptive(dm):
         follow_adaptive_parents(mesh_sequence)
     if ctx._marking_callback is None:
         raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
-    # Creating the TransferManager validates snes_adapt_transfer_type.
-    ctx.transfer_manager
 
     markers = ctx._marking_callback(ctx, current_solution)
     if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
@@ -555,12 +526,20 @@ def _refine_adaptive(dm):
             mesh_sequence.set_hierarchy()
         reconstruct = refine
     _, adapted_level = get_level(adapted_mesh)
+    options_prefix = f"{ctx.options_prefix or ''}snes_adapt_transfer_"
+    manager = firedrake.TransferManager(options_prefix=options_prefix)
     refined_ctx = ctx
     adapted_coefficients = ctx._adapted_coefficients
     for _ in range(abs(adapted_level - level)):
         old_ctx = refined_ctx
         refined_ctx = reconstruct(old_ctx, reconstruct, coefficient_mapping={})
-        coefficient_mapping = _reconstructed_coefficients(old_ctx, refined_ctx)
+        if old_ctx._x in refined_ctx._coefficient_mapping:
+            coefficient_mapping = refined_ctx._coefficient_mapping
+        else:
+            # The coarsening returned the context that old_ctx was refined from.
+            coefficient_mapping = {v: c for c, v in old_ctx._coefficient_mapping.items()}
+        for c, v in coefficient_mapping.items():
+            manager.transfer(c, v)
         adapted_coefficients = {c: coefficient_mapping[v] for c, v in adapted_coefficients.items()}
     refined_ctx._adapted_coefficients = adapted_coefficients
     set_refine_level(refined_ctx._problem.u_restrict.function_space())
