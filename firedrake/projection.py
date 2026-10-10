@@ -148,6 +148,10 @@ class ProjectorBase(metaclass=abc.ABCMeta):
             solver_parameters = solver_parameters.copy()
         solver_parameters.setdefault("ksp_type", "cg")
         solver_parameters.setdefault("ksp_rtol", 1e-8)
+        if target.ufl_element().family() == "Real":
+            # The assembled mass matrix of a Real space has no factorization,
+            # so it is applied matrix-free.
+            solver_parameters.setdefault("mat_type", "matfree")
         mat_type = solver_parameters.get("mat_type", firedrake.parameters["default_matrix_type"])
         if mat_type == "nest":
             solver_parameters.setdefault("pc_type", "fieldsplit")
@@ -170,7 +174,8 @@ class ProjectorBase(metaclass=abc.ABCMeta):
             slate_supported = False
             needs_trace = False
         else:
-            slate_supported = F.finat_element.is_dg() and not F.mesh().variable_layers
+            slate_supported = F.finat_element is not None and F.finat_element.is_dg() \
+                and not F.mesh().variable_layers
             needs_trace = F.ufl_element().family() in {"HDiv Trace", "Boundary Quadrature"}
 
         self.use_slate_for_inverse = use_slate_for_inverse and slate_supported
@@ -232,6 +237,24 @@ class ProjectorBase(metaclass=abc.ABCMeta):
     def project(self):
         self.apply_massinv(self.target, self.rhs)
         return self.target
+
+
+class RealProjector(ProjectorBase):
+    """Projects between a Real space and a space on another mesh.
+
+    Both meshes must cover the same domain.
+    """
+    @property
+    def rhs(self):
+        if self.target.ufl_element().family() == "Real":
+            # The test function of a Real space is the constant one, so the
+            # right-hand side is the integral of the source on its own mesh.
+            return self.residual.assign(firedrake.assemble(self.source*ufl.dx))
+        else:
+            # A Real source is a constant, which multiplies the integral of
+            # the test function on the target mesh.
+            v = firedrake.TestFunction(self.target.function_space())
+            return self.residual.assign(self.source.dat.data_ro[0] * firedrake.assemble(firedrake.conj(v)*firedrake.dx))
 
 
 class BasicProjector(ProjectorBase):
@@ -357,9 +380,13 @@ def Projector(
     else:
         if bcs is not None:
             raise ValueError("Haven't implemented supermesh projection with boundary conditions yet, sorry!")
-        if not isinstance(source, function.Function) or source.ufl_element().family() == "Real":
+        if not isinstance(source, function.Function):
             raise NotImplementedError("Only for source Functions, not %s" % type(source))
-        return SupermeshProjector(
+        if source.ufl_element().family() == "Real" or target.ufl_element().family() == "Real":
+            projector_type = RealProjector
+        else:
+            projector_type = SupermeshProjector
+        return projector_type(
             source, target, bcs=bcs, solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
