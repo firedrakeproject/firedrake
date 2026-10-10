@@ -356,15 +356,16 @@ class _SNESContext(object):
 
         - ``mg_transfer_manager``: an object, or the name of a function or
           class that is called with no arguments to create the object.
-        - ``mg_transfer_type``, ``mg_transfer_mat_type``: the options of
-          :class:`~.TransferManager`.
+        - ``mg_transfer_inject_type``, ``mg_transfer_mat_type``: the options
+          of :class:`~.TransferManager`. Injection also transfers the
+          solution onto an adapted mesh.
 
         The ``fas_transfer_`` options are deprecated aliases of these options.
         """
         if self._transfer_manager is None:
             prefix = self.options_prefix or ""
             opts = PETSc.Options(prefix)
-            names = ("manager", "type", "mat_type")
+            names = ("manager", "inject_type", "mat_type")
             transfer_prefix = "mg_transfer_"
             if any(opts.hasName(f"fas_transfer_{name}") for name in names):
                 warnings.warn("The fas_transfer_ options are deprecated, use mg_transfer_ instead.",

@@ -471,8 +471,9 @@ def _transfer_adapted_coefficients(source, interp, target):
     """Transfer the coefficients of the problem onto an adapted DM.
 
     DMAdaptorAdapt() calls this interpolate hook of the adapted DM through
-    DMInterpolate(). The ``snes_adapt_transfer_`` options configure the
-    :class:`~.TransferManager`.
+    DMInterpolate(), after it injects the solution. Each Function is
+    prolonged, also onto a coarser mesh, by the :class:`~.TransferManager`
+    of the problem.
 
     Parameters
     ----------
@@ -483,13 +484,17 @@ def _transfer_adapted_coefficients(source, interp, target):
     target : PETSc.DM
         The adapted solution DM.
     """
-    from firedrake.mg.ufl_utils import transfer_coefficients
     source_ctx = get_appctx(source)
     target_ctx = get_appctx(target)
-    coefficient_mapping = {source_ctx._adapted_coefficients[c]: v
-                           for c, v in target_ctx._adapted_coefficients.items()}
-    manager = firedrake.TransferManager(options_prefix=f"{target_ctx.options_prefix or ''}snes_adapt_transfer_")
-    transfer_coefficients(target_ctx, coefficient_mapping, manager)
+    manager = get_transfer_manager(target)
+    for c, v in target_ctx._adapted_coefficients.items():
+        if v is target_ctx._x:
+            continue
+        old = source_ctx._adapted_coefficients[c]
+        if isinstance(v, firedrake.Cofunction):
+            manager.transfer(old, v)
+        else:
+            manager.prolong(old, v)
 
 
 def _refine_adaptive(dm):

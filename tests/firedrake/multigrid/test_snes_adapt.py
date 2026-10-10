@@ -474,7 +474,7 @@ def test_snes_adapt_noop_refinement(linear_parameters):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("periodic", [False, True])
 @pytest.mark.parametrize("shape", ["scalar", "vector", "mixed"])
-def test_snes_adapt_project_preserves_coefficient_mass(periodic, shape):
+def test_snes_adapt_project_preserves_solution_mass(periodic, shape):
     mesh_type = PeriodicUnitSquareMesh if periodic else UnitSquareMesh
     mesh = mesh_type(6, 6)
     V = FunctionSpace(mesh, "CG", 1)
@@ -494,18 +494,30 @@ def test_snes_adapt_project_preserves_coefficient_mass(periodic, shape):
             conditional(gt(marker, 0), conditional(lt(x, 0.4), 1, 0), -1)
         )
 
+    guesses = []
+
+    def record_guess(X):
+        # The first residual on each mesh sees the guess transferred onto it.
+        V = dmhooks.get_function_space(solver.snes.getDM())
+        if not guesses or guesses[-1].function_space() != V:
+            guess = Function(V)
+            with guess.dat.vec_wo as g:
+                X.copy(g)
+            guesses.append(guess)
+
     scale = Function(FunctionSpace(mesh, "R", 0)).assign(1)
     problem = NonlinearVariationalProblem(inner(u - scale*source, v)*dx, u)
     solver = NonlinearVariationalSolver(
         problem,
         solver_parameters={
             "snes_adapt_sequence": 1,
-            "snes_adapt_transfer_type": "project",
+            "mg_transfer_inject_type": "project",
             "mat_type": "aij",
             "ksp_type": "preonly",
             "pc_type": "lu",
         },
         marking_callback=mark_cells,
+        pre_function_callback=record_guess,
     )
     for _ in range(2):
         solver.solve()
@@ -524,12 +536,12 @@ def test_snes_adapt_project_preserves_coefficient_mass(periodic, shape):
     def masses(f):
         return [assemble(c*dx) for c in (split(f) if f.ufl_shape else (f,))]
 
-    expected = masses(fine_source)
     marker.assign(-1)
     for _ in range(2):
+        # The solve before the coarsening gives the source as the solution.
+        expected = masses(solver.get_coefficient(source))
         solution = solver.solve()
-        assert masses(solution) == pytest.approx(expected, rel=0, abs=1e-10)
-        assert masses(solver.get_coefficient(source)) == pytest.approx(expected, rel=0, abs=1e-10)
+        assert masses(guesses[-1]) == pytest.approx(expected, rel=0, abs=1e-10)
     assert solution.function_space().mesh().unique() is mesh
 
 
@@ -542,7 +554,7 @@ def test_snes_adapt_rejects_unknown_transfer():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     problem = NonlinearVariationalProblem(inner(u, TestFunction(V))*dx, u)
-    params = {"snes_adapt_sequence": 1, "snes_adapt_transfer_type": "invalid"}
+    params = {"snes_adapt_sequence": 1, "mg_transfer_inject_type": "invalid"}
     solver = NonlinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_cells)
     with pytest.raises(PETSc.Error) as error:
         solver.solve()
