@@ -13,7 +13,7 @@ from functools import cached_property
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
 import firedrake.cython.dmcommon as dmcommon
-from .utils import set_level
+from .utils import get_level, set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
@@ -133,8 +133,9 @@ class HierarchyBase(object):
             current finest mesh.
         coarse_to_fine_cells :
             Map from the cells of the current finest mesh to the cells of
-            ``mesh``. Defaults to the map ``mesh`` recorded when it was
-            adaptively refined.
+            ``mesh``. Defaults to the map from
+            `firedrake.adapt.adapted_cell_maps`, which gives the children of
+            each cell if ``mesh`` was refined from the current finest mesh.
         fine_to_coarse_cells :
             Map from the cells of ``mesh`` to the cells of the current finest
             mesh. Defaults the same way as ``coarse_to_fine_cells``.
@@ -148,16 +149,17 @@ class HierarchyBase(object):
         if self.refinements_per_level != 1:
             raise NotImplementedError("Cannot add a mesh to a hierarchy with "
                                       "refinements_per_level > 1")
-        fine_to_coarse_points = None
-        if mesh._adaptive_parent is self[-1]:
-            fine_to_coarse_points = mesh._adaptive_fine_to_coarse_points
-        if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
-            if fine_to_coarse_points is not None:
-                coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
-                    self[-1], mesh, fine_to_coarse_points)
-            elif self.nested:
-                raise ValueError("Expecting a mesh adaptively refined from the finest "
-                                 "level of this hierarchy, or explicit cell maps")
+        from firedrake.adapt import adapted_cell_maps
+        maps = adapted_cell_maps(self[-1], mesh)
+        if maps is None:
+            fine_to_coarse_points = None
+            if self.nested and (coarse_to_fine_cells is None or fine_to_coarse_cells is None):
+                raise ValueError("Expecting a mesh adapted from the finest level "
+                                 "of this hierarchy, or explicit cell maps")
+        else:
+            *default_maps, fine_to_coarse_points = maps
+            if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
+                coarse_to_fine_cells, fine_to_coarse_cells = default_maps
 
         level = len(self.meshes)
         self._meshes.append(mesh)
@@ -168,6 +170,75 @@ class HierarchyBase(object):
         self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
         self.fine_to_coarse_points[Fraction(level, 1)] = fine_to_coarse_points
         return mesh
+
+    def remove_mesh(self):
+        """Remove the finest mesh from the hierarchy.
+
+        Only supported for hierarchies with ``refinements_per_level == 1``.
+
+        Returns
+        -------
+        MeshGeometry
+            The mesh that was removed. It is no longer on a level of any
+            hierarchy.
+
+        """
+        if self.refinements_per_level != 1:
+            raise NotImplementedError("Cannot remove a mesh from a hierarchy with "
+                                      "refinements_per_level > 1")
+        if len(self) == 1:
+            raise ValueError("Cannot remove the coarsest mesh of a hierarchy")
+        level = len(self.meshes) - 1
+        mesh = self._meshes.pop()
+        self.meshes.pop()
+        if get_level(mesh) == (self, level):
+            delattr(mesh.topological, "__level_info__")
+        del self.coarse_to_fine_cells[Fraction(level - 1, 1)]
+        del self.fine_to_coarse_cells[Fraction(level, 1)]
+        self.fine_to_coarse_points.pop(Fraction(level, 1), None)
+        # The transfer kernels depend only on the elements, but the other
+        # cached data is keyed by level.
+        for name, cache in self._shared_data_cache.items():
+            if name != "transfer_kernels":
+                cache.clear()
+        return mesh
+
+    def set_finest_mesh(self, mesh) -> bool:
+        """Make an adapted mesh the finest level of the hierarchy.
+
+        The levels above the nearest adaptive ancestor of ``mesh`` that is a
+        level are replaced by the chain of adaptive parents of ``mesh``.
+
+        Parameters
+        ----------
+        mesh : MeshGeometry
+            An adapted mesh on a level of the hierarchy.
+
+        Returns
+        -------
+        bool
+            Whether the levels that are coarser than ``mesh`` have changed.
+
+        """
+        _, level = get_level(mesh)
+        chain = [mesh]
+        ancestor = mesh._adaptive_parent
+        while ancestor is not None and ancestor not in self:
+            chain.append(ancestor)
+            ancestor = ancestor._adaptive_parent
+        if ancestor is None:
+            ancestor = self[0]
+            chain = [] if mesh is ancestor else [mesh]
+        target = [*self[:self.meshes.index(ancestor) + 1], *reversed(chain)]
+        # The levels that already match the target keep their cell maps.
+        keep = 0
+        while keep < min(len(self), len(target)) and self[keep] is target[keep]:
+            keep += 1
+        while len(self) > keep:
+            self.remove_mesh()
+        for m in target[keep:]:
+            self.add_mesh(m)
+        return keep < level or len(target) != level + 1
 
     def adapt(self, eta, theta: float):
         """Add a new mesh to the hierarchy by locally refining the finest mesh

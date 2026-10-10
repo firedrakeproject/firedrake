@@ -125,6 +125,41 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
         raise ValueError(f"Unrecognized action {action}")
 
 
+@pytest.mark.parametrize("degree", [1, 2])
+def test_prolong_onto_coarser_level(hierarchy, degree):
+    Vcoarse = FunctionSpace(hierarchy[0], "CG", degree)
+    Vfine = FunctionSpace(hierarchy[-1], "CG", degree)
+    expr = lambda mesh: dot(as_vector([2, -3]), SpatialCoordinate(mesh))
+    uf = Function(Vfine).interpolate(expr(Vfine.mesh()))
+    uc = Function(Vcoarse)
+    TransferManager().prolong(uf, uc)
+    assert errornorm(expr(Vcoarse.mesh()), uc) < 1e-12
+
+
+@pytest.mark.parametrize("coarse_element, fine_element", [
+    (("CG", 1), ("CG", 1)),
+    (("CG", 2), ("CG", 1)),
+])
+def test_transfer_manager_inject_type_project(hierarchy, coarse_element, fine_element):
+    Vcoarse = FunctionSpace(hierarchy[-2], *coarse_element)
+    Vfine = FunctionSpace(hierarchy[-1], *fine_element)
+    options_prefix = "test_project_transfer_"
+    manager = TransferManager(options_prefix=options_prefix)
+    opts = PETSc.Options(options_prefix)
+    x, y = SpatialCoordinate(Vfine.mesh())
+    uf = Function(Vfine).interpolate(sin(3*x) * exp(y))
+    uc = Function(Vcoarse)
+
+    manager.inject(uf, uc)
+    assert not numpy.isclose(assemble(uc*dx), assemble(uf*dx), rtol=1e-8)
+
+    # The projection preserves the integral, as the coarse space contains the constants.
+    opts["inject_type"] = "project"
+    manager.inject(uf, uc)
+    opts.delValue("inject_type")
+    assert numpy.isclose(assemble(uc*dx), assemble(uf*dx), rtol=1e-8)
+
+
 @pytest.mark.parametrize("family, degree, shape, coefficient", [
     ("CG", 1, "scalar", "repeated"),
     ("CG", 1, "scalar", "mixed"),

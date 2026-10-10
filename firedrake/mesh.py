@@ -3057,25 +3057,40 @@ values from f.)"""
         yield self
 
     def unique(self):
-        return self
-
-    @PETSc.Log.EventDecorator()
-    def refine_marked_elements(self, mark):
-        """Adaptively refine a mesh using a DG0 marking function.
-
-        Parameters
-        ----------
-        mark
-            A DG0 `~firedrake.function.Function` on this mesh: cells
-            with a positive value ``n`` are refined ``n`` times.
+        """Return this mesh as the only mesh in its domain.
 
         Returns
         -------
         MeshGeometry
-            The adaptively refined mesh, recording this mesh as its
-            ``_adaptive_parent`` and the DMPlex points relative to it as its
-            ``_adaptive_fine_to_coarse_points``, ready to be passed to
-            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
+            This mesh.
+        """
+        return self
+
+    @PETSc.Log.EventDecorator()
+    def refine_marked_elements(self, mark):
+        """Adaptively refine or coarsen a mesh using a DG0 marking function.
+
+        Parameters
+        ----------
+        mark
+            A DG0 `~firedrake.function.Function` on this mesh. If no value
+            is negative, the cells with a positive value ``n`` are refined
+            ``n`` times. Otherwise, one round is done: the cells with a
+            positive value are refined once, and the cells with a negative
+            value undo one round of refinement, which can go past the
+            adaptive parent of this mesh. A cell of an ancestor is coarsened
+            only if all the cells that it was refined into ask.
+
+        Returns
+        -------
+        MeshGeometry
+            The adapted mesh, ready to be passed to
+            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. Its
+            ``_adaptive_parent`` is the mesh it was transformed from: this
+            mesh after a refinement, and an ancestor of this mesh after a
+            coarsening. This is this mesh itself if ``mark`` changes no
+            cell, and an ancestor of this mesh if the coarsening undoes all
+            the refinement after that ancestor.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)
@@ -5380,6 +5395,8 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         """Set mesh hierarchy if needed."""
         from firedrake.mg.utils import set_level, get_level, has_level
 
+        old_hierarchy, _ = get_level(self)
+
         # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
         if all(not has_level(m) for m in self._meshes):
             return
@@ -5398,6 +5415,16 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         for ilevel in range(nlevels):
             if ilevel == level:
                 result.append(self)
+            elif old_hierarchy is not None and ilevel < len(old_hierarchy):
+                old_mesh_sequence = old_hierarchy[ilevel]
+                # Contexts retain these wrappers, so keep them when their meshes still match.
+                if (len(old_mesh_sequence) == len(hierarchy_list)
+                        and all(old_mesh is hierarchy[ilevel]
+                                for old_mesh, hierarchy in zip(old_mesh_sequence, hierarchy_list))):
+                    result.append(old_mesh_sequence)
+                else:
+                    result.append(MeshSequenceGeometry(
+                        [hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
             else:
                 result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
         result = tuple(result)

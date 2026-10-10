@@ -1,4 +1,5 @@
 import typing
+import warnings
 from itertools import chain
 
 import numpy
@@ -291,7 +292,15 @@ class _SNESContext(object):
         self._nullspace = None
         self._nullspace_T = None
         self._near_nullspace = None
-        self._coefficient_mapping = None
+        forms = (problem.F, problem.J, problem.Jp, problem.E)
+        coefficients = chain(chain.from_iterable(form.coefficients() for form in forms if form is not None),
+                             (bc.function_arg for bc in problem.dirichlet_bcs()),
+                             (v for k, v in self.appctx.items() if k != "state"),
+                             (problem.u_restrict,))
+        # Maps each coefficient of the original problem to its counterpart in
+        # this context. A reconstructed context composes the map of the
+        # context that it was reconstructed from.
+        self._coefficient_mapping = {c: c for c in coefficients if isinstance(c, (Function, Cofunction))}
         self._transfer_manager = transfer_manager
 
     def reconstruct(self,
@@ -342,47 +351,33 @@ class _SNESContext(object):
 
     @property
     def transfer_manager(self):
-        """This allows the transfer manager to be set from options, e.g.
+        """The transfer manager between multigrid levels.
 
-        solver_parameters = {"ksp_type": "cg",
-                             "pc_type": "mg",
-                             "mg_transfer_manager": __name__ + ".manager"}
+        These options configure it for both PCMG and SNESFAS:
 
-        The value for "mg_transfer_manager" can either be a specific instantiated
-        object, or a function or class name. In the latter case it will be invoked
-        with no arguments to instantiate the object.
+        - ``mg_transfer_manager``: an object, or the name of a function or
+          class that is called with no arguments to create the object.
+        - ``mg_transfer_inject_type``, ``mg_transfer_mat_type``: the options
+          of :class:`~.TransferManager`. Injection also transfers the
+          solution onto an adapted mesh.
 
-        If "snes_type": "fas" is used, the relevant option is "fas_transfer_manager",
-        with the same semantics.
+        The ``fas_transfer_`` options are deprecated aliases of these options.
         """
         if self._transfer_manager is None:
             prefix = self.options_prefix or ""
             opts = PETSc.Options(prefix)
-            # We cannot attach a single mg_ or fas_ prefix to a TransferManager,
-            # as it can be shared across distinct _SNESContext instances arising
-            # when composing fas with mg. Therefore, we need to read both options.
-            # However the TransferManager should behave differently if options clash.
-            # TODO, a better way of doing this (issue #5283).
-
-            def get_transfer_option(mg_name, fas_name, default=None):
-                has_mg = opts.hasName(mg_name)
-                has_fas = opts.hasName(fas_name)
-                if has_mg and has_fas:
-                    warning(f"Both '{mg_name}' and '{fas_name}' options were supplied; "
-                            f"ignoring '{fas_name}'.")
-                if has_mg:
-                    return opts[mg_name]
-                elif has_fas:
-                    return opts[fas_name]
-                else:
-                    return default
-
-            managername = get_transfer_option("mg_transfer_manager", "fas_transfer_manager")
-            if managername is None:
+            names = ("manager", "inject_type", "mat_type")
+            transfer_prefix = "mg_transfer_"
+            if any(opts.hasName(f"fas_transfer_{name}") for name in names):
+                warnings.warn("The fas_transfer_ options are deprecated, use mg_transfer_ instead.",
+                              FutureWarning)
+                if not any(opts.hasName(f"mg_transfer_{name}") for name in names):
+                    transfer_prefix = "fas_transfer_"
+            managername = opts.getString(f"{transfer_prefix}manager", "")
+            if not managername:
                 from firedrake import TransferManager
-                mat_type = get_transfer_option("mg_transfer_mat_type", "fas_transfer_mat_type",
-                                               default="matfree")
-                transfer = TransferManager(use_averaging=True, mat_type=mat_type)
+                transfer = TransferManager(use_averaging=True,
+                                           options_prefix=f"{prefix}{transfer_prefix}")
             else:
                 (modname, objname) = managername.rsplit('.', 1)
                 mod = __import__(modname)

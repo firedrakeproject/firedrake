@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from firedrake import *
 from firedrake.mg.interface import assemble_prolongation_aij
 import pytest
@@ -63,7 +64,8 @@ def test_prolong_aij_matches_matfree(rg, family, degree, variant, vector):
     assert numpy.allclose(rc_aij.dat.data_ro, rc.dat.data_ro)
 
 
-def test_poisson_gmg_aij_transfer():
+@pytest.mark.parametrize("transfer_prefix", ["mg_transfer_", "fas_transfer_"])
+def test_poisson_gmg_aij_transfer(transfer_prefix):
     base = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(base, 2)
     mesh = mh[-1]
@@ -86,7 +88,7 @@ def test_poisson_gmg_aij_transfer():
         "ksp_rtol": 1.0e-10,
         "mat_type": "aij",
         "pc_type": "mg",
-        "mg_transfer_mat_type": "aij",
+        f"{transfer_prefix}mat_type": "aij",
         "mg_levels_ksp_type": "chebyshev",
         "mg_levels_ksp_max_it": 2,
         "mg_levels_pc_type": "jacobi",
@@ -95,6 +97,9 @@ def test_poisson_gmg_aij_transfer():
     }
     problem = NonlinearVariationalProblem(F, u, bcs=bc, J=a)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
-    solver.solve()
-    assert solver._ctx.transfer_manager.mat_type == "aij"
+    # The fas_transfer_ options are deprecated aliases of the mg_transfer_ options.
+    deprecation = pytest.warns(FutureWarning) if transfer_prefix == "fas_transfer_" else nullcontext()
+    with deprecation:
+        solver.solve()
+    assert solver._ctx.transfer_manager._mat_cache
     assert errornorm(exact, u) < 1.0e-3

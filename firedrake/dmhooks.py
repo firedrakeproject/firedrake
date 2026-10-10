@@ -229,28 +229,71 @@ class add_hooks(object):
     def __enter__(self):
         if not self.first_time:
             # We've already run setup, so just attach the data to the subdms.
-            hooks = self.obj.setup_hooks
-            push_attr("__setup_hooks__", self.dm, hooks)
-            hooks.setup()
+            push_setup_hooks(self.dm, self.obj.setup_hooks)
         else:
             # Not yet seen, let's save the relevant information.
             hooks = SetupHooks()
             if self.save:
                 # Remember it for later
                 self.obj.setup_hooks = hooks
-            push_attr("__setup_hooks__", self.dm, hooks)
+            push_setup_hooks(self.dm, hooks)
             if self.appctx is not None:
                 add_hook(self.dm, setup=partial(push_appctx, self.dm, self.appctx),
                          teardown=partial(pop_appctx, self.dm, self.appctx),
                          call_setup=True)
 
     def __exit__(self, typ, value, traceback):
-        hooks = pop_attr("__setup_hooks__", self.dm)
+        hooks = get_setup_hooks(self.dm)
         if self.first_time:
             assert hooks is not None
         else:
             assert hooks == self.obj.setup_hooks
-        hooks.teardown()
+        pop_setup_hooks(self.dm, hooks)
+
+
+def push_setup_hooks(dm: PETSc.DM, hooks: SetupHooks) -> None:
+    """Attach a set of setup hooks to a DM and run its setup hooks.
+
+    Parameters
+    ----------
+    dm
+        The DM to attach the hooks to.
+    hooks
+        The setup hooks to attach.
+    """
+    push_attr("__setup_hooks__", dm, hooks)
+    hooks.setup()
+
+
+def pop_setup_hooks(dm: PETSc.DM, hooks: SetupHooks) -> None:
+    """Detach a set of setup hooks from a DM and run its teardown hooks.
+
+    Parameters
+    ----------
+    dm
+        The DM to detach the hooks from.
+    hooks
+        The setup hooks to detach.
+    """
+    pop_attr("__setup_hooks__", dm, hooks)
+    hooks.teardown()
+
+
+def get_setup_hooks(dm: PETSc.DM) -> SetupHooks | None:
+    """Return the setup hooks that are currently attached to a DM.
+
+    Parameters
+    ----------
+    dm
+        The DM to query.
+
+    Returns
+    -------
+    SetupHooks | None
+        The setup hooks that were attached last, or ``None`` if no setup
+        hooks are attached.
+    """
+    return get_attr("__setup_hooks__", dm)
 
 
 # Things we're going to transfer around DMs
@@ -405,6 +448,18 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subspace.dm
 
 
+def set_ksp_operators(dm: PETSc.DM) -> None:
+    """Make the KSPs on a DM assemble their operators from the application context.
+
+    Parameters
+    ----------
+    dm
+        The DM that receives the operator callbacks of :class:`~firedrake.solving_utils._SNESContext`.
+    """
+    dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
+    dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+
+
 @PETSc.Log.EventDecorator()
 def coarsen(dm, comm):
     """Callback to coarsen a DM.
@@ -440,40 +495,90 @@ def coarsen(dm, comm):
         add_hook(parent, setup=partial(push_appctx, cdm, cctx),
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
-        # Necessary for MG inside a fieldsplit in a SNES.
-        dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
-        dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
-        cdm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
-        cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+        # These callbacks tell the KSPs on the coarse level how to assemble
+        # their matrices. cdm inherits them from dm, and a different solver on
+        # this function space might overwrite them, so we set the callbacks on
+        # dm before each solve.
+        add_hook(parent, setup=partial(set_ksp_operators, dm), call_setup=True)
     return cdm
+
+
+def set_refine_level(V):
+    """Set the refine level of the DMs of a function space to the level of its mesh.
+
+    PCMG takes its number of levels from the refine level of the solution DM.
+    A DM copies the refine level of its mesh when it is created, and
+    DMCoarsen() copies the refine level of the finer DM, so the refine level
+    must be set again when the mesh is the solution mesh on another level.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.WithGeometry
+        A function space on a level of a mesh hierarchy.
+    """
+    from firedrake.mg.utils import get_level
+    _, level = get_level(V.mesh())
+    for W in (V, *V):
+        W.dm.setRefineLevel(level)
+
+
+def _transfer_adapted_coefficients(source, interp, target):
+    """Transfer the coefficients of the problem onto an adapted DM.
+
+    DMAdaptorAdapt() calls this interpolate hook of the adapted DM through
+    DMInterpolate(), after it injects the solution. Each Function is
+    prolonged, also onto a coarser mesh, by the :class:`~.TransferManager`
+    of the problem.
+
+    Parameters
+    ----------
+    source : PETSc.DM
+        The solution DM before the adaptation.
+    interp : PETSc.Mat
+        The interpolation matrix from ``source`` to ``target`` (unused).
+    target : PETSc.DM
+        The adapted solution DM.
+    """
+    source_ctx = get_appctx(source)
+    target_ctx = get_appctx(target)
+    manager = get_transfer_manager(target)
+    for c, v in target_ctx._coefficient_mapping.items():
+        if v is target_ctx._x:
+            continue
+        old = source_ctx._coefficient_mapping[c]
+        if isinstance(v, firedrake.Cofunction):
+            manager.transfer(old, v)
+        else:
+            manager.prolong(old, v)
 
 
 def _refine_adaptive(dm):
     """
-    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
-    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    Return the DM of the `_SNESContext` reconstructed on the adapted mesh,
+    using `_SNESContext.marking_callback` to mark the cells to be refined or
+    coarsened. The adapted mesh is added on top of the hierarchy, unless it is
+    an ancestor that is already a coarser level. Return a null DM if the
+    markers change no cell, so that DMAdaptorAdapt() keeps the current DM and
+    solution.
     """
     from firedrake.mg.mesh import MeshHierarchy
-    from firedrake.mg.ufl_utils import refine
+    from firedrake.mg.ufl_utils import coarsen, refine
     from firedrake.mg.utils import get_level
-
-    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    # Increase the reference count so the coarse DM survives.
-    dm.incRef()
 
     ctx = get_appctx(dm)
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
-    mesh = current_solution.function_space().mesh()
+    mesh_sequence = current_solution.function_space().mesh()
+    mesh = mesh_sequence.unique()
     hierarchy, level = get_level(mesh)
-    if hierarchy is None:
-        hierarchy = MeshHierarchy(mesh)
-        level = 0
-
-    if level+1 != len(hierarchy):
-        raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
+    if hierarchy is not None and level+1 != len(hierarchy):
+        if hierarchy[level+1]._adaptive_parent is not mesh:
+            raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
+        # An earlier adaptation returned this mesh as an ancestor of finer levels.
+        hierarchy.set_finest_mesh(mesh)
+        if mesh_sequence is not mesh:
+            mesh_sequence.set_hierarchy()
     if ctx._marking_callback is None:
         raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
 
@@ -489,18 +594,43 @@ def _refine_adaptive(dm):
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
-    hierarchy.add_mesh(mesh.refine_marked_elements(markers))
-    coefficient_mapping = {}
-    refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
-    parent = get_parent(dm)
+    adapted_mesh = mesh.refine_marked_elements(markers)
+    if adapted_mesh is mesh:
+        return PETSc.DM()
+    if hierarchy is None:
+        hierarchy, level = MeshHierarchy(mesh), 0
+    adapted_hierarchy, _ = get_level(adapted_mesh)
+    if adapted_hierarchy is hierarchy:
+        # The coarsening returned an ancestor that is a coarser level.
+        reconstruct = coarsen
+    else:
+        hierarchy.add_mesh(adapted_mesh)
+        if mesh_sequence is not mesh:
+            mesh_sequence.set_hierarchy()
+        reconstruct = refine
+    _, adapted_level = get_level(adapted_mesh)
+    refined_ctx = ctx
+    for _ in range(abs(adapted_level - level)):
+        refined_ctx = reconstruct(refined_ctx, reconstruct, coefficient_mapping={})
+    set_refine_level(refined_ctx._problem.u_restrict.function_space())
+    refined_dm = refined_ctx._problem.dm
+    if not refined_dm.getAttr("_adapt_hook"):
+        refined_dm.addRefineHook(None, _transfer_adapted_coefficients)
+        refined_dm.setAttr("_adapt_hook", True)
     coarsener = get_ctx_coarsener(dm)
+    # The refined DM records the hooks of its subproblems in its own setup
+    # hooks, which the solver keeps after the adaptation.
+    parent = refined_dm
+    hooks = SetupHooks()
+    add_hook(get_parent(dm), setup=partial(push_setup_hooks, parent, hooks),
+             teardown=partial(pop_setup_hooks, parent, hooks),
+             call_setup=True)
     # Get all DMs from the refined problem
-    dms = [refined_ctx._problem.u_restrict.function_space().dm]
-    for value in coefficient_mapping.values():
-        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
-            value_dm = value.function_space().dm
-            if value_dm not in dms:
-                dms.append(value_dm)
+    dms = [refined_dm]
+    for value in refined_ctx._coefficient_mapping.values():
+        value_dm = value.function_space().dm
+        if value_dm not in dms:
+            dms.append(value_dm)
     # Attach refined context
     for refined_dm in dms:
         add_hook(parent, setup=partial(push_parent, refined_dm, parent),
@@ -512,6 +642,9 @@ def _refine_adaptive(dm):
         add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
                  teardown=partial(pop_appctx, refined_dm, refined_ctx),
                  call_setup=True)
+    # DMRefine() gives the returned DM one more refine level than dm, which
+    # is the old mesh and leaves the hierarchy after the solution is transferred.
+    dm.setRefineLevel(adapted_level - 1)
     return refined_ctx._problem.dm
 
 
@@ -534,7 +667,9 @@ def refine(dm, comm):
     """
     from firedrake.mg.utils import get_level
     hierarchy, level = get_level(get_function_space(dm).mesh())
-    if hierarchy is not None and level+1 < len(hierarchy):
+    ctx = get_appctx(dm)
+    adaptive = ctx is not None and ctx._marking_callback is not None
+    if hierarchy is not None and level+1 < len(hierarchy) and not adaptive:
         return _refine_from_hierarchy(dm)
     else:
         return _refine_adaptive(dm)

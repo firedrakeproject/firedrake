@@ -109,6 +109,17 @@ runs:
         fi
 
         cd petsc
+        : # DROP BEFORE MERGE: test PETSc adaptive coarsening
+        git fetch --depth=1 origin refs/heads/pbrubeck/plex-adapt-coarsen
+        git checkout --detach FETCH_HEAD
+        for mr in 9672 9673 9702; do
+          git fetch --depth=2 origin "refs/merge-requests/$mr/head"
+          git show --format= --binary FETCH_HEAD | git apply
+        done
+        : # DROP BEFORE MERGE: petsc!9704 has two commits
+        git fetch --depth=3 origin "refs/merge-requests/9704/head"
+        git diff --binary FETCH_HEAD~2 FETCH_HEAD | git apply
+
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \

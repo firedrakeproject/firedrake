@@ -9,6 +9,8 @@ from petsctools import OptionsManager, flatten_parameters
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
+from firedrake.cofunction import Cofunction
+from firedrake.constant import Constant
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
@@ -356,9 +358,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         :kwarg marking_callback: An optional callable of the form
                ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
                The callback receives the `_SNESContext`
-               and the current Firedrake solution, and must return a DG0
-               :class:`.Function` or :class:`.Cofunction` with positive
-               values on cells to refine.
+               and the current Firedrake solution. It must return a DG0
+               :class:`.Function` or :class:`.Cofunction`. Positive values
+               mark cells to refine, and negative values mark cells to
+               coarsen, as in :meth:`~.MeshGeometry.refine_marked_elements`.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -408,6 +411,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         if marking_callback is not None:
             snes_defaults = dict(snes_defaults)
             snes_defaults.setdefault("adaptor_criterion", "refine")
+            snes_defaults.setdefault("adaptor_transfer_injection", True)
 
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
@@ -438,7 +442,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -464,10 +467,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
-        # Used for custom grid transfer.
-        self._transfer_operators = ()
-        self._setup = False
-
     @property
     def _problem(self):
         """The :class:`NonlinearVariationalProblem` to solve"""
@@ -480,7 +479,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solution DM to refine, where ``ctx`` is the current
         `_SNESContext`. It must return a DG0
         :class:`.Function` or :class:`.Cofunction` on the current solution
-        mesh, with positive values on cells to refine.
+        mesh. Positive values mark cells to refine, and negative values mark
+        cells to coarsen, as in :meth:`~.MeshGeometry.refine_marked_elements`.
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
@@ -489,6 +489,33 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     def get_solution(self):
         r"""Return the current (possibly adapted) solution."""
         return self._ctx._problem.u
+
+    def get_coefficient(self, coefficient: Function | Cofunction | Constant) -> Function | Cofunction | Constant:
+        """Return the current (possibly adapted) counterpart of a coefficient of the problem.
+
+        Parameters
+        ----------
+        coefficient
+            A coefficient of the problem that was passed to this solver.
+
+        Returns
+        -------
+        Function | Cofunction | Constant
+            The coefficient that replaces ``coefficient`` in the problem on
+            the current mesh. This is ``coefficient`` itself if the mesh was
+            not adapted, or if ``coefficient`` is a :class:`.Constant`.
+
+        Raises
+        ------
+        ValueError
+            If ``coefficient`` is not a coefficient of the problem.
+        """
+        if isinstance(coefficient, Constant):
+            return coefficient
+        try:
+            return self._ctx._coefficient_mapping[coefficient]
+        except KeyError:
+            raise ValueError(f"{coefficient!r} is not a coefficient of the problem") from None
 
     def set_transfer_manager(self, manager):
         r"""Set the object that manages transfer between grid levels.
@@ -559,24 +586,41 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
+        work = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             u.copy(work)
             with ExitStack() as stack:
                 # Ensure options database has full set of options (so monitors
                 # work right)
                 for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
-                                 self._transfer_operators):
+                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]):
                     stack.enter_context(ctx)
                 self.snes.solve(None, work)
-                # The appctx might have been refined
+                adapted = self.snes.getSolution() != work
+                # Adaptivity changes the DM, so keep the _SNESContext and the
+                # setup hooks up to date.
                 self._ctx = dmhooks.get_appctx(self.snes.getDM())
+                setup_hooks = dmhooks.get_setup_hooks(self.snes.getDM())
+        if adapted:
+            from firedrake.mg.utils import get_level
+            # The old mesh stays a level of the hierarchy until the solution is
+            # transferred. Only then can the levels follow the adaptive parents
+            # of the adapted mesh.
+            V = self._ctx._problem.u_restrict.function_space()
+            mesh_sequence = V.mesh()
+            mesh = mesh_sequence.unique()
+            hierarchy, _ = get_level(mesh)
+            coarse_levels_changed = hierarchy.set_finest_mesh(mesh)
+            if mesh_sequence is not mesh:
+                mesh_sequence.set_hierarchy()
+            dmhooks.set_refine_level(V)
+            self.setup_hooks = setup_hooks
+            if coarse_levels_changed:
+                self.snes.getKSP().reset()
         problem = self._ctx._problem
         solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             solution.copy(u)
-        self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
