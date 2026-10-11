@@ -549,8 +549,7 @@ def test_snes_adapt_project_preserves_solution_mass(periodic, shape):
                 X.copy(g)
             guesses.append(guess)
 
-    scale = Function(FunctionSpace(mesh, "R", 0)).assign(1)
-    problem = NonlinearVariationalProblem(inner(u - scale*source, v)*dx, u)
+    problem = NonlinearVariationalProblem(inner(u - source, v)*dx, u)
     solver = NonlinearVariationalSolver(
         problem,
         solver_parameters={

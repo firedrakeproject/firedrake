@@ -273,35 +273,37 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
     return new
 
 
-def transfer_coefficients(source: PETSc.DM, target: PETSc.DM, include_solution: bool = True) -> None:
-    """Transfer the coefficients of the problem on one DM onto the problem on another DM.
-
-    The target problem can be on an adaptive ancestor of the mesh of the
-    source problem, so the coefficients of the two problems are matched
-    through the coefficients of the original problem.
-
-    Parameters
-    ----------
-    source
-        The DM of the problem that the coefficients are transferred from.
-    target
-        The DM of the problem that the coefficients are transferred to.
-    include_solution
-        Whether the solution is transferred too.
-
-    """
+def _transfer_coefficients(source: PETSc.DM, target: PETSc.DM, transfer) -> None:
     source_mapping = get_appctx(source)._coefficient_mapping
     target_ctx = get_appctx(target)
-    manager = get_transfer_manager(source)
     for c, mapped in target_ctx._coefficient_mapping.items():
-        if mapped is target_ctx._x and not include_solution:
-            continue
         if c in source_mapping:
-            manager.transfer(source_mapping[c], mapped)
+            transfer(source_mapping[c], mapped)
 
     if target_ctx.pre_apply_bcs:
         for bc in target_ctx._problem.dirichlet_bcs():
             bc.apply(target_ctx._x)
+
+
+def transfer_coefficients(source: PETSc.DM, target: PETSc.DM) -> None:
+    """Transfer the solution and coefficients on the problem hierarchy."""
+    manager = get_transfer_manager(source)
+    _transfer_coefficients(source, target, manager.transfer)
+
+
+def _transfer_adapted_coefficients(source: PETSc.DM, target: PETSc.DM) -> None:
+    manager = get_transfer_manager(source)
+    if manager.inject_type == "project":
+
+        def transfer(source_coefficient, target_coefficient):
+            if ufl.duals.is_dual(source_coefficient):
+                manager.transfer(source_coefficient, target_coefficient)
+            else:
+                manager.project(source_coefficient, target_coefficient)
+
+    else:
+        transfer = manager.transfer
+    _transfer_coefficients(source, target, transfer)
 
 
 def _restrict_hook(fine, restriction, rscale, injection, coarse):
@@ -317,7 +319,7 @@ def _interpolate_hook(coarse, interp, fine):
     level than the DM that it adapts, but an adaptation can also coarsen,
     so the refine level is set to the level of the adapted mesh here.
     """
-    transfer_coefficients(coarse, fine, include_solution=False)
+    _transfer_adapted_coefficients(coarse, fine)
     set_refine_level(get_appctx(fine)._problem.u_restrict.function_space())
 
 
@@ -591,12 +593,7 @@ class Injection(object):
         # PCMG expects the transpose of the injection.
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
-        # An adaptation injects the solution onto the adapted mesh, which
-        # can be finer than the mesh of the solution.
-        if self.manager.inject_type == "project":
-            self.manager.project(self.ffn, self.cfn)
-        else:
-            self.manager.transfer(self.ffn, self.cfn)
+        self.manager.transfer(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
@@ -645,8 +642,7 @@ def create_injection(dmc, dmf):
         return PETSc.Mat().createDiagonal(dvec)
 
     manager = get_transfer_manager(dmf)
-    cbcs = tuple(cctx._problem.dirichlet_bcs())
-    ctx = Injection(V_c, V_f, manager, cbcs)
+    ctx = Injection(V_c, V_f, manager)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)
