@@ -3,6 +3,8 @@ import numpy as np
 from mpi4py import MPI
 from firedrake import *
 from firedrake.cython import mgimpl
+from firedrake.mesh import MeshSequenceGeometry
+from firedrake.mg.utils import get_level
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -268,6 +270,37 @@ def test_set_finest_mesh():
 
     assert not mh.set_finest_mesh(base)
     assert list(mh) == [base]
+
+
+@pytest.mark.parallel([1, 3])
+def test_mesh_sequence_hierarchy():
+    """A mesh sequence reads its hierarchy and level from its components, so
+    it follows each change to the component hierarchy."""
+    def mixed_space(mesh):
+        return FunctionSpace(mesh, "CG", 1) * FunctionSpace(mesh, "DG", 0)
+
+    base = UnitSquareMesh(8, 8)
+    Z = mixed_space(base)
+    assert get_level(Z.mesh()) == (None, None)
+
+    mh = MeshHierarchy(base)
+    fine = mh.add_mesh(_adapt(base, lambda x: conditional(lt(x[0], 0.5), 1, 0)))
+    Zf = mixed_space(fine)
+    hierarchy, level = get_level(Zf.mesh())
+    assert level == 1
+    assert get_level(Z.mesh()) == (hierarchy, 0)
+    assert list(hierarchy) == [Z.mesh(), Zf.mesh()]
+
+    finer = mh.add_mesh(_adapt(fine, lambda x: conditional(lt(x[0], 0.25), 1, 0)))
+    # This coarsening undoes the refinement of fine, so its adaptive parent is base.
+    coarsened = mh.add_mesh(_adapt(finer, lambda x: conditional(gt(x[0], 0.75), 1, -1)))
+    Zc = mixed_space(coarsened)
+    assert hierarchy.set_finest_mesh(Zc.mesh())
+    assert list(hierarchy) == [Z.mesh(), Zc.mesh()]
+    assert get_level(Zf.mesh()) == (None, None)
+
+    with pytest.raises(RuntimeError, match="same level"):
+        get_level(MeshSequenceGeometry([base, coarsened]))
 
 
 def test_hierarchy_rejects_partial_cell_maps():

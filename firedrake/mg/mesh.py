@@ -283,6 +283,78 @@ class HierarchyBase(object):
         return self.add_mesh(mesh.refine_marked_elements(markers))
 
 
+class MeshSequenceHierarchy:
+    """The hierarchy of a mesh sequence, made from the hierarchies of its components.
+
+    Each level is the `~firedrake.mesh.MeshSequenceGeometry` of the
+    component meshes on that level. The levels are read from the component
+    hierarchies each time, so they follow every change to those
+    hierarchies. Two objects of this class are equal if their component
+    hierarchies are the same objects.
+
+    Parameters
+    ----------
+    hierarchies :
+        The hierarchy of each component mesh, in the order of the components.
+
+    """
+    def __init__(self, hierarchies: Sequence[HierarchyBase]):
+        self.hierarchies = tuple(hierarchies)
+
+    def _key(self):
+        return tuple(map(id, self.hierarchies))
+
+    def __eq__(self, other):
+        return type(other) is type(self) and self._key() == other._key()
+
+    def __hash__(self):
+        return hash(self._key())
+
+    @property
+    def meshes(self) -> list:
+        """The mesh sequence on each level, from coarse to fine."""
+        nlevels = {len(h) for h in self.hierarchies}
+        if len(nlevels) > 1:
+            raise RuntimeError("The component hierarchies have different numbers of levels")
+        from firedrake.mesh import MeshSequenceGeometry
+        return [MeshSequenceGeometry(meshes) for meshes in zip(*self.hierarchies)]
+
+    def __iter__(self):
+        """Iterate over the mesh sequences from coarsest to finest."""
+        return iter(self.meshes)
+
+    def __len__(self):
+        """Return the number of levels."""
+        return len(self.meshes)
+
+    def __getitem__(self, idx):
+        """Return the mesh sequence on a level, or a list of them for a slice."""
+        return self.meshes[idx]
+
+    def set_finest_mesh(self, mesh) -> bool:
+        """Make an adapted mesh sequence the finest level of the hierarchy.
+
+        Each component hierarchy makes its component of ``mesh`` its finest
+        level, as in `HierarchyBase.set_finest_mesh`.
+
+        Parameters
+        ----------
+        mesh : firedrake.mesh.MeshSequenceGeometry
+            An adapted mesh sequence on a level of the hierarchy.
+
+        Returns
+        -------
+        bool
+            Whether the levels that are coarser than ``mesh`` have changed.
+
+        """
+        # Components that share a hierarchy are on the same level, so they
+        # are the same mesh, and that hierarchy is updated only once.
+        components = dict(zip(self.hierarchies, mesh, strict=True))
+        changed = [h.set_finest_mesh(m) for h, m in components.items()]
+        return any(changed)
+
+
 def MeshHierarchy(mesh, refinement_levels=0,
                   refinements_per_level=1,
                   netgen_flags=None,

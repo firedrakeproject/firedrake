@@ -373,15 +373,16 @@ def test_snes_adapt_repeated_mixed_solve():
     )
     for step in range(3):
         centre.assign(0.1 + 0.1 * step)
-        previous_mesh = solver.get_solution().function_space().mesh().unique()
+        previous_mesh = solver.get_solution().function_space().mesh()
         solution = solver.solve()
-        adapted_mesh = solution.function_space().mesh().unique()
-        assert adapted_mesh is not previous_mesh
+        adapted_mesh = solution.function_space().mesh()
+        assert adapted_mesh != previous_mesh
+        # The mesh sequence of the mixed space is the finest level of its hierarchy.
         hierarchy, level = get_level(adapted_mesh)
-        sequence_hierarchy, sequence_level = get_level(solution.function_space().mesh())
-        assert (len(sequence_hierarchy), sequence_level) == (len(hierarchy), level)
-        assert marked_meshes[-1] is previous_mesh
-        assert adapted_mesh.cell_set.size < 3 * mesh.cell_set.size
+        assert level == len(hierarchy) - 1
+        assert hierarchy[level] == adapted_mesh
+        assert marked_meshes[-1] is previous_mesh.unique()
+        assert adapted_mesh.unique().cell_set.size < 3 * mesh.cell_set.size
     assert mat_types == ["aij", "aij", "matfree"]
 
 

@@ -1236,9 +1236,7 @@ class MixedFunctionSpace(object):
     def _dm(self):
         from firedrake.mg.utils import get_level
         dm = self.dof_dset.dm
-        # TODO: Think harder.
-        m = self.mesh()[0]
-        _, level = get_level(m)
+        _, level = get_level(self.mesh())
         dmhooks.attach_hooks(dm, level=level)
         return dm
 

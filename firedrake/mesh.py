@@ -5083,15 +5083,13 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
 class MeshSequenceGeometry(ufl.MeshSequence):
     """A representation of mixed mesh geometry."""
 
-    def __init__(self, meshes, set_hierarchy=True):
+    def __init__(self, meshes):
         """Initialise.
 
         Parameters
         ----------
         meshes : tuple or list
             `MeshGeometry`s to make `MeshSequenceGeometry` with.
-        set_hierarchy : bool
-            Flag for making hierarchy.
 
         """
         for m in meshes:
@@ -5099,9 +5097,6 @@ class MeshSequenceGeometry(ufl.MeshSequence):
                 raise ValueError(f"Got {type(m)}")
         super().__init__(meshes)
         self.comm = meshes[0].comm
-        # Only set hierarchy at top level.
-        if set_hierarchy:
-            self.set_hierarchy()
 
     @cached_property
     def topology(self):
@@ -5151,46 +5146,6 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         m, = set(self._meshes)
         return m
 
-    def set_hierarchy(self):
-        """Set mesh hierarchy if needed."""
-        from firedrake.mg.utils import set_level, get_level, has_level
-
-        old_hierarchy, _ = get_level(self)
-
-        # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
-        if all(not has_level(m) for m in self._meshes):
-            return
-        else:
-            if not all(has_level(m) for m in self._meshes):
-                raise RuntimeError("Found inconsistent component meshes")
-        hierarchy_list = []
-        level_list = []
-        for m in self:
-            hierarchy, level = get_level(m)
-            hierarchy_list.append(hierarchy)
-            level_list.append(level)
-        nlevels, = set(len(hierarchy) for hierarchy in hierarchy_list)
-        level, = set(level_list)
-        result = []
-        for ilevel in range(nlevels):
-            if ilevel == level:
-                result.append(self)
-            elif old_hierarchy is not None and ilevel < len(old_hierarchy):
-                old_mesh_sequence = old_hierarchy[ilevel]
-                # Contexts retain these wrappers, so keep them when their meshes still match.
-                if (len(old_mesh_sequence) == len(hierarchy_list)
-                        and all(old_mesh is hierarchy[ilevel]
-                                for old_mesh, hierarchy in zip(old_mesh_sequence, hierarchy_list))):
-                    result.append(old_mesh_sequence)
-                else:
-                    result.append(MeshSequenceGeometry(
-                        [hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
-            else:
-                result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
-        result = tuple(result)
-        for i, m in enumerate(result):
-            set_level(m, result, i)
-
 
 class MeshSequenceTopology:
     """A representation of mixed mesh topology."""
@@ -5221,6 +5176,34 @@ class MeshSequenceTopology:
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
+
+    @property
+    def __level_info__(self):
+        """The hierarchy and level of this mesh sequence, read from its components.
+
+        Returns
+        -------
+        tuple
+            A `~firedrake.mg.mesh.MeshSequenceHierarchy` of the component
+            hierarchies and the level of the components, or ``(None, None)``
+            if no component is on a level of a hierarchy.
+
+        Raises
+        ------
+        RuntimeError
+            If only some components are on a level of a hierarchy, or if the
+            components are on different levels.
+
+        """
+        from firedrake.mg.mesh import MeshSequenceHierarchy
+        from firedrake.mg.utils import get_level
+
+        hierarchies, levels = zip(*map(get_level, self._meshes))
+        if all(h is None for h in hierarchies):
+            return None, None
+        if any(h is None for h in hierarchies) or len(set(levels)) > 1:
+            raise RuntimeError("The component meshes are not on the same level of their hierarchies")
+        return MeshSequenceHierarchy(hierarchies), levels[0]
 
     def ufl_cell(self):
         return CellSequence([m.ufl_cell() for m in self._meshes])

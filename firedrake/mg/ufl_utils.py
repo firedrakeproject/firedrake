@@ -115,7 +115,9 @@ def get_relative(dispatch, old, reverse=False):
     if new is not None:
         new_hierarchy, _ = utils.get_level(as_ufl_domain(new))
         old_hierarchy, _ = utils.get_level(as_ufl_domain(old))
-        if new_hierarchy is not old_hierarchy:
+        # The hierarchy of a mesh sequence is made again on each query, so
+        # compare by equality.
+        if new_hierarchy != old_hierarchy:
             new = None
     return new
 
