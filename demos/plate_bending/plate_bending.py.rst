@@ -266,18 +266,23 @@ clamped conditions weakly. For the normal derivative
 :math:`M_{nn}(w) = \boldsymbol{n} \cdot \boldsymbol{\sigma}(\nabla w)
 \boldsymbol{n}`. For the deflection, we apply a penalty to the interpolant
 :math:`\Pi_h^P w`. The penalty is scaled for the membrane term and for the
-bending term.
+bending term. With ``reduced=False``, the function omits :math:`\Pi_h^P` and
+gives the standard Morley discretisation, which we use below for comparison.
 
 .. code-block:: python
 
-  def modified_morley(mesh, T, f):
+  def modified_morley(mesh, T, f, reduced=True):
       V = FunctionSpace(mesh, "Morley", 2)
       P = FunctionSpace(mesh, "Lagrange", 1)
 
       w = TrialFunction(V)
       v = TestFunction(V)
-      Pi_w = interpolate(w, P)
-      Pi_v = interpolate(v, P)
+      if reduced:
+          Pi_w = interpolate(w, P)
+          Pi_v = interpolate(v, P)
+      else:
+          Pi_w = w
+          Pi_v = v
 
       n = FacetNormal(mesh)
       h = CellDiameter(mesh)
@@ -337,6 +342,64 @@ correct limit.
 .. code-block:: python
 
   assert difference < 1e-3
+
+The reduction operator is necessary for this limit. A Morley function is
+continuous at the vertices, but its jump across an interior edge is a quadratic
+that vanishes at the two vertices, so the jump does not have zero mean. Thus the
+Morley discretisation of the membrane term has a consistency error that does
+not decrease as the mesh is refined, and the Morley method does not converge
+for the membrane problem :cite:`Nilssen:2001`. When :math:`\varepsilon` is much
+smaller than the mesh size, the membrane term dominates the energy. We show
+this with the manufactured Kirchhoff solution at :math:`\varepsilon = 10^{-4}`
+and the load :math:`f = D \Delta^2 w_K - T \Delta w_K`. We measure the error in
+the gradient of the deflection, which we evaluate on each cell.
+
+.. code-block:: python
+
+  import numpy as np
+
+  def membrane_error(mesh, reduced):
+      T = D / Constant(1e-4)**2
+      w_K = kirchhoff_solution(mesh)
+      f = D * div(grad(div(grad(w_K)))) - T * div(grad(w_K))
+      w_h = modified_morley(mesh, T, f, reduced=reduced)
+      return l2_error(grad(w_h) - grad(w_K))
+
+  sizes = [4, 8, 16, 32]
+  for reduced, name in [(False, "Morley"), (True, "Modified Morley")]:
+      errors = np.array([membrane_error(UnitSquareMesh(size, size), reduced)
+                         for size in sizes])
+      rates = np.log2(errors[:-1] / errors[1:])
+      print(f"{name}: errors = {errors}, rates = {rates}")
+      if reduced:
+          assert rates[-1] > 1.5, rates
+      else:
+          assert errors[-1] > 0.9 * errors[0], errors
+
+The demo prints the following errors and rates:
+
+.. table:: Gradient errors at :math:`\varepsilon = 10^{-4}`
+   :align: center
+   :class: column-pairs
+   :widths: 1 3 2 3 2
+
+   +----+------------------+------------------+
+   |    | Morley           | Modified Morley  |
+   +    +-----------+------+-----------+------+
+   | n  | error     | rate | error     | rate |
+   +====+===========+======+===========+======+
+   | 4  | 6.311e-03 | --   | 3.659e-03 | --   |
+   +----+-----------+------+-----------+------+
+   | 8  | 7.431e-03 | -0.24| 1.477e-03 | 1.31 |
+   +----+-----------+------+-----------+------+
+   | 16 | 7.870e-03 | -0.08| 4.512e-04 | 1.71 |
+   +----+-----------+------+-----------+------+
+   | 32 | 7.996e-03 | -0.02| 1.229e-04 | 1.88 |
+   +----+-----------+------+-----------+------+
+
+The error of the Morley method does not decrease as the mesh is refined. The
+modified Morley method converges, and the reduction operator is responsible
+for this convergence.
 
 For the convergence study, we use a tension that gives
 :math:`\varepsilon = 10^{-2}` and the load
@@ -447,8 +510,6 @@ print the curvature errors and the rates of convergence between successive
 meshes.
 
 .. code-block:: python
-
-  import numpy as np
 
   methods = {"MITC": mitc,
              "Modified Morley": plate_under_tension,
