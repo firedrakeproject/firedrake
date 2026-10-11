@@ -17,6 +17,7 @@ class Op(IntEnum):
     PROLONG = 0
     RESTRICT = 1
     INJECT = 2
+    PROJECT = 3
 
 
 class TransferManager(object):
@@ -55,39 +56,42 @@ class TransferManager(object):
         Each transfer reads these options with ``options_prefix``:
 
         - ``inject_type``: ``"interpolate"`` (default) or ``"project"``.
-          With ``"project"``, injection is a supermesh L2 projection.
+          With ``"project"``, the injection operator of PCMG and of an
+          adaptation is a supermesh L2 projection.
         - ``mat_type``: ``"matfree"`` (default) or ``"aij"``.
         """
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
         self.options_prefix = options_prefix
         self.caches = {}
+        # The native transfer operators of each element and matrix type.
+        self._native_ops = {}
         self._mat_cache = {}
 
-    def _options(self, transfer_op):
-        """Return the transfer type and the matrix type set by the options.
+    @property
+    def inject_type(self) -> str:
+        """The value of the ``inject_type`` option, ``"interpolate"`` or ``"project"``.
 
-        Parameters
-        ----------
-        transfer_op : Op
-            The transfer operation. Only injection reads ``inject_type``;
-            the other operations interpolate.
-
-        Returns
-        -------
-        tuple[str, str]
-            The transfer type and the value of the ``mat_type`` option.
+        The option is read each time, because the solver inserts its options
+        only while it solves.
         """
         if self.options_prefix is None:
-            return "interpolate", "matfree"
-        opts = PETSc.Options(self.options_prefix)
-        transfer_type = "interpolate"
-        if transfer_op == Op.INJECT:
-            transfer_type = opts.getString("inject_type", transfer_type)
-        if transfer_type not in ("interpolate", "project"):
+            return "interpolate"
+        inject_type = PETSc.Options(self.options_prefix).getString("inject_type", "interpolate")
+        if inject_type != "interpolate" and inject_type != "project":
             raise ValueError(f"{self.options_prefix}inject_type must be 'interpolate' or 'project'")
-        mat_type = opts.getString("mat_type", "matfree")
-        return transfer_type, mat_type
+        return inject_type
+
+    @property
+    def mat_type(self) -> str:
+        """The value of the ``mat_type`` option, ``"matfree"`` or ``"aij"``.
+
+        The option is read each time, because the solver inserts its options
+        only while it solves.
+        """
+        if self.options_prefix is None:
+            return "matfree"
+        return PETSc.Options(self.options_prefix).getString("mat_type", "matfree")
 
     def is_native(self, element, gdim, op):
         if element in self.native_transfers:
@@ -118,6 +122,11 @@ class TransferManager(object):
         try:
             return self.native_transfers[element][op]
         except KeyError:
+            pass
+        key = (element, mat_type)
+        try:
+            return self._native_ops[key][op]
+        except KeyError:
             if self.is_native(element, gdim, op):
                 if mat_type == "aij":
                     ops = self._prolong_aij, self._restrict_aij, firedrake.inject
@@ -125,7 +134,7 @@ class TransferManager(object):
                     ops = firedrake.prolong, firedrake.restrict, firedrake.inject
                 else:
                     raise ValueError(f"Unsupported mat_type {mat_type}")
-                return ops[op]
+                return self._native_ops.setdefault(key, ops)[op]
         return None
 
     def cache(self, V):
@@ -264,19 +273,19 @@ class TransferManager(object):
         except KeyError:
             return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
 
-    def requires_transfer(self, V, transfer_op, source, target, transfer_type="interpolate"):
+    def requires_transfer(self, V, transfer_op, source, target):
         """Determine whether either the source or target have been modified since
-        the last time a grid transfer of this type was executed with them."""
-        key = (transfer_op, transfer_type, weakref.ref(source.dat), weakref.ref(target.dat))
+        the last time a grid transfer was executed with them."""
+        key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         try:
             return self.cache(V)._dat_versions[key] != dat_versions
         except KeyError:
             return True
 
-    def cache_dat_versions(self, V, transfer_op, source, target, transfer_type="interpolate"):
+    def cache_dat_versions(self, V, transfer_op, source, target):
         """Record the returned dat_versions of the source and target."""
-        key = (transfer_op, transfer_type, weakref.ref(source.dat), weakref.ref(target.dat))
+        key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
         dat_versions = (source.dat.dat_version, target.dat.dat_version)
         self.cache(V)._dat_versions[key] = dat_versions
 
@@ -307,17 +316,12 @@ class TransferManager(object):
                 self.op(source_, target_, transfer_op=transfer_op)
             return
 
-        transfer_type, mat_type = self._options(transfer_op)
-        if not self.requires_transfer(Vs, transfer_op, source, target, transfer_type):
+        if not self.requires_transfer(Vs, transfer_op, source, target):
             return
 
         gdim = Vt.mesh().geometric_dimension
-        if transfer_type == "project":
-            projector = self._projector(Vs, Vt)
-            projector.source.assign(source)
-            target.assign(projector.project())
-        elif self.is_native(target_element, gdim, transfer_op):
-            self._native_transfer(target_element, gdim, transfer_op, mat_type)(source, target)
+        if self.is_native(target_element, gdim, transfer_op):
+            self._native_transfer(target_element, gdim, transfer_op, self.mat_type)(source, target)
         else:
             # Get some work vectors
             dgsource = self.DG_work(Vs)
@@ -346,10 +350,14 @@ class TransferManager(object):
                     work = self.work_vec(Vt)
                     self.V_DG_mass(Vt, VDGt).multTranspose(dgv, work)
                     self.V_inv_mass_ksp(Vt).solve(work, t)
-        self.cache_dat_versions(Vs, transfer_op, source, target, transfer_type)
+        self.cache_dat_versions(Vs, transfer_op, source, target)
 
     def transfer(self, x, y):
-        """Transfer a function/cofunction.
+        """Transfer a function/cofunction onto another level of its hierarchy.
+
+        The levels of ``x`` and ``y`` choose the operation. A function is
+        prolonged onto a finer level and injected onto a coarser level. A
+        cofunction is restricted onto a coarser level.
 
         Parameters
         ----------
@@ -417,13 +425,12 @@ class TransferManager(object):
                 self.restrict(source_, target_)
             return
 
-        _, mat_type = self._options(Op.RESTRICT)
         if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
             return
 
         gdim = Vs_star.mesh().geometric_dimension
         if self.is_native(source_element, gdim, Op.RESTRICT):
-            self._native_transfer(source_element, gdim, Op.RESTRICT, mat_type)(source, target)
+            self._native_transfer(source_element, gdim, Op.RESTRICT, self.mat_type)(source, target)
         else:
             Vs = Vs_star.dual()
             Vt = Vt_star.dual()
@@ -475,6 +482,33 @@ class TransferManager(object):
         except KeyError:
             P = assemble_prolongation_aij(Vc, Vf)
             return self._mat_cache.setdefault(key, P)
+
+    @PETSc.Log.EventDecorator()
+    def project(self, source, target):
+        """Transfer a function onto another level by the L2 projection on the supermesh.
+
+        The level of ``target`` can be finer or coarser than the level of
+        ``source``.
+
+        Parameters
+        ----------
+        source : Function
+            The source function.
+        target : Function
+            The target function.
+        """
+        Vs = source.function_space()
+        Vt = target.function_space()
+        if type(Vs.ufl_element()) is finat.ufl.MixedElement:
+            for source_, target_ in zip(source.subfunctions, target.subfunctions):
+                self.project(source_, target_)
+            return
+        if not self.requires_transfer(Vs, Op.PROJECT, source, target):
+            return
+        projector = self._projector(Vs, Vt)
+        projector.source.assign(source)
+        target.assign(projector.project())
+        self.cache_dat_versions(Vs, Op.PROJECT, source, target)
 
     def _projector(self, Vs, Vt):
         """Return a cached L2 projector from Vs to Vt.

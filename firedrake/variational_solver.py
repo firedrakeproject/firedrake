@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
 
-from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -560,19 +560,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
-        forms = (problem.F, problem.J, problem.Jp, problem.E)
-        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        solution_dm = self.snes.getDM()
-        # Grab the unique DMs for this problem
-        problem_dms = []
-        for c in chain(coefficients, problem.dirichlet_bcs()):
-            dm = c.function_space().dm
-            if dm == solution_dm:
-                # Make sure the solution dm is visited last
-                continue
-            if dm not in problem_dms:
-                problem_dms.append(dm)
-        problem_dms.append(solution_dm)
+        problem_dms = self._ctx.coefficient_dms()
 
         if problem.restrict:
             # Transfer the initial guess into the RestrictedFunctionSpace

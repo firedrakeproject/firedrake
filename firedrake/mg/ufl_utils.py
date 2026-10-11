@@ -7,7 +7,7 @@ import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, add_hook)
+                               get_parent, add_hook, set_refine_level)
 
 from . import utils
 
@@ -115,9 +115,7 @@ def get_relative(dispatch, old, reverse=False):
     if new is not None:
         new_hierarchy, _ = utils.get_level(as_ufl_domain(new))
         old_hierarchy, _ = utils.get_level(as_ufl_domain(old))
-        # The hierarchy of a mesh sequence is made again on each query, so
-        # compare by equality.
-        if new_hierarchy != old_hierarchy:
+        if new_hierarchy is not old_hierarchy:
             new = None
     return new
 
@@ -275,45 +273,87 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
     return new
 
 
+def transfer_coefficients(source: PETSc.DM, target: PETSc.DM, include_solution: bool = True) -> None:
+    """Transfer the coefficients of the problem on one DM onto the problem on another DM.
+
+    The target problem can be on an adaptive ancestor of the mesh of the
+    source problem, so the coefficients of the two problems are matched
+    through the coefficients of the original problem.
+
+    Parameters
+    ----------
+    source
+        The DM of the problem that the coefficients are transferred from.
+    target
+        The DM of the problem that the coefficients are transferred to.
+    include_solution
+        Whether the solution is transferred too.
+
+    """
+    source_mapping = get_appctx(source)._coefficient_mapping
+    target_ctx = get_appctx(target)
+    manager = get_transfer_manager(source)
+    for c, mapped in target_ctx._coefficient_mapping.items():
+        if mapped is target_ctx._x and not include_solution:
+            continue
+        if c in source_mapping:
+            manager.transfer(source_mapping[c], mapped)
+
+    if target_ctx.pre_apply_bcs:
+        for bc in target_ctx._problem.dirichlet_bcs():
+            bc.apply(target_ctx._x)
+
+
+def _restrict_hook(fine, restriction, rscale, injection, coarse):
+    """Transfer the coefficients onto a coarse DM in DMRestrict()."""
+    transfer_coefficients(fine, coarse)
+
+
+def _interpolate_hook(coarse, interp, fine):
+    """Transfer the coefficients onto an adapted DM in DMInterpolate().
+
+    DMAdaptorAdapt() calls this hook through DMInterpolate(), and transfers
+    the solution itself. DMRefine() gives the adapted DM one more refine
+    level than the DM that it adapts, but an adaptation can also coarsen,
+    so the refine level is set to the level of the adapted mesh here.
+    """
+    transfer_coefficients(coarse, fine, include_solution=False)
+    set_refine_level(get_appctx(fine)._problem.u_restrict.function_space())
+
+
+def _coarsen_hook(fine, coarse):
+    add_transfer_hooks(coarse)
+
+
+def _refine_hook(coarse, fine):
+    add_transfer_hooks(fine)
+
+
+def add_transfer_hooks(dm: PETSc.DM) -> None:
+    """Make a DM and the DMs that are coarsened or refined from it transfer the coefficients.
+
+    The hooks persist and do not depend on the problem, so they are added
+    to each DM only once.
+
+    Parameters
+    ----------
+    dm
+        The DM of a problem.
+
+    """
+    if not dm.getAttr("_transfer_hooks"):
+        dm.addCoarsenHook(_coarsen_hook, _restrict_hook)
+        dm.addRefineHook(_refine_hook, _interpolate_hook)
+        dm.setAttr("_transfer_hooks", True)
+
+
 @_reconstruct.register(firedrake.NonlinearVariationalProblem)
 def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     new_problem = get_relative(self, problem)
     if new_problem is not None:
         return new_problem
 
-    def transfer_callback(fine, restriction, rscale, injection, coarse):
-        fctx = get_appctx(fine)
-        cctx = get_appctx(coarse)
-        # The coarse context can be an ancestor that the fine context was
-        # adapted from, so the coefficients are matched by the original problem.
-        fmapping = fctx._coefficient_mapping
-        manager = get_transfer_manager(fine)
-        for c, mapped in cctx._coefficient_mapping.items():
-            if c in fmapping:
-                manager.transfer(fmapping[c], mapped)
-
-        # Apply bcs
-        if cctx.pre_apply_bcs:
-            for bc in cctx._problem.dirichlet_bcs():
-                bc.apply(cctx._x)
-
-    def add_hooks(dm):
-        # The hooks are persistent and cumulative, but also problem-independent.
-        # Therefore, we are only adding them once.
-        if not dm.getAttr("_coarsen_hook"):
-            dm.addCoarsenHook(coarsen_callback, transfer_callback)
-            dm.addRefineHook(refine_callback, None)
-            dm.setAttr("_coarsen_hook", True)
-
-    def coarsen_callback(fine, coarse):
-        add_hooks(coarse)
-
-    def refine_callback(coarse, fine):
-        # An adapted DM is refined from the DM of the problem, and is then
-        # coarsened by PCMG and SNESFAS.
-        add_hooks(fine)
-
-    add_hooks(problem.u_restrict.function_space().dm)
+    add_transfer_hooks(problem.u_restrict.function_space().dm)
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
@@ -417,11 +457,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     else:
         levels_prefix = f"{solver_prefix}levels_"
     current_level_prefix = f"{solver_prefix}levels_{level}_"
-    if self is refine:
-        # Adaptation hands the refined context to the same SNES.
-        options_prefix = context.options_prefix
-    else:
-        options_prefix = f"{parent_prefix}{current_level_prefix}"
+    options_prefix = f"{parent_prefix}{current_level_prefix}"
 
     # Use different mat_type on each level
     mat_type = None
@@ -555,7 +591,12 @@ class Injection(object):
         # PCMG expects the transpose of the injection.
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
-        self.manager.inject(self.ffn, self.cfn)
+        # An adaptation injects the solution onto the adapted mesh, which
+        # can be finer than the mesh of the solution.
+        if self.manager.inject_type == "project":
+            self.manager.project(self.ffn, self.cfn)
+        else:
+            self.manager.transfer(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:

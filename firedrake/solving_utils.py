@@ -325,6 +325,24 @@ class _SNESContext(object):
             snes = weakref.proxy(snes)
         self.snes = snes
 
+    def coefficient_dms(self) -> list:
+        """Return the DMs of the coefficients and the boundary conditions of the problem.
+
+        Returns
+        -------
+        list[PETSc.DM]
+            Each DM once, with the DM of the solution last.
+        """
+        solution_dm = self._problem.dm
+        spaces = chain((c.function_space() for c in self._coefficient_mapping.values()),
+                       (bc.function_space() for bc in self._problem.dirichlet_bcs()))
+        dms = []
+        for V in spaces:
+            if V.dm != solution_dm and V.dm not in dms:
+                dms.append(V.dm)
+        dms.append(solution_dm)
+        return dms
+
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
                     mat_type: str | None = None,

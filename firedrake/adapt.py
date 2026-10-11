@@ -52,8 +52,8 @@ def _adapt_marked_cells(mesh: MeshGeometry, cell_marker: Function) -> PETSc.DMPl
         adapt_label = dm.getLabel(ADAPT_LABEL)
         section = cell_marker.function_space().dm.getLocalSection()
         values = cell_marker.dat.data_ro.real
+        adapt_indicator = np.zeros(cell_marker.dat.data_ro_with_halos.shape, dtype=IntType)
         for flag, marked in ((DM_ADAPT_REFINE, values > 0), (DM_ADAPT_COARSEN, values < 0)):
-            adapt_indicator = np.zeros(cell_marker.dat.data_ro_with_halos.shape, dtype=IntType)
             adapt_indicator[:ncoarse] = marked
             dmcommon.mark_points_with_function_array(dm, section, 0, adapt_indicator, adapt_label, flag)
 
@@ -118,7 +118,7 @@ def refine_marked_elements(mesh, cell_marker):
     if num_rounds <= 0:
         return mesh
 
-    ancestors = {m.topology_dm.handle: m for m, _ in _adaptive_ancestors(mesh)}
+    ancestors = {m.topology_dm.handle: m for m in _adaptive_ancestors(mesh)}
     current_mesh = mesh
     current_mark = marker
     is_netgen = hasattr(mesh, "netgen_mesh")
@@ -132,20 +132,23 @@ def refine_marked_elements(mesh, cell_marker):
             if highest <= 0:
                 return mesh
             new_dm.setCoarseDM(current_mesh.topology_dm)
-        # Follow the coarse DMs back to the closest adaptive ancestor.
+        # Follow the coarse DMs back to the closest adaptive ancestor, or to
+        # the mesh of the previous round, whose points are already mapped to
+        # that ancestor.
         dm = new_dm
-        fine_to_coarse_points = np.arange(*dm.getChart(), dtype=IntType)
-        while dm.handle not in ancestors:
-            fine_to_coarse_points = impl.compose_points(impl.transform_source_points(dm), fine_to_coarse_points)
+        points = np.arange(*dm.getChart(), dtype=IntType)
+        while dm.handle not in ancestors and dm.handle != current_mesh.topology_dm.handle:
+            points = impl.compose_points(impl.transform_source_points(dm), points)
             dm = dm.getCoarseDM()
-        # The transform propagates every label, including the temporary adapt
-        # label and the coarse mesh's stale pyop2_core/owned/ghost point
-        # classification. Mesh() skips recomputing that classification if it's
-        # already present, so it must be dropped here to force a fresh one for
-        # the new mesh's own point count and distribution.
-        for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", ADAPT_LABEL):
-            if new_dm.hasLabel(label):
-                new_dm.removeLabel(label)
+        if dm.handle in ancestors:
+            parent = ancestors[dm.handle]
+            fine_to_coarse_points = points
+        else:
+            fine_to_coarse_points = impl.compose_points(fine_to_coarse_points, points)
+        # The transform copies every label, which includes the temporary
+        # adapt label and the entity classes of the coarse mesh.
+        new_dm.removeLabel(ADAPT_LABEL)
+        dmcommon.remove_entity_class_labels(new_dm)
         if is_netgen:
             ngmesh = _snap_to_netgen(new_dm, mesh.netgen_mesh)
         with PETSc.Log.Event("AdaptiveRefine: Mesh()"):
@@ -179,20 +182,27 @@ def refine_marked_elements(mesh, cell_marker):
             final_mesh = _curve_netgen_mesh(final_mesh, coordinates.ufl_element().degree(),
                                             cg_field=not coordinates.finat_element.is_dg())
 
-    final_mesh._adaptive_parent = ancestors[dm.handle]
+    final_mesh._adaptive_parent = parent
     final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
     _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh
 
 
 def _adaptive_ancestors(mesh: MeshGeometry):
-    """Yield ``mesh`` and each of its adaptive ancestors, with the map of the DMPlex points of ``mesh`` to theirs."""
-    points = np.arange(*mesh.topology_dm.getChart(), dtype=IntType)
+    """Yield ``mesh`` and each of its adaptive ancestors, from fine to coarse."""
     while mesh is not None:
-        yield mesh, points
-        if mesh._adaptive_parent is not None:
-            points = impl.compose_points(mesh._adaptive_fine_to_coarse_points, points)
+        yield mesh
         mesh = mesh._adaptive_parent
+
+
+def _points_to_ancestor(mesh: MeshGeometry, ancestor: MeshGeometry) -> np.ndarray:
+    """Map each DMPlex point of ``mesh`` to the point of an adaptive ancestor that it comes from."""
+    points = np.arange(*mesh.topology_dm.getChart(), dtype=IntType)
+    for m in _adaptive_ancestors(mesh):
+        if m is ancestor:
+            return points
+        points = impl.compose_points(m._adaptive_fine_to_coarse_points, points)
+    raise ValueError("Expecting an adaptive ancestor of the mesh")
 
 
 def adapted_cell_maps(coarse: MeshGeometry, fine: MeshGeometry) -> tuple | None:
@@ -219,19 +229,18 @@ def adapted_cell_maps(coarse: MeshGeometry, fine: MeshGeometry) -> tuple | None:
         is ``None`` if the meshes have no common adaptive ancestor.
 
     """
-    fine_ancestors = dict(_adaptive_ancestors(fine))
-    for ancestor, coarse_points in _adaptive_ancestors(coarse):
+    fine_ancestors = set(_adaptive_ancestors(fine))
+    for ancestor in _adaptive_ancestors(coarse):
         if ancestor in fine_ancestors:
             break
     else:
         return None
-    fine_points = fine_ancestors[ancestor]
+    fine_points = _points_to_ancestor(fine, ancestor)
+    if ancestor is coarse:
+        return (*impl.coarse_to_fine_cells(coarse, fine, fine_points), fine_points)
+    coarse_points = _points_to_ancestor(coarse, ancestor)
     ancestor_to_coarse, coarse_to_ancestor = impl.coarse_to_fine_cells(ancestor, coarse, coarse_points)
     ancestor_to_fine, fine_to_ancestor = impl.coarse_to_fine_cells(ancestor, fine, fine_points)
     coarse_to_fine = ancestor_to_fine[coarse_to_ancestor[:, 0]]
     fine_to_coarse = ancestor_to_coarse[fine_to_ancestor[:, 0]]
-    # op2.Map cannot hold the -1 padding of fine_to_coarse, and every ancestor
-    # cell has a descendant, so the first entry of a row can replace it.
-    fine_to_coarse = np.where(fine_to_coarse < 0, fine_to_coarse[:, :1], fine_to_coarse)
-    fine_to_coarse_points = fine_points if ancestor is coarse else None
-    return coarse_to_fine, fine_to_coarse, fine_to_coarse_points
+    return coarse_to_fine, fine_to_coarse, None

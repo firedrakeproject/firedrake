@@ -114,8 +114,8 @@ def assemble_mixed_mass_matrix(V_A, V_B):
 
             def likely(cell_A):
                 cells = cell_map[cell_A]
-                # Adaptive maps pad rows with -1 or a repeated valid cell.
-                return numpy.unique(cells[cells >= 0])
+                # The rows of an adaptive cell map are padded with -1.
+                return cells[cells >= 0]
 
     assert V_A.block_size == V_B.block_size
     orig_block_size = V_A.block_size

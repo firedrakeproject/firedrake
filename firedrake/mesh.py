@@ -4488,10 +4488,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     # Clone plex: plex1 will share topology with plex.
     plex1 = plex.clone()
     plex1.setName(_generate_default_mesh_topology_name(name1))
-    # Remove pyop2 labels.
-    plex1.removeLabel("pyop2_core")
-    plex1.removeLabel("pyop2_owned")
-    plex1.removeLabel("pyop2_ghost")
+    dmcommon.remove_entity_class_labels(plex1)
     # Do not remove "exterior_facets" and "interior_facets" labels;
     # those should be reused as the mesh has already been distributed (if size > 1).
     for label_name in [dmcommon.CELL_SETS_LABEL, dmcommon.FACE_SETS_LABEL]:
@@ -4856,7 +4853,7 @@ class MeshSequenceTopology:
             return None, None
         if any(h is None for h in hierarchies) or len(set(levels)) > 1:
             raise RuntimeError("The component meshes are not on the same level of their hierarchies")
-        return MeshSequenceHierarchy(hierarchies), levels[0]
+        return MeshSequenceHierarchy.from_hierarchies(hierarchies), levels[0]
 
     def ufl_cell(self):
         return CellSequence([m.ufl_cell() for m in self._meshes])

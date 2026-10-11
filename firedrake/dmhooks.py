@@ -522,36 +522,6 @@ def set_refine_level(V):
         W.dm.setRefineLevel(level)
 
 
-def _transfer_adapted_coefficients(source, interp, target):
-    """Transfer the coefficients of the problem onto an adapted DM.
-
-    DMAdaptorAdapt() calls this interpolate hook of the adapted DM through
-    DMInterpolate(), after it injects the solution. Each Function is
-    prolonged, also onto a coarser mesh, by the :class:`~.TransferManager`
-    of the problem.
-
-    Parameters
-    ----------
-    source : PETSc.DM
-        The solution DM before the adaptation.
-    interp : PETSc.Mat
-        The interpolation matrix from ``source`` to ``target`` (unused).
-    target : PETSc.DM
-        The adapted solution DM.
-    """
-    source_ctx = get_appctx(source)
-    target_ctx = get_appctx(target)
-    manager = get_transfer_manager(target)
-    for c, v in target_ctx._coefficient_mapping.items():
-        if v is target_ctx._x:
-            continue
-        old = source_ctx._coefficient_mapping[c]
-        if isinstance(v, firedrake.Cofunction):
-            manager.transfer(old, v)
-        else:
-            manager.prolong(old, v)
-
-
 def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` reconstructed on the adapted mesh,
@@ -562,7 +532,7 @@ def _refine_adaptive(dm):
     solution.
     """
     from firedrake.mg.mesh import MeshHierarchy
-    from firedrake.mg.ufl_utils import coarsen, refine
+    from firedrake.mg.ufl_utils import add_transfer_hooks, coarsen, refine
     from firedrake.mg.utils import get_level
 
     ctx = get_appctx(dm)
@@ -596,51 +566,37 @@ def _refine_adaptive(dm):
         return PETSc.DM()
     if hierarchy is None:
         hierarchy, level = MeshHierarchy(mesh), 0
-    adapted_hierarchy, _ = get_level(adapted_mesh)
-    if adapted_hierarchy is hierarchy:
-        # The coarsening returned an ancestor that is a coarser level.
-        reconstruct = coarsen
-    else:
+    if get_level(adapted_mesh)[0] is not hierarchy:
         hierarchy.add_mesh(adapted_mesh)
-        reconstruct = refine
+    # A coarsening can return an ancestor that is a coarser level.
     _, adapted_level = get_level(adapted_mesh)
+    reconstruct = refine if adapted_level > level else coarsen
     refined_ctx = ctx
     for _ in range(abs(adapted_level - level)):
         refined_ctx = reconstruct(refined_ctx, reconstruct, coefficient_mapping={})
-    set_refine_level(refined_ctx._problem.u_restrict.function_space())
+    # Adaptation hands the reconstructed context to the same SNES.
+    refined_ctx.options_prefix = ctx.options_prefix
     refined_dm = refined_ctx._problem.dm
-    if not refined_dm.getAttr("_adapt_hook"):
-        refined_dm.addRefineHook(None, _transfer_adapted_coefficients)
-        refined_dm.setAttr("_adapt_hook", True)
+    add_transfer_hooks(refined_dm)
     coarsener = get_ctx_coarsener(dm)
     # The refined DM records the hooks of its subproblems in its own setup
     # hooks, which the solver keeps after the adaptation.
-    parent = refined_dm
     hooks = SetupHooks()
-    add_hook(get_parent(dm), setup=partial(push_setup_hooks, parent, hooks),
-             teardown=partial(pop_setup_hooks, parent, hooks),
+    add_hook(get_parent(dm), setup=partial(push_setup_hooks, refined_dm, hooks),
+             teardown=partial(pop_setup_hooks, refined_dm, hooks),
              call_setup=True)
-    # Get all DMs from the refined problem
-    dms = [refined_dm]
-    for value in refined_ctx._coefficient_mapping.values():
-        value_dm = value.function_space().dm
-        if value_dm not in dms:
-            dms.append(value_dm)
     # Attach refined context
-    for refined_dm in dms:
-        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
-                 teardown=partial(pop_parent, refined_dm, parent),
+    for value_dm in refined_ctx.coefficient_dms():
+        add_hook(refined_dm, setup=partial(push_parent, value_dm, refined_dm),
+                 teardown=partial(pop_parent, value_dm, refined_dm),
                  call_setup=True)
-        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
-                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
+        add_hook(refined_dm, setup=partial(push_ctx_coarsener, value_dm, coarsener),
+                 teardown=partial(pop_ctx_coarsener, value_dm, coarsener),
                  call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
-                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
+        add_hook(refined_dm, setup=partial(push_appctx, value_dm, refined_ctx),
+                 teardown=partial(pop_appctx, value_dm, refined_ctx),
                  call_setup=True)
-    # DMRefine() gives the returned DM one more refine level than dm, which
-    # is the old mesh and leaves the hierarchy after the solution is transferred.
-    dm.setRefineLevel(adapted_level - 1)
-    return refined_ctx._problem.dm
+    return refined_dm
 
 
 def _refine_from_hierarchy(dm):

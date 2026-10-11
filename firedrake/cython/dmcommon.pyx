@@ -2231,6 +2231,24 @@ def _get_periodicity(dm: PETSc.DM) -> tuple[tuple[bool, bool], ...]:
     )
 
 
+def remove_entity_class_labels(PETSc.DM dm) -> None:
+    """Remove the labels that `mark_entity_classes` creates.
+
+    `mark_entity_classes` keeps the labels that a DM already has. A DM that
+    is copied or transformed from another DM inherits the labels of that DM,
+    so they must be removed before the DM gets its own labels. A label
+    that the DM does not have is ignored.
+
+    Parameters
+    ----------
+    dm : PETSc.DM
+        The DM to remove the labels from.
+
+    """
+    for name in ("pyop2_core", "pyop2_owned", "pyop2_ghost"):
+        dm.removeLabel(name)
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def mark_entity_classes(PETSc.DM dm):

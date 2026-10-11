@@ -22,6 +22,31 @@ def identity_node_map(V):
         return cache.setdefault(key, op2.Map(V.node_set, V.node_set, 1, values=values))
 
 
+def fill_padding(nodes: numpy.ndarray) -> numpy.ndarray:
+    """Replace the -1 padding of a node map with real entries.
+
+    The rows of an adaptive node map have different numbers of candidates,
+    and -1 pads the short rows. An `op2.Map` cannot hold -1, so each padded
+    slot gets the first real entry of its row. The transfer kernels pick
+    the candidate that matches the physical location of a node, so a
+    repeated candidate changes nothing.
+
+    Parameters
+    ----------
+    nodes : numpy.ndarray
+        The candidate nodes of each node, padded with -1.
+
+    Returns
+    -------
+    numpy.ndarray
+        The node map without -1. A row that has no real entry gets node 0.
+
+    """
+    valid = nodes >= 0
+    first = numpy.take_along_axis(nodes, valid.argmax(axis=1)[:, None], axis=1)
+    return numpy.where(valid, nodes, numpy.maximum(first, 0))
+
+
 def fine_node_to_coarse_node_map(Vf, Vc):
     if len(Vf) > 1:
         assert len(Vf) == len(Vc)
@@ -38,7 +63,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = _cache_key(Vc, Vf)
-    cache = hierarchy._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
+    cache = Vf.mesh()._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
     try:
         return cache[key]
     except KeyError:
@@ -58,6 +83,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
             raise NotImplementedError("Transfer is not implemented for fine nodes that only touch "
                                       "orphaned fine cells with no coarse parent, as in a "
                                       "SubmeshHierarchy of interior facets")
+        fine_to_coarse_nodes = fill_padding(fine_to_coarse_nodes)
         return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
                                              fine_to_coarse_nodes.shape[1],
                                              values=fine_to_coarse_nodes))
@@ -79,7 +105,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = _cache_key(Vc, Vf)
-    cache = hierarchy._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
+    cache = Vf.mesh()._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
     try:
         return cache[key]
     except KeyError:
@@ -91,20 +117,10 @@ def coarse_node_to_fine_node_map(Vc, Vf):
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        # op2.Map cannot hold the -1 that pads a short row, so fill each
-        # padded slot with a real entry from its own row. The injection
-        # kernel picks the candidate that matches the coarse node's physical
-        # location, so a repeated entry changes nothing.
-        valid = coarse_to_fine_nodes >= 0
-        nonempty = valid.any(axis=1)
-        if not Vc.comm.allreduce(bool(nonempty[:Vc.node_set.size].all()), op=MPI.LAND):
+        nonempty = (coarse_to_fine_nodes[:Vc.node_set.size] >= 0).any(axis=1).all()
+        if not Vc.comm.allreduce(bool(nonempty), op=MPI.LAND):
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
-        replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
-                                  dtype=coarse_to_fine_nodes.dtype)
-        rows = numpy.nonzero(nonempty)[0]
-        replacement[rows] = coarse_to_fine_nodes[rows, valid[rows].argmax(axis=1)]
-        coarse_to_fine_nodes = numpy.where(valid, coarse_to_fine_nodes,
-                                           replacement[:, None])
+        coarse_to_fine_nodes = fill_padding(coarse_to_fine_nodes)
         return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
                                              coarse_to_fine_nodes.shape[1],
                                              values=coarse_to_fine_nodes))
@@ -126,7 +142,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
     key = _cache_key(Vc, Vf, needs_coarse_entity_dofs=False)
-    cache = hierarchy._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
+    cache = Vf.mesh()._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
     try:
         return cache[key]
     except KeyError:
@@ -199,8 +215,8 @@ def coarse_cell_child_count(
     if levelc + increment != levelf:
         raise ValueError(f"Can't map between level {levelc} and level {levelf}")
 
-    key = (levelc, Vc.extruded and (Vf.mesh().layers, Vc.mesh().layers))
-    cache = hierarchy._shared_data_cache["hierarchy_coarse_cell_child_count"]
+    key = Vc.mesh().topological
+    cache = Vf.mesh()._shared_data_cache["hierarchy_coarse_cell_child_count"]
     try:
         return cache[key]
     except KeyError:
@@ -263,15 +279,17 @@ def has_level(obj):
 
 
 def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):
-    """Construct a cache key for node maps"""
-    _, levelf = get_level(Vf.mesh())
-    _, levelc = get_level(Vc.mesh())
+    """Construct a cache key for the node maps from ``Vc`` to ``Vf``.
 
+    The node maps are cached on the mesh of ``Vf``. The key holds the mesh
+    of ``Vc``, so that a cached map stays valid when the levels of the
+    hierarchy change.
+    """
     if needs_coarse_entity_dofs:
         key = entity_dofs_key(Vc.finat_element.entity_dofs())
     else:
         key = ()
     key += entity_dofs_key(Vf.finat_element.entity_dofs())
-    key += (levelc, levelf)
+    key += (Vc.mesh().topological,)
     key += (Vc.boundary_set, Vf.boundary_set)
     return key
