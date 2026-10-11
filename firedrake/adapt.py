@@ -136,7 +136,7 @@ def refine_marked_elements(mesh, cell_marker):
         dm = new_dm
         fine_to_coarse_points = np.arange(*dm.getChart(), dtype=IntType)
         while dm.handle not in ancestors:
-            fine_to_coarse_points = impl.compose_points(dmcommon.transform_source_points(dm), fine_to_coarse_points)
+            fine_to_coarse_points = impl.compose_points(impl.transform_source_points(dm), fine_to_coarse_points)
             dm = dm.getCoarseDM()
         # The transform propagates every label, including the temporary adapt
         # label and the coarse mesh's stale pyop2_core/owned/ghost point
