@@ -25,6 +25,7 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        SerialExecutionOnlyError, Constant, assemble, dx)
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
+from firedrake.cython import dmcommon
 from ufl.domain import extract_unique_domain
 
 
@@ -371,7 +372,17 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
                        + np.arange(num_layers)).reshape(-1)
         return exterior_faces[indices, :]
 
-    markers = list(exterior_facets.unique_markers) + horizontal_markers
+    plex = mesh.topology_dm
+    # Grab non-empty boundary markers
+    markers = []
+    for marker in exterior_facets.unique_markers:
+        marker = int(marker)
+        if not plex.getStratumSize(dmcommon.FACE_SETS_LABEL, marker):
+            continue
+        marker_points = plex.getStratumIS(dmcommon.FACE_SETS_LABEL, marker).indices
+        if np.intersect1d(exterior_facets.facets, marker_points).size:
+            markers.append(marker)
+    markers += horizontal_markers
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
