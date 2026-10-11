@@ -295,3 +295,41 @@ def test_burgers(solve_type, rg):
     dJdm = J.block_variable.tlm_value
     Hm = ic.block_variable.hessian_value.dat.inner(h.dat)
     assert taylor_test(Jhat, g, h, dJdm=dJdm, Hm=Hm) > 2.9
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("callback", ["pre_jacobian_callback", "post_jacobian_callback",
+                                      "pre_function_callback", "post_function_callback",
+                                      "marking_callback"])
+def test_nlvs_callback(callback, rg):
+    tape = Tape()
+    set_working_tape(tape)
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 1)
+    c = Function(V).assign(1.0)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx + u**3*v*dx - c**2*v*dx
+    bc = DirichletBC(V, 0.0, "on_boundary")
+
+    # The adjoint solves must not receive the callbacks of the forward solver
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, u, bc),
+        solver_parameters={"snes_rtol": 1e-10, "ksp_type": "preonly", "pc_type": "lu"},
+        **{callback: lambda *args: None})
+    solver.solve()
+    J = assemble(u**2*dx)
+
+    Jhat = ReducedFunctional(J, Control(c))
+    h = rg.uniform(V)
+    J.block_variable.adj_value = 1.0
+    c.block_variable.tlm_value = h
+    tape.evaluate_adj()
+    tape.evaluate_tlm()
+
+    J.block_variable.hessian_value = 0
+    tape.evaluate_hessian()
+
+    dJdm = J.block_variable.tlm_value
+    Hm = c.block_variable.hessian_value.dat.inner(h.dat)
+    assert taylor_test(Jhat, c.copy(deepcopy=True), h, dJdm=dJdm, Hm=Hm) > 2.9

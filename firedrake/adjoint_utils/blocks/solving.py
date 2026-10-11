@@ -575,7 +575,13 @@ def solve_init_params(self, args, kwargs, varform):
                 raise NotImplementedError(
                     "Annotation of adaptive solves not implemented."
                 )
-            self.adj_kwargs.pop("appctx", None)
+            # The adjoint equations are solved as linear systems, which do
+            # not accept the application context or the callbacks of the
+            # forward solver.
+            for key in ("appctx", "pre_jacobian_callback", "post_jacobian_callback",
+                        "pre_function_callback", "post_function_callback",
+                        "marking_callback"):
+                self.adj_kwargs.pop(key, None)
 
     solver_params = kwargs.get("solver_parameters", None)
     if solver_params is not None and "mat_type" in solver_params:
