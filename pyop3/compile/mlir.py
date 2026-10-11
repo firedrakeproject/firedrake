@@ -601,28 +601,11 @@ class MLIRBuilder():
     @process.register(imp.Initialise)
     def process_initialise(self, leaf): 
       raise NotImplementedError
-      # isum = leaf.indexsum 
-      # dtype = get_mlir_type(isum.dtype)
-      # buf = self._alloc_temp(isum, isum.free_indices, dtype)
-      # sop = memref.StoreOp.get(self._const(0, dtype), buf, self._temp_indices(isum))
-      # self.insert(sop)
 
     # NOTE: This is not being used 
     @process.register(imp.Accumulate)
     def process_accumulate(self, leaf): 
       raise NotImplementedError
-      # """ Process gem.IndexSum  """ 
-      # isum = leaf.indexsum
-      # if isum not in self._temporaries:
-      #     raise KeyError(f"Accumulate before Initialise for {isum}")
-      # buf, _ = self._temporaries[isum]
-      # idx = self._temp_indices(isum)
-      # term = self._convert_type(self.emit(isum.children[0]), buf.type.element_type)
-      # old = self.insert(memref.LoadOp.get(buf, idx))
-      # new = self._binary(old, term, arith.AddfOp, arith.AddiOp)
-      # sop = memref.StoreOp.get(new, buf, idx) 
-      
-      # self.insert(sop)
 
     @process.register(imp.Return)
     def process_return(self, leaf):
@@ -685,7 +668,6 @@ class MLIRBuilder():
 
     @process.register(gem.Index)
     def _(self, leaf):
-      # WILO 
       if leaf not in self.symbol_table:
         if isinstance(leaf.extent, numbers.Integral):
           # TODO: Should be using get_index_ssa 
@@ -697,7 +679,7 @@ class MLIRBuilder():
 
       return self.symbol_table[leaf] 
 
-    # TODO: I am not parsing this correctly 
+    # TODO: I don't like emit. I would like to get rid of it 
     @process.register(gem.VariableIndex)
     def _(self, leaf):
       return self.emit(leaf.expression)
