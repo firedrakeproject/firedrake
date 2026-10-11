@@ -214,7 +214,9 @@ def test_refine_marked_elements_coarsens_unanimously():
     point = (0.1, 0.2, 0.3)
     M = FunctionSpace(mesh, "DG", 0)
     marker = Function(M).assign(-1)
-    cell = mesh.locate_cell(point)
+    # Without a tolerance, a rank that has no cell containing the point
+    # finds no cell, instead of a nearby cell that would be marked by mistake.
+    cell = mesh.locate_cell(point, tolerance=0)
     # Every rank must access the halo data, since the access is collective.
     data = marker.dat.data_with_halos
     if cell is not None:
@@ -223,7 +225,7 @@ def test_refine_marked_elements_coarsens_unanimously():
 
     M = FunctionSpace(base, "DG", 0)
     expected_marker = Function(M)
-    cell = base.locate_cell(point)
+    cell = base.locate_cell(point, tolerance=0)
     # Every rank must access the halo data, since the access is collective.
     data = expected_marker.dat.data_with_halos
     if cell is not None:
