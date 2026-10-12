@@ -3,10 +3,11 @@ from __future__ import annotations
 import collections
 import functools
 import numbers
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pyop3 import utils
 
+from .context_sensitive import LoopContextSensitiveAxisTreeLike
 from .tree import (
     AbstractNonUnitAxisTree,
     Axis,
@@ -17,7 +18,6 @@ from .tree import (
     UnitIndexedAxisTree,
     _UnitAxisTree,
 )
-from .context_sensitive import LoopContextSensitiveAxisTreeLike
 
 
 @functools.singledispatch

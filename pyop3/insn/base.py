@@ -6,7 +6,7 @@ import enum
 import textwrap
 import typing
 import weakref
-from collections.abc import Hashable, Iterable, Mapping, Iterator
+from collections.abc import Hashable, Iterable
 from functools import cached_property
 from typing import Any, ClassVar
 
@@ -28,12 +28,13 @@ from pyop3.cache import (
     with_self_heavy_cache,
 )
 from pyop3.collections import OrderedFrozenSet
-from pyop3.constants import MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, Intent
+from pyop3.constants import Intent
 from pyop3.exceptions import Pyop3Exception
-from pyop3.expr import BufferExpression, Tensor
+from pyop3.expr import Tensor
 from pyop3.node import Node, Operator, Terminal
 
 if typing.TYPE_CHECKING:
+    from pyop3.types import *
     from .exec import InstructionExecutionContext
 
 
@@ -305,10 +306,6 @@ class InstructionList(NonTerminalInstruction):
 
     def __str__(self) -> str:
         return "\n".join(map(str, self.instructions))
-
-    @cached_property
-    def datamap(self):
-        return utils.merge_dicts(insn.datamap for insn in self.instructions)
 
 
 def enlist(insn: Instruction) -> InstructionList:
@@ -631,7 +628,6 @@ class CalledFunction(AbstractCalledFunction):
         )
 
 
-
 @pyop3.record.frozenrecord()
 class StandaloneCalledFunction(AbstractCalledFunction):
     """A called function whose arguments do not need packing/unpacking."""
@@ -774,7 +770,6 @@ class AbstractAssignment(AbstractAssignmentLike):
                 return f"{utils.just_one(assignee_strs)} {operator} {utils.just_one(expression_strs)}"
 
 
-
 @pyop3.record.frozenrecord()
 class Assignment(AbstractAssignment):
 
@@ -817,7 +812,6 @@ class Assignment(AbstractAssignment):
         return pyop3.visitors.common_comm([self.assignee, self.expression])
 
     assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
-
 
 
 # TODO: rename NonEmptyAssignment, is this even needed?
@@ -911,7 +905,7 @@ class Exscan(AbstractAssignmentLike):
             visitor(self.scan_axis),
         )
 
-    def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         assignee_key = visitor(self.assignee)
         expression_key = visitor(self.expression)
         with visitor.identity_hash_buffers():

@@ -21,15 +21,14 @@ import pyop3.collections
 import pyop3.config
 import pyop3.constants
 import pyop3.exceptions
+from pyop3.collections import unique  # noqa: F401
 from pyop3.dtypes import DTypeT, IntType
 from pyop3.exceptions import (
     UnhashableObjectException,
 )
 
-from pyop3.collections import unique  # noqa: F401
-
 ndarray_types = (np.ndarray,)
-try: 
+try:
     import cupy as cp
 except ImportError:
     pass
@@ -223,7 +222,7 @@ def just_one(iterable: collections.abc.Iterable) -> Any:
         raise pyop3.exceptions.EmptyIterableException("Iterable is empty")
 
     try:
-        second = next(iterator)
+        next(iterator)
     except StopIteration:
         return first
     else:
@@ -332,12 +331,14 @@ def map_when(func, when_func, iterable):
         else:
             yield item
 
+
 def readonly(array: np.ndarray | cp.ndarray) -> np.ndarray | cp.ndarray:
     """Return a readonly view of a numpy/cupy array."""
     view = array.view()
     if isinstance(array, np.ndarray):
         view.setflags(write=False)
     return view
+
 
 def debug_assert(predicate, msg=None):
     if pyop3.config.debug_checks:
@@ -349,7 +350,7 @@ def debug_assert(predicate, msg=None):
 
 # TODO: case for using typing generics
 # TODO: signature is slightly wrong, can pass anything that can be cast to a dict
-def expand_collection_of_iterables(compressed: Mapping[Hashable, Sequence[Any]]) -> tuple[idict[Hashable, Any], ...]:
+def expand_collection_of_iterables(compressed: Mapping[Hashable, collections.abc.Sequence[Any]]) -> tuple[idict[Hashable, Any], ...]:
     """
     Expand target paths written in 'compressed' form like:
 
@@ -411,12 +412,10 @@ def split_by(condition, items):
     return tuple(result[0]), tuple(result[1])
 
 
-
-
 def popfirst(dict_: dict) -> Any:
     """Remove the first item from a dictionary and return it with its key."""
     if not dict_:
-        raise EmptyCollectionException("Expected a non-empty dict")
+        raise ValueError("Expected a non-empty dict")
 
     key = next(iter(dict_))
     return (key, dict_.pop(key))
@@ -539,8 +538,8 @@ def safe_equals(a, b, /) -> bool:
         return (a == b).all()
 
     elif any(isinstance(x, Mapping) for x in [a, b]):
-        if a.keys() != b.keys(): 
-            return False 
+        if a.keys() != b.keys():
+            return False
         return all(safe_equals(a[k], b[k]) for k in a)
 
     else:

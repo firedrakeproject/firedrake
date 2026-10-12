@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import collections
 import contextlib
 import functools
-import itertools
 import numbers
 import types
 import typing
 from collections.abc import Hashable
 from typing import Any
 
-import loopy as lp
 from immutabledict import immutabledict as idict
-from mpi4py import MPI
-from petsc4py import PETSc
 
 import pyop3.constants
 import pyop3.node
@@ -23,13 +18,12 @@ import pyop3.visitors.base
 import pyop3.visitors.identity
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
-from pyop3.labeled_tree import MultiComponentLabeledNode
-from pyop3.visitors.concretize import concretize  # noqa: F401
 from pyop3.visitors.comm import common_comm, get_comm, single_comm  # noqa: F401
 from pyop3.visitors.compress_indirections import materialize_indirections  # noqa: F401
+from pyop3.visitors.concretize import concretize  # noqa: F401
 from pyop3.visitors.relabel import Relabeler, relabel  # noqa: F401
+from pyop3.visitors.replace import replace  # noqa: F401
 
-from .replace import replace
 
 if typing.TYPE_CHECKING:
     import pyop3.types
@@ -104,7 +98,6 @@ class DiskCacheKeyGetter(CacheKeyGetter):
     @process.register
     def _(self, obj: pyop3.obj.Object, /) -> Hashable:
         return obj.get_disk_cache_key(self)
-
 
 
 # TODO: This cache key is slightly too restrictive. For instance an axis tree and

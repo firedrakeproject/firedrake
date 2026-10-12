@@ -4,7 +4,6 @@ import abc
 import functools
 import numbers
 import weakref
-from typing import ClassVar
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -18,7 +17,7 @@ from pyop3.collections import OrderedFrozenSet
 from pyop3.labeled_tree import is_subpath
 
 from .base import Expression, as_str
-from .tensor import CompositeDat, Dat, Scalar
+from .tensor import Dat, Scalar
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)

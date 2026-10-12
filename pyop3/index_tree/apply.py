@@ -26,7 +26,6 @@ from pyop3.index_tree.tree import (
     RegionSliceComponent,
     ScalarIndex,
     Slice,
-    Slice,
     SubsetSliceComponent,
     TabulatedMapComponent,
     UnitCalledMap,

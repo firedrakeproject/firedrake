@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import abc
-import contextlib
 import functools
-import numbers
-import os
 from typing import Any
 
 import loopy as lp
-import numpy as np
 import pymbolic as pym
 from immutabledict import immutabledict as idict
-from petsc4py import PETSc
 
 import pyop3.axis_tree
 import pyop3.buffer
@@ -20,18 +14,15 @@ import pyop3.config
 import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
-from pyop3 import mpi, utils
+from pyop3 import utils
 from pyop3.axis_tree.tree import (
     UNIT_AXIS_TREE,
-    IndexedAxisTree,
 )
 from pyop3.buffer import (
-    AbstractBuffer,
-    NullBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
-from pyop3.dtypes import IntType
+from pyop3.compile.loopy import LoopyCodegenContext
+from pyop3.constants import READ, RW
 from pyop3.insn.base import (
     AbstractAssignment,
     AssignmentType,
@@ -44,10 +35,10 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.compile.loopy import LoopyCodegenContext
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, pyop3.config)
+
 
 @pyop3.cache.memory_and_disk_cache(
     hashkey=_compile_static_hashkey,
@@ -57,7 +48,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     """Compile the operation without regard for specific data values.
 
     This function is therefore suitable for disk caching.
-    Function passes compilation process to compiler-specified backend 
+    Function passes compilation process to compiler-specified backend
 
     Returns
     -------
@@ -73,10 +64,10 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
     else:
         cs_expr = (insn,)
 
-    if compiler_parameters.backend == "loopy": 
+    if compiler_parameters.backend == "loopy":
         make_context = LoopyCodegenContext
-    elif compiler_parameters.backend == "mlir": 
-        raise NotImplementedError("MLIR code generation is still being implemented.") 
+    elif compiler_parameters.backend == "mlir":
+        raise NotImplementedError("MLIR code generation is still being implemented.")
 
     context = make_context(
         named_terminal_buffer_intents=op.named_terminal_buffer_intents,
@@ -114,35 +105,40 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
 
     return translation_unit, kernel_name_to_buffer_info, buffer_intents_by_index
 
+
 @functools.singledispatch
 def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
 
+
 @_compile.register(NullInstruction)
-def _(null, *args, **kwargs): 
+def _(null, *args, **kwargs):
     pass
+
 
 @_compile.register(InstructionList)
 def _(
-    insn_list, 
-    loop_indices, 
+    insn_list,
+    loop_indices,
     codegen_context
 ) -> None:
-    for insn in insn_list: 
+    for insn in insn_list:
         _compile(insn, loop_indices, codegen_context)
+
 
 @_compile.register(Loop)
 def _(
-    loop, 
-    loop_indices, 
+    loop,
+    loop_indices,
     codegen_context
 ) -> None:
     _compile_loop(
-        loop, 
-        loop.index.iterset, 
-        loop_indices, 
+        loop,
+        loop.index.iterset,
+        loop_indices,
         codegen_context,
     )
+
 
 @_compile.register(StandaloneCalledFunction)
 def _(call, loop_indices, codegen_context):
@@ -150,6 +146,7 @@ def _(call, loop_indices, codegen_context):
     codegen_context.add_function_call(call.function.code, args)
     subkernel = call.function.code.with_entrypoints(frozenset())
     codegen_context.add_subkernel(subkernel)
+
 
 @_compile.register(NonEmptyArrayAssignment)
 def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_context: CodegenContext):
@@ -162,6 +159,7 @@ def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_
             assignment.axis_trees,
             codegen_context,
         )
+
 
 def _compile_petsc_mat(
     assignment,
@@ -247,19 +245,18 @@ def _compile_petsc_mat(
 
 
 def _compile_array_assignment(
-        assignment, 
-        loop_indices, 
-        axis_trees, 
+        assignment,
+        loop_indices,
+        axis_trees,
         codegen_context,
         *,
-        iname_replace_maps=None, 
-        # TODO document these under "Other Parameters"
-        axis_tree=None, 
+        iname_replace_maps=None,
+        axis_tree=None,
         paths=None
 ):
     if paths is None:
         paths = []
-    if iname_replace_maps is None: 
+    if iname_replace_maps is None:
         iname_replace_maps = []
 
     if axis_tree is None:
@@ -270,14 +267,14 @@ def _compile_array_assignment(
 
     assert not axis_tree.is_empty
     if isinstance(axis_tree, pyop3.axis_tree.AbstractUnitAxisTree):
-        if axis_trees: 
+        if axis_trees:
             _compile_array_assignment(
-                assignment, 
-                loop_indices, 
-                axis_trees, 
+                assignment,
+                loop_indices,
+                axis_trees,
                 codegen_context,
                 iname_replace_maps=iname_replace_maps, 
-                axis_tree=None, 
+                axis_tree=None,
                 paths=paths,
             )
         else:
@@ -285,9 +282,9 @@ def _compile_array_assignment(
                 assignment.assignee,
                 assignment.expression,
                 assignment.assignment_type,
-                paths, 
-                iname_replace_maps, 
-                loop_indices
+                paths,
+                iname_replace_maps,
+                loop_indices,
             )
         return
 
@@ -295,15 +292,15 @@ def _compile_array_assignment(
     for component in axis.components:
         new_paths = paths.copy()
         new_paths[-1] = paths[-1] | {axis.label: component.label}
-        
+
         if axis_tree.linearize(new_paths[-1], partial=True).size == 0: 
             continue
-        
+
         elif component.size != 1:
             iname = codegen_context.unique_name("i")
             ext = codegen_context.register_extent(
-                component.size, 
-                iname_replace_maps[-1], 
+                component.size,
+                iname_replace_maps[-1],
                 loop_indices
             )
             codegen_context.add_domain(iname, ext)
@@ -318,22 +315,22 @@ def _compile_array_assignment(
         with codegen_context.within_inames(within_inames):
             if axis_tree.node_map[new_paths[-1]]:
                 _compile_array_assignment(
-                    assignment, 
-                    loop_indices, 
-                    axis_trees, 
+                    assignment,
+                    loop_indices,
+                    axis_trees,
                     codegen_context,
-                    iname_replace_maps=new_maps, 
-                    axis_tree=axis_tree, 
+                    iname_replace_maps=new_maps,
+                    axis_tree=axis_tree,
                     paths=new_paths
                 )
             elif axis_trees:
                 _compile_array_assignment(
-                    assignment, 
-                    loop_indices, 
-                    axis_trees, 
+                    assignment,
+                    loop_indices,
+                    axis_trees,
                     codegen_context,
-                    iname_replace_maps=new_maps, 
-                    axis_tree=None, 
+                    iname_replace_maps=new_maps,
+                    axis_tree=None,
                     paths=new_paths
                 )
             else:
@@ -341,10 +338,11 @@ def _compile_array_assignment(
                     assignment.assignee,
                     assignment.expression,
                     assignment.assignment_type,
-                    new_paths, 
-                    new_maps, 
+                    new_paths,
+                    new_maps,
                     loop_indices
                 )
+
 
 def _compile_loop(
         loop,
@@ -414,6 +412,7 @@ def _compile_loop(
                         codegen_context,
                     )
 
+
 @_compile.register(Exscan)
 def _(exscan, loop_indices, codegen_context):
     if not isinstance(codegen_context, LoopyCodegenContext):
@@ -421,7 +420,7 @@ def _(exscan, loop_indices, codegen_context):
 
     if exscan.scan_type != "+": 
         raise NotImplementedError 
- 
+
     domain_var = codegen_context.register_extent(
         exscan.extent,
         {},
@@ -440,14 +439,17 @@ def _(exscan, loop_indices, codegen_context):
     lexpr = pym.substitute(lexpr, {iname: iname_var+1})
     codegen_context.add_assignment(lexpr, rexpr)
 
+
 # NOTE: Make this overloaded function into class?
 @functools.singledispatch
 def _collect_temporary_shapes(expr):
     raise TypeError(f"No handler defined for {type(expr).__name__}")
 
+
 @_collect_temporary_shapes.register(InstructionList)
 def _(insn_list):
     return utils.merge_dicts(_collect_temporary_shapes(insn) for insn in insn_list)
+
 
 @_collect_temporary_shapes.register(Loop)
 def _(loop):
@@ -462,11 +464,13 @@ def _(loop):
                 shapes[temp] = shape
     return shapes
 
+
 @_collect_temporary_shapes.register(AbstractAssignment)
 @_collect_temporary_shapes.register(NullInstruction)
 @_collect_temporary_shapes.register(Exscan)
 def _(assignment: AbstractAssignment, /) -> idict:
     return idict()
+
 
 @_collect_temporary_shapes.register
 def _(call: StandaloneCalledFunction):
@@ -479,6 +483,7 @@ def _(call: StandaloneCalledFunction):
             if isinstance(lp_arg, lp.ArrayArg)
         }
     )
+
 
 def _petsc_mat_load(assignment, mat_name, array_name, nrow, ncol, irow, icol, blocked):
     if blocked:

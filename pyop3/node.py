@@ -6,12 +6,11 @@ import functools
 import itertools
 import weakref
 from collections.abc import Hashable
-from typing import Any, Union
+from typing import Any
 
 from immutabledict import immutabledict as idict
 
 import pyop3.obj
-from pyop3 import collections as op3_collections
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
 
@@ -77,7 +76,7 @@ class Terminal(Node, abc.ABC):
     child_attrs = ()
 
 
-"""Taken from UFL"""
+# Taken from UFL
 class Visitor(abc.ABC):
     """Base class for DAG traversers.
 
@@ -168,7 +167,7 @@ class Visitor(abc.ABC):
         return (node, args, tuple((k, v) for k, v in kwargs.items()))
 
     # TODO: Make this 'process_invalid' and make process an abstract method
-    def process(self, o: Expr, **kwargs) -> Expr:
+    def process(self, o, **kwargs):
         """Process node by type.
 
         Args:
@@ -183,6 +182,7 @@ class Visitor(abc.ABC):
         raise TypeError(f"'{utils.pretty_type(self)}' does not define a rule for '{utils.pretty_type(o)}'")
 
     # }}}
+
 
 class NodeVisitor(Visitor):
 

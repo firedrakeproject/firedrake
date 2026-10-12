@@ -48,8 +48,6 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
     axis = axis_tree.node_map[path]
     component = axis.matching_component(component_label)
 
-    linear_axis = axis.linearize(component_label)
-
     path_ = path | {axis.label: component_label}
     if axis_tree.node_map[path_]:
         subtree_size = _axis_tree_size_rec(axis_tree, path_)
@@ -90,11 +88,9 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
         if axis.label in subtree_size_axes.node_labels:
             # current axis is used - need to do a loop
             component_size_axes = AxisTree.from_iterable(
-                
-                    ax
-                    for ax in subtree_size_axes.nodes
-                    if ax.label != axis.label
-                
+                ax
+                for ax in subtree_size_axes.nodes
+                if ax.label != axis.label
             )
             if component_size_axes.is_empty:
                 component_size_axes = UNIT_AXIS_TREE
@@ -122,12 +118,9 @@ def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: P
 
         # 'index' the expressions so they can be used inside a loop
         component_size = pyop3.visitors.replace(component_size, axis_to_loop_var_replace_map)
-        subtree_size_expr  = pyop3.visitors.replace(subtree_size_tmp, axis_to_loop_var_replace_map)
+        subtree_size_expr = pyop3.visitors.replace(subtree_size_tmp, axis_to_loop_var_replace_map)
 
-        pyop3.loop(i,
-            component_size.iassign(subtree_size_expr),
-            eager=True,
-        )
+        pyop3.loop(i, component_size.iassign(subtree_size_expr), eager=True)
 
         if component_size_axes is UNIT_AXIS_TREE:
             # ick way to make sure that if we have sizes wrapped up into Scalars that this

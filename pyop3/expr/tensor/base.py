@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import abc
-import itertools
 import typing
 import weakref
 from collections.abc import Callable, Hashable
-from functools import cached_property
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, Self
 
 import numpy as np
 from mpi4py import MPI

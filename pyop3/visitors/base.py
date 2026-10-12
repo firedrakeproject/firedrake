@@ -63,7 +63,7 @@ class Renamer:
     def add_obj(self, obj: Hashable) -> str:
         try:
             return self.obj_store[obj]
-        except KeyError:
+        except KeyError as err:
             if not self.allow_missing:
                 raise err
 

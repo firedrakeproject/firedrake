@@ -5,9 +5,9 @@ import contextlib
 import dataclasses
 import functools
 import numbers
-from collections.abc import Hashable, Iterable, Mapping
-from functools import cached_property
-from typing import Any, ClassVar, Literal
+from collections.abc import Callable, Hashable, Iterable, Mapping
+from types import GeneratorType
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 
 import numpy as np
 from mpi4py import MPI
@@ -29,6 +29,9 @@ from pyop3.utils import (
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -68,7 +71,6 @@ def _check_finalizer(func):
         return func(self, *args, **kwargs)
 
     return wrapper
-
 
 
 class AbstractBuffer(pyop3.obj.Object):
@@ -378,7 +380,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     def comm(self) -> MPI.Comm:
         return self.sf.comm
 
-
     # }}}
 
     # {{{ Class attrs
@@ -536,7 +537,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # TODO: It would be good to be able to get data_ro but without updating the
     # halos. This would necessitate adding a .data_ro_with_ghosts API or similar
     @_not_in_flight
-    def get_array(self, intent: Literal[ro, rw, wo] = "ro"):
+    def get_array(self, intent: Literal["ro", "rw", "wo"] = "ro"):
         match intent:
             case "ro":
                 if not self._roots_valid:
@@ -559,8 +560,8 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if self._debug_is_poisoned:
             breakpoint()
 
-        if intent in {"wo", "rw"}: 
-            self.inc_state() 
+        if intent in {"wo", "rw"}:
+            self.inc_state()
 
         array = self._current_device_array
         return readonly(array) if intent == "ro" else array
@@ -791,7 +792,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @property
     def state(self) -> int:
-         return max(self._state.values())
+        return max(self._state.values())
 
     @state.setter
     def state(self, new_state) -> None:
@@ -824,12 +825,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         # First time seeing the current device - allocate and insert, don't copy
         else:
-           new_values = current_device.asarray(
-               self._device_arrays_private[last_updated_device], 
-               constant=self.constant
-           )
-           self._device_arrays_private[current_device] = new_values
-           self._state[current_device] = self.state
+            new_values = current_device.asarray(
+                self._device_arrays_private[last_updated_device],
+                constant=self.constant
+            )
+            self._device_arrays_private[current_device] = new_values
+            self._state[current_device] = self.state
 
         return self._device_arrays_private[current_device]
 
@@ -871,7 +872,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     @contextlib.contextmanager
     def as_vec(
         self,
-        mode: Literal[ro, rw, wo],
+        mode: Literal["ro", "rw", "wo"],
         block_shape: Iterable[int] | int = (),
     ) -> GeneratorType[PETSc.Vec]:
         if self.dtype != PETSc.ScalarType:
@@ -1062,9 +1063,9 @@ class PetscMatBuffer(ConcreteBuffer):
 
         self._mat = (mat, PETSc.InsertMode.NOT_SET_VALUES)
         self.mat_spec = mat_spec
-        self._name=name
-        self._constant=constant
-        self._comm=comm
+        self._name = name
+        self._constant = constant
+        self._comm = comm
 
     # }}}
 
@@ -1172,7 +1173,6 @@ class PetscMatBuffer(ConcreteBuffer):
 
         mat.setUp()
         return mat
-
 
     # }}}
 

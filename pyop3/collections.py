@@ -3,7 +3,8 @@ from __future__ import annotations
 import collections
 import dataclasses
 import pprint
-from typing import Hashable, Self
+from collections.abc import Hashable, Mapping
+from typing import Any, Self
 
 import numpy as np
 from immutabledict import immutabledict as idict

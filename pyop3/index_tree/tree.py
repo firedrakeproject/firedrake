@@ -1,55 +1,39 @@
 from __future__ import annotations
 
 import abc
-import collections
 import dataclasses
-import enum
 import functools
-import itertools
 import numbers
-import types
 import typing
-from collections.abc import Hashable, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pymbolic as pym
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 
 import pyop3.record
 from pyop3 import utils
 from pyop3.axis_tree.tree import (
-    Axis,
-    AxisComponent,
-    AxisComponentRegion,
-    AxisForest,
-    AxisTree,
-    GHOST_REGION_LABEL,
-    OWNED_REGION_LABEL,
-    UNIT_AXIS_TREE,
     AbstractNonUnitAxisTree,
-    AxisTarget,
     IndexedAxisTree,
     UnitIndexedAxisTree,
 )
 from pyop3.cache import cached_method
-from pyop3.collections import StrictlyUniqueDefaultDict, StrictlyUniqueDict, UniqueList
 from pyop3.constants import DECIDE
 from pyop3.dtypes import IntType
-from pyop3.exceptions import InvalidIndexTargetException, Pyop3Exception
+from pyop3.exceptions import Pyop3Exception
 from pyop3.labeled_tree import (
     LabeledNodeComponent,
     LabeledTree,
     MultiComponentLabeledNode,
     MutableLabeledTreeMixin,
-    accumulate_path,
 )
-from pyop3.sf import NullStarForest, StarForest
 
 
-bsearch = pym.var("mybsearch")
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 
 class Index(MultiComponentLabeledNode):
@@ -82,7 +66,6 @@ class IndexTree(MutableLabeledTreeMixin, LabeledTree):
     @property
     def comm(self) -> MPI.Comm:
         return self._comm if self._comm is not None else super().comm
-
 
     # {{{ factory methods
 
@@ -445,7 +428,6 @@ class LoopContextFreeLoopIndex(AbstractLoopIndex, UnitIndex):
         from pyop3.index_tree.apply import collect_leaf_target_paths
         return collect_leaf_target_paths(self.iterset)
 
-
     # NOTE: This is confusing terminology. A loop index can be context-sensitive
     # in two senses:
     # 1. axes.index() is context-sensitive if axes is multi-component
@@ -608,7 +590,7 @@ class AbstractMap(pyop3.obj.Object):
 
     @abc.abstractmethod
     def __call__(self, index, /, **kwargs):
-         pass
+        pass
 
 
 @pyop3.record.frozenrecord()
@@ -783,7 +765,6 @@ class CalledMap(AbstractCalledMap):
     # }}}
 
     def iter(self, *, eager=False) -> LoopIndex:
-        from pyop3.index_tree.apply import collect_leaf_targets
         from pyop3.index_tree.parse import as_index_forests
 
         if eager:
@@ -814,7 +795,10 @@ class CalledMap(AbstractCalledMap):
 
     @cached_property
     def axes(self) -> IndexedAxisTree:
-        from pyop3.index_tree.apply import collect_leaf_targets, _make_leaf_axis_from_called_map_new
+        from pyop3.index_tree.apply import (
+            _make_leaf_axis_from_called_map_new,
+            collect_leaf_targets,
+        )
 
         if not self.is_context_free:
             raise ContextSensitiveException("Expected a context-free index")
@@ -938,8 +922,7 @@ def _(itree: IndexTree, /) -> bool:
     for index in itree.nodes:
         if has_loop_indices(index):
             return True
-    else:
-        return False
+    return False
 
 
 @has_loop_indices.register
@@ -953,8 +936,7 @@ def _(tuple_: tuple, /) -> bool:
     for item in tuple_:
         if has_loop_indices(item):
             return True
-    else:
-        return False
+    return False
 
 
 @has_loop_indices.register

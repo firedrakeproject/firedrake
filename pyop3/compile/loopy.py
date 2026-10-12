@@ -21,29 +21,10 @@ import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
 from pyop3 import mpi, utils
-from pyop3.axis_tree.tree import (
-    UNIT_AXIS_TREE,
-    IndexedAxisTree,
-)
 from pyop3.buffer import (
-    AbstractBuffer,
     NullBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
-from pyop3.dtypes import IntType
-from pyop3.insn.base import (
-    AbstractAssignment,
-    AssignmentType,
-    Exscan,
-    InstructionList,
-    Loop,
-    NonEmptyArrayAssignment,
-    NullInstruction,
-    StandaloneCalledFunction,
-    assignment_type_as_intent,
-)
-
 from pyop3.compile.context import CodegenContext
 
 # TODO: import other way around?
@@ -52,10 +33,18 @@ from pyop3.compile.transform import (
     with_likwid_markers,
     with_petsc_event,
 )
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+from pyop3.dtypes import IntType
+from pyop3.insn.base import (
+    AssignmentType,
+    assignment_type_as_intent,
+)
+
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
 LOOPY_TARGET = lp.CWithGNULibcTarget()
 LOOPY_LANG_VERSION = (2018, 2)
+
 
 class LoopyCodegenContext(CodegenContext):
     def __init__(self, **kwargs) -> None:
@@ -81,7 +70,7 @@ class LoopyCodegenContext(CodegenContext):
     def subkernels(self) -> tuple:
         return tuple(self._subkernels)
 
-    def add_subkernel(self, subkernel): 
+    def add_subkernel(self, subkernel):
         self._subkernels.append(subkernel)
 
     def var(self, iname: str, *args) -> pym.primitives.Variable:
@@ -120,7 +109,7 @@ class LoopyCodegenContext(CodegenContext):
         )
         self._add_instruction(cinsn)
 
-    def add_function_call(self, code, args, prefix="insn"): 
+    def add_function_call(self, code, args, prefix="insn"):
         input_refs = []
         output_refs = []
         loopy_args = code.default_entrypoint.args
@@ -278,7 +267,7 @@ class LoopyCodegenContext(CodegenContext):
 
         return name_in_kernel
 
-    def add_opaque(self, opaque: OpaqueTerminal, intent) -> str:
+    def add_opaque(self, opaque: pyop3.expr.OpaqueTerminal, intent) -> str:
         if opaque in self.kernel_names:
             return self.kernel_names[opaque]
 
@@ -300,7 +289,7 @@ class LoopyCodegenContext(CodegenContext):
     # FIXME, bad API but it is context-dependent
     def set_temporary_shapes(self, shapes):
         self._temporary_shapes = shapes
-        
+
     def lower_buffer_access(
         self,
         buffer_view: pyop3.buffer.IndexedBuffer,
@@ -309,7 +298,7 @@ class LoopyCodegenContext(CodegenContext):
         loop_indices,
         *,
         intent,
-    ) -> pym.Expression: 
+    ) -> pym.Expression:
         name_in_kernel = self.add_buffer(buffer_view, intent)
 
         buffer = buffer_view.buffer
@@ -346,7 +335,7 @@ class LoopyCodegenContext(CodegenContext):
             return pym.primitives.If(is_negative, -1, subscript)
         else:
             return subscript
-    
+
     def maybe_multiindex(self, buffer, offset_expr):
         # hack to handle the facbuffer.t that temporaries can have shape but we want to
         # linearly index it here
@@ -452,13 +441,12 @@ class LoopyCodegenContext(CodegenContext):
         if compiler_parameters.attach_debugger:
             entrypoint = with_attach_debugger(entrypoint)
         translation_unit = translation_unit.with_kernel(entrypoint)
-        
+
         return translation_unit.with_kernel(entrypoint)
 
     @functools.singledispatchmethod
     def register_extent(self, obj: Any, *args, **kwargs):
         raise TypeError(f"No handler defined for {type(obj).__name__}")
-
 
     @register_extent.register(numbers.Integral)
     def _(self, num: numbers.Integral, *args, **kwargs):
@@ -477,9 +465,11 @@ class LoopyCodegenContext(CodegenContext):
 def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
 
+
 @_lower_expr.register(numbers.Number)
 def _(num: numbers.Number, /, *args, **kwargs) -> numbers.Number:
     return num
+
 
 @_lower_expr.register(pyop3.expr.Add)
 def _(add: pyop3.expr.Add, /, *args, **kwargs) -> pym.Expression:
@@ -524,9 +514,11 @@ def _(cond, /, *args, **kwargs) -> pym.Expression:
         _lower_expr(cond.b, *args, **kwargs),
     )
 
+
 @_lower_expr.register(pyop3.expr.Conditional)
 def _(cond: pyop3.expr.Conditional, /, *args, **kwargs) -> pym.Expression:
     return pym.primitives.If(_lower_expr(cond.a, *args, **kwargs), _lower_expr(cond.b, *args, **kwargs), _lower_expr(cond.c, *args, **kwargs))
+
 
 @_lower_expr.register(pyop3.expr.AxisVar)
 def _(axis_var: pyop3.expr.AxisVar, /, iname_maps, *args, **kwargs) -> pym.Expression:
@@ -597,6 +589,7 @@ def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, *,
         intent=intent,
     )
 
+
 class _MinSubscriptOffsetMapper(pym.mapper.IdentityMapper):
 
     def __init__(self):
@@ -629,6 +622,7 @@ def _min_subscript_offset(expr: pym.ExpressionNode) -> pym.ExpressionNode | None
         return mapped_expr
     else:
         return None
+
 
 class LACallable(lp.ScalarCallable, metaclass=abc.ABCMeta):
     """

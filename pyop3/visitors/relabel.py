@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Hashable, Mapping
+from typing import Any
 
 from immutabledict import immutabledict as idict
 
@@ -10,7 +11,6 @@ import pyop3.index_tree
 import pyop3.insn
 import pyop3.node
 import pyop3.obj
-
 from pyop3 import utils
 
 from .identity import IdentityVisitor
@@ -142,7 +142,6 @@ class Relabeler(IdentityVisitor):
             new_ctx = idict(new_ctx)
             new_trees[new_ctx] = self(tree, **kwargs)
         return cs_tree.record_new(trees=idict(new_trees))
-
 
     # }}}
 

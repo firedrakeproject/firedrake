@@ -1,14 +1,15 @@
 import functools
-from functools import cached_property
 from collections.abc import Hashable, Mapping
+from functools import cached_property
 
 from immutabledict import immutabledict as idict
 
+from pyop3 import utils
 import pyop3.index_tree.tree
 import pyop3.record
-
-from .tree import LoopContextAwareAxisTreeLike, AxisForest, AbstractAxisTree
 from pyop3.index_tree.tree import LoopIndex
+
+from .tree import AbstractAxisTree, AxisForest, LoopContextAwareAxisTreeLike
 
 
 @pyop3.record.frozenrecord()
@@ -29,8 +30,7 @@ class LoopContextSensitiveAxisTreeLike(
         return (type(self), trees_key)
 
     def __init__(self, trees: Mapping):
-        trees=idict(trees)
-        object.__setattr__(self, "trees", trees)
+        object.__setattr__(self, "trees", idict(trees))
 
     # }}}
 
@@ -60,20 +60,16 @@ class LoopContextSensitiveAxisTreeLike(
         return LoopIndex(self)
 
     @cached_property
-    def datamap(self):
-        return merge_dicts(axes.datamap for axes in self.context_map.values())
-
-    @cached_property
     def sf(self):
-        return single_valued([ax.sf for ax in self.context_map.values()])
+        return utils.single_valued([ax.sf for ax in self.context_map.values()])
 
     @cached_property
     def unindexed(self):
-        return single_valued([ax.unindexed for ax in self.context_map.values()])
+        return utils.single_valued([ax.unindexed for ax in self.context_map.values()])
 
     @cached_property
     def context_free(self):
-        return just_one(self.context_map.values())
+        return utils.just_one(self.context_map.values())
 
 
 @functools.singledispatch

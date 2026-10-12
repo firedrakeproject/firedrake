@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import functools
-import itertools
 import numbers
-from collections.abc import Hashable
 from typing import Any
 
 import numpy as np
 from immutabledict import immutabledict as idict
-from petsc4py import PETSc
 
 import pyop3.axis_tree
 import pyop3.cc
@@ -22,7 +19,7 @@ from pyop3.buffer import (
     ConcreteBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, READ, RW, WRITE, MAX_RW, MIN_RW
+from pyop3.constants import INC, MAX_RW, MIN_RW, READ, RW, WRITE
 from pyop3.expr import (
     Dat,
     LinearDatBufferExpression,
@@ -38,10 +35,7 @@ from pyop3.index_tree.parse import _as_context_free_indices
 from pyop3.insn.base import (
     ArrayAccessType,
     AssignmentType,
-    enlist,
-    filter_null,
     maybe_enlist,
-    non_null,
 )
 from pyop3.node import NodeTransformer, NodeVisitor, postorder
 

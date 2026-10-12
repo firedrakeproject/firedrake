@@ -6,7 +6,7 @@ import types
 from collections.abc import Iterable, Mapping, Sequence
 from functools import cached_property
 from itertools import chain
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from immutabledict import immutabledict as idict
 
@@ -18,6 +18,9 @@ from pyop3.exceptions import Pyop3Exception
 from pyop3.utils import (
     Labeled,
 )
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 
 class NodeNotFoundException(Exception):

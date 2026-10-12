@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import functools
 import numbers
-from typing import NoReturn
+from typing import NoReturn, Self
 
 import numpy as np
 from mpi4py import MPI
@@ -15,8 +15,9 @@ import pyop3.index_tree
 import pyop3.record
 from pyop3 import utils
 from pyop3.axis_tree import UNIT_AXIS_TREE, AxisTree
+from pyop3.dtypes import IntType, RealType
 from pyop3.node import Node, Terminal
-from pyop3.dtypes import RealType, IntType
+
 
 class Expression(Node, abc.ABC):
 
@@ -311,9 +312,9 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
     def dtype(self) -> np.dtype:
         a_dtype = _get_dtype(self.a)
         b_dtype = _get_dtype(self.b)
-        
+
         return np.result_type(a_dtype, b_dtype)
-    
+
     # }}}
 
     # {{{ abstract methods
@@ -351,7 +352,7 @@ class Add(BinaryOperator):
         from pyop3.expr.visitors import get_local_min
 
         return get_local_min(self.a) + get_local_min(self.b)
-    
+
     # }}}
 
 
@@ -528,7 +529,7 @@ class TernaryOperator(Operator, metaclass=abc.ABCMeta):
         a_dtype = _get_dtype(self.a)
         b_dtype = _get_dtype(self.b)
         c_dtype = _get_dtype(self.c)
-        
+
         return np.result_type(a_dtype, b_dtype, c_dtype)
 
     # }}}
@@ -810,27 +811,33 @@ def _(expr):
 def _(expr):
     return str(expr)
 
+
 @functools.singledispatch
 def _get_dtype(expr: Any) -> np.dtype:
     return None
+
 
 @_get_dtype.register(np.number)
 def _(expr) -> np.dtype: 
     raise NotImplementedError(f"Not implemented dtype for: {type(expr)}")
 
+
 @_get_dtype.register(Expression)
 def _(expr: Expression) -> np.dtype:
     return expr.dtype 
+
 
 @_get_dtype.register(numbers.Real)
 @_get_dtype.register(np.floating)
 def _(expr) -> np.dtype:
     return RealType
 
+
 @_get_dtype.register(numbers.Integral)
 @_get_dtype.register(np.integer)
 def _(expr) -> np.dtype:
     return IntType
+
 
 def get_loop_tree(expr) -> tuple[AxisTree, Mapping[LoopIndexVar, AxisVar]]:
     from pyop3.expr.visitors import collect_loop_index_vars

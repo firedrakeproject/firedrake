@@ -25,7 +25,6 @@ from pyop3.axis_tree import (
     AxisTree,
     as_axis_tree,
     as_axis_tree_type,
-    collect_unindexed_axis_trees,
 )
 from pyop3.axis_tree.tree import (
     AbstractNonUnitAxisTree,

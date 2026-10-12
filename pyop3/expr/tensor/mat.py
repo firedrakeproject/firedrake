@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import itertools
-import operator
 import numbers
+import operator
 import typing
 import weakref
 from functools import cached_property
@@ -25,7 +25,6 @@ from pyop3.axis_tree import (
     as_axis_tree,
     as_axis_tree_type,
 )
-from pyop3.cache import cached_method
 from pyop3.dtypes import ScalarType
 
 from .base import ReshapeTensorTransform, Tensor, TensorTransform
@@ -267,7 +266,7 @@ class Mat(Tensor):
         buffer = sparsity.buffer.materialize()
         return cls(sparsity.row_axes, sparsity.column_axes, buffer, **kwargs)
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
         try:
             # In some cases mat.data_XX is allowed. For example for read-only access
             # or if the mat is a MATPYTHON and thus holds a buffer

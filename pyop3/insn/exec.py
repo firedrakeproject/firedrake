@@ -1,6 +1,7 @@
 """Coordinate the execution of instructions."""
 from __future__ import annotations
 
+import collections
 import ctypes
 import dataclasses
 import functools
@@ -17,6 +18,7 @@ import loopy.tools
 import numpy as np
 import petsctools
 from immutabledict import immutabledict as idict
+from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.buffer
@@ -123,7 +125,7 @@ def parse_compiler_parameters(compiler_parameters: CompilerParametersT) -> Parse
     for macro_param, specific_params in META_COMPILER_PARAMETERS.items():
         # Do not rely on the truthiness of variables here. We want to make
         # sure that the user has provided a boolean value.
-        if compiler_parameters.pop(macro_param, False) == True:
+        if compiler_parameters.pop(macro_param, False) is True:
             for key, value in specific_params.items():
                 parsed_parameters[key] = value
 
@@ -138,7 +140,7 @@ def parse_compiler_parameters(compiler_parameters: CompilerParametersT) -> Parse
 class InstructionExecutionContext:
     """Class that coordinates the compilation and execution of an instruction."""
 
-    def __init__(self, root_insn: Instruction, compiler_parameters) -> None:
+    def __init__(self, root_insn: pyop3.insn.base.Instruction, compiler_parameters) -> None:
         compiler_parameters = parse_compiler_parameters(compiler_parameters)
 
         self._root_insn = root_insn
@@ -235,8 +237,8 @@ class InstructionExecutionContext:
         make_cache=lambda: cachetools.LRUCache(100),
     )
     def _compile(self) -> CompiledCodeExecutor:
-        from pyop3.insn.visitors import collect_compiler_options
         from pyop3.compile.core import _compile_static
+        from pyop3.insn.visitors import collect_compiler_options
 
         # Preprocess the instruction. This is an expensive operation so we
         # want to avoid doing it if at all possible.
@@ -344,7 +346,7 @@ class InstructionExecutionContext:
         return intents
 
     @cached_property
-    def preprocessed_buffers(self) -> OrderedFrozenSet:
+    def preprocessed_buffers(self) -> pyop3.collections.OrderedFrozenSet:
         """Data structures that are arguments to the compiled code."""
         from pyop3.visitors import collect_buffers
 
@@ -365,7 +367,7 @@ class InstructionExecutionContext:
         return get_disk_cache_key(self._preprocessed)
 
     @cached_property
-    def _argument_name_to_buffer_map(self) -> dict[str, tuple[AbstractBuffer, ...]]:
+    def _argument_name_to_buffer_map(self) -> dict[str, tuple[pyop3.buffer.AbstractBuffer, ...]]:
         # This attribute is only used for argument replacement.
         # We don't want to get conflicts if we pass in two tensors with the same name
         name_to_buffer_map = {}
@@ -543,7 +545,7 @@ class CompiledCodeExecutor:
     def _default_buffers(self):
         return tuple(self.buffer_intents.keys())
 
-    def __call__(self, new_buffers: Mapping[ConcreteBuffer, ConcreteBuffer]) -> None:
+    def __call__(self, new_buffers: Mapping[pyop3.buffer.ConcreteBuffer, pyop3.buffer.ConcreteBuffer]) -> None:
         """
         Notes
         -----
@@ -678,8 +680,8 @@ class CompiledCodeExecutor:
         return "\n".join(str_)
 
     @functools.singledispatchmethod
-    def _buffer_str(self, buffer):
-        utils.raise_missing_dispatch_handler(arg)
+    def _buffer_str(self, obj):
+        utils.raise_missing_dispatch_handler(obj)
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer):
@@ -715,7 +717,7 @@ class CompiledCodeExecutor:
         @_handle_to_pointer.register(cp.ndarray)
         def _(self, arr: cp.ndarray, /) -> int:
             # NOTE: This gives a pointer to a GPU memory address.
-            # Loopy cannot work with GPU so this will lead to a segfault. 
+            # Loopy cannot work with GPU so this will lead to a segfault.
             raise MemoryError("Segfault will occur if you pass a CuPy GPU pointer to Loopy/C code")
     except ImportError:
         pass

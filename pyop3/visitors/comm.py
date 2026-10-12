@@ -9,9 +9,9 @@ import loopy as lp
 from mpi4py import MPI
 from petsc4py import PETSc
 
-from pyop3 import utils
 import pyop3.obj
 import pyop3.sf
+from pyop3 import utils
 
 
 @functools.singledispatch

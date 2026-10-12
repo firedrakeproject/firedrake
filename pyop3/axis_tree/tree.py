@@ -28,12 +28,11 @@ import pyop3.exceptions
 import pyop3.labeled_tree
 import pyop3.record
 from pyop3 import utils
-from pyop3.cache import cached_method, memory_cache
+from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet, OrderedSet, StrictlyUniqueDict
 from pyop3.constants import DECIDE
 from pyop3.device import on_host
 from pyop3.dtypes import IntType
-from pyop3.exceptions import Pyop3Exception
 from pyop3.labeled_tree import (
     LabeledNodeComponent,
     LabeledTree,
@@ -56,7 +55,6 @@ from pyop3.utils import (
     has_unique_entries,
     just_one,
     merge_dicts,
-    single_valued,
 )
 
 if typing.TYPE_CHECKING:
@@ -116,7 +114,7 @@ class LoopContextFreeAxisTreeLike(LoopContextAwareAxisTreeLike, pyop3.labeled_tr
     @property
     @abc.abstractmethod
     def region_sets(self) -> tuple[frozenset[str], ...]:
-         pass
+        pass
 
     @cached_property
     def free(self) -> Self:
@@ -408,7 +406,7 @@ class AxisComponent(LabeledNodeComponent):
         return _partition_regions(self.regions, self.sf) if self.sf else self.regions
 
     @property
-    def has_non_trivial_regions(self) ->  bool:
+    def has_non_trivial_regions(self) -> bool:
         return len(self.regions) > 1 or utils.just_one(self.regions).label is not None
 
     @property
@@ -449,7 +447,7 @@ class AxisComponent(LabeledNodeComponent):
                 new_label = region.label - {OWNED_REGION_LABEL, GHOST_REGION_LABEL}
                 split_regions[new_label].append(region)
 
-            new_regions = [] 
+            new_regions = []
             for new_label, regions in split_regions.items():
                 new_region = AxisComponentRegion(sum(r.size for r in regions), label=new_label)
                 new_regions.append(new_region)
@@ -729,14 +727,14 @@ class AbstractUnitAxisTree(AbstractAxisTree):
 
     @property
     def owned(self):
-         raise NotImplementedError("unsure what to do here, legal?")
+        raise NotImplementedError("unsure what to do here, legal?")
 
     @property
     def unconstrained(self):
-         raise NotImplementedError("unsure what to do here, legal?")
+        raise NotImplementedError("unsure what to do here, legal?")
 
     def with_region_labels(self, *args, **kwargs):
-         raise NotImplementedError("unsure what to do here, legal?")
+        raise NotImplementedError("unsure what to do here, legal?")
 
     region_sets = ()
 
@@ -829,7 +827,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
                 # region labels frozensets
                 mut_excl_region_label_set = [
                     frozenset({rl}) if isinstance(rl, str) else rl
-                    for rl in  component.region_labels
+                    for rl in component.region_labels
                 ]
                 mut_excl_region_label_sets.add(mut_excl_region_label_set)
 
@@ -895,9 +893,9 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         *,
         strict,
     ) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
+        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
         from pyop3.index_tree import index_axes
         from pyop3.index_tree.parse import as_index_forests
-        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
 
         index_forests = as_index_forests(indices, axes=self, strict=strict)
 
@@ -1108,30 +1106,16 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         path = as_path(path)
         axis = self.node_map[path]
 
-        region_label_matches_all_components = True
-        region_label_matches_no_components = True
         matching_labels = None
         slice_components = []
         for component in axis.components:
             if matching_labels_ := region_labels & set(component.flat_region_labels):
                 matching_labels = matching_labels_
                 new_label = f"{component.label}_{'_'.join(map(str, matching_labels))}"
-                region_label_matches_no_components = False
                 slice_component = RegionSliceComponent(component.label, matching_labels, label=new_label)
             else:
-                region_label_matches_all_components = False
                 slice_component = AffineSliceComponent(component.label)
             slice_components.append(slice_component)
-
-        # do not change axis label if nothing changes
-        # if region_label_matches_all_components:
-        #     assert matching_labels is not None
-        #     axis_label = f"{axis.label}_{'_'.join(map(str, matching_labels))}"
-        # elif region_label_matches_no_components:
-        #     axis_label = axis.label
-        # else:
-        #     # match some, generate something
-        #     axis_label = None
 
         slice_ = Slice(axis.label, slice_components)
         index_tree = IndexTree(slice_)
@@ -1298,7 +1282,7 @@ class _UnitAxisTree(AbstractUnindexedAxisTree, AbstractUnitAxisTree):
     local_max_size = 1
     local_size = 1
     depth = 1
-    sf = single_star_sf(MPI.COMM_SELF) # no idea if this is right, probably not since the comm is anything...
+    sf = single_star_sf(MPI.COMM_SELF)  # no idea if this is right, probably not since the comm is anything...
     leaf_paths = (idict(),)
     leaf_path = idict()
     nodes = ()
@@ -1307,8 +1291,6 @@ class _UnitAxisTree(AbstractUnindexedAxisTree, AbstractUnitAxisTree):
     node_map = idict({idict(): None})
 
     targets = idict({idict(): ((),)})
-
-    regionless = property(lambda self: self)
 
     nest_indices = ()
 
@@ -1370,8 +1352,6 @@ to express a tree containing a single entry that does not need to be addressed u
 labels.
 
 """
-
-
 
 
 @pyop3.record.frozenrecord(repr=False)
@@ -1470,14 +1450,6 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
     @property
     def _materialized(self):
         return self
-
-    @cached_property
-    def regionless(self) -> AxisTree:
-        node_map = {
-            path: axis.regionless if axis else None
-            for path, axis in self.node_map.items()
-        }
-        return type(self)(node_map)
 
     def blocked(self, block_shape: Sequence[int, ...] | int) -> AxisTree:
         if len(block_shape) == 0:
@@ -1754,14 +1726,6 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             return AxisTree()
         else:
             return AxisTree(self.node_map, _validate=False)
-
-    @cached_property
-    def regionless(self) -> IndexedAxisTree:
-        return type(self)(
-            self.materialize().regionless,
-            targets=self.targets,
-            unindexed=self.unindexed.regionless,
-        )
 
     @cached_method()
     def localize(self):
@@ -2156,11 +2120,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
             path = path | {axis.label: component_label}
             nest_indices_.append(((axis.label, component_label), component_index))
         return tuple(nest_indices_)
-
-    # TODO: shared with other index tree
-    @cached_property
-    def _matching_target(self):
-        return match_target(self, self.unindexed, self.targets)
 
 
 def match_target(source_axes, target_axes, target_set):

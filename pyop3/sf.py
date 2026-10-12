@@ -4,7 +4,7 @@ import abc
 import numbers
 import typing
 from functools import cached_property
-from typing import Any
+from typing import Any, Self
 
 import numpy as np
 from mpi4py import MPI
@@ -187,15 +187,13 @@ class StarForest(AbstractStarForest):
 
     @property
     def num_owned(self):
-        num_owned =  self.size - self.nleaves
+        num_owned = self.size - self.nleaves
         assert num_owned >= 0
         return num_owned
 
     @property
     def nleaves(self):
         return len(self.ileaf)
-
-
 
     # }}}
 

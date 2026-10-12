@@ -6,8 +6,9 @@ from .tree import (  # noqa: F401
     CalledMap,
     Index,
     IndexTree,
-    LoopIndex,
     LoopContextFreeLoopIndex,
+    LoopContextSensitive,
+    LoopIndex,
     Map,
     RegionSliceComponent,
     ScalarIndex,
@@ -16,5 +17,4 @@ from .tree import (  # noqa: F401
     SliceComponent,
     SubsetSliceComponent,
     TabulatedMapComponent,
-    LoopContextSensitive,
 )

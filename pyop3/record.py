@@ -61,11 +61,13 @@ def _make_record_class(**kwargs):
 
         # Make sure that we call all the finalisers after initialisation
         if cls.__init__ is object.__init__:
+
             def init_with_finalizers(self, *args, **kwargs):
                 object.__init__(self)
                 _finalize_obj(self)
         else:
             orig_init = cls.__init__
+
             def init_with_finalizers(self, *args, **kwargs):
                 orig_init(self, *args, **kwargs)
                 _finalize_obj(self)

@@ -63,19 +63,19 @@ class CPU(Device):
 
 
 class CUDAGPU(Device):
-    """ 
+    """
     GPU class for Nvidia GPUs. inheriting Device.
     - All offloading will be done through CuPy
     - Multiple instantiations will be independent of each other 
     """
     name = "CudaGPU"
-    
+
     def __init__(self):
         try:
-            assert self.cp.is_available() 
+            assert self.cp.is_available()
         except:
             # TODO: Raise No GPU exception
-            raise NotImplementedError 
+            raise NotImplementedError
 
     @property
     def cp(self):
@@ -84,9 +84,10 @@ class CUDAGPU(Device):
 
     def asarray(self, arr, *, constant=False):
         return self.cp.asarray(arr)
-    
+
     def zeros_like(self, arr):
         return self.cp.zeros_like(arr)
+
 
 HOST_DEVICE = CPU()
 
@@ -103,13 +104,13 @@ multiple devices.
 """
 
 
-
-""" 
+"""
     Global context variable for determining device context
     - This should not be imported to other modules - value accessed through getter
     - All modification should be controlled via the offloading function.
 """
 _current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
+
 
 @contextlib.contextmanager
 def offloading(dev: Device):
@@ -128,7 +129,6 @@ def offloading(dev: Device):
     with op3.offloading(gpu):
         g.dat.assign(23, eager=True, eager_strategy="array")
     """
-
     # TODO: Not Device exception
     if not isinstance(dev, Device):
         raise NotImplementedError
@@ -139,6 +139,7 @@ def offloading(dev: Device):
     finally:
         _current_device.reset(token)
 
+
 def on_host(func):
     """
     Decorator for components that we want to stay on host device
@@ -148,7 +149,8 @@ def on_host(func):
         with offloading(HOST_DEVICE):
             return func(*args, **kwargs)
 
-    return wrapper 
+    return wrapper
+
 
 def get_current_device():
     return _current_device.get()

@@ -89,9 +89,9 @@ REDUCTION_OPS = idict({
 })
 
 
-
 class PyOP2CommError(ValueError):
     pass
+
 
 # ============
 # Exposition:
@@ -630,7 +630,6 @@ def common_comm(comms: Iterable[MPI.Comm], *, default: MPI.Comm | None = None) -
         return default
     else:
         raise AssertionError
-
 
 
 def finalize_safe_debug():

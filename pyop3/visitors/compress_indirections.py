@@ -5,9 +5,9 @@ import contextlib
 import functools
 import itertools
 import numbers
+from typing import Any
 
 from immutabledict import immutabledict as idict
-from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.axis_tree
@@ -59,6 +59,7 @@ def _select_candidate_indirections_compress(insn):
         lambda: _select_candidate_indirections_compress_serial(insn),
         root=0,
     )
+
 
 def _select_candidate_indirections_compress_serial(insn):
     import pyop3
@@ -271,7 +272,6 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
                 if not isinstance(op_cost, numbers.Integral):
                     raise NotImplementedError("Ragged sizes are not supported")
 
-
                 cost_expr = pyop3.expr.NameVar(self.index)
                 symdat = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
                 symdat_info = (self.index, symdat, op_cost)
@@ -358,19 +358,9 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         layouts = [mat_expr.row_layout, mat_expr.column_layout]
         for i, layout in enumerate(layouts):
             assert isinstance(layout, pyop3.expr.CompositeDat)
-            op_axes = utils.just_one(pyop3.expr.visitors.get_shape(layout))
             op_cost = pyop3.expr.visitors.loopified_shape(layout)[0].local_size
-            # op_loop_axes = pyop3.expr.visitors.get_loop_axes(layout)
-            #
-            # op_cost = op_axes.local_size
-            # for loop_axes in op_loop_axes.values():
-            #     for loop_axis in loop_axes:
-            #         op_cost *= loop_axis.component.local_size
-            # if not isinstance(op_cost, numbers.Integral):
-            #     raise NotImplementedError("Ragged sizes are not supported")
 
             cost_expr = pyop3.expr.NameVar((self.index, i))
-            # symdat = pyop3.expr.CompositeDat(op_axes, {op_axes.leaf_path: op})
             symdat = layout
             symdat_info = ((self.index, i), symdat, op_cost)
             candidates[self.index, i] = ((op_cost, cost_expr, (symdat_info,)),)
@@ -470,7 +460,7 @@ class _MaterializedIndirectionsInserter(pyop3.node.NodeVisitor):
         return (*super().get_cache_key(node, **kwargs), self._linear)
 
     @functools.singledispatchmethod
-    def process(self, obj: pyop3.obj.Object, /, *args, **kwargs) -> Never:
+    def process(self, obj: pyop3.obj.Object, /, *args, **kwargs):
         utils.raise_missing_dispatch_handler(obj)
 
     # {{{ pyop3.expr

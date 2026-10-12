@@ -1,7 +1,7 @@
 # Note that this file contains imports from all of pyop3. This module should
 # therefore only be imported inside a 'typing.TYPE_CHECKING' block.
 from collections.abc import Hashable, Mapping
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -28,7 +28,7 @@ ConcretePathT = idict[NodeLabelT, NodeComponentLabelT]
 
 # {{{ axis tree types
 
-AxisComponentRegionSizeT = IntType | LinearDatBufferExpression
+AxisComponentRegionSizeT = IntType | pyop3.expr.LinearDatBufferExpression
 AxisLabelT = NodeLabelT
 IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
 
@@ -38,7 +38,8 @@ IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
 
 ArrayT = np.ndarray | pyop3.arrayref.ArrayReference
 
-DeviceArrayT = np.ndarray | cp.array
+# DeviceArrayT = np.ndarray | cp.array
+DeviceArrayT = np.ndarray
 
 MatInsertMode = Literal[PETSc.InsertMode.INSERT_VALUES, PETSc.InsertMode.ADD_VALUES]
 

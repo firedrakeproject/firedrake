@@ -1,25 +1,17 @@
 from __future__ import annotations
 
-import functools
-import itertools
 import numbers
-from collections.abc import Hashable
-from types import NoneType
-from typing import Any
-
-from immutabledict import immutabledict as idict
 
 import pyop3.axis_tree
 import pyop3.exceptions
 from pyop3 import utils
 from pyop3.labeled_tree import parent_path
-from pyop3.node import Visitor, postorder
 
 from .layout import compute_layouts  # noqa: F401
 from .size import compute_axis_tree_component_size, compute_axis_tree_size  # noqa: F401
 
 
-def get_block_shape(axis_tree: AbstractAxisTree) -> tuple[int, ...]:
+def get_block_shape(axis_tree: pyop3.axis_tree.AbstractAxisTree) -> tuple[int, ...]:
     """Detect any common innermost integer shape in an axis tree."""
     if axis_tree.depth < 2:
         return ()

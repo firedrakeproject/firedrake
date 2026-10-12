@@ -424,6 +424,7 @@ def coarsen(dm, comm):
     mesh = V.mesh()
     hierarchy, level = get_level(mesh)
     if level < 1:
+        breakpoint()
         raise RuntimeError("Cannot coarsen coarsest DM")
     coarsen = get_ctx_coarsener(dm)
     Vc = coarsen(V, coarsen)

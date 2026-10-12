@@ -25,18 +25,14 @@ from typing import Any
 from warnings import warn  # noqa F401
 
 import cachetools
+from cachetools import LRUCache  # noqa: F401
 from petsc4py import PETSc
 
 import pyop3.collections
 import pyop3.config
 from pyop3 import utils
 from pyop3.constants import _nothing
-from pyop3.log import LOGGER
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
-
-
-from cachetools import LRUCache  # noqa: F401
-
 
 _CACHE_CIDX = itertools.count()
 _KNOWN_CACHES = []
