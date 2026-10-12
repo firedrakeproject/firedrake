@@ -72,6 +72,8 @@ class GemExecutable(Executable):
             )
             insns.append(new_insn)
         impero = gem.impero_utils.compile_gem_new(insns, ())
+
+        print(impero.tree)
         raise NotImplementedError("This is where we need to work next")
 
     @property
