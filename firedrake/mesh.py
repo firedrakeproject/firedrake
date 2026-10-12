@@ -2309,7 +2309,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             input_ranks_and_idxs[0::2] = input_ranks
             input_ranks_and_idxs[1::2] = input_indices
         sf.setGraph(nroots, ilocal, input_ranks_and_idxs)
-        return sf
+        return VertexOnlyMeshSF(sf)
 
     @cached_property  # TODO: Recalculate if mesh moves
     def input_ordering_sf(self):
