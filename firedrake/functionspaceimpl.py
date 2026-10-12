@@ -284,7 +284,7 @@ class WithGeometryBase:
             return self._components[indices]
 
     @cached_property
-    # @_mesh_cached
+    @_mesh_cached
     def dm(self):
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
@@ -776,7 +776,7 @@ class AbstractFunctionSpace:
     # {{{ PETSc
 
     @cached_property
-    # @_mesh_cached
+    @_mesh_cached
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
         dm = self._dm()
