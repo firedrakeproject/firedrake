@@ -4,6 +4,7 @@ import functools
 import itertools
 import numbers
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -31,12 +32,15 @@ from pyop3.index_tree.tree import (
     UnitCalledMap,
 )
 
+if TYPE_CHECKING:
+    from pyop3.types import *
+
 
 def index_axes(
     index_tree: pyop3.index_tree.tree.IndexTree | Ellipsis,
     loop_context: Mapping | None = None,
     orig_axes: pyop3.axis_tree.AxisTree | pyop3.axis_tree.AxisForest | None = None,
-    ):
+):
     """Build an axis tree from an index tree.
 
     Parameters
@@ -109,7 +113,7 @@ def index_axes(
     return retval
 
 
-def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
+def make_indexed_axis_tree(index_tree: pyop3.index_tree.tree.IndexTree, target_axes):
     return _make_indexed_axis_tree_rec(
         index_tree,
         target_axes,
@@ -118,7 +122,7 @@ def make_indexed_axis_tree(index_tree: IndexTree, target_axes):
     )
 
 
-def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map):
+def _make_indexed_axis_tree_rec(index_tree: pyop3.index_tree.tree.IndexTree, target_axes, *, index_path: ConcretePathT, expr_replace_map):
     index = index_tree.node_map[index_path]
 
     index_axis_tree, per_index_targets = _index_axes_per_index(
@@ -126,7 +130,7 @@ def _make_indexed_axis_tree_rec(index_tree: IndexTree, target_axes, *, index_pat
         seen_target_exprs=expr_replace_map,
     )
 
-    targets: dict[ConcretePathT, tuple[AxisTarget, ...]] \
+    targets: dict[ConcretePathT, tuple[pyop3.axis_tree.AxisTarget, ...]] \
         = pyop3.collections.StrictlyUniqueDefaultDict(tuple, per_index_targets)
 
     axis_tree = index_axis_tree
@@ -342,11 +346,6 @@ def _index_info_targets_axes(indexed_axes, target, orig_axes) -> bool:
     return idict(result)
 
 
-# TODO: just get rid of this, assuming the new system works
-def expand_compressed_target_paths(compressed_target_paths):
-    return expand_collection_of_iterables(compressed_target_paths)
-
-
 @functools.singledispatch
 def _prepare_regions_for_slice_component(slice_component, regions) -> tuple[AxisComponentRegion, ...]:
     raise TypeError
@@ -478,7 +477,6 @@ def _(affine_component: AffineSliceComponent, regions, *, parent_exprs) -> tuple
 
         # Make sure that we apply any parent indexing to the size expression
         # (important if we are dealing with ragged things).
-        region_size_debug = region_size
         region_size = expr_replace(region_size, parent_exprs)
 
         indexed_region = pyop3.axis_tree.AxisComponentRegion(region_size, region.label)
@@ -555,7 +553,7 @@ def match_target_paths_to_axis_tree_rec(
 
         candidate_target_paths_acc_ = tuple(
             candidate_path | index_target_path
-            for candidate_path in candidate_target_paths_acc 
+            for candidate_path in candidate_target_paths_acc
             for index_target_path in equivalent_index_target_paths
         )
         if not index_tree.node_map[index_path_]:
@@ -606,7 +604,7 @@ def match_target_paths_to_axis_tree_rec(
 
 
 @functools.singledispatch
-def _index_axes_per_index(index: Index, /, *args, **kwargs) -> tuple[pyop3.axis_tree.AxisTree, tuple, tuple[LoopIndex, ...]]:
+def _index_axes_per_index(index: pyop3.index_tree.tree.Index, /, *args, **kwargs) -> tuple[pyop3.axis_tree.AxisTree, tuple, tuple[pyop3.index_tree.tree.LoopIndex, ...]]:
     """TODO.
 
     Case 1: loop indices
@@ -687,10 +685,8 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
     from pyop3.expr.visitors import (
         collect_axis_vars,
         get_loop_axes,
-        get_shape,
         replace_terminals,
     )
-
 
     # If we are just taking a component from a multi-component array,
     # e.g. mesh.points["cells"], then relabelling the axes just leads to
@@ -768,13 +764,9 @@ def _(slice_: Slice, /, target_axes, *, seen_target_exprs):
                 else:
                     assert isinstance(slice_component, SubsetSliceComponent)
                     # evaluate the subset to get the correct indices
-                    subset_axes = utils.just_one(get_shape(slice_component.array))
                     subset_loop_axes = get_loop_axes(slice_component.array)
                     if subset_loop_axes:
                         raise NotImplementedError
-
-                    # subset_expr = CompositeDat(subset_axes, {subset_axes.leaf_path: slice_component.array})
-                    # indices = materialize_composite_dat(subset_expr, target_axis.comm).buffer.data_ro
                     indices = slice_component.array.buffer.data_ro
 
                 if isinstance(target_component.sf, pyop3.sf.StarForest):

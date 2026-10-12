@@ -265,10 +265,10 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
     # TODO: singledispatch
     @property
     def size(self) -> int:
-        # TODO: quite ick here
+        # TODO: quite ick here, why is this happening?
         try:
             return len(self.cache)
-        except:
+        except:  # noqa: E722
             return self.miss
 
     # TODO: singledispatch

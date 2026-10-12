@@ -3,7 +3,7 @@ from __future__ import annotations
 import collections
 import functools
 import numbers
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pyop3 import utils
 

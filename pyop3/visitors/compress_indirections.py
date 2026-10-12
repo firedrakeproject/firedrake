@@ -367,7 +367,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         return idict(candidates)
 
     @process.register
-    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, /, *,  compress: bool) -> idict:
+    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, /, *, compress: bool) -> idict:
         candidates = {}
         with self.collecting():
             layoutss = [mat_expr.row_layouts, mat_expr.column_layouts]
@@ -386,7 +386,6 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     @process.register(pyop3.insn.Exscan)  # assume we are fine
     def _(self, null: pyop3.insn.InstructionList, /, **kwargs) -> idict:
         return idict()
-
 
     @process.register
     def _(self, insn_list: pyop3.insn.InstructionList, /, **kwargs) -> idict:
@@ -445,7 +444,7 @@ def _get_candidate_indirections_collector():
 class _MaterializedIndirectionsInserter(pyop3.node.NodeVisitor):
 
     def __init__(self, comm):
-        self.comm=comm
+        self.comm = comm
         self._linear = False
         super().__init__()
 

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Hashable
+
+from mpi4py import MPI
+
 import pyop3.buffer
 import pyop3.collections
 import pyop3.record

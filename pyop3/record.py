@@ -79,6 +79,7 @@ def _make_record_class(**kwargs):
         # Cache the hash for frozen objects
         if cls.__dataclass_params__.frozen:
             orig_hash = cls.__hash__
+
             def frozen_hash(self):
                 if not hasattr(self, "_record_cached_hash"):
                     object.__setattr__(self, "_record_cached_hash", orig_hash(self))

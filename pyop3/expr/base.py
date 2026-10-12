@@ -3,7 +3,8 @@ from __future__ import annotations
 import abc
 import functools
 import numbers
-from typing import NoReturn, Self
+from collections.abc import Hashable, Mapping
+from typing import Any, NoReturn, Self
 
 import numpy as np
 from mpi4py import MPI
@@ -324,7 +325,6 @@ class BinaryOperator(Operator, metaclass=abc.ABCMeta):
     def _symbol(self) -> str:
         pass
 
-
     # }}}
 
     @property
@@ -570,7 +570,6 @@ class Conditional(TernaryOperator):
         raise TypeError("not sure that this makes sense")
 
 
-
 def conditional(predicate, if_true, if_false):
     from pyop3 import evaluate
 
@@ -604,7 +603,7 @@ class NameVar(TerminalExpression):
     name: Hashable
 
     def dtype(self) -> np.dtype:
-        raise TypeError("dtype of NameVars cannot be determined") 
+        raise TypeError("dtype of NameVars cannot be determined")
 
     def _full_str(self) -> str:
         return f"{utils.pretty_type(self)}('{self.name}')"
@@ -631,7 +630,7 @@ class AxisVar(TerminalExpression):
 
     # {{{ instance attrs
 
-    axis: Axis
+    axis: pyop3.axis_tree.Axis
 
     def collect_buffers(self, visitor):
         # Axis vars are just pointers to some outer loop. Any internal
@@ -709,7 +708,6 @@ class NaN(TerminalExpression):
 
     # {{{ interface impls
 
-
     @property
     def local_max(self) -> NoReturn:
         raise TypeError
@@ -732,8 +730,8 @@ class LoopIndexVar(TerminalExpression):
 
     # {{{ instance attrs
 
-    loop_index: LoopIndex
-    axis: Axis
+    loop_index: pyop3.index_tree.LoopIndex
+    axis: pyop3.axis_tree.Axis
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         # Loop index vars are just pointers to some outer loop. We don't need
@@ -818,13 +816,13 @@ def _get_dtype(expr: Any) -> np.dtype:
 
 
 @_get_dtype.register(np.number)
-def _(expr) -> np.dtype: 
+def _(expr) -> np.dtype:
     raise NotImplementedError(f"Not implemented dtype for: {type(expr)}")
 
 
 @_get_dtype.register(Expression)
 def _(expr: Expression) -> np.dtype:
-    return expr.dtype 
+    return expr.dtype
 
 
 @_get_dtype.register(numbers.Real)

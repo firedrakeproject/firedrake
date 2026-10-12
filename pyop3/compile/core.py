@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import functools
-from typing import Any
+from collections.abc import Hashable
+from typing import TYPE_CHECKING, Any
 
 import loopy as lp
 import pymbolic as pym
@@ -35,8 +36,13 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
+from .context import CodegenContext
 
-def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters) -> Hashable:
+if TYPE_CHECKING:
+    from pyop3.insn.exec import ParsedCompilerParameters  # TODO: define in this file
+
+
+def _compile_static_hashkey(op, compiler_parameters: ParsedCompilerParameters) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, pyop3.config)
 
 
@@ -44,7 +50,7 @@ def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: Pars
     hashkey=_compile_static_hashkey,
     get_comm=lambda op, *a, **kw: op.comm,
 )
-def _compile_static(op: InstructionExecutionContext, compiler_parameters: ParsedCompilerParameters) -> tuple:
+def _compile_static(op, compiler_parameters: ParsedCompilerParameters) -> tuple:
     """Compile the operation without regard for specific data values.
 
     This function is therefore suitable for disk caching.
@@ -82,7 +88,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         # FIXME: removed because cs_expr needs to sniff the context now
         loop_indices = {}
 
-        for e in pyop3.collections.as_tuple(ex): # TODO: get rid of this loop
+        for e in pyop3.collections.as_tuple(ex):  # TODO: get rid of this loop
             # context manager?
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
@@ -107,7 +113,7 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
 
 
 @functools.singledispatch
-def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:
+def _compile(expr: Any, loop_indices, codegen_context: CodegenContext) -> None:
     raise TypeError(f"No handler defined for {type(expr).__name__}")
 
 
@@ -204,7 +210,7 @@ def _compile_petsc_mat(
         loop_indices,
     )
 
-    # convert the generic expressions to 
+    # convert the generic expressions to
     # for example:
     #
     #   map0[3*i0 + i1]
@@ -273,7 +279,7 @@ def _compile_array_assignment(
                 loop_indices,
                 axis_trees,
                 codegen_context,
-                iname_replace_maps=iname_replace_maps, 
+                iname_replace_maps=iname_replace_maps,
                 axis_tree=None,
                 paths=paths,
             )
@@ -293,7 +299,7 @@ def _compile_array_assignment(
         new_paths = paths.copy()
         new_paths[-1] = paths[-1] | {axis.label: component.label}
 
-        if axis_tree.linearize(new_paths[-1], partial=True).size == 0: 
+        if axis_tree.linearize(new_paths[-1], partial=True).size == 0:
             continue
 
         elif component.size != 1:
@@ -418,8 +424,8 @@ def _(exscan, loop_indices, codegen_context):
     if not isinstance(codegen_context, LoopyCodegenContext):
         raise NotImplementedError("Only supported for Loopy")
 
-    if exscan.scan_type != "+": 
-        raise NotImplementedError 
+    if exscan.scan_type != "+":
+        raise NotImplementedError
 
     domain_var = codegen_context.register_extent(
         exscan.extent,

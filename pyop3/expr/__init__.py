@@ -41,7 +41,7 @@ from .buffer import (  # noqa: F401
     as_linear_buffer_expression,
 )
 from .opaque import OpaqueTerminal  # noqa: F401
-from .tensor import (  #noqa: F401
+from .tensor import (  # noqa: F401
     AggregateDat,
     AggregateMat,
     CompositeDat,

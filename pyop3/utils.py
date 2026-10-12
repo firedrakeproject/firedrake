@@ -267,7 +267,6 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     return readonly(strides_[::-1])
 
 
-
 def pairwise(iterable, *, final=pyop3.constants._nothing):
     if final is not pyop3.constants._nothing:
         return itertools.zip_longest(iterable, iterable[1:], fillvalue=final)

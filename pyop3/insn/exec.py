@@ -79,7 +79,6 @@ class CompilerParameters:
     # }}}
 
 
-
 DEFAULT_COMPILER_PARAMETERS = CompilerParameters()
 
 
@@ -302,7 +301,7 @@ class InstructionExecutionContext:
 
         return executor, arg_index_to_buffer_map
 
-    def preprocess(self) -> Instruction:
+    def preprocess(self) -> pyop3.insn.base.Instruction:
         import pyop3.visitors
 
         from .visitors import (

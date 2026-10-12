@@ -77,11 +77,6 @@ class Tensor(TerminalExpression, abc.ABC):
         """Ensure that values are up-to-date."""
         self.buffer.assemble()
 
-    # TODO: remove these
-    @abc.abstractmethod
-    def with_context(self):
-        pass
-
     @property
     @abc.abstractmethod
     def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, ...]:
@@ -126,6 +121,7 @@ class Tensor(TerminalExpression, abc.ABC):
     def data_wo(self) -> np.ndarray:
         """Return a write-only view of the data stored by the dat."""
         return self.as_array("wo")
+
     @property
     def data_rw(self) -> np.ndarray:
         """Return a modifiable view of the data stored by the dat."""
@@ -324,8 +320,6 @@ class CallableTensorTransform(TensorTransform):
 @pyop3.record.frozenrecord()
 class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
 
-    # {{{ instance attrs
-
     transform_in: Callable[[Tensor, Tensor], None]
     transform_out: Callable[[Tensor, Tensor], None]
     prev: TensorTransform | None = None
@@ -339,13 +333,6 @@ class OutOfPlaceCallableTensorTransform(CallableTensorTransform):
         )
 
 
-    # }}}
-
-    # @property
-    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
-    #     raise NotImplementedError
-
-
 class IdentityTensorTransform(TensorTransform):
     pass
 
@@ -353,9 +340,7 @@ class IdentityTensorTransform(TensorTransform):
 @pyop3.record.frozenrecord()
 class ReshapeTensorTransform(IdentityTensorTransform):
 
-    # {{{ instance attrs
-
-    axis_trees: tuple[AxisTree, ...]
+    axis_trees: tuple[pyop3.axis_tree.AxisTree, ...]
     prev: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
@@ -364,14 +349,3 @@ class ReshapeTensorTransform(IdentityTensorTransform):
             tuple(map(visitor, self.axis_trees)),
             visitor(self.prev),
         )
-
-
-    # }}}
-
-    # @cached_property
-    # def nest_indices(self) -> tuple[tuple[int, int], ...]:
-    #     return tuple(
-    #         itertools.zip_longest(
-    #             *(axes.nest_indices for axes in self.axis_trees)
-    #         )
-    #     )

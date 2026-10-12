@@ -6,7 +6,7 @@ import numbers
 import types
 from collections.abc import Mapping, Sequence
 from types import EllipsisType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -33,6 +33,9 @@ from pyop3.index_tree.tree import (
 from pyop3.utils import (
     expand_collection_of_iterables,
 )
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 
 class IncompletelyIndexedException(Pyop3Exception):
@@ -344,6 +347,7 @@ def _(list_: list, /, *, axes, path) -> Slice:
     else:
         return Slice(axis.label, list_)
 
+
 @_desugar_index.register(Dat)
 def _(dat: Dat, /, *, axes, path) -> Slice:
     if path is None:
@@ -360,6 +364,7 @@ def _(dat: Dat, /, *, axes, path) -> Slice:
         raise ValueError(
             "Cannot slice multi-component things using generic slices, ambiguous"
         )
+
 
 @_desugar_index.register
 def _(label: str, /, *, axes, path) -> Index:
@@ -477,7 +482,7 @@ def _complete_index_tree_with_slices(*, axes, target_paths, axis_path: ConcreteP
             return IndexTree()
 
 
-def  _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_path=idict(), possible_target_paths_acc=None) -> bool:
+def _index_tree_completely_indexes_axes(index_tree: IndexTree, axes, *, index_path=idict(), possible_target_paths_acc=None) -> bool:
     """Return whether the index tree completely indexes the axis tree.
 
     This is done by traversing the index tree and collecting the possible target

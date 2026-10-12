@@ -85,7 +85,6 @@ class LoopContextExpander(InstructionTransformer):
             expanded_loops.append(expanded_loop)
         return maybe_enlist(expanded_loops)
 
-
     @process.register(pyop3.insn.CalledFunction)
     def _(self, func: pyop3.insn.CalledFunction, /, *, loop_context) -> pyop3.insn.CalledFunction:
         new_arguments = tuple(arg.with_context(loop_context) for arg in func.arguments)
@@ -116,6 +115,7 @@ def _requires_pack_unpack(arg: pyop3.insn.FunctionArgument) -> bool:
 def _(opaque: pyop3.expr.OpaqueTerminal) -> bool:
     return False
 
+
 @_requires_pack_unpack.register(Scalar)
 def _(scalar: Scalar) -> bool:
     if scalar.transform:
@@ -141,7 +141,7 @@ def _(amat) -> bool:
     return True
 
 
-def _layouts_match(axes: AxisTreeT) -> bool:
+def _layouts_match(axes) -> bool:
     if isinstance(axes, AxisForest):
         return utils.strictly_all(map(_layouts_match, axes.trees))
     else:
@@ -178,7 +178,6 @@ def _intent_as_access_type(intent):
     else:
         assert intent == INC
         return ArrayAccessType.INC
-
 
 
 @expand_transforms.register(pyop3.insn.CalledFunction)
@@ -344,10 +343,11 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
 
 def has_materialized_temporaries(tensor: Tensor) -> bool:
     while tensor.transform:
-        if isinstance(tensor.transform, OutOfPlaceTensorTransform):
-            return True
-        else:
-            tensor = tensor.transform.prev
+        raise NotImplementedError
+        # if isinstance(tensor.transform, pyop3.expr.OutOfPlaceTensorTransform):
+        #     return True
+        # else:
+        #     tensor = tensor.transform.prev
     return False
 
 
@@ -399,7 +399,7 @@ def insert_literals(insn: pyop3.insn.Instruction) -> pyop3.insn.Instruction:
 class CompilerOptionsCollector(NodeVisitor):
 
     @functools.singledispatchmethod
-    def process(self, obj: Any, /, *args, **kwargs) -> NoReturn:
+    def process(self, obj: Any, /, *args, **kwargs):
         raise TypeError(f"No handler defined for {utils.pretty_type(obj)}")
 
     @process.register

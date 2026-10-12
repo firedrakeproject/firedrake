@@ -94,7 +94,7 @@ class CodegenContext(ABC):
 
     @abstractmethod
     def lower_expr(self, expr, iname_maps, loop_indices,
-                   intent: Intent | None = None, paths = None):
+                   intent: Intent | None = None, paths=None):
         """
         Lower a PyOP3 expression to the target's IR representation.
 
@@ -149,5 +149,4 @@ class CodegenContext(ABC):
         ctx += f"Instructions: {self.instructions!s}\n\n"
         ctx += f"Arguments: {self.arguments!s}\n\n"
         ctx += f"Subkernels: {self.subkernels!s}\n\n"
-        return ctx 
-
+        return ctx

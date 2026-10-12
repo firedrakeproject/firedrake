@@ -13,7 +13,7 @@ IntType = PETSc.IntType
 
 
 KwargsT = Mapping[str, Any]
-PetscSizeT = tuple[int|None, int|None]
+PetscSizeT = tuple[int | None, int | None]
 
 # {{{ tree types
 

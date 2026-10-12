@@ -12,8 +12,6 @@ RealType = numpy.dtype(PETSc.RealType)
 ScalarType = numpy.dtype(PETSc.ScalarType)
 
 
-
-
 # dtypes can either be a numpy dtype object or just a class deriving from np.number
 # return isinstance(obj, np.dtype) or issubclass(obj, np.number)
 DTypeT = np.dtype | type
@@ -50,38 +48,6 @@ def get_mpi_dtype(numpy_dtype, cdim=1):
             typ.Commit()
             builtin = False
         return _MPI_types.setdefault(key, (typ, builtin))
-
-
-_numpy_types = {}
-
-
-def as_numpy_dtype(mpi_dtype):
-    """Return the numpy datatype corresponding to the MPI datatype.
-
-    This only works for contiguous datatypes.
-
-    """
-    try:
-        # possibly unsafe if handles are recycled, but OK, because we
-        # hold on to the contig types
-        return _numpy_types[mpi_dtype.py2f()]
-    except KeyError:
-        base, combiner, _ = mpi_dtype.decode()
-        while combiner == "DUP":
-            base, combiner, _ = base.decode()
-        if combiner != "CONTIGUOUS":
-            raise RuntimeError("Can only handle contiguous types")
-        try:
-            tdict = MPI.__TypeDict__
-        except AttributeError:
-            tdict = MPI._typedict
-
-        tdict = dict((v.py2f(), k) for k, v in tdict.items())
-        try:
-            base = tdict[base.py2f()]
-        except KeyError:
-            raise RuntimeError("Unhandled base datatype %r", base)
-        return _numpy_types.setdefault(mpi_dtype.py2f(), base)
 
 
 def as_cstr(dtype):

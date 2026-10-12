@@ -4,6 +4,8 @@ import abc
 import functools
 import numbers
 import weakref
+from collections.abc import Hashable
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -18,6 +20,9 @@ from pyop3.labeled_tree import is_subpath
 
 from .base import Expression, as_str
 from .tensor import Dat, Scalar
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 
 # TODO: Should inherit from Terminal (but Terminal has odd attrs)
@@ -45,7 +50,7 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
         from pyop3.insn import Assignment
 
         assignee = weakref.ref(self) if _weakref else self
-        return Assignment(self, other, "inc")
+        return Assignment(assignee, other, "inc")
 
     @property
     def buffer(self) -> pyop3.buffer.AbstractBuffer:
@@ -165,7 +170,7 @@ class LinearDatBufferExpression(DatBufferExpression, LinearBufferExpression):
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self), visitor(self.buffer_view), visitor(self.layout))
 
-    def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         buffer_key = visitor(self.buffer_view)
         with visitor.identity_hash_buffers():
             layout_key = visitor(self.layout)
@@ -230,7 +235,7 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
         return (type(self), visitor(self.buffer_view), layouts_key)
 
     def collect_buffers(self, visitor):
-        return visitor(self.buffer_view).union(*(map(visitor, self.layouts.values()))) 
+        return visitor(self.buffer_view).union(*(map(visitor, self.layouts.values())))
 
     def __init__(self, buffer_view, layouts) -> None:
         if isinstance(buffer_view, pyop3.buffer.AbstractBuffer):
@@ -244,7 +249,6 @@ class NonlinearDatBufferExpression(DatBufferExpression, NonlinearBufferExpressio
     @property
     def comm(self):
         return self.buffer_view.comm
-
 
     # {{{ interface impls
 

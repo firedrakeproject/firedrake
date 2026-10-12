@@ -66,14 +66,14 @@ class CUDAGPU(Device):
     """
     GPU class for Nvidia GPUs. inheriting Device.
     - All offloading will be done through CuPy
-    - Multiple instantiations will be independent of each other 
+    - Multiple instantiations will be independent of each other
     """
     name = "CudaGPU"
 
     def __init__(self):
         try:
             assert self.cp.is_available()
-        except:
+        except:  # noqa: E722
             # TODO: Raise No GPU exception
             raise NotImplementedError
 
@@ -114,7 +114,7 @@ _current_device = contextvars.ContextVar("current_device", default=HOST_DEVICE)
 
 @contextlib.contextmanager
 def offloading(dev: Device):
-    """ 
+    """
     Context Manager for offloading components to select device
     This function should be the only way to modfiy the current device variable
 

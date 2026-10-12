@@ -950,7 +950,6 @@ def exscan(*args, eager: bool = False, **kwargs):
     return expr() if eager else expr
 
 
-
 # The idea is basically RW isn't allowed here but READ is (unlike AssignmentType)
 class ArrayAccessType(enum.StrEnum):
     READ = "read"

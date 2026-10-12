@@ -2,17 +2,15 @@ from __future__ import annotations
 
 import collections
 import functools
-import itertools
 import numbers
 import typing
 import weakref
-from collections.abc import Callable, Iterable, Mapping
-from functools import partial
+from collections.abc import Mapping
 from typing import Any, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
-from petsc4py import PETSc
+from mpi4py import MPI
 
 import pyop3.axis_tree
 import pyop3.buffer
@@ -24,16 +22,10 @@ import pyop3.visitors
 from pyop3 import utils
 from pyop3.axis_tree.tree import (
     UNIT_AXIS_TREE,
-    AbstractNonUnitAxisTree,
     Axis,
-    AxisForest,
     AxisTree,
-    IndexedAxisTree,
-    _UnitAxisTree,
-    matching_axis_tree,
     merge_axis_trees,
 )
-from pyop3.buffer import AbstractBuffer, ConcreteBuffer, NullBuffer, PetscMatBuffer
 from pyop3.cache import memory_cache
 from pyop3.collections import OrderedFrozenSet, OrderedSet
 from pyop3.dtypes import IntType
@@ -44,8 +36,6 @@ from pyop3.expr.tensor.base import (
     ReshapeTensorTransform,
 )
 from pyop3.index_tree.tree import (
-    AffineSliceComponent,
-    IndexTree,
     LoopIndex,
     Slice,
 )
@@ -55,9 +45,11 @@ from pyop3.insn.base import ArrayAccessType, loop_
 from pyop3.labeled_tree import is_subpath
 from pyop3.node import NodeCollector, NodeTransformer, NodeVisitor, postorder
 
-from .evaluate_arraywise import evaluate_arraywise
+from pyop3.expr.visitors.evaluate_arraywise import evaluate_arraywise  # noqa: F401
+
 
 if typing.TYPE_CHECKING:
+    from pyop3.types import *
     from pyop3.axis_tree import AxisLabelT
 
     AxisVarMapT = Mapping[AxisLabelT, int]
@@ -75,7 +67,7 @@ class ExpressionVisitor(NodeVisitor):
 
 
 # TODO: use overloadedexpressionevaluator
-def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices = None, name_vars=idict()) -> Any:
+def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices=None, name_vars=idict()) -> Any:
     if axis_vars is None:
         axis_vars = {}
     if loop_indices is None:
@@ -193,7 +185,6 @@ def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /, **kwargs) -> Any:
     return dat_expr.buffer.data_ro[offset]
 
 
-
 @functools.singledispatch
 def collect_loop_index_vars(obj: Any, /) -> OrderedSet:
     raise TypeError(f"No handler defined for {type(obj).__name__}")
@@ -211,6 +202,7 @@ def _(loop_var: pyop3.expr.LoopIndexVar):
 @collect_loop_index_vars.register(pyop3.expr.Scalar)
 def _(var):
     return OrderedSet()
+
 
 @collect_loop_index_vars.register(pyop3.expr.Operator)
 def _(op: pyop3.expr.BinaryOperator):
@@ -374,6 +366,7 @@ def _(op: pyop3.expr.Operator):
 def _(var):
     return OrderedSet()
 
+
 @collect_axis_vars.register(pyop3.expr.AxisVar)
 def _(var):
     return OrderedSet([var])
@@ -423,8 +416,6 @@ def _materialize_composite_dat_cached(
 ) -> pyop3.expr.NonlinearDatBufferExpression:
     import pyop3.visitors
 
-    axes = composite_dat.axis_tree
-
     big_tree, loop_var_replace_map = loopified_shape(composite_dat)
 
     # step 2: assign
@@ -453,7 +444,6 @@ def _materialize_composite_dat_cached(
                 compiler_parameters={"propagate_negatives": True},
             )
 
-
     # step 3: replace axis vars with loop indices in the layouts
     will_modify = len(loop_var_replace_map) > 0
     layouts = {}
@@ -474,6 +464,7 @@ def _materialize_composite_dat_cached(
         return pyop3.expr.LinearDatBufferExpression(assignee.buffer, layout)
     else:
         return pyop3.expr.NonlinearDatBufferExpression(assignee.buffer, layouts)
+
 
 # TODO: Better to just return the actual value probably...
 @functools.singledispatch
@@ -671,6 +662,7 @@ def max_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Num
     else:
         return pyop3.expr.Conditional(pyop3.expr.GreaterThan(a, b), a, b)
 
+
 def min_(a, b, /, *, lazy: bool = False) -> pyop3.expr.Conditional | numbers.Number:
     if not lazy:
         return conditional(a < b, a, b)
@@ -715,115 +707,6 @@ class ArgumentCollector(NodeCollector):
 
 def collect_arguments(expr: ExpressionT) -> OrderedFrozenSet:
     return ArgumentCollector()(expr)
-
-
-# TODO: remove all the shallow stuff, now in above class
-class BufferCollector(NodeCollector):
-
-    def __init__(self, tree_collector: TreeBufferCollector | None = None, *, shallow: bool = False):
-        self._lazy_tree_collector = tree_collector
-        self.shallow = shallow
-        super().__init__()
-
-    @functools.singledispatchmethod
-    def process(self, obj: Any) -> OrderedFrozenSet:
-        return super().process(obj)
-
-    @process.register(pyop3.expr.Operator)
-    @postorder
-    def _(self, op: pyop3.expr.Operator, visited, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet().union(*visited.values())
-
-    @process.register(numbers.Number)
-    @process.register(pyop3.expr.NaN)
-    def _(self, expr: pyop3.expr.ExpressionT, /) -> OrderedFrozenSet:
-        return OrderedFrozenSet()
-
-    @process.register(pyop3.expr.AxisVar)
-    def _(self, axis_var: pyop3.expr.AxisVar, /) -> OrderedFrozenSet:
-        if self.shallow:
-            return OrderedFrozenSet()
-        else:
-            return self._collect_tree(axis_var.axis.as_tree())
-
-    @process.register(pyop3.expr.LoopIndexVar)
-    def _(self, loop_var: pyop3.expr.LoopIndexVar, /) -> OrderedFrozenSet:
-        if self.shallow:
-            return OrderedFrozenSet()
-        else:
-            return (
-                self._collect_tree(loop_var.loop_index.iterset)
-                | self._collect_tree(loop_var.axis.as_tree())
-            )
-
-    # @process.register(pyop3.expr.OpaqueTerminal)
-    # @process.register(pyop3.expr.ScalarBufferExpression)
-    # def _(self, scalar_expr: pyop3.expr.ScalarBufferExpression, /) -> OrderedFrozenSet:
-    #     return OrderedFrozenSet([scalar_expr.buffer])
-
-    @process.register(pyop3.expr.Dat)
-    def _(self, dat: pyop3.expr.Dat, /) -> OrderedFrozenSet:
-        if not self.shallow:
-            raise NotImplementedError
-        return OrderedFrozenSet([dat.buffer])
-
-    # @process.register(pyop3.expr.LinearDatBufferExpression)
-    # @postorder
-    # def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
-    #     if self.shallow:
-    #         return OrderedFrozenSet([dat_expr.buffer])
-    #     else:
-    #         return OrderedFrozenSet([dat_expr.buffer]).union(*visited.values())
-
-    # @process.register(pyop3.expr.NonlinearDatBufferExpression)
-    # @postorder
-    # def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, visited, /) -> OrderedFrozenSet:
-    #     assert len(visited) == 1
-    #     if self.shallow:
-    #         return OrderedFrozenSet([dat_expr.buffer])
-    #     else:
-    #         return OrderedFrozenSet([dat_expr.buffer]).union(
-    #             *visited["layouts"].values()
-    #         )
-
-    @process.register(pyop3.expr.MatPetscMatBufferExpression)
-    @postorder
-    def _(self, mat_expr: pyop3.expr.MatPetscMatBufferExpression, visited, /) -> OrderedFrozenSet:
-        assert len(visited) == 2
-        if self.shallow:
-            return OrderedFrozenSet([mat_expr.buffer])
-        else:
-            return OrderedFrozenSet([mat_expr.buffer]).union(
-                visited["row_layout"], visited["column_layout"]
-            )
-
-    @process.register(pyop3.expr.MatArrayBufferExpression)
-    @postorder
-    def _(self, mat_expr: pyop3.expr.MatArrayBufferExpression, visited, /) -> OrderedFrozenSet:
-        assert len(visited) == 2
-        if self.shallow:
-            return OrderedFrozenSet([mat_expr.buffer])
-        else:
-            return OrderedFrozenSet([mat_expr.buffer]).union(
-                *visited["row_layouts"].values(), *visited["column_layouts"].values()
-            )
-
-    def _collect_tree(self, axis_tree) -> OrderedFrozenSet:
-        from pyop3.axis_tree.visitors import BufferCollector as TreeBufferCollector
-
-        if self._lazy_tree_collector is None:
-            self._lazy_tree_collector = TreeBufferCollector(self)
-
-        # part way through an outer traversal, do not recurse
-        if self._lazy_tree_collector._tree is not None:
-            return OrderedFrozenSet()
-
-        return self._lazy_tree_collector(axis_tree, OrderedFrozenSet())
-
-
-def collect_buffers(expr: ExpressionT, *, shallow: bool = False) -> OrderedFrozenSet:
-    assert False, "old code"
-    return BufferCollector(shallow=shallow)(expr)
 
 
 class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
@@ -954,7 +837,7 @@ def _(tensor, /, access_type):
         return _expand_transforms_tensor(bare_tensor, tensor.transform, access_type)
 
 
-def _expand_transforms_tensor(tensor: Tensor, transform: TensorTransform | None, access_type: ArrayAccessType):
+def _expand_transforms_tensor(tensor: pyop3.expr.Tensor, transform: pyop3.expr.TensorTransform | None, access_type: ArrayAccessType):
     # For more exposition on this function refer to pyop3/insn/visitors.py::expand_transforms
     assert not tensor.transform, "Tensor transforms should already have been extracted"
 

@@ -2061,7 +2061,6 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
             unindexed=self.unindexed.regionless(),
         )
 
-
     def as_axis(self) -> Axis:
         return Axis(0)
 
@@ -2182,7 +2181,7 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     _trees: tuple
 
-    def get_instruction_executor_cache_key (self, visitor) -> Hashable:
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (type(self), tuple(map(visitor, self._trees)))
 
     def __new__(cls, *args, **kwargs) -> LoopContextFreeAxisTreeLike:
@@ -2439,7 +2438,7 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -
 
     Case 1:
 
-        TODO: show example where 
+        TODO: show example where
         axis_a = Axis({"x": 2, "y": 2}, "a")
         axis_b = Axis({"x": 2}, "b")
         axis_c = Axis({"x": 2}, "c")
@@ -2594,7 +2593,6 @@ def inner_loop_indices(axes, targets, path):
     return loop_index_vars
 
 
-
 def prune_zero_sized_branches(axis_tree: AbstractNonUnitAxisTree, *, path=idict()) -> AxisTree:
     # needed now we have unit trees?
     # if axis_tree.is_empty:
@@ -2633,7 +2631,7 @@ def prune_zero_sized_branches(axis_tree: AbstractNonUnitAxisTree, *, path=idict(
     return new_axis_tree
 
 
-def relabel_path(path, suffix:str):
+def relabel_path(path, suffix: str):
     return {f"{axis_label}_{suffix}": component_label for axis_label, component_label in path.items()}
 
 

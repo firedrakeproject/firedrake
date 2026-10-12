@@ -24,6 +24,7 @@ class MultipleUniqueEntriesException(Pyop3Exception):
 class UnhashableObjectException(Pyop3Exception, TypeError):
     pass
 
+
 class UnsupportedArrayException(Pyop3Exception, TypeError):
     pass
 
@@ -34,6 +35,7 @@ class EmptyIterableException(Pyop3Exception):
 
 class NonUnitIterableException(Pyop3Exception):
     pass
+
 
 # {{{ expressions
 
@@ -46,6 +48,7 @@ class MissingVariableException(Pyop3Exception):
 
 # }}}
 
+
 # {{{ axis trees
 
 # NOTE: the same idea as InvalidIndexTargetException
@@ -57,6 +60,7 @@ class NonUnitAxisException(Pyop3Exception):
     pass
 
 # }}}
+
 
 # {{{ indexing
 
@@ -82,8 +86,8 @@ class UnspecialisedCalledMapException(Pyop3Exception):
 class InvalidIndexTargetException(Pyop3Exception):
     """Exception raised when we try to match index information to a mismatching axis tree."""
 
-
 # }}}
+
 
 # {{{ caching
 
@@ -104,6 +108,7 @@ class InvalidIntentException(Pyop3Exception):
 
 # }}}
 
+
 # {{{ parallel
 
 class CommNotFoundException(Pyop3Exception):
@@ -112,7 +117,6 @@ class CommNotFoundException(Pyop3Exception):
 
 class CommMismatchException(Pyop3Exception):
     """Exception raised when MPI communicators do not match."""
-
 
 # }}}
 

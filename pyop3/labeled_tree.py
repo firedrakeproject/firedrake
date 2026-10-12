@@ -80,7 +80,6 @@ class AbstractLabeledTreeLike(pyop3.obj.Object):
         pass
 
 
-
 @functools.singledispatch
 def _as_node_map(obj: Any, /) -> dict:
     utils.raise_missing_dispatch_handler(obj)
@@ -207,13 +206,7 @@ class LabeledTree(AbstractLabeledTreeLike):
             raise InvalidTreeException("There are orphaned entries in the node map")
         return idict(final_node_map)
 
-    @classmethod
-    def _as_node(cls, nodelike) -> Node:
-        """Convert an object into a tree node."""
-        raise NotImplementedError
-
     # }}}
-
 
     def __str__(self) -> str:
         if self.is_empty:
@@ -265,22 +258,6 @@ class LabeledTree(AbstractLabeledTreeLike):
     def parent(self, node):
         node = self._as_node(node)
         return self.child_to_parent[node]
-
-    def children(self, path: PathT) -> tuple[Node | None]:
-        """"Return the child nodes from a path.
-
-        If the path points to a leaf then the children may include `None`.
-
-        """
-        path = as_path(path)
-
-        children_ = []
-        node = self.node_map[path]
-        for component_label in node.component_labels:
-            child_path = path | {node.label: component_label}
-            child = self.node_map[child_path]
-            children.append(child)
-        return tuple(children)
 
     def _stringify(
         self,
@@ -489,7 +466,6 @@ class LabeledTree(AbstractLabeledTreeLike):
             else:
                 nest[node].append(None)
         return idict(nest)
-
 
 
 class MutableLabeledTreeMixin:

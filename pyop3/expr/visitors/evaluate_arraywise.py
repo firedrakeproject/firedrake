@@ -28,5 +28,5 @@ class ArraywiseEvaluator(OverloadedExpressionEvaluator):
         return dat.data_ro
 
 
-def evaluate_arraywise(expr: pyop3.expr.ExpressionT) -> TODO:
+def evaluate_arraywise(expr: pyop3.expr.ExpressionT):
     return ArraywiseEvaluator()(expr)

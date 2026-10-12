@@ -303,7 +303,7 @@ class Dat(Tensor):
                 for leaf in self.axes.leaf_paths
             )
         # FIXME: lazy fallback because failures make debugging annoying
-        except:
+        except:  # noqa: E722
             return repr(self)
 
     @PETSc.Log.EventDecorator()
@@ -455,7 +455,6 @@ class Dat(Tensor):
         else:
             return pyop3.arrayref.ArrayReference(array, indices, block_shape)
 
-
     @property
     def dat_version(self):
         return self.buffer.state
@@ -502,7 +501,7 @@ class Dat(Tensor):
 
         # The block size may change between invocations
         # TODO: Should reset it back at the end
-        block_size = np.prod(block_shape, dtype=int) 
+        block_size = np.prod(block_shape, dtype=int)
         if block_size != self._work_vec.block_size:
             self._work_vec.setBlockSize(block_size)
 
@@ -567,7 +566,7 @@ class Dat(Tensor):
             array = self.buffer._current_device_array[indices]
             contiguous = isinstance(indices, slice)
 
-            block_size = np.prod(self.axes.block_shape, dtype=int) 
+            block_size = np.prod(self.axes.block_shape, dtype=int)
 
             if contiguous:
                 vec = PETSc.Vec().createWithArray(
@@ -649,7 +648,6 @@ class Dat(Tensor):
             scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
         return lvec.array
 
-
     @property
     def sf(self):
         return self.buffer.sf
@@ -687,7 +685,6 @@ class Dat(Tensor):
 
     def null_like(self, **kwargs) -> Dat:
         return self.null(self.axes, dtype=self.dtype, **kwargs)
-
 
 
 # TODO: rename to SymbolicDat
@@ -823,7 +820,7 @@ class AggregateDat(pyop3.obj.Object):
         from pyop3.insn import Assignment
 
         assignee = weakref.ref(self) if _weakref else self
-        return Assignment(self, other, "write")
+        return Assignment(assignee, other, "write")
 
     def iassign(self, other, *, _weakref: bool = True):
         from pyop3.insn import Assignment

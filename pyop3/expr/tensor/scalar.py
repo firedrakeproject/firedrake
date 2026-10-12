@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import numbers
-from typing import ClassVar
+from collections.abc import Hashable
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -15,6 +16,9 @@ from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
 from .base import Tensor
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 
 @pyop3.record.record()
@@ -32,7 +36,7 @@ class Scalar(Tensor):
     def __init__(
         self,
         value: numbers.Number | None = None,
-        comm: MPI.Comm | None=None,
+        comm: MPI.Comm | None = None,
         *,
         buffer: AbstractBuffer | None = None,
         constant: bool | None = None,
@@ -107,7 +111,7 @@ class Scalar(Tensor):
     def local_min(self) -> numbers.Number:
         return self.local_max
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
         from pyop3.expr.visitors import evaluate_arraywise
 
         other_eval = evaluate_arraywise(other)
