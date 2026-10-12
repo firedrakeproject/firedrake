@@ -85,11 +85,11 @@ class GemExecutable(Executable):
             insns.append(new_insn)
         impero = gem.impero_utils.compile_gem_new(insns, ())
 
+        # WILO: Fixing the impero AST tree for cell loop indices 
         builder = MLIRBuilder() 
-
         modop, kernel_args, func_name = builder.build(impero.tree) 
         module_code = _mlir_module_to_mlir_string(modop)
-
+        
         """Compile the code and return a function pointer."""
         # ideally move this logic somewhere else
         cppargs = (
