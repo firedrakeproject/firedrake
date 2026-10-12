@@ -25,41 +25,35 @@ from firedrake.petsc import PETSc
 from functools import cached_property
 
 
-def check_element(element, top=True):
-    """Run some checks on the provided element.
+def check_element(element: finat.ufl.FiniteElementBase, top: bool = True) -> None:
+    """Check the element family and the ordering of element modifiers.
 
-    The :class:`finat.ufl.mixedelement.VectorElement` and
-    :class:`finat.ufl.mixedelement.TensorElement` modifiers must be "outermost"
-    for function space construction to work, excepting that they
-    should not wrap a :class:`finat.ufl.mixedelement.MixedElement`.  Similarly,
-    a base :class:`finat.ufl.mixedelement.MixedElement` must be outermost (it
-    can contain :class:`finat.ufl.mixedelement.MixedElement` instances, provided
-    they satisfy the other rules). This function checks that.
+    Vector and tensor modifiers must be outermost and cannot wrap mixed
+    elements. Element modifiers are checked recursively. The family
+    restriction on hexahedra applies to the outermost element. Broken elements
+    have degrees of freedom that are local to each cell and are exempt from
+    this restriction.
 
     Parameters
     ----------
-    element :
-        The :class:`UFL element
-        <finat.ufl.finiteelementbase.FiniteElementBase>` to check.
+    element : finat.ufl.FiniteElementBase
+        Element to check.
     top : bool
-        Are we at the top element (in which case the modifier is legal).
-
-    Returns
-    -------
-
-    ``None`` if the element is legal.
+        Whether the element is the outermost element in a function space.
 
     Raises
     ------
     ValueError
-        If the element is illegal.
+        If the element modifiers are not in a valid order.
+    NotImplementedError
+        If an unbroken element family is not supported on hexahedra.
     """
     if isinstance(element.cell, CellSequence) and \
        type(element) is not finat.ufl.MixedElement:
         raise ValueError("MixedElement modifier must be outermost")
-    if element.cell.cellname == "hexahedron" and \
-       element.family() not in ["Q", "DQ", "Real"]:
-        raise NotImplementedError("Currently can only use 'Q', 'DQ', and/or 'Real' elements on hexahedral meshes, not", element.family())
+    if top and element.cell.cellname == "hexahedron" and \
+       element.family() not in ["Q", "DQ", "Real", "BrokenElement"]:
+        raise NotImplementedError("Currently can only use 'Q', 'DQ', 'Real', and/or broken elements on hexahedral meshes, not", element.family())
     if type(element) in (finat.ufl.BrokenElement, finat.ufl.RestrictedElement,
                          finat.ufl.HDivElement, finat.ufl.HCurlElement):
         inner = (element._element, )

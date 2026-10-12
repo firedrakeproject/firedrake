@@ -6,6 +6,7 @@ from functools import cached_property
 
 from pyadjoint.tape import annotate_tape
 from pyop2 import op2
+from pyop2.datatypes import as_cstr
 import pytools
 import finat.ufl
 from ufl.algorithms import extract_coefficients
@@ -268,30 +269,34 @@ class Assigner:
         if assign_to_halos:
             indices = operator.attrgetter("indices")
             data_ro = operator.attrgetter("data_ro_with_halos")
-            values = operator.attrgetter("values_with_halo")
         else:
             indices = operator.attrgetter("owned_indices")
             data_ro = operator.attrgetter("data_ro")
-            values = operator.attrgetter("values")
         subset_indices = Ellipsis if subset is None else indices(subset)
 
-        def source_indices(f):
+        def source_values(f):
             target_space = lhs_func.function_space()
             target_map = target_space.cell_node_map()
             source_map = f.function_space().cell_node_map()
             if source_map is target_map:
                 # Source and target spaces have the same DoF ordering.
-                return subset_indices
+                return data_ro(f.dat)[subset_indices]
             else:
-                # Permute source indices into the target ordering.
-                size = target_space.dof_dset.total_size
-                perm = np.empty((size,), dtype=source_map.values.dtype)
-                np.put(perm, values(target_map), values(source_map))
-                if not assign_to_halos:
-                    perm = perm[:target_space.dof_dset.size]
-                return perm[subset_indices]
+                # Let PyOP2 apply both maps, including any vertical offsets,
+                # to copy all components into the target ordering.
+                size = target_map.arity * f.dat.cdim
+                ctype = as_cstr(f.dat.dtype)
+                kernel = op2.Kernel(f"""
+                    void copy({ctype} *restrict dst, const {ctype} *restrict src) {{
+                        for (int i = 0; i < {size}; i++) dst[i] = src[i];
+                    }}""", "copy", requires_zeroed_output_arguments=False)
+                reordered = op2.Dat(target_space.dof_dset, dtype=f.dat.dtype)
+                op2.par_loop(kernel, target_space.mesh().cell_set,
+                             reordered(op2.WRITE, target_map),
+                             f.dat(op2.READ, source_map))
+                return data_ro(reordered)[subset_indices]
 
-        func_data = np.array([data_ro(f.dat)[source_indices(f)] for f in funcs])
+        func_data = np.array([source_values(f) for f in funcs])
         rvalue = self._compute_rvalue(func_data)
         self._assign_single_dat(lhs_func.dat, subset_indices, rvalue, assign_to_halos)
         if assign_to_halos:
