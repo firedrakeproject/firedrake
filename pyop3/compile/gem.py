@@ -64,9 +64,12 @@ class GemExecutable(Executable):
         insns = []
         for insn in self.instructions:
             new_expr, = gem.impero_utils.preprocess_gem([insn.expression])
+            new_insn, = gem.impero_utils.preprocess_gem([insn.assignee])
             assert "ComponentTensor" not in repr(new_expr)
+            assert "ComponentTensor" not in repr(new_insn)
+
             new_insn = gem.impero.Assignment(
-                assignee=insn.assignee,
+                assignee=new_insn,
                 expression=new_expr,
                 mode=insn.mode,
             )
@@ -179,35 +182,95 @@ class GemCodegenContext(CodegenContext):
         if self.propagate_negatives:
             raise NotImplementedError
 
+
         name_in_kernel = self.add_buffer(buffer_view, intent)
 
         buffer = buffer_view.buffer
         if isinstance(buffer, PetscMatBuffer):
             buffer = buffer_view.denested.getPythonContext().buffer
 
-        # e.g. dat0 : shape=(200,) free_indices=()
-        var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
-
         if layouts is None:
             # this happens for local kernels where we want a var not an indexed
             assert iname_maps is None
-            return var
-            multiindex = ()
-        else:
-            multiindex = []
-            added = []
-            assert len(layouts) == len(iname_maps)
-            for size, layout, iname_map in zip(buffer.shape, layouts, iname_maps, strict=True):
-                lowered = self.lower_expr(layout, [iname_map], loop_indices, is_index=True)
-                if isinstance(lowered, gem.Literal):
-                    idx = lowered.value
-                else:
-                    idx = gem.VariableIndex(lowered)
-                multiindex.append(idx)
 
-        # e.g. for i < 100: dat0[i] : shape=() free_indices=(i,)
-        indexed = gem.Indexed(var, multiindex)
-        return indexed
+            if loop_indices:
+                extra_idxs = []
+                for loop_idx in loop_indices.values():
+                    extra_idxs.append(loop_idx)
+                multiindex = tuple(extra_idxs)
+
+                # shape = tuple(i.extent for i in multiindex) + buffer.shape
+
+                var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
+
+                idx_expr = tuple(gem.Index(s) for s in buffer.shape)
+                indexed = gem.Indexed(var, idx_expr)
+
+                ct = gem.ComponentTensor(indexed, multiindex+idx_expr)
+                return gem.partial_indexed(ct, multiindex)
+
+                breakpoint()
+
+                return gem.Indexed(ct, multiindex+idx_expr)
+            else:
+                return gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
+
+        else:
+            if len(layouts) != 1:
+                raise NotImplementedError("multiindex needs loop indices per dim")
+
+            iname_map = utils.just_one(iname_maps)
+            layout = utils.just_one(layouts)
+            idx_expr = self.lower_expr(layout, [iname_map], loop_indices, is_index=True)
+            if isinstance(idx_expr, gem.Literal):
+                # idx_expr = gem.VariableIndex(idx_expr.value)
+                idx_expr = idx_expr.value
+            else:
+                idx_expr = gem.VariableIndex(idx_expr)
+
+            extra_idxs = []
+            for loop_idx in loop_indices.values():
+                if loop_idx not in idx_expr.free_indices:
+                    extra_idxs.append(loop_idx)
+            extra_idxs = tuple(extra_idxs)
+
+            var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
+
+            indexed = gem.Indexed(var, (idx_expr,))
+
+            ct = gem.ComponentTensor(indexed, extra_idxs+(idx_expr,))
+
+            return gem.Indexed(ct, extra_idxs+(idx_expr,))
+
+            # shape = buffer.shape
+            multiindex = (idx_expr,)
+            if extra_idxs:
+                # shape = tuple(i.extent for i in extra_idxs) + shape
+                multiindex = extra_idxs + multiindex
+
+            return gem.Indexed(var, multiindex)
+
+            # multiindex = []
+            # added = []
+            # assert len(layouts) == len(iname_maps)
+            # for size, layout, iname_map in zip(buffer.shape, layouts, iname_maps, strict=True):
+            #     lowered = self.lower_expr(layout, [iname_map], loop_indices, is_index=True)
+            #     if isinstance(lowered, gem.Literal):
+            #         idx = lowered.value
+            #     else:
+            #         idx = gem.VariableIndex(lowered)
+            #     multiindex.append(idx)
+
+
+        # e.g. dat0 : shape=(200,) free_indices=()
+        # var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
+        #
+        #     # # e.g. for i < 100: dat0[i] : shape=() free_indices=(i,)
+        #     # var = gem.Indexed(var, multiindex)
+        #
+        # # missing_loop_indices = ???
+        #
+        # return var
 
     # NOTE: This could probably be refactored
     def add_leaf_assignment(
