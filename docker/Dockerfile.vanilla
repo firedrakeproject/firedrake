@@ -51,7 +51,7 @@
 #     --build-arg PETSC_EXTRA_ARGS="--download-ml" \
 #     --build-arg APT_EXTRA_PACKAGES="valgrind"
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 # Firedrake arch to build
 ARG ARCH="default"
