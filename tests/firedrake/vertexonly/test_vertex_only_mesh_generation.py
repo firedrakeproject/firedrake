@@ -278,7 +278,8 @@ def test_generate_cell_midpoints(parentmesh, redundant):
             assert (f_data[cell_num] == vm_coords[i]).all()
 
     assert vm.cells.owned.local_size == parentmesh.cells.owned.local_size
-    assert vm.cells.local_size == parentmesh.cells.local_size
+    # Check that the vom has no halos
+    assert vm.cells.local_size == vm.cells.owned.local_size
 
 
 @pytest.mark.parallel([1, 3])
@@ -449,17 +450,20 @@ def test_inside_boundary_behaviour(parentmesh):
 @pytest.mark.parallel(2)
 def test_ghost_labelling():
     m = UnitIntervalMesh(4)
-    # We inherit parallel labelling (owned vs ghost) from the parent mesh
-    # cell. Here we have one point per cell so can check directly
+    # The vom inherits owned and core labelling from the parent mesh, but voms
+    # have no halo points
     points = np.asarray([[0.125], [0.375], [0.625], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
     assert vm.cells.owned.local_size == m.cells.owned.local_size
     assert vm.cells.local_size == m.cells.local_size
     points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    assert vm.cells.local_size == 2*m.cells.local_size
+    assert vm.cell_set.sizes == tuple(2 * size for size in expected_sizes)
+    assert vm.cells.owned.local_size == 2 * m.cells.owned.local_size
+    assert vm.cells.local_size == 2 * m.cells.local_size
     points = np.asarray([[-5.0]])
     vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
+    assert vm.cells.owned.local_size == 0
     assert vm.cells.local_size == 0
 
 
