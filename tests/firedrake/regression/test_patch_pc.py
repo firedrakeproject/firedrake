@@ -25,7 +25,6 @@ def multiplicative(request):
     return request.param
 
 
-@pytest.mark.parallel(2)  # debugging
 def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     if problem_type == "scalar":
         V = FunctionSpace(mesh, "CG", 1)
@@ -92,7 +91,6 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
     patch.solve()
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
-    breakpoint()
     assert numpy.allclose(jacobi_history, patch_history)
 
 
