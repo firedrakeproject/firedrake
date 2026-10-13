@@ -588,6 +588,47 @@ def test_snes_adapt_project_preserves_solution_mass(periodic, shape):
     assert solution.function_space().mesh().unique() is mesh
 
 
+@pytest.mark.parallel([1, 2])
+def test_snes_adapt_project_across_levels_preserves_solution_mass():
+    # Two refinements of disjoint regions, and then a coarsening that undoes
+    # both and returns the base mesh, two levels down.
+    markers = [refine_left_half, lambda x: conditional(gt(x[0], 0.75), 1, 0), lambda x: -1]
+    levels = []
+
+    def mark_cells(ctx, solution):
+        mesh = solution.function_space().mesh()
+        levels.append(get_level(mesh)[1])
+        marker = markers[len(levels) - 1](SpatialCoordinate(mesh))
+        return Function(FunctionSpace(mesh, "DG", 0)).interpolate(marker)
+
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    source = Function(V)
+    u = Function(V)
+    problem = NonlinearVariationalProblem(inner(u - source, TestFunction(V))*dx, u)
+    solver = NonlinearVariationalSolver(
+        problem,
+        solver_parameters={
+            "snes_adapt_sequence": 1,
+            "mg_transfer_inject_type": "project",
+            "mat_type": "aij",
+            "ksp_type": "preonly",
+            "pc_type": "lu",
+        },
+        marking_callback=mark_cells,
+    )
+    for _ in markers:
+        old_source = solver.get_coefficient(source)
+        x, y = SpatialCoordinate(old_source.function_space().mesh())
+        old_source.interpolate(exp(-10*((x - 0.3)**2 + (y - 0.4)**2)))
+        solution = solver.solve()
+        new_source = solver.get_coefficient(source)
+        assert new_source.function_space().mesh() is not old_source.function_space().mesh()
+        assert assemble(new_source*dx) == pytest.approx(assemble(old_source*dx), rel=0, abs=1e-10)
+    assert levels[-1] == 2
+    assert solution.function_space().mesh() is mesh  # level 0
+
+
 def test_snes_adapt_rejects_unknown_transfer():
     def mark_cells(ctx, current_solution):
         M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
