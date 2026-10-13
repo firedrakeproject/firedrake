@@ -297,24 +297,6 @@ class ExtractSubBlock(DAGTraverser):
             return self(ZeroBaseForm(o.arguments()), blocks=blocks)
         return o._ufl_expr_reconstruct_(operand, dual_arg)
 
-
-class ExtractSubExpression(ExtractSubBlock):
-
-    """Extract a sub-block from an expression inside a form."""
-
-    @functools.singledispatchmethod
-    def process(self, o, blocks):
-        return super().process(o, blocks=blocks)
-
-    @process.register(Interpolate)
-    @DAGTraverser.postorder
-    def _(self, o, operand, blocks):
-        # The target of an Interpolate inside an expression is contracted
-        # there, so it is not an argument of the form.
-        if isinstance(operand, Zero):
-            return Zero(o.ufl_shape)
-        return o._ufl_expr_reconstruct_(operand)
-
     @process.register(Transpose)
     def _(self, o, blocks):
         if not blocks:
@@ -370,6 +352,24 @@ class ExtractSubExpression(ExtractSubBlock):
             reindexed = o._indices
         child, = o.children
         return self(child, blocks=reindexed)
+
+
+class ExtractSubExpression(ExtractSubBlock):
+
+    """Extract a sub-block from an expression inside a form."""
+
+    @functools.singledispatchmethod
+    def process(self, o, blocks):
+        return super().process(o, blocks=blocks)
+
+    @process.register(Interpolate)
+    @DAGTraverser.postorder
+    def _(self, o, operand, blocks):
+        # The target of an Interpolate inside an expression is contracted
+        # there, so it is not an argument of the form.
+        if isinstance(operand, Zero):
+            return Zero(o.ufl_shape)
+        return o._ufl_expr_reconstruct_(operand)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
