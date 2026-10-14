@@ -85,11 +85,15 @@ Finally, before implementing the problem in Firedrake, we calculate the total en
 
   E(t) = \int_{\Omega} \frac{1}{2}\eta^2 + \frac{1}{2}\!\left(1+\epsilon\eta\right)\left|\nabla\phi\right|^2 + \mu\left( \nabla q\cdot \nabla\phi - \frac{3}{4}q^2 \right) \,dx\,dy.
 
-The implementation of this problem in Firedrake requires solving two nonlinear variational problems and one linear problem. The Benney-Luke equations are solved in a rectangular domain :math:`\Omega=[0,10]\times[0,1]`, with :math:`\mu=\epsilon=0.01`, time step :math:`dt=0.005` and up to the final time :math:`T=2.0`. Additionally, the domain is split into 50 cells in the x-direction using a quadrilateral mesh. In the y-direction only 1 cell is enough since there are no variations in y::
+The implementation of this problem in Firedrake requires solving two nonlinear variational problems and one linear problem. The Benney-Luke equations are solved in a rectangular domain :math:`\Omega=[0,10]\times[0,1]`, with :math:`\mu=\epsilon=0.01`, time step :math:`dt=0.005` and up to the final time :math:`T=2.0`. Additionally, the domain is split into 50 cells in the x-direction using a quadrilateral mesh. In the y-direction only 1 cell is enough since there are no variations in y:
+
+.. code-block:: python
 
   from firedrake import *
 
-Now we move on to defining parameters::
+Now we move on to defining parameters:
+
+.. code-block:: python
 
   T = 2.0
   dt = 0.005
@@ -105,7 +109,9 @@ Now we move on to defining parameters::
   coords = mesh.coordinates
   coords.dat.data[:,0] = Lx*coords.dat.data[:,0]
 
-The function space chosen consists of degree 2 continuous Lagrange polynomials, and the functions :math:`\eta,\,\phi` are initialised to take the exact soliton solutions for :math:`t=0`, centered around the middle of the domain, i.e. with :math:`x_0=\frac{1}{2}L_x`::
+The function space chosen consists of degree 2 continuous Lagrange polynomials, and the functions :math:`\eta,\,\phi` are initialised to take the exact soliton solutions for :math:`t=0`, centered around the middle of the domain, i.e. with :math:`x_0=\frac{1}{2}L_x`:
+
+.. code-block:: python
 
   V = FunctionSpace(mesh,"CG",2)
 
@@ -127,7 +133,9 @@ The function space chosen consists of degree 2 continuous Lagrange polynomials, 
   eta0.interpolate(1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0)),-2))
   phi0.interpolate(2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0))+1))
 
-Firstly, :math:`\phi` is updated to a half-step value using a nonlinear variational solver to solve the implicit equation::
+Firstly, :math:`\phi` is updated to a half-step value using a nonlinear variational solver to solve the implicit equation:
+
+.. code-block:: python
 
   Fphi_h = ( v*(phi_h-phi0)/(0.5*dt) + 0.5*mu*inner(grad(v),grad((phi_h-phi0)/(0.5*dt)))
              + v*eta0 + 0.5*epsilon*inner(grad(phi_h),grad(phi_h))*v )*dx
@@ -135,7 +143,9 @@ Firstly, :math:`\phi` is updated to a half-step value using a nonlinear variatio
   phi_problem_h = NonlinearVariationalProblem(Fphi_h,phi_h)
   phi_solver_h = NonlinearVariationalSolver(phi_problem_h)
 
-followed by a calculation of a half-step solution :math:`q`, performed using a linear solver::
+followed by a calculation of a half-step solution :math:`q`, performed using a linear solver:
+
+.. code-block:: python
 
   aq = v*q*dx
   Lq_h = 2.0/3.0*inner(grad(v),grad(phi_h))*dx
@@ -143,7 +153,9 @@ followed by a calculation of a half-step solution :math:`q`, performed using a l
   q_problem_h = LinearVariationalProblem(aq,Lq_h,q_h)
   q_solver_h = LinearVariationalSolver(q_problem_h)
 
-Then the nonlinear implicit equation for :math:`\eta` is solved::
+Then the nonlinear implicit equation for :math:`\eta` is solved:
+
+.. code-block:: python
 
   Feta = ( v*(eta1-eta0)/dt + 0.5*mu*inner(grad(v),grad((eta1-eta0)/dt))
            - 0.5*((1+epsilon*eta0)+(1+epsilon*eta1))*inner(grad(v),grad(phi_h))
@@ -152,7 +164,9 @@ Then the nonlinear implicit equation for :math:`\eta` is solved::
   eta_problem = NonlinearVariationalProblem(Feta,eta1)
   eta_solver = NonlinearVariationalSolver(eta_problem)
 
-and finally the second half-step (explicit this time) for the equation of :math:`\phi` is performed and :math:`q` is computed for the updated solution::
+and finally the second half-step (explicit this time) for the equation of :math:`\phi` is performed and :math:`q` is computed for the updated solution:
+
+.. code-block:: python
 
   Fphi = ( v*(phi1-phi_h)/(0.5*dt) + 0.5*mu*inner(grad(v),grad((phi1-phi_h)/(0.5*dt)))
            + v*eta1 + 0.5*epsilon*inner(grad(phi_h),grad(phi_h))*v )*dx
@@ -164,14 +178,18 @@ and finally the second half-step (explicit this time) for the equation of :math:
   q_problem = LinearVariationalProblem(aq,Lq,q1)
   q_solver = LinearVariationalSolver(q_problem)
 
-What is left before iterating over all time steps, is to find the initial energy :math:`E_0`, used later to evaluate the energy difference :math:`\left|E-E_0\right|/E_0`::
+What is left before iterating over all time steps, is to find the initial energy :math:`E_0`, used later to evaluate the energy difference :math:`\left|E-E_0\right|/E_0`:
+
+.. code-block:: python
 
   t = 0
   E0 = assemble( (0.5*eta0**2 + 0.5*(1+epsilon*eta0)*abs(grad(phi0))**2
                   + mu*(inner(grad(q1),grad(phi0)) - 0.75*q1**2))*dx )
   E = E0
 
-and define the exact solutions, which need to be updated at every time-step::
+and define the exact solutions, which need to be updated at every time-step:
+
+.. code-block:: python
 
   t_ = Constant(t)
   expr_eta = 1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0)),-2)
@@ -182,12 +200,16 @@ and define the exact solutions, which need to be updated at every time-step::
 
 For visualisation, we save the computed and exact solutions to
 an output file.  Note that the visualised data will be interpolated
-from piecewise quadratic functions to piecewise linears::
+from piecewise quadratic functions to piecewise linears:
+
+.. code-block:: python
 
   output = VTKFile('output.pvd')
   output.write(phi0, eta0, ex_phi, ex_eta, time=t)
 
-We are now ready to enter the main time iteration loop::
+We are now ready to enter the main time iteration loop:
+
+.. code-block:: python
 
   while t < T:
         print(t, abs((E-E0)/E0))

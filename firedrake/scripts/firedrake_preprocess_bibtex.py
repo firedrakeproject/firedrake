@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-import io
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 try:
-    from bibtexparser.bwriter import BibTexWriter
     import bibtexparser
+    from bibtexparser.middlewares import NormalizeFieldKeys, SortFieldsAlphabeticallyMiddleware
 except ImportError:
     raise ImportError("Failed to import bibtexparser. Run:\n firedrake-update --documentation-dependencies")
 
@@ -20,37 +19,33 @@ URL or DOI, and impose clean formatting.""",
 
     filename = args.bibtex_file
 
-    parser = bibtexparser.bparser.BibTexParser()
-    parser.common_strings = True
-    parser.ignore_nonstandard_types = False
+    library = bibtexparser.parse_file(filename, append_middleware=[NormalizeFieldKeys()])
 
-    with open(filename) as bibtex_file:
-        bib_database = parser.parse_file(bibtex_file)
-
-    for entry in bib_database.entries:
+    for entry in library.entries:
         if "url" not in entry and \
            "doi" not in entry:
-            if entry.get("archiveprefix", None) == "arXiv":
+            if "archiveprefix" in entry and entry["archiveprefix"] == "arXiv":
                 entry["url"] = "https://arxiv.org/abs/" + entry["eprint"]
             else:
                 raise ValueError("%s in bibliograpy %s\n has no url and no DOI.\n" % (entry["ID"], filename))
 
-    writer = BibTexWriter()
-    writer.indent = '  '     # indent entries with 2 spaces instead of one
-    writer.align_values = True
+    bibtex_format = bibtexparser.BibtexFormat()
+    bibtex_format.indent = '  '     # indent entries with 2 spaces instead of one
+    bibtex_format.value_column = 'auto'
+    bibtex_format.block_separator = '\n'     # one blank line between entries, not two
+
+    processed = bibtexparser.write_string(library,
+                                          prepend_middleware=[SortFieldsAlphabeticallyMiddleware()],
+                                          bibtex_format=bibtex_format)
 
     if args.validate:
-        with io.StringIO() as outbuffer:
-            outbuffer.write(writer.write(bib_database))
-            processed = outbuffer.getvalue()
-            with open(filename) as bibtex_file:
-                inbuffer = bibtex_file.read()
-            if processed != inbuffer:
+        with open(filename) as bibtex_file:
+            if processed != bibtex_file.read():
                 raise ValueError("%s would be changed by firedrake-preprocess-bibtex. Please preprocess it and commit the result" % filename)
 
     else:
         with open(filename, 'w') as bibfile:
-            bibfile.write(writer.write(bib_database))
+            bibfile.write(processed)
 
 
 if __name__ == "__main__":

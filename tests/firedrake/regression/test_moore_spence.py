@@ -46,7 +46,7 @@ def test_moore_spence():
     es.setFromOptions()
     es.solve()
 
-    ev_re, ev_im = petsc_B.getVecs()
+    ev_re, ev_im = petsc_B.createVecs()
     es.getEigenpair(0, ev_re, ev_im)
     eigenmode = Function(V)
     eigenmode.dat.data_wo[...] = ev_re.buffer_r

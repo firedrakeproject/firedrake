@@ -65,11 +65,7 @@ def find_sub_block(iset, ises, comm):
     return found
 
 
-class ImplicitMatrixContext(object):
-    # By default, these matrices will represent diagonal blocks (the
-    # (0,0) block of a 1x1 block matrix is on the diagonal).
-    on_diag = True
-
+class ImplicitMatrixContext:
     @PETSc.Log.EventDecorator()
     def __init__(
         self,
@@ -122,6 +118,7 @@ class ImplicitMatrixContext(object):
         test_space, trial_space = (
             arg.function_space() for arg in a.arguments()
         )
+        self.on_diag = (test_space.topological == trial_space.topological)
         # Need a cofunction since y receives the assembled result of Ax
         self._ystar = Function(test_space.dual())
         self._y = Function(test_space)
