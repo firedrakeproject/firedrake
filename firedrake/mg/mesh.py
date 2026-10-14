@@ -3,6 +3,7 @@ import warnings
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
+import pyop2
 from pyop2.datatypes import IntType
 
 import petsctools
@@ -40,25 +41,29 @@ class HierarchyBase(object):
     meshes :
         List of meshes (coarse to fine).
     coarse_to_fine_cells :
-        Optional list of numpy arrays for each level pair, mapping each coarse
-        cell into fine cells it intersects. Every row is as wide as the
-        busiest coarse cell's count, so a coarse cell with fewer fine cells
-        has its row right-padded with -1. Omit this and
-        ``fine_to_coarse_cells`` together to derive both maps from
-        ``fine_to_coarse_points``.
+        Optional dictionary of numpy arrays keyed by level pair, mapping each
+        coarse cell to its fine children. Every row is as wide as the busiest
+        coarse cell's count. After adaptive refinement, a coarse cell that
+        was not refined has fewer children, so its row is right-padded with
+        -1. Here -1 is only padding. Omit this and ``fine_to_coarse_cells``
+        together to derive both maps from ``fine_to_coarse_points``.
     fine_to_coarse_cells :
-        Optional list of numpy arrays for each level pair, mapping each fine
-        cell into coarse cells it intersects. Omit this and
-        ``coarse_to_fine_cells`` together to derive both maps from
-        ``fine_to_coarse_points``.
+        Optional dictionary of numpy arrays keyed by level, mapping each fine
+        cell to its coarse parent cell. Here -1 marks a fine cell that has
+        no parent in the coarse mesh. This happens in a `SubmeshHierarchy`
+        that contains interior facets. A fine facet inside a coarse cell
+        comes from that volume cell, which is not a cell of the coarse
+        submesh. Omit this and ``coarse_to_fine_cells`` together to derive
+        both maps from ``fine_to_coarse_points``.
     refinements_per_level :
         Number of mesh refinements each multigrid level should "see".
     nested :
         Is this mesh hierarchy nested?
     fine_to_coarse_points :
         Dict of numpy arrays for each level that was refined from the level
-        below it, mapping each DMPlex point to the coarse DMPlex point that it
-        was refined from, or to -1.
+        below it. Each array maps fine DMPlex points to their coarse DMPlex
+        source points, or to -1 when no corresponding coarse point is present.
+        Cell maps derived from this point map follow Firedrake cell numbering.
 
     Notes
     -----
@@ -340,9 +345,10 @@ def MeshHierarchy(mesh, refinement_levels=0,
         )
         meshes.append(fmesh)
 
-    num_halo_cells = meshes[0].comm.allreduce(
-        sum(m.cell_set.total_size - m.cell_set.size for m in meshes)
-    )
+    with pyop2.mpi.temp_internal_comm(meshes[0].comm) as icomm:
+        num_halo_cells = icomm.allreduce(
+            sum(m.cell_set.total_size - m.cell_set.size for m in meshes)
+        )
     if num_halo_cells == 0:
         lgmaps = [None] * len(dms)
 
@@ -567,6 +573,16 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
     HierarchyBase
         The submesh hierarchy.
 
+    Notes
+    -----
+    A facet submesh that contains interior facets, such as the skeleton
+    obtained with ``subdim=tdim-1`` and ``subdomain_id=None``, is only
+    partially nested. A fine facet inside a coarse cell has no parent in the
+    coarse submesh.
+    Injection is still possible, because the fine children of each coarse
+    facet cover it. `prolong` and `restrict` raise `NotImplementedError`
+    when a fine node lies only on facets without a parent.
+
     """
     meshes = [firedrake.Submesh(mesh,
                                 subdim=subdim, subdomain_id=subdomain_id,
@@ -583,8 +599,10 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
         if parent_points is None:
             raise ValueError("SubmeshHierarchy requires a hierarchy whose DMPlex "
                              f"points on level {level} are refined from the level below")
-        # A submesh point is a point of its parent. Refine it in the parent,
-        # then look for the result among the points of the coarse submesh.
+        # Map fine submesh points through the parent hierarchy, then translate
+        # them into coarse-submesh numbering. A source outside the coarse
+        # submesh remains -1; for example, a new interior facet can have a
+        # coarse volume cell as its source.
         coarse_subpoints = coarse.topology_dm.getSubpointIS().indices
         parent_to_coarse = np.full(parent_hierarchy._meshes[i].topology_dm.getChart()[1], -1, dtype=IntType)
         parent_to_coarse[coarse_subpoints] = np.arange(len(coarse_subpoints), dtype=IntType)
