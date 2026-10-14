@@ -73,8 +73,6 @@ runs:
               --scalar-type ${{ inputs.scalar_type }} \
               --int-type ${{ inputs.int_type }} \
               --show-system-packages)
-          : # Install Python 3.14
-          brew install python@3.14
         else
           echo "Unrecognised 'os' input: '${{ inputs.os }}"
           exit 1
@@ -126,11 +124,6 @@ runs:
     - name: Install Firedrake
       shell: bash
       run: |
-        : # Force macOS to use Python 3.14
-        if [ ${{ inputs.os }} = 'macos' ]; then
-          export PATH=/opt/homebrew/opt/python@3.14/libexec/bin:$PATH
-        fi
-
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
