@@ -152,6 +152,12 @@ def test_one_element_mesh():
     err = assemble(inner(u-r, u-r)*dx)
     assert err > 1.0e-3
 
+def test_periodic_one_element_mesh():
+    Lx = 2*pi
+    Ly = 2*pi
+    mesh = PeriodicRectangleMesh(1, 1, Lx, Ly, direction="both", quadrilateral=True)
+    
+    assert abs(integrate_one(mesh) - Lx*Ly) < 1e-3
 
 @pytest.mark.parametrize("hexahedral", [False, True])
 def test_box(hexahedral):
