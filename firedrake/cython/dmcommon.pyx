@@ -11,9 +11,7 @@ from firedrake.utils import IntType, ScalarType
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 from finat.element_factory import as_fiat_cell
-import pyop3 as op3
 
-from firedrake import utils
 from numbers import Integral
 from collections.abc import Sequence, Iterable
 
@@ -295,7 +293,6 @@ def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: 
 def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
     cdef:
         PetscInt p, pnew, n
-        const PetscInt *cidxs = NULL
 
     p_start, p_end = section.getChart()
     new_section: PETSc.Section = PETSc.Section().create(comm=section.comm)
@@ -356,14 +353,15 @@ def count_labelled_points(PETSc.DM dm, name,
     CHKERR(DMLabelDestroyIndex(label))
     return n
 
+
 # TODO: don't pass the mesh, it screws with the abstraction
 def local_facet_number(mesh, facet_type):
     cdef:
         const PetscInt *cells=NULL
         PetscInt ncells_per_facet, nfacets_in_closure
-        PetscInt fStart, nfacets, ncells,
+        PetscInt nfacets, ncells,
         PetscInt facet, facet_renum, cell, cell_renum
-        PetscInt ci, fi
+        PetscInt ci
         PETSc.DM plex
         np.ndarray facets
         PETSc.Section cell_numbering
@@ -372,8 +370,6 @@ def local_facet_number(mesh, facet_type):
 
     plex = mesh.topology_dm
     cell_numbering = mesh._plex_to_entity_numbering_sec(stratum=mesh.dimension)
-
-    fStart, _ = plex.getHeightStratum(1)
 
     if facet_type == "exterior":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
@@ -404,7 +400,7 @@ def local_facet_number(mesh, facet_type):
     nfacets_in_closure = closure_facets.shape[1]
     nfacets = len(facets)
     facet_number = np.empty((nfacets, ncells_per_facet), dtype=np.uintc)
-    for fi, facet in enumerate(facets):
+    for facet in facets:
         facet_renum = facet_numbering.getOffset(facet)
         specific_facet_renum = specific_numbering.getOffset(facet)
 
@@ -692,7 +688,7 @@ def closure_ordering(mesh, closure_data_plex):
 
         # 3. Order facets
         if tdim > 1:
-            for fi, facet in enumerate(closure_data_plex[cell, facet_offset_plex:edge_offset_plex]):
+            for facet in closure_data_plex[cell, facet_offset_plex:edge_offset_plex]:
                 # Collect vertices that are in the closure of the facet
                 get_transitive_closure(
                     dm.dm, facet, PETSC_TRUE, &nfacet_closure, &facet_closure
@@ -749,7 +745,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         PetscInt c, cStart, cEnd, cell
         PetscInt fStart, fEnd, vStart, vEnd
         PetscInt ncells
-        PetscInt nclosure, p, vi, v, fi, i
+        PetscInt nclosure, p, vi, fi, i
         PetscInt start_v, off
         PetscInt *closure = NULL
         PetscInt closure_tmp[2*9]
@@ -759,7 +755,6 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         PetscInt vertices[4]
         PetscInt facets[4]
         const PetscInt *cell_cone = NULL
-        int reverse
 
     plex = mesh.topology_dm
 
@@ -1303,7 +1298,7 @@ def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, nowned, bo
     ptr_owned_cons = nowned - num_owned_cons
     ptr_ghost_free = nowned
     ptr_ghost_cons = orig_renumbering.size - num_ghost_cons
-    for i, n in enumerate(orig_renumbering.indices):
+    for n in orig_renumbering.indices:
         if ghostlabel.getValue(n) != 1:
             if n in boundary_pts.indices:
                 new_renumbering[ptr_owned_cons] = n
@@ -1396,7 +1391,7 @@ def facet_closure_nodes(V, sub_domain):
         PETSc.DM dm = V.mesh().topology_dm
         PETSc.Section sec = V._restricted_section
 
-        PetscInt nnodes, p, i, dof, offset, n, j, d
+        PetscInt nnodes, p, i, dof, offset, j, d
         np.ndarray points
         np.ndarray nodes
 
@@ -1437,7 +1432,7 @@ def label_facets(PETSc.DM plex):
 
     """
     cdef:
-        PetscInt tdim, fStart, fEnd, facet, pStart, pEnd, vStart, vEnd, pt
+        PetscInt tdim, fStart, fEnd, facet, pStart, pEnd
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
         DMLabel lbl_ext, lbl_int
@@ -1975,7 +1970,7 @@ def facets_with_label(mesh, label_name):
         DMLabel label
         PetscBool has_point
         PetscInt pStart, pEnd, fStart, fEnd
-        PetscInt nfacets, pi, fi, facet_renum
+        PetscInt nfacets, pi, fi
 
     plex = mesh.topology_dm
     CHKERR(DMGetLabel(plex.dm, label_name.encode(), &label))
@@ -2074,18 +2069,14 @@ def compute_dm_renumbering(
     """
     # TODO: clean this up
     cdef:
-        PETSc.IS ordering_is, renumbering_is, perm_is
+        PETSc.IS ordering_is
         PETSc.DM dm
 
         PetscInt pStart_c, pEnd_c, nPoints_c
-        PetscInt nOwned_c, nGhost_c
-        PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
-        PetscInt *facets = NULL
+        PetscInt cStart, cEnd, nclosure
         PetscInt *closure = NULL
         PetscInt *ordering = NULL
         PetscBT seen_points = NULL
-        PetscInt is_ghost
-        DMLabel clabel
         bint reorder
 
     dm = mesh.topology_dm
@@ -2152,7 +2143,7 @@ def partition_renumbering(PETSc.DM dm, PETSc.IS serial_new_to_old_renumbering) -
         PetscInt       n_points_c, n_owned_c, n_ghost_c, is_ghost_c
         PetscInt       owned_ptr_c, ghost_ptr_c, i_c, pt_c
         const PetscInt *serial_new_to_old_renumbering_c = NULL
-        PetscInt       *parallel_new_to_old_renumbering_c = NULL
+        PetscInt *parallel_new_to_old_renumbering_c = NULL
 
     CHKERR(ISGetIndices(serial_new_to_old_renumbering.iset, &serial_new_to_old_renumbering_c))
     CHKERR(ISGetLocalSize(serial_new_to_old_renumbering.iset, &n_points_c))
@@ -2188,7 +2179,6 @@ def partition_renumbering(PETSc.DM dm, PETSc.IS serial_new_to_old_renumbering) -
         )
     )
     return parallel_new_to_old_renumbering
-
 
 
 @cython.boundscheck(False)
@@ -2318,8 +2308,8 @@ cdef inline void get_communication_lists(
     np.ndarray cell_ranks,
     # Output parameters:
     PetscInt *nranks, PetscInt **ranks, PetscInt **offsets,
-    PetscInt **facets, PetscInt **facet2index):
-
+    PetscInt **facets, PetscInt **facet2index
+):
     """Create communication lists for shared facet information exchange.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -2904,7 +2894,7 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
         const PetscInt *cone_orient = NULL
         np.int8_t dst_orient[4]
         int i, off
-        PetscInt facet, v, V
+        PetscInt facet, v
         np.ndarray cell_orientations
 
     plex = mesh.topology_dm
@@ -3804,12 +3794,9 @@ def extrude_mesh(base_dm: PETSc.DM, nlayers, thickness, PetscBool periodic) -> t
     # Also label with the base entity
     base_dm.createLabel("base_dim")
     base_dim_label = base_dm.getLabel("base_dim")
-    # base_dm.createLabel("base_point")  # so slow!
-    # base_point_label = base_dm.getLabel("base_point")
     for dim in range(base_dm.getDimension()+1):
         for pt in range(*base_dm.getDepthStratum(dim)):
             base_dim_label.setValue(pt, dim)
-            # base_point_label.setValue(pt, pt)
 
     extruded_dm = PETSc.DMPlex().create(comm=base_dm.comm)
     PETSc.CHKERR(DMPlexExtrude(
@@ -3829,17 +3816,6 @@ def extrude_mesh(base_dm: PETSc.DM, nlayers, thickness, PetscBool periodic) -> t
     extruded_dm.getLabel("interior_facets").setName("base_interior_facets")
 
     extr_to_base_pt, extr_to_off = get_extruded_base_point_map(base_dm, extruded_dm, nlayers, periodic)
-
-    # expected = np.asarray([extruded_dm.getLabel("base_point").getValue(pt) for pt in range(*extruded_dm.getChart())], dtype=IntType)
-    # actual = extr_to_base_pt
-    #
-    # print("expected")
-    # print(expected)
-    # print("actual")
-    # print(actual)
-    # assert (actual == expected).all()
-
-
 
     return extruded_dm, extr_to_base_pt, extr_to_off
 

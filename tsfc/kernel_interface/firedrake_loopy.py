@@ -433,9 +433,13 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         # Add return arg
         funarg = self.generate_arg_from_expression(self.return_variables)
         args = [kernel_args.OutputKernelArg(funarg)]
-        active_domain_numbers_coordinates, args_ = self.make_active_domain_numbers({d: (self.coefficient_map[c],kernel_args.CoordinatesKernelArg) for d, c in self.domain_coordinate.items()},
-                                                                                   active_variables,
-                                                                                   )
+        active_domain_numbers_coordinates, args_ = self.make_active_domain_numbers(
+            {
+                d: (self.coefficient_map[c], kernel_args.CoordinatesKernelArg)
+                for d, c in self.domain_coordinate.items()
+            },
+            active_variables,
+        )
         args.extend(args_)
         active_domain_numbers_cell_orientations, args_ = self.make_active_domain_numbers(self._cell_orientations,
                                                                                          active_variables,

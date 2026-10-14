@@ -28,7 +28,7 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section numbering, entity_type):
         ``"vertex"``)
     """
     cdef:
-        PetscInt start, end, p, ndof, entity
+        PetscInt start, end, p, entity
         np.ndarray old_to_new
         np.ndarray new_to_old
 
@@ -56,7 +56,7 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section numbering, entity_type):
 def coarse_to_fine_nodes(Vc, Vf, const PetscInt[:, ::1] coarse_to_fine_cells):
     cdef:
         np.ndarray fine_map, coarse_map, coarse_to_fine_map
-        PetscInt i, j, k, l, m, node, fine
+        PetscInt i, j, k, ll, m, node, fine
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
 
     fine_map = Vf.cell_node_map_dat.data_ro
@@ -77,8 +77,8 @@ def coarse_to_fine_nodes(Vc, Vf, const PetscInt[:, ::1] coarse_to_fine_cells):
         for j in range(coarse_per_cell):
             node = coarse_map[i, j]
             k = 0
-            for l in range(fine_cell_per_coarse_cell):
-                fine = coarse_to_fine_cells[i, l]
+            for ll in range(fine_cell_per_coarse_cell):
+                fine = coarse_to_fine_cells[i, ll]
                 if fine < 0:
                     k += fine_per_cell
                     continue
