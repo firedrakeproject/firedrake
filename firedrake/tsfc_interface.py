@@ -83,7 +83,7 @@ class TSFCKernel:
         coefficient_numbers,
         constant_numbers,
         dont_split_numbers,
-        access=op2.INC,
+        access=op3.INC,
         diagonal=False
     ):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
@@ -142,7 +142,7 @@ class TSFCKernel:
             #                                      len(kernel.arguments),
             #                                      flop_count=kernel.flop_count,
             #                                      events=events)
-            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments))
+            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments), access=access)
             kernels.append(KernelInfo(kernel=pyop3_kernel,
                                       integral_type=kernel.integral_type,
                                       subdomain_id=kernel.subdomain_id,
@@ -159,7 +159,7 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op2.INC):
+def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     return (
         form.signature(),
         name,
@@ -178,7 +178,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op2.INC):
+def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     """Compile a form using TSFC.
 
     Parameters

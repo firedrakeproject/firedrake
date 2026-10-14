@@ -1,7 +1,7 @@
 import numpy
 import string
 from collections import defaultdict
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, as_tuple
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
 from firedrake.functionspaceimpl import FiredrakeDualSpace, entity_dofs_key
 from firedrake.mg import utils
 
@@ -236,7 +236,8 @@ def prolong_kernel(expression, Vf):
                 R[i] = 0;
             }
             pyop3_kernel_evaluate(%(kernel_args)s);
-        """ % {"kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
+        """ % {"kernel_args": _make_kernel_args(kernel, "R", "fi", "Xref", coordinates="Xci",
+                                                cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
                "Rdim": Vf.block_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
@@ -365,7 +366,8 @@ def prolong_matrix_kernel(Vc, Vf):
                         B[i*%(source_cell_inc)d + j];
                 }
             }
-        """ % {"kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
+        """ % {"kernel_args": _make_kernel_args(kernel, "B", (), "Xref", coordinates="Xci",
+                                                cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
                "row_dim": row_dim,
                "source_cell_inc": source_cell_inc,
@@ -465,7 +467,8 @@ def restrict_kernel(Vf, Vc):
             const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
             pyop3_kernel_evaluate(%(kernel_args)s);
             }
-        """ % {"kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
+        """ % {"kernel_args": _make_kernel_args(kernel, "Ri", "b", "Xref", coordinates="Xc",
+                                                cell_orientations="co+cell", cell_sizes=f"cs+cell*{num_verts}"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
