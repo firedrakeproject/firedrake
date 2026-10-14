@@ -430,7 +430,6 @@ def test_sub_comm_adjoint_dependencies_parallel():
                                   checkpoint_dir=tmpdir)
         tape.enable_checkpointing(SingleDiskStorageSchedule())
         mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
-        mesh = UnitSquareMesh(10, 10)
         V = FunctionSpace(mesh, "CG", 1)
         c = Function(V).interpolate(1.0)
 

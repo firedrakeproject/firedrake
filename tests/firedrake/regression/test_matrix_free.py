@@ -60,10 +60,6 @@ def bcs(problem, V):
                                      "lu"))
 @pytest.mark.parametrize("pmat_type", ("matfree", "aij"))
 def test_assembled_pc_equivalence(V, a, L, bcs, pc_type, pmat_type):
-
-    if V.value_size > 1 and pc_type is not None:
-        pytest.skip(reason="block matrices do not work yet")
-
     u = Function(V)
 
     def residuals(parameters):

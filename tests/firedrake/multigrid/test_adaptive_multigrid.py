@@ -7,19 +7,6 @@ from firedrake import *
 from firedrake.cython import mgimpl
 
 
-# pyop3 changes made the garbage collection dmhooks issue
-# from https://github.com/firedrakeproject/firedrake/issues/5421
-# happen frequently. Work around this by disabling the garbage collector
-# for all tests in this module.
-@pytest.fixture(autouse=True)
-def disable_gc(request):
-    was_enabled = gc.isenabled()
-    gc.disable()
-    yield
-    if was_enabled:
-        gc.enable()
-
-
 def corner_adaptive_hierarchy(base, nlevels):
     mh = MeshHierarchy(base)
     for l in range(nlevels):

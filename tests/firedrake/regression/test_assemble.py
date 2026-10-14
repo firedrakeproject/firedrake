@@ -115,18 +115,12 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
-@pytest.mark.skip(reason="pyop3 failing")
+@pytest.mark.xfail(reason="pyop3 failing")
 @pytest.mark.parallel
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"),
                                             ("mixed_blocks", "is"), ("mixed", "nest")])
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
 def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
-    if mat_type == "nest":
-        # I am hoping that the interface to MATIS will become more similar
-        # to other PETSc matrices such that a detailed debugging session
-        # can be avoided.
-        pytest.skip(reason="MATNEST+MATIS not implemented post pyop3")
-
     if shape == "scalar":
         V = FunctionSpace(mesh, "CG", 1)
     elif shape == "vector":
@@ -194,12 +188,6 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
     else:
         assert ais.type == "is"
         ais.convert("aij", aij)
-
-    print("aij")
-    aij.view()
-
-    print("aij_ref")
-    aij_ref.view()
 
     aij_ref.axpy(-1, aij)
     ind, iptr, values = aij_ref.getValuesCSR()

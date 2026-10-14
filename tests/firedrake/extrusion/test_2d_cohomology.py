@@ -194,9 +194,6 @@ def test_betti1_periodic(horiz_complex, vert_complex):
     nharmonic = sum(s < 1.0e-5)
     assert nharmonic == 1
 
-    import weakref
-    return weakref.proxy(mesh.topology)
-
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
                          [((("CG", 1), ("DG", 0)),

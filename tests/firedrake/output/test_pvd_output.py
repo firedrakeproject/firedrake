@@ -120,7 +120,7 @@ def test_different_meshes(mesh, pvd):
         pvd.write(mesh.coordinates, mesh2.coordinates)
 
 
-@pytest.mark.skip(reason="pyop3 TODO: 4D extrusion")
+@pytest.mark.xfail(reason="pyop3 TODO: 4D extrusion")
 @pytest.mark.skipvtk
 def test_bad_cell(pvd):
     mesh = UnitCubeMesh(1, 1, 1)

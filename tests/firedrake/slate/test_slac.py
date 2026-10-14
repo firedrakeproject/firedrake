@@ -29,11 +29,9 @@ def V(request, mesh):
             'dg1': dg1}[request.param]
 
 
-# @pytest.fixture(scope='module', params=["cell",
-#                                         "exterior_facet",
-#                                         "interior_facet"])
-# TODO pyop3
-@pytest.fixture(scope='module', params=["cell"])
+@pytest.fixture(scope='module', params=["cell",
+                                        "exterior_facet",
+                                        "interior_facet"])
 def int_type(request):
     return request.param
 

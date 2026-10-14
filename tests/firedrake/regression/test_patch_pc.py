@@ -8,7 +8,7 @@ from firedrake import *
 def mesh(request):
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     if request.param == 1:
-        return IntervalMesh(7, 5, distribution_parameters=distribution)
+        return IntervalMesh(3, 5, distribution_parameters=distribution)
     if request.param == 2:
         return RectangleMesh(10, 20, 2, 3, distribution_parameters=distribution)
     if request.param == 3:
@@ -37,7 +37,6 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         Q = VectorFunctionSpace(mesh, "CG", 1)
         R = TensorFunctionSpace(mesh, "CG", 1)
         V = P*Q*R
-        V = P * P
 
     rhs = numpy.full(V.value_shape, 1, dtype=float)
 

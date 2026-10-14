@@ -42,16 +42,11 @@ def test_appctx_cleanup():
         "ksp_type": "cg",
         "pc_type": "mg",
         "mg_levels": {
-            # "pc_type": "python",
-            # "pc_python_type": "test_appctx_cleanup.NonePC",
-            "ksp_type": "chebyshev",
-            "ksp_max_it": 2,
-            "pc_type": "jacobi",
-            "ksp_monitor": None,
+            "pc_type": "python",
+            "pc_python_type": "test_appctx_cleanup.NonePC",
         },
         "mg_coarse_mat_type": "aij",
         "mg_coarse_pc_type": "lu",
-        "ksp_monitor": None,
     })
 
     while hasattr(V, "_coarse"):

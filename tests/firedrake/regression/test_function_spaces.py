@@ -48,29 +48,6 @@ def dual(request):
     return request.param == "dual"
 
 
-@pytest.mark.skip(reason="pyop3 TODO")
-def test_function_space_cached(mesh):
-    "FunctionSpaces defined on the same mesh and element are cached."
-    assert FunctionSpace(mesh, "CG", 1) == FunctionSpace(mesh, "CG", 1)
-    assert FunctionSpace(mesh, "CG", 1).topological == FunctionSpace(mesh, "CG", 1).topological
-    assert FunctionSpace(mesh, "CG", 1)._shared_data == FunctionSpace(mesh, "CG", 1)._shared_data
-
-
-@pytest.mark.skip(reason="pyop3 TODO")
-def test_function_spaces_shared_data(mesh):
-    V = FunctionSpace(mesh, "CG", 1)
-    Q = VectorFunctionSpace(mesh, "Lagrange", 1)
-    assert V != Q
-    assert V.topological != Q.topological
-    assert V._shared_data == Q._shared_data
-    assert V.node_set is Q.node_set
-    assert V.dof_dset != Q.dof_dset
-    V_data = V._shared_data
-    Q_data = Q._shared_data
-    assert V_data.global_numbering is Q_data.global_numbering
-    assert V_data.map_cache is Q_data.map_cache
-
-
 def test_function_space_different_mesh_differ(mesh, mesh2):
     "FunctionSpaces defined on different meshes differ."
     assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh2, "CG", 1)

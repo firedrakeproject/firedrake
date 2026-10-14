@@ -47,7 +47,6 @@ fdmstar = {
 
 # FDM with static condensation
 facetstar = {
-    "ksp_monitor": None,
     "pc_type": "python",
     "pc_python_type": "firedrake.FacetSplitPC",
     "facet_pc_type": "python",
@@ -217,7 +216,7 @@ def fs(request, mesh):
     tdim = mesh.topological_dimension
     element = request.param
     if element != "cg":
-        pytest.skip(reason="FDM facet code not implemented with pyop3")
+        pytest.xfail(reason="FDM facet code not implemented with pyop3")
     variant = "fdm_ipdg"
     if element == "rt":
         family = "RTCF" if tdim == 2 else "NCF"
