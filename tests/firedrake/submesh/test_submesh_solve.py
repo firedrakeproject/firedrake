@@ -592,7 +592,7 @@ def _test_submesh_solve_3d_2d_poisson(simplex, direction, nref, degree):
     mesh12 = Submesh(mesh2, dim - 1, label_interf)
     dx1 = Measure("dx", mesh1)
     dx2 = Measure("dx", mesh2)
-    ds1_ds2 = Measure("ds", mesh1, intersect_measures=(Measure("ds", mesh2),))
+    ds1_ds2 = Measure("ds", mesh1, intersect_measures=(Measure("ds", mesh2), Measure("dx", mesh12)))
     dx12_ds1_ds2 = Measure(
         "dx", mesh12,
         intersect_measures=(
