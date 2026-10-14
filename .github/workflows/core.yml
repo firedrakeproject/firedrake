@@ -519,7 +519,7 @@ jobs:
           ref: ${{ inputs.source_ref }}
 
       - name: Validate single source of truth
-        run: ./firedrake-repo/scripts/check-config
+        run: ./firedrake-repo/scripts/check-config ${{ inputs.base_ref }}
 
       # Check that the Dockerfile is using the latest Ubuntu version.
       # The version is hardcoded into the Dockerfile so that the OS

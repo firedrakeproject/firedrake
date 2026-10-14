@@ -177,4 +177,5 @@ def refine_marked_elements(mesh, cell_marker, redistribute=True):
     )
     final_mesh._adaptive_parent = mesh
     final_mesh._adaptive_fine_to_coarse_points = fine_to_coarse_points
+    _copy_adaptive_refinement_metadata(mesh, final_mesh)
     return final_mesh
