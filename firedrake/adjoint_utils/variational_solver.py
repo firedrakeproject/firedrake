@@ -1,9 +1,66 @@
 import copy
-from functools import wraps
+from functools import wraps, cached_property
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
-from firedrake.ufl_expr import derivative, adjoint
-from ufl import replace
+from firedrake.adjoint_utils.blocks import (
+    NonlinearVariationalSolveBlock, CachedSolverBlock)
+from firedrake.adjoint_utils.blocks.solving import solve_init_params
+from firedrake.ufl_expr import derivative, adjoint, action
+from ufl import replace, Action
+from ufl.algorithms import expand_derivatives
+from ufl.domain import extract_domains
+from types import SimpleNamespace
+from collections import namedtuple
+
+
+ForwardSolveRecomputeCache = namedtuple(
+    'ForwardSolveRecomputeCache',
+    field_names=[
+        "func",
+        "bcs",
+        "meshes",
+        "solver",
+        "replaced_deps",
+    ]
+)
+
+AdjointSolveRecomputeCache = namedtuple(
+    'AdjointSolveRecomputeCache',
+    field_names=[
+        "adj_sol",
+        "rhs",
+        "dFdm_forms",
+        "residual",
+        "solver",
+        "dFdu_adj",
+    ]
+)
+
+TangentSolveRecomputeCache = namedtuple(
+    "TangentSolveRecomputeCache",
+    field_names=[
+        "tlm_val",
+        "rhs",
+        "dFdm_forms",
+        "solver",
+        "replaced_tlms",
+        "mesh_tlms",
+        "dFdu",
+    ]
+)
+
+HessianSolveRecomputeCache = namedtuple(
+    "HessianSolveRecomputeCache",
+    field_names=[
+        "adj_sol",
+        "adj2_sol",
+        "tlm_output",
+        "d2Fdu2_form",
+        "d2Fdmdu_forms",
+        "dFdm_adj2_forms",
+        "d2Fdm2_adj_forms",
+        "d2Fdudm_forms",
+    ]
+)
 
 
 class NonlinearVariationalProblemMixin:
@@ -52,10 +109,419 @@ class NonlinearVariationalSolverMixin:
                                 "recompute_count": 0}
             self._ad_adj_cache = {}
 
+            self._ad_solver_cache = {}
+
+            # process args/kwargs for cached solvers
+            self._ad_args_kwargs = SimpleNamespace(
+                forward_args=kwargs.pop("forward_args", []),
+                forward_kwargs=kwargs.pop("forward_kwargs", {}),
+                adj_args=kwargs.pop("adj_args", []),
+                adj_kwargs=kwargs.pop("adj_kwargs", {}),
+                tlm_args=kwargs.pop("tlm_args", []),
+                tlm_kwargs=kwargs.pop("tlm_kwargs", {}),
+                assemble_kwargs={}
+            )
+            solve_init_params(self._ad_args_kwargs,
+                              args, kwargs, varform=True)
+
         return wrapper
+
+    @cached_property
+    @no_annotations
+    def _ad_forward_cache(self):
+        from firedrake import (
+            DirichletBC,
+            MatrixBase,
+            NonlinearVariationalProblem,
+            NonlinearVariationalSolver)
+
+        problem = self._ad_problem
+
+        # Build a new form so that we can update the coefficient
+        # values without affecting user code.
+        # We do this by copying all coefficients in the form and
+        # symbolically replacing the old values with the new.
+        F = problem.F
+        replace_map = {}
+        for old_coeff in F.coefficients():
+            new_coeff = old_coeff.copy(deepcopy=True)
+            replace_map[old_coeff] = new_coeff
+
+        # We need a handle to the new Function being
+        # solved for so that we can create an NLVS.
+        Fnew = replace(F, replace_map)
+        unew = replace_map[problem.u]
+
+        Jnew = replace(problem.J, replace_map)
+        Jpnew = None
+        if problem.Jp and problem.Jp is not problem.J:
+            Jpnew = replace(problem.Jp, replace_map)
+
+        # We also need to "replace" all the bcs in
+        # the new NLVS so we can modify those values
+        # without affecting user code.
+        # Note that ``DirichletBC.reconstruct`` will
+        # return ``self`` if V, g, and sub_domain are
+        # all unchanged, so we need to explicitly
+        # instantiate a new object.
+        bcs = problem.bcs
+        bcs_new = [
+            DirichletBC(V=bc.function_space(),
+                        g=bc.function_arg,
+                        sub_domain=bc.sub_domain)
+            for bc in bcs
+        ]
+
+        # for a pre-assembled Jacobian (i.e. solving an
+        # assembled equation), we can't pass BCs into the
+        # solver, but we need to cache them for the TLM
+        # and adjoint solvers
+        bcs_fwd = []
+        if not isinstance(Jnew, MatrixBase):
+            bcs_fwd = bcs_new
+
+        # get all the unique meshes for domains on the form
+        meshes = set()
+        try:
+            for mesh in extract_domains(F):
+                meshes.add(mesh)
+        except AttributeError:
+            pass
+        meshes = list(meshes)
+
+        # This NLVS will be used to recompute the solve.
+        # TODO: solver_parameters
+        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_fwd)
+        nlvs = NonlinearVariationalSolver(
+            nlvp,
+            *self._ad_args_kwargs.forward_args,
+            **self._ad_args_kwargs.forward_kwargs)
+
+        # The original coefficients will be added as
+        # dependencies to all solve blocks.
+        # The block need handles to the newly created
+        # objects to update their values when recomputing.
+        self._ad_dependencies_to_add = (*replace_map.keys(), *meshes, *bcs)
+
+        return ForwardSolveRecomputeCache(
+            func=self._ad_problem.u,
+            bcs=bcs_new,
+            meshes=meshes,
+            solver=nlvs,
+            replaced_deps=tuple(replace_map.values()),
+        )
+
+    @cached_property
+    @no_annotations
+    def _ad_tangent_cache(self):
+        from firedrake import (
+            Function, Cofunction, derivative,
+            LinearVariationalProblem, LinearVariationalSolver,
+            SpatialCoordinate,
+        )
+
+        # If we build the TLM form from the cached
+        # forward solve form then we can update exactly
+        # the same coefficients/boundary conditions.
+        nlvp = self._ad_forward_cache.solver._problem
+
+        F = nlvp.F
+        u = nlvp.u
+        V = u.function_space()
+
+        # We need gradient of output/input i.e. du/dm.
+        # We know F(u; m) = 0 and _total_ dF/dm = 0.
+        # Then for the _partial_ derivatives:
+        # (dF/du)*(du/dm) + dF/dm = 0 so we calculate:
+        # (dF/du)*(du/dm) = -dF/dm
+        dFdu = expand_derivatives(derivative(F, u))
+        dFdm = Cofunction(V.dual())
+        dudm = Function(V)
+
+        # Reuse the same bcs as the forward problem.
+        # TODO: Think about if we should use new bcs.
+        # TODO: solver_parameters
+        lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_forward_cache.bcs)
+        lvs = LinearVariationalSolver(
+            lvp,
+            *self._ad_args_kwargs.tlm_args,
+            **self._ad_args_kwargs.tlm_kwargs)
+
+        tlm_rhs = dFdm
+
+        # Do all the symbolic work for calculating dF/dm up front
+        # so we only pay for the numeric calculations at run time.
+        replaced_tlms = []
+        dFdm_tlm_forms = []
+        for m in self._ad_forward_cache.replaced_deps:
+            mtlm = m.copy(deepcopy=True)
+            replaced_tlms.append(mtlm)
+
+            dFdm = derivative(-F, m, mtlm)
+            dFdm_tlm_forms.append(dFdm)
+
+        mesh_tlms = []
+        for m in self._ad_forward_cache.meshes:
+            mtlm = Function(m._ad_function_space())
+            mesh_tlms.append(mtlm)
+
+            X = SpatialCoordinate(m)
+            dFdm = derivative(-F, X, mtlm)
+            dFdm_tlm_forms.append(dFdm)
+
+        tlm_val = Function(V)
+
+        return TangentSolveRecomputeCache(
+            tlm_val=tlm_val,
+            rhs=tlm_rhs,
+            dFdm_forms=dFdm_tlm_forms,
+            solver=lvs,
+            replaced_tlms=replaced_tlms,
+            mesh_tlms=mesh_tlms,
+            dFdu=dFdu,
+        )
+
+    @cached_property
+    @no_annotations
+    def _ad_adjoint_cache(self):
+        from firedrake import (
+            Function, Cofunction, TrialFunction, Argument,
+            LinearVariationalProblem, LinearVariationalSolver,
+            SpatialCoordinate, TestFunction,
+        )
+
+        # If we build the adjoint form from the cached
+        # forward solve form then we can update exactly
+        # the same coefficients/boundary conditions.
+        nlvp = self._ad_forward_cache.solver._problem
+
+        F = nlvp.F
+        u = nlvp.u
+        V = u.function_space()
+
+        # TODO: rewrite for adjoint not TLM
+        # We need gradient of output/input i.e. du/dm.
+        # We know F(u; m) = 0 and _total_ dF/dm = 0.
+        # Then for the _partial_ derivatives:
+        # (dF/du)*(du/dm) + dF/dm = 0 so we calculate:
+        # (dF/du)*(du/dm) = -dF/dm
+        dFdu = self._ad_tangent_cache.dFdu
+        try:
+            dFdu_adj = adjoint(dFdu)
+        except ValueError:
+            # Try again without expanding derivatives,
+            # as dFdu might have been simplied to an empty Form
+            dFdu_adj = adjoint(dFdu, derivatives_expanded=True)
+
+        # This will be the rhs of the adjoint problem
+        dJdu = Cofunction(V.dual())
+        adj_sol = Function(V)
+
+        # Reuse the same bcs as the forward problem.
+        # TODO: Think about if we should use new bcs.
+        # TODO: solver_parameters
+        lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_forward_cache.bcs)
+        lvs = LinearVariationalSolver(
+            lvp,
+            *self._ad_args_kwargs.adj_args,
+            **self._ad_args_kwargs.adj_kwargs)
+
+        # We'll need to assemble these forms to calculate
+        # the adj_component for each dependency.
+        # Do all the symbolic work for calculating dJ/du up front
+        # so we only pay for the numeric calculations at run time.
+        dFdm_adj_forms = []
+        for m in self._ad_forward_cache.replaced_deps:
+            # Action of adjoint solution on dFdm
+            # TODO: Which of the two implementations should we use?
+            dFdm = derivative(-F, m, TrialFunction(m.function_space()))
+
+            # 1. from previous cached implementation
+            dFdm = adjoint(dFdm)
+            if isinstance(dFdm, Argument):
+                #  Corner case. Should be fixed more permanently upstream in UFL.
+                #  See: https://github.com/FEniCS/ufl/issues/395
+                dFdm = Action(dFdm, adj_sol)
+            else:
+                dFdm = dFdm * adj_sol
+
+            # 2. from GenericSolveBlock
+            # if isinstance(dFdm, ufl.Form):
+            #     dFdm = adjoint(dFdm)
+            #     dFdm = action(dFdm, adj_sol)
+            # else:
+            #     dFdm = dFdm(adj_sol)
+
+            dFdm_adj_forms.append(dFdm)
+
+        for m in self._ad_forward_cache.meshes:
+            X = SpatialCoordinate(m)
+            # we can't take the CoordinateDerivative of an Action, so we have
+            # to invert this form compared to the expression above
+            dFdm = derivative(action(-F, adj_sol), X, TestFunction(m._ad_function_space()))
+            dFdm_adj_forms.append(dFdm)
+
+        # To calculate the adjoint component of each DirichletBC
+        # we'll need the residual of the adjoint equation without
+        # any DirichletBC using the solution calculated with
+        # homogeneous DirichletBCs.
+        adj_residual = dJdu - action(dFdu_adj, adj_sol)
+
+        return AdjointSolveRecomputeCache(
+            adj_sol=adj_sol,
+            rhs=dJdu,
+            dFdm_forms=dFdm_adj_forms,
+            residual=adj_residual,
+            solver=lvs,
+            dFdu_adj=dFdu_adj,
+        )
+
+    @cached_property
+    @no_annotations
+    def _ad_hessian_cache(self):
+        from firedrake import (
+            Function, TrialFunction, TestFunction,
+            SpatialCoordinate, MeshGeometry,
+        )
+
+        nlvp = self._ad_forward_cache.solver._problem
+        F = nlvp.F
+        u = nlvp.u
+        V = u.function_space()
+
+        # Solution of the adjoint equation, requires evaluate_adj to
+        # have been called
+        adj_sol = Function(V)
+        # Solution of the TLM equation, requires evaluate_tlm to
+        # have been called (which is handled by the driver)
+        tlm_output = Function(V)
+        # Solution of the second-order adjoint equation,
+        # this is computed during prepare_evaluate_hessian
+        adj2_sol = Function(V)
+
+        # 1. Forms to calculate rhs of Hessian solve
+        # Calculate d^2F*/du^2 * du/dm * dm
+        # where dm is direction for tlm action so du/dm * dm is tlm output
+        dFdu = self._ad_tangent_cache.dFdu
+        dFdu_adj = action(adjoint(dFdu), adj_sol)
+
+        d2Fdu2 = derivative(dFdu_adj, u, tlm_output)
+        # expand_derivatives will simplify down to an empty
+        # form if required
+        d2Fdu2_form = expand_derivatives(d2Fdu2)
+
+        # Contributions from each tlm_input
+        dFdu_adj = action(self._ad_adjoint_cache.dFdu_adj, adj_sol)
+        d2Fdmdu_forms = []
+        for m, dm in zip(self._ad_forward_cache.replaced_deps,
+                         self._ad_tangent_cache.replaced_tlms):
+            d2Fdmdu = expand_derivatives(
+                derivative(dFdu_adj, m, dm))
+
+            d2Fdmdu_forms.append(d2Fdmdu)
+
+        for m, dm in zip(self._ad_forward_cache.meshes,
+                         self._ad_tangent_cache.mesh_tlms):
+            X = SpatialCoordinate(m)
+            d2Fdmdu = expand_derivatives(
+                derivative(dFdu_adj, X, dm)
+            )
+
+            d2Fdmdu_forms.append(d2Fdmdu)
+
+        # 2. Forms to calculate contribution from each control
+        dFdm_adj2_forms = []
+        d2Fdm2_adj_forms = []
+        d2Fdudm_forms = []
+        for m in [*self._ad_forward_cache.replaced_deps, *self._ad_forward_cache.meshes]:
+            if isinstance(m, MeshGeometry):
+                X = SpatialCoordinate(m)
+                dm = TestFunction(m._ad_function_space())
+
+                F_adj = action(-F, adj_sol)
+                dFdm_adj = derivative(F_adj, X, dm)
+
+                F_adj2 = action(-F, adj2_sol)
+                dFdm_adj2 = derivative(F_adj2, X, dm)
+            else:
+                dm = TrialFunction(m.function_space())
+                # XXX should we try inverting this back to the way it was before?
+                dFdm = derivative(F, m, dm)
+
+                dFdm_adj = -expand_derivatives(action(adjoint(dFdm), adj_sol))
+                dFdm_adj2 = -action(adjoint(dFdm), adj2_sol)
+
+            dFdm_adj2_forms.append(dFdm_adj2)
+
+            d2Fdudm = derivative(dFdm_adj, u, tlm_output)
+            d2Fdudm_forms.append(expand_derivatives(d2Fdudm))
+
+            d2Fdm2_adj_forms_k = []
+            for m2, dm2 in zip(self._ad_forward_cache.replaced_deps,
+                               self._ad_tangent_cache.replaced_tlms):
+                d2Fdm2_adj = expand_derivatives(
+                    derivative(dFdm_adj, m2, dm2))
+                d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
+
+            for m2, dm2 in zip(self._ad_forward_cache.meshes,
+                               self._ad_tangent_cache.mesh_tlms):
+                X = SpatialCoordinate(m2)
+                d2Fdm2_adj = expand_derivatives(derivative(dFdm_adj, X, dm2))
+                d2Fdm2_adj_forms_k.append(d2Fdm2_adj)
+
+            d2Fdm2_adj_forms.append(d2Fdm2_adj_forms_k)
+
+        return HessianSolveRecomputeCache(
+            adj_sol=adj_sol,
+            adj2_sol=adj2_sol,
+            tlm_output=tlm_output,
+            d2Fdu2_form=d2Fdu2_form,
+            d2Fdmdu_forms=d2Fdmdu_forms,
+            dFdm_adj2_forms=dFdm_adj2_forms,
+            d2Fdm2_adj_forms=d2Fdm2_adj_forms,
+            d2Fdudm_forms=d2Fdudm_forms,
+        )
 
     @staticmethod
     def _ad_annotate_solve(solve):
+        @wraps(solve)
+        def wrapper(self, **kwargs):
+            """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
+            Firedrake solve call. This is useful in cases where the solve is known to be irrelevant or diagnostic
+            for the purposes of the adjoint computation (such as projecting fields to other function spaces
+            for the purposes of visualisation)."""
+            annotate = annotate_tape(kwargs)
+            if annotate:
+                if kwargs.pop("bounds", None) is not None:
+                    raise ValueError(
+                        "MissingMathsError: we do not know how to differentiate through a variational inequality")
+
+                block = CachedSolverBlock(
+                    self._ad_forward_cache,
+                    self._ad_tangent_cache,
+                    self._ad_adjoint_cache,
+                    self._ad_hessian_cache,
+                    ad_block_tag=self.ad_block_tag)
+
+                for dep in self._ad_dependencies_to_add:
+                    block.add_dependency(dep, no_duplicates=True)
+                # mesh = self._ad_problem.u.function_space().mesh()
+                # block.add_dependency(mesh, no_duplicates=True)
+
+                get_working_tape().add_block(block)
+
+            with stop_annotating():
+                out = solve(self, **kwargs)
+
+            if annotate:
+                block.add_output(self._ad_problem._ad_u.create_block_variable())
+
+            return out
+
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_solve_old(solve):
         @wraps(solve)
         def wrapper(self, **kwargs):
             """To disable the annotation, just pass :py:data:`annotate=False` to this routine, and it acts exactly like the
