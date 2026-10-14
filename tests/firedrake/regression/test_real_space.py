@@ -371,6 +371,20 @@ def test_real_interpolate():
 
 
 @pytest.mark.skipcomplex
+def test_real_project():
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    R = FunctionSpace(mesh, "R", 0)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    mean = project(x + y, R)
+    assert np.allclose(float(mean), 1.0)
+
+    u = project(Function(R).assign(3), V)
+    assert np.allclose(u.dat.data_ro, 3.0)
+
+
+@pytest.mark.skipcomplex
 def test_real_interior_facet():
     mesh = UnitSquareMesh(2, 2)
     K = FunctionSpace(mesh, "DG", 1)
