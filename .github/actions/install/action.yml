@@ -165,6 +165,12 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
+        : # DROP BEFORE MERGE: this override tests the GEM offset changes from
+        : # https://github.com/firedrakeproject/fiat/pull/302. Remove it after
+        : # that PR merges. It must run before firedrake-clean imports Firedrake.
+        pip install --no-deps --force-reinstall --ignore-installed \
+          git+https://github.com/firedrakeproject/fiat.git@miguelcoolchips/gem-integer-flexible-offset
+
         firedrake-clean
         pip list
 
