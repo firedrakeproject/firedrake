@@ -20,6 +20,7 @@ from finat.point_set import PointSet, PointSingleton
 from finat.point_set import AbstractPointSet, UnknownPointSet
 from finat.quadrature import make_quadrature
 from finat.element_factory import as_fiat_cell, create_element
+from gem.driver import contraction
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
 from gem.unconcatenate import split_contraction, unconcatenate
@@ -950,7 +951,7 @@ def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, 
                                                    beta, ctx.index_cache):
                 indices = tuple(i for i in dict.fromkeys(chain(indices, expr.free_indices))
                                 if i in expr.free_indices and i not in unsummed_indices)
-                summands.append(gem.optimise.contraction(gem.IndexSum(expr, indices)))
+                summands.append(contraction(gem.IndexSum(expr, indices)))
             value_dict[alpha] = gem.ComponentTensor(gem.optimise.make_sum(summands), zeta)
             continue
 
@@ -960,7 +961,7 @@ def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, 
             indices = tuple(i for i in dict.fromkeys(chain(var.index_ordering(), beta))
                             if i not in unsummed_indices and i in product.free_indices)
             value = gem.IndexSum(product, indices)
-            summands.append(gem.optimise.contraction(value))
+            summands.append(contraction(value))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
