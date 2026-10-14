@@ -131,12 +131,15 @@ else:
 sitepackage_dirs = site.getsitepackages() + [site.getusersitepackages()]
 
 # firedrake_rtree
+rtree_library_dir = str(firedrake_rtree.get_library().parent)
 rtree_ = ExternalDependency(
-    include_dirs=[firedrake_rtree.get_include()],
-    extra_link_args=[firedrake_rtree.get_lib_filename()],
-    runtime_library_dirs=[firedrake_rtree.get_lib()] + [
-        os.path.join(dir, "firedrake_rtree") for dir in sitepackage_dirs
+    include_dirs=[str(firedrake_rtree.get_include())],
+    library_dirs=[rtree_library_dir],
+    runtime_library_dirs=[rtree_library_dir] + [
+        os.path.join(dir, "firedrake_rtree", "firedrake_rtree")
+        for dir in sitepackage_dirs
     ],
+    libraries=["firedrake_rtree"],
 )
 
 # libspatialindex
@@ -207,12 +210,12 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/rtree.pyx: numpy, rtree-capi
+    # firedrake/cython/rtree.pyx: petsc, numpy, rtree-capi
     cython_list.append(Extension(
         name="firedrake.cython.rtree",
         language="c",
         sources=[os.path.join("firedrake", "cython", "rtree.pyx")],
-        **(mpi_ + numpy_ + rtree_)
+        **(mpi_ + petsc_ + numpy_ + rtree_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(

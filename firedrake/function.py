@@ -521,7 +521,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.n_cols = mesh.num_cells()
+        c_function.n_cols = mesh.cell_set.size
         if mesh.layers is not None:
             # TODO: assert constant layer. Can we do variable though?
             c_function.extruded = 1
@@ -857,7 +857,12 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += [firedrake_rtree.get_lib_filename(), f"-Wl,-rpath,{firedrake_rtree.get_lib()}"]
+    rtree_library_dir = firedrake_rtree.get_library().parent
+    ldargs += [
+        f"-L{rtree_library_dir}",
+        "-lfiredrake_rtree",
+        f"-Wl,-rpath,{rtree_library_dir}",
+    ]
     dll = compilation.load(
         src, "c",
         cppargs=[
