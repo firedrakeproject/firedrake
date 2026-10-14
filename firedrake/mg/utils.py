@@ -318,7 +318,7 @@ def set_level(obj, hierarchy, level):
         The object to attach the hierarchy and level info to.
     hierarchy : HierarchyBase
         The hierarchy ``obj`` belongs to.
-    level : Fraction
+    level : fractions.Fraction
         The level of ``obj`` in ``hierarchy``.
 
     Returns

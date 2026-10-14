@@ -41,17 +41,20 @@ class HierarchyBase(object):
     meshes :
         List of meshes (coarse to fine).
     coarse_to_fine_cells :
-        Optional list of numpy arrays for each level pair, mapping each coarse
-        cell into fine cells it intersects. Every row is as wide as the
-        busiest coarse cell's count, so a coarse cell with fewer fine cells
-        has its row right-padded with -1. Omit this and
-        ``fine_to_coarse_cells`` together to derive both maps from
-        ``fine_to_coarse_points``.
+        Optional dictionary of numpy arrays keyed by level pair, mapping each
+        coarse cell to its fine children. Every row is as wide as the busiest
+        coarse cell's count. After adaptive refinement, a coarse cell that
+        was not refined has fewer children, so its row is right-padded with
+        -1. Here -1 is only padding. Omit this and ``fine_to_coarse_cells``
+        together to derive both maps from ``fine_to_coarse_points``.
     fine_to_coarse_cells :
-        Optional list of numpy arrays for each level pair, mapping each fine
-        cell into coarse cells it intersects. Omit this and
-        ``coarse_to_fine_cells`` together to derive both maps from
-        ``fine_to_coarse_points``.
+        Optional dictionary of numpy arrays keyed by level, mapping each fine
+        cell to its coarse parent cell. Here -1 marks a fine cell that has
+        no parent in the coarse mesh. This happens in a `SubmeshHierarchy`
+        that contains interior facets. A fine facet inside a coarse cell
+        comes from that volume cell, which is not a cell of the coarse
+        submesh. Omit this and ``coarse_to_fine_cells`` together to derive
+        both maps from ``fine_to_coarse_points``.
     refinements_per_level :
         Number of mesh refinements each multigrid level should "see".
     nested :
@@ -60,8 +63,9 @@ class HierarchyBase(object):
         Redistribute adaptively refined meshes that have empty ranks?
     fine_to_coarse_points :
         Dict of numpy arrays for each level that was refined from the level
-        below it, mapping each DMPlex point to the coarse DMPlex point that it
-        was refined from, or to -1.
+        below it. Each array maps fine DMPlex points to their coarse DMPlex
+        source points, or to -1 when no corresponding coarse point is present.
+        Cell maps derived from this point map follow Firedrake cell numbering.
 
     Notes
     -----
@@ -352,6 +356,10 @@ def MeshHierarchy(mesh, refinement_levels=0,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
+        # Mesh construction adds overlap to its input DM in place. Capture the
+        # unoverlapped point maps before passing the DMs to ``mesh_builder``.
+        coarse_lgmap = impl.create_lgmap(cdm)
+        fine_lgmap = impl.create_lgmap(rdm)
         fmesh = mesh_builder(
             rdm,
             dim=mesh.geometric_dimension,
@@ -371,9 +379,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
         no_halo_cells = mesh.comm.allreduce(num_halo_cells) == 0
         if no_halo_cells:
             coarse_lgmap = fine_lgmap = None
-        else:
-            coarse_lgmap = impl.create_lgmap(cdm)
-            fine_lgmap = impl.create_lgmap(rdm)
         points = impl.overlapped_fine_to_coarse_points(
             meshes[-1], fmesh, source_points,
             coarse_lgmap, fine_lgmap
@@ -612,8 +617,10 @@ def SubmeshHierarchy(parent_hierarchy: HierarchyBase,
         if parent_points is None:
             raise ValueError("SubmeshHierarchy requires a hierarchy whose DMPlex "
                              f"points on level {level} are refined from the level below")
-        # A submesh point is a point of its parent. Refine it in the parent,
-        # then look for the result among the points of the coarse submesh.
+        # Map fine submesh points through the parent hierarchy, then translate
+        # them into coarse-submesh numbering. A source outside the coarse
+        # submesh remains -1; for example, a new interior facet can have a
+        # coarse volume cell as its source.
         coarse_subpoints = coarse.topology_dm.getSubpointIS().indices
         parent_to_coarse = np.full(parent_hierarchy._meshes[i].topology_dm.getChart()[1], -1, dtype=IntType)
         parent_to_coarse[coarse_subpoints] = np.arange(len(coarse_subpoints), dtype=IntType)
