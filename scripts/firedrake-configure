@@ -836,7 +836,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "make",
             "ninja",
             "pkg-config",
-            "python",
+            "python@3.14",
 
             # PETSc external packages
             "cmake",
@@ -890,7 +890,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "make",
             "ninja",
             "pkg-config",
-            "python",
+            "python@3.14",
 
             # PETSc external packages
             "cmake",
