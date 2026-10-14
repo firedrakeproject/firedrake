@@ -155,8 +155,23 @@ def entity_permutations_key(entity_permutations):
     return key
 
 
-def _mesh_cached(func):
-    return cached_on(lambda self: extract_mesh_topologies(self.mesh()), multi=True)(func)
+def _mesh_cached(hashkey=lambda *a: a):
+    def wrapper(func):
+        return cached_on(
+            lambda self: extract_mesh_topologies(self.mesh()), multi=True,
+            get_key=hashkey,
+        )(func)
+    return wrapper
+
+
+# legacy for pyop2 persistence things
+def _dof_dset_cached(func):
+    def hashkey(self):
+        # return (self.mesh(), self.mesh().make_dofs_per_plex_entity(self.finat_element.entity_dofs()), self.boundary_set)
+        # return (self.mesh(), self.ufl_element(), self.boundary_set)
+        return (self,)
+
+    return _mesh_cached(hashkey)(func)
 
 
 _with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.mesh()))
@@ -284,7 +299,6 @@ class WithGeometryBase:
             return self._components[indices]
 
     @cached_property
-    @_mesh_cached
     def dm(self):
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
@@ -660,7 +674,7 @@ class AbstractFunctionSpace:
             return self.nodal_axes.root
 
     @cached_property
-    @_mesh_cached
+    @_dof_dset_cached
     def axes(self) -> op3.AxisForest:
         # TODO: The nodal axis tree for restricted function spaces is wrong
         # because it doesn't respect the new ordering. I haven't seen where
@@ -690,7 +704,7 @@ class AbstractFunctionSpace:
         pass
 
     @cached_property
-    @_mesh_cached
+    @_dof_dset_cached
     def dm_axes(self) -> op3.AxisTree:
         """Axis tree describing the 'true' data layout in a DM (pointwise) sense.
 
@@ -709,7 +723,7 @@ class AbstractFunctionSpace:
         return layout_from_spec(self.layout, self.dm_axis_constraints, self.comm)
 
     @cached_property
-    @_mesh_cached
+    @_dof_dset_cached
     def nodal_layout_axes(self) -> op3.AxisTree:
         """Axis tree describing the 'true' data layout in a nodal sense.
 
@@ -776,11 +790,33 @@ class AbstractFunctionSpace:
     # {{{ PETSc
 
     @cached_property
-    @_mesh_cached
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
+        return dm
+
+    def _dm(self):
+        from firedrake.mg.utils import get_level
+
+        if is_mixed(self):
+            sf = None
+            section = None
+        else:
+            sf = self.mesh().topology_dm.getPointSF()
+            section = self.section
+
+        dm = self._cached_dm()
+        _, level = get_level(self.mesh())
+        dmhooks.attach_hooks(dm, level=level, sf=sf, section=section)
+        # Remember the function space so we can get from DM back to FunctionSpace.
+        dmhooks.set_function_space(dm, self)
+        return dm
+
+    @_dof_dset_cached
+    def _cached_dm(self):
+        dm = PETSc.DMShell().create(comm=self.comm)
+        dm.setGlobalVector(self.template_vec)
         return dm
 
     @property
@@ -793,6 +829,7 @@ class AbstractFunctionSpace:
         return self.section
 
     @cached_property
+    @_dof_dset_cached
     def template_vec(self):
         if is_mixed(self):
             block_shape = ()
@@ -1233,7 +1270,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return (closure_section, closure_indices, facet_points)
 
     @cached_property
-    @_mesh_cached
+    @_dof_dset_cached
     @_with_mesh_heavy_cache
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
         if self._is_real_tensor_product:
@@ -1536,18 +1573,6 @@ class FunctionSpace(AbstractFunctionSpace):
         """The total number of degrees of freedom at each function space node."""
         return numpy.prod(self.shape, dtype=IntType)
 
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-        dm = PETSc.DMShell().create(comm=self.comm)
-        dm.setGlobalVector(self.template_vec)
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level,
-                             sf=self.mesh().topology_dm.getPointSF(),
-                             section=self.section)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
-
     @cached_property
     def _base_mesh_section(self):
         """Return a PETSc section for this function space as seen by the base mesh."""
@@ -1580,7 +1605,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     # TODO: rename 'global_field_ises' and 'local...'
     @cached_property
-    @_mesh_cached
+    @_dof_dset_cached
     def field_ises(self) -> tuple[PETSc.IS]:
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -1593,6 +1618,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return (is_,)
 
     @cached_property
+    @_dof_dset_cached
     def local_ises(self) -> tuple[PETSc.IS]:
         is_ = PETSc.IS().createStride(self.axes.buffer_size(include_ghosts=True), comm=MPI.COMM_SELF)
         is_.setBlockSize(self.block_size)
@@ -1600,7 +1626,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     # TODO: rename local section
     @cached_property
-    @_mesh_cached
+    @_dof_dset_cached
     def section(self):
         from firedrake import FunctionSpace
 
@@ -2005,7 +2031,6 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         )
 
     @cached_property
-    @_mesh_cached
     def section(self):
         raise NotImplementedError("Default data layout of mixed (fields outermost) "
                                   "prohibits making a section")
@@ -2115,7 +2140,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return self.template_vec.getSize()
 
     @cached_property
-    @_mesh_cached
+    @_dof_dset_cached
     def field_ises(self) -> tuple[PETSc.IS, ...]:
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -2145,6 +2170,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return self.field_ises
 
     @cached_property
+    @_dof_dset_cached
     def local_ises(self) -> tuple[PETSc.IS, ...]:
         """A list of PETSc ISes defining the local indices for each set in
         the DataSet.
@@ -2173,18 +2199,6 @@ class MixedFunctionSpace(AbstractFunctionSpace):
             return op3.Dat(self.axes, data=val.flatten(), name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
-
-    def _dm(self):
-        from firedrake.mg.utils import get_level
-
-        dm = PETSc.DMShell().create(comm=self.comm)
-        # Not implemented for mixed function spaces...
-        # dm.setLocalSection(self.local_section)
-        dm.setGlobalVector(self.template_vec)
-        # TODO: Think harder about which mesh should be used
-        _, level = get_level(self.mesh()[0])
-        dmhooks.attach_hooks(dm, level=level)
-        return dm
 
     def collapse(self):
         return type(self)([V_ for V_ in self], self.mesh(), _labels=self._labels)

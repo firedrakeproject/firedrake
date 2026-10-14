@@ -1828,15 +1828,7 @@ class AbstractMeshTopology(abc.ABC):
 
         :arg entity_dofs: FInAT element entity DoFs
         """
-        return [len(entity_dofs[d][0]) for d in sorted(entity_dofs)]
-
-    def make_offset(self, entity_dofs, ndofs, real_tensorproduct=False):
-        """Returns None (only for extruded use)."""
-        return None
-
-    def _order_data_by_cell_index(self, column_list, cell_data):
-        assert False, "old code"
-        return cell_data[column_list]
+        return tuple(len(entity_dofs[d][0]) for d in sorted(entity_dofs))
 
     @property
     @abc.abstractmethod

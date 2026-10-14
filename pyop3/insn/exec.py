@@ -551,8 +551,9 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "prolong" in str(self):
-        #     breakpoint()
+        # if "MatSetValues" in str(self) and "slate_wrapper" in str(self):
+        #     if "subkernel0_interior_facet_horiz_top_to__exterior_facet_top_integral_otherwise" in str(self):
+        #         breakpoint()
         #     import pyop3.debug
         # pyop3.debug.maybe_breakpoint()
 
@@ -560,8 +561,9 @@ class CompiledCodeExecutor:
             buffer_intents = self.buffer_intents
             exec_arguments = self._default_exec_arguments
         else:
+            new_buffers = dict(new_buffers)
             buffer_intents = {
-                new_buffers.get(orig_buffer, orig_buffer): intent
+                new_buffers.pop(orig_buffer, orig_buffer): intent
                 for orig_buffer, intent in self.buffer_intents.items()
             }
             exec_arguments = [
@@ -572,6 +574,7 @@ class CompiledCodeExecutor:
                 )
                 for buf_view in self.kernel_name_to_buffer_info.values()
             ]
+            assert not new_buffers
 
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
