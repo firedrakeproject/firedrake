@@ -1,5 +1,6 @@
 from firedrake import *
 import pytest
+import pyop3 as op3
 import numpy as np
 from mpi4py import MPI
 from functools import reduce
@@ -376,7 +377,7 @@ def test_input_ordering_missing_point():
 
 
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+@pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_input_ordering_missing_point_reduction(access):
     m = UnitIntervalMesh(4)
     points = np.asarray([[0.125], [0.375], [5.0]])

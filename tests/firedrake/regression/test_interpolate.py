@@ -1,6 +1,7 @@
 from os.path import abspath, dirname, join
 import numpy as np
 import pytest
+import pyop3 as op3
 from firedrake import *
 
 cwd = abspath(dirname(__file__))
@@ -49,7 +50,7 @@ def test_function():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize(
     ("access", "initial", "expected"),
-    [(op2.INC, 2.0, 2.0), (op2.MIN, 3.0, 3.0), (op2.MAX, -3.0, -3.0)],
+    [(op3.INC, 2.0, 2.0), (op3.MIN_WRITE, 3.0, 3.0), (op3.MAX_WRITE, -3.0, -3.0)],
     ids=["inc", "min", "max"],
 )
 def test_in_place_interpolation_preserves_reduction(access, initial, expected):
@@ -62,7 +63,7 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
 
 
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+@pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_subset_interpolation_reduction(access):
     mesh = UnitSquareMesh(2, 2)
     x, y = SpatialCoordinate(mesh)
@@ -74,13 +75,13 @@ def test_subset_interpolation_reduction(access):
 
     # The DoFs outside the cells of the subset receive no value, so they stay zero.
     exact = assemble(interpolate(x + y, V))
-    reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op2.INC))
+    reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op3.INC))
     expected = np.where(reached.dat.data_ro > 0, exact.dat.data_ro, 0)
     reduced = assemble(interpolate(x + y, V, subset=subset, access=access))
     assert np.allclose(reduced.dat.data_ro, expected)
 
 
-@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+@pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_cross_mesh_interpolation_reduction(access):
     source_mesh = UnitSquareMesh(4, 4)
     target_mesh = UnitSquareMesh(2, 2)
@@ -91,10 +92,10 @@ def test_cross_mesh_interpolation_reduction(access):
 
     source = Function(source_space).interpolate(x_source + y_source)
     exact = Function(target_space).interpolate(x_target + y_target)
-    initial = 0.75 if access == op2.MIN else -0.25
+    initial = 0.75 if access == op3.MIN_WRITE else -0.25
     expected = (
         np.minimum(initial, exact.dat.data_ro)
-        if access == op2.MIN
+        if access == op3.MIN_WRITE
         else np.maximum(initial, exact.dat.data_ro)
     )
 
