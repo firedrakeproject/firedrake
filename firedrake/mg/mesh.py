@@ -338,6 +338,10 @@ def MeshHierarchy(mesh, refinement_levels=0,
             scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
             coords *= scale
 
+        # Mesh construction adds overlap to its input DM in place. Capture the
+        # unoverlapped point maps before passing the DMs to ``mesh_builder``.
+        coarse_lgmap = impl.create_lgmap(cdm)
+        fine_lgmap = impl.create_lgmap(rdm)
         fmesh = mesh_builder(
             rdm,
             dim=mesh.geometric_dimension,
@@ -357,9 +361,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
         no_halo_cells = mesh.comm.allreduce(num_halo_cells) == 0
         if no_halo_cells:
             coarse_lgmap = fine_lgmap = None
-        else:
-            coarse_lgmap = impl.create_lgmap(cdm)
-            fine_lgmap = impl.create_lgmap(rdm)
         points = impl.overlapped_fine_to_coarse_points(
             meshes[-1], fmesh, source_points,
             coarse_lgmap, fine_lgmap
