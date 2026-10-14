@@ -48,12 +48,12 @@ class HierarchyBase(object):
         together to derive both maps from ``fine_to_coarse_points``.
     fine_to_coarse_cells :
         Optional dictionary of numpy arrays keyed by level, mapping each fine
-        cell to its coarse parent cell. Here -1 marks a fine cell that has no
-        parent in the coarse mesh. This happens in a `SubmeshHierarchy` that
-        contains interior facets. A fine facet inside a coarse cell comes from
-        that volume cell, which is not a cell of the coarse submesh. Omit this
-        and ``coarse_to_fine_cells`` together to derive both maps from
-        ``fine_to_coarse_points``.
+        cell to its coarse parent cell. Here -1 marks a fine cell that has
+        no parent in the coarse mesh. This happens in a `SubmeshHierarchy`
+        that contains interior facets. A fine facet inside a coarse cell
+        comes from that volume cell, which is not a cell of the coarse
+        submesh. Omit this and ``coarse_to_fine_cells`` together to derive
+        both maps from ``fine_to_coarse_points``.
     refinements_per_level :
         Number of mesh refinements each multigrid level should "see".
     nested :
