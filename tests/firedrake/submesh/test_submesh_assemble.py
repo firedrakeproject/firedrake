@@ -597,3 +597,34 @@ def test_submesh_assemble_facet_macroelement():
     vsub = TestFunction(Vsub)
     aref = assemble(inner(1, vsub)*dx(submesh))
     assert np.allclose(a.dat[1].data_ro, aref.dat.data_ro)
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_submesh_assemble_redistributed():
+    # A redistributed submesh does not share the point numbering of its
+    # parent, so the entity maps that multidomain assembly needs do not exist.
+    dim = 2
+    mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
+    x, _ = SpatialCoordinate(mesh)
+    DQ0 = FunctionSpace(mesh, "DQ", 0)
+    mesh.mark_entities(Function(DQ0).interpolate(conditional(x > 1., 1, 0)), 999)
+    subm = Submesh(mesh, dim, 999, redistribute=True)
+    V = FunctionSpace(mesh, "CG", 1) * FunctionSpace(subm, "CG", 1)
+    u0, u1 = split(TrialFunction(V))
+    v0, v1 = split(TestFunction(V))
+    dx0 = Measure("dx", domain=mesh, intersect_measures=(Measure("dx", subm),))
+    with pytest.raises(NotImplementedError):
+        assemble(inner(u1, v0) * dx0(999), mat_type="nest")
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_submesh_interpolate_redistributed():
+    dim = 2
+    mesh = RectangleMesh(2, 1, 2., 1., quadrilateral=True)
+    x, _ = SpatialCoordinate(mesh)
+    DQ0 = FunctionSpace(mesh, "DQ", 0)
+    mesh.mark_entities(Function(DQ0).interpolate(conditional(x > 1., 1, 0)), 999)
+    subm = Submesh(mesh, dim, 999, redistribute=True)
+    f = Function(FunctionSpace(mesh, "CG", 1)).interpolate(x)
+    with pytest.raises(NotImplementedError):
+        assemble(interpolate(f, FunctionSpace(subm, "CG", 1)))

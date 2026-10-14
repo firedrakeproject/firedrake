@@ -2,8 +2,9 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.mg.utils import transfer_mesh, transfer_node_subset
 from firedrake.cython import mgimpl
-from firedrake.mg.utils import transfer_node_subset
+from firedrake.utils import complex_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -79,7 +80,7 @@ def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
     fine_to_coarse = mh.fine_to_coarse_cells[1]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert fine_to_coarse.shape == (transfer_mesh(refined_mesh).cell_set.size, 1)
     assert (fine_to_coarse >= -1).all()
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
@@ -268,7 +269,7 @@ def _assert_adapt_after_uniform_refinement(mh):
     fine_to_coarse = mh.fine_to_coarse_cells[level]
 
     assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert fine_to_coarse.shape == (transfer_mesh(refined_mesh).cell_set.size, 1)
     # A rank may legitimately own zero local cells (e.g. more ranks than
     # coarse cells), leaving these arrays empty on that rank alone, so the
     # "some entry is valid" check must be collective, not per-rank.
@@ -358,6 +359,7 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
         assert (fine_to_coarse[coarse_to_fine, 0] == parents).all()
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
 def test_dg_injection_conserves_mass(mh, family, degree):
@@ -392,6 +394,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     assert mh[0].comm.allreduce(padded, MPI.LOR)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("degree", [0, 1])
 def test_dg_injection_conserves_mass_extruded(degree):
@@ -424,7 +427,7 @@ def _copied_nodes(mh, V):
     copied = 0
     for level in range(len(mh) - 1):
         V_coarse = V.reconstruct(mesh=mh[level])
-        V_fine = V.reconstruct(mesh=mh[level + 1])
+        V_fine = V.reconstruct(mesh=transfer_mesh(mh[level + 1]))
         subset = transfer_node_subset(V_coarse, V_fine)
         # A Subset's .indices spans the owned range, like node_set.size does.
         # But when nothing is preserved, transfer_node_subset falls back to
@@ -482,6 +485,10 @@ def test_transfers(mh, family, degree):
     # Injection
     u_fine = Function(V_fine).interpolate(expr_fine)
     u_injected = Function(V_coarse)
+    if family in {"DG", "DQ"} and complex_mode:
+        with pytest.raises(NotImplementedError):
+            inject(u_fine, u_injected)
+        return
     inject(u_fine, u_injected)
     assert errornorm(expr_coarse, u_injected) <= 1e-12
 
