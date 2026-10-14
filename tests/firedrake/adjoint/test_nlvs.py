@@ -9,7 +9,7 @@ def autouse_set_test_tape(set_test_tape):
     pass
 
 
-def forward(ic, dt, nt, bc_arg=None):
+def forward(ic, dt, nt, bc_arg=None, forcing_type="unassembled"):
     """Burgers equation solver."""
     V = ic.function_space()
 
@@ -26,9 +26,19 @@ def forward(ic, dt, nt, bc_arg=None):
     u1 = Function(V)
     v = TestFunction(V)
 
-    F = ((u1 - u0)*v
+    F = (u1*v
          + dt*u1*u1.dx(0)*v
          + dt*nu*u1.dx(0)*v.dx(0))*dx
+
+    mass_prev = u0*v*dx
+
+    if forcing_type == "unassembled":
+        F -= mass_prev
+    elif forcing_type == "assembled":
+        L = Cofunction(V.dual())
+        F -= L
+    else:
+        raise ValueError(f"Unrecognised {forcing_type=}")
 
     problem = NonlinearVariationalProblem(F, u1, bcs=bcs)
     solver = NonlinearVariationalSolver(problem)
@@ -37,10 +47,12 @@ def forward(ic, dt, nt, bc_arg=None):
 
     for i in range(nt):
         u0.assign(u1)
+        if forcing_type == "assembled":
+            assemble(mass_prev, tensor=L)
         solver.solve()
         nu += dt
-        # if bc_arg:
-        #     bc_val.assign(bc_val + dt/nt)
+        if bc_arg:
+            bc_val.assign(bc_val + dt/nt)
 
     J = assemble(u1*u1*dx)
     return J
@@ -52,7 +64,8 @@ def forward(ic, dt, nt, bc_arg=None):
                                           "bc_control"])
 @pytest.mark.parametrize("bc_type", ["neumann_bc",
                                      "dirichlet_bc"])
-def test_nlvs_adjoint(control_type, bc_type):
+@pytest.mark.parametrize("forcing_type", ["assembled", "unassembled"])
+def test_nlvs_adjoint(control_type, bc_type, forcing_type):
     if control_type == 'bc_control' and bc_type == 'neumann_bc':
         pytest.skip("Cannot use Neumann BCs as control")
 
@@ -92,7 +105,7 @@ def test_nlvs_adjoint(control_type, bc_type):
     PETSc.Sys.Print("record tape")
     continue_annotation()
     with set_working_tape() as tape:
-        J = forward(ic0, dt0, nt, bc_arg=bc_arg0)
+        J = forward(ic0, dt0, nt, bc_arg=bc_arg0, forcing_type=forcing_type)
         Jhat = ReducedFunctional(J, Control(control), tape=tape)
     pause_annotation()
 
@@ -124,7 +137,7 @@ def test_nlvs_adjoint(control_type, bc_type):
 
     # recompute component
     PETSc.Sys.Print("recompute test")
-    assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2)) < 1e-14
+    assert abs(Jhat(m) - forward(ic2, dt2, nt, bc_arg=bc_arg2, forcing_type=forcing_type)) < 1e-14
 
     # tlm
     PETSc.Sys.Print("tlm test")
