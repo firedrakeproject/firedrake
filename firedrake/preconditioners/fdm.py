@@ -512,16 +512,16 @@ class FDMPC(PCBase):
         # Return coefficients and assembly callables
         if block_diagonal and V.shape:
             raise NotImplementedError
-            from firedrake.assemble import assemble
-            bdiags = []
-            M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
-            for iset in Z.field_ises:
-                sub = M.petscmat.createSubMatrix(iset, iset)
-                ctx = sub.getPythonContext()
-                bdiags.append(ctx._block_diagonal)
-                assembly_callables.append(ctx._assemble_block_diagonal)
-            W = MixedFunctionSpace([c.function_space() for c in bdiags])
-            tensor = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
+            # from firedrake.assemble import assemble
+            # bdiags = []
+            # M = assemble(mixed_form, mat_type="matfree", form_compiler_parameters=fcp)
+            # for iset in Z.field_ises:
+            #     sub = M.petscmat.createSubMatrix(iset, iset)
+            #     ctx = sub.getPythonContext()
+            #     bdiags.append(ctx._block_diagonal)
+            #     assembly_callables.append(ctx._assemble_block_diagonal)
+            # W = MixedFunctionSpace([c.function_space() for c in bdiags])
+            # tensor = Function(W, val=op2.MixedDat([c.dat for c in bdiags]))
         else:
             from firedrake.assemble import get_assembler
             tensor = Function(Z.dual())
