@@ -1,6 +1,5 @@
 from firedrake import *
 import numpy
-import pytest
 
 sparams = {
     "mat_type": "nest",
@@ -29,7 +28,6 @@ sparams = {
 }
 
 
-@pytest.mark.skipcomplexnoslate
 def test_inject_real_space():
     base = UnitIntervalMesh(1)
     mh = MeshHierarchy(base, 3)

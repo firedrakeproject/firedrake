@@ -50,7 +50,7 @@ Dual objects in UFL
 
 For an arbitrary :py:class:`~.ufl.FunctionSpace`, ``V``, the corresponding dual space :math:`V^*` can be obtained by calling the :py:meth:`~.ufl.FunctionSpace.dual` method:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
     mesh = UnitSquareMesh(10, 10)
@@ -60,7 +60,7 @@ For an arbitrary :py:class:`~.ufl.FunctionSpace`, ``V``, the corresponding dual 
 A :py:class:`~.ufl.Coefficient` defines a *known* function ``c`` in ``V``. A :py:class:`~.Function` is a subclass of :py:class:`~.ufl.Coefficient`.
 Consequently, 
 
-.. code-block:: python3
+.. code-block:: python
 
     c = Function(V)
     f_0 = c * dx
@@ -70,20 +70,20 @@ is a symbolic expression for the integral of ``c`` over the domain and represent
 
 Conversely, :py:class:`~.Argument` defines a placeholder symbol ``a`` for an *unknown* function in ``V``. :py:class:`~firedrake.ufl_expr.TestFunction` and :py:class:`~firedrake.ufl_expr.TrialFunction` are syntactic sugar for ``Argument(V, 0)`` and ``Argument(V, 1)`` respectively.
 
-.. code-block:: python3
+.. code-block:: python
 
     a = TrialFunction(V)
     f_1 = a * dx
 
 represents the integration of the unknown function ``a`` over the domain. It's therefore a linear 1-form, or a function in the dual space :math:`V^* = V \rightarrow K`. ``f_1`` is also a Python object of type :py:class:`~.ufl.Form`. When assembled, it is an object of type :py:class:`~.ufl.Cofunction`:
 
-.. code-block:: python3
+.. code-block:: python
 
     cf = assemble(f_1) # type Cofunction
 
 ``cf`` is a known object in the dual space, and the dual equivalent of :py:class:`~.ufl.Coefficient`. The more consistent name ``Cocoefficient`` was rejected as confusing and risible. :py:class:`~.ufl.Cofunction` objects can be combined with symbolic :py:class:`~.ufl.Form` objects:
 
-.. code-block::
+.. code-block:: python
 
     v = TestFunction(V) 
     a = v * dx
@@ -102,7 +102,7 @@ Using the reflexivity of the function space :math:`U`. This form therefore has t
 
 A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl.Argument` on a dual space object or calling :py:class:`~.Coargument` on a dual space.
 
-.. code-block::
+.. code-block:: python
 
     v = Argument(V, 1) # type Argument
     u = Argument(V.dual(), 2) # type Coargument
@@ -111,7 +111,7 @@ A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl
 
 There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofunction`, we have represented an assembled 1-form. However, commonly we also assemble 2-forms. :py:class:`~.Matrix` allows an analogous use, and assembled 2-forms can be naturally combined with 2-forms that have not yet been assembled:
 
-.. code-block::
+.. code-block:: python
 
     mesh = UnitSquareMesh(10,10)
     V = FunctionSpace(mesh, "Lagrange", 1)
@@ -124,7 +124,7 @@ There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofu
 
 Operations supported symbolically, such as the adjoint and action, are also supported on the dual space equivalent. 
 
-.. code-block::
+.. code-block:: python
 
     mesh = UnitSquareMesh(10,10)
     V = FunctionSpace(mesh, "Lagrange", 1)

@@ -2,6 +2,7 @@ import pytest
 from collections import Counter
 from os import listdir
 from os.path import isfile, join
+import numpy as np
 
 from firedrake import *
 
@@ -168,3 +169,39 @@ def test_append(mesh, tmpdir, space):
 
     assert compare(pvdfile_in_tmp, expected_pvdfile)
     assert compare(vtufiles_in_tmp, expected_vtufiles)
+
+
+@pytest.mark.skipvtk
+@pytest.mark.parallel([1, 3])
+def test_can_save_vom_data(dumpdir):
+    # [test_can_save_vom_data 1]
+    parent_mesh = UnitSquareMesh(4, 4)
+
+    points = np.asarray([
+        [0.75, 0.75],
+        [0.25, 0.25],
+        [0.75, 0.25],
+        [0.25, 0.75],
+    ])
+
+    vom = VertexOnlyMesh(parent_mesh, points)
+
+    # Define a field on the parent mesh
+    V = FunctionSpace(parent_mesh, "CG", 1)
+    x, y = SpatialCoordinate(parent_mesh)
+    f = Function(V).interpolate(x+y)
+
+    # Sample the parent mesh field at the points given by the vertex-only mesh
+    P0 = FunctionSpace(vom, "DG", 0)
+    f_at_points = Function(P0, name="f_at_points").interpolate(f)
+
+    # Sample another field at the the vertex-only mesh points
+    g_at_points = Function(P0, name="g_at_points").interpolate(2 * f)
+
+    # Save the vertex-only mesh data to a VTKFile
+    outfile = VTKFile(join(dumpdir, "vom_output.pvd"))
+    outfile.write(f_at_points, g_at_points)
+    # [test_can_save_vom_data 2]
+
+    if parent_mesh.comm.rank == 0:
+        assert isfile(join(dumpdir, "vom_output.pvd"))

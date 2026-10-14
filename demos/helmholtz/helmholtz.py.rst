@@ -46,44 +46,58 @@ which conveniently yields the analytic solution:
 However we wish to employ this as an example for the finite element
 method, so lets go ahead and produce a numerical solution.
 
-First, we always need a mesh. Let's have a :math:`10\times10` element unit square::
+First, we always need a mesh. Let's have a :math:`10\times10` element unit square:
+
+.. code-block:: python
 
   from firedrake import *
   mesh = UnitSquareMesh(10, 10)
 
 We need to decide on the function space in which we'd like to solve the
 problem. Let's use piecewise linear functions continuous between
-elements::
+elements:
+
+.. code-block:: python
 
   V = FunctionSpace(mesh, "CG", 1)
 
 We'll also need the test and trial functions corresponding to this
-function space::
+function space:
+
+.. code-block:: python
 
   u = TrialFunction(V)
   v = TestFunction(V)
 
 We declare a function over our function space and give it the
-value of our right hand side function::
+value of our right hand side function:
+
+.. code-block:: python
 
   f = Function(V)
   x, y = SpatialCoordinate(mesh)
   f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 
 We can now define the bilinear and linear forms for the left and right
-hand sides of our equation respectively::
+hand sides of our equation respectively:
+
+.. code-block:: python
 
   a = (inner(grad(u), grad(v)) + inner(u, v)) * dx
   L = inner(f, v) * dx
 
 Finally we solve the equation. We redefine `u` to be a function
-holding the solution::
+holding the solution:
+
+.. code-block:: python
 
   u = Function(V)
 
 Since we know that the Helmholtz equation is
 symmetric, we instruct PETSc to employ the conjugate gradient method
-and do not worry about preconditioning for the purposes of this demo ::
+and do not worry about preconditioning for the purposes of this demo:
+
+.. code-block:: python
 
   solve(a == L, u, solver_parameters={'ksp_type': 'cg', 'pc_type': 'none'})
 
@@ -91,7 +105,9 @@ For more details on how to specify solver parameters, see the section
 of the manual on :doc:`solving PDEs <../solving-interface>`.
 
 Next, we might want to look at the result, so we output our solution
-to a file::
+to a file:
+
+.. code-block:: python
 
   VTKFile("helmholtz.pvd").write(u)
 
@@ -99,7 +115,9 @@ This file can be visualised using `paraview <http://www.paraview.org/>`__.
 
 We could use the built-in plotting functions of firedrake by calling
 :func:`tripcolor <firedrake.pyplot.tripcolor>` to make a pseudo-color plot.
-Before that, matplotlib.pyplot should be installed and imported::
+Before that, matplotlib.pyplot should be installed and imported:
+
+.. code-block:: python
 
   try:
     import matplotlib.pyplot as plt
@@ -116,7 +134,9 @@ Before that, matplotlib.pyplot should be installed and imported::
 
 The plotting functions in Firedrake mimic those of matplotlib; to produce a
 contour plot instead of a pseudocolor plot, we can call
-:func:`tricontour <firedrake.pyplot.tricontour>` instead::
+:func:`tricontour <firedrake.pyplot.tricontour>` instead:
+
+.. code-block:: python
 
   try:
     fig, axes = plt.subplots()
@@ -125,7 +145,9 @@ contour plot instead of a pseudocolor plot, we can call
   except Exception as e:
     warning("Cannot plot figure. Error msg: '%s'" % e)
 
-Don't forget to show the image::
+Don't forget to show the image:
+
+.. code-block:: python
 
   try:
     plt.show()
@@ -133,7 +155,9 @@ Don't forget to show the image::
     warning("Cannot show figure. Error msg: '%s'" % e)
 
 Alternatively, since we have an analytic solution, we can check the
-:math:`L_2` norm of the error in the solution::
+:math:`L_2` norm of the error in the solution:
+
+.. code-block:: python
 
   f.interpolate(cos(x*pi*2)*cos(y*pi*2))
   print(sqrt(assemble(dot(u - f, u - f) * dx)))

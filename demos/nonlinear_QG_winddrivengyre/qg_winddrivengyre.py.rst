@@ -135,7 +135,9 @@ Defining the Problem
 
 Now that we know the weak form we are now ready to solve this using Firedrake!
 
-First, we import the Firedrake, PETSc, NumPy and UFL packages, ::
+First, we import the Firedrake, PETSc, NumPy and UFL packages,
+
+.. code-block:: python
 
   from firedrake import *
   from firedrake.petsc import PETSc
@@ -143,7 +145,9 @@ First, we import the Firedrake, PETSc, NumPy and UFL packages, ::
   import ufl
 
 Next, we can define the geometry of our domain. In this example, we
-will be using a square of length one with 50 cells. ::
+will be using a square of length one with 50 cells.
+
+.. code-block:: python
 
   n0 = 50           # Spatial resolution
   Ly = 1.0          # Meridonal length
@@ -151,16 +155,22 @@ will be using a square of length one with 50 cells. ::
   mesh = RectangleMesh(n0, n0, Lx, Ly, reorder = None)
 
 We can then define the Function Space within which the
-solution of the streamfunction will reside. ::
+solution of the streamfunction will reside.
+
+.. code-block:: python
 
   Vcg = FunctionSpace(mesh, 'CG', 3) # CG elements for Streamfunction
 
 We will also impose no-normal flow strongly to ensure that the
-boundary condition :math:`\psi = 0` will be met, ::
+boundary condition :math:`\psi = 0` will be met,
+
+.. code-block:: python
 
   bc = DirichletBC(Vcg, 0.0, 'on_boundary')
 
-Now we will define all the parameters we are using in this tutorial. ::
+Now we will define all the parameters we are using in this tutorial.
+
+.. code-block:: python
 
   beta = Constant('1.0')      # Beta parameter
   F = Constant('1.0')         # Burger number
@@ -169,26 +179,34 @@ Now we will define all the parameters we are using in this tutorial. ::
   x = SpatialCoordinate(mesh)
   Qwinds = Function(Vcg).interpolate(-tau * cos(pi * (x[1]/Ly - 0.5)))
 
-We can now define the Test Function and the Trial Function of this problem, both must be in the same function space::
+We can now define the Test Function and the Trial Function of this problem, both must be in the same function space:
+
+.. code-block:: python
 
   phi, psi = TestFunction(Vcg), TrialFunction(Vcg)
 
 We must define functions that will store our linear and nonlinear solutions.
 In order to solve the nonlinear problem, we use the linear
-solution as a guess for the nonlinear problem. ::
+solution as a guess for the nonlinear problem.
+
+.. code-block:: python
 
   psi_lin = Function(Vcg, name='Linear Streamfunction')
   psi_non = Function(Vcg, name='Nonlinear Streamfunction')
 
 We can finally write down the linear Stommel equation in its weak
 form. We will use the solution to this as the input for the nonlinear
-Stommel equation. ::
+Stommel equation.
+
+.. code-block:: python
 
   a = - r * inner(grad(psi), grad(phi)) * dx - F * psi * phi * dx + beta * psi.dx(0) * phi * dx
   L = Qwinds * phi * dx
 
 We set-up an elliptic solver for this problem, and solve for the
-linear streamfunction, ::
+linear streamfunction,
+
+.. code-block:: python
 
   linear_problem = LinearVariationalProblem(a, L, psi_lin, bcs=bc)
   linear_solver = LinearVariationalSolver(linear_problem,
@@ -196,12 +214,16 @@ linear streamfunction, ::
                                                               'pc_type': 'lu'})
   linear_solver.solve()
 
-We will employ the solution to the linear problem as the initial guess for the nonlinear one::
+We will employ the solution to the linear problem as the initial guess for the nonlinear one:
+
+.. code-block:: python
 
   psi_non.assign(psi_lin)
 
 And now we can define the weak form of the nonlinear problem. Note
-that the problem is stated in residual form so there is no trial function. ::
+that the problem is stated in residual form so there is no trial function.
+
+.. code-block:: python
 
   G = - inner(grad(phi), perp(grad(psi_non))) * div(grad(psi_non)) * dx \
       -r * inner(grad(psi_non), grad(phi)) * dx - F * psi_non * phi * dx \
@@ -209,7 +231,9 @@ that the problem is stated in residual form so there is no trial function. ::
       - Qwinds * phi * dx
 
 We solve for the nonlinear streamfunction now by setting up another
-elliptic solver, ::
+elliptic solver,
+
+.. code-block:: python
 
   nonlinear_problem = NonlinearVariationalProblem(G, psi_non, bcs=bc)
   nonlinear_solver = NonlinearVariationalSolver(nonlinear_problem,
@@ -219,7 +243,9 @@ elliptic solver, ::
   nonlinear_solver.solve()
 
 Now that we have the full solution to the nonlinear Stommel problem,
-we can plot it using the :func:`tripcolor <firedrake.pyplot.tripcolor>` function ::
+we can plot it using the :func:`tripcolor <firedrake.pyplot.tripcolor>` function:
+
+.. code-block:: python
 
   try:
       import matplotlib.pyplot as plt
@@ -243,7 +269,9 @@ we can plot it using the :func:`tripcolor <firedrake.pyplot.tripcolor>` function
   file.write(psi_non)
 
 We can also see the difference between the linear solution and the
-nonlinear solution. We do this by defining a weak form.  (Note: other approaches may be possible.) ::
+nonlinear solution. We do this by defining a weak form.  (Note: other approaches may be possible.)
+
+.. code-block:: python
 
   tf, difference = TestFunction(Vcg), TrialFunction(Vcg)
 

@@ -98,6 +98,8 @@ class CovariancePC(petsctools.PCBase):
             return
 
         viewer.printfASCII(f"  firedrake covariance operator preconditioner: {type(self).__name__}\n")
+        if not self.initialized:
+            return
         viewer.printfASCII(f"  Applying the {str(self.operation)} of the covariance operator {type(self.covariance).__name__}\n")
 
         if self.use_amat:

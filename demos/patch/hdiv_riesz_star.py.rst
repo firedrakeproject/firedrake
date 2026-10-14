@@ -10,7 +10,9 @@ Here, we demonstrate how to do this in the former case.
 We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
 exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the vertex star patches. This is set
-via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
+via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.
+
+.. code-block:: python
 
   from firedrake import *
 
@@ -21,8 +23,9 @@ via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
 
 We consider the Riesz map on H(div), discretized with lowest order
 Raviart--Thomas elements.  We force the system with a random right-hand side and
-impose homogeneous Dirichlet boundary conditions::
+impose homogeneous Dirichlet boundary conditions:
 
+.. code-block:: python
 
   def run_solve(mesh, params):
       V = FunctionSpace(mesh, "RT", 1)
@@ -42,8 +45,9 @@ impose homogeneous Dirichlet boundary conditions::
       return solver.snes.getLinearSolveIterations()
 
 Having done both :class:`~.ASMStarPC` and :class:`~.PatchPC` in other demos, here we simply opt for the former.
-Arnold, Falk, and Winther show that either vertex (``construct_dim=0``) or edge patches (``construct_dim=1``)  will be acceptable in three dimensions. ::
+Arnold, Falk, and Winther show that either vertex (``construct_dim=0``) or edge patches (``construct_dim=1``)  will be acceptable in three dimensions.
 
+.. code-block:: python
 
   def mg_params(relax, mat_type="aij"):
       return {
@@ -73,8 +77,9 @@ Arnold, Falk, and Winther show that either vertex (``construct_dim=0``) or edge 
 
 Now, for each parameter choice, we report the iteration count for the Riesz map
 over a range of meshes.  We see that vertex patches give lower iteration counts than
-edge patches, but they are more expensive. ::
+edge patches, but they are more expensive.
 
+.. code-block:: python
 
   for cdim in (0, 1):
       params = mg_params(asm_params(cdim))

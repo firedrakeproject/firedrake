@@ -170,7 +170,7 @@ evaluation being recorded by Pyadjoint, a process known as *taping*, or
 
 First, the user code must access the adjoint module:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake.adjoint import *
     continue_annotation()

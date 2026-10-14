@@ -131,7 +131,7 @@ version = ".".join(release.split(".")[:3])
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['old_pyop2']
+exclude_patterns = []
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -166,6 +166,7 @@ nitpick_ignore_regex = [
     # Ignore undocumented PyOP2
     ('py:class', 'pyop2.caching.Cached'),
     ('py:class', 'pyop2.op2.Kernel'),
+    ('py:class', 'pyop2.types.mat.Mat'),
     # Ignore mission docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
@@ -216,6 +217,9 @@ linkcheck_ignore = [
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
     r'https://buy.crosscountrytrains.co.uk',
+
+    # people
+    r'https://mscroggs\.co\.uk/?$',
 
     # other
     r'https://firedrakeproject.slack.com',
@@ -464,6 +468,7 @@ intersphinx_mapping = {
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
     'FIAT': ('https://firedrakeproject.org/fiat', None),
     'petsctools': ('https://firedrakeproject.org/petsctools/', None),
+    'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
