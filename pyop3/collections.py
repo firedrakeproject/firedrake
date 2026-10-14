@@ -151,7 +151,7 @@ class OrderedFrozenSet(AbstractOrderedSet):
 
 
 # monkey patch pretty printing
-pprint.PrettyPrinter._dispatch[idict.__repr__] = pprint.PrettyPrinter._pprint_ordered_dict
+pprint.PrettyPrinter._dispatch[idict.__repr__] = pprint.PrettyPrinter._pprint_dict
 pprint.PrettyPrinter._dispatch[OrderedSet.__repr__] = pprint.PrettyPrinter._pprint_set
 pprint.PrettyPrinter._dispatch[OrderedFrozenSet.__repr__] = pprint.PrettyPrinter._pprint_set
 

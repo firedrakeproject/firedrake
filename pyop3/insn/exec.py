@@ -561,20 +561,23 @@ class CompiledCodeExecutor:
             buffer_intents = self.buffer_intents
             exec_arguments = self._default_exec_arguments
         else:
-            new_buffers = dict(new_buffers)
+            new_buffers_for_intents = dict(new_buffers)
             buffer_intents = {
-                new_buffers.pop(orig_buffer, orig_buffer): intent
+                new_buffers_for_intents.pop(orig_buffer, orig_buffer): intent
                 for orig_buffer, intent in self.buffer_intents.items()
             }
+            assert not new_buffers_for_intents
+
+            new_buffers_for_exec_args = dict(new_buffers)
             exec_arguments = [
                 self._handle_to_pointer(
                     buf_view.record_new(
-                        buffer=new_buffers.get(buf_view.buffer, buf_view.buffer)
+                        buffer=new_buffers_for_exec_args.pop(buf_view.buffer, buf_view.buffer)
                     ).handle
                 )
                 for buf_view in self.kernel_name_to_buffer_info.values()
             ]
-            assert not new_buffers
+            assert not new_buffers_for_exec_args
 
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
