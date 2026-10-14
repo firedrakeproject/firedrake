@@ -73,6 +73,7 @@ runs:
               --scalar-type ${{ inputs.scalar_type }} \
               --int-type ${{ inputs.int_type }} \
               --show-system-packages)
+          echo "PATH=/opt/homebrew/opt/python@3.14/libexec/bin:$PATH" >> "$GITHUB_ENV"
         else
           echo "Unrecognised 'os' input: '${{ inputs.os }}"
           exit 1
