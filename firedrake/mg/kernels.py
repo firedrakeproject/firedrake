@@ -19,12 +19,11 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
-from tsfc import kernel_args
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
 from tsfc.loopy import generate as generate_loopy
-from tsfc import fem, ufl_utils, spectral
+from tsfc import fem, kernel_args, ufl_utils, spectral
 from tsfc.driver import TSFCIntegralDataInfo, compile_expression_dual_evaluation
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.parameters import default_parameters

@@ -770,6 +770,27 @@ def test_interpolator_reuse(family, degree, mode):
         assert np.allclose(result.dat.data, expected)
 
 
+def test_mixed_space_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(W)
+
+    bcs = [DirichletBC(W.sub(0), 0, 1),
+           DirichletBC(W.sub(1), 0, 2),
+           DirichletBC(V, 0, (3, 4))]
+
+    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
+    result = assemble(action(I, w))
+
+    for bc in bcs[:-1]:
+        bc.zero(w)
+    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
+
+    assert np.allclose(result.dat.data, expected.dat.data)
+
+
 @pytest.mark.parallel([1, 3])
 def test_interpolation_matrix_into_tensor():
     mesh = UnitSquareMesh(2, 2)
@@ -802,27 +823,6 @@ def test_same_space_interp_bcs():
 
     expected = Function(V).assign(2 * w)
     DirichletBC(V, w, 1).apply(expected)
-
-    assert np.allclose(result.dat.data, expected.dat.data)
-
-
-def test_mixed_space_bcs():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 1)
-    W = V * V
-    rg = RandomGenerator(PCG64(seed=123456789))
-    w = rg.uniform(W)
-
-    bcs = [DirichletBC(W.sub(0), 0, 1),
-           DirichletBC(W.sub(1), 0, 2),
-           DirichletBC(V, 0, (3, 4))]
-
-    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
-    result = assemble(action(I, w))
-
-    for bc in bcs[:-1]:
-        bc.zero(w)
-    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
 
     assert np.allclose(result.dat.data, expected.dat.data)
 

@@ -13,7 +13,7 @@ import numpy
 from pyadjoint.tape import annotate_tape
 from tsfc import kernel_args
 from finat.element_factory import create_element
-from tsfc.ufl_utils import extract_firedrake_constants, RUNTIME_POINT_VARIABLE
+from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 import finat.ufl
 from firedrake import (extrusion_utils as eutils, parameters, solving,
@@ -22,11 +22,12 @@ from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.exceptions import MismatchingFunctionSpaceError
+from firedrake.mesh import MeshGeometry
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
-from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.functionspaceimpl import WithGeometry, FunctionSpace, FiredrakeDualSpace
 from firedrake.functionspacedata import entity_dofs_key, entity_permutations_key
-from firedrake.interpolation import get_assembly_entity_node_map, get_interpolator, SameMeshInterpolator
+from firedrake.interpolation import (get_assembly_entity_node_map, get_interpolator,
+                                     get_runtime_tabulation_coordinates, SameMeshInterpolator)
 from firedrake.petsc import PETSc
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg
@@ -1894,26 +1895,6 @@ class _GlobalKernelBuilder:
         return entity_dofs_key(finat_element.entity_dofs()), real_tensorproduct, eperm_key
 
 
-def _runtime_tabulation_coordinates(arg: kernel_args.TabulationKernelArg,
-                                    mesh: MeshGeometry) -> "firedrake.Function":
-    """Return the reference coordinates that a kernel tabulates its runtime point at.
-
-    Raises
-    ------
-    ValueError
-        If ``arg`` is not the runtime tabulation argument.
-    TypeError
-        If ``mesh`` is not a :class:`VertexOnlyMesh`.
-    """
-    # FIXME: name-matching is a stopgap; get this from a coefficient map handed
-    # down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
-    if arg.loopy_arg.name != RUNTIME_POINT_VARIABLE:
-        raise ValueError(f"Expecting the runtime tabulation argument {RUNTIME_POINT_VARIABLE}: got {arg.loopy_arg.name}")
-    if not isinstance(mesh.topology, VertexOnlyMeshTopology):
-        raise TypeError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(mesh.topology).__name__}")
-    return mesh.reference_coordinates
-
-
 @functools.singledispatch
 def _as_global_kernel_arg(tsfc_arg, self):
     raise NotImplementedError
@@ -1995,7 +1976,7 @@ def _as_global_kernel_arg_constant(_, self):
 
 @_as_global_kernel_arg.register(kernel_args.TabulationKernelArg)
 def _as_global_kernel_arg_tabulation(arg, self):
-    reference_coordinates = _runtime_tabulation_coordinates(arg, self._mesh)
+    reference_coordinates = get_runtime_tabulation_coordinates(arg, self._mesh)
     return self._make_dat_global_kernel_arg(reference_coordinates.function_space())
 
 
@@ -2346,7 +2327,7 @@ def _as_parloop_arg_constant(arg, self):
 
 @_as_parloop_arg.register(kernel_args.TabulationKernelArg)
 def _as_parloop_arg_tabulation(arg, self):
-    reference_coordinates = _runtime_tabulation_coordinates(arg, self._mesh)
+    reference_coordinates = get_runtime_tabulation_coordinates(arg, self._mesh)
     map_ = self._get_map(reference_coordinates.function_space())
     return op2.DatParloopArg(reference_coordinates.dat, map_)
 

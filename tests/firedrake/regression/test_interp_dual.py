@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import _runtime_tabulation_coordinates
+from firedrake.interpolation import get_runtime_tabulation_coordinates
 from firedrake.utils import complex_mode
 from firedrake.matrix import MatrixBase
 from tsfc.ufl_utils import RUNTIME_POINT_VARIABLE
@@ -52,11 +52,11 @@ def test_runtime_tabulation_error_types():
     mesh = SimpleNamespace(topology=object())
 
     with pytest.raises(ValueError, match="runtime tabulation argument"):
-        _runtime_tabulation_coordinates(arg, mesh)
+        get_runtime_tabulation_coordinates(arg, mesh)
 
     arg.loopy_arg.name = RUNTIME_POINT_VARIABLE
     with pytest.raises(TypeError, match="VertexOnlyMesh"):
-        _runtime_tabulation_coordinates(arg, mesh)
+        get_runtime_tabulation_coordinates(arg, mesh)
 
 
 def test_assemble_interp_adjoint_tensor(mesh, V1, f1):

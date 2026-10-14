@@ -169,13 +169,14 @@ class KernelBuilderBase(_KernelBuilderBase):
         self._cell_sizes = {}
         for i, domain in enumerate(domains):
             if domain.ufl_cell().topological_dimension > 0:
+                # Can't create P1 since only P0 is a valid finite element if
+                # topological_dimension is 0 and the concept of "cell size"
+                # is not useful for a vertex.
                 f = Coefficient(FunctionSpace(domain, FiniteElement("P", domain.ufl_cell(), 1)))
                 expr = prepare_coefficient(f, f"cell_sizes_{i}", self._domain_integral_type_map)
+                self._cell_sizes[domain] = expr
             else:
-                # Only P0 is a valid finite element on a vertex, and the
-                # concept of "cell size" is not useful there.
-                expr = None
-            self._cell_sizes[domain] = expr
+                self._cell_sizes[domain] = None
 
     def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given

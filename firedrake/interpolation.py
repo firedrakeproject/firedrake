@@ -16,10 +16,12 @@ from ufl.core.interpolate import Interpolate as UFLInterpolate
 from pyop2 import op2
 from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 
+from tsfc import kernel_args
+from tsfc.ufl_utils import RUNTIME_POINT_VARIABLE
+
 from firedrake.utils import IntType
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action, extract_domains
-from firedrake.mesh import (MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry,
-                            MeshTopology, VertexOnlyMesh)
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
@@ -1017,6 +1019,39 @@ def get_assembly_entity_node_map(fs: WithGeometry, target_mesh: MeshGeometry,
         m_ = fs.entity_node_map(target_mesh.topology, integral_type, subdomain_id,
                                 all_integer_subdomain_ids)
     return m_
+
+
+def get_runtime_tabulation_coordinates(arg: kernel_args.TabulationKernelArg,
+                                       mesh: MeshGeometry) -> Function:
+    """Return the reference coordinates that a kernel tabulates its runtime point at.
+
+    Parameters
+    ----------
+    arg
+        The kernel argument that receives the runtime points.
+    mesh
+        The mesh that the kernel iterates over.
+
+    Returns
+    -------
+    Function
+        The coordinates of the points of ``mesh`` in the reference cell of
+        its parent mesh.
+
+    Raises
+    ------
+    ValueError
+        If ``arg`` is not the runtime tabulation argument.
+    TypeError
+        If ``mesh`` is not a :class:`VertexOnlyMesh`.
+    """
+    # FIXME: name-matching is a stopgap; get this from a coefficient map handed
+    # down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
+    if arg.loopy_arg.name != RUNTIME_POINT_VARIABLE:
+        raise ValueError(f"Expecting the runtime tabulation argument {RUNTIME_POINT_VARIABLE}: got {arg.loopy_arg.name}")
+    if not isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise TypeError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(mesh.topology).__name__}")
+    return mesh.reference_coordinates
 
 
 def compose_map_and_cache(map1: op2.Map, map2: op2.Map | None) -> op2.ComposedMap | None:
