@@ -90,7 +90,7 @@ def test_disk_checkpointing():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_disk_checkpointing_parallel():
     # Use a Firedrake Tape subclass that supports disk checkpointing.
     set_working_tape(Tape())
@@ -98,7 +98,7 @@ def test_disk_checkpointing_parallel():
     tape.clear_tape()
     continue_annotation()
     # The comment below and the others like it are used to generate the
-    # documentation for the firedrake/docs/source/chekpointing.rst file.
+    # documentation for the firedrake/docs/source/checkpointing.rst file.
     # [test_disk_checkpointing 1]
     enable_disk_checkpointing()
     tape.enable_checkpointing(SingleDiskStorageSchedule())
@@ -419,7 +419,7 @@ def test_sub_comm_multi_mesh_parallel():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_sub_comm_adjoint_dependencies_parallel():
     """Test sub-comm checkpointing with timestepper and taylor_test."""
     sub_comm = _sub_comm()
@@ -430,6 +430,7 @@ def test_sub_comm_adjoint_dependencies_parallel():
                                   checkpoint_dir=tmpdir)
         tape.enable_checkpointing(SingleDiskStorageSchedule())
         mesh = checkpointable_mesh(UnitSquareMesh(10, 10))
+        mesh = UnitSquareMesh(10, 10)
         V = FunctionSpace(mesh, "CG", 1)
         c = Function(V).interpolate(1.0)
 

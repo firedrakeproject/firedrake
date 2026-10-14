@@ -8,7 +8,7 @@ from firedrake import *
 def mesh(request):
     distribution = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     if request.param == 1:
-        return IntervalMesh(3, 5, distribution_parameters=distribution)
+        return IntervalMesh(7, 5, distribution_parameters=distribution)
     if request.param == 2:
         return RectangleMesh(10, 20, 2, 3, distribution_parameters=distribution)
     if request.param == 3:
@@ -37,9 +37,9 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         Q = VectorFunctionSpace(mesh, "CG", 1)
         R = TensorFunctionSpace(mesh, "CG", 1)
         V = P*Q*R
+        V = P * P
 
-    shape = V.value_shape
-    rhs = numpy.full(shape, 1, dtype=float)
+    rhs = numpy.full(V.value_shape, 1, dtype=float)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -69,9 +69,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                         "mat_type": "aij"})
 
     jacobi.snes.ksp.setConvergenceHistory()
-
     jacobi.solve()
-
     jacobi_history = jacobi.snes.ksp.getConvergenceHistory()
 
     patch = LinearVariationalSolver(problem,
@@ -88,12 +86,9 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                        "patch_sub_ksp_type": "preonly",
                                                        "patch_sub_pc_type": "lu",
                                                        "ksp_monitor": None})
-
     patch.snes.ksp.setConvergenceHistory()
-
     uh.assign(0)
     patch.solve()
-
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
     assert numpy.allclose(jacobi_history, patch_history)

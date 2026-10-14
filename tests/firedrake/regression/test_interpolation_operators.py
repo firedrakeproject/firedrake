@@ -58,9 +58,6 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
 
     if mat_type == "matfree":
         assert I_mat.petscmat.type == "python"
-    elif value_shape == "scalar":
-        # Always seqaij for scalar
-        assert I_mat.petscmat.type == prefix + "aij"
     else:
         # Defaults to seqaij
         assert I_mat.petscmat.type == prefix + (mat_type if mat_type else "aij")
@@ -161,8 +158,6 @@ def test_point_eval_mattype(value_shape, mat_type):
 
     if mat_type == "matfree":
         assert res.petscmat.type == "python"
-    elif value_shape == "scalar":
-        assert res.petscmat.type == "seqaij"
     else:
         # Defaults to seqaij
         assert res.petscmat.type == "seq" + (mat_type if mat_type else "aij")

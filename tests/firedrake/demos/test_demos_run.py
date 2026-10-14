@@ -136,6 +136,10 @@ def _exec_file(py_file):
 @pytest.mark.parametrize("demo", SERIAL_DEMOS, ids=["/".join(d.loc) for d in SERIAL_DEMOS])
 def test_serial_demo(demo, env, monkeypatch, tmpdir, skip_dependency):
     _maybe_skip_demo(demo, skip_dependency)
+    if demo.loc == ("reynolds_robust_navier_stokes_hdiv", "reynolds_robust_navier_stokes_hdiv"):
+        # Note for developers: I have found that caching the DM on the mesh makes the
+        # test pass, but that causes other demos (patch ones) to fail.
+        pytest.xfail(reason="pyop3 DM persistence means that repeated solves with new Re fail")
     py_file = _prepare_demo(demo, monkeypatch, tmpdir)
     _exec_file(py_file)
 

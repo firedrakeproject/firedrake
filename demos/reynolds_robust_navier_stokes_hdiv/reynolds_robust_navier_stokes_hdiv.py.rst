@@ -299,7 +299,7 @@ remaining exterior facets with a zero-inflow flux.
 
 .. code-block:: python
 
-  exterior_markers = set(mesh.exterior_facets.unique_markers)
+  exterior_markers = set(mesh.facet_markers)
   for bc in bcs:
       g = bc.function_arg
       bid = bc.sub_domain
