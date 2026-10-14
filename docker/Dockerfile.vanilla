@@ -51,7 +51,7 @@
 #     --build-arg PETSC_EXTRA_ARGS="--download-ml" \
 #     --build-arg APT_EXTRA_PACKAGES="valgrind"
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 # Firedrake arch to build
 ARG ARCH="default"
@@ -105,12 +105,15 @@ ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 # 3. Remove non-essential files to reduce container size (keep SLEPc for slepc4py).
 RUN if [ "${BRANCH}" != "main" ]; then \
         CLONE_ARGS="--branch $(python3 /opt/firedrake-configure --show-petsc-version)"; \
+        PETSC_CONFIGURE_OPTIONS="--download-slepc-commit=v3.26.0"; \
+    else \
+        PETSC_CONFIGURE_OPTIONS=""; \
     fi; \
     git clone --depth 1 ${CLONE_ARGS} https://gitlab.com/petsc/petsc.git /opt/petsc \
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/-march=native -mtune=native/-mtune=generic/g" | \
-        xargs -L1 ./configure --with-make-np=8 --download-slepc --download-slepc-commit=v3.26.0 ${PETSC_EXTRA_ARGS} \
+        xargs -L1 ./configure --with-make-np=8 --download-slepc ${PETSC_CONFIGURE_OPTIONS} ${PETSC_EXTRA_ARGS} \
     && make; \
     if [ $? -eq 1 ]; then \
         cat configure.log; \
