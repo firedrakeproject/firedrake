@@ -20,13 +20,12 @@ from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.exceptions import MismatchingFunctionSpaceError
-from firedrake.mesh import MeshGeometry
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.functionspaceimpl import is_mixed
-from firedrake.interpolation import get_interpolator
+from firedrake.interpolation import get_interpolator, get_runtime_tabulation_coordinates, SameMeshInterpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
-from firedrake.mesh import get_mesh_topologies, MeshLoopIndex
+from firedrake.mesh import get_mesh_topologies, MeshGeometry, MeshLoopIndex
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
 from firedrake.utils import ScalarType, tuplify
@@ -154,14 +153,16 @@ def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
     diagonal = kwargs.pop("diagonal", False)
     nargs = len(form.arguments())
     if nargs == 0:
-        return ZeroFormAssembler(form, form_compiler_parameters=kwargs.get("form_compiler_parameters"))
+        return ZeroFormAssembler(form, form_compiler_parameters=kwargs.get("form_compiler_parameters"),
+                                 pyop3_compiler_parameters=kwargs.get("pyop3_compiler_parameters"))
     elif nargs == 1 or diagonal:
         return OneFormAssembler(form, *args,
                                 bcs=kwargs.get("bcs", None),
                                 form_compiler_parameters=kwargs.get("form_compiler_parameters"),
+                                pyop3_compiler_parameters=kwargs.get("pyop3_compiler_parameters"),
                                 needs_zeroing=kwargs.get("needs_zeroing", True),
                                 zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
-                                access=kwargs.get("access", op2.INC),
+                                access=kwargs.get("access", op3.INC),
                                 diagonal=diagonal,
                                 weight=kwargs.get("weight", 1.0))
     elif nargs == 2:
@@ -181,7 +182,6 @@ def get_assembler(form, *args, **kwargs):
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     fc_params = kwargs.get('form_compiler_parameters', None)
-    pyop3_compiler_parameters = kwargs.get('pyop3_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
         # If not assembling a matrix, internal BaseForm nodes are matfree by default
         # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
@@ -349,10 +349,10 @@ def _can_fuse_operator(operator: ufl.core.base_form_operator.BaseFormOperator,
                for domain in extract_domains(operator)):
         return False
     # The enclosing expression iterates over its own cells. It can therefore
-    # absorb only an interpolation that maps cells to cells and needs no
-    # subset; every other interpolation keeps its own interpolator.
+    # absorb only an interpolation that maps cells to cells and reaches every
+    # target cell; every other interpolation keeps its own interpolator.
     interpolator = get_interpolator(operator)
-    if not isinstance(interpolator, SameMeshInterpolator) or interpolator.subset is not None:
+    if not isinstance(interpolator, SameMeshInterpolator) or not interpolator.covers_target:
         return False
     # Nested interpolations can be fused only when all of them meet the same
     # conditions.
@@ -511,6 +511,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 form,
                 bcs=bcs if is_matrix else (),
                 form_compiler_parameters=self._form_compiler_params,
+                pyop3_compiler_parameters=self._pyop3_compiler_parameters,
                 mat_type=self._mat_type,
                 sub_mat_type=self._sub_mat_type,
                 options_prefix=self._options_prefix,
@@ -1089,10 +1090,12 @@ class ParloopFormAssembler(FormAssembler):
     """
     # NOTE: I think it would be nice to pass the tensor in here as we need it for codegen. But
     # that is difficult to achieve.
-    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, pyop3_compiler_parameters=None):
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, pyop3_compiler_parameters=None,
+                 access=op3.INC):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
+        self._access = access
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -1305,14 +1308,15 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=True, diagonal=False, weight=1.0):
+                   zero_bc_nodes=True, diagonal=False, weight=1.0, access=op3.INC):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), tuplify(pyop3_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight
+        return tuple(bcs), tuplify(form_compiler_parameters), tuplify(pyop3_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight, access
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=True, diagonal=False, weight=1.0):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing)
+                 zero_bc_nodes=True, diagonal=False, weight=1.0, access=op3.INC):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing,
+                         access=access)
         self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
@@ -1514,8 +1518,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_spec=None, options_prefix=None, appctx=None, weight=1.0,
-                 allocation_integral_types=None, pyop3_compiler_parameters=None):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing)
+                 allocation_integral_types=None, pyop3_compiler_parameters=None, access=op3.INC):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing,
+                         access=access)
         self._mat_spec = mat_spec
         self._options_prefix = options_prefix
         self._appctx = appctx
@@ -1690,12 +1695,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             if spaces[0].topological != spaces[1].topological:
                 # Not on a diagonal block, we cannot set diagonal entries
                 return
-            # if fs.topological != self.topological:
-            #     raise RuntimeError("Dirichlet BC defined on a different function space")
-            if space.topological != spaces[0].topological:
-                raise RuntimeError("bc space does not match the test function space")
-            elif space.topological != spaces[1].topological:
-                raise RuntimeError("bc space does not match the trial function space")
 
             # NOTE: This is only OK in parallel with mixed spaces because we
             # apply the BC to local submat, where DoF interleaving is not
@@ -1935,8 +1934,12 @@ class ParloopBuilder:
         column_space = column_arg.function_space()
         i, j = indices
 
-        row_bcs = self._bcs
-        col_bcs = [bc for bc in self._bcs if isinstance(bc, DirichletBC)]
+        # A boundary condition only constrains the argument that shares its space.
+        row_bcs = [bc for bc in self._bcs
+                   if bc.parent_function_space.topological == row_space.topological]
+        col_bcs = [bc for bc in self._bcs
+                   if isinstance(bc, DirichletBC)
+                   and bc.parent_function_space.topological == column_space.topological]
 
         if matrix.petscmat.type == PETSc.Mat.Type.NEST:
             ii = list(range(len(row_space))) if i is None else [i]
@@ -2010,6 +2013,8 @@ class ParloopBuilder:
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._subdomain_id not in ["everywhere", "otherwise"]:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
+            if isinstance(subdomain_data, MeshLoopIndex):
+                return subdomain_data
             return MeshLoopIndex(
                 subdomain_data,
                 self._mesh,
@@ -2074,6 +2079,11 @@ class ParloopBuilder:
     def _as_parloop_arg_constant(self, arg, index):
         const = next(self._constants)
         return const.dat
+
+    @_as_parloop_arg.register(kernel_args.TabulationKernelArg)
+    def _as_parloop_arg_tabulation(self, arg, index):
+        reference_coordinates = get_runtime_tabulation_coordinates(arg, self._mesh)
+        return pack(reference_coordinates, index)
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):
