@@ -4,7 +4,6 @@ from mpi4py import MPI
 from firedrake import *
 from firedrake.cython import mgimpl
 from firedrake.mg.utils import transfer_node_subset
-from firedrake.utils import complex_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -483,10 +482,6 @@ def test_transfers(mh, family, degree):
     # Injection
     u_fine = Function(V_fine).interpolate(expr_fine)
     u_injected = Function(V_coarse)
-    if family in {"DG", "DQ"} and complex_mode:
-        with pytest.raises(NotImplementedError):
-            inject(u_fine, u_injected)
-        return
     inject(u_fine, u_injected)
     assert errornorm(expr_coarse, u_injected) <= 1e-12
 
