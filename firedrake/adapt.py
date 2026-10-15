@@ -7,7 +7,7 @@ import petsctools
 import ufl
 from finat.ufl import BrokenElement, FiniteElement
 from petsctools.options import DefaultOptionSet, get_default_options
-from ufl import FacetNormal, avg, dS, dot, ds, dx, grad, inner, replace
+from ufl import avg, dS, ds, dx, inner, replace
 
 from firedrake.assemble import assemble
 from firedrake.cython import dmcommon
@@ -52,12 +52,9 @@ def _adapt_marked_cells(mesh, cell_marker):
             adapt_indicator, adapt_label, DM_ADAPT_REFINE,
         )
 
-    # DMPlexTransform reads its type without a prefix. Keep a type that the
-    # user has set, because inserted_options deletes what it inserts.
-    options = PETSc.Options()
-    transform_type = "dm_plex_transform_type"
-    parameters = {} if transform_type in options else {transform_type: "refine_sbr"}
+    parameters = {"dm_plex_transform_type": "refine_sbr"}
     try:
+        # options_prefix="" is essential
         with petsctools.inserted_options(parameters=parameters, options_prefix=""):
             with PETSc.Log.Event("AdaptiveRefine: adaptLabel"):
                 new_dm = dm.adaptLabel(ADAPT_LABEL)
@@ -169,20 +166,7 @@ def _both(expr):
     return expr("+") + expr("-")
 
 
-def _boundary_integral(expr):
-    return _both(expr) * dS + expr * ds
-
-
-def _normal_derivative(expr, normal, order):
-    for _ in range(order):
-        expr = grad(expr)
-    for _ in range(order):
-        expr = dot(expr, normal)
-    return expr
-
-
-def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
-                         options_prefix):
+def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     """Compute one dual-weighted residual error indicator per cell.
 
     The residual of the primal solution ``u_h`` is written as a sum of
@@ -190,29 +174,21 @@ def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
 
     .. math::
 
-        F(u_h; v) = \\sum_K (R_K, v)_K
-        + \\sum_{j=0}^{m-1} (R^j_{\\partial K}, \\partial_n^j v)_{\\partial K},
+        F(u_h; v) = \\sum_K (R_K, v)_K + (R_{\\partial K}, v)_{\\partial K},
 
-    where ``m`` is the highest derivative of the test function in ``F``,
-    ``R_K`` is a polynomial on the cell ``K``, and each ``R^j_dK`` is a
+    where ``R_K`` is a polynomial on the cell ``K`` and ``R_dK`` is a
     polynomial on each facet of ``K``. This representation is computed
     from the form ``F``, so the strong form of the equation is not needed.
-    Local problems give the residuals. Test functions that are the ``m``-th
-    power of the cell bubble times a polynomial vanish with their first
-    ``m - 1`` derivatives on all facets, so testing ``F`` against them
-    gives ``R_K``. The facet residuals follow from ``j = m - 1`` down to
-    ``j = 0``. A test function that is the ``j``-th power of the cell
-    bubble times a facet bubble times a polynomial vanishes to order
-    ``j + 1`` on the other facets of ``K``, and its normal derivatives of
-    order less than ``j`` vanish on its own facet. Testing the remainder
-    ``F(u_h; v) - (R_K, v)_K`` minus the facet terms of higher order
-    against these functions gives ``R^j_dK``. The indicator of a cell
-    ``K`` is
+    Two sets of local problems give the residuals. Test functions that are
+    a cell bubble times a polynomial vanish on all facets, so testing ``F``
+    against them gives ``R_K``. Test functions that are a facet bubble
+    times a polynomial then give ``R_dK`` from the remainder
+    ``F(u_h; v) - (R_K, v)_K``. The indicator of a cell ``K`` is
 
     .. math::
 
-        \\eta_K = \\left| (R_K, z - z_h)_K + \\sum_{j=0}^{m-1}
-        (R^j_{\\partial K}, \\partial_n^j (z - z_h))_{\\partial K} \\right|,
+        \\eta_K = \\left| (R_K, z - z_h)_K
+        + (R_{\\partial K}, z - z_h)_{\\partial K} \\right|,
 
     where the contribution of an interior facet is the average of the
     contributions from its two sides.
@@ -226,12 +202,8 @@ def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
     residual_degree
         The number of degrees that the localization spaces add to the primal
         space.
-    test_derivative_order
-        The highest derivative ``m`` of the test function in ``F``, for
-        example 1 for a second-order operator and 2 for the biharmonic
-        operator.
     options_prefix
-        The options prefix of the solver that this callback is attached to.
+        The options prefix of the solver that calls the marker.
 
     Returns
     -------
@@ -242,12 +214,6 @@ def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
     ----------
     Rognes, M. E. and Logg, A., 2013: "Automated goal-oriented error control
     I: Stationary variational problems". https://doi.org/10.1137/10081962X
-
-    Cao, H., Huang, Y., Yi, N. and Yin, P., 2025: "A posteriori error
-    estimators for fourth order elliptic problems with concentrated loads".
-    The squared cell bubble and the edge bubble that tests the normal
-    derivative are used in Section 3.
-    https://doi.org/10.1007/s10915-025-03089-4
     """
     v, = F.arguments()
     V = v.function_space()
@@ -255,12 +221,10 @@ def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
     dim = mesh.topological_dimension
     degree = V.ufl_element().degree() + residual_degree
     variant = "integral"
-    normal = FacetNormal(mesh)
 
-    # Testing F against powers of the cell bubble isolates the cell residual.
+    # Testing F against cell bubbles isolates the cell residual.
     bubble_space = FunctionSpace(mesh, "B", dim + 1, variant=variant)
     bubble = Function(bubble_space).assign(1)
-    cell_bubble = bubble**test_derivative_order
     if V.value_shape == ():
         cell_space = FunctionSpace(mesh, "DG", degree, variant=variant)
     else:
@@ -270,16 +234,15 @@ def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
     cell_test = TestFunction(cell_space)
     cell_residual = Function(cell_space)
     cell_problem = LinearVariationalProblem(
-        inner(cell_trial, cell_bubble * cell_test) * dx,
-        _replace_arguments(F, cell_bubble * cell_test), cell_residual,
+        inner(cell_trial, bubble * cell_test) * dx,
+        _replace_arguments(F, bubble * cell_test), cell_residual,
     )
     cell_solver = LinearVariationalSolver(
         cell_problem, options_prefix=options_prefix + "goal_cell_",
     )
     cell_solver.solve()
 
-    # Testing the remainder against facet bubbles isolates the facet
-    # residuals, from the highest normal derivative down.
+    # Testing the remainder against facet bubbles isolates the facet residual.
     cone_space = FunctionSpace(mesh, "FB", dim, variant=variant)
     cone = Function(cone_space).assign(1)
     cell = mesh.ufl_cell()
@@ -291,56 +254,61 @@ def _residual_indicators(F, dual_error, residual_degree, test_derivative_order,
         facet_space = TensorFunctionSpace(mesh, element, shape=V.value_shape)
     facet_trial = TrialFunction(facet_space)
     facet_test = TestFunction(facet_space)
-
-    facet_residuals = {}
-    for j in reversed(range(test_derivative_order)):
-        test = bubble**j * facet_test
-        facet_rhs = (_replace_arguments(F, test)
-                     - inner(cell_residual, test) * dx)
-        for i, residual in facet_residuals.items():
-            facet_rhs -= _boundary_integral(
-                inner(residual, _normal_derivative(test, normal, i)))
-        facet_lhs = _boundary_integral(
-            inner(facet_trial / cone, _normal_derivative(test, normal, j)))
-        facet_residual_hat = Function(facet_space)
-        facet_problem = LinearVariationalProblem(
-            facet_lhs, facet_rhs, facet_residual_hat
-        )
-        facet_solver = LinearVariationalSolver(
-            facet_problem, options_prefix=options_prefix + "goal_facet_",
-        )
-        facet_solver.solve()
-        facet_residuals[j] = facet_residual_hat / cone
+    facet_residual_hat = Function(facet_space)
+    facet_rhs = (_replace_arguments(F, facet_test)
+                 - inner(cell_residual, facet_test) * dx)
+    facet_lhs = (_both(inner(facet_trial / cone, facet_test)) * dS
+                 + inner(facet_trial / cone, facet_test) * ds)
+    facet_problem = LinearVariationalProblem(
+        facet_lhs, facet_rhs, facet_residual_hat
+    )
+    facet_solver = LinearVariationalSolver(
+        facet_problem, options_prefix=options_prefix + "goal_facet_",
+    )
+    facet_solver.solve()
+    facet_residual = facet_residual_hat / cone
 
     indicator_space = FunctionSpace(mesh, "DG", 0)
     indicator_test = TestFunction(indicator_space)
-    indicator_form = inner(inner(cell_residual, dual_error), indicator_test) * dx
-    for j, residual in facet_residuals.items():
-        contribution = inner(residual, _normal_derivative(dual_error, normal, j))
-        indicator_form += (inner(avg(contribution), _both(indicator_test)) * dS
-                           + inner(contribution, indicator_test) * ds)
-    indicators = assemble(indicator_form)
+    indicators = assemble(
+        inner(inner(cell_residual, dual_error), indicator_test) * dx
+        + inner(avg(inner(facet_residual, dual_error)),
+                _both(indicator_test)) * dS
+        + inner(inner(facet_residual, dual_error), indicator_test) * ds
+    )
     with indicators.dat.vec as vec:
         vec.abs()
     return indicators
 
 
 def _dorfler_mark(indicators: Function, fraction: float) -> Function:
+    """Mark cells for refinement with a simplified variant of Dorfler marking.
+
+    A cell ``K`` is marked if ``eta_K >= fraction * max_L eta_L``. Unlike
+    Dorfler marking, this variant does not sort the indicators.
+
+    Parameters
+    ----------
+    indicators
+        A DG0 `~firedrake.function.Function` that holds one non-negative
+        error indicator per cell.
+    fraction
+        The fraction of the largest indicator that the indicator of a cell
+        must reach for the cell to be marked.
+
+    Returns
+    -------
+    A DG0 `~firedrake.function.Function` that is 1 on the marked cells and
+    0 on the other cells.
+    """
     if not 0 < fraction <= 1:
         raise ValueError("marking_fraction must lie in (0, 1]")
-    local = indicators.dat.data_ro.copy()
-    if not np.isfinite(local).all():
-        raise ConvergenceError("DWR error indicators contain non-finite values")
-    gathered = indicators.comm.allgather(local)
-    values = np.concatenate(gathered)
-    total = values.sum()
+    with indicators.dat.vec_ro as vec:
+        if not np.isfinite(vec.norm()):
+            raise ConvergenceError("DWR error indicators contain non-finite values")
+        _, eta_max = vec.max()
     markers = Function(indicators.function_space())
-    if total <= 0:
-        return markers.assign(1)
-    ordered = np.sort(values)[::-1]
-    count = np.searchsorted(np.cumsum(ordered), fraction * total) + 1
-    threshold = ordered[min(count - 1, len(ordered) - 1)]
-    markers.dat.data_wo[:] = local >= threshold
+    markers.dat.data_wo[:] = indicators.dat.data_ro >= fraction * eta_max
     return markers
 
 
@@ -382,20 +350,18 @@ class GoalEstimate:
 
 
 class GoalOrientedMarker:
-    """A context that marks cells for goal-oriented adaptive refinement.
+    """Mark cells for goal-oriented adaptive refinement.
 
-    This context refines the mesh targeting a localized error estimate
-    in a scalar quantity of interest, the goal functional ``J``. It
-    estimates the error ``J(u) - J(u_h)`` with the dual-weighted residual
-    method, which applies to any variational problem without
-    problem-specific derivations.
+    The marker estimates the error ``J(u) - J(u_h)`` in a scalar goal
+    functional ``J`` with the dual-weighted residual method. The estimate
+    is computed from the residual form, so it does not need a derivation
+    for each problem.
 
-    Pass an instance as the ``marking_callback`` of a
-    `NonlinearVariationalSolver` and set ``snes_adapt_sequence``. The solver
-    calls the instance on each mesh in the sequence. The instance moves its
-    goal functional to that mesh, records an error estimate in
-    ``estimates``, and returns the cells to refine, or `None` to stop the
-    adaptation once the estimate meets the tolerances.
+    Pass the marker as the ``marking_callback`` of a
+    `NonlinearVariationalSolver` and set ``snes_adapt_sequence``. On each
+    mesh of the sequence, the marker adds a `GoalEstimate` to
+    ``estimates`` and returns the cells to refine. When the estimate meets
+    the tolerances, the marker returns `None`, and the adaptation stops.
 
     Parameters
     ----------
@@ -408,7 +374,8 @@ class GoalOrientedMarker:
     Attributes
     ----------
     goal_functional
-        The goal functional on the most recently marked mesh.
+        The goal functional on the most recently marked mesh. The marker
+        moves it to each new mesh.
     exact_solution
         The exact solution on the most recently marked mesh, or `None`.
     estimates
@@ -425,24 +392,12 @@ class GoalOrientedMarker:
         default tolerances, adaptation runs for the whole
         ``snes_adapt_sequence``.
     ``goal_marking_fraction`` (default 0.5)
-        The fraction of the estimated error that the marked cells must
-        contain. Larger values refine more cells at each step.
+        The marker refines each cell whose error indicator is at least this
+        fraction of the largest error indicator. Smaller values refine more
+        cells at each step.
     ``goal_enrichment_degree`` (default 1) and ``goal_residual_degree`` (default 1)
         The increases in polynomial degree that the error estimate uses.
         Larger values give a more accurate estimate at a higher cost.
-    ``goal_test_derivative_order`` (default 1)
-        The highest derivative of the test function in the residual, which
-        sets how the error indicators are localized to the cells. Set it to
-        2 for a fourth-order operator, such as the biharmonic operator.
-        Above 1, the ``goal_cell_`` and ``goal_facet_`` local problems no
-        longer have diagonal mass matrices, so they need exact solvers,
-        such as ``pc_type lu``.
-    ``goal_enriched_family`` (default: the family of the solution space)
-        The element family of the space of higher degree. The enriched
-        space must contain the solution space and approximate the solution
-        to a higher order. For example, ``HCT-red`` is defined only at
-        degree 3, but it can be enriched to ``HCT`` with
-        ``goal_enrichment_degree 0``.
     ``goal_monitor`` (default off)
         Print each estimate.
 
@@ -488,7 +443,7 @@ class GoalOrientedMarker:
     def _estimate_error(self, problem, current_solution: Function,
                         dual_low: Function, dual_error: ufl.classes.Expr,
                         options_prefix: str) -> GoalEstimate:
-        """Estimate ``J(u) - J(u_h)``, and report on it.
+        """Estimate ``J(u) - J(u_h)`` and print the estimate if ``goal_monitor`` is set.
 
         Parameters
         ----------
@@ -543,6 +498,20 @@ class GoalOrientedMarker:
         return estimate
 
     def __call__(self, ctx: _SNESContext, current_solution: Function) -> Function | None:
+        """Estimate the error on the current mesh and mark the cells to refine.
+
+        Parameters
+        ----------
+        ctx
+            The `_SNESContext` of the solver on the current mesh.
+        current_solution
+            The primal solution ``u_h`` on the current mesh.
+
+        Returns
+        -------
+        A DG0 `~firedrake.function.Function` that is 1 on the cells to refine,
+        or `None` if the estimate meets the tolerances.
+        """
         from firedrake.mg.ufl_utils import refine
 
         problem = ctx._problem
@@ -552,17 +521,15 @@ class GoalOrientedMarker:
             mapping = ctx._coefficient_mapping
             self.goal_functional = refine(self.goal_functional, refine, coefficient_mapping=mapping)
             self.exact_solution = refine(self.exact_solution, refine, coefficient_mapping=mapping)
-        # Refined contexts have a prefix for their multigrid level, so read the
-        # options of the SNES, which all contexts share.
+        # Each refined context has a prefix for its level. The SNES has the
+        # same prefix on all levels, so read the options from the SNES.
         prefix = ctx.snes.getOptionsPrefix() or ""
         options = PETSc.Options(prefix)
         enrichment_degree = options.getInt("goal_enrichment_degree", 1)
         residual_degree = options.getInt("goal_residual_degree", 1)
-        test_derivative_order = options.getInt("goal_test_derivative_order", 1)
         marking_fraction = options.getReal("goal_marking_fraction", 0.5)
-        enriched_family = options.getString("goal_enriched_family", V.ufl_element().family())
         high_degree = V.ufl_element().degree() + enrichment_degree
-        high_space = V.reconstruct(family=enriched_family, degree=high_degree)
+        high_space = V.reconstruct(degree=high_degree)
 
         dual_low = Function(V, name="dwr_dual_low")
         goal_derivative = derivative(self.goal_functional, current_solution)
@@ -570,18 +537,15 @@ class GoalOrientedMarker:
         ctx.solve_jacobian(rhs, dual_low, transpose=True)
 
         primal_high = Function(high_space, name="dwr_primal_high")
-        try:
-            primal_high.interpolate(current_solution)
-        except NotImplementedError:
-            primal_high.project(current_solution)
+        primal_high.interpolate(current_solution)
         high_problem = problem.rediscretise(u=primal_high)
 
         nullspace = None if ctx._nullspace is None else ctx._nullspace.rediscretise(high_space)
         transpose_nullspace = None if ctx._nullspace_T is None else ctx._nullspace_T.rediscretise(high_space)
         near_nullspace = None if ctx._near_nullspace is None else ctx._near_nullspace.rediscretise(high_space)
 
-        # Use options not prefixed by goal_ as defaults for the goal_enriched_ solver
-        # This filters out the options given to goal_cell_ and goal_facet_ subsolvers
+        # The goal_enriched_ solver takes the options of the solver as
+        # defaults, but not the goal_ options of the other local solvers.
         parameters = get_default_options(DefaultOptionSet(prefix, ("goal_",)))
         parameters.pop("snes_adapt_sequence", None)
 
@@ -612,6 +576,6 @@ class GoalOrientedMarker:
             return None
 
         indicators = _residual_indicators(
-            problem.F, dual_error, residual_degree, test_derivative_order, prefix
+            problem.F, dual_error, residual_degree, prefix
         )
         return _dorfler_mark(indicators, marking_fraction)

@@ -475,9 +475,8 @@ def _jacobian_solver(V, u):
     )
 
 
-def test_solve_jacobian_uses_its_own_solvers_operator():
-    # A second solver on V must not take over the Jacobian solve of the first
-    # one. Each solver holds its own KSP, and not the KSP that the DM composes.
+def test_solve_jacobian_uses_own_operator():
+    # Each solver uses its own KSP, not the KSP that is attached to the DM.
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -489,7 +488,7 @@ def test_solve_jacobian_uses_its_own_solvers_operator():
     expected = Function(V)
     first._ctx.solve_jacobian(b, expected)
 
-    # A second solver on the same V, with a deliberately different Jacobian.
+    # Solve a different problem on the same space.
     u2 = Function(V)
     v2 = TestFunction(V)
     F2 = Constant(7)*inner(grad(u2), grad(v2))*dx - inner(Constant(1), v2)*dx
@@ -503,8 +502,6 @@ def test_solve_jacobian_uses_its_own_solvers_operator():
     first._ctx.solve_jacobian(b, actual)
     assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
 
-    # ... and the second solver really does have a different operator, so the
-    # check above is not vacuous.
     other = Function(V)
     second._ctx.solve_jacobian(b, other)
     assert not np.allclose(other.dat.data_ro, expected.dat.data_ro)
@@ -538,8 +535,8 @@ def test_solve_jacobian_without_snes_raises():
     solver = _jacobian_solver(V, u)
     solver.solve()
 
-    # Contexts rebuilt for coarse levels or field splits describe a different
-    # problem than the outer SNES, so they deliberately do not inherit it.
+    # A reconstructed context, as for a coarse level or a field split, does
+    # not solve the problem of the outer SNES, so it has no SNES.
     reconstructed = solver._ctx.reconstruct()
     assert reconstructed.snes is None
 
@@ -547,3 +544,15 @@ def test_solve_jacobian_without_snes_raises():
     b = assemble(L)
     with pytest.raises(RuntimeError, match="not attached to a SNES"):
         reconstructed.solve_jacobian(b, Function(V))
+
+
+def test_nonlinear_solve_failure_raises():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx + inner(u**3, v)*dx - inner(Constant(10), v)*dx
+    bc = DirichletBC(V, 0, "on_boundary")
+    parameters = {"snes_max_it": 1, "ksp_type": "preonly", "pc_type": "lu"}
+    with pytest.raises(ConvergenceError, match="DIVERGED_MAX_IT"):
+        solve(F == 0, u, bcs=bc, solver_parameters=parameters)

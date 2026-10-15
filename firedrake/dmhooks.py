@@ -463,10 +463,8 @@ def _refine_adaptive(dm):
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
-    # ctx._x holds the last point where the residual was evaluated, which
-    # differs from the solution if the SNES does not evaluate the residual
-    # at the final iterate, as with snes_type ksponly. Outside a solve, the
-    # SNES has no solution and ctx._x is the current state.
+    # During a solve, the SNES holds the final iterate. The residual may have
+    # been evaluated at an earlier iterate, so mark the cells of the SNES solution.
     solution = ctx.snes.getSolution()
     if solution:
         with current_solution.dat.vec_wo as x:
@@ -477,8 +475,9 @@ def _refine_adaptive(dm):
     if hierarchy is not None and level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:
-        # Without a marking callback, refine uniformly.
-        markers = firedrake.Function(firedrake.FunctionSpace(mesh, "DG", 0)).assign(1)
+        # Without a marking callback, refine all cells.
+        M = firedrake.FunctionSpace(mesh, "DG", 0)
+        markers = firedrake.Function(M).assign(1)
     else:
         markers = ctx._marking_callback(ctx, current_solution)
     if markers is None:

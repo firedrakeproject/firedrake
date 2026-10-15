@@ -312,7 +312,7 @@ def test_nlvs_callback(callback, rg):
     F = inner(grad(u), grad(v))*dx + u**3*v*dx - c**2*v*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
 
-    # The adjoint solves must not receive the callbacks of the forward solver
+    # The adjoint solves do not use the callbacks of the forward solver.
     solver = NonlinearVariationalSolver(
         NonlinearVariationalProblem(F, u, bc),
         solver_parameters={"snes_rtol": 1e-10, "ksp_type": "preonly", "pc_type": "lu"},
