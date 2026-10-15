@@ -1,9 +1,29 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import get_assembler
+from firedrake.assemble import BaseFormAssembler, get_assembler
 from firedrake.utils import ScalarType
 import ufl
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("case", [4, 7])
+def test_nested_operator_argument_slots(case: int) -> None:
+    """Reordering or contracting arguments leaves the nested operand intact."""
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    operand = interpolate(f, V)
+    operator = point_expr(lambda z: z, function_space=V)(operand)
+    derivative_operator = operator._ufl_expr_reconstruct_(
+        operand, derivatives=(1,), argument_slots=(Argument(V.dual(), 0), TrialFunction(V)))
+    if case == 4:
+        expression = adjoint(derivative_operator)
+    else:
+        expression = action(Cofunction(V.dual()), derivative_operator)
+    result = BaseFormAssembler.restructure_base_form(expression)
+    assert result.ufl_operands == (operand,)
+    assert len(result.arguments()) == (2 if case == 4 else 1)
 
 
 @pytest.fixture(scope='module')

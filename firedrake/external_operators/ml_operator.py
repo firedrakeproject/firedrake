@@ -79,12 +79,18 @@ class MLOperator(AbstractExternalOperator):
     def assemble_jacobian_adjoint_action(self, *args, **kwargs):
         """Assemble the action of the Jacobian adjoint using the AD engine of the ML framework."""
         w = self.argument_slots()[0]
+        # Derivative with respect to the parameters of the ML model
+        if self.operator_data.get('model_parameters', False) and self.derivatives[-1] == 1:
+            return self._backward(w)
         return self._vjp(w)
 
     # -- ML framework-specific methods -- #
 
     def _forward(self):
         raise NotImplementedError("Forward pass not implemented.")
+
+    def _backward(self, y):
+        raise NotImplementedError("Backward pass not implemented.")
 
     def _jvp(self):
         raise NotImplementedError("Jacobian-vector product not implemented.")
