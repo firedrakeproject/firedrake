@@ -99,9 +99,6 @@ runs:
           exit 1
         fi
 
-        : # DROP BEFORE MERGE
-        curl -fsSL https://gitlab.com/petsc/petsc/-/merge_requests/9673.diff | git -C petsc apply
-
         if [ ${{ inputs.os }} = 'linux' ]; then
           NPROCS=8
         elif [ ${{ inputs.os }} = 'macos' ]; then
@@ -112,6 +109,11 @@ runs:
         fi
 
         cd petsc
+        : # DROP BEFORE MERGE: build petsc!9704, which is based on the PETSc
+        : # release branch and so also includes petsc!9672 and petsc!9673.
+        git fetch --depth 1 origin refs/merge-requests/9704/head
+        git checkout --detach FETCH_HEAD
+        git rev-parse HEAD
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
