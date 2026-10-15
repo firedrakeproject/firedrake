@@ -422,9 +422,10 @@ class RieszMap:
 
     Parameters
     ----------
-    function_space_or_inner_product: FunctionSpace or ufl.Form
-        The space from which to map, or a bilinear form defining an inner
-        product.
+    function_space_or_inner_product: FunctionSpace or ufl.BaseForm
+        The space from which to map, or a bilinear form that defines an
+        inner product, for example a ufl.Form, a Slate tensor, or an
+        assembled matrix.
     sobolev_space: str or ufl.sobolevspace.SobolevSpace.
         Used to determine the inner product.
     bcs: DirichletBC or list of DirichletBC
@@ -446,10 +447,8 @@ class RieszMap:
                  sobolev_space=ufl.L2, *, bcs=None, solver_parameters=None,
                  form_compiler_parameters=None, restrict=True,
                  constant_jacobian=False, options_prefix=None):
-        if isinstance(function_space_or_inner_product, ufl.Form):
-            args = ufl.algorithms.extract_arguments(
-                function_space_or_inner_product
-            )
+        if isinstance(function_space_or_inner_product, ufl.BaseForm):
+            args = function_space_or_inner_product.arguments()
             if len(args) != 2:
                 raise ValueError(f"inner_product has arity {len(args)}, "
                                  "should be 2.")
@@ -480,6 +479,15 @@ class RieszMap:
         self._restrict = restrict
         self._constant_jacobian = constant_jacobian
         self._options_prefix = options_prefix
+
+    @property
+    def inner_product(self) -> ufl.BaseForm | str:
+        """The bilinear form that defines the inner product.
+
+        The value is the string ``"l2"`` for the Euclidean inner product of
+        the vectors of degrees of freedom.
+        """
+        return self._inner_product
 
     @staticmethod
     def _inner_product_form(sobolev_space, u, v):
@@ -520,7 +528,7 @@ class RieszMap:
                 raise ValueError("Function space mismatch in RieszMap.")
             output = Function(self._function_space)
 
-            if self._inner_product == "l2":
+            if isinstance(self._inner_product, str):
                 for o, c in zip(output.subfunctions, value.subfunctions):
                     o.dat.data[:] = c.dat.data_ro[:]
             else:
@@ -534,7 +542,7 @@ class RieszMap:
             if value.function_space() != self._function_space:
                 raise ValueError("Function space mismatch in RieszMap.")
 
-            if self._inner_product == "l2":
+            if isinstance(self._inner_product, str):
                 output = Cofunction(self._function_space.dual())
                 for o, c in zip(output.subfunctions, value.subfunctions):
                     o.dat.data[:] = c.dat.data_ro[:]

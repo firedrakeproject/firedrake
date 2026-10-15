@@ -7,7 +7,7 @@ import numpy
 from pyop2 import op2
 from firedrake import dmhooks
 from firedrake.function import Function
-from firedrake.cofunction import Cofunction
+from firedrake.cofunction import Cofunction, RieszMap
 from firedrake.matrix import MatrixBase
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
@@ -181,6 +181,12 @@ class _SNESContext(object):
     pre_apply_bcs
         If `False`, the problem is linearised around the initial guess before
         imposing the boundary conditions.
+    inner_product
+        The inner product that measures the residual, as set by the
+        ``snes_inner_product`` option: a Sobolev space name that `RieszMap`
+        accepts (``"l2"``, ``"L2"`` or ``"H1"``), a bilinear form such as a
+        ufl.Form, a Slate tensor or an assembled matrix, or a `RieszMap`. If
+        None or ``"l2"``, the residual norms are Euclidean.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -200,7 +206,8 @@ class _SNESContext(object):
                  marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 inner_product=None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -296,6 +303,15 @@ class _SNESContext(object):
         self._near_nullspace = None
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
+
+        # The bilinear form of the inner product, or None for the Euclidean inner product
+        if isinstance(inner_product, str):
+            inner_product = RieszMap(self._x.function_space(), inner_product)
+        elif inner_product is not None and not isinstance(inner_product, RieszMap):
+            inner_product = RieszMap(inner_product)
+        self._inner_product_form = None
+        if inner_product is not None and not isinstance(inner_product.inner_product, str):
+            self._inner_product_form = inner_product.inner_product
 
     def set_snes(self, snes: "PETSc.SNES | weakref.ProxyType") -> None:
         """Stash a weakref to the SNES wrapping this _SNESContext.
@@ -437,6 +453,38 @@ class _SNESContext(object):
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
                          P=self._pjac.petscmat)
+
+    @cached_property
+    def _assembler_inner_product(self):
+        from firedrake.assemble import get_assembler
+        bcs = tuple(self._problem.dirichlet_bcs())
+        return get_assembler(self._inner_product_form, bcs=bcs, form_compiler_parameters=self.fcp,
+                             mat_type=self.pmat_type, sub_mat_type=self.sub_pmat_type,
+                             options_prefix=self.options_prefix, appctx=self.appctx)
+
+    @cached_property
+    def _inner_product(self) -> MatrixBase:
+        return self._assembler_inner_product.allocate()
+
+    def set_inner_product(self, snes):
+        dm = snes.getDM()
+        if self._inner_product_form is not None:
+            dm.setSNESCreateInnerProduct(self.create_inner_product)
+            dm.setSNESInnerProduct(self.form_inner_product)
+        else:
+            dm.setSNESCreateInnerProduct(None)
+            dm.setSNESInnerProduct(None)
+
+    @staticmethod
+    def create_inner_product(snes: PETSc.SNES) -> PETSc.Mat:
+        ctx = dmhooks.get_appctx(snes.getDM())
+        return ctx._inner_product.petscmat
+
+    @staticmethod
+    def form_inner_product(snes: PETSc.SNES, M: PETSc.Mat) -> None:
+        ctx = dmhooks.get_appctx(snes.getDM())
+        assert M.handle == ctx._inner_product.petscmat.handle
+        ctx._assembler_inner_product.assemble(tensor=ctx._inner_product)
 
     def set_nullspace(self, nullspace, ises=None, transpose=False, near=False):
         if nullspace is None:
