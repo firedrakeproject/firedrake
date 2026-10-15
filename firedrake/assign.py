@@ -86,10 +86,13 @@ class AssignExprBuilder(DAGTraverser):
             # If we have a restricted function space we have different data
             # layouts so naive array assignment will fail and we have to fall
             # back to generating code.
-            if any(
-                func_fs.boundary_set != self_fs.boundary_set
-                for func_fs, self_fs in zip(
-                    func.function_space(), self.function_space, strict=True
+            if (
+                func.ufl_element().family() != "Real"
+                and any(
+                    func_fs.boundary_set != self_fs.boundary_set
+                    for func_fs, self_fs in zip(
+                        func.function_space(), self.function_space, strict=True
+                    )
                 )
             ):
                 self.array_assign_safe = False

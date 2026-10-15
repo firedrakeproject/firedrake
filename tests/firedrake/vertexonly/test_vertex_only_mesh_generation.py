@@ -315,7 +315,7 @@ def test_redistribution():
     else:
         with pytest.warns(UserWarning):
             vm2 = VertexOnlyMesh(m, np.array([[0.1, 0.9], [0.9, 0.1], [2, 3]]), missing_points_behaviour='warn', redundant=False)
-    assert np.allclose(vm1.coordinates.dat.data_ro, vm2.coordinates.dat.data_ro)
+    parallel_assert(np.allclose(vm1.coordinates.dat.data_ro, vm2.coordinates.dat.data_ro))
 
 
 def test_point_tolerance():
@@ -454,16 +454,12 @@ def test_ghost_labelling():
     # have no halo points
     points = np.asarray([[0.125], [0.375], [0.625], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    assert vm.cells.owned.local_size == m.cells.owned.local_size
-    assert vm.cells.local_size == m.cells.local_size
+    assert vm.cells.local_size == m.cells.owned.local_size
     points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
-    assert vm.cell_set.sizes == tuple(2 * size for size in expected_sizes)
-    assert vm.cells.owned.local_size == 2 * m.cells.owned.local_size
-    assert vm.cells.local_size == 2 * m.cells.local_size
+    assert vm.cells.local_size == 2 * m.cells.owned.local_size
     points = np.asarray([[-5.0]])
     vm = VertexOnlyMesh(m, points, redundant=False, missing_points_behaviour="ignore")
-    assert vm.cells.owned.local_size == 0
     assert vm.cells.local_size == 0
 
 

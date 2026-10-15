@@ -187,13 +187,15 @@ class Dat(Tensor):
     def max(self) -> numbers.Number:
         """Return the global maximum value held by the dat."""
         with self.vec_ro as v:
-            return v.min()
+            _, x = v.max()
+        return x
 
     @property
     def min(self) -> numbers.Number:
         """Return the global minimum value held by the dat."""
         with self.vec_ro as v:
-            return v.max()
+            _, x = v.min()
+        return x
 
     # }}}
 

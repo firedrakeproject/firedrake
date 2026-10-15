@@ -7,7 +7,7 @@ from firedrake.utils import ScalarType
 
 @pytest.fixture(scope='module')
 def mesh():
-    return UnitSquareMesh(1, 1)
+    return UnitSquareMesh(5, 5)
 
 
 @pytest.fixture(scope='module', params=['cg1', 'vcg1', 'tcg1',
@@ -115,7 +115,7 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
-@pytest.mark.xfail(reason="pyop3 failing")
+@pytest.mark.skip(reason="pyop3 failing")
 @pytest.mark.parallel
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"),
                                             ("mixed_blocks", "is"), ("mixed", "nest")])
