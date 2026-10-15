@@ -29,7 +29,7 @@ def test_delta_elimination_indirect_only():
     columns = Literal(numpy.array([2, 0, 1]), dtype=uint_type)
     indirect = VariableIndex(Indexed(columns, (k,)))
 
-    # An indirect Delta cancels either way round: no later pass can lower one.
+    # Cancelling an indirect Delta replaces the summed axis with a gather.
     factors = [Delta(indirect, i), Indexed(A, (i,))]
     cancelled, gathered = delta_elimination((i,), factors, indirect_only=True)
     assert cancelled == []
