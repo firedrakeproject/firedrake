@@ -72,13 +72,18 @@ Firedrake's toolchain, in order:
 
 ### Environment Setup
 
-* **Editable installs:** Install PETSc, petsc4py, UFL, FIAT, FInAT, TSFC, PyOP2, and loopy in editable
-  mode (see ["Editing subpackages"](https://firedrakeproject.org/install.html#editing-subpackages)) so
-  source edits take effect without reinstalling. Check each component's active branch/commit before
-  assuming a fix belongs in Firedrake.
-* **`petsc4py`/PETSc version skew:** Rebuild `petsc4py` (`pip install --no-build-isolation -e .`) after
-  switching the PETSc branch/commit under an existing venv. A stale `petsc4py` fails `import firedrake`
-  with an `undefined symbol: ...` error, not a Firedrake traceback.
+* **Editable installs:** Install UFL, FIAT, FInAT, TSFC, PyOP2, and loopy in editable mode (see
+  ["Editing subpackages"](https://firedrakeproject.org/install.html#editing-subpackages)) so source
+  edits take effect without reinstalling. Build PETSc in place in its source tree. Check each
+  component's active branch/commit before assuming a fix belongs in Firedrake.
+* **`petsc4py`/PETSc version skew:** After you switch the PETSc branch/commit under an existing venv,
+  run `make` in `$PETSC_DIR` and then reinstall `petsc4py` without `-e`:
+  `pip install --no-build-isolation --no-deps --no-cache-dir $PETSC_DIR/src/binding/petsc4py`.
+  A stale `petsc4py` fails `import firedrake` with an `undefined symbol: ...` error, not a Firedrake
+  traceback. An editable install of `petsc4py` also fails `import firedrake`, with
+  `InterpolationDepthError` in `petsc4py.get_config()`. The editable install reads `lib/petsc.cfg`
+  from the source tree, where that file is a template. The build writes the real values only into
+  the build directory.
 * **Caching:** `import firedrake` sets `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`, `PYOP2_CACHE_DIR`, and
   `XDG_CACHE_HOME`, all derived from `FIREDRAKE_CACHE_DIR` (default `sys.prefix/.cache`, or `~/.cache`
   if that isn't writable). Run `firedrake-clean` if a change to the code generator does not take
