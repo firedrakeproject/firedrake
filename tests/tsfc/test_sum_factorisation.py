@@ -322,6 +322,15 @@ def bernstein_laplacian(
     return inner(grad(u), grad(v)) * dx(scheme=scheme)
 
 
+@pytest.mark.parametrize("cell", [interval, triangle, tetrahedron])
+def test_lowest_degree_legendre_mass(cell):
+    """Sums over a single basis function cancel no Delta, which is lowered."""
+    mesh = Mesh(VectorElement("CG", cell, 1))
+    space = FunctionSpace(mesh, FiniteElement("DG", cell, 0, variant="integral"))
+    form = inner(TrialFunction(space), TestFunction(space)) * dx
+    compile_form(form, parameters={"mode": "spectral"})
+
+
 @pytest.mark.parametrize(("cell", "order"), [(triangle, 3), (tetrahedron, 4)])
 def test_bernstein_mass_action(cell: object, order: float) -> None:
     degrees = list(range(3, 9)) if cell is triangle else list(range(3, 8))
