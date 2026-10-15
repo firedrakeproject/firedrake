@@ -5,9 +5,8 @@ from itertools import chain, zip_longest
 from gem.gem import Delta, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
 from gem.cost import estimate_cost
-from gem.optimise import (cancel_nested_deltas,
-                          tabulate_indirect_contractions,
-                          filtered_replace_indices, has_linear_maps)
+from gem.optimise import (cancel_indirect_deltas, filtered_replace_indices,
+                          has_linear_maps, tabulate_indirect_contractions)
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
@@ -37,9 +36,9 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     # Rewrite: a / b => a * (1 / b)
     expressions = replace_division(expressions)
 
-    # Cancel the Deltas that select a basis transformation's columns, so that
-    # monomial collection sees the resulting gather rather than the Delta.
-    expressions = [cancel_nested_deltas(e) for e in expressions]
+    # Cancel indirect Deltas before preserving argument linear maps.
+    # This turns sparse basis-column selection into ordinary indexed access.
+    expressions = [cancel_indirect_deltas(e) for e in expressions]
 
     # Unroll
     max_extent = parameters["unroll_indexsum"]
@@ -65,18 +64,10 @@ def _group_key(pair):
 
 
 def _preservable(pairs):
-    """Is there a linear map whose preservation could change a plan?
+    """Can preserving argument linear maps change this factorisation?
 
-    Parameters
-    ----------
-    pairs : tuple of tuple
-        Output variables and the integrands assigned to them.
-
-    Returns
-    -------
-    bool
-        Whether any assignment contains a sum over one argument axis.
-
+    :arg pairs: output variables and their integrands
+    :returns: whether an integrand contains an argument linear map
     """
     return any(
         has_linear_maps([expression], set(free_indices))
@@ -85,23 +76,12 @@ def _preservable(pairs):
 
 
 def _factorise(pairs, quadrature_indices, preserve_maps):
-    """Factorise the arguments of each assignment and place its reductions.
+    """Factorise each assignment over its form arguments.
 
-    Parameters
-    ----------
-    pairs : tuple of tuple
-        Output variables and the integrands assigned to them.
-    quadrature_indices : tuple of Index
-        Every quadrature index of the integral, in source order.
-    preserve_maps : bool
-        Keep a sum over one argument axis whole, as a finite element linear
-        map, rather than distributing it into scalar monomials.
-
-    Returns
-    -------
-    tuple of tuple
-        Output variables and their factorised GEM expressions.
-
+    :arg pairs: output variables and their integrands
+    :arg quadrature_indices: quadrature indices in source order
+    :arg preserve_maps: retain argument linear maps as atomic factors
+    :returns: output variables and their factorised GEM expressions
     """
     # Common memoizer to remove ComponentTensors
     index_replacer = MemoizerArg(filtered_replace_indices)
