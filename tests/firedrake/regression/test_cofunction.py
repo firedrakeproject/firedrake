@@ -83,3 +83,20 @@ def test_riesz_map_options_prefix(V):
     del options['riesz_ksp_type']
     del options['riesz_ksp_max_it']
     del options['riesz_pc_type']
+
+
+@pytest.mark.parametrize("kind", ["slate", "matrix"])
+def test_riesz_map_base_form(V, kind):
+    """A Slate tensor or an assembled matrix defines the same Riesz map as its form."""
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx + inner(grad(u), grad(v)) * dx
+    inner_product = {"slate": Tensor(a), "matrix": assemble(a)}[kind]
+    x, = SpatialCoordinate(V.mesh())
+    f = assemble(inner(1 + x, v) * dx)
+
+    expected = RieszMap(a)(f)
+    riesz = RieszMap(inner_product)
+    assert riesz.inner_product is inner_product
+    assert np.allclose(riesz(f).dat.data_ro, expected.dat.data_ro)
+    assert np.allclose(riesz(expected).dat.data_ro, f.dat.data_ro)

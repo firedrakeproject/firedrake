@@ -4,6 +4,7 @@ import ufl
 from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
+import petsctools
 from petsctools import OptionsManager, flatten_parameters
 
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
@@ -419,6 +420,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # OptionsManager mixin)
         mat_type = self.parameters.get("mat_type")
         pmat_type = self.parameters.get("pmat_type")
+        with self.inserted_options():
+            inner_product = petsctools.Options(self.options_prefix).get("snes_inner_product")
         sub_mat_type = self.parameters.get("sub_mat_type")
         sub_pmat_type = self.parameters.get("sub_pmat_type")
         ctx = solving_utils._SNESContext(problem,
@@ -433,7 +436,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          post_function_callback=post_function_callback,
                                          marking_callback=marking_callback,
                                          options_prefix=self.options_prefix,
-                                         pre_apply_bcs=pre_apply_bcs)
+                                         pre_apply_bcs=pre_apply_bcs,
+                                         inner_product=inner_product)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
         ctx.set_snes(self.snes)
@@ -447,6 +451,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx.set_objective(self.snes)
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
+        ctx.set_inner_product(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
                           transpose=False, near=False)
         ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space()._ises,
@@ -530,6 +535,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_objective(self.snes)
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
+        self._ctx.set_inner_product(self.snes)
 
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem

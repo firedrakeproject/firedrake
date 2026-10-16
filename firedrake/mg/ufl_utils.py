@@ -421,6 +421,9 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
 
     pmat_type = pmat_type or mat_type
     sub_pmat_type = sub_pmat_type or sub_mat_type
+    inner_product = None
+    if context._inner_product_form is not None:
+        inner_product = self(context._inner_product_form, self, coefficient_mapping=coefficient_mapping)
     new_context = context.reconstruct(problem=problem,
                                       mat_type=mat_type,
                                       pmat_type=pmat_type,
@@ -428,6 +431,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       sub_pmat_type=sub_pmat_type,
                                       appctx=new_appctx,
                                       options_prefix=options_prefix,
+                                      inner_product=inner_product,
                                       )
     new_context._coefficient_mapping = coefficient_mapping
     attach_relative(self, new_context, context, reverse=True)

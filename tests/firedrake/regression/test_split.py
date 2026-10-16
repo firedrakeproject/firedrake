@@ -168,3 +168,30 @@ def test_split_action_composition():
         expected = matrix.createSubMatrix(ises[i], ises[j])
         actual.axpy(-1, expected, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
         assert actual.norm(PETSc.NormType.NORM_FROBENIUS) < 1e-12
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("mat_type", ["aij", "nest"])
+def test_split_slate_matrix_with_bcs(mat_type):
+    """A fieldsplit of a matrix assembled from a Slate tensor with bcs solves the same system as the UFL form."""
+    V = FunctionSpace(UnitSquareMesh(4, 4), "CG", 1)
+    W = V * V
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+    a = inner(grad(u), grad(v)) * dx + inner(p, q) * dx
+    L = inner(1, v) * dx + inner(1, q) * dx
+    bcs = DirichletBC(W.sub(0), 0, "on_boundary")
+    b = assemble(L, bcs=bcs)
+    params = {"ksp_type": "preonly", "pc_type": "fieldsplit", "pc_fieldsplit_type": "additive",
+              "fieldsplit_ksp_type": "preonly", "fieldsplit_pc_type": "lu"}
+
+    A = assemble(Tensor(a), bcs=bcs, mat_type=mat_type)
+    block = ExtractSubBlock().split(A, (0, 0))
+    assert isinstance(block.a, slate.TensorBase)
+
+    solutions = []
+    for form in [a, Tensor(a)]:
+        w = Function(W)
+        LinearSolver(assemble(form, bcs=bcs, mat_type=mat_type), solver_parameters=params).solve(w, b)
+        solutions.append(w)
+    assert errornorm(*solutions) < 1E-12

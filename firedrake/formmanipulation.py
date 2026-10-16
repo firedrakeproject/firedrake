@@ -224,7 +224,7 @@ class ExtractSubBlock(DAGTraverser):
             args.append(asplit)
             argument_indices.append(fields)
 
-        if isinstance(o.a, Form):
+        if isinstance(o.a, (Form, TensorBase)):
             form = self.split(o.a, argument_indices=argument_indices)
             if isinstance(form, ZeroBaseForm):
                 return form
