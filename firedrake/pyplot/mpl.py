@@ -23,9 +23,11 @@ from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
+from firedrake.embedding import get_embedding_dg_element
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
+from finat.physically_mapped import NeedsCoordinateMappingElement
 
 
 __all__ = [
@@ -1192,6 +1194,13 @@ class FunctionPlotter:
         # if the function space is the same as the last one
         Q = function.function_space()
         mesh = Q.mesh()
+        finat_element = Q.finat_element
+        if isinstance(finat_element, NeedsCoordinateMappingElement) or finat_element.mapping != "affine":
+            # The reference tabulation below is only valid for an affine
+            # mapping, so we sample the interpolant in a broken Lagrange space.
+            element = get_embedding_dg_element(Q.ufl_element(), Q.value_shape, broken_cg=True)
+            function = assemble(interpolate(function, FunctionSpace(mesh, element)))
+            Q = function.function_space()
         dimension = mesh.topological_dimension
         keys = {1: (0,), 2: (0, 0)}
 
