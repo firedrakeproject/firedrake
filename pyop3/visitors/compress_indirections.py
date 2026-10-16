@@ -223,7 +223,7 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
     def _null(self, obj: Any, /, **kwargs):
         """Handler for terminals where we don't do anything."""
         if self._collecting:
-            return ()
+            return ((0, 0, ((self.index, obj, 0),)),)
         else:
             return idict({})
 

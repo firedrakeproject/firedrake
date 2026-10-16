@@ -1071,13 +1071,22 @@ class ParloopFormAssembler(FormAssembler):
                     # FIXME: this doesn't work for matrices (yet)
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
-        for (local_kernel, _), (parloop, lgmaps) in zip(self.local_kernels, self.parloops(tensor)):
+        for local_kernel, subdomain_id in self.local_kernels:
+            parloop_builder = ParloopBuilder(
+                self._form,
+                tensor,
+                self._bcs,
+                local_kernel,
+                subdomain_id,
+                self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
+                diagonal=self.diagonal,
+            )
+
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-            if isinstance(self, ExplicitMatrixAssembler):
-                with modified_lgmaps(subtensor, lgmaps):
-                    parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
-            else:
-                parloop(**{self._tensor_id[local_kernel]: subtensor}, compiler_parameters=pyop3_compiler_parameters)
+            lgmaps = parloop_builder.collect_lgmaps(tensor, local_kernel.indices)
+            with modified_lgmaps(subtensor, lgmaps):
+                arg_replace_map = {subtensor.name: subtensor}
+                parloop_builder.build()(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc, u=current_state)
@@ -1096,33 +1105,6 @@ class ParloopFormAssembler(FormAssembler):
     @abc.abstractmethod
     def _as_pyop3_type(tensor, indices=None):
         """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
-
-    def parloops(self, tensor):
-        if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_id")
-        else:
-            tensor_id = {}
-            parloops_ = []
-            for local_kernel, subdomain_id in self.local_kernels:
-                # TODO: Move this about
-                subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
-                tensor_id[local_kernel] = subtensor.name
-
-                parloop_builder = ParloopBuilder(
-                    self._form,
-                    tensor,
-                    self._bcs,
-                    local_kernel,
-                    subdomain_id,
-                    self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
-                    diagonal=self.diagonal,
-                )
-                parloops_.append((parloop_builder.build(), parloop_builder.collect_lgmaps(tensor, local_kernel.indices)))
-            self._parloops = parloops_
-            self._tensor_id = tensor_id
-
-        return self._parloops
 
     @cached_property
     def local_kernels(self):
@@ -1989,6 +1971,8 @@ class ParloopBuilder:
         # another subfunction is passed in as a coefficient. This breaks pyop3's
         # assumptions about access descriptors and so we replace the read-only
         # coefficient with a copy.
+        # Note that this affects how we can cache parloops. We will need to
+        # perform this replacement at every invocation.
         if (
             isinstance(self._tensor, firedrake.Cofunction | firedrake.Function)
             and coeff.dat.buffer == self._tensor.dat.buffer

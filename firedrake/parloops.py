@@ -103,7 +103,6 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
     try:
         return kernel_cache[key]
     except KeyError:
-        kargs.append(...)
         knl = loopy.make_kernel(
             kernel_domains,
             instructions,

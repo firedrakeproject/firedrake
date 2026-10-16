@@ -393,7 +393,7 @@ class InstructionExecutionContext:
     def _executor_cache_key(self) -> Hashable:
         from pyop3.visitors import get_instruction_executor_cache_key
 
-        return get_instruction_executor_cache_key(self.root_insn)
+        return (get_instruction_executor_cache_key(self.root_insn), self.compiler_parameters)
 
     @functools.singledispatchmethod
     def _extract_buffers(self, arg: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
@@ -551,12 +551,6 @@ class CompiledCodeExecutor:
         This code is performance critical.
 
         """
-        # if "MatSetValues" in str(self) and "slate_wrapper" in str(self):
-        #     if "subkernel0_interior_facet_horiz_top_to__exterior_facet_top_integral_otherwise" in str(self):
-        #         breakpoint()
-        #     import pyop3.debug
-        # pyop3.debug.maybe_breakpoint()
-
         if not new_buffers:  # shortcut for the most common case
             buffer_intents = self.buffer_intents
             exec_arguments = self._default_exec_arguments
@@ -578,6 +572,13 @@ class CompiledCodeExecutor:
                 for buf_view in self.kernel_name_to_buffer_info.values()
             ]
             assert not new_buffers_for_exec_args
+
+        # if "MatSetValues" in str(self) and "slate_wrapper" in str(self):
+        #     if "subkernel0_interior_facet_horiz_top_to__exterior_facet_top_integral_otherwise" in str(self):
+        #         breakpoint()
+        # if "slate_wrapper" in str(self):
+        #     import pyop3.debug
+        #     pyop3.debug.maybe_breakpoint()
 
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
@@ -671,15 +672,22 @@ class CompiledCodeExecutor:
             fin()
 
     def __str__(self) -> str:
+        return self._stringify(self.buffer_intents)
+
+    def _stringify(self, buffer_intents):
         sep = "*" * 80
         str_ = []
         str_.append(sep)
         str_.append(self.executable._device_code)
         str_.append(sep)
 
-        for arg in self.executable.code.default_entrypoint.args:
-            size, buffer = self._buffer_str(self.kernel_name_to_buffer_info[arg.name].buffer)
-            str_.append(f"{arg.name} {size} : {buffer}")
+        for name_in_kernel, (buffer, intent) in zip(
+            self.kernel_name_to_buffer_info.keys(),
+            buffer_intents.items(),
+            strict=True,
+        ):
+            size, buffer = self._buffer_str(buffer)
+            str_.append(f"{name_in_kernel} {size} {intent} : {buffer}")
 
         str_.append(sep)
         return "\n".join(str_)
