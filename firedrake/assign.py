@@ -42,10 +42,17 @@ class AssignExprBuilder(DAGTraverser):
 
     @process.register
     def _(self, func: Function | Cofunction, /) -> op3.Dat:
-        if (
-            func.ufl_element().family() != "Real"
-            and func.ufl_element() != self.function_space.ufl_element()
-        ):
+        if func.ufl_element().family() == "Real":
+            data = func.dat.global_data
+            return (
+                op3.Dat(
+                    op3.AxisTree.from_iterable(func.function_space().shape or (1,)),
+                    data=data,
+                ),
+                False,
+            )
+
+        if func.ufl_element() != self.function_space.ufl_element():
             raise ValueError(
                 "All functions in the expression must have the same element as the assignee"
             )
@@ -86,99 +93,74 @@ class AssignExprBuilder(DAGTraverser):
             # If we have a restricted function space we have different data
             # layouts so naive array assignment will fail and we have to fall
             # back to generating code.
-            if (
-                func.ufl_element().family() != "Real"
-                and any(
-                    func_fs.boundary_set != self_fs.boundary_set
-                    for func_fs, self_fs in zip(
-                        func.function_space(), self.function_space, strict=True
-                    )
+            if any(
+                func_fs.boundary_set != self_fs.boundary_set
+                for func_fs, self_fs in zip(
+                    func.function_space(), self.function_space, strict=True
                 )
             ):
                 self.array_assign_safe = False
 
-        # NOTE: Is it really valid to consider Real a scalar type here?
-        is_scalar = func.ufl_element().family() == "Real"
-        is_vector = not is_scalar
-
-        return op3_expr, is_scalar, is_vector
+        return op3_expr, True
 
     @process.register(Constant)
     def _(self, const) -> tuple[op3.Dat, bool, bool]:
-        # TODO: Might want to restrict the allowed shapes here to only scalar and
-        # self.function_space.shape
-        return const.dat, True, False
+        return const.dat, False
 
     @process.register(ufl.classes.ScalarValue)
     def _(self, num) -> numbers.Number:
-        return num.value(), True, False
+        return num.value(), False
 
     @process.register(ufl.classes.Zero)
     def _(self, zero) -> numbers.Number:
-        return 0, True, False
+        return 0, False
 
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Product, a, b):
-        a_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_is_scalar, b_is_vector = b
+        a_expr, a_is_vector = a
+        b_expr, b_is_vector = b
 
         if a_is_vector and b_is_vector:
             raise ValueError("Expressions containing the product of two vector-valued "
                              "subexpressions cannot be used for assignment. Consider using "
                              "interpolate instead.")
 
-        is_scalar = a_is_scalar and b_is_scalar
-        is_vector = a_is_vector or b_is_vector
-
-        return a_expr * b_expr, is_scalar, is_vector
+        return a_expr * b_expr, a_is_vector or b_is_vector
 
     @process.register(ufl.classes.Division)
     @DAGTraverser.postorder
     def _(self, o, a, b):
-        a_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_is_scalar, b_is_vector = b
+        a_expr, a_is_vector = a
+        b_expr, b_is_vector = b
 
         if b_is_vector:
             raise ValueError("Expressions involving division by a vector-valued subexpression "
                              "cannot be used for assignment. Consider using interpolate instead.")
 
-        is_scalar = a_is_scalar and b_is_scalar
-        is_vector = a_is_vector
-
-        return a_expr / b_expr, is_scalar, is_vector
+        return a_expr / b_expr, a_is_vector
 
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Sum, a, b):
-        a_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_is_scalar, b_is_vector = b
+        a_expr, a_is_vector = a
+        b_expr, b_is_vector = b
 
-        is_scalar = a_is_scalar and b_is_scalar
-        is_vector = a_is_vector or b_is_vector
-
-        return a_expr + b_expr, is_scalar, is_vector
+        return a_expr + b_expr, a_is_vector or b_is_vector
 
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Power, a, b):
-        a_expr, a_is_scalar, a_is_vector = a
-        b_expr, b_is_scalar, b_is_vector = b
-
-        is_scalar = a_is_scalar and b_is_scalar
-        is_vector = a_is_vector or b_is_vector
-
-        # Only valid if a and b are scalars
-        assert is_scalar
-
-        return a_expr ** b_expr, is_scalar, is_vector
+        a_expr, a_is_vector = a
+        b_expr, b_is_vector = b
+        assert not a_is_vector and not b_is_vector, "Only valid if a and b are scalars"
+        return a_expr ** b_expr, False
 
     @process.register
     @DAGTraverser.postorder
     def _(self, _: ufl.classes.Abs, a):
-        a_expr, is_scalar, is_vector = a
-        assert is_scalar
-        return abs(a_expr), is_scalar, is_vector
+        a_expr, is_vector = a
+        return abs(a_expr), is_vector
 
     @process.register
     def _(self, _: ufl.classes.MultiIndex):
@@ -287,7 +269,7 @@ class Assigner:
             op3_assignee = self.assignee.dat[self.subset]
 
         expr_builder = AssignExprBuilder(self.assignee.function_space(), loop_index)
-        op3_expr, is_scalar, _ = expr_builder(self.expression)
+        op3_expr, _ = expr_builder(self.expression)
 
         match self.mode:
             case AssignmentMode.STANDARD:
@@ -297,10 +279,8 @@ class Assigner:
             case AssignmentMode.ISUB:
                 op3_expr = op3_assignee - op3_expr
             case AssignmentMode.IMUL:
-                assert is_scalar
                 op3_expr = op3_assignee * op3_expr
             case AssignmentMode.IDIV:
-                assert is_scalar
                 op3_expr = op3_assignee / op3_expr
             case _:
                 raise NotImplementedError

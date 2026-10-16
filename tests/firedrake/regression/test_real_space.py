@@ -349,18 +349,45 @@ def test_real_space_first():
 
 
 @pytest.mark.skipcomplex
-def test_real_space_assign():
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("shape", [(), (1,), (3,), (2, 2)])
+def test_real_space_assign(shape):
     mesh = UnitIntervalMesh(4)
-    V = FunctionSpace(mesh, "Real", 0)
+    V_scalar = FunctionSpace(mesh, "Real", 0)
+
+    if not shape:
+        V = V_scalar
+    elif len(shape) == 1:
+        dim, = shape
+        V = VectorFunctionSpace(mesh, "Real", 0, dim=dim)
+    else:
+        V = TensorFunctionSpace(mesh, "Real", 0, shape=shape)
+
     f = Function(V)
+    if not shape:
+        assert np.allclose(float(f), 0.0)
+    assert np.allclose(f.dat.global_data.reshape(shape), np.full(shape, 0.0))
+
+    if shape:
+        with pytest.raises(ValueError):
+            float(f)
+
     f.assign(2)
+    if not shape:
+        assert np.allclose(float(f), 2.0)
+    assert np.allclose(f.dat.global_data.reshape(shape), np.full(shape, 2.0))
+
     g = Function(V)
     g.assign(2*f)
-    h = Function(V)
-    h.assign(0.0)
-    assert np.allclose(float(f), 2.0)
-    assert np.allclose(float(g), 4.0)
-    assert np.allclose(float(h), 0.0)
+    if not shape:
+        assert np.allclose(float(g), 4.0)
+    assert np.allclose(g.dat.global_data.reshape(shape), np.full(shape, 4.0))
+
+    h = Function(V_scalar).assign(8.0)  # scalar R can be considered a constant
+    g.assign(h)
+    if not shape:
+        assert np.allclose(float(g), 8.0)
+    assert np.allclose(g.dat.global_data.reshape(shape), np.full(shape, 8.0))
 
 
 @pytest.mark.skipcomplex
