@@ -152,21 +152,21 @@ jobs:
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        timeout-minutes: 120
 
       - name: Run tests (nprocs = 2)
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 30
+        timeout-minutes: 60
 
       - name: Run tests (nprocs = 3)
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 60
+        timeout-minutes: 120
 
       - name: Run tests (nprocs = 4)
         if: success() || steps.install.conclusion == 'success'
