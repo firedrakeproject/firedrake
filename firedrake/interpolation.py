@@ -899,7 +899,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         # to perform the permutation.
         source_size, target_size, _, _ = self._get_mat_sizes()
         ctx = VomOntoVomMatContext(
-            self.original_vom.input_ordering_without_halos_sf,
+            self.original_vom.input_ordering_sf,
             self.forward_reduce,
             self.target_space,
             self.source_mesh,
@@ -946,7 +946,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         end = start + source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
-        sf = self.original_vom.input_ordering_without_halos_sf
+        sf = self.original_vom.input_ordering_sf
         mpi_int = MPI._typedict[numpy.dtype(IntType).char]
         sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
@@ -965,7 +965,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         return mat
 
     def _get_mat_sizes(self):
-        nroots, leaves, _ = self.original_vom.input_ordering_without_halos_sf.getGraph()
+        nroots, leaves, _ = self.original_vom.input_ordering_sf.getGraph()
         nleaves = len(leaves)
         local_sizes = self.target_space.comm.allgather(nroots)
         source_size = (self.target_space.block_size * nroots, self.target_space.block_size * sum(local_sizes))

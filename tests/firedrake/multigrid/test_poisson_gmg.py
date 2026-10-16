@@ -175,7 +175,6 @@ def test_preconditioner_coarsening(solver_type):
 @pytest.mark.parametrize("solver_type",
                          ["mg", "mgmatfree", "fas", "newtonfas"])
 @pytest.mark.parametrize("mixed", [False, True], ids=["scalar", "mixed"])
-@pytest.mark.skip(reason="Test stochastically fails. See https://github.com/firedrakeproject/firedrake/issues/5421")
 def test_baseform_coarsening(solver_type, mixed):
     parameters = solver_parameters(solver_type)
     parameters = dict(parameters)
@@ -280,3 +279,43 @@ def test_reinjection_mass_then_poisson(solver_type):
     assert ksp_its_reused == ksp_its_new
     assert snes_its_reused == snes_its_new
     assert numpy.isclose(res_reused, res_new)
+
+
+def test_mg_after_another_solver_on_the_same_space():
+    # A multigrid solver must give the same result after another solver on
+    # the same function space has been used and deleted. With one refinement,
+    # the coarse level takes its callbacks directly from V.
+    mh = MeshHierarchy(UnitSquareMesh(4, 4), 1)
+    V = FunctionSpace(mh[-1], "CG", 1)
+    v = TestFunction(V)
+    bcs = DirichletBC(V, 0, "on_boundary")
+
+    u_mg = Function(V)
+    F_mg = inner(grad(u_mg), grad(v)) * dx - inner(Constant(1), v) * dx
+    mg_parameters = {"snes_type": "ksponly",
+                     "mat_type": "aij",
+                     "ksp_type": "cg",
+                     "ksp_rtol": 1.0E-12,
+                     "pc_type": "mg"}
+    problem_mg = NonlinearVariationalProblem(F_mg, u_mg, bcs=bcs)
+    solver_mg = NonlinearVariationalSolver(problem_mg, solver_parameters=mg_parameters)
+
+    u_lu = Function(V)
+    F_lu = replace(F_mg, {u_mg: u_lu})
+    lu_parameters = {"snes_type": "ksponly",
+                     "ksp_type": "preonly",
+                     "pc_type": "lu"}
+    problem_lu = NonlinearVariationalProblem(F_lu, u_lu, bcs=bcs)
+    solver_lu = NonlinearVariationalSolver(problem_lu, solver_parameters=lu_parameters)
+
+    solver_mg.solve()
+    mg_its = solver_mg.snes.ksp.getIterationNumber()
+
+    solver_lu.solve()
+    # The multigrid solver must not call into the deleted LU solver.
+    del solver_lu
+
+    u_mg.assign(0)
+    solver_mg.solve()
+    assert solver_mg.snes.ksp.getIterationNumber() == mg_its
+    assert errornorm(u_lu, u_mg) < 1.0E-10 * norm(u_lu)
