@@ -85,7 +85,7 @@ runs:
       run: |
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
-          git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          git clone --depth 1 https://gitlab.com/petsc/petsc.git --branch connorjward/pcpatch-fixups
           EXTRA_CONFIGURE_OPTIONS=""
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \
@@ -108,6 +108,7 @@ runs:
           exit 1
         fi
 
+        : # UNDO ME
         cd petsc
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
