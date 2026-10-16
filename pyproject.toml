@@ -36,7 +36,7 @@ dependencies = [
   "petsctools>=2026.1",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2026.10",
+  "pyadjoint-ad @ git+https://github.com/divijghose/pyadjoint@parametrised_reduced_functional",
   "pycparser",
   "pytools>=2026.1.1",
   "requests",
