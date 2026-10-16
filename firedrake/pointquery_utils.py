@@ -35,7 +35,7 @@ def src_locate_cell(mesh, tolerance=None):
         #include <stdint.h>
         #include <stdbool.h>
 
-        void wrap_to_reference_coords(void* const farg0, double* const farg1, {RealType_c}* const farg2, int32_t const start, int32_t const end, {ScalarType_c} const *__restrict__ dat0, {IntType_c} const *__restrict__ map0)
+        void wrap_to_reference_coords(void* const farg0, double* const farg1, {RealType_c}* const farg2, {IntType_c} const start, {IntType_c} const end, {ScalarType_c} const *__restrict__ dat0, {IntType_c} const *__restrict__ map0)
         {{
           {ScalarType_c} t0[{shape}*{gdim}];
 
