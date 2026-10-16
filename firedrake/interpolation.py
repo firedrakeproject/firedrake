@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms.restructure_base_form import restructure_base_form
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.duals import is_dual
@@ -806,7 +807,8 @@ class SameMeshInterpolator(Interpolator):
             # Split the cofunction
             dual_split = dict(split_form(self.dual_arg))
             # Combine the splits by taking their action
-            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
+            expressions = {i: restructure_base_form(action(interp_split[i], dual_split[i[-1:]]))
+                           for i in interp_split}
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
@@ -1668,7 +1670,7 @@ class MixedInterpolator(Interpolator):
                 sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             if needs_action:
                 # Take the action of each sub-cofunction against each block
-                form = action(form, dual_split[indices[-1:]])
+                form = restructure_base_form(action(form, dual_split[indices[-1:]]))
             Isub[indices] = (get_interpolator(form), sub_bcs)
 
         return Isub
