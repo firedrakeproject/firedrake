@@ -468,20 +468,18 @@ class AbstractMeshTopology(abc.ABC):
                     if reorder:
                         swarm = self.topology_dm
                         cell_id_name = swarm.getCellDMActive().getCellID()
-                        swarm_parent_cell_nums = swarm.getField(cell_id_name).flatten()
-                        old_to_new_parent_cell_indices = \
-                            self._parent_mesh._old_to_new_point_renumbering.indices[swarm_parent_cell_nums]
-                        swarm.restoreField(cell_id_name)
-                        new_to_old_point_indices = \
-                            np.argsort(old_to_new_parent_cell_indices, stable=True).astype(IntType)
-                        new_to_old_point_numbering = \
-                            PETSc.IS().createGeneral(new_to_old_point_indices, comm=MPI.COMM_SELF)
+                        parent_pt_nums = self._parent_mesh._old_to_new_point_renumbering.indices
+                        with (
+                            swarm.field(cell_id_name) as swarm_parent_cell_nums,
+                            swarm.field("globalindex") as swarm_global_indices,
+                        ):
+                            parent_order = parent_pt_nums[swarm_parent_cell_nums.ravel()]
+                            # sort by parent cell order, with ties broken by point global index
+                            perm = np.lexsort((swarm_global_indices.ravel(), parent_order)).astype(IntType)
+                        new_to_old_point_numbering = _make_is_general(perm)
+
                     else:
                         new_to_old_point_numbering = dmcommon.compute_dm_renumbering(self, None)
-                        # NOTE: probably shouldn't do this for a VoM
-                        new_to_old_point_numbering = dmcommon.partition_renumbering(
-                            self.topology_dm, new_to_old_point_numbering
-                        )
 
             # TODO: replace "renumbering" with "numbering"
             self._new_to_old_point_renumbering = new_to_old_point_numbering
