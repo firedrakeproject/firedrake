@@ -465,7 +465,7 @@ class _MaterializedIndirectionsInserter(pyop3.node.NodeVisitor):
     # {{{ pyop3.expr
 
     @process.register
-    def _(self, op: pyop3.expr.BinaryOperator, /, *, materialize_idxs) -> tuple:
+    def _(self, op: pyop3.expr.Operator, /, *, materialize_idxs) -> tuple:
         if self.index in materialize_idxs:
             assert self._linear
 
@@ -474,9 +474,11 @@ class _MaterializedIndirectionsInserter(pyop3.node.NodeVisitor):
             return pyop3.expr.visitors.materialize_composite_dat(symdat, self.comm, linear=True)
 
         else:
-            new_a = self(op.a, materialize_idxs=materialize_idxs)
-            new_b = self(op.b, materialize_idxs=materialize_idxs)
-            return op.record_new(a=new_a, b=new_b)
+            new_operands = [
+                self(o, materialize_idxs=materialize_idxs)
+                for o in op.operands
+            ]
+            return op.with_operands(new_operands)
 
     @process.register
     def _(self, expr: pyop3.expr.LinearDatBufferExpression, /, *, materialize_idxs):
