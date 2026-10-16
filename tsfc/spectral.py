@@ -2,7 +2,7 @@ from collections import OrderedDict, defaultdict, namedtuple
 from functools import partial
 from itertools import chain, zip_longest
 
-from gem.gem import Delta, Indexed, Sum, index_sum, one
+from gem.gem import Delta, FlexiblyIndexed, Indexed, Sum, index_sum, one
 from gem.node import Memoizer, MemoizerArg
 from gem.optimise import filtered_replace_indices
 from gem.optimise import delta_elimination as _delta_elimination
@@ -107,8 +107,10 @@ def flatten(var_reps, index_cache):
         monomial_sum = delta_simplified[variable]
         # Collect sum indices applicable to the current MonomialSum
         sum_indices = set(chain.from_iterable(m.sum_indices for m in monomial_sum))
-        # Put them in a deterministic order
-        sum_indices = [i for i in quadrature_indices if i in sum_indices]
+        # Put them in a deterministic order, quadrature indices first
+        sum_indices = ([i for i in quadrature_indices if i in sum_indices]
+                       + sorted(sum_indices.difference(quadrature_indices),
+                                key=lambda index: index.count))
         # Apply sum factorisation combined with COFFEE technology
         expression = sum_factorise(variable, sum_indices, monomial_sum)
         yield (variable, expression)
@@ -123,7 +125,7 @@ def classify(argument_indices, expression, delta_inside):
     if n == 0:
         return OTHER
     elif n == 1:
-        if isinstance(expression, (Delta, Indexed)) and not delta_inside(expression):
+        if isinstance(expression, (Delta, FlexiblyIndexed, Indexed)) and not delta_inside(expression):
             return ATOMIC
         else:
             return COMPOUND

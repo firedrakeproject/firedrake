@@ -219,8 +219,6 @@ each supermesh cell.
     kernel_A = dual_evaluation_kernel(ufl.Coefficient(V_A), ufl.TestFunction(V_S_A.dual()), name="evaluate_kernel_A")
     kernel_B = dual_evaluation_kernel(ufl.Coefficient(V_B), ufl.TestFunction(V_S_B.dual()), name="evaluate_kernel_B")
     kernel_S = dual_evaluation_kernel(ufl.Coefficient(V_S), ufl.TestFunction(V_S.dual()), name="evaluate_kernel_S")
-    dummy_args = ["dummy_place_holder"] * 3
-
     M_SS = assemble(inner(TrialFunction(V_S_A), TestFunction(V_S_B)) * dx)
     M_SS = M_SS.petscmat[:, :]
     node_locations_A = utils.physical_node_locations(V_S_A).dat.data_ro_with_halos
@@ -449,9 +447,9 @@ each supermesh cell.
         "evaluate_S": generate_code_v2(kernel_S.ast).device_code(),
         "evaluate_A": generate_code_v2(kernel_A.ast).device_code(),
         "evaluate_B": generate_code_v2(kernel_B.ast).device_code(),
-        "kernel_args_S": _make_kernel_args(kernel_S, V_S.finat_element, "physical_node_location", *dummy_args, "simplex_S", "reference_node_location"),
-        "kernel_args_A": _make_kernel_args(kernel_A, V_A.finat_element, "&R_AS[i][j]", *dummy_args, "coeffs_A", "reference_nodes_A[j]"),
-        "kernel_args_B": _make_kernel_args(kernel_B, V_B.finat_element, "&R_BS[i][j]", *dummy_args, "coeffs_B", "reference_nodes_B[j]"),
+        "kernel_args_S": _make_kernel_args(kernel_S, "physical_node_location", "simplex_S", "reference_node_location"),
+        "kernel_args_A": _make_kernel_args(kernel_A, "&R_AS[i][j]", "coeffs_A", "reference_nodes_A[j]"),
+        "kernel_args_B": _make_kernel_args(kernel_B, "&R_BS[i][j]", "coeffs_B", "reference_nodes_B[j]"),
         "to_reference": str(to_reference_kernel),
         "num_nodes_A": num_nodes_A,
         "num_nodes_B": num_nodes_B,
