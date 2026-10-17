@@ -1,5 +1,7 @@
+import abc
 import numpy as np
 import warnings
+import weakref
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
@@ -13,9 +15,9 @@ from functools import cached_property
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
 import firedrake.cython.dmcommon as dmcommon
-from .utils import set_level
+from .utils import get_level, set_level
 
-__all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
+__all__ = ("AbstractMeshHierarchy", "HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
 
 
@@ -27,13 +29,46 @@ def make_unoverlapped_dm(dm):
     """
     tdim = dm.getDimension()
     dm = dmcommon.submesh_create(dm, tdim, "depth", tdim, ignore_label_halo=True)
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
+    dmcommon.remove_entity_class_labels(dm)
     return dm
 
 
-class HierarchyBase(object):
+class AbstractMeshHierarchy(abc.ABC):
+    """The interface of a hierarchy of meshes, from coarse to fine.
+
+    A level is a mesh, or a list of meshes for a slice of levels.
+    """
+
+    @abc.abstractmethod
+    def __len__(self) -> int:
+        """Return the number of levels."""
+
+    @abc.abstractmethod
+    def __getitem__(self, idx):
+        """Return the mesh on a level, or a list of them for a slice."""
+
+    @abc.abstractmethod
+    def set_finest_mesh(self, mesh) -> bool:
+        """Make an adapted mesh the finest level of the hierarchy.
+
+        Parameters
+        ----------
+        mesh : firedrake.mesh.MeshGeometry or firedrake.mesh.MeshSequenceGeometry
+            An adapted mesh on a level of the hierarchy.
+
+        Returns
+        -------
+        bool
+            Whether the levels that are coarser than ``mesh`` have changed.
+
+        """
+
+    def __iter__(self):
+        """Iterate over the meshes from coarsest to finest."""
+        return (self[i] for i in range(len(self)))
+
+
+class HierarchyBase(AbstractMeshHierarchy):
     """Create an encapsulation of an hierarchy of meshes.
 
     Parameters
@@ -49,7 +84,9 @@ class HierarchyBase(object):
         together to derive both maps from ``fine_to_coarse_points``.
     fine_to_coarse_cells :
         Optional dictionary of numpy arrays keyed by level, mapping each fine
-        cell to its coarse parent cell. Here -1 marks a fine cell that has
+        cell to its coarse parent cells. After adaptive coarsening, a fine
+        cell can have more than one coarse cell, and the short rows are
+        right-padded with -1. A row of only -1 marks a fine cell that has
         no parent in the coarse mesh. This happens in a `SubmeshHierarchy`
         that contains interior facets. A fine facet inside a coarse cell
         comes from that volume cell, which is not a cell of the coarse
@@ -105,11 +142,6 @@ class HierarchyBase(object):
             raise NotImplementedError("All meshes in hierarchy must be on same communicator")
         return comm
 
-    def __iter__(self):
-        """Iterate over the hierarchy of meshes from coarsest to finest"""
-        for m in self.meshes:
-            yield m
-
     def __len__(self):
         """Return the size of hierarchy"""
         return len(self.meshes)
@@ -133,8 +165,9 @@ class HierarchyBase(object):
             current finest mesh.
         coarse_to_fine_cells :
             Map from the cells of the current finest mesh to the cells of
-            ``mesh``. Defaults to the map ``mesh`` recorded when it was
-            adaptively refined.
+            ``mesh``. Defaults to the map from
+            `firedrake.adapt.adapted_cell_maps`, which gives the children of
+            each cell if ``mesh`` was refined from the current finest mesh.
         fine_to_coarse_cells :
             Map from the cells of ``mesh`` to the cells of the current finest
             mesh. Defaults the same way as ``coarse_to_fine_cells``.
@@ -148,16 +181,15 @@ class HierarchyBase(object):
         if self.refinements_per_level != 1:
             raise NotImplementedError("Cannot add a mesh to a hierarchy with "
                                       "refinements_per_level > 1")
+        from firedrake.adapt import adapted_cell_maps
         fine_to_coarse_points = None
-        if mesh._adaptive_parent is self[-1]:
-            fine_to_coarse_points = mesh._adaptive_fine_to_coarse_points
         if coarse_to_fine_cells is None or fine_to_coarse_cells is None:
-            if fine_to_coarse_points is not None:
-                coarse_to_fine_cells, fine_to_coarse_cells = impl.coarse_to_fine_cells(
-                    self[-1], mesh, fine_to_coarse_points)
+            maps = adapted_cell_maps(self[-1], mesh)
+            if maps is not None:
+                coarse_to_fine_cells, fine_to_coarse_cells, fine_to_coarse_points = maps
             elif self.nested:
-                raise ValueError("Expecting a mesh adaptively refined from the finest "
-                                 "level of this hierarchy, or explicit cell maps")
+                raise ValueError("Expecting a mesh adapted from the finest level "
+                                 "of this hierarchy, or explicit cell maps")
 
         level = len(self.meshes)
         self._meshes.append(mesh)
@@ -168,6 +200,71 @@ class HierarchyBase(object):
         self.fine_to_coarse_cells[Fraction(level, 1)] = fine_to_coarse_cells
         self.fine_to_coarse_points[Fraction(level, 1)] = fine_to_coarse_points
         return mesh
+
+    def remove_mesh(self):
+        """Remove the finest mesh from the hierarchy.
+
+        Only supported for hierarchies with ``refinements_per_level == 1``.
+
+        Returns
+        -------
+        MeshGeometry
+            The mesh that was removed. It is no longer on a level of any
+            hierarchy.
+
+        """
+        if self.refinements_per_level != 1:
+            raise NotImplementedError("Cannot remove a mesh from a hierarchy with "
+                                      "refinements_per_level > 1")
+        if len(self) == 1:
+            raise ValueError("Cannot remove the coarsest mesh of a hierarchy")
+        level = len(self.meshes) - 1
+        mesh = self._meshes.pop()
+        self.meshes.pop()
+        if get_level(mesh) == (self, level):
+            set_level(mesh, None, None)
+        del self.coarse_to_fine_cells[Fraction(level - 1, 1)]
+        del self.fine_to_coarse_cells[Fraction(level, 1)]
+        self.fine_to_coarse_points.pop(Fraction(level, 1), None)
+        return mesh
+
+    def set_finest_mesh(self, mesh) -> bool:
+        """Make an adapted mesh the finest level of the hierarchy.
+
+        The levels above the nearest adaptive ancestor of ``mesh`` that is a
+        level are replaced by the chain of adaptive parents of ``mesh``.
+
+        Parameters
+        ----------
+        mesh : MeshGeometry
+            An adapted mesh on a level of the hierarchy.
+
+        Returns
+        -------
+        bool
+            Whether the levels that are coarser than ``mesh`` have changed.
+
+        """
+        from firedrake.adapt import _adaptive_ancestors
+        _, level = get_level(mesh)
+        chain = [mesh]
+        for ancestor in _adaptive_ancestors(mesh._adaptive_parent):
+            if ancestor in self:
+                break
+            chain.append(ancestor)
+        else:
+            ancestor = self[0]
+            chain = [] if mesh is ancestor else [mesh]
+        target = [*self[:self.meshes.index(ancestor) + 1], *reversed(chain)]
+        # The levels that already match the target keep their cell maps.
+        keep = 0
+        while keep < min(len(self), len(target)) and self[keep] is target[keep]:
+            keep += 1
+        while len(self) > keep:
+            self.remove_mesh()
+        for m in target[keep:]:
+            self.add_mesh(m)
+        return keep < level or len(target) != level + 1
 
     def adapt(self, eta, theta: float):
         """Add a new mesh to the hierarchy by locally refining the finest mesh
@@ -210,6 +307,99 @@ class HierarchyBase(object):
         markers = firedrake.Function(M)
         markers.dat.data_wo[eta.dat.data_ro > theta * eta_max] = 1
         return self.add_mesh(mesh.refine_marked_elements(markers))
+
+
+class MeshSequenceHierarchy(AbstractMeshHierarchy):
+    """The hierarchy of a mesh sequence, made from the hierarchies of its components.
+
+    Each level is the `~firedrake.mesh.MeshSequenceGeometry` of the
+    component meshes on that level. The levels are read from the component
+    hierarchies each time, so they follow every change to those
+    hierarchies. Use `MeshSequenceHierarchy.from_hierarchies` to get the
+    hierarchy of some component hierarchies, so that the same component
+    hierarchies give the same object.
+
+    Parameters
+    ----------
+    hierarchies :
+        The hierarchy of each component mesh, in the order of the components.
+
+    """
+    _instances = weakref.WeakValueDictionary()
+
+    def __init__(self, hierarchies: Sequence[HierarchyBase]):
+        self.hierarchies = tuple(hierarchies)
+        # The mesh sequence of each tuple of component meshes, so that a
+        # level is the same object while it is in use.
+        self._levels = weakref.WeakValueDictionary()
+
+    @classmethod
+    def from_hierarchies(cls, hierarchies: Sequence[HierarchyBase]) -> "MeshSequenceHierarchy":
+        """Return the hierarchy of some component hierarchies.
+
+        Parameters
+        ----------
+        hierarchies :
+            The hierarchy of each component mesh, in the order of the components.
+
+        Returns
+        -------
+        MeshSequenceHierarchy
+            The same object for the same component hierarchies, while it is in use.
+
+        """
+        hierarchies = tuple(hierarchies)
+        try:
+            return cls._instances[hierarchies]
+        except KeyError:
+            return cls._instances.setdefault(hierarchies, cls(hierarchies))
+
+    @property
+    def meshes(self) -> list:
+        """The mesh sequence on each level, from coarse to fine."""
+        return list(self)
+
+    def __len__(self):
+        """Return the number of levels."""
+        nlevels = {len(h) for h in self.hierarchies}
+        if len(nlevels) > 1:
+            raise RuntimeError("The component hierarchies have different numbers of levels")
+        nlevels, = nlevels
+        return nlevels
+
+    def __getitem__(self, idx):
+        """Return the mesh sequence on a level, or a list of them for a slice."""
+        if isinstance(idx, slice):
+            return [self[i] for i in range(len(self))[idx]]
+        from firedrake.mesh import MeshSequenceGeometry
+        components = tuple(h[idx] for h in self.hierarchies)
+        try:
+            return self._levels[components]
+        except KeyError:
+            return self._levels.setdefault(components, MeshSequenceGeometry(components))
+
+    def set_finest_mesh(self, mesh) -> bool:
+        """Make an adapted mesh sequence the finest level of the hierarchy.
+
+        Each component hierarchy makes its component of ``mesh`` its finest
+        level, as in `HierarchyBase.set_finest_mesh`.
+
+        Parameters
+        ----------
+        mesh : firedrake.mesh.MeshSequenceGeometry
+            An adapted mesh sequence on a level of the hierarchy.
+
+        Returns
+        -------
+        bool
+            Whether the levels that are coarser than ``mesh`` have changed.
+
+        """
+        # Components that share a hierarchy are on the same level, so they
+        # are the same mesh, and that hierarchy is updated only once.
+        components = dict(zip(self.hierarchies, mesh, strict=True))
+        changed = [h.set_finest_mesh(m) for h, m in components.items()]
+        return any(changed)
 
 
 def MeshHierarchy(mesh, refinement_levels=0,

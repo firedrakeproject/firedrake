@@ -7,7 +7,7 @@ import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
-                               get_parent, add_hook)
+                               get_parent, add_hook, set_refine_level)
 
 from . import utils
 
@@ -273,38 +273,89 @@ def reconstruct_function(expr, self, coefficient_mapping=None):
     return new
 
 
+def _transfer_coefficients(source: PETSc.DM, target: PETSc.DM, transfer) -> None:
+    source_mapping = get_appctx(source)._coefficient_mapping
+    target_ctx = get_appctx(target)
+    for c, mapped in target_ctx._coefficient_mapping.items():
+        if c in source_mapping:
+            transfer(source_mapping[c], mapped)
+
+    if target_ctx.pre_apply_bcs:
+        for bc in target_ctx._problem.dirichlet_bcs():
+            bc.apply(target_ctx._x)
+
+
+def transfer_coefficients(source: PETSc.DM, target: PETSc.DM) -> None:
+    """Transfer the solution and coefficients on the problem hierarchy."""
+    manager = get_transfer_manager(source)
+    _transfer_coefficients(source, target, manager.transfer)
+
+
+def _transfer_adapted_coefficients(source: PETSc.DM, target: PETSc.DM) -> None:
+    manager = get_transfer_manager(source)
+    if manager.inject_type == "project":
+
+        def transfer(source_coefficient, target_coefficient):
+            if ufl.duals.is_dual(source_coefficient):
+                manager.transfer(source_coefficient, target_coefficient)
+            else:
+                manager.project(source_coefficient, target_coefficient)
+
+    else:
+        transfer = manager.transfer
+    _transfer_coefficients(source, target, transfer)
+
+
+def _restrict_hook(fine, restriction, rscale, injection, coarse):
+    """Transfer the coefficients onto a coarse DM in DMRestrict()."""
+    transfer_coefficients(fine, coarse)
+
+
+def _interpolate_hook(coarse, interp, fine):
+    """Transfer the coefficients onto an adapted DM in DMInterpolate().
+
+    DMAdaptorAdapt() calls this hook through DMInterpolate(), and transfers
+    the solution itself. DMRefine() gives the adapted DM one more refine
+    level than the DM that it adapts, but an adaptation can also coarsen,
+    so the refine level is set to the level of the adapted mesh here.
+    """
+    _transfer_adapted_coefficients(coarse, fine)
+    set_refine_level(get_appctx(fine)._problem.u_restrict.function_space())
+
+
+def _coarsen_hook(fine, coarse):
+    add_transfer_hooks(coarse)
+
+
+def _refine_hook(coarse, fine):
+    add_transfer_hooks(fine)
+
+
+def add_transfer_hooks(dm: PETSc.DM) -> None:
+    """Make a DM and the DMs that are coarsened or refined from it transfer the coefficients.
+
+    The hooks persist and do not depend on the problem, so they are added
+    to each DM only once.
+
+    Parameters
+    ----------
+    dm
+        The DM of a problem.
+
+    """
+    if not dm.getAttr("_transfer_hooks"):
+        dm.addCoarsenHook(_coarsen_hook, _restrict_hook)
+        dm.addRefineHook(_refine_hook, _interpolate_hook)
+        dm.setAttr("_transfer_hooks", True)
+
+
 @_reconstruct.register(firedrake.NonlinearVariationalProblem)
 def reconstruct_nlvp(problem, self, coefficient_mapping=None):
     new_problem = get_relative(self, problem)
     if new_problem is not None:
         return new_problem
 
-    def transfer_callback(fine, restriction, rscale, injection, coarse):
-        cctx = get_appctx(coarse)
-        cmapping = cctx._coefficient_mapping
-        if cmapping is None:
-            return
-
-        manager = get_transfer_manager(fine)
-        for c, mapped in cmapping.items():
-            manager.transfer(c, mapped)
-
-        # Apply bcs
-        if cctx.pre_apply_bcs:
-            for bc in cctx._problem.dirichlet_bcs():
-                bc.apply(cctx._x)
-
-    def coarsen_callback(fine, coarse):
-        if not coarse.getAttr("_coarsen_hook"):
-            coarse.addCoarsenHook(coarsen_callback, transfer_callback)
-            coarse.setAttr("_coarsen_hook", True)
-
-    dm = problem.u_restrict.function_space().dm
-    if not dm.getAttr("_coarsen_hook"):
-        # The hook is persistent and cumulative, but also problem-independent.
-        # Therefore, we are only adding it once.
-        dm.addCoarsenHook(coarsen_callback, transfer_callback)
-        dm.setAttr("_coarsen_hook", True)
+    add_transfer_hooks(problem.u_restrict.function_space().dm)
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
@@ -391,8 +442,10 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
 
     # Get options prefix for current level
     parent_context = context
-    while get_relative(self, parent_context, reverse=True) is not None:
-        parent_context = get_relative(self, parent_context, reverse=True)
+    parent = get_relative(self, parent_context, reverse=True)
+    while parent is not None:
+        parent_context = parent
+        parent = get_relative(self, parent_context, reverse=True)
 
     parent_prefix = parent_context.options_prefix
     opts = PETSc.Options(parent_prefix)
@@ -429,7 +482,10 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                                       appctx=new_appctx,
                                       options_prefix=options_prefix,
                                       )
-    new_context._coefficient_mapping = coefficient_mapping
+    # A coefficient that cannot be reconstructed is shared, and is not transferred.
+    new_context._coefficient_mapping = {c: coefficient_mapping[v]
+                                        for c, v in context._coefficient_mapping.items()
+                                        if v in coefficient_mapping}
     attach_relative(self, new_context, context, reverse=True)
     attach_relative(self, context, new_context)
 
@@ -533,22 +589,15 @@ class Injection(object):
         self.cbcs = cbcs or []
         self.manager = manager
 
-    def mult(self, mat, x, y):
+    def multTranspose(self, mat, x, y):
+        # PCMG expects the transpose of the injection.
         with self.ffn.dat.vec_wo as v:
             x.copy(v)
-        self.manager.inject(self.ffn, self.cfn)
+        self.manager.transfer(self.ffn, self.cfn)
         for bc in self.cbcs:
             bc.apply(self.cfn)
         with self.cfn.dat.vec_ro as v:
             v.copy(y)
-
-    def multTranspose(self, mat, x, y):
-        # PETSc's MatRestrict() cannot distinguish an injection matrix from
-        # an interpolation matrix when the coarse and fine spaces happen to
-        # have equal size (e.g. a no-op adaptive refinement level), and may
-        # call MatMultTranspose() instead of MatMult(). Injection is only
-        # ever used in one direction (fine to coarse), so both must agree.
-        self.mult(mat, x, y)
 
 
 def create_interpolation(dmc, dmf):
@@ -570,14 +619,7 @@ def create_interpolation(dmc, dmf):
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
     mat.setUp()
-    if row_size == col_size:
-        # PETSc cannot determine the coarse space if the dimensions are equal.
-        # The coarse space is identified by the dimension of rscale, so we provide one.
-        rscale = mat.createVecRight()
-        rscale.set(1.0)
-    else:
-        rscale = None
-    return mat, rscale
+    return mat, None
 
 
 def create_injection(dmc, dmf):
@@ -587,16 +629,14 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    row_size = V_c.dof_dset.layout_vec.getSizes()
-    col_size = V_f.dof_dset.layout_vec.getSizes()
+    # PCMG applies MatRestrict() to the transpose of the injection from coarse to fine.
+    row_size = V_f.dof_dset.layout_vec.getSizes()
+    col_size = V_c.dof_dset.layout_vec.getSizes()
 
     if (V_c.ufl_element().family() == "Real"
             and V_f.ufl_element().family() == "Real"):
         assert row_size == col_size
-        # If the coarse and fine spaces have equal size
-        # PETSc will apply the transpose of the injection.
-        # It does not make sense to implement Injection.multTranspose,
-        # instead we return a concrete identity matrix.
+        # The injection between Real spaces is the identity.
         dvec = V_c.dof_dset.layout_vec.duplicate()
         dvec.set(1.0)
         return PETSc.Mat().createDiagonal(dvec)

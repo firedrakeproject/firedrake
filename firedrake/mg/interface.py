@@ -39,6 +39,20 @@ def check_arguments(coarse, fine, needs_dual=False):
 
 @PETSc.Log.EventDecorator()
 def prolong(coarse, fine):
+    """Interpolate a function onto a finer level of its hierarchy.
+
+    Parameters
+    ----------
+    coarse : Function
+        The source function.
+    fine : Function
+        The target function, on a finer level than ``coarse``.
+
+    Returns
+    -------
+    Function
+        ``fine``, which holds the interpolant of ``coarse``.
+    """
     check_arguments(coarse, fine)
     Vc = coarse.function_space()
     Vf = fine.function_space()
@@ -195,6 +209,20 @@ def restrict(fine_dual, coarse_dual):
 
 @PETSc.Log.EventDecorator()
 def inject(fine, coarse):
+    """Inject a function onto a coarser level of its hierarchy.
+
+    Parameters
+    ----------
+    fine : Function
+        The source function.
+    coarse : Function
+        The target function, on a coarser level than ``fine``.
+
+    Returns
+    -------
+    Function
+        ``coarse``, which holds the injection of ``fine``.
+    """
     check_arguments(coarse, fine)
     Vf = fine.function_space()
     Vc = coarse.function_space()
@@ -327,7 +355,7 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     if len(Vc) > 1 or len(Vf) > 1:
         raise NotImplementedError(
             'Explicit aij prolongation matrix assembly is not implemented for mixed function spaces. '
-            'Use TransferManager(mat_type="aij").prolong to compute field-wise matrix-vector products.'
+            'Use TransferManager().prolong with transfer_mat_type "aij" to compute field-wise matrix-vector products.'
         )
     arguments = (ufl_expr.TestFunction(Vf.dual()), ufl_expr.TrialFunction(Vc))
     Vtarget = Vf

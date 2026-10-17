@@ -3066,25 +3066,40 @@ values from f.)"""
         yield self
 
     def unique(self):
-        return self
-
-    @PETSc.Log.EventDecorator()
-    def refine_marked_elements(self, mark):
-        """Adaptively refine a mesh using a DG0 marking function.
-
-        Parameters
-        ----------
-        mark
-            A DG0 `~firedrake.function.Function` on this mesh: cells
-            with a positive value ``n`` are refined ``n`` times.
+        """Return this mesh as the only mesh in its domain.
 
         Returns
         -------
         MeshGeometry
-            The adaptively refined mesh, recording this mesh as its
-            ``_adaptive_parent`` and the DMPlex points relative to it as its
-            ``_adaptive_fine_to_coarse_points``, ready to be passed to
-            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`.
+            This mesh.
+        """
+        return self
+
+    @PETSc.Log.EventDecorator()
+    def refine_marked_elements(self, mark):
+        """Adaptively refine or coarsen a mesh using a DG0 marking function.
+
+        Parameters
+        ----------
+        mark
+            A DG0 `~firedrake.function.Function` on this mesh. If no value
+            is negative, the cells with a positive value ``n`` are refined
+            ``n`` times. Otherwise, one round is done: the cells with a
+            positive value are refined once, and the cells with a negative
+            value undo one round of refinement, which can go past the
+            adaptive parent of this mesh. A cell of an ancestor is coarsened
+            only if all the cells that it was refined into ask.
+
+        Returns
+        -------
+        MeshGeometry
+            The adapted mesh, ready to be passed to
+            :meth:`~firedrake.mg.mesh.HierarchyBase.add_mesh`. Its
+            ``_adaptive_parent`` is the mesh it was transformed from: this
+            mesh after a refinement, and an ancestor of this mesh after a
+            coarsening. This is this mesh itself if ``mark`` changes no
+            cell, and an ancestor of this mesh if the coarsening undoes all
+            the refinement after that ancestor.
         """
         from firedrake.adapt import refine_marked_elements
         return refine_marked_elements(self, mark)
@@ -4473,10 +4488,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     # Clone plex: plex1 will share topology with plex.
     plex1 = plex.clone()
     plex1.setName(_generate_default_mesh_topology_name(name1))
-    # Remove pyop2 labels.
-    plex1.removeLabel("pyop2_core")
-    plex1.removeLabel("pyop2_owned")
-    plex1.removeLabel("pyop2_ghost")
+    dmcommon.remove_entity_class_labels(plex1)
     # Do not remove "exterior_facets" and "interior_facets" labels;
     # those should be reused as the mesh has already been distributed (if size > 1).
     for label_name in [dmcommon.CELL_SETS_LABEL, dmcommon.FACE_SETS_LABEL]:
@@ -4721,15 +4733,13 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
 class MeshSequenceGeometry(ufl.MeshSequence):
     """A representation of mixed mesh geometry."""
 
-    def __init__(self, meshes, set_hierarchy=True):
+    def __init__(self, meshes):
         """Initialise.
 
         Parameters
         ----------
         meshes : tuple or list
             `MeshGeometry`s to make `MeshSequenceGeometry` with.
-        set_hierarchy : bool
-            Flag for making hierarchy.
 
         """
         for m in meshes:
@@ -4737,9 +4747,6 @@ class MeshSequenceGeometry(ufl.MeshSequence):
                 raise ValueError(f"Got {type(m)}")
         super().__init__(meshes)
         self.comm = meshes[0].comm
-        # Only set hierarchy at top level.
-        if set_hierarchy:
-            self.set_hierarchy()
 
     @cached_property
     def topology(self):
@@ -4789,34 +4796,6 @@ class MeshSequenceGeometry(ufl.MeshSequence):
         m, = set(self._meshes)
         return m
 
-    def set_hierarchy(self):
-        """Set mesh hierarchy if needed."""
-        from firedrake.mg.utils import set_level, get_level, has_level
-
-        # TODO: Think harder on how mesh hierarchy should work with mixed meshes.
-        if all(not has_level(m) for m in self._meshes):
-            return
-        else:
-            if not all(has_level(m) for m in self._meshes):
-                raise RuntimeError("Found inconsistent component meshes")
-        hierarchy_list = []
-        level_list = []
-        for m in self:
-            hierarchy, level = get_level(m)
-            hierarchy_list.append(hierarchy)
-            level_list.append(level)
-        nlevels, = set(len(hierarchy) for hierarchy in hierarchy_list)
-        level, = set(level_list)
-        result = []
-        for ilevel in range(nlevels):
-            if ilevel == level:
-                result.append(self)
-            else:
-                result.append(MeshSequenceGeometry([hierarchy[ilevel] for hierarchy in hierarchy_list], set_hierarchy=False))
-        result = tuple(result)
-        for i, m in enumerate(result):
-            set_level(m, result, i)
-
 
 class MeshSequenceTopology:
     """A representation of mixed mesh topology."""
@@ -4847,6 +4826,34 @@ class MeshSequenceTopology:
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
+
+    @property
+    def __level_info__(self):
+        """The hierarchy and level of this mesh sequence, read from its components.
+
+        Returns
+        -------
+        tuple
+            A `~firedrake.mg.mesh.MeshSequenceHierarchy` of the component
+            hierarchies and the level of the components, or ``(None, None)``
+            if no component is on a level of a hierarchy.
+
+        Raises
+        ------
+        RuntimeError
+            If only some components are on a level of a hierarchy, or if the
+            components are on different levels.
+
+        """
+        from firedrake.mg.mesh import MeshSequenceHierarchy
+        from firedrake.mg.utils import get_level
+
+        hierarchies, levels = zip(*map(get_level, self._meshes))
+        if all(h is None for h in hierarchies):
+            return None, None
+        if any(h is None for h in hierarchies) or len(set(levels)) > 1:
+            raise RuntimeError("The component meshes are not on the same level of their hierarchies")
+        return MeshSequenceHierarchy.from_hierarchies(hierarchies), levels[0]
 
     def ufl_cell(self):
         return CellSequence([m.ufl_cell() for m in self._meshes])

@@ -10,11 +10,11 @@ def test_transfer_invalid_level_combo(transfer):
     Vcoarse = FunctionSpace(mh[0], "DG", 0)
     Vfine = FunctionSpace(mh[-1], "DG", 0)
     if transfer == restrict:
-        Vcoarse, Vfine = Vcoarse.dual(), Vfine.dual()
-    if transfer == prolong:
-        source, target = Function(Vfine), Function(Vcoarse)
+        # Restriction needs a coarser target.
+        source, target = Cofunction(Vcoarse.dual()), Cofunction(Vfine.dual())
     else:
-        source, target = Function(Vcoarse), Function(Vfine)
+        # Prolongation and injection need a target on another level.
+        source, target = Function(Vfine), Function(Vfine)
     with pytest.raises(ValueError):
         transfer(source, target)
 

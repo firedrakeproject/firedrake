@@ -23,6 +23,7 @@ from pyop2.sparsity import get_preallocation
 from pyop2.compilation import load
 from pyop2.mpi import COMM_SELF
 from collections import defaultdict
+from fractions import Fraction
 from loopy import generate_code_v2
 
 
@@ -101,22 +102,26 @@ def assemble_mixed_mass_matrix(V_A, V_B):
             likely = intersections.__getitem__
         else:
             # We do have a mesh hierarchy, use it
-
-            if abs(level_A - level_B) > 1:
-                raise NotImplementedError("Only works for transferring between adjacent levels for now.")
-
             # What are the cells of B that (probably) intersect with a given cell in A?
-            if level_A > level_B:
-                cell_map = mh_A.fine_to_coarse_cells[level_A]
+            increment = Fraction(1, mh_A.refinements_per_level)
+            nsteps = int(abs(level_B - level_A) / increment)
+            if level_A < level_B:
+                maps = [mh_A.coarse_to_fine_cells[level_A + i * increment]
+                        for i in range(nsteps)]
+            else:
+                maps = [mh_A.fine_to_coarse_cells[level_A - i * increment]
+                        for i in range(nsteps)]
+            cell_map, *maps = maps
+            for next_map in maps:
+                cells = next_map[cell_map]
+                cells[cell_map < 0] = -1
+                cell_map = cells.reshape(len(cell_map), -1)
 
-                def likely(cell_A):
-                    return cell_map[cell_A]
-
-            elif level_A < level_B:
-                cell_map = mh_A.coarse_to_fine_cells[level_A]
-
-                def likely(cell_A):
-                    return cell_map[cell_A]
+            def likely(cell_A):
+                cells = cell_map[cell_A]
+                # The rows of a cell map are padded with -1, and a composed
+                # map can repeat a cell.
+                return numpy.unique(cells[cells >= 0])
 
     assert V_A.block_size == V_B.block_size
     orig_block_size = V_A.block_size

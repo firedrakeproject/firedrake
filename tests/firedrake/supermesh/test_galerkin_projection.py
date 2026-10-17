@@ -85,3 +85,31 @@ def test_galerkin_projection(mesh, shapify, A, B):
     norm = sqrt(assemble(inner(diff, diff)*dx))
     assert numpy.allclose(norm.imag, 0)
     assert norm.real < 1.0e-12
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("transfer", ["refine", "coarsen", "remesh"])
+def test_adaptive_supermesh_conservation(transfer):
+    base = PeriodicUnitSquareMesh(6, 6)
+    x, y = SpatialCoordinate(base)
+    Q = FunctionSpace(base, "DG", 0)
+    left = base.refine_marked_elements(Function(Q).interpolate(conditional(lt(x, 0.4), 1, 0)))
+    hierarchy = MeshHierarchy(base)
+    hierarchy.add_mesh(left)
+    if transfer == "refine":
+        source_mesh, target_mesh = base, left
+    elif transfer == "coarsen":
+        source_mesh, target_mesh = left, base
+    else:
+        right = base.refine_marked_elements(Function(Q).interpolate(conditional(gt(x, 0.6), 1, 0)))
+        hierarchy.add_mesh(right)
+        source_mesh, target_mesh = left, right
+    V = FunctionSpace(source_mesh, "CG", 1)
+    W = FunctionSpace(target_mesh, "CG", 1)
+    x, y = SpatialCoordinate(source_mesh)
+    source = Function(V).interpolate(1 + exp(-10*(sin(pi*x)**2 + sin(pi*y)**2)))
+    target = Function(W).project(source, solver_parameters={"ksp_rtol": 1e-12})
+    assert abs(assemble(target*dx) - assemble(source*dx)) < 1e-11
+    source.assign(1)
+    target.project(source, solver_parameters={"ksp_rtol": 1e-12})
+    assert errornorm(Constant(1), target) < 1e-11

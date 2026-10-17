@@ -55,6 +55,10 @@ def test_function_space_cached(mesh):
     assert FunctionSpace(mesh, "CG", 1)._shared_data == FunctionSpace(mesh, "CG", 1)._shared_data
 
 
+def test_unique_mesh(mesh):
+    assert mesh.unique() is mesh
+
+
 def test_function_spaces_shared_data(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     Q = VectorFunctionSpace(mesh, "Lagrange", 1)

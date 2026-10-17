@@ -54,3 +54,26 @@ def test_assemble_mixed_mass_matrix(mesh, family_A, family_B, degree_A, degree_B
     M_ex.axpy(-1.0, M)
     nrm = M_ex.norm(PETSc.NormType.NORM_INFINITY)
     assert nrm < 1.0e-10
+
+
+@pytest.mark.parametrize("family", ["CG", "DG"])
+def test_assemble_mixed_mass_matrix_across_levels(mesh, family):
+    mh = MeshHierarchy(mesh, 2)
+    V_c, V_m, V_f = (FunctionSpace(m, family, 1) for m in mh)
+    u_c = Function(V_c)
+    with u_c.dat.vec_wo as x:
+        x.setRandom()
+    u_f = Function(V_f)
+    prolong(prolong(u_c, Function(V_m)), u_f)
+    M_ex = assemble(inner(u_f, TestFunction(V_f)) * dx)
+
+    M = assemble_mixed_mass_matrix(V_c, V_f)
+    with u_c.dat.vec_ro as x, M_ex.dat.vec_ro as y:
+        r = y.duplicate()
+        M.mult(x, r)
+        r.axpy(-1.0, y)
+        assert r.norm() < 1.0e-10 * y.norm()
+
+    M_T = assemble_mixed_mass_matrix(V_f, V_c)
+    M_T.axpy(-1.0, M.transpose())
+    assert M_T.norm(PETSc.NormType.NORM_INFINITY) < 1.0e-10
