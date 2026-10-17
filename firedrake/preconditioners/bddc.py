@@ -10,14 +10,14 @@ from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
-from functools import cached_property
+from functools import cached_property, partial
 
 from firedrake.parloops import par_loop, INC, READ
 from firedrake.bcs import DirichletBC
-from firedrake.mesh import Submesh
+from firedrake.mesh import DomainDecomposition, Submesh
 from ufl import Form, H1, H2, JacobianDeterminant, div, dx, inner, replace
 from finat.ufl import BrokenElement, TensorElement, VectorElement
-from pyop2.mpi import COMM_SELF
+from pyop2.mpi import COMM_SELF, MPI
 from pyop2.utils import as_tuple
 import numpy
 
@@ -32,6 +32,8 @@ class BDDCPC(PCBase):
     Internally, this PC creates a PETSc PCBDDC object that can be controlled by
     the options:
     - ``'bddc_cellwise'`` to set up a MatIS on cellwise subdomains if P.type == python,
+    - ``'bddc_subdomain_size'`` to split the cells of each process into subdomains of
+    about this many cells, with the partitioner set by ``'bddc_petscpartitioner_type'``,
     - ``'bddc_matfree'`` to set up a matrix-free MatIS if A.type == python,
     - ``'bddc_pc_bddc_neumann'`` to set sub-KSPs on subdomains excluding corners,
     - ``'bddc_pc_bddc_dirichlet'`` to set sub-KSPs on subdomain interiors,
@@ -68,21 +70,33 @@ class BDDCPC(PCBase):
         opts = PETSc.Options(bddcpc.getOptionsPrefix())
         matfree = opts.getBool("matfree", False)
 
+        # Get context from DM
+        ctx = get_appctx(dm)
+
         # Set operators
         assemblers = []
         A, P = pc.getOperators()
-        if P.type == "python":
-            # Reconstruct P as MatIS
-            cellwise = opts.getBool("cellwise", False)
-            P, assembleP = create_matis(P, "aij", cellwise=cellwise)
+        subdomain_size = opts.getInt("subdomain_size") if "subdomain_size" in opts else None
+        decomposition = {}
+        if P.type == "python" or subdomain_size is not None:
+            # Reconstruct P as MatIS on the subdomains
+            decomposition = {"cellwise": opts.getBool("cellwise", False),
+                             "subdomain_size": subdomain_size,
+                             "options_prefix": prefix}
+            if P.type == "python":
+                P, assembleP = create_matis(P, "aij", **decomposition)
+            elif ctx.Jp is None:
+                P, assembleP = create_matis(ctx.J, "aij", bcs=ctx.bcs_J, **decomposition)
+            else:
+                P, assembleP = create_matis(ctx.Jp, "aij", bcs=ctx.bcs_Jp, **decomposition)
             assemblers.append(assembleP)
 
         if P.type != "is":
             raise ValueError(f"Expecting P to be either 'matfree' or 'is', not {P.type}.")
 
         if A.type == "python" and matfree:
-            # Reconstruct A as MatIS
-            A, assembleA = create_matis(A, "matfree", cellwise=P.getISAllowRepeated())
+            # Reconstruct A as MatIS on the subdomains of P
+            A, assembleA = create_matis(A, "matfree", **decomposition)
             assemblers.append(assembleA)
         bddcpc.setOperators(A, P)
         self.assemblers = assemblers
@@ -96,9 +110,6 @@ class BDDCPC(PCBase):
         if "pc_bddc_use_local_mat_graph" not in opts and (not is_h1h2 or not V.finat_element.has_pointwise_dual_basis):
             opts["pc_bddc_use_local_mat_graph"] = False
             rem_opts.append("pc_bddc_use_local_mat_graph")
-
-        # Get context from DM
-        ctx = get_appctx(dm)
 
         # Handle boundary dofs
         bcs = tuple(ctx._problem.dirichlet_bcs())
@@ -142,7 +153,7 @@ class BDDCPC(PCBase):
 
         if use_divergence:
             allow_repeated = P.getISAllowRepeated()
-            get_divergence = appctx.get("get_divergence_mat", get_divergence_mat)
+            get_divergence = appctx.get("get_divergence_mat", partial(get_divergence_mat, decomposition=decomposition or None))
             divergence = get_divergence(V, mat_type="is", allow_repeated=allow_repeated)
             try:
                 div_args, div_kwargs = divergence
@@ -205,20 +216,83 @@ class BrokenDirichletBC(DirichletBC):
         return numpy.flatnonzero(u.dat.data)
 
 
-def create_matis(a, local_mat_type, cellwise=False, bcs=()):
+def subdomain_decomposition(mesh, subdomain_size=None, options_prefix=None):
+    """Return the decomposition of a mesh into the subdomains of each process.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        The mesh to decompose.
+    subdomain_size : int | None
+        The target number of cells in each subdomain. If ``None``, each
+        process holds a single subdomain.
+    options_prefix : str | None
+        The options prefix of the ``PETSc.Partitioner`` that splits the cells
+        of each process.
+
+    Returns
+    -------
+    MeshGeometry
+        The :func:`~.DomainDecomposition` of ``mesh``, whose subdomains each
+        lie on one process.
+    """
+    key = (subdomain_size, options_prefix)
+    cache = mesh._shared_data_cache["bddc_subdomain_decomposition"]
+    try:
+        return cache[key]
+    except KeyError:
+        pass
+    topology = mesh.topology
+    ncells = topology.cell_set.size
+    nparts = 1 if subdomain_size is None else max(1, -(-ncells // subdomain_size))
+    parts = numpy.zeros(ncells, dtype=PETSc.IntType)
+    if nparts > 1:
+        # Partition the graph of the owned cells connected through their facets
+        facet_cells = topology.interior_facets.facet_cell
+        facet_cells = facet_cells[numpy.all(facet_cells < ncells, axis=1)]
+        rows = numpy.concatenate((facet_cells[:, 0], facet_cells[:, 1]))
+        cols = numpy.concatenate((facet_cells[:, 1], facet_cells[:, 0]))
+        start = numpy.zeros(ncells + 1, dtype=PETSc.IntType)
+        numpy.cumsum(numpy.bincount(rows, minlength=ncells), out=start[1:])
+        adjacency = cols[numpy.argsort(rows, kind="stable")].astype(PETSc.IntType)
+        partitioner = PETSc.Partitioner().create(comm=COMM_SELF)
+        partitioner.setOptionsPrefix(options_prefix)
+        partitioner.setFromOptions()
+        part_section, partition = partitioner.partition(nparts, start, adjacency)
+        sizes = [part_section.getDof(part) for part in range(nparts)]
+        parts[partition.indices] = numpy.repeat(numpy.arange(nparts, dtype=PETSc.IntType), sizes)
+        partitioner.destroy()
+
+    # Number the subdomains of all processes consecutively
+    first = mesh.comm.exscan(nparts) or 0
+    plex = mesh.topology_dm
+    label_name = "firedrake_bddc_subdomains"
+    plex.createLabel(label_name)
+    label = plex.getLabel(label_name)
+    cells = topology.cell_closure[:ncells, -1]
+    order = numpy.argsort(parts, kind="stable")
+    bounds = numpy.searchsorted(parts[order], numpy.arange(nparts + 1))
+    for part in range(nparts):
+        subdomain_cells = cells[order[bounds[part]:bounds[part+1]]].astype(PETSc.IntType)
+        label.setStratumIS(first + part, PETSc.IS().createGeneral(subdomain_cells, comm=COMM_SELF))
+    dd = DomainDecomposition(mesh, label_name=label_name, ignore_halo=True)
+    plex.removeLabel(label_name)
+    return cache.setdefault(key, dd)
+
+
+def create_matis(a, local_mat_type, cellwise=False, bcs=(), subdomain_size=None, options_prefix=None):
     from firedrake.assemble import get_assembler
 
     def local_mesh(mesh):
-        key = "local_submesh"
-        cache = mesh._shared_data_cache["local_submesh_cache"]
+        dd = subdomain_decomposition(mesh, subdomain_size, options_prefix)
+        if local_mat_type == "aij" or mesh.comm.size == 1:
+            return dd
+        # A matrix-free local matrix acts on a mesh of the local subdomains
+        cache = dd._shared_data_cache["bddc_local_submesh"]
         try:
-            return cache[key]
+            return cache[None]
         except KeyError:
-            if mesh.comm.size > 1:
-                submesh = Submesh(mesh, ignore_halo=True, comm=COMM_SELF)
-            else:
-                submesh = None
-            return cache.setdefault(key, submesh)
+            return cache.setdefault(None, Submesh(dd, ignore_halo=True, comm=COMM_SELF))
 
     def local_space(V, cellwise):
         mesh = local_mesh(V.mesh().unique())
@@ -278,16 +352,27 @@ def create_matis(a, local_mat_type, cellwise=False, bcs=()):
     local_form = Form(list(map(local_integral, local_form.integrals())))
     local_bcs = tuple(map(local_bc, bcs, repeat(cellwise)))
 
-    assembler = get_assembler(local_form, bcs=local_bcs, mat_type=local_mat_type)
-    tensor = assembler.assemble()
+    if local_mat_type == "aij":
+        # The local matrix of the MatIS on the subdomains holds the Neumann
+        # matrices of the subdomains on this process
+        assembler = get_assembler(local_form, bcs=local_bcs, mat_type="is")
+        tensor = assembler.assemble()
+        local_mat = tensor.petscmat.getISLocalMat()
+    else:
+        assembler = get_assembler(local_form, bcs=local_bcs, mat_type=local_mat_type)
+        tensor = assembler.assemble()
+        local_mat = tensor.petscmat
 
     rmap = local_to_global_map(form.arguments()[0].function_space(), cellwise)
     cmap = local_to_global_map(form.arguments()[1].function_space(), cellwise)
+    # Subdomains on the same process share the degrees of freedom on their interface
+    repeated = any(len(numpy.unique(m.indices)) < len(m.indices) for m in (rmap, cmap))
+    repeated = form.arguments()[0].function_space().comm.allreduce(repeated, op=MPI.LOR)
 
     Amatis = PETSc.Mat().createIS(sizes, comm=comm)
-    Amatis.setISAllowRepeated(cellwise)
+    Amatis.setISAllowRepeated(repeated)
     Amatis.setLGMap(rmap, cmap)
-    Amatis.setISLocalMat(tensor.petscmat)
+    Amatis.setISLocalMat(local_mat)
     Amatis.setUp()
     Amatis.assemble()
 
@@ -304,15 +389,20 @@ def get_restricted_dofs(V, domain):
     return PETSc.IS().createGeneral(indices, comm=V.comm)
 
 
-def get_divergence_mat(V, mat_type="is", allow_repeated=False):
+def get_divergence_mat(V, mat_type="is", allow_repeated=False, decomposition=None):
     from firedrake import assemble
     degree = max(as_tuple(V.ufl_element().degree()))
     Q = TensorFunctionSpace(V.mesh(), "DG", 0, variant=f"integral({degree-1})", shape=V.value_shape[:-1])
 
-    if V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != Q.finat_element.formdegree-1:
+    if mat_type == "is" and decomposition is not None:
+        # The divergence must have the local numbering of the velocity in the
+        # preconditioner built by create_matis on these subdomains
+        form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
+        B, _ = create_matis(form, "aij", **decomposition)
+    elif V.finat_element.complex.is_macrocell() or V.finat_element.formdegree != Q.finat_element.formdegree-1:
         form = inner(div(TrialFunction(V)), TestFunction(Q)) * dx
         if mat_type == "is" and allow_repeated:
-            B, _ = create_matis(form, "aij", allow_repeated)
+            B, _ = create_matis(form, "aij", cellwise=allow_repeated)
         else:
             B = assemble(form, mat_type=mat_type).petscmat
     else:
