@@ -324,7 +324,7 @@ def MeshHierarchy(mesh, refinement_levels=0,
     # mesh_builder adds overlap to each DMPlex in place, so first capture the
     # lgmaps and read the fine-to-coarse point map from each unoverlapped DM.
     lgmaps = [impl.create_lgmap(dm) for dm in dms]
-    points = [impl.transform_source_points(dm) for dm in dms[1:]]
+    points = [dmcommon.transform_source_points(dm) for dm in dms[1:]]
 
     # Build a mesh for each level, adding overlap here.
     parameters = {}

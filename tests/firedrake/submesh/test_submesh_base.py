@@ -233,10 +233,10 @@ def test_submesh_base_entity_maps():
     submesh.topology_dm.viewFromOptions("-dm_view")
     subdm = submesh.topology.topology_dm
     if rank == 0:
-        assert subdm.getLabel("pyop2_core").getStratumSize(1) == 0
-        assert subdm.getLabel("pyop2_owned").getStratumSize(1) == 9
+        assert subdm.getLabel("pyop2_core").getStratumSize(1) == 9
+        assert subdm.getLabel("pyop2_owned").getStratumSize(1) == 0
         assert subdm.getLabel("pyop2_ghost").getStratumSize(1) == 0
-        assert (subdm.getLabel("pyop2_owned").getStratumIS(1).getIndices() == np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])).all()
+        assert (subdm.getLabel("pyop2_core").getStratumIS(1).getIndices() == np.array([0, 1, 2, 3, 4, 5, 6, 7, 8])).all()
         assert (mesh.interior_facets.facets == np.array([11])).all
         assert (mesh.exterior_facets.facets == np.array([8, 9, 10, 12, 13, 14])).all
         assert (submesh.interior_facets.facets == np.array([])).all

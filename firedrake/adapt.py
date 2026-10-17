@@ -105,7 +105,7 @@ def refine_marked_elements(mesh, cell_marker):
         if is_netgen:
             ngmesh = _snap_to_netgen(new_dm, mesh.netgen_mesh)
         fine_to_coarse_points = impl.compose_points(
-            fine_to_coarse_points, impl.transform_source_points(new_dm))
+            fine_to_coarse_points, dmcommon.transform_source_points(new_dm))
         with PETSc.Log.Event("AdaptiveRefine: Mesh()"):
             current_mesh = Mesh(
                 new_dm,

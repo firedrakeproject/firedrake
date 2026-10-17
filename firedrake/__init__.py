@@ -94,7 +94,7 @@ from firedrake.mesh import (  # noqa: F401
     Mesh, ExtrudedMesh, VertexOnlyMesh, RelabeledMesh,
     SubDomainData, UNMARKED, DistributedMeshOverlapType,
     DEFAULT_MESH_NAME, MeshGeometry, MeshTopology,
-    AbstractMeshTopology, ExtrudedMeshTopology, Submesh,
+    AbstractMeshTopology, ExtrudedMeshTopology, Submesh, BrokenMesh,
     VertexOnlyMeshTopology, MeshSequenceGeometry, MeshSequenceTopology
 )
 from firedrake.mg import (  # noqa: F401
