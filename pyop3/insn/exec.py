@@ -303,28 +303,32 @@ class InstructionExecutionContext:
 
     def preprocess(self) -> pyop3.insn.base.Instruction:
         import pyop3.visitors
-
-        from .visitors import (
-            expand_loop_contexts,
-            expand_transforms,
-            insert_literals,
-        )
+        import pyop3.insn.visitors
 
         if self._preprocessed is None:
             insn = self.root_insn
-            insn = expand_loop_contexts(insn)
+
+            # Make sure that buffer intents agree, possibly replacing
+            # conflicting intents with copies.
+            !!! This is a *mandatory* pass as we may have to copy every time
+            Is this the right approach? Kinda invasive, but definitely good to put inside pyop3 I reckon.
+            insn = pyop3.visitors.check_intents(insn)
+
+            # TODO: explain
+            insn = pyop3.insn.visitors.expand_loop_contexts(insn)
 
             # bad name, this expands all transformations and pack/unpacks for called functions
             # 'flatten?'
             # Since the expansion can add new nodes requiring parsing we do a fixed point iteration
+            # TODO: I think this can be avoided, recurse inside the pass
             old_insn = insn
-            insn = expand_transforms(insn)
+            insn = pyop3.insn.visitors.expand_transforms(insn)
             while insn != old_insn:
                 old_insn = insn
-                insn = expand_transforms(insn)
+                insn = pyop3.insn.visitors.expand_transforms(insn)
 
             insn = pyop3.visitors.concretize(insn)
-            insn = insert_literals(insn)
+            insn = pyop3.insn.visitors.insert_literals(insn)
             insn = pyop3.visitors.materialize_indirections(insn, compress=self.compiler_parameters.compress_indirection_maps)
 
             self._preprocessed = insn

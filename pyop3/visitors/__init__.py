@@ -18,11 +18,13 @@ import pyop3.visitors.base
 import pyop3.visitors.identity
 from pyop3 import utils
 from pyop3.collections import OrderedFrozenSet
+
 from pyop3.visitors.comm import common_comm, get_comm, single_comm  # noqa: F401
 from pyop3.visitors.compress_indirections import materialize_indirections  # noqa: F401
 from pyop3.visitors.concretize import concretize  # noqa: F401
 from pyop3.visitors.relabel import Relabeler, relabel  # noqa: F401
 from pyop3.visitors.replace import replace  # noqa: F401
+from pyop3.visitors.check_intents import check_intents  # noqa: F401
 
 
 if typing.TYPE_CHECKING:

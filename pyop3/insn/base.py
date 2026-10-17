@@ -150,6 +150,11 @@ class TerminalInstruction(Instruction, Terminal, abc.ABC):
 
     @property
     @abc.abstractmethod
+    def with_arguments(self, arguments):
+        pass
+
+    @property
+    @abc.abstractmethod
     def compiler_options(self) -> pyop3.cc.CompilerOptions:
         """Extra options needed to compile this terminal."""
 
@@ -345,7 +350,7 @@ class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
 
     @property
     @abc.abstractmethod
-    def axis_trees(self) -> AxisTree:
+    def axis_trees(self):
         pass
 
     @property
@@ -525,7 +530,7 @@ class Function(pyop3.obj.Object):
 
 class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
 
-    __abstract_record_attrs = ("function",)
+    __abstract_record_attrs = ("function", "_arguments")
 
     # {{{ interface impls
 
@@ -540,9 +545,7 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
         return f"{self.name}({', '.join(arg.name for arg in self.arguments)})"
 
     # or an empty tuple?
-    @property
-    def axis_trees(self) -> tuple[AxisTree, ...]:
-        return (UNIT_AXIS_TREE,)
+    axis_trees = (UNIT_AXIS_TREE,)
 
     shape = ()
 
@@ -562,7 +565,7 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
     def argument_intents(self):
         return tuple(
             (arg, intent)
-            for arg, intent in zip(self.arguments, self.function.intents, strict=True)
+            for arg, intent in zip(self._arguments, self.function.intents, strict=True)
         )
 
     @property
@@ -571,6 +574,9 @@ class AbstractCalledFunction(NonEmptyTerminal, metaclass=abc.ABCMeta):
             arg.shape if not isinstance(arg, lp.ValueArg) else ()
             for arg in self.function.code.default_entrypoint.args
         )
+
+    def with_arguments(self, arguments):
+        return self.record_new(_arguments=tuple(arguments))
 
 
 @pyop3.record.frozenrecord()
@@ -606,8 +612,6 @@ class CalledFunction(AbstractCalledFunction):
 
     # }}}
 
-    arguments: ClassVar[property] = pyop3.record.attr("_arguments")
-
     @classmethod
     def _fixup_function_argument_shapes(cls, function, arguments):
         loopy_kernel = function.code.default_entrypoint
@@ -632,8 +636,6 @@ class CalledFunction(AbstractCalledFunction):
 class StandaloneCalledFunction(AbstractCalledFunction):
     """A called function whose arguments do not need packing/unpacking."""
 
-    # {{{ instance attrs
-
     function: Function
     _arguments: Iterable[FunctionArgument]
 
@@ -645,16 +647,12 @@ class StandaloneCalledFunction(AbstractCalledFunction):
         )
 
     def collect_buffers(self, visitor):
-        return OrderedFrozenSet().union(*(map(visitor, self._arguments)))
+        return OrderedFrozenSet().union(*(map(visitor, self.arguments)))
 
     def __init__(self, function: Function, arguments: Iterable) -> None:
         arguments = tuple(arguments)
         object.__setattr__(self, "function", function)
         object.__setattr__(self, "_arguments", arguments)
-
-    # }}}
-
-    arguments: ClassVar[property] = property(lambda self: self._arguments)
 
 
 # TODO: Make this a singleton like UNIT_AXIS_TREE
@@ -714,10 +712,7 @@ class AbstractAssignmentLike(TerminalInstruction):
 
 class AbstractAssignment(AbstractAssignmentLike):
 
-    @property
-    @abc.abstractmethod
-    def assignment_type(self) -> AssignmentType:
-        pass
+    __abstract_record_attrs = ("assignment_type",)
 
     @cached_property
     def argument_intents(self) -> dict:
@@ -777,24 +772,7 @@ class Assignment(AbstractAssignment):
 
     _assignee: Any
     expression: Any
-    _assignment_type: AssignmentType
-
-    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            visitor(self.assignee),
-            visitor(self.expression),
-            self._assignment_type,
-        )
-
-    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
-        assignment_type = AssignmentType(assignment_type)
-
-        object.__setattr__(self, "_assignee", assignee)
-        object.__setattr__(self, "expression", expression)
-        object.__setattr__(self, "_assignment_type", assignment_type)
-
-    # }}}
+    assignment_type: AssignmentType
 
     @property
     def assignee(self):
@@ -805,25 +783,42 @@ class Assignment(AbstractAssignment):
         else:
             return self._assignee
 
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            visitor(self.assignee),
+            visitor(self.expression),
+            self.assignment_type,
+        )
+
+    def __init__(self, assignee: Any, expression: Any, assignment_type: AssignmentType | str) -> None:
+        assignment_type = AssignmentType(assignment_type)
+
+        object.__setattr__(self, "_assignee", assignee)
+        object.__setattr__(self, "expression", expression)
+        object.__setattr__(self, "assignment_type", assignment_type)
+
+    # }}}
+
+    def with_arguments(self, arguments):
+        assignee, expression = arguments
+        return self.record_new(_assignee=assignee, expression=expression)
+
     @cached_property
     def comm(self) -> MPI.Comm:
         import pyop3.visitors
 
         return pyop3.visitors.common_comm([self.assignee, self.expression])
 
-    assignment_type: ClassVar[property] = pyop3.record.attr("_assignment_type")
-
 
 # TODO: rename NonEmptyAssignment, is this even needed?
 @pyop3.record.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
 
-    # {{{ instance attrs
-
     _assignee: Any
     expression: Any
     _axis_trees: tuple[AxisTree, ...]
-    _assignment_type: AssignmentType
+    assignment_type: AssignmentType
     # is this still needed?
     _comm: MPI.Comm = dataclasses.field(hash=False)
 
@@ -833,7 +828,7 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
             visitor(self.assignee),
             visitor(self.expression),
             *(map(visitor, self._axis_trees)),
-            self._assignment_type,
+            self.assignment_type,
         )
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
@@ -857,25 +852,24 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
         object.__setattr__(self, "_assignee", assignee)
         object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "_axis_trees", axis_trees)
-        object.__setattr__(self, "_assignment_type", assignment_type)
+        object.__setattr__(self, "assignment_type", assignment_type)
         object.__setattr__(self, "_comm", comm)
 
     @property
     def assignee(self):
         return self._assignee
 
-    # }}}
+    @property
+    def axis_trees(self):
+        return self._axis_trees
 
     @property
     def comm(self) -> MPI.Comm:
         return self._comm
 
-    # {{{ interface impls
-
-    axis_trees = pyop3.record.attr("_axis_trees")
-    assignment_type = pyop3.record.attr("_assignment_type")
-
-    # }}}
+    def with_arguments(self, arguments):
+        a, e = arguments
+        return self.record_new(_assignee=a, expression=e)
 
 
 @pyop3.record.frozenrecord()
@@ -935,6 +929,10 @@ class Exscan(AbstractAssignmentLike):
     @property
     def arguments(self) -> tuple[Any, Any]:
         return (self._assignee, self.expression)
+
+    def with_arguments(self, arguments):
+        a, e = arguments
+        return self.record_new(_assignee=a, expression=e)
 
     @cached_property
     def extent(self):

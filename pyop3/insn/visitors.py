@@ -336,7 +336,7 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
     bare_assignment = assignment.record_new(
         _assignee=bare_assignee,
         expression=bare_expression,
-        _assignment_type=assignment_type,
+        assignment_type=assignment_type,
     )
     return maybe_enlist((*expression_insns, bare_assignment, *assignee_insns))
 
