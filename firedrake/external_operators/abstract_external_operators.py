@@ -194,6 +194,8 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
             # Will also catch the case where wrong fct space
             if not isinstance(result, (Function, Cofunction)):
                 raise ValueError('External operators with one argument must result in a firedrake.Function or firedrake.Cofunction object!')
+            if not result.function_space() == self.arguments()[0].function_space().dual():
+                raise ValueError('External operator assembly result is in the wrong function space.')
         elif len(self.arguments()) == 2:
             if not isinstance(result, MatrixBase):
                 raise ValueError('External operators with two arguments must result in a firedrake.MatrixBase object!')
