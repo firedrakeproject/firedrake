@@ -1,7 +1,9 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.bcs import restricted_function_space
 from firedrake.functionspace import DualSpace
+from firedrake.functionspaceimpl import check_element
 from ufl.duals import is_dual, is_primal
 
 
@@ -385,3 +387,65 @@ def test_mixed_broken_space(mesh):
     expected = FunctionSpace(mesh, broken_elem)
 
     assert broken == expected
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family", ("Q", "S", "DPC"))
+@pytest.mark.parametrize("wrapper", (None, VectorElement, TensorElement), ids=("unwrapped", "vector", "tensor"))
+def test_hexahedral_broken_space(family: str, wrapper: type | None, garbage_cleanup: None) -> None:
+    """Broken elements preserve physical fields in hexahedral mass assembly."""
+    mesh = UnitCubeMesh(2, 2, 2, hexahedral=True)
+    element = BrokenElement(FiniteElement(family, mesh.ufl_cell(), 2))
+    if wrapper is VectorElement:
+        element = wrapper(element, dim=2)
+    elif wrapper is TensorElement:
+        element = wrapper(element, shape=(2, 2))
+    V = FunctionSpace(mesh, element)
+    u, v = TrialFunction(V), TestFunction(V)
+    constant = Function(V).interpolate(Constant(np.ones(V.value_shape)))
+    mass = assemble(inner(u, v) * dx, mat_type="aij").petscmat
+    with constant.dat.vec_ro as vec:
+        result = vec.duplicate()
+        mass.mult(vec, result)
+        value = vec.dot(result)
+    assert abs(value - np.prod(V.value_shape)) < 1.e-12
+
+
+@pytest.mark.parametrize("family", ("NCE", "NCF"))
+@pytest.mark.parametrize("wrapper", (None, VectorElement, TensorElement), ids=("unwrapped", "vector", "tensor"))
+def test_hexahedral_broken_element_validation(family: str, wrapper: type | None) -> None:
+    """Broken elements pass family validation with their original mappings."""
+    element = BrokenElement(FiniteElement(family, hexahedron, 2))
+    if wrapper is VectorElement:
+        element = wrapper(element, dim=2)
+    elif wrapper is TensorElement:
+        element = wrapper(element, shape=(2, 2))
+    check_element(element)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("family", ("NCE", "NCF"))
+@pytest.mark.parametrize("wrapper", (None, VectorElement, TensorElement), ids=("unwrapped", "vector", "tensor"))
+def test_hexahedral_unbroken_space(family: str, wrapper: type | None, garbage_cleanup: None) -> None:
+    """Unsupported unbroken elements remain invalid inside outer modifiers."""
+    mesh = UnitCubeMesh(2, 2, 2, hexahedral=True)
+    element = FiniteElement(family, mesh.ufl_cell(), 2)
+    if wrapper is VectorElement:
+        element = wrapper(element, dim=2)
+    elif wrapper is TensorElement:
+        element = wrapper(element, shape=(2, 2))
+    with pytest.raises(NotImplementedError, match="hexahedral meshes"):
+        FunctionSpace(mesh, element)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("broken", (False, True))
+def test_hexahedral_modifier_ordering(broken: bool, garbage_cleanup: None) -> None:
+    """Breaking an element does not allow nested tensor modifiers."""
+    mesh = UnitCubeMesh(2, 2, 2, hexahedral=True)
+    element = FiniteElement("Q", mesh.ufl_cell(), 2)
+    if broken:
+        element = BrokenElement(element)
+    element = TensorElement(TensorElement(element, shape=(2,)), shape=(2, 2))
+    with pytest.raises(ValueError, match="modifier must be outermost"):
+        FunctionSpace(mesh, element)
