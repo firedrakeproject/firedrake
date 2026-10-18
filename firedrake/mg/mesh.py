@@ -11,6 +11,7 @@ import firedrake
 from functools import cached_property
 
 from firedrake import utils
+from firedrake.petsc import PETSc
 from firedrake.cython import mgimpl as impl
 import firedrake.cython.dmcommon as dmcommon
 from .utils import set_level
@@ -59,6 +60,9 @@ class HierarchyBase(object):
         Number of mesh refinements each multigrid level should "see".
     nested :
         Is this mesh hierarchy nested?
+    coarse_facet_label : int or None
+        Optional subdomain ID used to label the facets of each coarse cell
+        on the next level. This is required by coarse-patch transfer.
     fine_to_coarse_points :
         Dict of numpy arrays for each level that was refined from the level
         below it. Each array maps fine DMPlex points to their coarse DMPlex
@@ -73,12 +77,13 @@ class HierarchyBase(object):
     """
     def __init__(self, meshes, coarse_to_fine_cells=None, fine_to_coarse_cells=None,
                  refinements_per_level=1, nested=False,
-                 fine_to_coarse_points=None):
+                 fine_to_coarse_points=None, coarse_facet_label=None):
         petsctools.cite("Mitchell2016")
         self._meshes = list(meshes)
         self.meshes = self._meshes[::refinements_per_level]
         self.refinements_per_level = refinements_per_level
         self.nested = nested
+        self._coarse_facet_label = coarse_facet_label
         self.fine_to_coarse_points = dict(fine_to_coarse_points or {})
         if (coarse_to_fine_cells is None) != (fine_to_coarse_cells is None):
             raise ValueError("coarse_to_fine_cells and fine_to_coarse_cells must be provided together")
@@ -217,7 +222,8 @@ def MeshHierarchy(mesh, refinement_levels=0,
                   netgen_flags=None,
                   reorder=None,
                   distribution_parameters=None, callbacks=None,
-                  mesh_builder=firedrake.Mesh, nested=True):
+                  mesh_builder=firedrake.Mesh, nested=True,
+                  coarse_facet_label=None):
     """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
     Parameters
@@ -257,6 +263,9 @@ def MeshHierarchy(mesh, refinement_levels=0,
         Are the meshes added to this hierarchy required to be nested? If
         `False`, :meth:`HierarchyBase.add_mesh` accepts a mesh that was not
         adaptively refined from the finest level.
+    coarse_facet_label : int or None
+        Optional subdomain ID used to label the facets of each coarse cell
+        on the next level. This is required by coarse-patch transfer.
 
     Returns
     -------
@@ -300,12 +309,24 @@ def MeshHierarchy(mesh, refinement_levels=0,
         cdm.setRefinementUniform(True)
     dms = [cdm]
     for i in range(refinement_levels*refinements_per_level):
+        if coarse_facet_label is not None:
+            fstart, fend = cdm.getHeightStratum(1)
+            iset = PETSc.IS().createStride(fend - fstart, first=fstart,
+                                           comm=cdm.comm)
+            cdm.createLabel("temp_label")
+            cdm.getLabel("temp_label").setStratumIS(1, iset)
         if i % refinements_per_level == 0:
             before(cdm, i)
         cdm.setSaveTransform()
         rdm = cdm.refine()
         if i % refinements_per_level == 0:
             after(rdm, i)
+        if coarse_facet_label is not None:
+            iset = rdm.getLabel("temp_label").getStratumIS(1)
+            rdm.getLabel(dmcommon.FACE_SETS_LABEL).setStratumIS(
+                coarse_facet_label, iset)
+            rdm.removeLabel("temp_label")
+            cdm.removeLabel("temp_label")
         if is_netgen:
             ngmeshes.append(_snap_to_netgen(rdm, mesh.netgen_mesh))
         # Fix up coords if refining embedded circle or sphere
@@ -370,7 +391,8 @@ def MeshHierarchy(mesh, refinement_levels=0,
         for i in range(len(points))
     }
     return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
-                         nested=nested, fine_to_coarse_points=fine_to_coarse_points)
+                         nested=nested, fine_to_coarse_points=fine_to_coarse_points,
+                         coarse_facet_label=coarse_facet_label)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,

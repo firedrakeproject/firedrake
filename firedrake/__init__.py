@@ -102,7 +102,9 @@ from firedrake.mg import (  # noqa: F401
     NonNestedHierarchy, SemiCoarsenedExtrudedHierarchy, SubmeshHierarchy,
     prolong, restrict, inject, TransferManager,
     OpenCascadeMeshHierarchy, AdaptiveMeshHierarchy,
-    AdaptiveTransferManager
+    AdaptiveTransferManager,
+    CoarsePatchTransferManager,
+    FinePatchTransferManager,
 )
 from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401

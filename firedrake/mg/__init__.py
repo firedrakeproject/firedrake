@@ -8,3 +8,6 @@ from firedrake.mg.interface import (  # noqa F401
 )
 from firedrake.mg.embedded import TransferManager, AdaptiveTransferManager  # noqa F401
 from firedrake.mg.opencascade_mh import OpenCascadeMeshHierarchy  # noqa F401
+from firedrake.mg.robust_transfer_manager import (  # noqa: F401
+    CoarsePatchTransferManager, FinePatchTransferManager,
+)
