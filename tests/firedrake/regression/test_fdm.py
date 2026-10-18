@@ -1,5 +1,6 @@
 import pytest
 import numpy
+from collections.abc import Callable
 from firedrake import *
 from pyop2.utils import as_tuple
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
@@ -81,6 +82,54 @@ facetstar = {
 
 fdmstar.update(ksp)
 facetstar.update(ksp)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((), (2,), (2, 2)))
+def test_broken_function_components(shape):
+    """Copy every scalar, vector, or tensor component into broken cells."""
+    from firedrake.preconditioners.fdm import broken_function
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    element = FiniteElement("Q", mesh.ufl_cell(), 2)
+    if shape:
+        element = TensorElement(element, shape=shape)
+    V = FunctionSpace(mesh, element)
+    weights = numpy.arange(1, numpy.prod(shape, dtype=int) + 1).reshape(shape)
+    expression = SpatialCoordinate(mesh)[0] * Constant(weights)
+    source = Function(V).interpolate(expression)
+    actual = broken_function(V, source.dat)
+    expected = Function(actual.function_space()).interpolate(expression)
+    assert errornorm(expected, actual) < 1.e-12
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("shape", ((2,), (2, 2), (2, 3)))
+@pytest.mark.parametrize("mat_type,allow_repeated", [("aij", False), ("is", False), ("is", True)])
+def test_fdm_tensor_components(shape: tuple[int, ...], mat_type: str, allow_repeated: bool) -> None:
+    """FDM preserves each component of a weighted Cartesian Riesz map."""
+    mesh = UnitSquareMesh(2, 2, quadrilateral=True)
+    V = TensorFunctionSpace(mesh, "Q", 2, variant="fdm", shape=shape)
+    u, v = TrialFunction(V), TestFunction(V)
+    weights = Constant(numpy.arange(1, numpy.prod(shape) + 1).reshape(shape))
+    weighted_u = elem_mult(weights, u)
+    a = (inner(grad(weighted_u), grad(v)) + inner(weighted_u, v)) * dx
+    expected = assemble(a).petscmat
+
+    exact = Function(V).assign(1)
+    problem = LinearVariationalProblem(a, action(a, exact), Function(V))
+    solver = LinearVariationalSolver(problem, solver_parameters={
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.FDMPC",
+        "fdm_mat_type": mat_type,
+        "fdm_mat_is_allow_repeated": allow_repeated,
+        "fdm_pc_type": "none",
+    })
+    solver.solve()
+    _, P = solver.snes.ksp.pc.getPythonContext().pc.getOperators()
+    actual = P.convert("aij", out=PETSc.Mat())
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
 
 
 def build_riesz_map(V, d):
@@ -357,6 +406,61 @@ def test_tabulate_gradient(mesh, variant, degree, mat_type):
     Bref.axpy(-1, B)
     _, _, vals = Bref.getValuesCSR()
     assert numpy.allclose(vals, 0)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("degree", (1, 2))
+@pytest.mark.parametrize("source,target,derivative", [("CG", "N1curl", grad), ("N1curl", "RT", curl)])
+def test_tabulate_exterior_derivative_simplex(source: str, target: str,
+                                              derivative: Callable, degree: int) -> None:
+    """Reference gradients and curls agree with assembly on sheared tetrahedra."""
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+
+    mesh = UnitCubeMesh(1, 1, 1)
+    x = SpatialCoordinate(mesh)
+    mesh.coordinates.interpolate(as_vector([2*x[0] + x[1]/3, x[1]/2, x[2]]))
+    V = FunctionSpace(mesh, source, degree)
+    W = FunctionSpace(mesh, target, degree)
+    D = tabulate_exterior_derivative(V, W)
+    M = assemble(inner(TrialFunction(W), TestFunction(W))*dx).petscmat
+    expected = assemble(inner(derivative(TrialFunction(V)), TestFunction(W))*dx).petscmat
+    actual = M.matMult(D)
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("allow_repeated", (False, True))
+@pytest.mark.parametrize("component_bc", (False, True))
+def test_tabulate_divergence_matis_components(allow_repeated: bool, component_bc: bool) -> None:
+    """MATIS preserves masks on whole fields and individual components."""
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, TensorElement(FiniteElement("RT", mesh.ufl_cell(), 1), shape=(2,)))
+    W = VectorFunctionSpace(mesh, "DG", 0, variant="integral(0)", dim=2)
+    cbcs = [DirichletBC(V.sub(1) if component_bc else V, 0, 1)]
+    expected = tabulate_exterior_derivative(V, W)
+    cmask = Function(V).assign(1)
+    cbcs[0].apply(cmask)
+    with cmask.dat.vec_ro as cvec:
+        expected.diagonalScale(None, cvec)
+    actual = tabulate_exterior_derivative(V, W, cbcs=cbcs,
+                                          mat_type="is", allow_repeated=allow_repeated)
+    actual = actual.convert("aij", out=PETSc.Mat())
+    actual.axpy(-1, expected)
+    assert actual.norm() < 1.e-12 * expected.norm()
+
+
+def test_tabulate_exterior_derivative_incompatible_shape() -> None:
+    """Reject incompatible component counts before inserting reference entries."""
+    from firedrake.preconditioners.fdm import tabulate_exterior_derivative
+
+    mesh = UnitSquareMesh(1, 1)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "N1curl", 1)
+    with pytest.raises(ValueError, match="does not match cell maps"):
+        tabulate_exterior_derivative(V, W)
 
 
 @pytest.mark.parallel(nprocs=2)

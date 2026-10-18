@@ -460,3 +460,111 @@ class ImplicitMatrixContext:
         newmat.setPythonContext(newmat_ctx)
         newmat.setUp()
         return newmat
+
+
+class CellwiseImplicitMatrixContext(ImplicitMatrixContext):
+    """Apply a local form through maps that omit constrained degrees of freedom.
+
+    Parameters
+    ----------
+    a : ufl.Form
+        Form on broken spaces and a local mesh.
+    row_map, col_map : PETSc.LGMap
+        Maps from the full broken spaces to compact local matrix indices.
+
+    Notes
+    -----
+    See :class:`ImplicitMatrixContext` for the other parameters.
+    """
+
+    def __init__(self, a: ufl.Form, row_map: PETSc.LGMap, col_map: PETSc.LGMap,
+                 fc_params: dict[str, Any] | None = None, appctx: dict[str, Any] | None = None) -> None:
+        super().__init__(a, fc_params=fc_params, appctx=appctx)
+        with self._x.dat.vec_ro as vec:
+            self._full_x = vec.duplicate()
+        with self._ystar.dat.vec_ro as vec:
+            self._full_y = vec.duplicate()
+        row_indices = numpy.flatnonzero(row_map.indices >= 0).astype(PETSc.IntType)
+        col_indices = numpy.flatnonzero(col_map.indices >= 0).astype(PETSc.IntType)
+        self.row_sizes = (row_indices.size, row_indices.size)
+        self.col_sizes = (col_indices.size, col_indices.size)
+        self._compact_x = PETSc.Vec().createSeq(col_indices.size, comm=self.comm)
+        self._compact_y = PETSc.Vec().createSeq(row_indices.size, comm=self.comm)
+        self._row_mask = self._compact_y.duplicate()
+        self._col_mask = self._compact_x.duplicate()
+        self._row_mask.set(1)
+        self._col_mask.set(1)
+        self._diagonal_shift = self._compact_y.duplicate()
+        self._diagonal_shift.set(0)
+        row_is = PETSc.IS().createGeneral(row_indices, comm=self.comm)
+        col_is = PETSc.IS().createGeneral(col_indices, comm=self.comm)
+        self._row_scatter = PETSc.Scatter().create(self._full_y, row_is, self._compact_y, None)
+        self._col_scatter = PETSc.Scatter().create(self._full_x, col_is, self._compact_x, None)
+        self.on_diag = self.on_diag and self.row_sizes == self.col_sizes
+
+    def mult(self, mat: PETSc.Mat, X: PETSc.Vec, Y: PETSc.Vec) -> None:
+        self._compact_x.pointwiseMult(X, self._col_mask)
+        self._full_x.set(0)
+        self._col_scatter(self._compact_x, self._full_x, mode=PETSc.Scatter.Mode.REVERSE)
+        super().mult(mat, self._full_x, self._full_y)
+        self._row_scatter(self._full_y, Y)
+        Y.pointwiseMult(Y, self._row_mask)
+        if self.on_diag:
+            self._compact_y.pointwiseMult(self._diagonal_shift, X)
+            Y.axpy(1, self._compact_y)
+
+    def multTranspose(self, mat: PETSc.Mat, Y: PETSc.Vec, X: PETSc.Vec) -> None:
+        self._compact_y.pointwiseMult(Y, self._row_mask)
+        self._full_y.set(0)
+        self._row_scatter(self._compact_y, self._full_y, mode=PETSc.Scatter.Mode.REVERSE)
+        super().multTranspose(mat, self._full_y, self._full_x)
+        self._col_scatter(self._full_x, X)
+        X.pointwiseMult(X, self._col_mask)
+        if self.on_diag:
+            self._compact_x.pointwiseMult(self._diagonal_shift, Y)
+            X.axpy(1, self._compact_x)
+
+    def getDiagonal(self, mat: PETSc.Mat, vec: PETSc.Vec) -> None:
+        super().getDiagonal(mat, self._full_y)
+        self._row_scatter(self._full_y, vec)
+        vec.pointwiseMult(vec, self._row_mask)
+        vec.pointwiseMult(vec, self._col_mask)
+        vec.axpy(1, self._diagonal_shift)
+
+    def zeroRowsColumns(self, mat: PETSc.Mat, rows: numpy.ndarray, diag: complex,
+                        x: PETSc.Vec, b: PETSc.Vec) -> None:
+        """Zero the selected local rows and columns.
+
+        Parameters
+        ----------
+        mat : PETSc.Mat
+            Local Python matrix.
+        rows : numpy.ndarray
+            Local indices of the rows and columns to eliminate.
+        diag : complex
+            Diagonal value to retain on the eliminated rows.
+        x, b : PETSc.Vec
+            Null vectors. MATIS applies right-hand-side changes globally.
+        """
+        if x or b:
+            raise NotImplementedError("Local right-hand-side elimination is handled by MATIS")
+        self._row_mask.array[rows] = 0
+        self._col_mask.array[rows] = 0
+        self._diagonal_shift.array[rows] = diag
+
+    def setDiagonal(self, mat: PETSc.Mat, diagonal: PETSc.Vec, addv: bool) -> None:
+        """Add or replace the local diagonal.
+
+        Parameters
+        ----------
+        mat : PETSc.Mat
+            Local Python matrix.
+        diagonal : PETSc.Vec
+            Values for the local diagonal.
+        addv : bool
+            Whether the petsc4py callback requests addition to the diagonal.
+        """
+        if not addv:
+            self.getDiagonal(mat, self._compact_y)
+            self._diagonal_shift.axpy(-1, self._compact_y)
+        self._diagonal_shift.axpy(1, diagonal)

@@ -634,9 +634,10 @@ class FDMPC(PCBase):
     @cached_property
     def _element_mass_matrix(self):
         Z = self.coefficients["cell"].function_space()
-        shape = (sum(V.finat_element.space_dimension() for V in Z),) + Z[0].shape
+        # Coefficient blocks act on all scalar components of each field value.
+        bsize = self.V[0].block_size
+        shape = (sum(V.finat_element.space_dimension() for V in Z), bsize, Z[0].block_size // bsize)
         data = numpy.ones(shape, dtype=PETSc.RealType)
-        shape += (1,) * (3-len(shape))
         nrows = shape[0] * shape[1]
         ai = numpy.arange(nrows+1, dtype=PETSc.IntType)
         aj = numpy.tile(ai[:-1].reshape((-1, shape[1])), (1, shape[2]))
@@ -1598,14 +1599,27 @@ def diff_blocks(tdim, formdegree, A00, A11, A10):
 
 
 def broken_function(V, val):
-    """Return a Function(V, val=val) interpolated onto the broken space."""
+    """Copy finite element coefficients into the broken space.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        Space that defines the source coefficient ordering.
+    val : pyop2.Dat or numpy.ndarray
+        Source coefficients, including all value components.
+
+    Returns
+    -------
+    Function
+        Function on the broken space with the same cell coefficients.
+    """
     W = V.broken_space()
     w = Function(W, dtype=val.dtype)
     v = Function(V, val=val)
-    domain = "{[i]: 0 <= i < v.dofs}"
+    domain = f"{{[i, j]: 0 <= i < v.dofs and 0 <= j < {v.dat.cdim}}}"
     instructions = """
-    for i
-        w[i] = v[i]
+    for i, j
+        w[i, j] = v[i, j]
     end
     """
     par_loop((domain, instructions), ufl.dx, {'w': (w, op2.WRITE), 'v': (v, op2.READ)})
@@ -1613,12 +1627,27 @@ def broken_function(V, val):
 
 
 def mask_local_indices(V, lgmap, allow_repeated):
-    """Return a numpy array with the masked local indices."""
+    """Construct a cell argument with masked scalar local indices.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        Space that defines the coefficient ordering.
+    lgmap : PETSc.LGMap
+        Local-to-global map with constrained degrees of freedom masked out.
+    allow_repeated : bool
+        Whether each cell has separate local indices.
+
+    Returns
+    -------
+    pyop2.parloop.DatLegacyArg
+        Argument that supplies the scalar local indices for each cell.
+    """
     mask = lgmap.indices
     if allow_repeated:
         w = broken_function(V, mask)
         V = w.function_space()
-        mask = w.dat.data_ro_with_halos
+        mask = w.dat.data_ro_with_halos.reshape(-1)
 
     indices = numpy.arange(mask.size, dtype=PETSc.IntType)
     indices[mask == -1] = -1
@@ -1628,7 +1657,23 @@ def mask_local_indices(V, lgmap, allow_repeated):
 
 
 def unghosted_lgmap(V, lgmap, allow_repeated):
-    """Construct the local to global mapping for MatIS assembly."""
+    """Construct a scalar local-to-global map for MATIS assembly.
+
+    Parameters
+    ----------
+    V : FunctionSpace
+        Space that defines the coefficient ordering.
+    lgmap : PETSc.LGMap
+        Local-to-global map, which can contain masked degrees of freedom.
+    allow_repeated : bool
+        Whether each cell has separate local indices.
+
+    Returns
+    -------
+    PETSc.LGMap
+        Map with block size one that excludes degrees of freedom that occur
+        only on ghost cells. Value components use separate scalar indices.
+    """
     if allow_repeated:
         indices = broken_function(V, lgmap.indices).dat.data_ro
     else:
@@ -1637,7 +1682,7 @@ def unghosted_lgmap(V, lgmap, allow_repeated):
         cell_node_map = broken_function(V, local_indices).dat.data_ro
         ghost = numpy.setdiff1d(local_indices, numpy.unique(cell_node_map), assume_unique=True)
         indices[ghost] = -1
-    return PETSc.LGMap().create(indices, bsize=lgmap.getBlockSize(), comm=lgmap.getComm())
+    return PETSc.LGMap().create(indices, bsize=1, comm=lgmap.getComm())
 
 
 def get_preallocator(comm, sizes, rmap, cmap, mat_type=None):
@@ -1680,8 +1725,38 @@ def allocate_matrix(preallocator, mat_type, on_diag=False, allow_repeated=False)
 
 
 def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="aij", allow_repeated=False):
-    """Tabulate exterior derivative: Vc -> Vf as an explicit sparse matrix.
-       Works for any tensor-product basis. These are the same matrices one needs for HypreAMS and friends."""
+    """Tabulate the exterior derivative as an explicit sparse matrix.
+
+    Parameters
+    ----------
+    Vc, Vf : FunctionSpace
+        Source and target spaces in consecutive degrees of the de Rham complex.
+    cbcs, fbcs : sequence of DirichletBC
+        Boundary conditions on the source and target spaces.
+    comm : MPI.Comm, optional
+        Communicator for the matrix. Defaults to the target space communicator.
+    mat_type : str
+        PETSc matrix type.
+    allow_repeated : bool
+        Whether a MATIS matrix can have repeated local degrees of freedom.
+
+    Returns
+    -------
+    PETSc.Mat
+        Matrix that represents the exterior derivative.
+
+    Raises
+    ------
+    ValueError
+        If the form degrees are not consecutive or the reference matrix does
+        not match the source and target cell maps.
+
+    Notes
+    -----
+    On simplices, the reference element mapping determines whether to tabulate
+    a gradient, curl, or divergence. Tensor-product spaces use the derivatives
+    of their one-dimensional factors.
+    """
     if comm is None:
         comm = Vf.comm
 
@@ -1693,7 +1768,8 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     if Vf.mesh().ufl_cell().is_simplex:
         c0 = ec.fiat_equivalent
         f1 = ef.fiat_equivalent
-        derivative = {ufl.H1: "grad", ufl.HCurl: "curl", ufl.HDiv: "div"}[Vc.ufl_element().sobolev_space]
+        mapping, = set(c0.mapping())
+        derivative = {"affine": "grad", "covariant piola": "curl", "contravariant piola": "div"}[mapping]
         Dhat = petsc_sparse(evaluate_dual(c0, f1, derivative), comm=COMM_SELF)
     else:
         elements = sorted(get_base_elements(ec), key=lambda e: e.formdegree)
@@ -1738,6 +1814,11 @@ def tabulate_exterior_derivative(Vc, Vf, cbcs=[], fbcs=[], comm=None, mat_type="
     if mat_type != "is":
         allow_repeated = False
     spaces = (Vf, Vc)
+    shape = Dhat.getSize()
+    expected_shape = tuple(V.cell_node_map().arity * V.block_size for V in spaces)
+    if shape != expected_shape:
+        Dhat.destroy()
+        raise ValueError(f"Reference derivative shape {shape} does not match cell maps {expected_shape}.")
     bcs = (fbcs, cbcs)
     lgmaps = tuple(V.local_to_global_map(bcs) for V, bcs in zip(spaces, bcs))
     indices_acc = tuple(mask_local_indices(V, lgmap, allow_repeated) for V, lgmap in zip(spaces, lgmaps))
@@ -2734,7 +2815,7 @@ def evaluate_dual(source, target, derivative=None):
         if derivative == "curl":
             d = B.shape[1]
             idx = ((i, j) for i in reversed(range(d)) for j in reversed(range(i+1, d)))
-            B = numpy.stack([((-1)**k) * (B[:, i, j, :] - B[:, j, i, :])
+            B = numpy.stack([((-1)**k) * (B[:, j, i, :] - B[:, i, j, :])
                              for k, (i, j) in enumerate(idx)], axis=1)
         elif derivative == "div":
             B = numpy.trace(B, axis1=1, axis2=2)

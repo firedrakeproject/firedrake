@@ -375,17 +375,20 @@ class WithGeometryBase:
             new = cls(new, mesh)
         return new
 
-    def broken_space(self):
-        """Return a :class:`.WithGeometryBase` with a :class:`finat.ufl.brokenelement.BrokenElement`
-        constructed from this function space's FiniteElement.
+    def broken_space(self) -> "WithGeometryBase":
+        """Return a function space whose degrees of freedom are independent on each cell.
+
+        Each field of a mixed space is broken separately.
 
         Returns
         -------
-        WithGeometryBase :
-            The new function space with a :class:`~finat.ufl.brokenelement.BrokenElement`.
+        WithGeometryBase
+            The new function space with broken finite elements.
         """
+        element = finat.ufl.BrokenElement(self.ufl_element()) if len(self) == 1 else finat.ufl.MixedElement(
+            *[finat.ufl.BrokenElement(V.ufl_element()) for V in self])
         return type(self).make_function_space(
-            self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
+            self.mesh(), element,
             name=f"{self.name}_broken" if self.name else None)
 
     def quadrature_space(self):
@@ -1382,15 +1385,20 @@ def IndexedFunctionSpace(index, space, parent):
     return new
 
 
-def ComponentFunctionSpace(parent, component):
-    r"""Build a new FunctionSpace that remembers it represents a
-    particular component.  Used for applying boundary conditions to
-    components of a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace`.
+def ComponentFunctionSpace(parent: FunctionSpace, component: int) -> ProxyFunctionSpace | ProxyRestrictedFunctionSpace:
+    """Build a function space that represents one component of its parent.
 
-    :arg parent: The parent space (a FunctionSpace with a
-        VectorElement or TensorElement).
-    :arg component: The component to represent.
-    :returns: A new :class:`ProxyFunctionSpace` with the component set.
+    Parameters
+    ----------
+    parent : FunctionSpace
+        Parent space with a vector or tensor element.
+    component : int
+        Component to represent.
+
+    Returns
+    -------
+    ProxyFunctionSpace or ProxyRestrictedFunctionSpace
+        Component space with the same restrictions and node numbering as its parent.
     """
     element = parent.ufl_element()
     assert type(element) in frozenset([finat.ufl.VectorElement, finat.ufl.TensorElement])
@@ -1398,6 +1406,8 @@ def ComponentFunctionSpace(parent, component):
         raise IndexError("Invalid component %d. not in [0, %d)" %
                          (component, parent.block_size))
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements[0], name=parent.name)
+    if parent.boundary_set:
+        new = ProxyRestrictedFunctionSpace(new, boundary_set=parent.boundary_set, name=parent.name)
     new.identifier = "component"
     new.component = component
     new.parent = parent
