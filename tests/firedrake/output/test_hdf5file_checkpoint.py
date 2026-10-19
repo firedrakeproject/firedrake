@@ -70,7 +70,7 @@ def test_write_read(mesh, fs, degree, dumpfile):
 def test_checkpoint_fails_for_non_function(dumpfile):
     dumpfile = MPI.COMM_WORLD.bcast(dumpfile, root=0)
     with HDF5File(dumpfile, "w", comm=MPI.COMM_WORLD) as h5:
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             h5.write(np.arange(10), "/solution")
 
 
