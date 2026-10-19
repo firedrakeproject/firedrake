@@ -12,6 +12,7 @@ from pyop3 import utils
 from pyop3.dtypes import IntType
 # ---
 cimport numpy as np_c
+cimport cython
 
 from mpi4py cimport libmpi as cmpi
 from mpi4py cimport MPI
@@ -19,9 +20,11 @@ from petsctools cimport cpetsc
 from petsctools.cpetsc cimport CHKERR as CHKERR_c
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def filter_petsc_sf(
     sf: cpetsc.PetscSF_py,
-    selected_points: np_c.ndarray[IntType],  # TODO: IS?
+    const cpetsc.PetscInt[::1] selected_points,
     p_start: cpetsc.PetscInt,
     p_end: cpetsc.PetscInt,
 ) -> cpetsc.PetscSF_py:
@@ -37,16 +40,12 @@ def filter_petsc_sf(
         cpetsc.PetscInt npoints_c, i_c, p_c
 
     npoints_c = len(selected_points)
-    if npoints_c > 0:
-        utils.debug_assert(lambda: p_start <= min(selected_points))
-        utils.debug_assert(lambda: p_end >= max(selected_points))
-        utils.debug_assert(lambda: utils.has_unique_entries(selected_points))
 
     section = PETSc.Section().create(comm=sf.comm)
     section.setChart(p_start, p_end)
     for i_c in range(npoints_c):
         p_c = selected_points[i_c]
-        CHKERR_c(cpetsc.PetscSectionSetDof(section.sec, p_c, 1))
+        cpetsc.PetscSectionSetDof(section.sec, p_c, 1)
     section.setUp()
 
     return create_petsc_section_sf(sf, section)

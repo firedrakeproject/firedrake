@@ -19,6 +19,7 @@ from pyop3.axis_tree import (
 from pyop3.axis_tree.tree import (  # TODO: move this to visitors?
     full_shape,
     replace_exprs,
+    create_section_with_arrays,
 )
 from pyop3.cache import memory_cache
 from pyop3.dtypes import IntType
@@ -275,11 +276,9 @@ def _compute_layouts_cached(axis_tree: AxisTree) -> idict[ConcretePathT, Express
             # offset_dat maps pts in the offset_dat to offsets (obviously)
             # and offset_sf maps local pts in the offset dat to remote ones
             # we can use this to build a new sf mapping between offsets
-            section = PETSc.Section().create(comm=offset_pt_sf.comm)
-            section.setChart(0, offset_dat.axes.local_size)
-            for pt, off in enumerate(offset_dat.data_ro.ravel()):
-                section.setDof(pt, sizes[pt])
-                section.setOffset(pt, off)
+            section = create_section_with_arrays(
+                offset_pt_sf.comm, sizes, offset_dat.data_ro.ravel(),
+            )
 
             new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
             offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))

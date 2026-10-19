@@ -58,15 +58,11 @@ from pyop3.utils import (
     merge_dicts,
 )
 
+from ._tree_cy import create_section_with_arrays  # noqa: F401
+
 if typing.TYPE_CHECKING:
     import pyop3.visitors
     from pyop3.types import *
-
-
-# debugging
-mycount = 0
-myreprs = set()
-seen = set()
 
 
 OWNED_REGION_LABEL = "owned"
@@ -1513,13 +1509,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
         size_dat.assign(size_expr, eager=True, eager_strategy="compile")
         sizes = size_dat.buffer.data_ro
 
-        section = PETSc.Section().create(comm=self.comm)
-        section.setChart(0, component.local_size)
-        for point in range(component.local_size):
-            section.setDof(point, sizes[point])
-
-        section.setUp()
-        return section
+        return create_section_with_arrays(self.comm, sizes)
 
     @cached_property
     def layouts(self) -> idict:
