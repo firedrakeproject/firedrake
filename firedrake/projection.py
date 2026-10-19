@@ -6,7 +6,7 @@ from ufl.domain import extract_unique_domain
 from typing import Optional, Union
 
 import firedrake
-from firedrake.adjoint_utils import NonlinearVariationalSolverMixin
+from firedrake.adjoint_utils import ProjectorMixin
 from firedrake.adjoint_utils import annotate_project, annotate_super_project
 from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
@@ -84,6 +84,8 @@ def project(
         Quadrature degree to use when approximating integrands.
     name
         The name of the resulting :class:`.Function`.
+    ad_block_tag
+        String for tagging the resulting block on the Pyadjoint tape.
 
     Returns
     -------
@@ -236,7 +238,7 @@ class ProjectorBase(metaclass=abc.ABCMeta):
         return self.target
 
 
-class BasicProjector(ProjectorBase, NonlinearVariationalSolverMixin):
+class BasicProjector(ProjectorBase, ProjectorMixin):
     """
     A basic projector projects a UFL expression into a function space
     and places the result in a function from that function space,
@@ -245,42 +247,9 @@ class BasicProjector(ProjectorBase, NonlinearVariationalSolverMixin):
     defined on the same mesh.
     """
 
-    def __init__(self, *args, **kwargs):
-        ad_block_tag = kwargs.pop("ad_block_tag", None)
-        super().__init__(*args, **kwargs)
-
-        V = self.target.function_space()
-        mesh = V.mesh()
-        ad_target = firedrake.Function(V)
-
-        dx = firedrake.dx(mesh)
-        w = firedrake.TestFunction(V)
-        Pv = firedrake.TrialFunction(V)
-        a = firedrake.inner(Pv, w) * dx
-        L = firedrake.inner(self.source, w) * dx
-        p = firedrake.LinearVariationalProblem(a, L, ad_target)
-
-        # If we project from an expression containing u (e.g. u + c) onto u, the
-        # resulting form looks nonlinear. However, the projection is in effect a
-        # solve onto a temporary function (here ad_target), followed by an implicit
-        # assignment. Instead of representing this as an explicit solve and assign
-        # block, we solve for a temporary function and modify _ad_u on the problem.
-        # This is used for creating the output variable (and thus the dependency
-        # resolution), in effect merging the implicit assignment into the block
-        # output phase.
-        p._ad_u = self.target
-
-        solver_params = firedrake.LinearVariationalSolver.DEFAULT_SNES_PARAMETERS | self.solver_parameters
-
-        self._init_as_solver(p, forward_kwargs={"solver_parameters": solver_params}, ad_block_tag=ad_block_tag)
-
-    @NonlinearVariationalSolverMixin._ad_annotate_init
-    def _init_as_solver(self, problem, **kwargs):
-        return
-
-    @NonlinearVariationalSolverMixin._ad_annotate_solve
-    def project(self):
-        return super().project()
+    def __init__(self, *args, ad_block_tag=None, **kwargs):
+        ProjectorBase.__init__(self, *args, **kwargs)
+        ProjectorMixin.__init__(self, ad_block_tag=ad_block_tag)
 
     @cached_property
     def rhs_form(self):
@@ -308,6 +277,10 @@ class BasicProjector(ProjectorBase, NonlinearVariationalSolverMixin):
         else:
             form = firedrake.inner(self.source, v)*firedrake.dx
         return form
+
+    @ProjectorMixin._ad_annotate_project
+    def project(self):
+        return super().project()
 
     @cached_property
     def assembler(self):

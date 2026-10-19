@@ -195,7 +195,8 @@ class NonlinearVariationalSolverMixin:
         nlvs = NonlinearVariationalSolver(
             nlvp,
             *self._ad_args_kwargs.forward_args,
-            **self._ad_args_kwargs.forward_kwargs)
+            **self._ad_args_kwargs.forward_kwargs,
+        )
 
         # The original coefficients will be added as
         # dependencies to all solve blocks.

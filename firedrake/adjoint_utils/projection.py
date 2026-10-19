@@ -1,6 +1,8 @@
+import firedrake
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
+from firedrake.adjoint_utils.variational_solver import NonlinearVariationalSolverMixin
 
 
 def annotate_project(project):
@@ -53,3 +55,44 @@ def annotate_super_project(project):
         return output
 
     return wrapper
+
+
+class ProjectorMixin(NonlinearVariationalSolverMixin):
+    """A wrapper over the nonlinear variational solver mixin for projectors.
+
+    This establishes the form used for adjoint evaluation of the projector.
+    """
+
+    def __init__(self, ad_block_tag=None):
+        V = self.target.function_space()
+        mesh = V.mesh()
+        ad_target = firedrake.Function(V)
+
+        dx = firedrake.dx(mesh)
+        w = firedrake.TestFunction(V)
+        Pv = firedrake.TrialFunction(V)
+        a = firedrake.inner(Pv, w) * dx
+        L = firedrake.inner(self.source, w) * dx
+        p = firedrake.LinearVariationalProblem(a, L, ad_target)
+
+        # If we project from an expression containing u (e.g. u + c) onto u, the
+        # resulting form looks nonlinear. However, the projection is in effect a
+        # solve onto a temporary function (here ad_target), followed by an implicit
+        # assignment. Instead of representing this as an explicit solve and assign
+        # block, we solve for a temporary function and modify _ad_u on the problem.
+        # This is used for creating the output variable (and thus the dependency
+        # resolution), in effect merging the implicit assignment into the block
+        # output phase.
+        p._ad_u = self.target
+
+        solver_params = firedrake.LinearVariationalSolver.DEFAULT_SNES_PARAMETERS | self.solver_parameters
+
+        self._init_as_solver(p, forward_kwargs={"solver_parameters": solver_params}, ad_block_tag=ad_block_tag)
+
+    @NonlinearVariationalSolverMixin._ad_annotate_init
+    def _init_as_solver(self, problem, **kwargs):
+        return
+
+    @staticmethod
+    def _ad_annotate_project(project):
+        return NonlinearVariationalSolverMixin._ad_annotate_solve(project)
