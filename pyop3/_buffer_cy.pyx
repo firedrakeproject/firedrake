@@ -6,12 +6,8 @@ should be exposed inside 'pyop3.buffer'.
 """
 import numbers
 
-import numpy as np
-from petsc4py import PETSc
-
 from petsctools cimport cpetsc
 from petsctools.cpetsc cimport CHKERR
-from petsc4py cimport PETSc
 
 
 cdef extern from "<petsc4py/pyscalar.h>":
@@ -41,9 +37,8 @@ def _set_non_nested_petsc_mat_diagonal(petscmat: cpetsc.Mat_py, value: cpetsc.Pe
 
 def _set_non_nested_petsc_mat_diagonal_scalar(petscmat: cpetsc.Mat_py, value) -> None:
     cdef:
-        cpetsc.PetscInt    row_block_size_c, i_c, j_c
+        cpetsc.PetscInt    row_block_size_c, i_c
         cpetsc.PetscScalar *block_values_c = NULL
-        cpetsc.PetscScalar cvalue
 
     row_block_size_c, _ = petscmat.block_sizes
     num_rows, _ = petscmat.local_size
@@ -60,7 +55,7 @@ def _set_non_nested_petsc_mat_diagonal_scalar(petscmat: cpetsc.Mat_py, value) ->
 
 def _set_non_nested_petsc_mat_diagonal_vector(petscmat: cpetsc.Mat_py, value) -> None:
     cdef:
-        cpetsc.PetscInt    row_block_size_c, i_c, j_c
+        cpetsc.PetscInt row_block_size_c, i_c, j_c
         cpetsc.PetscScalar *block_values_c = NULL
 
     row_block_size_c, _ = petscmat.block_sizes
@@ -70,7 +65,7 @@ def _set_non_nested_petsc_mat_diagonal_vector(petscmat: cpetsc.Mat_py, value) ->
 
     for i_c in range(num_rows // row_block_size_c):
         for j_c in range(row_block_size_c):
-            block_values_c[j_c*row_block_size_c+j_c] =  PyPetscScalar_AsPetscScalar(value[i_c])
+            block_values_c[j_c*row_block_size_c+j_c] = PyPetscScalar_AsPetscScalar(value[i_c])
 
         CHKERR(cpetsc.MatSetValuesBlockedLocal(petscmat.mat, 1, &i_c, 1, &i_c, block_values_c, cpetsc.INSERT_VALUES))
 

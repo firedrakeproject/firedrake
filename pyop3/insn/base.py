@@ -8,7 +8,7 @@ import typing
 import weakref
 from collections.abc import Hashable, Iterable
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any
 
 import loopy as lp
 import loopy.tools

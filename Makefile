@@ -27,7 +27,7 @@ srclint:
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
 	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
 	@echo "    Linting Cython code"
-	@cython-lint firedrake/cython
+	@cython-lint **/*.pyx
 	@echo "    Linting pyop3"
 	@python -m flake8 $(FLAKE8_FORMAT) pyop3
 	@echo "    Linting TSFC"

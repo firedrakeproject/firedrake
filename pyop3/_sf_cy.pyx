@@ -19,7 +19,6 @@ from petsctools cimport cpetsc
 from petsctools.cpetsc cimport CHKERR as CHKERR_c
 
 
-
 def filter_petsc_sf(
     sf: cpetsc.PetscSF_py,
     selected_points: np_c.ndarray[IntType],  # TODO: IS?
@@ -33,11 +32,9 @@ def filter_petsc_sf(
 
     """
     cdef:
-        cpetsc.PetscSF_py     sf_filtered
         cpetsc.PetscSection_py section
 
-        cpetsc.PetscInt      npoints_c, i_c, p_c
-        cpetsc.PetscInt      *remoteOffsets_c = NULL
+        cpetsc.PetscInt npoints_c, i_c, p_c
 
     npoints_c = len(selected_points)
     if npoints_c > 0:
@@ -79,13 +76,10 @@ def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_
         cpetsc.PetscInt *local_offsets = NULL
         cpetsc.PetscInt *remote_offsets = NULL
 
-        cpetsc.PetscInt dof_nroots, dof_nleaves
-        cpetsc.PetscInt *dof_ilocal = NULL
-        cpetsc.PetscSFNode *dof_iremote = NULL
         cpetsc.PetscInt nroots, nleaves
         const cpetsc.PetscInt *ilocal = NULL
         const cpetsc.PetscSFNode *iremote = NULL
-        cpetsc.PetscInt pStart, pEnd, p, dof, off, m, n, i, j
+        cpetsc.PetscInt pStart, pEnd, p
 
     point_sf = sf
     local_sec = section
@@ -128,11 +122,9 @@ def renumber_petsc_sf(sf: cpetsc.PetscSF_py, renumbering: cpetsc.IS_py) -> cpets
 
     """
     cdef:
-        cpetsc.PetscSF_py      sf_renum
         cpetsc.PetscSection_py section
 
-        cpetsc.PetscInt      npoints_c, p_c
-        cpetsc.PetscInt      *remoteOffsets_c = NULL
+        cpetsc.PetscInt npoints_c, p_c
 
     npoints_c = renumbering.getLocalSize()
 

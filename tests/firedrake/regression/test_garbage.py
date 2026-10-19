@@ -7,7 +7,6 @@ from pyop3.mpi import temp_internal_comm
 from pytest_mpi.parallel_assert import parallel_assert
 
 from firedrake import *
-from firedrake.petsc import garbage_cleanup
 
 
 # perform this test last so it will catch anything leaking from earlier tests

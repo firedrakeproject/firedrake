@@ -1,8 +1,6 @@
 """Use from functionspaceimpl.py"""
 
 import numpy as np
-from mpi4py import MPI
-from petsc4py import PETSc
 
 import firedrake.cython.dmcommon
 import firedrake.mesh
@@ -13,7 +11,6 @@ def _get_ndofs_extruded(mesh: firedrake.mesh.MeshGeometry, entity_dofs: dict) ->
     ndofs = np.empty(mesh.num_points, dtype=IntType)
 
     dm = mesh.topology_dm
-    dim_label = dm.getLabel("depth")
     base_dim_label = dm.getLabel("base_dim")
 
     for base_dim in base_dim_label.getValueIS().indices:
