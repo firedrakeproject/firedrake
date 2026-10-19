@@ -148,7 +148,7 @@ def test_scalar_formsum(f, scale):
 
     result = assemble(formsum, tensor=tensor)
     assert result is tensor
-    assert float(result) == expected
+    assert result.dat.global_data.item() == expected
 
 
 def test_vector_formsum(a):

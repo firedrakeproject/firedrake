@@ -301,9 +301,8 @@ class _CandidateIndirectionsCollector(pyop3.node.NodeVisitor):
         dat_cost = dat_axes.local_size
         for loop_axes in dat_loop_axes.values():
             for loop_axis in loop_axes:
-                dat_cost *= loop_axis.component.local_size
-        if not isinstance(dat_cost, numbers.Integral):
-            raise NotImplementedError("Ragged sizes are not supported")
+                dat_cost *= loop_axis.component.local_max_size
+        assert isinstance(dat_cost, numbers.Integral)
 
         candidates = []
         layout_candidates = self(expr.layout, compress=compress)

@@ -1207,7 +1207,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # Getting the comm attribute of a form isn't straightforward
         # form.ufl_domains()[0].comm seems the most robust method
         # revisit in a refactor
-        return op3.Scalar(0.0, comm=self._form.ufl_domains()[0].comm)
+        return op3.Scalar(PETSc.ScalarType(0.0), comm=self._form.ufl_domains()[0].comm)
 
     def _apply_bc(self, tensor, bc, u=None):
         pass
@@ -1224,7 +1224,6 @@ class ZeroFormAssembler(ParloopFormAssembler):
         # NOTE: If we could return the tensor here then that would avoid a
         # reduction. That would be a very significant API change though (but more consistent?).
         # It would be even nicer to return a firedrake.Constant.
-        # Return with halo data here because non-root ranks have no owned data.
         return tensor.value
 
 

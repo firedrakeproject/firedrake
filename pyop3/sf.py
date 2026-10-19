@@ -10,6 +10,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.dtypes
 import pyop3.obj
 import pyop3.record
 from pyop3 import utils
@@ -262,6 +263,14 @@ class StarForest(AbstractStarForest):
 
         if any(buf.size != self.size for buf in [from_buffer, to_buffer]):
             raise BufferSizeMismatchException
+
+        if np.iscomplexobj(from_buffer):
+            # MPI.MAX and MPI.MIN do not work with complex types, roll
+            # our own op instead
+            if op == MPI.MAX:
+                op = pyop3.dtypes._contig_max_op
+            elif op == MPI.MIN:
+                op = pyop3.dtypes._contig_min_op
 
         # what about cdim?
         dtype, _ = get_mpi_dtype(from_buffer.dtype)

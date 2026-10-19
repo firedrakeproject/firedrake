@@ -84,7 +84,7 @@ env:
   OMP_NUM_THREADS: 1
   OPENBLAS_NUM_THREADS: 1
   PYTEST_MPI_MAX_NPROCS: 8
-  PYOP2_SPMD_STRICT: 1
+  PYOP3_SPMD_STRICT: 1
   FIREDRAKE_CI: 1
   # NOTE: One should occasionally update test_durations.json by running
   # 'make test_durations' inside a 'firedrake:latest' Docker image.
@@ -101,7 +101,7 @@ jobs:
       image: ubuntu:latest
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
-      PYOP2_CFLAGS: -O1 -fno-fast-math
+      PYOP3_EXTRA_CFLAGS: -O1 -fno-fast-math
     steps:
       - name: Fix HOME
         # GitHub actions overwrite HOME to /github/home which causes permissions
@@ -313,7 +313,7 @@ jobs:
       options: --gpus all
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
-      PYOP2_CFLAGS: -O1 -fno-fast-math
+      PYOP3_EXTRA_CFLAGS: -O1 -fno-fast-math
       # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
       PETSC_OPTIONS: -use_gpu_aware_mpi 0
     steps:
@@ -398,14 +398,14 @@ jobs:
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
         timeout-minutes: 10
 
-      - name: Run PyOP2 tests
+      - name: Run pyop3 tests
         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
         timeout-minutes: 10
 
       - name: Run Firedrake tests (nprocs = 1)

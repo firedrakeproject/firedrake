@@ -8,10 +8,8 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
-from pyop3 import utils
 from pyop3.dtypes import IntType
-# ---
-cimport numpy as np_c
+
 cimport cython
 
 from mpi4py cimport libmpi as cmpi

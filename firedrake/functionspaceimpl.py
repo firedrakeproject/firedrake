@@ -1638,7 +1638,7 @@ class FunctionSpace(AbstractFunctionSpace):
             section = PETSc.Section().create(comm=self.comm)
             p_start, p_end = self.mesh().topology_dm.getChart()
             section.setChart(p_start, p_end)
-            section.setPermutation(self.mesh()._new_to_old_point_renumbering)
+            section.setPermutation(self.mesh()._new_to_old_point_renumbering_is)
             for pt in range(p_start, p_end):
                 section.setDof(pt, ndofs)
                 section.setOffset(pt, 0)
@@ -1649,7 +1649,7 @@ class FunctionSpace(AbstractFunctionSpace):
             section = PETSc.Section().create(comm=self.comm)
             p_start, p_end = self.mesh().topology_dm.getChart()
             section.setChart(p_start, p_end)
-            section.setPermutation(self.mesh()._new_to_old_point_renumbering)
+            section.setPermutation(self.mesh()._new_to_old_point_renumbering_is)
 
             def drop_last(elem):
                 subelem, _ = elem.factor_elements
@@ -1799,11 +1799,11 @@ class FunctionSpace(AbstractFunctionSpace):
         if val is not None:
             if isinstance(val, numpy.ndarray):
                 if valuetype is not None:
-                    assert val.dtype == valuetype
+                    val = val.astype(valuetype, copy=False, casting="safe")
                 data = val
             else:
                 data = numpy.asarray(val, dtype=valuetype)
-            return op3.Dat(self.axes, data=data.flatten(), name=name)
+            return op3.Dat(self.axes, data=data.ravel(), name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
@@ -2195,8 +2195,8 @@ class MixedFunctionSpace(AbstractFunctionSpace):
 
         if val is not None:
             if valuetype is not None:
-                assert val.dtype == valuetype
-            return op3.Dat(self.axes, data=val.flatten(), name=name)
+                val = val.astype(valuetype, copy=False, casting="safe")
+            return op3.Dat(self.axes, data=val.ravel(), name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 

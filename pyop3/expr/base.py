@@ -560,7 +560,6 @@ class Conditional(TernaryOperator):
 
     @property
     def local_max(self) -> numbers.Number:
-        raise TypeError("not sure that this makes sense")
         from pyop3.expr.visitors import get_local_max
 
         return max(*map(get_local_max, [self.if_true, self.if_false]))

@@ -9,6 +9,9 @@ from petsctools cimport cpetsc
 
 def try_cast_slice(indices: cpetsc.PetscInt[::1]):
     """Try to cast an array of integers to a Python `slice`."""
+    cdef:
+        cpetsc.PetscInt step, i
+
     if len(indices) == 0:
         return slice(0, 0, 1)
     elif len(indices) == 1:

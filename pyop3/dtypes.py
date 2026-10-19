@@ -1,5 +1,6 @@
 import collections
 import ctypes
+import functools
 
 import loopy as lp
 import numpy
@@ -48,6 +49,51 @@ def get_mpi_dtype(numpy_dtype, cdim=1):
             typ.Commit()
             builtin = False
         return _MPI_types.setdefault(key, (typ, builtin))
+
+
+# This is some magic lifted from PyOP2. It lets us do reductions using complex dtypes.
+_numpy_types = {}
+
+
+def _get_dtype(datatype):
+    """Get a numpy datatype corresponding to an MPI datatype.
+
+    Only works for contiguous datatypes."""
+    try:
+        # possibly unsafe if handles are recycled, but OK, because we
+        # hold on to the contig types
+        return _numpy_types[datatype.py2f()]
+    except KeyError:
+        base, combiner, _ = datatype.decode()
+        while combiner == "DUP":
+            base, combiner, _ = base.decode()
+        # Allow for "NAMED", too, for complex scalar {MAX, MIN}.
+        if not (combiner == "CONTIGUOUS" or (complex_mode and combiner == "NAMED")):
+            raise RuntimeError(
+                f"Can only handle contiguous types or named types for complex scalar: "
+                f"found combiner={combiner}"
+            )
+        try:
+            tdict = MPI.__TypeDict__
+        except AttributeError:
+            tdict = MPI._typedict
+        tdict = dict((v.py2f(), k) for k, v in tdict.items())
+        try:
+            base = tdict[base.py2f()]
+        except KeyError:
+            raise RuntimeError("Unhandled base datatype %r", base)
+        return _numpy_types.setdefault(datatype.py2f(), base)
+
+
+def reduction_op(op, invec, inoutvec, datatype):
+    dtype = _get_dtype(datatype)
+    invec = numpy.frombuffer(invec, dtype=dtype)
+    inoutvec = numpy.frombuffer(inoutvec, dtype=dtype)
+    inoutvec[:] = op(invec, inoutvec)
+
+
+_contig_min_op = MPI.Op.Create(functools.partial(reduction_op, numpy.minimum), commute=True)
+_contig_max_op = MPI.Op.Create(functools.partial(reduction_op, numpy.maximum), commute=True)
 
 
 def as_cstr(dtype):

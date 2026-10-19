@@ -203,7 +203,7 @@ class AxisComponentRegion(pyop3.obj.Object):
 
         try:
             return evaluate(self.size)
-        except MissingVariableException:
+        except pyop3.exceptions.MissingVariableException:
             return self.size
 
 
@@ -385,22 +385,13 @@ class AxisComponent(LabeledNodeComponent):
     def local_size(self) -> Any:
         from pyop3 import evaluate
 
-        try:
-            return evaluate(self.size)
-        except MissingVariableException:
-            return self.size
+        return evaluate(self.size, allow_missing=True)
 
     @cached_property
     def local_max_size(self):
         from pyop3.expr.visitors import get_local_max
 
-        return get_local_max(self.local_size)
-
-    @cached_property
-    def _all_regions(self) -> tuple[AxisComponentRegion]:
-        assert False, "old code"
-        """Return axis component regions having expanded star forests into owned and ghost."""
-        return _partition_regions(self.regions, self.sf) if self.sf else self.regions
+        return get_local_max(self.size)
 
     @property
     def has_non_trivial_regions(self) -> bool:
@@ -1050,7 +1041,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def local_max_size(self) -> numbers.Number:
         from pyop3.expr.visitors import get_local_max
 
-        return get_local_max(self.local_size)
+        return get_local_max(self.size)
 
     @cached_property
     @collective
@@ -1903,7 +1894,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
             if iterset.size != 0:
-                pyop3.loop(p := iterset.iter(), mask_dat[p].assign(True), eager=True)
+                pyop3.loop(p := iterset.iter(), mask_dat[p].assign(True, _weakref=False), eager=True)
         indices = np.flatnonzero(mask_dat.buffer.data_ro).astype(IntType, copy=False)
 
         if not include_ghosts:

@@ -67,12 +67,12 @@ class ExpressionVisitor(NodeVisitor):
 
 
 # TODO: use overloadedexpressionevaluator
-def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices=None, name_vars=idict()) -> Any:
+def evaluate(expr: ExpressionT, *, axis_vars: AxisVarMapT | None = None, loop_indices=None, name_vars=idict(), allow_missing: bool = False) -> Any:
     if axis_vars is None:
         axis_vars = {}
     if loop_indices is None:
         loop_indices = {}
-    return _evaluate(expr, axis_vars=axis_vars, loop_indices=loop_indices, name_vars=name_vars)
+    return _evaluate(expr, axis_vars=axis_vars, loop_indices=loop_indices, name_vars=name_vars, allow_missing=allow_missing)
 
 
 @functools.singledispatch
@@ -88,27 +88,36 @@ def _(num, /, **kwargs) -> Any:
 
 
 @_evaluate.register
-def _(var: pyop3.expr.NameVar, /, *, name_vars: Mapping, **kwargs) -> Any:
+def _(var: pyop3.expr.NameVar, /, *, name_vars: Mapping, allow_missing: bool, **kwargs) -> Any:
     try:
         return name_vars[var.name]
     except KeyError:
-        raise pyop3.exceptions.MissingVariableException(f"'{var.name}' not found in 'name_vars'")
+        if allow_missing:
+            return var
+        else:
+            raise pyop3.exceptions.MissingVariableException(f"'{var.name}' not found in 'name_vars'")
 
 
 @_evaluate.register(pyop3.expr.AxisVar)
-def _(axis_var: pyop3.expr.AxisVar, /, *, axis_vars: AxisVarMapT, **kwargs) -> Any:
+def _(axis_var: pyop3.expr.AxisVar, /, *, axis_vars: AxisVarMapT, allow_missing: bool, **kwargs) -> Any:
     try:
         return axis_vars[axis_var.axis.label]
     except KeyError:
-        raise pyop3.exceptions.MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
+        if allow_missing:
+            return axis_var
+        else:
+            raise pyop3.exceptions.MissingVariableException(f"'{axis_var.axis.label}' not found in 'axis_vars'")
 
 
 @_evaluate.register(pyop3.expr.LoopIndexVar)
-def _(loop_var: pyop3.expr.LoopIndexVar, /, *, loop_indices, **kwargs) -> Any:
+def _(loop_var: pyop3.expr.LoopIndexVar, /, *, loop_indices, allow_missing: bool, **kwargs) -> Any:
     try:
         return loop_indices[loop_var.loop_index.id][loop_var.axis.label]
     except KeyError:
-        raise pyop3.exceptions.MissingVariableException(f"'({loop_var.loop_index.id}, {loop_var.axis.label})' not found in 'loop_indices'")
+        if allow_missing:
+            return loop_var
+        else:
+            raise pyop3.exceptions.MissingVariableException(f"'({loop_var.loop_index.id}, {loop_var.axis.label})' not found in 'loop_indices'")
 
 
 @_evaluate.register
@@ -171,7 +180,8 @@ def _(cond: pyop3.expr.Conditional, /, **kwargs) -> Any:
 
 @_evaluate.register(pyop3.expr.Dat)
 def _(dat: pyop3.expr.Dat, /, **kwargs) -> Any:
-    return _evaluate(dat.concretize(), **kwargs)
+    # if not linear I don't think we know what to do
+    return _evaluate(dat.concretize(linear=True), **kwargs)
 
 
 @_evaluate.register(pyop3.expr.ScalarBufferExpression)
@@ -182,7 +192,10 @@ def _(scalar: pyop3.expr.ScalarBufferExpression, /, **kwargs) -> numbers.Number:
 @_evaluate.register
 def _(dat_expr: pyop3.expr.LinearDatBufferExpression, /, **kwargs) -> Any:
     offset = _evaluate(dat_expr.layout, **kwargs)
-    return dat_expr.buffer.data_ro[offset]
+    if isinstance(offset, numbers.Integral):
+        return dat_expr.buffer.data_ro[offset]
+    else:
+        return dat_expr.record_new(layout=offset)
 
 
 @functools.singledispatch

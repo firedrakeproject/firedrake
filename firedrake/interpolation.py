@@ -837,7 +837,7 @@ class SameMeshInterpolator(Interpolator):
                 for l in loops:
                     l()
             if self.rank == 0:
-                return float(f)
+                return f.dat.global_data.item()
             elif self.rank == 2:
                 return f.handle  # In this case f is an op2.Mat
             else:

@@ -5627,7 +5627,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
                           distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-                          perm_is=tmesh._new_to_old_point_renumbering,
+                          perm_is=tmesh._new_to_old_point_renumbering_is,
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
