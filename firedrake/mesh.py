@@ -740,7 +740,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     def _dm_renumbering(self):
-        return self._new_to_old_point_renumbering
+        return self._new_to_old_point_renumbering_is
 
     @cached_property
     def _old_to_new_point_numbering_section(self) -> PETSc.Section:
