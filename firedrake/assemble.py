@@ -1071,22 +1071,15 @@ class ParloopFormAssembler(FormAssembler):
                     # FIXME: this doesn't work for matrices (yet)
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
-        for local_kernel, subdomain_id in self.local_kernels:
-            parloop_builder = ParloopBuilder(
-                self._form,
-                tensor,
-                self._bcs,
-                local_kernel,
-                subdomain_id,
-                self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
-                diagonal=self.diagonal,
-            )
+        for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
+            parloop, lgmaps, setup_callables = parloop_info
+            for setup in setup_callables:
+                setup()
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-            lgmaps = parloop_builder.collect_lgmaps(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
-                arg_replace_map = {subtensor.name: subtensor}
-                parloop_builder.build()(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
+                arg_replace_map = {self._tensor_id[local_kernel]: subtensor}
+                parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc, u=current_state)
@@ -1105,6 +1098,38 @@ class ParloopFormAssembler(FormAssembler):
     @abc.abstractmethod
     def _as_pyop3_type(tensor, indices=None):
         """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
+
+    def parloops(self, tensor):
+        # if hasattr(self, "_parloops"):
+        if False:
+            assert hasattr(self, "_tensor_id")
+        else:
+            tensor_id = {}
+            parloops_ = []
+            for local_kernel, subdomain_id in self.local_kernels:
+                # TODO: Move this about
+                subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
+
+                tensor_id[local_kernel] = subtensor.name
+
+                parloop_builder = ParloopBuilder(
+                    self._form,
+                    tensor,
+                    self._bcs,
+                    local_kernel,
+                    subdomain_id,
+                    self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
+                    diagonal=self.diagonal,
+                )
+                parloops_.append((
+                    parloop_builder.build(),
+                    parloop_builder.collect_lgmaps(tensor, local_kernel.indices),
+                    parloop_builder.setup_callables,
+                ))
+            self._parloops = parloops_
+            self._tensor_id = tensor_id
+
+        return self._parloops
 
     @cached_property
     def local_kernels(self):
@@ -1798,6 +1823,9 @@ class ParloopBuilder:
         self._diagonal = diagonal
         self._bcs = bcs
 
+        self.setup_callables = []
+        """List of callables to execute before the parloop."""
+
         self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
         self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
         self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
@@ -1966,19 +1994,23 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.CoefficientKernelArg)
     def _as_parloop_arg_coefficient(self, arg, index):
         coeff = next(self._active_coefficients)
-        # # Some SLATE code (see 'local_solvers' in scpc.py) assembles forms into
-        # # tensors where the tensor is a one subfunction of a mixed function and
-        # # another subfunction is passed in as a coefficient. This breaks pyop3's
-        # # assumptions about access descriptors and so we replace the read-only
-        # # coefficient with a copy.
-        # # Note that this affects how we can cache parloops. We will need to
-        # # perform this replacement at every invocation.
-        # if (
-        #     isinstance(self._tensor, firedrake.Cofunction | firedrake.Function)
-        #     and coeff.dat.buffer == self._tensor.dat.buffer
-        # ):
-        #     assert coeff != self._tensor
-        #     coeff = coeff.copy(deepcopy=True)
+        # Some SLATE code (see 'local_solvers' in scpc.py) assembles forms into
+        # tensors where the tensor is a one subfunction of a mixed function and
+        # another subfunction is passed in as a coefficient. This breaks pyop3's
+        # assumptions about access descriptors and so we replace the read-only
+        # coefficient with a copy.
+        if (
+            isinstance(self._tensor, firedrake.Cofunction | firedrake.Function)
+            and coeff.dat.buffer == self._tensor.dat.buffer
+        ):
+            assert coeff != self._tensor, "coeff and self._tensor must be distinct subfunctions"
+            coeff = coeff.copy(deepcopy=True)
+
+            # def copy_into_coeff():
+            #     coeff.dat.buffer.data_wo[...] = self._tensor.dat.buffer.data_ro
+
+            # We have to perform the copy every time the parloop is invoked
+            # self.setup_callables.append(copy_into_coeff)
         return pack(coeff, index)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)

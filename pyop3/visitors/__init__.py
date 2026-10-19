@@ -24,7 +24,6 @@ from pyop3.visitors.compress_indirections import materialize_indirections  # noq
 from pyop3.visitors.concretize import concretize  # noqa: F401
 from pyop3.visitors.relabel import Relabeler, relabel  # noqa: F401
 from pyop3.visitors.replace import replace  # noqa: F401
-from pyop3.visitors.check_intents import check_intents  # noqa: F401
 
 
 if typing.TYPE_CHECKING:

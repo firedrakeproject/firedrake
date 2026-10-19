@@ -165,7 +165,10 @@ class InstructionExecutionContext:
         # actually passed to the compiled code
         new_buffers = {}
         for arg_name, new_arg in kwargs.items():
-            orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
+            try:
+                orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
+            except:
+                breakpoint()
             new_arg_buffers = self._extract_buffers(new_arg)
             for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
                 new_buffers[orig_buffer] = new_buffer
@@ -308,12 +311,6 @@ class InstructionExecutionContext:
         if self._preprocessed is None:
             insn = self.root_insn
 
-            # Make sure that buffer intents agree, possibly replacing
-            # conflicting intents with copies.
-            !!! This is a *mandatory* pass as we may have to copy every time
-            Is this the right approach? Kinda invasive, but definitely good to put inside pyop3 I reckon.
-            insn = pyop3.visitors.check_intents(insn)
-
             # TODO: explain
             insn = pyop3.insn.visitors.expand_loop_contexts(insn)
 
@@ -345,7 +342,11 @@ class InstructionExecutionContext:
                 elif intents[buf] == intent:
                     pass
                 else:
-                    raise NotImplementedError
+                    raise NotImplementedError(
+                        "Passing the same buffer with multiple intents "
+                        f"({intents[buf]} and {intent}) is not supported"
+                    )
+
         return intents
 
     @cached_property
