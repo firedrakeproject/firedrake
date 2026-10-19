@@ -10,8 +10,10 @@ from typing import Any
 
 from pyop3 import utils
 from pyop3.buffer import NullBuffer, ArrayBuffer
+from pyop3.device import Device, HOST_DEVICE, get_current_device
 
 from gem import gem, impero as imp
+from gem.node import pre_traversal
 
 from xdsl.dialects import arith, func, memref, scf
 from xdsl.dialects import math as xmath
@@ -74,15 +76,10 @@ def is_intlike(t) -> bool:
 
 
 def _binary_handler(float_op, int_op):
-    """Return a ``process`` handler for a GEM node with two scalar children.
+    """Return a `process` handler for a GEM node with two scalar children.
 
-    Parameters
-    ----------
-    float_op, int_op :
-        The MLIR operations to use for floating point and integer operands.
-        Pass ``None`` for ``float_op`` if the operation is only defined for
-        integers.
-
+    :arg float_op:  MLIR operation for floating point operand. Use None if op only defined for integers
+    :arg int_op: MLIR operation for integer operand
     """
     def handler(self, expr):
         a, b = (self.process(c) for c in expr.children)
@@ -154,6 +151,9 @@ class MLIRBuilder:
         # Arguments to return to buffer
         self._arguments: list[Argument] = list()
 
+        # Argument name -> Device that the argument must be placed on
+        self._argument_devices: dict[str, Device] = dict()
+
     @property
     def builder(self) -> Builder:
         return self._builder_stack[-1]
@@ -162,21 +162,24 @@ class MLIRBuilder:
     def arguments(self) -> list[Argument]:
         return sorted(self._arguments, key=lambda arg: arg.name)
 
+    @property
+    def argument_devices(self) -> dict[str, Device]:
+        """The device that each function argument must be placed on.
+        
+        The default of the function argument is given by `get_current_device`
+        (The device as of when generating takes place).
+
+        """
+        return self._argument_devices
+
     def build(self, root, name: str = "imp_kernel") -> tuple[ModuleOp, list[Argument], str]:
         """Construct the MLIR module, containing a FuncOp, given an Impero tree.
 
-        Parameters
-        ----------
-        root :
-            The Impero tree.
-        name :
-            The name of the generated MLIR kernel.
+        :arg root: The Impero tree.
+        :arg name: The name of the generated MLIR kernel.
 
-        Returns
-        -------
-        tuple
-            The module, the kernel arguments (sorted by name, which is also
-            the order of the function parameters), and the name of the C
+        :returns tuple
+            The module, the kernel arguments (sorted by name), and the name of the C
             interface symbol.
 
         """
@@ -312,9 +315,9 @@ class MLIRBuilder:
         return self._convert_type(a, target), self._convert_type(b, target)
 
     def _binary(self, a, b, float_op, int_op) -> SSAValue:
-        """Apply ``float_op`` or ``int_op`` to ``a`` and ``b`` after promoting them to a common type.
+        """Apply `float_op` or `int_op` to `a` and `b` after promoting them to a common type.
 
-        ``float_op`` can be ``None`` for operations that are only defined for integers.
+        `float_op` can be `None` for operations that are only defined for integers.
         """
         a, b = self._align_scalars(a, b)
         if is_float(a.type):
@@ -328,10 +331,10 @@ class MLIRBuilder:
     # {{{ buffers
 
     def buffer_for(self, node) -> SSAValue:
-        """Return the SSA value of the buffer that backs ``node``, declaring it if needed.
+        """Return the SSA value of the buffer that backs `node`, declaring it if needed.
 
-        A ``gem.Variable`` becomes either a temporary allocation or a function
-        argument, and a ``gem.Literal`` becomes a read-only global constant.
+        A `gem.Variable` becomes either a temporary allocation or a function
+        argument, and a `gem.Literal` becomes a read-only global constant.
         """
         key = node.name if isinstance(node, gem.Variable) else node
         if key not in self._buffers:
@@ -359,10 +362,9 @@ class MLIRBuilder:
         mlir_type = get_mlir_type(node.dtype)
 
         if isinstance(node.data.buffer, NullBuffer):
-            # NOTE: AllocOps are used because AllocaOp is bad on GPU.
-            # A compiler pass can raise Alloc to Alloca, and inserts the
-            # deallocations that Alloc requires.
-            # TODO: Temporaries are not zero-initialised.
+            # WILO
+            # FIXME: Refactor temporaries to use GlobalOp (maybe refactor with the quadratures in mind)  
+            # Also, initialise them to 0
             arg = self.insert_at_entry(memref.AllocOp.get(mlir_type, shape=shape))
             arg.name_hint = node.name 
             return arg 
@@ -373,6 +375,7 @@ class MLIRBuilder:
             arg.name_hint = node.name
 
             self._arguments.append(Argument(node.name, node.dtype, shape))
+            self._argument_devices.setdefault(node.name, get_current_device())
             return arg
 
         raise NotImplementedError(f"Unsupported buffer type: {type(node.data.buffer).__name__}")
@@ -433,6 +436,7 @@ class MLIRBuilder:
         linearised = None
         for ind, step in zip(multiindex, strides):
             term = self.get_index_ssa(ind)
+            # Ignore factor of 1, constant folding 
             if step != 1:
                 term = self.insert(arith.MuliOp(term, self._const(int(step), INDEX_TYPE)))
             linearised = term if linearised is None else self.insert(arith.AddiOp(linearised, term))
@@ -492,7 +496,7 @@ class MLIRBuilder:
     # }}}
 
     def process(self, obj: Any, /, **kwargs):
-        """Return the SSA value of ``obj``, reusing a value that is already bound in scope.
+        """Return the SSA value of `obj`, reusing a value that is already bound in scope.
 
         Only GEM nodes are looked up in the symbol table. A value that is
         defined inside a loop is visible only within that loop, so a later
@@ -510,8 +514,7 @@ class MLIRBuilder:
 
     @_process.register(imp.Block)
     def process_block(self, tree):
-        # FIXME: I am getting children in opposite order to intuition
-        for child in tree.children[::-1]:
+        for child in tree.children:
             self.process(child)
 
     @_process.register(imp.For)
@@ -569,7 +572,7 @@ class MLIRBuilder:
 
     @_process.register(gem.Index)
     def _(self, leaf):
-        # A bound index is returned by the symbol table lookup in ``process``.
+        # A bound index is returned by the symbol table lookup in `process`.
         raise ValueError(f"Index {leaf!r} is used outside of a loop that binds it")
 
     @_process.register(gem.VariableIndex)
@@ -637,10 +640,32 @@ class MLIRBuilder:
 
     # }}}
 
+    def declare_runtime_expr_on_host(self, expr) -> None:
+        """ Mapping all function arguments related to `expr` onto the HOST_DEVICE, for runtime-known extent
+
+        expr is possibly: (numbers.Integral, gem.VariableIndex)
+        """
+        if isinstance(expr, gem.VariableIndex):
+            expr = expr.expression
+        if not isinstance(expr, gem.Node):
+            return
+
+        # pre_traversal guarantees walk of the index expressions of gem.Indexed nodes
+        for node in pre_traversal([expr]):
+            # If variable and non-temporary 
+            if isinstance(node, gem.Variable) and isinstance(node.data.buffer, ArrayBuffer):
+                self._argument_devices[node.name] = HOST_DEVICE
+
+    # TODO: Refactor the two enter_* context managers. Bunch of the same code.  
     @contextlib.contextmanager
     def enter_for(self, index):
-        """Open an ``scf.for`` loop over ``index`` (a ``gem.Index`` or an integer extent)."""
+        """Open an `scf.for` loop over `index` (a gem.Index or an integer extent)."""
+        assert isinstance(index, (numbers.Integral, gem.Index))
+
         extent = index if isinstance(index, numbers.Integral) else index.extent
+
+        # Loop bounds must be read on host and used for setting GPU grid bounds 
+        self.declare_runtime_expr_on_host(extent)
 
         lb = self._const(0, INDEX_TYPE)
         ub = self.get_index_ssa(extent)
@@ -654,9 +679,62 @@ class MLIRBuilder:
         self.symbol_table.define(index, body.args[0])
         self._builder_stack.append(Builder(InsertPoint.at_end(body)))
 
-        try:
+        yield
+
+        self.insert(scf.YieldOp())
+        self._builder_stack.pop()
+        self.symbol_table.pop()
+
+    @contextlib.contextmanager
+    def enter_parallel(self, index, is_outermost=False):
+        """Open an `scf.parallel` loop over `index` (a gem.Index or an integer extent).
+        
+        :arg index: numbers.Integral or gem.Index, denoting extent of domain
+        :arg is_outermost: boolean flag which defines if this loop should be considered outermost loop for GPU 
+
+        """
+        assert isinstance(index, (numbers.Integral, gem.Index))
+
+        extent = index if isinstance(index, numbers.Integral) else index.extent
+
+        # Loop bounds must be read on host and used for setting GPU grid bounds 
+        self.declare_runtime_expr_on_host(extent)
+
+        lb = self._const(0, INDEX_TYPE)
+        ub = self.get_index_ssa(extent)
+        step = self._const(1, INDEX_TYPE)
+
+        # TODO: Add GPU mapping dimensions
+        parallel_op = scf.ParallelOp(
+            [lb], [ub], [step], 
+            Region(Block(arg_types=[INDEX_TYPE]))
+        )
+
+        self.insert(parallel_op)
+
+        body = parallel_op.body.block
+        self.symbol_table.push()
+        self.symbol_table.define(index, body.args[0])
+        self._builder_stack.append(Builder(InsertPoint.at_end(body)))
+
+        with self.outermost():
             yield
-            self.insert(scf.YieldOp())
-        finally:
-            self._builder_stack.pop()
-            self.symbol_table.pop()
+
+        self.insert(scf.ReduceOp())
+        self._builder_stack.pop()
+        self.symbol_table.pop()
+
+
+    @contextlib.contextmanager
+    def outermost(self):
+        """ Changes the visible outermost scope of the insertion problem, while inside the context
+
+        """
+        original_scope = self._scopes
+        self._scopes = self._scopes[1:]
+
+        yield
+
+        self._scopes = [original_scope[0]] + self._scopes 
+
+
