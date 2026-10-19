@@ -70,12 +70,18 @@ def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
         for i in np.ndindex(V.shape):
             di = netgen_data[(..., *i)].flatten()
             vec0[:len(di)] = di
-            _, vec = plex.distributeField(sf, section0, vec0)
-            arr = vec.getArray()
+            section_i, vec_i = plex.distributeField(sf, section0, vec0)
+            arr = vec_i.getArray()
             if plex_data is None:
                 plex_data = np.empty(arr.shape + V.shape, dtype=dtype)
             plex_data[(..., *i)] = arr
+            section_i.destroy()
+            vec_i.destroy()
         plex_data = plex_data.reshape(-1, *nshape[1:])
+        # Destroy the remaining transients created in this call.
+        sfBCInv.destroy()
+        section0.destroy()
+        vec0.destroy()
     return plex_data
 
 
