@@ -100,7 +100,7 @@ def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_
     return halo_exchange_sf
 
 
-def renumber_petsc_sf(sf: cpetsc.PetscSF_py, renumbering: cpetsc.IS_py) -> cpetsc.PetscSF_py:
+def renumber_petsc_sf(sf: cpetsc.PetscSF_py, renumbering: cpetsc.PetscInt[::1]) -> cpetsc.PetscSF_py:
     """Renumber an SF.
 
     Parameters
@@ -126,14 +126,16 @@ def renumber_petsc_sf(sf: cpetsc.PetscSF_py, renumbering: cpetsc.IS_py) -> cpets
 
         cpetsc.PetscInt npoints_c, p_c
 
-    npoints_c = renumbering.getLocalSize()
+    npoints_c = len(renumbering)
 
     # section = PETSc.Section().create(sf.comm)
     section = PETSc.Section().create(MPI.COMM_SELF)
     section.setChart(0, npoints_c)
     for p_c in range(npoints_c):
         CHKERR_c(cpetsc.PetscSectionSetDof(section.sec, p_c, 1))
-    section.setPermutation(renumbering)
+
+    perm = PETSc.IS().createGeneral(renumbering, comm=MPI.COMM_SELF)
+    section.setPermutation(perm)
     section.setUp()
 
     return create_petsc_section_sf(sf, section)

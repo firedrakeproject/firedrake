@@ -58,5 +58,5 @@ def _partition_constrained_points(
     num_free_dofs[free_pts] = ndofs[free_pts]
 
     # Finally reorder the arrays because we have a different numbering
-    perm = mesh._new_to_old_point_renumbering.indices
+    perm = mesh._new_to_old_point_renumbering
     return num_free_dofs[perm], num_constrained_dofs[perm]

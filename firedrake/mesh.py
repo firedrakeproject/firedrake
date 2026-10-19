@@ -427,8 +427,8 @@ class AbstractMeshTopology(abc.ABC):
         dmcommon.mark_owned_points(self.topology_dm)
 
         if perm_is:
-            self._old_to_new_point_renumbering = perm_is.invertPermutation()
-            self._new_to_old_point_renumbering = perm_is
+            self._old_to_new_point_renumbering = perm_is.invertPermutation().indices
+            self._new_to_old_point_renumbering = perm_is.indices
         else:
             with PETSc.Log.Event("Renumber mesh topology"):
                 if isinstance(self.topology_dm, PETSc.DMPlex):
@@ -461,14 +461,14 @@ class AbstractMeshTopology(abc.ABC):
                     # NOTE: probably shouldn't do this for a VoM
                     new_to_old_point_numbering = dmcommon.partition_renumbering(
                         self.topology_dm, new_to_old_point_numbering
-                    )
+                    ).indices
 
                 else:
                     assert isinstance(self.topology_dm, PETSc.DMSwarm)
                     if reorder:
                         swarm = self.topology_dm
                         cell_id_name = swarm.getCellDMActive().getCellID()
-                        parent_pt_nums = self._parent_mesh._old_to_new_point_renumbering.indices
+                        parent_pt_nums = self._parent_mesh._old_to_new_point_renumbering
                         with (
                             swarm.field(cell_id_name) as swarm_parent_cell_nums,
                             swarm.field("globalindex") as swarm_global_indices,
@@ -476,14 +476,14 @@ class AbstractMeshTopology(abc.ABC):
                             parent_order = parent_pt_nums[swarm_parent_cell_nums.ravel()]
                             # sort by parent cell order, with ties broken by point global index
                             perm = np.lexsort((swarm_global_indices.ravel(), parent_order)).astype(IntType)
-                        new_to_old_point_numbering = _make_is_general(perm)
+                        new_to_old_point_numbering = perm
 
                     else:
-                        new_to_old_point_numbering = dmcommon.compute_dm_renumbering(self, None)
+                        new_to_old_point_numbering = dmcommon.compute_dm_renumbering(self, None).indices
 
             # TODO: replace "renumbering" with "numbering"
             self._new_to_old_point_renumbering = new_to_old_point_numbering
-            self._old_to_new_point_renumbering = new_to_old_point_numbering.invertPermutation()
+            self._old_to_new_point_renumbering = utils.invert(new_to_old_point_numbering)
 
         self.name = name
         self._did_reordering = bool(reorder)
@@ -611,7 +611,7 @@ class AbstractMeshTopology(abc.ABC):
     @cached_method()
     def _dim_indices_renum(self, dim: int) -> np.ndarray:
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
-        renumbering = self._old_to_new_point_renumbering.indices
+        renumbering = self._old_to_new_point_renumbering
         return readonly(np.sort(renumbering[p_start:p_end]))
 
     @property
@@ -746,14 +746,20 @@ class AbstractMeshTopology(abc.ABC):
     def _old_to_new_point_numbering_section(self) -> PETSc.Section:
         return dmcommon.entity_numbering(
             PETSc.IS().createStride(self.num_points, comm=MPI.COMM_SELF),
-            self._new_to_old_point_renumbering,
+            self._new_to_old_point_renumbering_is,
             self.comm
         )
 
     @property
     def _is_renumbered(self) -> bool:
         return utils.strictly_all(
-            map(bool, [self._old_to_new_point_renumbering, self._new_to_old_point_renumbering])
+            map(
+                lambda x: x is not None,
+                [
+                    self._old_to_new_point_renumbering,
+                    self._new_to_old_point_renumbering,
+                ],
+            )
         )
 
     @cached_property
@@ -998,7 +1004,7 @@ class AbstractMeshTopology(abc.ABC):
             "plex", _selector=_selector, name=name, dim=dim, stratum=stratum
         )
         return dmcommon.entity_numbering(
-            plex_indices_is, self._new_to_old_point_renumbering, self.comm
+            plex_indices_is, self._new_to_old_point_renumbering_is, self.comm
         )
 
     @property
@@ -1006,6 +1012,10 @@ class AbstractMeshTopology(abc.ABC):
         return self._plex_to_entity_numbering_sec("cell")
 
     # below need cleaning up
+
+    @cached_property
+    def _new_to_old_point_renumbering_is(self) -> PETSc.IS:
+        return PETSc.IS().createGeneral(self._new_to_old_point_renumbering, comm=MPI.COMM_SELF)
 
     @cached_property
     def _old_to_new_cell_numbering_is(self) -> PETSc.IS:
@@ -2940,10 +2950,10 @@ class ExtrudedMeshTopology(MeshTopology):
 
     @cached_property
     def _new_to_old_point_renumbering(self) -> PETSc.IS:
-        return self._old_to_new_point_renumbering.invertPermutation()
+        return utils.invert(self._old_to_new_point_renumbering)
 
     @cached_property
-    def _old_to_new_point_renumbering(self) -> PETSc.IS:
+    def _old_to_new_point_renumbering(self) -> np.ndarray:
         """
         Consider
 
@@ -2971,10 +2981,17 @@ class ExtrudedMeshTopology(MeshTopology):
 
         """
         # we always have 2n+1 entities when we extrude
-        base_indices = self._base_mesh._old_to_new_point_renumbering.indices
+        base_indices = self._base_mesh._old_to_new_point_renumbering
 
-        indices = dmcommon.extrude_point_renumbering(self.topology_dm, self._base_mesh.topology_dm, base_indices, self.layers-1, self.periodic, self._extruded_to_base_point_map, self._extruded_to_offset_map)
-        return PETSc.IS().createGeneral(indices, comm=MPI.COMM_SELF)
+        return dmcommon.extrude_point_renumbering(
+            self.topology_dm,
+            self._base_mesh.topology_dm,
+            base_indices,
+            self.layers-1,
+            self.periodic,
+            self._extruded_to_base_point_map,
+            self._extruded_to_offset_map,
+        )
 
     @cached_method()
     def _dim_indices_renum(self, dim):
@@ -2997,7 +3014,7 @@ class ExtrudedMeshTopology(MeshTopology):
         )
         # Finally do the renumbering
         return utils.readonly(
-            np.sort(self._old_to_new_point_renumbering.indices[matching_extruded_points.indices])
+            np.sort(self._old_to_new_point_renumbering[matching_extruded_points.indices])
         )
 
     @property

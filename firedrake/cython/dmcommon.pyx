@@ -290,7 +290,7 @@ def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: 
     return offsets_is
 
 
-def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
+def section_permute(section: PETSc.Section, perm: PetscInt[::1]) -> PETSc.Section:
     cdef:
         PetscInt p, pnew, n
 
@@ -300,12 +300,11 @@ def section_permute(section: PETSc.Section, perm: PETSc.IS) -> PETSc.Section:
 
     # This isn't actually needed in this routine because we set the DoFs and
     # offsets directly but without it we get other garbled sections later on.
-    new_section.setPermutation(perm)
-
-    permvals: np.ndarray = perm.indices
+    perm_is = PETSc.IS().createGeneral(perm, comm=MPI.COMM_SELF)
+    new_section.setPermutation(perm_is)
 
     for p in range(p_start, p_end):
-        pnew = permvals[p]
+        pnew = perm[p]
         CHKERR(PetscSectionGetDof(section.sec, p, &n))
         CHKERR(PetscSectionSetDof(new_section.sec, pnew, n))
         CHKERR(PetscSectionGetOffset(section.sec, p, &n))

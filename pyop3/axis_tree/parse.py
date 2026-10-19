@@ -88,7 +88,7 @@ def _(axes: IndexedAxisTree) -> IndexedAxisTree:
 
 @as_axis_tree.register
 def _(axis: Axis) -> AxisTree:
-    return AxisTree(axis)
+    return axis.as_tree()
 
 
 @functools.singledispatch
