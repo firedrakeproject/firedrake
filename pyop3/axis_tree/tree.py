@@ -23,6 +23,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.cache
+import pyop3.config
 import pyop3.constants
 import pyop3.exceptions
 import pyop3.labeled_tree
@@ -1910,6 +1911,9 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
         from pyop3 import Dat, loop
 
+        # TODO: mask it?
+        # TODO: be clever if we know about the indexing? not sure...
+
         indices_dat = Dat.full(
             self.materialize().regionless(),
             -1,
@@ -1924,7 +1928,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
                     indices_dat[p].assign(just_one(self[p].leaf_subst_layouts.values())),
                     eager=True,
                 )
-        indices = np.unique(np.sort(indices_dat.buffer.data_ro))
+        indices = np.unique(indices_dat.buffer.data_ro)
 
         if not include_ghosts:
             mask = indices < self.unindexed.buffer_size(include_ghosts=False)
@@ -2241,20 +2245,26 @@ class AxisForest(LoopContextFreeAxisTreeLike):
     def region_sets(self) -> tuple[frozenset[str], ...]:
         return utils.single_valued(t.region_set for t in self)
 
+    @cached_method()
     def buffer_slice(self, *, include_ghosts: bool):
         return utils.single_valued(
             t.buffer_slice(include_ghosts=include_ghosts) for t in self
         )
 
+    @cached_method()
     def buffer_size(self, *, include_ghosts: bool) -> int:
         return utils.single_valued(
             t.buffer_size(include_ghosts=include_ghosts) for t in self
         )
 
+    @cached_method()
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray:
-        return utils.single_valued(
-            t._buffer_indices(include_ghosts=include_ghosts) for t in self
-        )
+        if pyop3.config.debug_checks:
+            assert utils.is_single_valued(
+                t._buffer_indices(include_ghosts=include_ghosts)
+                for t in self
+            )
+        return self.trees[0]._buffer_indices(include_ghosts=include_ghosts)
 
     @property
     def block_shape(self) -> tuple[int, ...]:

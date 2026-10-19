@@ -165,10 +165,7 @@ class InstructionExecutionContext:
         # actually passed to the compiled code
         new_buffers = {}
         for arg_name, new_arg in kwargs.items():
-            try:
-                orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
-            except:
-                breakpoint()
+            orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
             new_arg_buffers = self._extract_buffers(new_arg)
             for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
                 new_buffers[orig_buffer] = new_buffer

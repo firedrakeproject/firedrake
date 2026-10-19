@@ -1100,8 +1100,7 @@ class ParloopFormAssembler(FormAssembler):
         """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
 
     def parloops(self, tensor):
-        # if hasattr(self, "_parloops"):
-        if False:
+        if hasattr(self, "_parloops"):
             assert hasattr(self, "_tensor_id")
         else:
             tensor_id = {}
@@ -2006,11 +2005,11 @@ class ParloopBuilder:
             assert coeff != self._tensor, "coeff and self._tensor must be distinct subfunctions"
             coeff = coeff.copy(deepcopy=True)
 
-            # def copy_into_coeff():
-            #     coeff.dat.buffer.data_wo[...] = self._tensor.dat.buffer.data_ro
+            def copy_into_coeff():
+                coeff.dat.buffer.data_wo[...] = self._tensor.dat.buffer.data_ro
 
             # We have to perform the copy every time the parloop is invoked
-            # self.setup_callables.append(copy_into_coeff)
+            self.setup_callables.append(copy_into_coeff)
         return pack(coeff, index)
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)

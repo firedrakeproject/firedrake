@@ -19,7 +19,7 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
     build similar objects.
 
     """
-    def __init__(self, shallow: bool = False) -> None:
+    def __init__(self, shallow: bool = False, allowed_types: set | None = None) -> None:
         self.shallow = shallow
         super().__init__()
 
@@ -78,7 +78,7 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
     # {{{ pyop3.index_tree
 
     @process.register
-    def _(self, loop_index: pyop3.index_tree.AbstractLoopIndex, /, **kwargs):
+    def _(self, loop_index: pyop3.index_tree.LoopIndex, /, **kwargs):
         return loop_index.record_new(
             iterset=self(loop_index.iterset, **kwargs),
         )
@@ -89,26 +89,22 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
 
     @process.register
     def _(self, scalar: pyop3.expr.Scalar, /, **kwargs):
-        new_buffer = self(scalar.buffer, **kwargs)
-        return scalar.record_new(buffer=new_buffer)
+        return scalar
 
     @process.register
     def _(self, dat: pyop3.expr.Dat, /, **kwargs):
         new_axes = self(dat.axes, **kwargs)
-        new_buffer = self(dat.buffer, **kwargs)
         new_transform = self(dat._transform, **kwargs)
-        return dat.record_new(axes=new_axes, buffer=new_buffer, _transform=new_transform)
+        return dat.record_new(axes=new_axes, _transform=new_transform)
 
     @process.register
     def _(self, mat: pyop3.expr.Mat, /, **kwargs):
         new_row_axes = self(mat.row_axes, **kwargs)
         new_column_axes = self(mat.column_axes, **kwargs)
-        new_buffer = self(mat.buffer, **kwargs)
         new_transform = self(mat._transform, **kwargs)
         return mat.record_new(
             row_axes=new_row_axes,
             column_axes=new_column_axes,
-            buffer=new_buffer,
             _transform=new_transform,
         )
 
@@ -130,15 +126,13 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
 
     @process.register
     def _(self, dat_expr: pyop3.expr.LinearDatBufferExpression, /, **kwargs):
-        new_buf = self(dat_expr.buffer_view, **kwargs)
         new_layout = self(dat_expr.layout, **kwargs)
-        return dat_expr.record_new(buffer_view=new_buf, layout=new_layout)
+        return dat_expr.record_new(layout=new_layout)
 
     @process.register
     def _(self, dat_expr: pyop3.expr.NonlinearDatBufferExpression, /, **kwargs):
-        new_buffer = self(dat_expr.buffer_view, **kwargs)
         new_layouts = self._visit_pathed_mapping(dat_expr.layouts, **kwargs)
-        return dat_expr.record_new(buffer_view=new_buffer, layouts=new_layouts)
+        return dat_expr.record_new(layouts=new_layouts)
 
     @process.register
     def _(self, cdat: pyop3.expr.CompositeDat, /, **kwargs):
@@ -147,9 +141,15 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
         return cdat.record_new(axis_tree=new_axis_tree, exprs=new_exprs)
 
     @process.register
-    def _(self, op: pyop3.expr.Operator, /, **kwargs):
-        new_operands = [self(o, **kwargs) for o in op.operands]
-        return op.with_operands(new_operands)
+    def _(self, op: pyop3.expr.BinaryOperator, /, **kwargs):
+        return op.record_new(a=self(op.a, **kwargs), b=self(op.b, **kwargs))
+
+    @process.register
+    def _(self, tern: pyop3.expr.TernaryOperator, /, **kwargs):
+        new_a = self(tern.a, **kwargs)
+        new_b = self(tern.b, **kwargs)
+        new_c = self(tern.c, **kwargs)
+        return tern.record_new(a=new_a, b=new_b, c=new_c)
 
     @process.register(pyop3.expr.NaN)
     @process.register(pyop3.expr.ScalarBufferExpression)
@@ -201,19 +201,6 @@ class IdentityVisitor(pyop3.node.NodeVisitor):
             return func
         else:
             return func.record_new(_arguments=tuple(self(a, **kwargs) for a in func.arguments))
-
-    # }}}
-
-    # {{{ pyop3.buffer
-
-    @process.register
-    def _(self, buffer_view: pyop3.buffer.IndexedBuffer, /, **kwargs):
-        new_buffer = self(buffer_view.buffer, **kwargs)
-        return buffer_view.record_new(buffer=new_buffer)
-
-    @process.register
-    def _(self, buffer: pyop3.buffer.AbstractBuffer, /, **kwargs):
-        return buffer
 
     # }}}
 
