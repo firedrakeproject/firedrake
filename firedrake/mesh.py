@@ -2656,9 +2656,10 @@ values from f.)"""
     def _box_ratio_heuristic(self):
         """Return partition bounding boxes at some 'optimal' Rtree level.
 
-        Descends the local Rtree top-down breadth-first, stopping when the total
-        bounding box volume stops decreasing (ratio of next level to current
-        level >= 1).
+        Descends the local Rtree top-down breadth-first, returning the level
+        before the second non-decrease in total bounding box volume (ratio of
+        next level to current level >= 1). If there are fewer than two such
+        transitions, returns the deepest level.
 
         Returns
         -------
@@ -2672,13 +2673,16 @@ values from f.)"""
         gdim = self.geometric_dimension
         prev_bboxes = rtree.bounding_boxes_at_level(self.rtree, 0, gdim)
         prev_vol = self._bounding_boxes_total_volume(prev_bboxes)
+        non_decreases = 0
 
         for level in range(1, tree_depth):
             next_bboxes = rtree.bounding_boxes_at_level(self.rtree, level, gdim)
             next_vol = self._bounding_boxes_total_volume(next_bboxes)
 
             if next_vol >= prev_vol:
-                break
+                non_decreases += 1
+                if non_decreases == 2:
+                    break
 
             prev_bboxes = next_bboxes
             prev_vol = next_vol
