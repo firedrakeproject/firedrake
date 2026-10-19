@@ -452,16 +452,16 @@ class HDF5File:
         path :
             The path to store the function under.
         timestamp :
-            Timestamp associated with function, or None for stationary data.
+            Timestamp associated with ``function``, or ``None`` for stationary data.
 
         Raises
         ------
         IOError
-            If checkpoint mode is FILE_READ.
+            If checkpoint mode is ``FILE_READ``.
         TypeError
-            If function is not a Function.
+            If ``function`` is not a ``Function``.
         CommMismatchError
-            If function` is not defined on the same MPI comm as this file.
+            If ``function`` is not defined on the same MPI comm as this file.
         """
         if self._mode == 'r':
             raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
@@ -509,7 +509,7 @@ class HDF5File:
         TypeError
             If function is not a Function.
         CommMismatchError
-            If function is not defined on the same MPI comm as this file.
+            If ``function`` is not defined on the same MPI comm as this file.
         """
         if not isinstance(function, firedrake.Function):
             raise TypeError(f"Can only load functions not {type(function).__name__}")
