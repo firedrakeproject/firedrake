@@ -68,11 +68,11 @@ def _get_dtype(datatype):
         while combiner == "DUP":
             base, combiner, _ = base.decode()
         # Allow for "NAMED", too, for complex scalar {MAX, MIN}.
-        if not (combiner == "CONTIGUOUS" or (complex_mode and combiner == "NAMED")):
-            raise RuntimeError(
-                f"Can only handle contiguous types or named types for complex scalar: "
-                f"found combiner={combiner}"
-            )
+        # if not (combiner == "CONTIGUOUS" or (complex_mode and combiner == "NAMED")):
+        #     raise RuntimeError(
+        #         f"Can only handle contiguous types or named types for complex scalar: "
+        #         f"found combiner={combiner}"
+        #     )
         try:
             tdict = MPI.__TypeDict__
         except AttributeError:
