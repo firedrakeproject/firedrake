@@ -221,25 +221,31 @@ def extensions():
         name="firedrake._functionspaceimpl_cy",
         language="c",
         sources=[os.path.join("firedrake", "_functionspaceimpl_cy.pyx")],
-        **(mpi_ + petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_),
     ))
     cython_list.append(Extension(
         name="pyop3._buffer_cy",
         language="c",
         sources=[os.path.join("pyop3", "_buffer_cy.pyx")],
-        **(mpi_ + petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_),
     ))
     cython_list.append(Extension(
         name="pyop3._sf_cy",
         language="c",
         sources=[os.path.join("pyop3", "_sf_cy.pyx")],
-        **(mpi_ + petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_),
+    ))
+    cython_list.append(Extension(
+        name="pyop3._utils_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "_utils_cy.pyx")],
+        **(mpi_ + petsc_ + numpy_),
     ))
     cython_list.append(Extension(
         name="pyop3.axis_tree._tree_cy",
         language="c",
         sources=[os.path.join("pyop3", "axis_tree", "_tree_cy.pyx")],
-        **(mpi_ + petsc_ + numpy_)
+        **(mpi_ + petsc_ + numpy_),
     ))
 
     # PYBIND11 EXTENSIONS

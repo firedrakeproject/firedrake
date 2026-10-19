@@ -27,6 +27,8 @@ from pyop3.exceptions import (
     UnhashableObjectException,
 )
 
+from ._utils_cy import try_cast_slice  # noqa: F401
+
 ndarray_types = (np.ndarray,)
 try:
     import cupy as cp

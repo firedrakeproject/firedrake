@@ -1909,30 +1909,16 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         get_comm=lambda s, **kw: s.comm,
     )
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
-        from pyop3 import Dat, loop
-
-        # TODO: mask it?
-        # TODO: be clever if we know about the indexing? not sure...
-
-        indices_dat = Dat.full(
-            self.materialize().regionless(),
-            -1,
-            dtype=IntType,
-            prefix="indices",
-        )
+        mask_dat = pyop3.Dat(self, data=np.zeros(self.unindexed.local_size, dtype=bool))
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
             if iterset.size != 0:
-                loop(
-                    p := iterset.iter(),
-                    indices_dat[p].assign(just_one(self[p].leaf_subst_layouts.values())),
-                    eager=True,
-                )
-        indices = np.unique(indices_dat.buffer.data_ro)
+                pyop3.loop(p := iterset.iter(), mask_dat[p].assign(True), eager=True)
+        indices = np.flatnonzero(mask_dat.buffer.data_ro).astype(IntType, copy=False)
 
         if not include_ghosts:
-            mask = indices < self.unindexed.buffer_size(include_ghosts=False)
-            indices = indices[mask]
+            owned_mask = indices < self.unindexed.buffer_size(include_ghosts=False)
+            indices = indices[owned_mask]
 
         return indices
 
@@ -1940,22 +1926,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
     def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray[int]:
         # Attempt to convert the indices into a slice if possible
         indices = self._buffer_indices(include_ghosts=include_ghosts)
-
-        # TODO: Move this into Cython
-        maybe_slice = indices
-        if len(indices) == 0:
-            maybe_slice = slice(0, 0, 1)
-        elif len(indices) == 1:
-            start = indices[0]
-            maybe_slice = slice(start, start+1, 1)
-        else:
-            step = indices[1] - indices[0]
-            for i in range(1, len(indices)-1):
-                if indices[i+1] - indices[i] != step:
-                    # non-const step, abort and use indices
-                    break
-            else:
-                maybe_slice = slice(indices[0], indices[-1]+1, step)
+        maybe_slice = utils.try_cast_slice(indices)
 
         # The above operation is rank-local - some ranks may have no indices
         # and hence think that they can use a slice. Allreduce here for
@@ -2243,28 +2214,19 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     @cached_property
     def region_sets(self) -> tuple[frozenset[str], ...]:
-        return utils.single_valued(t.region_set for t in self)
+        return self._matching_attr("region_set")
 
     @cached_method()
-    def buffer_slice(self, *, include_ghosts: bool):
-        return utils.single_valued(
-            t.buffer_slice(include_ghosts=include_ghosts) for t in self
-        )
+    def buffer_slice(self, **kwargs):
+        return self._matching_method("buffer_slice", **kwargs)
 
     @cached_method()
-    def buffer_size(self, *, include_ghosts: bool) -> int:
-        return utils.single_valued(
-            t.buffer_size(include_ghosts=include_ghosts) for t in self
-        )
+    def buffer_size(self, **kwargs) -> int:
+        return self._matching_method("buffer_size", **kwargs)
 
     @cached_method()
-    def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray:
-        if pyop3.config.debug_checks:
-            assert utils.is_single_valued(
-                t._buffer_indices(include_ghosts=include_ghosts)
-                for t in self
-            )
-        return self.trees[0]._buffer_indices(include_ghosts=include_ghosts)
+    def _buffer_indices(self, **kwargs) -> np.ndarray:
+        return self._matching_method("_buffer_indices", **kwargs)
 
     @property
     def block_shape(self) -> tuple[int, ...]:
@@ -2280,11 +2242,11 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     @property
     def is_nested(self) -> bool:
-        return utils.single_valued(t.is_nested for t in self)
+        return self._matching_attr("is_nested")
 
     @property
     def is_linear(self) -> bool:
-        return utils.single_valued(t.is_linear for t in self)
+        return self._matching_attr("is_linear")
 
     # }}}
 
@@ -2361,7 +2323,7 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     @property
     def root(self) -> bool:
-        return utils.single_valued(t.root for t in self.trees)
+        return self._matching_attr("root")
 
     def template_vec(self, block_shape):
         return self.trees[0].template_vec(block_shape)
@@ -2383,27 +2345,28 @@ class AxisForest(LoopContextFreeAxisTreeLike):
 
     @property
     def nest_labels(self):
-        return utils.single_valued(tree.nest_labels for tree in self.trees)
+        return self._matching_attr("nest_labels")
 
     @property
     def size(self):
+        # often doesn't match
         return self.trees[0].size
 
     @property
     def sf(self) -> AbstractStarForest:
-        return utils.single_valued(tree.sf for tree in self.trees)
+        return self._matching_attr("sf")
 
     @property
     def local_size(self) -> int:
-        return utils.single_valued(tree.local_size for tree in self.trees)
+        return self._matching_attr("local_size")
 
     @property
     def local_max_size(self) -> int:
-        return utils.single_valued(tree.local_max_size for tree in self.trees)
+        return self._matching_attr("local_max_size")
 
     @property
     def global_size(self) -> int:
-        return utils.single_valued(tree.global_size for tree in self.trees)
+        return self._matching_attr("global_size")
 
     def with_context(self, context):
         return type(self)(tree.with_context(context) for tree in self.trees)
@@ -2417,6 +2380,34 @@ class AxisForest(LoopContextFreeAxisTreeLike):
             b.data_ro_with_halos for b in buffers
         ))
         return Dat(self, buffer=buffers[0])
+
+    def _matching_attr(self, attr: str):
+        """Return an attribute from the trees in the forest.
+
+        If debug checks are enabled then each tree is checked to make sure that
+        they return the same thing.
+
+        """
+        # as this is a generator it is lazily evaluated
+        values = (getattr(t, attr) for t in self)
+        if pyop3.config.debug_checks:
+            return utils.single_values(values)
+        else:
+            return next(values)
+
+    def _matching_method(self, attr: str, *args, **kwargs):
+        """Return a value from a method of the trees in the forest.
+
+        If debug checks are enabled then each tree is checked to make sure that
+        they return the same thing.
+
+        """
+        # as this is a generator it is lazily evaluated
+        values = (getattr(t, attr)(*args, **kwargs) for t in self)
+        if pyop3.config.debug_checks:
+            return utils.single_values(values)
+        else:
+            return next(values)
 
 
 def merge_axis_trees(trees: Iterable[AxisTree], *, only_unit: bool = False) -> AxisTree:
