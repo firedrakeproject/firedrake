@@ -502,12 +502,12 @@ class HDF5File:
         path :
             The path under which the function is stored.
         timestamp :
-            Timestamp associated with function, or None for stationary data.
+            Timestamp associated with ``function``, or ``None`` for stationary data.
 
         Raises
         ------
         TypeError
-            If function is not a Function.
+            If ``function`` is not a ``Function``.
         CommMismatchError
             If ``function`` is not defined on the same MPI comm as this file.
         """
