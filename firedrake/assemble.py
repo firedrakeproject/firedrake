@@ -1074,7 +1074,7 @@ class ParloopFormAssembler(FormAssembler):
         for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
             parloop, lgmaps, setup_callables = parloop_info
             for setup in setup_callables:
-                setup()
+                setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
@@ -2005,8 +2005,8 @@ class ParloopBuilder:
             assert coeff != self._tensor, "coeff and self._tensor must be distinct subfunctions"
             coeff = coeff.copy(deepcopy=True)
 
-            def copy_into_coeff():
-                coeff.dat.buffer.data_wo[...] = self._tensor.dat.buffer.data_ro
+            def copy_into_coeff(tensor):
+                coeff.dat.buffer.data_wo[...] = tensor.dat.buffer.data_ro
 
             # We have to perform the copy every time the parloop is invoked
             self.setup_callables.append(copy_into_coeff)
