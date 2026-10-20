@@ -53,7 +53,7 @@ from random import randint
 import petsctools
 
 from pyop2 import mpi
-from pyop2.caching import parallel_cache, memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
+from pyop2.caching import memory_cache, default_parallel_hashkey, DictLikeDiskAccess, as_hexdigest
 from pyop2.configuration import configuration
 from pyop2.logger import warning, debug, progress, INFO
 from pyop2.exceptions import CompilationError
@@ -525,21 +525,21 @@ def check_source_hashes(compiler, code, extension, comm):
 
 
 @mpi.collective
-@parallel_cache(
-    hashkey=_make_so_hashkey,
-    make_cache=lambda: CompilerDiskAccess(configuration['cache_dir'], extension=".so")
-)
 @PETSc.Log.EventDecorator()
 def make_so(compiler, code, extension, comm):
-    """Build a shared library and load it
+    """Build a shared library, or find it in the disk cache.
+
+    Only rank 0 of the compilation communicator reads or writes the disk
+    cache. It looks up the library, compiles it on a miss, and broadcasts
+    the path of the cached library to the other ranks of the compilation
+    communicator. Every rank therefore takes part in exactly one broadcast
+    per call, for a hit and for a miss alike.
 
     :arg compiler: The compiler to use to create the shared library.
     :arg code: The code to compile.
-    :arg filename: The filename of the library to create.
     :arg extension: extension of the source file (c, cpp).
     :arg comm: Communicator over which to perform compilation.
-    Returns a :class:`ctypes.CDLL` object of the resulting shared
-    library."""
+    Returns the path of the shared library in the disk cache."""
     # Compilation communicators are reference counted on the PyOP2 comm
     icomm = mpi.internal_comm(comm, compiler)
     ccomm = mpi.compilation_comm(icomm, compiler)
@@ -608,7 +608,32 @@ def make_so(compiler, code, extension, comm):
         else:
             return soname
 
-    return mpi.safe_noncollective(ccomm, compile_single_rank, root=0)
+    # The ranks of the compilation communicator share one view of the disk
+    # cache, so only one of them may decide whether the library is there.
+    # If every rank looked the library up on its own, a rank that looks
+    # after rank 0 has written it would get a hit and skip the broadcast
+    # below, while the other ranks take part in it. The ranks would then
+    # disagree on the number of broadcasts, and a later broadcast would
+    # deliver the path of an earlier library.
+    disk_cache = CompilerDiskAccess(configuration["cache_dir"], extension=".so")
+    key = _make_so_hashkey(compiler, code, extension, comm)
+
+    def lookup_or_compile():
+        """Return the path of the cached library, compiling it on a miss.
+
+        This runs on rank 0 of the compilation communicator only. On a miss
+        the library is compiled into a private temporary directory and then
+        copied into the disk cache, so the returned path is always the path
+        in the disk cache.
+        """
+        try:
+            return disk_cache[key]
+        except KeyError:
+            return disk_cache.setdefault(key, compile_single_rank())
+
+    # An exception on rank 0, for example a failed compilation, is raised on
+    # every rank of the compilation communicator.
+    return mpi.safe_noncollective(ccomm, lookup_or_compile, root=0)
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
