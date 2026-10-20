@@ -94,6 +94,9 @@ class NonlinearVariationalProblemMixin:
 
 
 class NonlinearVariationalSolverMixin:
+    # by default, a solver does not represent a projection
+    _is_project = False
+
     @staticmethod
     def _ad_annotate_init(init):
         @no_annotations
@@ -503,8 +506,7 @@ class NonlinearVariationalSolverMixin:
                     self._ad_hessian_cache,
                     ad_block_tag=self.ad_block_tag)
 
-                if hasattr(self, "_is_project"):
-                    block._is_project = self._is_project
+                block._is_project = self._is_project
 
                 for dep in self._ad_dependencies_to_add:
                     block.add_dependency(dep, no_duplicates=True)

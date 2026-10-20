@@ -63,6 +63,10 @@ class ProjectorMixin(NonlinearVariationalSolverMixin):
     This establishes the form used for adjoint evaluation of the projector.
     """
 
+    # we are a solver representing a project, so the eventual block on
+    # the tape is also annotated as such
+    _is_project = True
+
     def __init__(self, ad_block_tag=None):
         V = self.target.function_space()
         mesh = V.mesh()

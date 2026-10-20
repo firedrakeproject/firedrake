@@ -12,5 +12,5 @@ def get_solve_blocks():
         block
         for block in get_working_tape().get_blocks()
         if issubclass(type(block), CachedSolverBlock)
-        and not getattr(block, "_is_project", False)
+        and not block._is_project
     ]

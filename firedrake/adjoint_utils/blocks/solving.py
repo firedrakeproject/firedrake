@@ -34,6 +34,8 @@ HESSIAN = SolverType.HESSIAN
 
 
 class CachedSolverBlock(Block):
+    _is_project = False
+
     def __init__(
         self, forward_cache, tangent_cache, adjoint_cache, hessian_cache, ad_block_tag=None
     ):
