@@ -33,7 +33,7 @@ TLM = SolverType.TLM
 HESSIAN = SolverType.HESSIAN
 
 
-class CachedSolverBlock(Block):
+class NonlinearVariationalSolveBlock(Block):
     def __init__(
         self, forward_cache, tangent_cache, adjoint_cache, hessian_cache, ad_block_tag=None
     ):
@@ -342,7 +342,7 @@ def solve_init_params(self, args, kwargs, varform):
             self.assemble_kwargs["appctx"] = kwargs["appctx"]
 
 
-class ProjectBlock(CachedSolverBlock):
+class ProjectBlock(NonlinearVariationalSolveBlock):
     pass
 
 

@@ -1,7 +1,7 @@
 import copy
 from functools import wraps, cached_property
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import CachedSolverBlock
+from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
 from firedrake.adjoint_utils.blocks.solving import solve_init_params
 from firedrake.ufl_expr import derivative, adjoint, action
 from ufl import replace, Action
@@ -484,7 +484,7 @@ class NonlinearVariationalSolverMixin:
 
     @staticmethod
     def _ad_block_type():
-        return CachedSolverBlock
+        return NonlinearVariationalSolveBlock
 
     @staticmethod
     def _ad_annotate_solve(solve):
