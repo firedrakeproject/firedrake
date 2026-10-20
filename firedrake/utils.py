@@ -32,6 +32,7 @@ from pyop3.utils import (  # noqa: F401
 from functools import cache
 from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
+from firedrake import utils
 
 
 # MPI key value for storing a per communicator universal identifier
@@ -125,6 +126,7 @@ def _new_uid(comm):
     uid = comm.Get_attr(FIREDRAKE_UID)
     if uid is None:
         uid = 0
+    assert utils.is_single_valued(comm.allgather(uid))
     comm.Set_attr(FIREDRAKE_UID, uid + 1)
     return uid
 
