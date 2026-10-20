@@ -380,7 +380,17 @@ class MixedDataSet(DataSet):
 
     @classmethod
     def _cache_key(cls, arg, dims=None):
-        return arg
+        # Every Global has its own GlobalDataSet, so a key that holds the
+        # GlobalDataSet itself is new for every Function on a mixed space with
+        # a Real component. The cache lives on the Set of the first component
+        # and keeps each entry for the lifetime of the mesh, so the cache then
+        # grows by one entry per Function. A GlobalDataSet uses its Global
+        # only for the shape and the name, so two of them with the same
+        # communicator and the same dim give the same MixedDataSet.
+        return tuple(
+            (GlobalDataSet, d.comm.py2f(), d.dim) if isinstance(d, GlobalDataSet) else d
+            for d in arg
+        )
 
     @cached_property
     def _wrapper_cache_key_(self):
