@@ -33,7 +33,7 @@ TLM = SolverType.TLM
 HESSIAN = SolverType.HESSIAN
 
 
-class CachedSolverBlock(Block):
+class NonlinearVariationalSolveBlock(Block):
     _is_project = False
 
     def __init__(

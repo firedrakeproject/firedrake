@@ -1,5 +1,5 @@
 from pyadjoint.tape import get_working_tape
-from firedrake.adjoint_utils.blocks import CachedSolverBlock
+from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
 
 
 def get_solve_blocks():
@@ -11,6 +11,6 @@ def get_solve_blocks():
     return [
         block
         for block in get_working_tape().get_blocks()
-        if issubclass(type(block), CachedSolverBlock)
+        if issubclass(type(block), NonlinearVariationalSolveBlock)
         and not block._is_project
     ]

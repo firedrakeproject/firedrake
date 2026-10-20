@@ -1,7 +1,7 @@
 import copy
 from functools import wraps, cached_property
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
-from firedrake.adjoint_utils.blocks import CachedSolverBlock
+from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
 from firedrake.adjoint_utils.blocks.solving import solve_init_params
 from firedrake.ufl_expr import derivative, adjoint, action
 from ufl import replace, Action
@@ -499,7 +499,7 @@ class NonlinearVariationalSolverMixin:
                     raise ValueError(
                         "MissingMathsError: we do not know how to differentiate through a variational inequality")
 
-                block = CachedSolverBlock(
+                block = NonlinearVariationalSolveBlock(
                     self._ad_forward_cache,
                     self._ad_tangent_cache,
                     self._ad_adjoint_cache,
