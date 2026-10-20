@@ -1,7 +1,9 @@
-from firedrake import *
+import warnings
+
 import numpy
 import pytest
-import warnings
+
+from firedrake import *
 
 
 def solver_parameters(solver_type):

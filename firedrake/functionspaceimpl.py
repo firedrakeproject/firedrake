@@ -1799,7 +1799,7 @@ class FunctionSpace(AbstractFunctionSpace):
         if val is not None:
             if isinstance(val, numpy.ndarray):
                 if valuetype is not None:
-                    val = val.astype(valuetype, copy=False, casting="safe")
+                    val = val.astype(valuetype, copy=False, casting="unsafe")
                 data = val
             else:
                 data = numpy.asarray(val, dtype=valuetype)
@@ -2195,7 +2195,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
 
         if val is not None:
             if valuetype is not None:
-                val = val.astype(valuetype, copy=False, casting="safe")
+                val = val.astype(valuetype, copy=False, casting="unsafe")
             return op3.Dat(self.axes, data=val.ravel(), name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)

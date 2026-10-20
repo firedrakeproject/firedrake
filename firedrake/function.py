@@ -24,7 +24,7 @@ import petsctools
 from finat.ufl import MixedElement
 from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c, IntType_c, readonly
 
-from firedrake import functionspaceimpl
+from firedrake import functionspaceimpl, utils
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
@@ -202,15 +202,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             self.ufl_element().family() == "Real"
             and self.function_space().shape == ()
         ):
-            self.dat.assemble()
-            with op3.mpi.temp_internal_comm(self.comm) as icomm:
-                # We have to be clever here because the data can live on any rank
-                data = self.dat.data_ro
-                if len(data) == 0:
-                    value = -np.inf
-                else:
-                    value = data.item()
-                return float(icomm.allreduce(value, MPI.MAX))
+            return float(utils.just_one(self.dat.global_data))
         else:
             raise ValueError("Can only cast scalar 'Real' Functions to float.")
 

@@ -645,10 +645,10 @@ class Dat(Tensor):
     @collective
     def global_data(self) -> np.ndarray:
         """Return all the data for the Dat gathered onto individual ranks."""
-        with self.vec_ro as gvec:
-            scatter, lvec = PETSc.Scatter().toAll(gvec)
-            scatter.scatter(gvec, lvec, addv=PETSc.InsertMode.INSERT_VALUES)
-        return lvec.array
+        with pyop3.mpi.temp_internal_comm(self.comm) as icomm:
+            per_rank = icomm.allgather(self.data_ro.ravel())
+        dtype = utils.single_valued(x.dtype for x in per_rank)
+        return np.concatenate(per_rank, dtype=dtype)
 
     @property
     def sf(self):

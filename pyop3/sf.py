@@ -282,6 +282,7 @@ class StarForest(AbstractStarForest):
         return type(self)(petsc_sf, self.comm)
 
     def filter(self, indices) -> Self:
+        indices = indices.astype(IntType, casting="same_kind")
         petsc_sf = filter_petsc_sf(self.sf, indices, 0, self.size)
         return type(self)(petsc_sf, self.comm)
 

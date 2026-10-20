@@ -1890,11 +1890,11 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         get_comm=lambda s, **kw: s.comm,
     )
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
-        mask_dat = pyop3.Dat(self, data=np.zeros(self.unindexed.local_size, dtype=bool))
+        mask_dat = pyop3.Dat(self, data=np.zeros(self.unindexed.local_size, dtype=np.uint8))
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
             if iterset.size != 0:
-                pyop3.loop(p := iterset.iter(), mask_dat[p].assign(True, _weakref=False), eager=True)
+                pyop3.loop(p := iterset.iter(), mask_dat[p].assign(1, _weakref=False), eager=True)
         indices = np.flatnonzero(mask_dat.buffer.data_ro).astype(IntType, copy=False)
 
         if not include_ghosts:
