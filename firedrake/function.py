@@ -866,7 +866,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
 
     p_ScalarType_c = f"{ScalarType_c}*"
     wrapper_src = textwrap.dedent(f"""
-        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, int32_t const start, int32_t const end, {ScalarType_c} const *__restrict__ dat0, {ScalarType_c} const *__restrict__ dat1, {IntType_c} const *__restrict__ map0, {IntType_c} const *__restrict__ map1)
+        void wrap_evaluate({p_ScalarType_c} const farg0, {p_ScalarType_c} const farg1, {IntType_c} const start, {IntType_c} const end, {ScalarType_c} const *__restrict__ dat0, {ScalarType_c} const *__restrict__ dat1, {IntType_c} const *__restrict__ map0, {IntType_c} const *__restrict__ map1)
         {{
           {ScalarType_c} t0[{coords_shape}*{gdim}];
           {ScalarType_c} t1[{func_shape}*{func_bsize}];
