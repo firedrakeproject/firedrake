@@ -134,6 +134,9 @@ class MLIRBuilder:
             Builder(InsertPoint.at_end(self._entry_block))
         ]
 
+        # Index into the builder stack of the region that `insert_at_entry` targets
+        self._entry_depth: int = 0
+
         # Symbol table (inames/loop-idx and evaluated expressions)
         self.symbol_table = SymbolTable()
 
@@ -226,9 +229,12 @@ class MLIRBuilder:
         """Insert an MLIR operation at the start of the entry block.
 
         Values that are defined here dominate every loop nest.
-
         """
-        Builder(InsertPoint.at_start(self._entry_block)).insert(op)
+        
+        top_builder = self._builder_stack[self._entry_depth]
+        block = top_builder.insertion_point.block
+
+        top_builder.insert(op, InsertPoint.at_start(block))
         return op.results[0]
 
     def _const(self, value, mlir_type) -> SSAValue:
@@ -354,20 +360,17 @@ class MLIRBuilder:
         -> isinstance(node.data.buffer, NullBuffer) -> temporary
         -> isinstance(node.data.buffer, ArrayBuffer) -> function argument
 
-        TODO: Opportunity to tag buffers with memory space attributes here
         """
         # Assuming buffer is flat, we are doing one-form assembly anyway
         assert len(node.data.buffer.shape) == 1
+
         shape = list(map(int, node.data.buffer.shape))
         mlir_type = get_mlir_type(node.dtype)
 
         if isinstance(node.data.buffer, NullBuffer):
-            # WILO
-            # FIXME: Refactor temporaries to use GlobalOp (maybe refactor with the quadratures in mind)  
-            # Also, initialise them to 0
-            arg = self.insert_at_entry(memref.AllocOp.get(mlir_type, shape=shape))
-            arg.name_hint = node.name 
-            return arg 
+            return self._declare_global(
+                node.name, mlir_type, np.zeros(shape=shape, dtype=node.dtype), constant=False
+            )
 
         elif isinstance(node.data.buffer, ArrayBuffer):
             memref_type = MemRefType(mlir_type, shape=[DYNAMIC_INDEX])
@@ -383,14 +386,36 @@ class MLIRBuilder:
     @_declare_buffer.register(gem.Literal)
     def _(self, node: gem.Literal) -> SSAValue:
         """ Define Literal (tensor-valued constant) as global constant read-only (flat) buffer """
-        flattened = node.array.flatten()
-        mlir_type = get_mlir_type(node.dtype)
-        memref_type = MemRefType(mlir_type, flattened.shape)
+        return self._declare_global(
+            self.unique_name("literal"),
+            get_mlir_type(node.dtype),
+            node.array.flatten(),
+            constant=True,
+        )
 
-        name = self.unique_name("literal")
+    def _declare_global(
+        self, name: str, mlir_type, array: np.ndarray, *, constant: bool
+    ) -> SSAValue:
+        """Declare a private module-level `memref.global` and fetch it in the entry block.
 
+        The fetch is placed in the entry block so that it dominates all uses.
+
+        :arg name: symbol name of the global.
+        :arg mlir_type: MLIR element type.
+        :arg array: A flat array that provides the initial contents and the shape.
+        :arg constant: Boolean flag on whether the global is read-only.
+
+        :raises ValueError: If a global with the same name is already declared.
+
+        """
+        # Make sure that existing global op does not exist
+        if any(op.sym_name.data == name for op in self.global_ops):
+            raise ValueError(f"A global with the name {name!r} is already declared")
+
+        # TODO: Assign memory-level in the MemRefType
+        memref_type = MemRefType(mlir_type, array.shape)
         value = DenseIntOrFPElementsAttr.from_list(
-            TensorType(mlir_type, flattened.shape), flattened.data
+            TensorType(mlir_type, array.shape), array.data
         )
 
         self.global_ops.append(
@@ -399,11 +424,10 @@ class MLIRBuilder:
                 memref_type,
                 value,
                 sym_visibility=StringAttr("private"),
-                constant=UnitAttr()
+                constant=UnitAttr() if constant else None,
             )
         )
 
-        # Fetch the global in the entry block so that it dominates all uses.
         return self.insert_at_entry(memref.GetGlobalOp(name, memref_type))
 
     # }}}
@@ -656,85 +680,114 @@ class MLIRBuilder:
             if isinstance(node, gem.Variable) and isinstance(node.data.buffer, ArrayBuffer):
                 self._argument_devices[node.name] = HOST_DEVICE
 
-    # TODO: Refactor the two enter_* context managers. Bunch of the same code.  
+    # FIXME: I am not particularly happy with the lambda function argument 
     @contextlib.contextmanager
     def enter_for(self, index):
-        """Open an `scf.for` loop over `index` (a gem.Index or an integer extent)."""
-        assert isinstance(index, (numbers.Integral, gem.Index))
+        """Open an `scf.for` loop over index
 
-        extent = index if isinstance(index, numbers.Integral) else index.extent
-
-        # Loop bounds must be read on host and used for setting GPU grid bounds 
-        self.declare_runtime_expr_on_host(extent)
-
-        lb = self._const(0, INDEX_TYPE)
-        ub = self.get_index_ssa(extent)
-        step = self._const(1, INDEX_TYPE)
-
-        for_op = scf.ForOp(lb, ub, step, [], Region(Block(arg_types=[INDEX_TYPE])))
-        self.insert(for_op)
-
-        body = for_op.body.block
-        self.symbol_table.push()
-        self.symbol_table.define(index, body.args[0])
-        self._builder_stack.append(Builder(InsertPoint.at_end(body)))
-
-        yield
-
-        self.insert(scf.YieldOp())
-        self._builder_stack.pop()
-        self.symbol_table.pop()
+        :arg index: numbers.Integral or gem.Index, denoting extent of domain
+        """
+        with self._enter_loop(
+            index,
+            lambda lb, ub, step, region: scf.ForOp(lb, ub, step, [], region),
+            scf.YieldOp,
+        ):
+            yield
 
     @contextlib.contextmanager
     def enter_parallel(self, index, is_outermost=False):
-        """Open an `scf.parallel` loop over `index` (a gem.Index or an integer extent).
-        
+        """Open an `scf.parallel` loop over index
+
         :arg index: numbers.Integral or gem.Index, denoting extent of domain
-        :arg is_outermost: boolean flag which defines if this loop should be considered outermost loop for GPU 
+        :arg is_outermost: boolean flag which defines if this loop should be considered outermost loop for GPU
+
+        """
+        # TODO: Add GPU mapping dimensions
+        with self._enter_loop(
+            index,
+            lambda lb, ub, step, region: scf.ParallelOp([lb], [ub], [step], region),
+            scf.ReduceOp,
+        ):
+            # TODO: Pretty ugly line. Other way?
+            with self.outermost() if is_outermost else contextlib.nullcontext():
+                yield
+
+    @contextlib.contextmanager
+    def _enter_loop(self, index, loop_function, terminator_function):
+        """Open a loop over index and make its body the current insertion point.
+
+        The loop index is bound in a new symbol table scope. On exit, the body
+        is terminated, and the builder and the scope are removed again.
+
+        :arg index: numbers.Integral or gem.Index, denoting extent of domain
+        :arg loop_function: Callable that takes the lower bound, the upper bound, the
+            step and the body region, and returns the loop operation.
+        :arg terminator_function: Callable that returns the operation that terminates
+            the loop body.
 
         """
         assert isinstance(index, (numbers.Integral, gem.Index))
 
         extent = index if isinstance(index, numbers.Integral) else index.extent
 
-        # Loop bounds must be read on host and used for setting GPU grid bounds 
+        # Loop bounds must be read on host and used for setting GPU grid bounds
         self.declare_runtime_expr_on_host(extent)
 
         lb = self._const(0, INDEX_TYPE)
         ub = self.get_index_ssa(extent)
         step = self._const(1, INDEX_TYPE)
 
-        # TODO: Add GPU mapping dimensions
-        parallel_op = scf.ParallelOp(
-            [lb], [ub], [step], 
-            Region(Block(arg_types=[INDEX_TYPE]))
-        )
+        loop_op = loop_function(lb, ub, step, Region(Block(arg_types=[INDEX_TYPE])))
+        self.insert(loop_op)
 
-        self.insert(parallel_op)
-
-        body = parallel_op.body.block
+        body = loop_op.body.block
         self.symbol_table.push()
         self.symbol_table.define(index, body.args[0])
         self._builder_stack.append(Builder(InsertPoint.at_end(body)))
 
-        with self.outermost():
-            yield
+        yield
 
-        self.insert(scf.ReduceOp())
+        self.insert(terminator_function())
         self._builder_stack.pop()
         self.symbol_table.pop()
 
-
     @contextlib.contextmanager
     def outermost(self):
-        """ Changes the visible outermost scope of the insertion problem, while inside the context
+        """ Increments the visible outermost scope of the insertion problem, while inside the context
+
+        The current outermost region, and the SSA values that are defined in it,
+        become invisible to everything inside the context. Operations that are
+        hoisted with `insert_at_entry` are inserted one level deeper instead.
+
+        The constant and buffer caches are emptied while inside the context,
+        because their SSA values are not valid there, and they are restored on
+        exit. Funtcion arguments are not reset because they are valid across 
+        scope (passed as CPU/GPU arguments as per device mapping) 
 
         """
-        original_scope = self._scopes
-        self._scopes = self._scopes[1:]
+        original_scopes = self.symbol_table._scopes
+        original_constants = self._constants
+        original_buffers = self._buffers
+
+        argument_names = {arg.name for arg in self._arguments}
+        self.symbol_table._scopes = original_scopes[1:]
+        self._constants = dict()
+        self._buffers = {
+            key: ssa for key, ssa in original_buffers.items() if key in argument_names
+        }
+        self._entry_depth += 1
 
         yield
 
-        self._scopes = [original_scope[0]] + self._scopes 
+        self._entry_depth -= 1
+        self.symbol_table._scopes = [original_scopes[0]] + self.symbol_table._scopes
+        self._constants = original_constants
+
+        # Arguments that were first used inside the context must stay declared
+        argument_names = {arg.name for arg in self._arguments}
+        original_buffers.update(
+            {key: ssa for key, ssa in self._buffers.items() if key in argument_names}
+        )
+        self._buffers = original_buffers 
 
 
