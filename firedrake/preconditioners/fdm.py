@@ -379,56 +379,59 @@ class FDMPC(PCBase):
             A dict mapping pairs of function spaces to the preconditioner blocks
             ``[[inv(A00), A01], [A10, inv(S)]]``.
         """
-        raise NotImplementedError
-        # Smats = {}
-        # V = J.arguments()[0].function_space()
-        # V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
-        # V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
-        # if V0 is None:
-        #     V0 = V.reconstruct(element=restrict_element(self.embedding_element, "interior"))
-        # if V1 is None:
-        #     V1 = V.reconstruct(element=restrict_element(self.embedding_element, "facet"))
-        # if len(V) == 1:
-        #     J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
-        # elif len(V) == 2:
-        #     J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
-        #     ises = V.field_ises
-        #     Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
-        #     Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
-        #     unindexed = {Vsub: Vsub.collapse() for Vsub in V}
-        #     bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
-        # else:
-        #     raise ValueError("Expecting at most 2 components")
-        #
-        # Pmats = dict(Smats)
-        # C0 = self.assemble_reference_tensor(V0)
-        # R0 = self.assemble_reference_tensor(V0, transpose=True)
-        #
-        # A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
-        # K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
-        # K1 = ImplicitSchurComplementKernel(K0)
-        # kernels = {V0: K0, V1: K1}
-        # comm = self.comm
-        # args = [self.coefficients["cell"], V0.mesh().coordinates, *J00.coefficients(), *extract_firedrake_constants(J00)]
-        # args_acc = [arg.dat(op2.READ, arg.cell_node_map()) for arg in args]
-        # for Vsub in V:
-        #     K = kernels[Vsub]
-        #     x = Function(Vsub)
-        #     y = Function(Vsub)
-        #     sizes = (Vsub.template_vec.getSizes(),) * 2
-        #     raise NotImplementedError
-        #     parloop = op2.ParLoop(K.kernel(), Vsub.mesh().cell_set,
-        #                           op3.OpaqueTerminal(op3.PetscMatBuffer(K.result, comm=V.comm)),
-        #                           *args_acc,
-        #                           x.dat(op2.READ, x.cell_node_map()),
-        #                           y.dat(op2.INC, y.cell_node_map()))
-        #     ctx = PythonMatrixContext(parloop, x, y, bcs=bcs)
-        #     Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
-        #     if Vsub == V0:
-        #         Pmats[Vsub, Vsub] = Smats[Vsub, Vsub]
-        #         Smats[Vsub, Vsub] = A.createSubMatrix(ises[Vsub.index], ises[Vsub.index])
-        # Smat = Smats[V, V] if len(V) == 1 else PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
-        # return Smat, Pmats
+        Smats = {}
+        V = J.arguments()[0].function_space()
+        V0 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[0]), None)
+        V1 = next((Vi for Vi in V if is_restricted(Vi.finat_element)[1]), None)
+        if V0 is None:
+            V0 = V.reconstruct(element=restrict_element(self.embedding_element, "interior"))
+        if V1 is None:
+            V1 = V.reconstruct(element=restrict_element(self.embedding_element, "facet"))
+        if len(V) == 1:
+            J00 = J(*(t.reconstruct(function_space=V0) for t in J.arguments()))
+        elif len(V) == 2:
+            J00 = ExtractSubBlock().split(J, argument_indices=(V0.index, V0.index))
+            ises = V.field_ises
+            Smats[V[0], V[1]] = A.createSubMatrix(ises[0], ises[1])
+            Smats[V[1], V[0]] = A.createSubMatrix(ises[1], ises[0])
+            unindexed = {Vsub: Vsub.collapse() for Vsub in V}
+            bcs = tuple(bc.reconstruct(V=unindexed[bc.function_space()], g=0) for bc in bcs)
+        else:
+            raise ValueError("Expecting at most 2 components")
+
+        Pmats = dict(Smats)
+        C0 = self.assemble_reference_tensor(V0)
+        R0 = self.assemble_reference_tensor(V0, transpose=True)
+
+        A0 = TripleProductKernel(R0, self._element_mass_matrix, C0)
+        K0 = InteriorSolveKernel(A0, J00, fcp=fcp, pc_type=pc_type)
+        K1 = ImplicitSchurComplementKernel(K0)
+        kernels = {V0: K0, V1: K1}
+        comm = self.comm
+        loop_index = V0.mesh().iter("cell")
+        args = [self.coefficients["cell"], V0.mesh().coordinates, *J00.coefficients(), *extract_firedrake_constants(J00)]
+        packed_args = [pack(arg, loop_index) for arg in args]
+        for Vsub in V:
+            K = kernels[Vsub]
+            x = Function(Vsub)
+            y = Function(Vsub)
+            sizes = (Vsub.template_vec.getSizes(),) * 2
+            parloop = op3.loop(
+                loop_index,
+                K.kernel()(
+                    *K.make_args(comm=comm),
+                    *packed_args,
+                    pack(x, loop_index),
+                    pack(y, loop_index),
+                ),
+            )
+            ctx = PythonMatrixContext(parloop, x, y, bcs=bcs)
+            Smats[Vsub, Vsub] = PETSc.Mat().createPython(sizes, context=ctx, comm=comm)
+            if Vsub == V0:
+                Pmats[Vsub, Vsub] = Smats[Vsub, Vsub]
+                Smats[Vsub, Vsub] = A.createSubMatrix(ises[Vsub.index], ises[Vsub.index])
+        Smat = Smats[V, V] if len(V) == 1 else PETSc.Mat().createNest([[Smats[Vrow, Vcol] for Vcol in V] for Vrow in V], comm=comm)
+        return Smat, Pmats
 
     @PETSc.Log.EventDecorator("FDMCoefficients")
     def assemble_coefficients(self, J, fcp, block_diagonal=False):
@@ -784,6 +787,22 @@ class FDMPC(PCBase):
         assembler(**arg_replace_map)
 
 
+# C code that overwrites the nonzero values of a SeqAIJ matrix with an array
+MAT_SET_VALUES_ARRAY = dedent("""
+    static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *restrict values) {
+        PetscBool done;
+        PetscInt m;
+        const PetscInt *ai;
+        PetscScalar *vals;
+        PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
+        PetscCall(MatSeqAIJGetArrayWrite(A, &vals));
+        PetscCall(PetscMemcpy(vals, values, ai[m] * sizeof(*vals)));
+        PetscCall(MatSeqAIJRestoreArrayWrite(A, &vals));
+        PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
+        return PETSC_SUCCESS;
+    }""")
+
+
 class ElementKernel:
     """Base class for sparse element kernel builders.
     By default, it inserts the same matrix on each cell."""
@@ -807,19 +826,7 @@ class ElementKernel:
         indices = ("rindices",) if on_diag else ("rindices", "cindices")
         preambles = []
         if "MatSetValuesArray" in self.code:
-            preambles.append(dedent("""
-                static inline PetscErrorCode MatSetValuesArray(Mat A, const PetscScalar *restrict values) {
-                    PetscBool done;
-                    PetscInt m;
-                    const PetscInt *ai;
-                    PetscScalar *vals;
-                    PetscCall(MatGetRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
-                    PetscCall(MatSeqAIJGetArrayWrite(A, &vals));
-                    PetscCall(PetscMemcpy(vals, values, ai[m] * sizeof(*vals)));
-                    PetscCall(MatSeqAIJRestoreArrayWrite(A, &vals));
-                    PetscCall(MatRestoreRowIJ(A, 0, PETSC_FALSE, PETSC_FALSE, &m, &ai, NULL, &done));
-                    return PETSC_SUCCESS;
-                }"""))
+            preambles.append(MAT_SET_VALUES_ARRAY)
         if mat_type != "matfree":
             preambles.append(dedent("""
                 static inline PetscErrorCode MatSetValuesLocalSparse(const Mat A, const Mat B,
@@ -1255,8 +1262,9 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         - ``x``: the pointer name of the input vector (`str`).
         - ``y``: the pointer name of the output vector (`str`).
         A lambda to generate the C code calling the matrix-vector product.
-    ctx_struct : str
-        The signature of the kernel.
+    ctx_args : tuple[str, ...]
+        The names of the kernel arguments that hold the coordinates,
+        the coefficients, and the constants of the form.
     ctx_pack : str
         Code to update the coefficient array pointers to be called before
         applying the matshell.
@@ -1264,28 +1272,28 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
     cache = a._cache.setdefault("fdm_kernels", {})
     key = (prefix,)
     try:
-        matmult_struct, matmult_call, ctx_struct, ctx_pack = cache[key]
+        matmult_struct, matmult_call, ctx_args, ctx_pack = cache[key]
     except KeyError:
         v, u = a.arguments()
         V = u.function_space()
         F = a(v, ufl.Coefficient(V))
         kernels = compile_form(F, prefix, parameters=fcp)
-        kernel = kernels[-1].kinfo.kernel
-        nargs = len(kernel.arguments) - len(a.arguments())
+        kinfo = kernels[-1].kinfo
+        kernel_name = kinfo.kernel.code.default_entrypoint.name
+        nargs = len(kinfo.arguments) - len(a.arguments())
         ncoef = nargs - len(extract_firedrake_constants(F))
 
-        matmult_struct = cache_generate_code(kernel, V.comm)
-        matmult_struct = matmult_struct.replace("void "+kernel.name, "static void "+kernel.name)
+        matmult_struct = cache_generate_code(kinfo.kernel, V.comm)
+        matmult_struct = matmult_struct.replace("void "+kernel_name, "static void "+kernel_name)
 
         ctx_coeff = "".join(f"appctx[{i}], " for i in range(ncoef))
         ctx_const = "".join(f", appctx[{i}]" for i in range(ncoef, nargs))
-        matmult_call = lambda x, y: f"{kernel.name}({y}, {ctx_coeff}{x}{ctx_const});"
+        matmult_call = lambda x, y: f"{kernel_name}({y}, {ctx_coeff}{x}{ctx_const});"
 
-        ctx_struct = "".join(f"const PetscScalar *restrict c{i}, " for i in range(nargs))
-        ctx_pointers = ", ".join(f"c{i}" for i in range(nargs))
-        ctx_pack = f"const PetscScalar *appctx[{nargs}] = {{ {ctx_pointers} }};"
+        ctx_args = tuple(f"c{i}" for i in range(nargs))
+        ctx_pack = f"const PetscScalar *appctx[{nargs}] = {{ {', '.join(ctx_args)} }};"
 
-        cache[key] = (matmult_struct, matmult_call, ctx_struct, ctx_pack)
+        cache[key] = (matmult_struct, matmult_call, ctx_args, ctx_pack)
 
     if matshell:
         matmult_struct += dedent("""
@@ -1301,37 +1309,85 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
                 PetscCall(VecRestoreArray(Y, &y));
                 return PETSC_SUCCESS;
             }""" % {"prefix": prefix, "matmult_call": matmult_call("x", "y")})
-    return matmult_struct, matmult_call, ctx_struct, ctx_pack
+    return matmult_struct, matmult_call, ctx_args, ctx_pack
 
 
-class InteriorSolveKernel(ElementKernel):
+class LocalSolveKernel(ElementKernel):
+    """Base class for kernel builders that apply a local KSP on each cell.
+
+    The local kernel receives a :class:`PETSc.Mat` that holds the KSP,
+    the coefficients of the sparse cell matrix, the coordinates, the coefficients
+    and the constants of the bilinear form, the input array, and the output array.
+    """
+    input_name = "x"
+    output_name = "y"
+
+    def __init__(self, ksp: PETSc.KSP, matmult_struct: str, ctx_args: tuple[str, ...], name: str | None = None):
+        """
+        Parameters
+        ----------
+        ksp
+            The local KSP that inverts the interior block.
+        matmult_struct
+            The C code that applies the bilinear form on a cell.
+        ctx_args
+            The names of the kernel arguments that hold the coordinates,
+            the coefficients, and the constants of the bilinear form.
+        name
+            The name of the local kernel.
+        """
+        super().__init__(ksp, name=name)
+        # A local kernel can only receive PETSc objects of type Mat.
+        # Thus the KSP is attached to an empty Mat, and the local kernel gets the KSP from this Mat.
+        ksp_holder = PETSc.Mat().createAIJ((0, 0), nnz=0, comm=COMM_SELF)
+        ksp_holder.assemble()
+        ksp_holder.compose("ksp", ksp)
+        self.mats = [ksp_holder]
+        self.matmult_struct = matmult_struct
+        self.ctx_args = ctx_args
+
+    def kernel(self) -> op3.Function:
+        """Return the local kernel that applies the operator on a cell."""
+        code = dedent("""
+            KSP ksp;
+            PetscCallVoid(PetscObjectQuery((PetscObject)K, "ksp", (PetscObject *)&ksp));""")
+        code += self.code % self.rules
+        args = [
+            ("K", op3.dtypes.OpaqueType("Mat"), op3.READ),
+            ("coefficients", ScalarType, op3.READ),
+            *((c, ScalarType, op3.READ) for c in self.ctx_args),
+            (self.input_name, ScalarType, op3.READ),
+            (self.output_name, ScalarType, op3.INC),
+        ]
+        preambles = [
+            ("50_preambles", MAT_SET_VALUES_ARRAY),
+            ("60_matmult", self.matmult_struct),
+        ]
+        return op3.Function.from_c_string(self.name, code, args, preambles=preambles)
+
+
+class InteriorSolveKernel(LocalSolveKernel):
     """Kernel builder that solves the interior block using a local KSP
     across cells owned by an MPI rank."""
+    input_name = "y"
+    output_name = "x"
     code = dedent("""
-        %(A_struct)s
-        PetscErrorCode %(name)s(const KSP ksp,
-                                const PetscScalar *restrict coefficients,
-                                %(ctx_struct)s
-                                const PetscScalar *restrict y,
-                                PetscScalar *restrict x){
-            %(ctx_pack)s
-            PetscInt m;
-            Mat A, B, C;
-            Vec X, Y;
-            PetscCall(KSPGetOperators(ksp, &A, &B));
-            PetscCall(MatShellSetContext(A, &appctx));
-            PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
-            PetscCall(MatProductGetMats(B, NULL, &C, NULL));
-            PetscCall(MatSetValuesArray(C, coefficients));
-            PetscCall(MatProductNumeric(B));
-            PetscCall(MatGetSize(B, &m, NULL));
-            PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
-            PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
-            PetscCall(KSPSolve(ksp, Y, X));
-            PetscCall(VecDestroy(&X));
-            PetscCall(VecDestroy(&Y));
-            return PETSC_SUCCESS;
-        }""")
+        %(ctx_pack)s
+        PetscInt m;
+        Mat A, B, C;
+        Vec X, Y;
+        PetscCallVoid(KSPGetOperators(ksp, &A, &B));
+        PetscCallVoid(MatShellSetContext(A, &appctx));
+        PetscCallVoid(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
+        PetscCallVoid(MatProductGetMats(B, NULL, &C, NULL));
+        PetscCallVoid(MatSetValuesArray(C, coefficients));
+        PetscCallVoid(MatProductNumeric(B));
+        PetscCallVoid(MatGetSize(B, &m, NULL));
+        PetscCallVoid(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, y, &Y));
+        PetscCallVoid(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, m, x, &X));
+        PetscCallVoid(KSPSolve(ksp, Y, X));
+        PetscCallVoid(VecDestroy(&X));
+        PetscCallVoid(VecDestroy(&Y));""")
 
     def __init__(self, kernel, form, name=None, prefix="interior_", fcp=None, pc_type="icc"):
         self.child = kernel
@@ -1360,64 +1416,55 @@ class InteriorSolveKernel(ElementKernel):
         ksp.setTolerances(rtol=rtol, atol=atol)
         ksp.setFromOptions()
         ksp.setUp()
-        super().__init__(ksp, name=name)
-        A_struct, _, ctx_struct, ctx_pack = matmult_kernel_code(self.form, prefix="A_interior", fcp=self.fcp, matshell=True)
-        rules = dict(A_struct=A_struct, ctx_struct=ctx_struct, ctx_pack=ctx_pack)
-        self.rules.update(rules)
+        A_struct, _, ctx_args, ctx_pack = matmult_kernel_code(self.form, prefix="A_interior", fcp=self.fcp, matshell=True)
+        super().__init__(ksp, A_struct, ctx_args, name=name)
+        self.rules.update(ctx_pack=ctx_pack)
 
 
-class ImplicitSchurComplementKernel(ElementKernel):
+class ImplicitSchurComplementKernel(LocalSolveKernel):
     """Kernel builder that applies the matrix-free Schur complement matvec
     reusing a local KSP to invert the interior blocks."""
+    input_name = "xf"
+    output_name = "yf"
     code = dedent("""
-        %(A_struct)s
-        %(A00_struct)s
-        PetscErrorCode %(name)s(const KSP ksp,
-                                const PetscScalar *restrict coefficients,
-                                %(ctx_struct)s
-                                const PetscScalar *restrict xf,
-                                PetscScalar *restrict yf) {
-            %(ctx_pack)s
-            static const PetscInt idofs[%(isize)d] = {%(idofs)s};
-            static const PetscInt fdofs[%(fsize)d] = {%(fdofs)s};
-            static PetscScalar xi[%(isize)d], yi[%(isize)d], x[%(size)d], y[%(size)d];
-            PetscInt i;
-            Mat A, B, C;
-            Vec X, Y;
-            PetscCall(KSPGetOperators(ksp, &A, &B));
-            PetscCall(MatShellSetContext(A, &appctx));
-            PetscCall(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
-            PetscCall(MatProductGetMats(B, NULL, &C, NULL));
-            PetscCall(MatSetValuesArray(C, coefficients));
-            PetscCall(MatProductNumeric(B));
+        %(ctx_pack)s
+        static const PetscInt idofs[%(isize)d] = {%(idofs)s};
+        static const PetscInt fdofs[%(fsize)d] = {%(fdofs)s};
+        static PetscScalar xi[%(isize)d], yi[%(isize)d], x[%(size)d], y[%(size)d];
+        PetscInt i;
+        Mat A, B, C;
+        Vec X, Y;
+        PetscCallVoid(KSPGetOperators(ksp, &A, &B));
+        PetscCallVoid(MatShellSetContext(A, &appctx));
+        PetscCallVoid(MatShellSetOperation(A, MATOP_MULT, (void(*)(void))A_interior));
+        PetscCallVoid(MatProductGetMats(B, NULL, &C, NULL));
+        PetscCallVoid(MatSetValuesArray(C, coefficients));
+        PetscCallVoid(MatProductNumeric(B));
 
-            // x[fdofs] = x1; y = A * x;
-            for (i = 0; i < %(size)d; i++) y[i] = 0.0;
-            for (i = 0; i < %(size)d; i++) x[i] = 0.0;
-            for (i = 0; i < %(fsize)d; i++) x[fdofs[i]] = xf[i];
-            %(A_call)s
+        // x[fdofs] = x1; y = A * x;
+        for (i = 0; i < %(size)d; i++) y[i] = 0.0;
+        for (i = 0; i < %(size)d; i++) x[i] = 0.0;
+        for (i = 0; i < %(fsize)d; i++) x[fdofs[i]] = xf[i];
+        %(A_call)s
 
-            // x[idofs] = -inv(Aii) * y[idofs];
-            for (i = 0; i < %(isize)d; i++) yi[i] = y[idofs[i]];
-            PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, %(isize)d, yi, &Y));
-            PetscCall(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, %(isize)d, xi, &X));
-            PetscCall(KSPSolve(ksp, Y, X));
-            PetscCall(VecDestroy(&X));
-            PetscCall(VecDestroy(&Y));
-            for (i = 0; i < %(isize)d; i++) x[idofs[i]] = -xi[i];
+        // x[idofs] = -inv(Aii) * y[idofs];
+        for (i = 0; i < %(isize)d; i++) yi[i] = y[idofs[i]];
+        PetscCallVoid(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, %(isize)d, yi, &Y));
+        PetscCallVoid(VecCreateSeqWithArray(PETSC_COMM_SELF, 1, %(isize)d, xi, &X));
+        PetscCallVoid(KSPSolve(ksp, Y, X));
+        PetscCallVoid(VecDestroy(&X));
+        PetscCallVoid(VecDestroy(&Y));
+        for (i = 0; i < %(isize)d; i++) x[idofs[i]] = -xi[i];
 
-            // y = A * x; y1 += y[fdofs];
-            for (i = 0; i < %(size)d; i++) y[i] = 0.0;
-            %(A_call)s
-            for (i = 0; i < %(fsize)d; i++) yf[i] += y[fdofs[i]];
-            return PETSC_SUCCESS;
-        }""")
+        // y = A * x; y1 += y[fdofs];
+        for (i = 0; i < %(size)d; i++) y[i] = 0.0;
+        %(A_call)s
+        for (i = 0; i < %(fsize)d; i++) yf[i] += y[fdofs[i]];""")
 
     def __init__(self, kernel, name=None):
         self.child = kernel
-        super().__init__(kernel.result, name=name)
-
-        comm = self.result.getComm()
+        ksp = kernel.result
+        comm = ksp.getComm()
         form = self.child.form
         fcp = self.child.fcp
         args = form.arguments()
@@ -1432,17 +1479,18 @@ class ImplicitSchurComplementKernel(ElementKernel):
         # Bilinear form on the space with interior and interface
         a = form if Q == V else form(*(t.reconstruct(function_space=V) for t in args))
         # Generate code to apply the action of A within the Schur complement action
-        A_struct, A_call, ctx_struct, ctx_pack = matmult_kernel_code(a, prefix="A", fcp=fcp)
+        A_struct, A_call, ctx_args, ctx_pack = matmult_kernel_code(a, prefix="A", fcp=fcp)
 
         # Bilinear form on the interior
         a00 = form if Q == V0 else form(*(t.reconstruct(function_space=V0) for t in args))
         # Generate code to apply A00 as a PETSc.Mat of type shell within the interior KSP
         A00_struct, *_ = matmult_kernel_code(a00, prefix="A_interior", fcp=fcp, matshell=True)
         A00_struct = A00_struct.replace("#include <stdint.h>", "")
+        super().__init__(ksp, A_struct + A00_struct, ctx_args, name=name)
 
         # Replacement rules to use idofs, fdofs, A, and A00 on self.code
-        rules = dict(A_struct=A_struct, A_call=A_call("x", "y"), ctx_struct=ctx_struct, ctx_pack=ctx_pack,
-                     A00_struct=A00_struct, size=size, isize=idofs.size, fsize=fdofs.size,
+        rules = dict(A_call=A_call("x", "y"), ctx_pack=ctx_pack,
+                     size=size, isize=idofs.size, fsize=fdofs.size,
                      idofs=", ".join(map(str, idofs.indices)),
                      fdofs=", ".join(map(str, fdofs.indices)))
         self.rules.update(rules)
@@ -2546,7 +2594,7 @@ def cache_generate_code(kernel, comm):
                                os.path.join(tempfile.gettempdir(),
                                             f'pyop3-cache-uid{os.getuid()}'))
 
-    key = kernel.cache_key[0]
+    key = op3.utils._loopy_key_builder(kernel.code)
     shard, disk_key = key[:2], key[2:]
     filepath = os.path.join(_cachedir, shard, disk_key)
     if os.path.exists(filepath):
