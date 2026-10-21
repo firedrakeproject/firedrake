@@ -5,6 +5,8 @@ cimport numpy as np
 import numpy as np
 import ctypes
 import cython
+from collections import defaultdict
+from time import perf_counter_ns
 from libc.stddef cimport size_t
 from libc.stdint cimport uintptr_t, uint32_t, int64_t
 from libc.stdlib cimport free, malloc
@@ -28,6 +30,9 @@ from mpi4py.libmpi cimport (
     MPI_Testall,
     MPI_Type_match_size,
 )
+
+_cross_mesh_timings = defaultdict(int)
+
 
 include "petschdr.pxi"
 
@@ -191,6 +196,7 @@ def discover_remote_roots(
         remote root point in an ``IntType`` array of shape ``(nleaves, 2)``.
     """
     cdef:
+        object exchange_started = perf_counter_ns()
         MPI.Comm dup_comm = comm.Dup()
         MPI.MPI_Comm mpi_comm = dup_comm.ob_mpi
         MPI_Request *send_requests = NULL
@@ -211,7 +217,9 @@ def discover_remote_roots(
     try:
         # MPI does not have a builtin type for size_t
         CHKERRMPI(MPI_Type_match_size(MPI_TYPECLASS_INTEGER, sizeof(size_t), &point_index_type))
+        _cross_mesh_timings["candidate_exchange"] += perf_counter_ns() - exchange_started
 
+        query_started = perf_counter_ns()
         if rtree_locate_points_grouped_by_id_unique(
             rtree.tree,
             <const double *>points.data,
@@ -222,6 +230,8 @@ def discover_remote_roots(
             &nranks_to,  # number of ranks I am sending to (len(send_ranks))
         ) != Success:
             raise RuntimeError("rtree_locate_points_grouped_by_id_unique failed")
+        _cross_mesh_timings["partition_query"] += perf_counter_ns() - query_started
+        exchange_started = perf_counter_ns()
 
         # Each rank knows where to send to, but not where it is going to receive from.
         # The following algorithm is the 'non-blocking consensus' algorithm (Hoefler et al.)
@@ -296,6 +306,7 @@ def discover_remote_roots(
         remote[recv_offset:recv_offset + count, 1] = received
         recv_offset += count
 
+    _cross_mesh_timings["candidate_exchange"] += perf_counter_ns() - exchange_started
     return remote
 
 

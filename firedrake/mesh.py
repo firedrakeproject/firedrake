@@ -20,6 +20,7 @@ import abc
 import firedrake_rtree
 from textwrap import dedent
 from pathlib import Path
+from time import perf_counter_ns
 import typing
 import warnings
 
@@ -68,6 +69,9 @@ __all__ = [
     'MeshSequenceGeometry', 'MeshSequenceTopology',
     'Submesh'
 ]
+
+
+_cross_mesh_timings = defaultdict(int)
 
 
 _cells = {
@@ -2596,6 +2600,7 @@ values from f.)"""
     @PETSc.Log.EventDecorator()
     def _bounding_box_coords_with_tolerance(self) -> Tuple[np.ndarray, np.ndarray]:
         """Expand owned cell bounding boxes by the mesh tolerance."""
+        started = perf_counter_ns()
         coords_min, coords_max = self.bounding_box_coords
         coords_min = coords_min.reshape(-1, self.geometric_dimension)
         coords_max = coords_max.reshape(-1, self.geometric_dimension)
@@ -2616,6 +2621,7 @@ values from f.)"""
             coords_extent = coords_max - coords_min
             coords_min = coords_min - tolerance * coords_extent
             coords_max = coords_max + tolerance * coords_extent
+        _cross_mesh_timings["cell_bounds"] += perf_counter_ns() - started
         return coords_min, coords_max
 
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
@@ -2629,18 +2635,24 @@ values from f.)"""
             A tree that can find points within tolerance of owned cells.
         """
         coords_min, coords_max = self._bounding_box_coords_with_tolerance
-        return rtree.build_from_aabb(coords_min, coords_max)
+        started = perf_counter_ns()
+        tree = rtree.build_from_aabb(coords_min, coords_max)
+        _cross_mesh_timings["local_rtree"] += perf_counter_ns() - started
+        return tree
 
     # TODO: cache this
     @PETSc.Log.EventDecorator()
     def _partition_cover(self, max_boxes=16, n_bins=16):
         mins, maxs = self._bounding_box_coords_with_tolerance
+        started = perf_counter_ns()
         n, dim = mins.shape
 
         if n == 0:
             # No AABBs provided - return an empty array. This can happen if the
             # current rank has an empty partition.
-            return np.empty((0, 2, dim), dtype=np.float64)
+            boxes = np.empty((0, 2, dim), dtype=np.float64)
+            _cross_mesh_timings["partition_cover"] += perf_counter_ns() - started
+            return boxes
 
         # Compute centroids of the provided AABBs. This determines which side
         # of a split to assign the box to.
@@ -2713,10 +2725,12 @@ values from f.)"""
                 break
             groups.pop(chosen)
 
-        return np.stack([box for box, _, _ in groups])
+        boxes = np.stack([box for box, _, _ in groups])
+        _cross_mesh_timings["partition_cover"] += perf_counter_ns() - started
+        return boxes
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     def _box_ratio_heuristic(self):
-        return self._partition_cover(max_boxes=16, n_bins=16)
+        return self._partition_cover(max_boxes=32, n_bins=16)
 
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
@@ -2739,6 +2753,7 @@ values from f.)"""
         local_bboxes = self._box_ratio_heuristic  # (n_local, 2, gdim)
         n_local = local_bboxes.shape[0]
 
+        started = perf_counter_ns()
         with temp_internal_comm(self.comm) as comm:
             # Allgather per-rank box counts
             counts = np.empty(comm.size, dtype=IntType)
@@ -2748,6 +2763,7 @@ values from f.)"""
             # Allgatherv the bbox data
             all_bboxes_flat = np.empty(n_total * 2 * gdim, dtype=RealType)
             comm.Allgatherv(sendbuf=local_bboxes.ravel(), recvbuf=(all_bboxes_flat, counts * 2 * gdim))
+        _cross_mesh_timings["partition_box_exchange"] += perf_counter_ns() - started
 
         # Reshape to (n_total, 2, gdim) and split into lo/hi corner arrays.
         all_bboxes = all_bboxes_flat.reshape(n_total, 2, gdim)
@@ -2757,7 +2773,10 @@ values from f.)"""
         # Set the owning rank as the leaf id so queries return rank numbers.
         ids = np.repeat(np.arange(self.comm.size, dtype=np.int64), counts)
 
-        return rtree.build_from_aabb(regions_lo, regions_hi, ids)
+        started = perf_counter_ns()
+        tree = rtree.build_from_aabb(regions_lo, regions_hi, ids)
+        _cross_mesh_timings["partition_rtree"] += perf_counter_ns() - started
+        return tree
 
     @PETSc.Log.EventDecorator()
     def locate_cell(self, x, tolerance=None, cell_ignore=None):
@@ -2863,9 +2882,12 @@ values from f.)"""
         ref_cells_dists = ref_cell_dists_l1.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
         xs_data = xs.ctypes.data_as(ctypes.POINTER(ctypes.c_double))
         Xs_data = Xs.ctypes.data_as(ctypes.POINTER(as_ctypes(RealType)))
+        # Accessing the coordinate pointer can construct the local R-tree.
+        coordinates = self.coordinates._ctypes
         with PETSc.Log.Event("c_locator_run"):
+            started = perf_counter_ns()
             err = run_c(
-                self.coordinates._ctypes,
+                coordinates,
                 xs_data,
                 Xs_data,
                 ref_cells_dists,
@@ -2874,6 +2896,7 @@ values from f.)"""
                 cells_ignore.shape[1],
                 cells_ignore,
             )
+            _cross_mesh_timings["local_point_location"] += perf_counter_ns() - started
         if err != 0:
             raise RuntimeError(f"C locator failed with error code {err}")
         return cells, Xs, ref_cell_dists_l1

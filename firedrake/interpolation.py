@@ -2,6 +2,8 @@ import numpy
 import os
 import tempfile
 import abc
+from collections import defaultdict
+from time import perf_counter_ns
 
 from functools import cached_property, partial
 from typing import Hashable, Literal, Callable, Iterable
@@ -57,6 +59,9 @@ __all__ = (
     "InterpolateOptions",
     "Interpolator"
 )
+
+
+_cross_mesh_timings = defaultdict(int)
 
 
 @dataclass(kw_only=True)
@@ -673,10 +678,13 @@ class CrossMeshInterpolator(Interpolator):
         from firedrake.assemble import assemble
 
         point_eval, point_eval_input_ordering = self._symbolic_expressions
+        started = perf_counter_ns()
         point_eval_mat = assemble(point_eval, mat_type=mat_type).petscmat
+        _cross_mesh_timings["point_evaluation_matrix_assembly"] += perf_counter_ns() - started
         if self.ufl_interpolate.is_adjoint:
             point_eval_mat.hermitianTranspose()
 
+        started = perf_counter_ns()
         vom = get_interpolator(point_eval_input_ordering).original_vom
         sf = vom.input_ordering_sf
         block_size = self.target_space.block_size
@@ -707,6 +715,7 @@ class CrossMeshInterpolator(Interpolator):
         )
         if self.ufl_interpolate.is_adjoint:
             result.hermitianTranspose()
+        _cross_mesh_timings["matrix_permutation"] += perf_counter_ns() - started
         return result
 
     @property
@@ -1547,6 +1556,7 @@ class VomOntoVomMatContext:
         """
         source_arr = source_vec.getArray(readonly=True)
         target_arr = target_vec.getArray()
+        started = perf_counter_ns()
         self.sf.reduceBegin(
             self.mpi_type,
             source_arr,
@@ -1559,6 +1569,7 @@ class VomOntoVomMatContext:
             target_arr,
             MPI.REPLACE,
         )
+        _cross_mesh_timings["oneform_sf_exchange"] += perf_counter_ns() - started
 
     def broadcast(self, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Broadcast data in source_vec using the PETSc SF, storing the
@@ -1573,6 +1584,7 @@ class VomOntoVomMatContext:
         """
         source_arr = source_vec.getArray(readonly=True)
         target_arr = target_vec.getArray()
+        started = perf_counter_ns()
         self.sf.bcastBegin(
             self.mpi_type,
             source_arr,
@@ -1585,6 +1597,7 @@ class VomOntoVomMatContext:
             target_arr,
             MPI.REPLACE,
         )
+        _cross_mesh_timings["oneform_sf_exchange"] += perf_counter_ns() - started
 
     def mult(self, mat: PETSc.Mat, source_vec: PETSc.Vec, target_vec: PETSc.Vec) -> None:
         """Apply the interpolation operator to source_vec, storing the
