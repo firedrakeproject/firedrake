@@ -871,7 +871,8 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         else:
             return self._getitem_cached(indices, strict=strict)
 
-    @cached_method()
+    # LRU since indices may hold arrays (e.g. DirichletBC node sets)
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(100))
     def _getitem_cached(self, indices, *, strict):
         return self._getitem_uncached(indices, strict=strict)
 
