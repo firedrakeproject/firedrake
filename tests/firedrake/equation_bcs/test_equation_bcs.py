@@ -4,6 +4,7 @@
 import pytest
 
 from firedrake import *
+from firedrake.bcs import EquationBCSplit
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import math
 
@@ -269,6 +270,65 @@ def test_EquationBC_poisson_matfree(with_bbc):
                 err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
 
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
+
+
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+@pytest.mark.parametrize("pre_apply_bcs", [False, True])
+def test_equationbc_with_dirichletbc(mat_type, pre_apply_bcs):
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    w = Function(V)
+
+    dbc = DirichletBC(V, 1, 1)
+    ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
+    problem = LinearVariationalProblem(
+        inner(grad(u), grad(v)) * dx,
+        inner(Constant(0), v) * dx,
+        w,
+        bcs=[dbc, ebc],
+    )
+    solver = LinearVariationalSolver(
+        problem,
+        pre_apply_bcs=pre_apply_bcs,
+        solver_parameters={"mat_type": mat_type, "ksp_type": "gmres", "pc_type": "none"},
+    )
+    solver.solve()
+
+    error = sqrt(assemble(inner(w - 1, w - 1) * dx))
+    assert error < 1e-12
+
+
+@pytest.mark.parametrize("pre_apply_bcs", [False, True])
+def test_equationbc_with_dirichletbc_transpose(pre_apply_bcs):
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+    L = inner(Constant(0), v) * dx
+
+    w = Function(V)
+    dbc = DirichletBC(V, 1, 1)
+    ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
+    problem = LinearVariationalProblem(a, L, w, bcs=[dbc, ebc])
+    solver = LinearVariationalSolver(
+        problem,
+        pre_apply_bcs=pre_apply_bcs,
+        solver_parameters={"mat_type": "matfree", "ksp_type": "preonly", "pc_type": "none"},
+    )
+    solver.solve()
+    matrix = solver.snes.ksp.getOperators()[0]
+
+    adjoint_ebc = EquationBCSplit(adjoint(ebc.extract_form("J").f), Function(V), 2)
+    reference = assemble(adjoint(a), bcs=[dbc, adjoint_ebc], mat_type="aij").petscmat
+    _, y = matrix.createVecs()
+    x, _ = matrix.createVecs()
+    x_reference, _ = reference.createVecs()
+    y.setRandom()
+    matrix.multTranspose(y, x)
+    reference.mult(y, x_reference)
+    x.axpy(-1, x_reference)
+    assert x.norm() < 1e-12
 
 
 # This test is so sensitive it will not pass unless MUMPS is used
