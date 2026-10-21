@@ -2594,41 +2594,13 @@ values from f.)"""
 
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
-    def rtree(self):
-        """Builds an rtree from bounding box coordinates, expanding
-        the bounding boxes by the mesh tolerance.
-
-        The Rtree is build from bounding boxes of owned cells only.
-
-        Returns
-        -------
-        :class:`~.rtree.RTree`
-
-        Notes
-        -----
-        If this mesh has a :attr:`tolerance` property, which
-        should be a float, this tolerance is added to the extrema of the
-        rtree so that points just outside the mesh, within tolerance,
-        can be found.
-
-        """
-        # Change min and max to refer to an n-hypercube, where n is the
-        # geometric dimension of the mesh, centred on the midpoint of the
-        # bounding box. Its side length is the L1 diameter of the bounding box.
-        # This aids point evaluation on immersed manifolds and other cases
-        # where points may be just off the mesh but should be evaluated.
-        # TODO: This is perhaps unnecessary when we aren't in these special
-        # cases.
-        # We also push max and min out so we can find points on the boundary
-        # within the mesh tolerance.
-        # NOTE: getattr doesn't work here due to the inheritance games that are
-        # going on in getattr.
+    def _bounding_box_coords_with_tolerance(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Expand owned cell bounding boxes by the mesh tolerance."""
         coords_min, coords_max = self.bounding_box_coords
-        if self.geometric_dimension == 1:
-            coords_min = coords_min.reshape(-1, 1)
-            coords_max = coords_max.reshape(-1, 1)
+        coords_min = coords_min.reshape(-1, self.geometric_dimension)
+        coords_max = coords_max.reshape(-1, self.geometric_dimension)
 
-        tolerance = self.tolerance if hasattr(self, "tolerance") else 0.0
+        tolerance = self.tolerance
         if self.topological_dimension < self.geometric_dimension:
             # Immersed manifold case: Change min and max to refer to an n-hypercube,
             # where n is the geometric dimension of the mesh, centred on the midpoint of the
@@ -2644,52 +2616,114 @@ values from f.)"""
             coords_extent = coords_max - coords_min
             coords_min = coords_min - tolerance * coords_extent
             coords_max = coords_max + tolerance * coords_extent
-        with PETSc.Log.Event("rtree_build"):
-            return rtree.build_from_aabb(coords_min, coords_max)
-
-    def _bounding_boxes_total_volume(self, bounding_boxes: np.ndarray):
-        side_lengths = bounding_boxes[:, 1, :] - bounding_boxes[:, 0, :]
-        return np.prod(side_lengths, axis=1).sum()
+        return coords_min, coords_max
 
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
-    def _box_ratio_heuristic(self):
-        """Return partition bounding boxes at some 'optimal' Rtree level.
-
-        Descends the local Rtree top-down breadth-first, stopping when the total
-        bounding box volume stops decreasing (ratio of next level to current
-        level >= 1).
+    def rtree(self):
+        """Build an Rtree from owned cell bounds expanded by the mesh tolerance.
 
         Returns
         -------
-        numpy.ndarray
-            Array of shape `(n_boxes, 2, gdim)` containing bounding boxes
+        :class:`~.rtree.RTree`
+            A tree that can find points within tolerance of owned cells.
         """
-        tree_depth = rtree.tree_depth(self.rtree)
-        if tree_depth == 0:
-            # This indicates an empty tree, which can happen if the mesh has no cells on this rank.
-            return np.empty((0, 2, self.geometric_dimension), dtype=utils.RealType)
-        gdim = self.geometric_dimension
-        prev_bboxes = rtree.bounding_boxes_at_level(self.rtree, 0, gdim)
-        prev_vol = self._bounding_boxes_total_volume(prev_bboxes)
+        coords_min, coords_max = self._bounding_box_coords_with_tolerance
+        return rtree.build_from_aabb(coords_min, coords_max)
 
-        for level in range(1, tree_depth):
-            next_bboxes = rtree.bounding_boxes_at_level(self.rtree, level, gdim)
-            next_vol = self._bounding_boxes_total_volume(next_bboxes)
+    # TODO: cache this
+    @PETSc.Log.EventDecorator()
+    def _partition_cover(self, max_boxes=16, n_bins=16):
+        mins, maxs = self._bounding_box_coords_with_tolerance
+        n, dim = mins.shape
 
-            if next_vol >= prev_vol:
+        if n == 0:
+            # No AABBs provided - return an empty array. This can happen if the
+            # current rank has an empty partition.
+            return np.empty((0, 2, dim), dtype=np.float64)
+
+        # Compute centroids of the provided AABBs. This determines which side
+        # of a split to assign the box to.
+        centroids = 0.5 * mins + 0.5 * maxs
+
+        def volume(lower, upper):
+            return np.prod(np.maximum(upper - lower, 0), axis=-1)
+
+        # groups of AABBs to check. We start with a single group which contains
+        # all AABBs.
+        pending_groups = [np.arange(n)]
+        groups: list[tuple] = []  # this list contains evaluated groups
+        for _ in range(max_boxes):
+            for indices in pending_groups:
+                # Compute single AABB of entire pending group
+                lower = mins[indices]
+                upper = maxs[indices]
+                box = np.stack((lower.min(axis=0), upper.max(axis=0)))
+
+                best_volume = np.inf
+                children = None
+
+                for axis in range(dim):
+                    # Bin the centroids into n_bins total bins
+                    values = centroids[indices, axis]
+                    boundaries = np.linspace(values.min(), values.max(), n_bins + 1)[1:-1]
+                    bins = np.searchsorted(boundaries, values, side="right")
+
+                    splits = np.arange(bins.min() + 1, bins.max() + 1)
+                    if len(splits) == 0:
+                        continue
+
+                    # Compute AABB for each bin. We assign +/- np.inf so that empty
+                    # bins don't contribute to the min/max reductions
+                    bin_mins = np.full((n_bins, dim), np.inf)
+                    bin_maxs = np.full((n_bins, dim), -np.inf)
+                    for coord in range(dim):
+                        # numpy does this faster in 1D, so we loop over dimensions
+                        np.minimum.at(bin_mins[:, coord], bins, lower[:, coord])
+                        np.maximum.at(bin_maxs[:, coord], bins, upper[:, coord])
+
+                    # Compute AABB for each potential split
+                    left_mins = np.minimum.accumulate(bin_mins, axis=0)[splits - 1]
+                    left_maxs = np.maximum.accumulate(bin_maxs, axis=0)[splits - 1]
+                    right_mins = np.minimum.accumulate(bin_mins[::-1], axis=0)[::-1][splits]
+                    right_maxs = np.maximum.accumulate(bin_maxs[::-1], axis=0)[::-1][splits]
+
+                    # Choose the split with the smallest union volume
+                    # We have that V(L\cup R) = V(L) + V(R) - V(L\cap R)
+                    intersection_mins = np.maximum(left_mins, right_mins)
+                    intersection_maxs = np.minimum(left_maxs, right_maxs)
+                    volumes = (volume(left_mins, left_maxs)
+                               + volume(right_mins, right_maxs)
+                               - volume(intersection_mins, intersection_maxs))
+                    best = np.argmin(volumes)
+                    if volumes[best] < best_volume:
+                        best_volume = volumes[best]
+                        left = bins < splits[best]
+                        right = bins >= splits[best]
+                        children = (indices[left], indices[right])
+
+                # record the best possible volume reduction over all axes
+                gain = volume(*box) - best_volume
+                groups.append((box, gain, children))
+
+            # Choose the group with the largest volume reduction
+            chosen = np.argmax([gain for _, gain, _ in groups])
+            _, _, pending_groups = groups[chosen]
+            if pending_groups is None or len(groups) == max_boxes:
                 break
+            groups.pop(chosen)
 
-            prev_bboxes = next_bboxes
-            prev_vol = next_vol
-        return prev_bboxes
+        return np.stack([box for box, _, _ in groups])
+    @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
+    def _box_ratio_heuristic(self):
+        return self._partition_cover(max_boxes=16, n_bins=16)
 
     @cached_property_until(lambda self: (self.coordinates.dat.dat_version, self.tolerance))
     @PETSc.Log.EventDecorator()
     def partition_rtree(self):
         """Build a global Rtree from all ranks' partition bounding boxes.
 
-        Each rank contributes bounding boxes chosen by `box_ratio_heuristic`.
+        Each rank contributes a cover of its owned cells' expanded bounding boxes.
         The boxes are gathered from all ranks and a single Rtree is built
         on every rank. The owning MPI rank is stored as the id of each leaf,
         so querying the tree with a point will return a list of candidate ranks
