@@ -616,7 +616,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.n_cols = mesh.num_cells()
+        c_function.n_cols = mesh.cell_set.size
         if mesh.layers is not None:
             # TODO: assert constant layer. Can we do variable though?
             c_function.extruded = 1
