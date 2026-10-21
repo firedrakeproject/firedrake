@@ -1871,6 +1871,69 @@ def cell_facet_labeling(PETSc.DM plex,
     return cell_facets
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def cell_facet_adjacency(PETSc.DM plex, PETSc.Section cell_numbering, const PetscInt[:, ::1] cell_closures, PetscInt nfacet, PetscInt facet_offset):
+    """Find the neighbouring cell across each local facet of every cell.
+
+    Parameters
+    ----------
+    plex : PETSc.DM
+        The DMPlex corresponding to the Firedrake mesh.
+    cell_numbering : PETSc.Section
+        The section that maps DMPlex cell points to Firedrake cell numbers.
+    cell_closures : numpy.ndarray
+        The closure of each cell in FIAT's local entity order, with shape ``(ncells, nclosure)``.
+    nfacet : int
+        The number of facets of each cell.
+    facet_offset : int
+        The column of ``cell_closures`` that holds local facet 0.
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        ``neighbour_cell[c, i]`` is the Firedrake number of the cell that shares
+        local facet ``i`` of cell ``c``. ``neighbour_facet[c, i]`` is the local
+        number of the same facet in that cell. Both arrays store ``-1`` where
+        no neighbouring cell is present on this rank.
+    """
+    cdef:
+        PetscInt cstart, cend
+        PetscInt[:, ::1] neighbour_cell
+        PetscInt[:, ::1] neighbour_facet
+
+        PetscInt c, cell, point, fi
+        PetscInt other, other_cell, nsupport
+        const PetscInt *support = NULL
+
+        PetscInt fj
+
+    get_height_stratum(plex.dm, 0, &cstart, &cend)
+    neighbour_cell = np.full((cend-cstart, nfacet), -1, dtype=IntType)
+    neighbour_facet = np.full((cend-cstart, nfacet), -1, dtype=IntType)
+    for c in range(cstart, cend):
+        # Convert DMPlex point c into Firedrake cell number cell
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+
+        for fi in range(nfacet):
+            point = cell_closures[cell, facet_offset + fi]
+            # Find the neighbour across the facet
+            # To be able to determine the neighbouring cell, two cells must share the facet and must be present on this rank (owned or halo)
+            CHKERR(DMPlexGetSupportSize(plex.dm, point, &nsupport))
+            if nsupport == 2:
+                CHKERR(DMPlexGetSupport(plex.dm, point, &support))
+                other = support[1] if support[0] == c else support[0]
+                # Convert to Firedrake numbering
+                CHKERR(PetscSectionGetOffset(cell_numbering.sec, other, &other_cell))
+                neighbour_cell[cell, fi] = other_cell
+                # Find the facet's local number in the neighbouring cell
+                for fj in range(nfacet):
+                    if cell_closures[other_cell, facet_offset + fj] == point:
+                        neighbour_facet[cell, fi] = fj
+                        break
+    return np.asarray(neighbour_cell), np.asarray(neighbour_facet)
+
+
 def _get_firedrake_plex_permutation_dg_transitive_closure(PETSc.DM dm):
     # PETSc DG1 whose DoFs are ordered according to the order
     # of vertices appering in the transitive closure of the cell.
