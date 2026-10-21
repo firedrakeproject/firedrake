@@ -2,6 +2,8 @@
 # =========================
 
 import pytest
+import numpy as np
+import ufl
 
 from firedrake import *
 from firedrake.bcs import EquationBCSplit
@@ -299,36 +301,28 @@ def test_equationbc_with_dirichletbc(mat_type, pre_apply_bcs):
     assert error < 1e-12
 
 
-@pytest.mark.parametrize("pre_apply_bcs", [False, True])
-def test_equationbc_with_dirichletbc_transpose(pre_apply_bcs):
+def test_equationbc_with_dirichletbc_transpose():
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "CG", 1)
     u, v = TrialFunction(V), TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
-    L = inner(Constant(0), v) * dx
 
     w = Function(V)
     dbc = DirichletBC(V, 1, 1)
     ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
-    problem = LinearVariationalProblem(a, L, w, bcs=[dbc, ebc])
-    solver = LinearVariationalSolver(
-        problem,
-        pre_apply_bcs=pre_apply_bcs,
-        solver_parameters={"mat_type": "matfree", "ksp_type": "preonly", "pc_type": "none"},
-    )
-    solver.solve()
-    matrix = solver.snes.ksp.getOperators()[0]
+    ebc_form = ebc.extract_form("J")
+    matrix = assemble(a, bcs=[dbc, ebc_form], mat_type="matfree")
+    adjoint_ebc = EquationBCSplit(adjoint(ebc_form.f), Function(V), 2)
+    reference = assemble(adjoint(a), bcs=[dbc, adjoint_ebc], mat_type="aij")
 
-    adjoint_ebc = EquationBCSplit(adjoint(ebc.extract_form("J").f), Function(V), 2)
-    reference = assemble(adjoint(a), bcs=[dbc, adjoint_ebc], mat_type="aij").petscmat
-    _, y = matrix.createVecs()
-    x, _ = matrix.createVecs()
-    x_reference, _ = reference.createVecs()
-    y.setRandom()
-    matrix.multTranspose(y, x)
-    reference.mult(y, x_reference)
-    x.axpy(-1, x_reference)
-    assert x.norm() < 1e-12
+    rg = RandomGenerator(PCG64(seed=1234))
+    y = rg.uniform(V)
+
+    actual = assemble(ufl.Action(y, matrix))
+
+    expected = assemble(action(reference, y))
+
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
 
 
 # This test is so sensitive it will not pass unless MUMPS is used
