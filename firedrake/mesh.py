@@ -2493,30 +2493,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # cells first; self.cell_set.size is the number of rank-local non-halo cells.
         return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
     
-    def _migrate_functions(self, functions_to_migrate=()):
-            """
-            Migrate Function(s) defined on this topology to the current version.
+    def _migrate_functions(self, functions_to_migrate):
+        """Eagerly migrate all Functions provided to the current topology version."""
+        import gc
 
-            If `functions_to_migrate` is empty, migrate all live Functions registered on the VOM.
-            """
-            import gc
+        # Disable garbage collection
+        gc.disable()
 
-            # TODO: parallel set intersection of the live function keys across all ranks
-            # migrate only ones in the intersection (Ask Jack on how to do it properly)
-            gc.collect() # collect reference-cycle garbage identically on all ranks
-
-            if len(functions_to_migrate) > 0:
-                for f in functions_to_migrate:
-                    f._match_mesh_topology_version()
-                    return
-            
-            keys = [k for k in sorted(self._live_functions.keys())
-                    if self._live_functions.get(k) if not None]
-
-            for k in keys:
-                f = self._live_functions.get(k)
-                if f is not None:
-                    f._match_mesh_topology_version()
+        for f in functions_to_migrate:
+            f._migrate_to_current_topology_version()
 
     def _register_function(self, function):
         key = next(self._function_counter)
@@ -2571,6 +2556,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # TODO: Cache composed SFs by source and target topology version?
         return migration_sf
 
+    # FIXME
     def _migrate_all_functions(self):
         """
         Migrate all live Functions registered on this mesh to its current topology version.
