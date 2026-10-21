@@ -121,7 +121,7 @@ def single_valued(iterable):
 def is_single_valued(iterable):
     try:
         single_valued(iterable)
-    except RuntimeError:
+    except pyop3.exceptions.EmptyIterableException, pyop3.exceptions.MultipleUniqueEntriesException:
         return False
     else:
         return True

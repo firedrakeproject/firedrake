@@ -505,7 +505,17 @@ class Executable:
 
     @cached_property
     def _device_code(self):
-        return _loopy_to_c_string(self.code, self.comm)
+        # TODO: It would be good to cache this, but loopy translation units
+        # have unsafe hashes. Specifically I've found that
+        # translation.default_entrypoint.assumptions can be:
+        #
+        #   BasicSet("[p_0, p_1] -> {  :  }")
+        #
+        #   or
+        #
+        #   BasicSet("[p_1, p_0] -> {  :  }")
+        #
+        return lp.generate_code_v2(self.code).device_code()
 
 
 class CompiledCodeExecutor:
@@ -872,12 +882,3 @@ def _(arg: lp.ValueArg):
         return ctypes.c_voidp
     else:
         return np.ctypeslib.as_ctypes_type(arg.dtype)
-
-
-# TODO: This should probably get folded into '_compile_static', otherwise we
-# have to get the translation unit from cache, hash it, then get the thing
-# we actually want from the cache.
-@pyop3.cache.memory_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu))
-@pyop3.cache.disk_only_cache(hashkey=lambda tu, _: utils._loopy_key_builder(tu), bcast=True)
-def _loopy_to_c_string(tu: lp.TranslationUnit, comm: MPI.Comm) -> str:
-    return lp.generate_code_v2(tu).device_code()

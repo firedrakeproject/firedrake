@@ -678,8 +678,6 @@ def parallel_cache(
                                 value = comm.bcast(value, root=root)
 
                             if value is CACHE_MISS:
-                                # Note that we don't do a try/except here because disk
-                                # caching exceptions is insane
                                 value = func(*args, **kwargs) if comm.rank == 0 else None
                                 value = comm.bcast(value, root=0)
                                 cache[key] = value
