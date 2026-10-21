@@ -276,9 +276,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             self, self._function_space.ufl_function_space(), count=count
         )
 
-        # LRU cache for expressions assembled onto this function
-        self._expression_cache = cachetools.LRUCache(maxsize=50)
-
         self._mesh_topo = self._function_space.topological.mesh() # MeshTopology
         self._mesh_geom = self._function_space.mesh() # MeshGeometry
 
