@@ -621,10 +621,14 @@ class CalledFunction(AbstractCalledFunction):
         ):
             return function
 
+        from pyop3.expr.visitors import get_local_max
+
         new_loopy_args = []
         for loopy_arg, arg in zip(loopy_kernel.args, arguments, strict=True):
             if isinstance(loopy_arg, lp.ArrayArg):
-                loopy_arg = loopy_arg.copy(shape=(arg.size,), dim_tags=None)
+                # The size of an argument that is not indexed by the loop (e.g. a global)
+                # can be a symbolic expression, but loopy needs an integer shape.
+                loopy_arg = loopy_arg.copy(shape=(get_local_max(arg.size),), dim_tags=None)
             new_loopy_args.append(loopy_arg)
         new_loopy_args = tuple(new_loopy_args)
         return function.record_new(
