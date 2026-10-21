@@ -1154,7 +1154,8 @@ class PetscMatBuffer(ConcreteBuffer):
                 mat_context = DenseBlockPythonMatContext.empty(comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=comm)
         else:
-            if preallocator:
+            is_matis = mat_type == PETSc.Mat.Type.IS
+            if preallocator and not is_matis:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR
 
             mat = PETSc.Mat().create(comm)
@@ -1170,6 +1171,15 @@ class PetscMatBuffer(ConcreteBuffer):
             mat.setBlockSizes(bsize, bsize)
 
             mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
+
+            if preallocator and is_matis:
+                local_sizes = (row_spec.lgmap.getSize(), column_spec.lgmap.getSize())
+                local_preallocator = PETSc.Mat().create(MPI.COMM_SELF)
+                local_preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+                local_preallocator.setSizes(local_sizes)
+                local_preallocator.setBlockSizes(bsize, bsize)
+                local_preallocator.setUp()
+                mat.setISLocalMat(local_preallocator)
 
         mat.setUp()
         return mat
@@ -1333,10 +1343,51 @@ class PetscMatBuffer(ConcreteBuffer):
                 self._preallocate(subpreallocator, submat)
         elif template.type == PETSc.Mat.Type.PYTHON:
             pass
+        elif template.type == PETSc.Mat.Type.IS:
+            self._preallocate_matis(preallocator, template)
         else:
             if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
                 raise TypeError("Can only materialize preallocator mats")
             preallocator.preallocatorPreallocate(template)
+
+    @staticmethod
+    def _preallocate_matis(preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
+        """Preallocate a MATIS from a MATIS whose local matrix is a MATPREALLOCATOR.
+
+        Local degrees of freedom without nonzeros are masked out of the local-to-global maps.
+        """
+        local_preallocator = preallocator.getISLocalMat()
+        if local_preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
+            raise TypeError("Can only materialize preallocator mats")
+
+        bsize, _ = local_preallocator.getBlockSizes()
+        local = PETSc.Mat().create(MPI.COMM_SELF)
+        local.setType(PETSc.Mat.Type.AIJ)
+        local.setSizes(local_preallocator.getSizes())
+        local.setBlockSizes(bsize, bsize)
+        local_preallocator.preallocatorPreallocate(local, fill=True)
+
+        indptr, indices = local.getRowIJ()
+        row_touched = np.diff(indptr) > 0
+        column_touched = np.zeros(local.getSize()[1], dtype=bool)
+        column_touched[indices] = True
+
+        lgmaps = []
+        index_sets = []
+        for lgmap, touched in zip(preallocator.getLGMap(), [row_touched, column_touched]):
+            lgmap_bsize = lgmap.getBlockSize()
+            keep_block = touched.reshape((-1, lgmap_bsize)).any(axis=1)
+            block_indices = lgmap.getBlockIndices().copy()
+            block_indices[~keep_block] = -1
+            lgmaps.append(PETSc.LGMap().create(block_indices, bsize=lgmap_bsize, comm=lgmap.comm))
+            index_sets.append(PETSc.IS().createBlock(lgmap_bsize, np.flatnonzero(keep_block).astype(IntType), comm=MPI.COMM_SELF))
+        template.setLGMap(*lgmaps)
+        template.setUp()
+
+        rows, columns = index_sets
+        submat = local.createSubMatrix(rows, columns)
+        submat.setLGMap(*template.getISLocalMat().getLGMap())
+        template.setISLocalMat(submat)
 
 
 def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
