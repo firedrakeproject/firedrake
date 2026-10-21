@@ -1478,6 +1478,7 @@ class MeshTopology(AbstractMeshTopology):
         from FIAT.reference_element import make_facet_embedding_maps, make_facet_orientation_maps
         num_facets = self.ufl_cell().num_facets
         ref_dim = self.ufl_cell().topological_dimension
+
         A_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim, ref_dim))
         b_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim))
 
@@ -1485,48 +1486,35 @@ class MeshTopology(AbstractMeshTopology):
         A_transform = np.full((self.num_cells(), num_facets, ref_dim, ref_dim), np.nan)
         b_transform = np.full((self.num_cells(), num_facets, ref_dim), np.nan)
 
-        # Populate the local buffers by iterating over interior facets
-        # and extracting cell adjacency information from the mesh topology directly
         facet_cells = self.interior_facets.facet_cell  # all local facets (owned + halos)
         local_facets = self.interior_facets.local_facet_dat.data_ro_with_halos
-
         local_facet_orientations = self.interior_facets.local_facet_orientation_dat.data_ro_with_halos
 
         ref_cell = FIAT.ufc_cell(self.ufl_cell())
-        A, b, A_inv = make_facet_embedding_maps(ref_cell)
+        E, e, E_inv = (np.stack(x) for x in make_facet_embedding_maps(ref_cell))
         o_coord_maps = make_facet_orientation_maps(ref_cell)
 
-        Q_inv = {o: np.linalg.inv(Q) for o, (Q, _) in o_coord_maps.items()}
+        Q = np.stack([o_coord_maps[o][0] for o in range(len(o_coord_maps))])
+        t = np.stack([o_coord_maps[o][1] for o in range(len(o_coord_maps))])
+        Q_inv = np.linalg.inv(Q)
 
-        NODATAVAL = np.iinfo(local_facet_orientations.dtype).max
+        known_facets = (facet_cells != -1).all(axis=1)
+        c0, c1 = facet_cells[known_facets].T
+        lf0, lf1 = local_facets[known_facets].T
+        o0, o1 = local_facet_orientations[known_facets].T
 
-        for f_idx in range(facet_cells.shape[0]):
-            c0, c1 = facet_cells[f_idx]  # adjacent cells
-            lf0, lf1 = local_facets[f_idx]  # local facet ID in each adjacent cell
-            o0, o1 = local_facet_orientations[f_idx]  # local orientation in each adjacent cell
-            if o0 == NODATAVAL or o1 == NODATAVAL:
-                # skip outer halo facets where adjacency data isn't available
-                continue
+        def compute_transform(lf_from, lf_to, o_from, o_to):
+            # ref coordinates on facet in first cell -> ref coordinates on facet in second cell
+            Q_to = Q_inv[o_to] @ Q[o_from]  # matrix for transforming facet coordinates from orientation o_from to orientation o_to
+            t_to = np.einsum("kij, kj -> ki", Q_inv[o_to], t[o_from] - t[o_to])  # translation vector for transforming facet coordinates from orientation o_from to orientation o_to
 
-            # Q_o maps facet coordinates from a cell in which the facet has orientation o to the facet's canonical coordinates.
-            Q0, t0 = o_coord_maps[o0]  # map orientation o0 -> canonical orientation
-            Q1, t1 = o_coord_maps[o1]  # map orientation o1 -> canonical orientaion
+            A = E[lf_to] @ Q_to @ E_inv[lf_from]
+            b = e[lf_to] + np.einsum("kij, kj -> ki", E[lf_to], t_to) - np.einsum("kij, kj -> ki", A, e[lf_from])
+            return A, b
 
-            # o0 -> canonical orientation -> o1
-            Q01 = Q_inv[o1] @ Q0
-            t01 = Q_inv[o1] @ (t0 - t1)
-
-            # o1 -> canonical orientation with canonical orientation -> o0
-            Q10 = Q_inv[o0] @ Q1
-            t10 = Q_inv[o0] @ (t1 - t0)
-
-            # Compute forward transform c0 -> c1 and store on c0
-            A_transform[c0, lf0] = A[lf1] @ Q01 @ A_inv[lf0]
-            b_transform[c0, lf0] = b[lf1] + A[lf1] @ t01 - A_transform[c0, lf0]  @ b[lf0]
-
-            # Compute backward transform c1 -> c0 and store on c1
-            A_transform[c1, lf1] = A[lf0] @ Q10 @ A_inv[lf1]
-            b_transform[c1, lf1] = b[lf0] + A[lf0] @ t10 - A_transform[c1, lf1] @ b[lf1]
+        # Compute forward transform c0 -> c1 stored on c0 and backward transform c1 -> c0 stored on c1
+        A_transform[c0, lf0], b_transform[c0, lf0] = compute_transform(lf0, lf1, o0, o1)
+        A_transform[c1, lf1], b_transform[c1, lf1] = compute_transform(lf1, lf0, o1, o0)
 
         cell_facet_A = op2.Dat(
             A_dset,
