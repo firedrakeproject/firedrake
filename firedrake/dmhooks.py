@@ -448,6 +448,31 @@ def coarsen(dm, comm):
     return cdm
 
 
+def _attach_refined_context(dm, ctx, refined_ctx, coefficient_mapping):
+    refined_ctx.set_snes(ctx.snes)
+    parent = get_parent(dm)
+    coarsener = get_ctx_coarsener(dm)
+    # Get all DMs from the refined problem
+    dms = [refined_ctx._problem.u_restrict.function_space().dm]
+    for value in coefficient_mapping.values():
+        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
+            value_dm = value.function_space().dm
+            if value_dm not in dms:
+                dms.append(value_dm)
+    # Attach refined context
+    for refined_dm in dms:
+        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
+                 teardown=partial(pop_parent, refined_dm, parent),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
+                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
+                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
+                 call_setup=True)
+    return refined_ctx._problem.dm
+
+
 def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
@@ -506,28 +531,7 @@ def _refine_adaptive(dm):
 
     coefficient_mapping = {}
     refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
-    refined_ctx.set_snes(ctx.snes)
-    parent = get_parent(dm)
-    coarsener = get_ctx_coarsener(dm)
-    # Get all DMs from the refined problem
-    dms = [refined_ctx._problem.u_restrict.function_space().dm]
-    for value in coefficient_mapping.values():
-        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
-            value_dm = value.function_space().dm
-            if value_dm not in dms:
-                dms.append(value_dm)
-    # Attach refined context
-    for refined_dm in dms:
-        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
-                 teardown=partial(pop_parent, refined_dm, parent),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
-                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
-                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
-                 call_setup=True)
-    return refined_ctx._problem.dm
+    return _attach_refined_context(dm, ctx, refined_ctx, coefficient_mapping)
 
 
 def _refine_from_hierarchy(dm):
@@ -537,7 +541,12 @@ def _refine_from_hierarchy(dm):
     if Vcoarse is None:
         raise RuntimeError("No FunctionSpace found on DM")
     Vfine = refine(Vcoarse, refine)
-    return Vfine.dm
+    ctx = get_appctx(dm)
+    if ctx is None:
+        return Vfine.dm
+    coefficient_mapping = {}
+    refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    return _attach_refined_context(dm, ctx, refined_ctx, coefficient_mapping)
 
 
 @PETSc.Log.EventDecorator()

@@ -217,6 +217,26 @@ def test_adaptive_refine_without_marking_callback_is_uniform():
     assert result.function_space().dim() == 81
 
 
+@pytest.mark.parallel([1, 2])
+def test_adaptive_refine_with_prebuilt_hierarchy():
+    problem = poisson_problem(2)
+    mesh = problem.u.function_space().mesh()
+    hierarchy = MeshHierarchy(mesh, 2)
+    parameters = {
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "snes_adapt_sequence": 3,
+        "adaptor_criterion": "refine",
+    }
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+    result = solver.solve()
+
+    _, level = get_level(result.function_space().mesh())
+    assert level == 3
+    assert hierarchy[0] is mesh
+    assert result.function_space().dim() == 289
+
+
 @pytest.mark.skipnetgen
 def test_marking_callback_refine_hook_reconstructs_problem():
     from netgen.geom2d import SplineGeometry
