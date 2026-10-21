@@ -2,6 +2,7 @@
 
 from functools import partial, reduce, cached_property
 import itertools
+import numbers
 
 import numpy as np
 from mpi4py import MPI
@@ -252,15 +253,21 @@ class BCBase:
         r.zero(subset=self.node_set)
 
     @PETSc.Log.EventDecorator()
-    def set(self, r, val):
+    def set(self, r: Function | Cofunction, val: Function | Cofunction | numbers.Number) -> None:
         r"""Set the boundary nodes to a prescribed (external) value.
-        :arg r: the :class:`Function` to which the value should be applied.
-        :arg val: the prescribed value.
+
+        Parameters
+        ----------
+        r
+            The :class:`.Function` or :class:`.Cofunction` to which the value is applied.
+        val
+            The prescribed value. This is either a scalar, or a :class:`.Function`
+            or :class:`.Cofunction` that holds the values to copy onto the boundary nodes.
         """
 
         for idx in self._indices:
             r = r.sub(idx)
-        if isinstance(val, firedrake.Cofunction):
+        if isinstance(val, Function | Cofunction):
             for idx in self._indices:
                 val = val.sub(idx)
         else:
