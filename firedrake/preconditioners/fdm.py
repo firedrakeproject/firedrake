@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from textwrap import dedent
 from functools import cached_property, partial
 from itertools import chain, product
@@ -8,6 +9,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace
+from firedrake.functionspaceimpl import WithGeometry
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.cython.dmcommon import get_preallocation
@@ -2483,78 +2485,54 @@ def fdm_setup_ipdg(fdm_element, eta, comm=None):
     return Afdm, Dfacet, bdof
 
 
-def extrude_interior_facet_maps(V):
-    """
-    Extrude V.interior_facet_node_map and V.mesh().interior_facets.local_facet_dat
+def extrude_interior_facet_maps(V: WithGeometry | Function | Cofunction) -> tuple[Callable, Callable, int]:
+    """Tabulate the nodes and the local facet numbers of the cells that share each interior facet.
 
-    :arg V: a :class:`.FunctionSpace`
+    On extruded meshes, the vertical facets come before the horizontal facets.
+    The local facet numbers follow the numbering of the facets of the reference
+    tensor-product cell, where the facets ``2*k`` and ``2*k+1`` are normal to the
+    ``k``-th axis.
 
-    :returns: the 3-tuple of
-        facet_to_nodes_fun: maps interior facets to the nodes of the two cells sharing it,
-        local_facet_data_fun: maps interior facets to the local facet numbering in the two cells sharing it,
-        nfacets: the total number of interior facets owned by this process
+    Parameters
+    ----------
+    V
+        The function space, or a function in the function space.
+
+    Returns
+    -------
+    facet_to_nodes_fun : Callable
+        Maps an interior facet to the nodes of the two cells that share it.
+    local_facet_data_fun : Callable
+        Maps an interior facet to its local facet number in each of the two cells that share it.
+    nfacets : int
+        The number of interior facets that this process owns.
     """
-    raise NotImplementedError
     if isinstance(V, (Function, Cofunction)):
         V = V.function_space()
     mesh = V.mesh()
-    intfacets = mesh.interior_facets
-    facet_to_cells = intfacets.facet_cell_map.values
-    local_facet_data = intfacets.local_facet_dat.data_ro
-
-    facet_node_map = V.interior_facet_node_map()
-    facet_to_nodes = facet_node_map.values
-    nbase = facet_to_nodes.shape[0]
-
     if mesh.extruded:
-        facet_offset = facet_node_map.offset
-        local_facet_data_h = numpy.array([5, 4], local_facet_data.dtype)
-
-        cell_node_map = V.cell_node_map()
-        cell_to_nodes = cell_node_map.values_with_halo
-        cell_offset = cell_node_map.offset
-
-        nelv = cell_node_map.values.shape[0]
-        layers = facet_node_map.iterset.layers_array
-        itype = cell_offset.dtype
-        shift_h = numpy.array([[0], [1]], itype)
-
-        if mesh.variable_layers:
-            nv = 0
-            to_base = []
-            to_layer = []
-            for f, cells in enumerate(facet_to_cells):
-                istart = max(layers[cells, 0])
-                iend = min(layers[cells, 1])
-                nz = iend-istart-1
-                nv += nz
-                to_base.append(numpy.full((nz,), f, itype))
-                to_layer.append(numpy.arange(nz, dtype=itype))
-
-            nh = layers[:, 1]-layers[:, 0]-2
-            to_base.append(numpy.repeat(numpy.arange(len(nh), dtype=itype), nh))
-            to_layer += [numpy.arange(nf, dtype=itype) for nf in nh]
-
-            to_base = numpy.concatenate(to_base)
-            to_layer = numpy.concatenate(to_layer)
-            nfacets = nv + sum(nh[:nelv])
-
-            local_facet_data_fun = lambda e: local_facet_data[to_base[e]] if e < nv else local_facet_data_h
-            facet_to_nodes_fun = lambda e: facet_to_nodes[to_base[e]] + to_layer[e]*facet_offset if e < nv else numpy.reshape(cell_to_nodes[to_base[e]] + numpy.kron(to_layer[e]+shift_h, cell_offset), (-1,))
-        else:
-            nelz = layers[0, 1]-layers[0, 0]-1
-            nv = nbase * nelz
-            nh = nelv * (nelz-1)
-            nfacets = nv + nh
-
-            local_facet_data_fun = lambda e: local_facet_data[e//nelz] if e < nv else local_facet_data_h
-            facet_to_nodes_fun = lambda e: facet_to_nodes[e//nelz] + (e % nelz)*facet_offset if e < nv else numpy.reshape(cell_to_nodes[(e-nv)//(nelz-1)] + numpy.kron(((e-nv) % (nelz-1))+shift_h, cell_offset), (-1,))
+        iterset_vert = mesh.interior_facets_vert.owned
+        iterset_horiz = mesh.interior_facets_horiz.owned
+        nvert = iterset_vert.local_size
+        nhoriz = iterset_horiz.local_size
+        facet_to_nodes = numpy.concatenate([
+            V._iterset_to_node_map_dat("interior_facet_vert").data_ro[:nvert],
+            V._iterset_to_node_map_dat("interior_facet_horiz").data_ro[:nhoriz],
+        ])
+        # The first cell is below a horizontal facet, so the facet is the
+        # top facet (5) of the first cell and the bottom facet (4) of the second cell.
+        local_facet_data = numpy.concatenate([
+            mesh.interior_facet_vert_local_facet_indices.data_ro.reshape((-1, 2))[:nvert],
+            numpy.tile(numpy.array([5, 4], dtype=PETSc.IntType), (nhoriz, 1)),
+        ])
     else:
-        facet_to_nodes_fun = lambda e: facet_to_nodes[e]
-        local_facet_data_fun = lambda e: local_facet_data[e]
-        nfacets = nbase
+        nfacets = mesh.interior_facets.owned.local_size
+        facet_to_nodes = V.interior_facet_node_list[:nfacets]
+        local_facet_data = mesh.interior_facet_local_facet_indices.data_ro.reshape((-1, 2))[:nfacets]
 
-    return facet_to_nodes_fun, local_facet_data_fun, nfacets
+    facet_to_nodes_fun = lambda e: facet_to_nodes[e]
+    local_facet_data_fun = lambda e: local_facet_data[e]
+    return facet_to_nodes_fun, local_facet_data_fun, len(facet_to_nodes)
 
 
 def extrude_node_map(node_map, bsize=1):
