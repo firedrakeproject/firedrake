@@ -265,10 +265,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
-    def collect_buffers(self, visitor):
+    def collect_buffers(self, visitor: Any) -> OrderedFrozenSet:
         return OrderedFrozenSet([self])
 
-    def get_disk_cache_key(self, visitor) -> Hashable:
+    def get_disk_cache_key(self, visitor: Any) -> Hashable:
         return (
             type(self),
             self.dtype,
@@ -1008,6 +1008,94 @@ class PetscMatAxisSpec(pyop3.obj.Object):
 
 
 @pyop3.record.record()
+class PetscObjectBuffer(ConcreteBuffer):
+    """A buffer that passes a PETSc object directly to a local kernel.
+
+    Parameters
+    ----------
+    obj
+        The PETSc object that the local kernel receives.
+    comm
+        The communicator on which the object is used.
+    name, prefix
+        The name for this buffer, or a prefix from which a name can be generated.
+
+    Notes
+    -----
+    The buffer does not inspect or modify the PETSc object. It only keeps the
+    object alive and supplies its C pointer to generated code.
+    """
+
+    _obj: PETSc.Object
+    _name: str
+    _dtype: pyop3.dtypes.OpaqueType
+    _comm: MPI.Comm
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor.renamer.add_obj(self), self._dtype)
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
+    def __init__(
+        self,
+        obj: PETSc.Object,
+        *,
+        comm: MPI.Comm,
+        name: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
+        if not isinstance(obj, PETSc.Object):
+            raise TypeError(f"'obj' must be a PETSc object, not {type(obj).__name__}.")
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._obj = obj
+        self._name = name
+        self._dtype = pyop3.dtypes.OpaqueType(obj.klass)
+        self._comm = comm
+
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    dtype: ClassVar[property] = pyop3.record.attr("_dtype")
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
+
+    @property
+    def constant(self) -> bool:
+        return True
+
+    @property
+    def state(self) -> int:
+        return 0
+
+    def inc_state(self) -> None:
+        pass
+
+    def duplicate(
+        self,
+        *,
+        copy: bool = False,
+        constant: bool | None = None,
+    ) -> PetscObjectBuffer:
+        raise NotImplementedError("PETSc object buffers cannot be duplicated")
+
+    def zero(self) -> None:
+        raise NotImplementedError("PETSc object buffers cannot be zeroed")
+
+    def nest_shape(
+        self,
+        nest_indices: Iterable[tuple[int, ...], ...] = (),
+    ) -> tuple[int, ...] | None:
+        assert not nest_indices
+        return None
+
+    DEFAULT_PREFIX = "petscobject"
+
+
+@pyop3.record.record()
 class PetscMatBuffer(ConcreteBuffer):
     """A buffer whose underlying data structure is a PETSc Mat.
 
@@ -1649,6 +1737,12 @@ def _(mat_buf: PetscMatBuffer, nest_indices):
 
 
 @_denest.register
+def _(obj_buf: PetscObjectBuffer, nest_indices):
+    assert not nest_indices
+    return obj_buf._obj
+
+
+@_denest.register
 def _(array_buf: ArrayBuffer, nest_indices):
     assert not nest_indices
     return array_buf._current_device_array
@@ -1665,6 +1759,11 @@ def _(mat: PETSc.Mat, /):
         return mat.getPythonContext().buffer._current_device_array
     else:
         return mat
+
+
+@_extract_handle.register
+def _(obj: PETSc.Object, /):
+    return obj
 
 
 @_extract_handle.register

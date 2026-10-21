@@ -385,6 +385,24 @@ MatSetValues(mat, 3, idxs, 3, idxs, values, ADD_VALUES);
     )
 
 
+def test_passthrough_petsc_object():
+    kernel = op3.Function.from_c_string(
+        "ksp_get_tolerances",
+        """
+        PetscCallVoid(KSPSetTolerances(K, PETSC_DEFAULT, PETSC_DEFAULT,
+                                       PETSC_DEFAULT, 8));
+        """,
+        [("K", op3.dtypes.OpaqueType("KSP"), op3.READ)],
+    )
+
+    ksp = PETSc.KSP().create(comm=PETSc.COMM_WORLD)
+    ksp.setTolerances(max_it=7)
+    arg = op3.OpaqueTerminal(op3.PetscObjectBuffer(ksp, comm=MPI.COMM_WORLD))
+
+    op3.loop(op3.Axis(10).iter(), kernel(arg), eager=True)
+    assert ksp.getTolerances()[-1] == 8
+
+
 def test_transpose(factory):
     n = 5
     # axis0 and axis1 must have different labels

@@ -85,6 +85,17 @@ facetstar = {
 fdmstar.update(ksp)
 facetstar.update(ksp)
 
+# FDM with static condensation, using the exact Schur complement
+# and a local solver on each cell for the interior block
+facetstar_amat = dict(facetstar)
+facetstar_amat.update({
+    "facet_fdm_pc_use_amat": True,
+    "facet_fdm_fieldsplit_0": {
+        "ksp_type": "preonly",
+        "pc_type": "mat",
+    },
+})
+
 
 def build_riesz_map(V, d):
     beta = Constant(1E-4)
@@ -149,6 +160,15 @@ def test_p_independence_hgrad(mesh, variant):
         problem = build_riesz_map(V, grad)
         for sp, expected_it in zip(solvers, expected):
             assert solve_riesz_map(problem, sp) <= expected_it
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.skipcomplex
+def test_static_condensation_amat(mesh):
+    expected = 13 if mesh.topological_dimension == 3 else 7
+    V = FunctionSpace(mesh, "Lagrange", 4, variant="fdm")
+    problem = build_riesz_map(V, grad)
+    assert solve_riesz_map(problem, facetstar_amat) <= expected
 
 
 @pytest.mark.skipmumps
