@@ -424,3 +424,19 @@ def test_nested_multi_component_loops(factory):
         eager=True,
     )
     assert np.allclose(dat1.data_ro, dat0.data_ro)
+
+
+def test_c_string_kernel_with_unindexed_global():
+    # The size of a global with a star forest is a symbolic expression
+    sf = op3.sf.single_star_sf(MPI.COMM_SELF)
+    glob = op3.Dat(op3.Axis(op3.AxisComponent(1, sf=sf)), data=np.array([2.0], dtype=op3.ScalarType))
+    axis = op3.Axis(5)
+    dat = op3.Dat.zeros(axis, dtype=op3.ScalarType)
+
+    kernel = op3.Function.from_c_string(
+        "assign_global",
+        "y[0] = g[0];",
+        [("g", op3.ScalarType, op3.READ), ("y", op3.ScalarType, op3.WRITE)],
+    )
+    op3.loop(p := axis.iter(), kernel(glob, dat[p]), eager=True)
+    assert np.allclose(dat.data_ro, 2.0)
