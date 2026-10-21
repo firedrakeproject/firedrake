@@ -1131,6 +1131,17 @@ class PetscMatBuffer(ConcreteBuffer):
                 submat = cls._make_petsc_mat(submat_spec, comm=comm, preallocator=preallocator)
                 submats[i, j] = submat
             return PETSc.Mat().createNest(submats, comm=comm)
+        elif mat_spec.mat_type == PETSc.Mat.Type.IS:
+            # A MATIS wraps a sequential local matrix, in the same way that a
+            # MATNEST wraps its submatrices. PETSc creates the local matrix when
+            # we set the local-to-global maps. The MATIS inserts all values into
+            # the local matrix. Thus the local matrix must be the preallocator.
+            mat = cls._make_non_nested_petsc_mat(mat_spec, comm=comm, preallocator=False)
+            if preallocator:
+                local_mat = mat.getISLocalMat()
+                local_mat.setType(PETSc.Mat.Type.PREALLOCATOR)
+                local_mat.setUp()
+            return mat
         else:
             assert isinstance(mat_spec, MonolithicPetscMatBufferSpec)
             return cls._make_non_nested_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
@@ -1331,6 +1342,38 @@ class PetscMatBuffer(ConcreteBuffer):
                 subpreallocator = preallocator.getNestSubMatrix(i, j)
                 submat = template.getNestSubMatrix(i, j)
                 self._preallocate(subpreallocator, submat)
+        elif template.type == PETSc.Mat.Type.IS:
+            # As for a MATNEST, we preallocate the wrapped matrix, which is the
+            # local matrix of the MATIS.
+            local_preallocator = preallocator.getISLocalMat()
+            local_template = template.getISLocalMat()
+            self._preallocate(local_preallocator, local_template)
+
+            # Some local degrees of freedom receive no insertions, for example
+            # those reached only by ghost cells. They would give empty rows and
+            # columns in the local matrix. We set them to -1 in the
+            # local-to-global maps. PETSc then removes them and creates a
+            # smaller local matrix. The local-to-global maps of this smaller
+            # matrix send each remaining degree of freedom to its original
+            # local index. We replace the smaller matrix with the preallocated
+            # rows and columns of the remaining degrees of freedom. The
+            # replacement gets the same local-to-global maps.
+            indptr, indices = local_template.getRowIJ()
+            nonzero_dofs = (np.flatnonzero(np.diff(indptr)), np.unique(indices))
+            lgmaps = []
+            subsets = []
+            for lgmap, dofs in zip(template.getLGMap(), nonzero_dofs):
+                bsize = lgmap.getBlockSize()
+                blocks = np.unique(dofs // bsize).astype(IntType)
+                block_indices = np.full_like(lgmap.getBlockIndices(), -1)
+                block_indices[blocks] = lgmap.getBlockIndices()[blocks]
+                lgmaps.append(PETSc.LGMap().create(block_indices, bsize=bsize, comm=lgmap.comm))
+                subsets.append(PETSc.IS().createBlock(bsize, blocks, comm=MPI.COMM_SELF))
+
+            submat = local_template.createSubMatrix(*subsets)
+            template.setLGMap(*lgmaps)
+            submat.setLGMap(*template.getISLocalMat().getLGMap())
+            template.setISLocalMat(submat)
         elif template.type == PETSc.Mat.Type.PYTHON:
             pass
         else:
