@@ -1684,15 +1684,13 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         component = V.component
         if component is not None:
             V = V.parent
+        space = V if V.parent is None else V.parent
         if V.index is None:
             index = Ellipsis
         else:
-            # TODO: use field_axis instead
-            index = utils.single_valued(
-                axes.trees[0].root.component_labels[V.index]
-                for axes in [tensor.M.row_axes, tensor.M.column_axes]
-            )
-        space = V if V.parent is None else V.parent
+            # The label comes from the space of the boundary condition, because
+            # the other argument of a rectangular form can have different labels.
+            index = space.field_axis.component_labels[V.index]
         if isinstance(bc, DirichletBC):
             if not any(bc.parent_function_space.topological == fs.topological for fs in spaces):
                 raise MismatchingFunctionSpaceError(
