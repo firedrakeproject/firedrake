@@ -1,4 +1,5 @@
 from functools import wraps
+from typing import Self
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
@@ -15,6 +16,7 @@ class FunctionMixin(FloatingType):
     def _ad_annotate_init(init):
         @wraps(init)
         def wrapper(self, *args, **kwargs):
+            uid = kwargs.pop("_uid", None)
             FloatingType.__init__(self, *args,
                                   block_class=kwargs.pop("block_class", None),
                                   _ad_floating_active=kwargs.pop("_ad_floating_active", False),
@@ -23,6 +25,8 @@ class FunctionMixin(FloatingType):
                                   _ad_output_args=kwargs.pop("_ad_output_args", None),
                                   _ad_outputs=kwargs.pop("_ad_outputs", None),
                                   ad_block_tag=kwargs.pop("ad_block_tag", None), **kwargs)
+            if uid is not None:
+                kwargs["_uid"] = uid
             init(self, *args, **kwargs)
         return wrapper
 
@@ -215,8 +219,19 @@ class FunctionMixin(FloatingType):
     def _ad_create_checkpoint(self):
         if disk_checkpointing():
             return CheckpointFunction(self)
-        else:
-            return self.copy(deepcopy=True)
+        return self._ad_checkpoint_copy()
+
+    def _ad_checkpoint_copy(self) -> Self:
+        # A checkpoint snapshots this coefficient and retains its identifiers.
+        # This avoids advancing the UID sequence on only one rank.
+        return type(self)(
+            self.function_space(),
+            val=self.dat.copy(),
+            name=self.name(),
+            dtype=self.dat.dtype,
+            count=self.count(),
+            _uid=self.uid,
+        )
 
     def _ad_convert_riesz(self, value, riesz_map=None):
         return value.riesz_representation(riesz_map=riesz_map or "L2")
