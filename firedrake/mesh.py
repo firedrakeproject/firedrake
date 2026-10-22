@@ -1512,9 +1512,19 @@ class MeshTopology(AbstractMeshTopology):
             b = e[lf_to] + np.einsum("kij, kj -> ki", E[lf_to], t_to) - np.einsum("kij, kj -> ki", A, e[lf_from])
             return A, b
 
-        # Compute forward transform c0 -> c1 stored on c0 and backward transform c1 -> c0 stored on c1
-        A_transform[c0, lf0], b_transform[c0, lf0] = compute_transform(lf0, lf1, o0, o1)
-        A_transform[c1, lf1], b_transform[c1, lf1] = compute_transform(lf1, lf0, o1, o0)
+        # List all possible combinations into a multidimensional array of shape (nf, nf, no, no)
+        nf, no = len(E), len(Q)  # number of facets, number of orientations for each facet
+        combinations = np.meshgrid(np.arange(nf), np.arange(nf), np.arange(no), np.arange(no), indexing="ij")
+        # Call compute_transform once on all the nf x nf x no x no combinations
+        A_table, b_table = compute_transform(*(x.ravel() for x in combinations))
+        # Undo flattening so the result can be looked-up
+        A_table = A_table.reshape(nf, nf, no, no, ref_dim, ref_dim)
+        b_table = b_table.reshape(nf, nf, no, no, ref_dim)
+
+        A_transform[c0, lf0] = A_table[lf0, lf1, o0, o1]
+        b_transform[c0, lf0] = b_table[lf0, lf1, o0, o1]
+        A_transform[c1, lf1] = A_table[lf1, lf0, o1, o0]
+        b_transform[c1, lf1] = b_table[lf1, lf0, o1, o0]
 
         cell_facet_A = op2.Dat(
             A_dset,
