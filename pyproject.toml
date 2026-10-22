@@ -169,7 +169,8 @@ requires = [
   "numpy",
   # TODO RELEASE
   # "petsc4py==XXX",
-  "petsctools",
+  # TODO RELEASE
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
