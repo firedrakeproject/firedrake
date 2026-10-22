@@ -7,7 +7,7 @@ import pyop3 as op3
 from mpi4py import MPI
 
 from firedrake.utils import IntType
-from firedrake.functionspaceimpl import entity_dofs_key
+from firedrake.functionspaceimpl import entity_dofs_key, entity_permutations_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
@@ -28,7 +28,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = _cache_key(Vc, Vf)
+    key = _node_map_key(Vc, Vf)
     cache = mesh._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
     try:
         return cache[key]
@@ -76,7 +76,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = _cache_key(Vc, Vf)
+    key = _node_map_key(Vc, Vf)
     cache = mesh._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
     try:
         return cache[key]
@@ -129,7 +129,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
     if levelc + increment != levelf:
         raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
 
-    key = _cache_key(Vc, Vf, needs_coarse_entity_dofs=False)
+    key = _node_map_key(Vc, Vf, needs_coarse_cell_node_map=False)
     cache = mesh._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]
     try:
         return cache[key]
@@ -258,16 +258,29 @@ def has_level(obj):
     return hasattr(obj.topological, "__level_info__")
 
 
-def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):
-    """Construct a cache key for node maps"""
+def _cell_node_map_key(V):
+    """Return a cache key for the cell-node map of V."""
+    element = V.finat_element
+    # The entity permutations reorder the DoFs of each entity to match its
+    # orientation, so two elements with the same entity DoFs can still have
+    # different cell-node maps.
+    try:
+        eperms_key = entity_permutations_key(element.entity_permutations)
+    except NotImplementedError:
+        eperms_key = None
+    return (entity_dofs_key(element.entity_dofs()), eperms_key)
+
+
+def _node_map_key(Vc, Vf, needs_coarse_cell_node_map=True):
+    """Return a cache key for a node map between Vc and Vf."""
     _, levelf = get_level(Vf.mesh())
     _, levelc = get_level(Vc.mesh())
 
-    if needs_coarse_entity_dofs:
-        key = entity_dofs_key(Vc.finat_element.entity_dofs())
+    if needs_coarse_cell_node_map:
+        key = _cell_node_map_key(Vc)
     else:
         key = ()
-    key += entity_dofs_key(Vf.finat_element.entity_dofs())
+    key += _cell_node_map_key(Vf)
     key += (levelc, levelf)
     key += (Vc.boundary_set, Vf.boundary_set)
     return key

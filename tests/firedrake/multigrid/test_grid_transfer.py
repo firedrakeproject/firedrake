@@ -94,13 +94,13 @@ def degrees(space):
         return (0, 1, 2)
 
 
-def element(family, cell, degree, shape):
+def element(family, cell, degree, shape, variant=None):
     if shape == "symmetric-tensor":
-        return TensorElement(family, cell=cell, degree=degree, symmetry=True)
+        return TensorElement(family, cell=cell, degree=degree, symmetry=True, variant=variant)
     elif shape == "vector":
-        return VectorElement(family, cell=cell, degree=degree)
+        return VectorElement(family, cell=cell, degree=degree, variant=variant)
     elif shape == "scalar":
-        return FiniteElement(family, cell=cell, degree=degree)
+        return FiniteElement(family, cell=cell, degree=degree, variant=variant)
     else:
         raise ValueError(f"Unrecognized shape {shape}")
 
@@ -116,9 +116,9 @@ def exact_primal(mesh, shape, degree):
     return expr
 
 
-def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
+def run_injection(hierarchy, shape, space, degrees, exact=exact_primal, variant=None):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape, variant=variant)
 
         mesh = hierarchy[-1]
         V = FunctionSpace(mesh, Ve)
@@ -134,9 +134,9 @@ def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
             assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
-def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal):
+def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal, variant=None):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape, variant=variant)
 
         mesh = hierarchy[0]
         V = FunctionSpace(mesh, Ve)
@@ -229,6 +229,20 @@ def test_grid_transfer_KMV(transfer_type):
     degrees = (2, 5)
     shape = "scalar"
     run_transfer(hierarchy, shape, space, degrees, transfer_type)
+
+
+@pytest.mark.parametrize("variants", [("equispaced", "spectral"), ("spectral", "equispaced")])
+@pytest.mark.parametrize("transfer_type", ["prolongation", "injection"])
+def test_grid_transfer_variants(variants, transfer_type):
+    """Check transfers between element variants that share their entity DoFs.
+
+    The variants have different bases and different entity permutations, so
+    each variant needs its own transfer kernels and its own node maps.
+    """
+    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    run = {"prolongation": run_prolongation, "injection": run_injection}[transfer_type]
+    for variant in variants:
+        run(hierarchy, "scalar", "DG", (2,), variant=variant)
 
 
 @pytest.fixture(params=["interval-interval",
