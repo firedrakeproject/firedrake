@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from firedrake import *
 
@@ -144,3 +145,15 @@ def test_interior_facet_vfs_extr_vert_mixed():
     assert not np.all(pm.M[label0, label1].values == mp.M[label0, label1].values)
     assert not np.all(pm.M[label0, label1].values == mm.M[label0, label1].values)
     assert not np.all(mp.M[label0, label1].values == mm.M[label0, label1].values)
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_interior_facet_dS_extr():
+    # The unit cube with 2x2 columns and 2 layers has 4 interior vertical
+    # facets of total area 2 and one interior horizontal plane of area 1.
+    m = UnitSquareMesh(2, 2, quadrilateral=True)
+    mesh = ExtrudedMesh(m, layers=2)
+
+    area = assemble(Constant(1)*dS(domain=mesh))
+
+    assert np.isclose(area, 3.0)
