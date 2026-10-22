@@ -50,10 +50,10 @@ class CachedSolverBlock(Block):
         self.adjoint_cache = adjoint_cache
         self.hessian_cache = hessian_cache
 
-        # The adj_sol in the cached forms is shared by all blocks.
-        # This adj_sol belongs to this block specifically so we can
-        # stash the adjoint solution for the hessian calculation.
-        self.adj_sol = adjoint_cache.adj_sol.copy(deepcopy=True, annotate=False)
+    @property
+    def adj_sol(self):
+        """The adjoint solution of this block, or ``None`` before the adjoint."""
+        return self.adj_state
 
     def _coefficient_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
@@ -127,7 +127,9 @@ class CachedSolverBlock(Block):
         self.update_tlm_dependencies()
         # update the adj_sol in the cached forms with
         # the adj_sol value owned by this block.
-        self.hessian_cache.adj_sol.assign(self.adj_sol)
+        if self.adj_state is None:
+            raise RuntimeError("Hessian computation was run before adjoint.")
+        self.hessian_cache.adj_sol.assign(self.adj_state)
 
     def _compute_boundary(self, relevant_dependencies):
         return any(isinstance(dep.output, firedrake.DirichletBC)
@@ -202,13 +204,9 @@ class CachedSolverBlock(Block):
 
         adj_sol, adj_sol_bc = self.solve_adj_equation(dJdu, compute_boundary)
 
-        # store adj_sol for Hessian computation later, or for inspecting
-        # adjoint sensitivities etc.
-        # self.adj_sol is owned by this block, whereas self.hessian_cache.adj_sol
-        # is shared between all blocks that the NLVS generates because it is the
-        # one in the cached forms, so we will update it as necessary if/when each
-        # block calculates the Hessian action.
-        self.adj_sol.assign(adj_sol)
+        # Keep this block's own copy of the adjoint solution for the Hessian.
+        # pyadjoint frees it with reset_adjoint_state.
+        self.adj_state = adj_sol
 
         prepared = {
             "adj_sol": adj_sol,
@@ -336,8 +334,6 @@ class GenericSolveBlock(Block):
         # Solution function
         self.func = func
         self.function_space = self.func.function_space()
-        # Storage for adjoint solution of this block
-        self.adj_state_buf = func.copy(deepcopy=True)
         # Boundary conditions
         self.bcs = []
         if bcs is not None:
@@ -486,8 +482,6 @@ class GenericSolveBlock(Block):
             dFdu_form, dJdu, compute_bdy
         )
         self.adj_sol = adj_sol
-        self.adj_state = adj_sol
-        self.adj_state_buf.assign(adj_sol)
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -685,8 +679,6 @@ class GenericSolveBlock(Block):
         fwd_block_variable = self.get_outputs()[0]
         hessian_input = hessian_inputs[0]
         tlm_output = fwd_block_variable.tlm_value
-
-        self.adj_state = self.adj_state_buf.copy(deepcopy=True)
 
         if hessian_input is None:
             return
@@ -899,8 +891,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.problem_J = problem_J
         self.solver_kwargs = solver_kwargs
 
-        self.adj_state_buf = func.copy(deepcopy=True)
-
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
         if self.problem_J is not None:
@@ -1008,8 +998,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        self.adj_state = adj_sol
-        self.adj_state_buf.assign(adj_sol)
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
