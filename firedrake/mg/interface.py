@@ -85,7 +85,8 @@ def prolong(coarse, fine):
         if needs_quadrature:
             # Transfer to the actual target space
             new_fine = finest if j == repeat-1 else Function(Vfinest.reconstruct(mesh=meshes[next_level]))
-            fine = new_fine.interpolate(fine)
+            _interpolate(fine, new_fine)
+            fine = new_fine
         coarse = fine
     return fine
 
@@ -126,7 +127,9 @@ def restrict(fine_dual, coarse_dual):
     for j in range(repeat):
         if needs_quadrature:
             # Transfer to the quadrature source space
-            fine_dual = Function(Vq.reconstruct(mesh=meshes[next_level])).interpolate(fine_dual)
+            quadrature_dual = Function(Vq.reconstruct(mesh=meshes[next_level]))
+            _interpolate(fine_dual, quadrature_dual)
+            fine_dual = quadrature_dual
 
         next_level -= 1
         if j == repeat - 1:
@@ -196,7 +199,8 @@ def inject(fine, coarse):
         if needs_quadrature:
             # Transfer to the actual target space
             new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
-            coarse = new_coarse.interpolate(coarse)
+            _interpolate(coarse, new_coarse)
+            coarse = new_coarse
         fine = coarse
 
     return coarse
@@ -308,6 +312,38 @@ def _transfer(build_loop, source, target):
         loop = build_loop(source, target)
         loop, source_name, target_name = cache.setdefault(key, (loop, source.dat.name, target.dat.name))
     loop(**{source_name: source.dat, target_name: target.dat})
+
+
+def _interpolate(source, target):
+    """Interpolate source into target, or apply the adjoint interpolation if both are cofunctions."""
+    with source.dat.vec_ro as x, target.dat.vec_wo as y:
+        if is_dual(source):
+            # The interpolation between dual spaces is the adjoint of the
+            # interpolation between the primal spaces in the opposite direction.
+            operator = _interpolation_operator(target.function_space().dual(), source.function_space().dual())
+            operator.petscmat.multTranspose(x, y)
+        else:
+            operator = _interpolation_operator(source.function_space(), target.function_space())
+            operator.petscmat.mult(x, y)
+
+
+def _interpolation_operator(source_space, target_space):
+    """Return the ImplicitMatrix that interpolates source_space into target_space."""
+    # Like a transfer loop, an interpolation costs much more to build than to
+    # execute. Thus each operator is built once for each pair of function
+    # spaces, and is cached on the hierarchy. Prolongation and restriction
+    # between the same spaces share an operator.
+    hierarchy, _ = utils.get_level(target_space.mesh())
+    key = (source_space, target_space)
+    cache = hierarchy._shared_data_cache["interpolation_operators"]
+    try:
+        return cache[key]
+    except KeyError:
+        # A subfunction of a mixed function lives in an indexed subspace, but
+        # its Vec has the layout of the collapsed subspace.
+        u = ufl_expr.TrialFunction(source_space.collapse())
+        interp = interpolate(u, target_space.collapse())
+        return cache.setdefault(key, assemble(interp, mat_type="matfree"))
 
 
 def _prolong_loop(coarse, fine):

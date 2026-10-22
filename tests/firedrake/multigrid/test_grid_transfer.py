@@ -273,6 +273,53 @@ def test_grid_transfer_reuses_loops():
         assert len(loops) == 2
 
 
+@pytest.mark.parallel([1, 2])
+def test_grid_transfer_reuses_interpolation_operators():
+    """Check that repeated transfers reuse their interpolation operators on new arguments.
+
+    The RT element has no pointwise dual basis, so its transfers interpolate
+    through a quadrature space. The second pass must not assemble any new
+    interpolation operators.
+    """
+    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    Vc = FunctionSpace(hierarchy[0], "RT", 1)
+    Vf = FunctionSpace(hierarchy[1], "RT", 1)
+    Wf = Vf * FunctionSpace(hierarchy[1], "DG", 0)
+    operators = hierarchy._shared_data_cache["interpolation_operators"]
+
+    def exact(mesh, shift):
+        # This field is in RT1, so every transfer reproduces it exactly
+        x, y = SpatialCoordinate(mesh)
+        return as_vector([shift + x, 2 * shift + y])
+
+    num_operators = []
+    for shift in (1, 2):
+        coarse = Function(Vc).interpolate(exact(hierarchy[0], shift))
+        expect = Function(Vf).interpolate(exact(hierarchy[1], shift))
+
+        fine = Function(Vf)
+        prolong(coarse, fine)
+        assert numpy.allclose(fine.dat.data_ro, expect.dat.data_ro)
+
+        mixed = Function(Wf)
+        prolong(coarse, mixed.subfunctions[0])
+        assert numpy.allclose(mixed.subfunctions[0].dat.data_ro, expect.dat.data_ro)
+
+        injected = Function(Vc)
+        inject(expect, injected)
+        assert numpy.allclose(injected.dat.data_ro, coarse.dat.data_ro)
+
+        # Restriction is the adjoint of prolongation
+        fine_dual = assemble(inner(expect, TestFunction(Vf)) * dx)
+        coarse_dual = Cofunction(Vc.dual())
+        restrict(fine_dual, coarse_dual)
+        assert numpy.isclose(assemble(action(coarse_dual, coarse)), assemble(action(fine_dual, fine)))
+        num_operators.append(len(operators))
+
+    assert num_operators[0] > 0
+    assert num_operators[1] == num_operators[0]
+
+
 @pytest.fixture(params=["interval-interval",
                         "quadrilateral",
                         "quadrilateral-interval",
