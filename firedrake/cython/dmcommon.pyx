@@ -357,7 +357,7 @@ def count_labelled_points(PETSc.DM dm, name,
 def local_facet_number(mesh, facet_type):
     cdef:
         const PetscInt *cells=NULL
-        PetscInt ncells_per_facet, nfacets_in_closure
+        PetscInt ncells_per_facet, nfacets_in_closure, closure_offset = 0
         PetscInt nfacets, ncells,
         PetscInt facet, facet_renum, cell, cell_renum
         PetscInt ci
@@ -388,13 +388,22 @@ def local_facet_number(mesh, facet_type):
         facets = mesh._entity_indices("plex", "exterior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet_vert")
-    else:
-        assert facet_type == "interior_vert"
+    elif facet_type == "interior_vert":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
         ncells_per_facet = 2
         facets = mesh._entity_indices("plex", "interior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
         specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet_vert")
+    else:
+        assert facet_type == "interior_horiz"
+        # The facets of a tensor-product cell are numbered with the vertical
+        # facets first, so the horizontal facets come after them.
+        closure_offset = mesh._fiat_cell_closures_localized[mesh.facet_vert_label].shape[1]
+        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_horiz_label]
+        ncells_per_facet = 2
+        facets = mesh._entity_indices("plex", "interior_facet_horiz")
+        facet_numbering = mesh._plex_to_entity_numbering_sec("facet_horiz")
+        specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet_horiz")
 
     nfacets_in_closure = closure_facets.shape[1]
     nfacets = len(facets)
@@ -411,7 +420,7 @@ def local_facet_number(mesh, facet_type):
             cell_renum = cell_numbering.getOffset(cell)
             for closure_fi in range(nfacets_in_closure):
                 if closure_facets[cell_renum, closure_fi] == facet_renum:
-                    facet_number[specific_facet_renum, ci] = closure_fi
+                    facet_number[specific_facet_renum, ci] = closure_offset + closure_fi
                     break
 
     return facet_number

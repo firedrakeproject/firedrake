@@ -966,6 +966,14 @@ class AbstractFunctionSpace:
         # if self.boundary_set:
         #     raise TypeError("Cannot tabulate cell node maps for restricted spaces")
 
+        mesh = self.mesh().unique().topology
+        subset_names = mesh._entity_subset_names(iter_type)
+        if len(subset_names) > 1:
+            return op3.Dat.from_components(
+                mesh._entity_axes(iter_type).materialize(),
+                [self._iterset_to_node_map_dat(subset_name) for subset_name in subset_names],
+            )
+
         # To convert between the fully unrolled DoF map and a node-wise one
         # we just need to stride and divide by the block size.
         dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
@@ -999,6 +1007,16 @@ class AbstractFunctionSpace:
     ) -> op3.Dat:
         """Return a dat mapping iteration entities to offsets."""
         from firedrake import pack
+
+        mesh = self.mesh().unique().topology
+        subset_names = mesh._entity_subset_names(iter_type)
+        if len(subset_names) > 1:
+            # A loop can only iterate over an entity set with one component,
+            # so the map is built for each subset of the set separately.
+            return op3.Dat.from_components(
+                mesh._entity_axes(iter_type).materialize(),
+                [self._iterset_to_dof_map_dat(subset_name) for subset_name in subset_names],
+            )
 
         # When we build maps we discard parent information because everything is
         # done relative to the current space. For example, the map could be between
