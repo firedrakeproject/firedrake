@@ -443,7 +443,7 @@ def test_zeroform(degree, cofunc):
 
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 @pytest.mark.parallel([1, 3])
-@pytest.mark.parametrize("access,seam", [(MAX, 1), (op3.MAX_WRITE, 1), (op3.MIN_WRITE, 0)])
+@pytest.mark.parametrize("access,seam", [(MAX, 1), (MIN, 0), (op3.MAX_WRITE, 1), (op3.MIN_WRITE, 0)])
 def test_interpolate_periodic_coords_reduction(access, seam):
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)

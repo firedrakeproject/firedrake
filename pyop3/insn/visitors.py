@@ -223,10 +223,10 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
                 # The temporary starts from the identity of the reduction, so
                 # that the entries which the kernel does not write leave the
                 # global data unchanged.
-                arg_pack_insns.append(local_tensor.assign(dtype_limits(local_tensor.dtype)[0], _weakref=False))
+                arg_pack_insns.append(local_tensor.assign(dtype_limits(local_tensor.dtype).min, _weakref=False))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "max", _weakref=False))
             elif intent == MIN_WRITE:
-                arg_pack_insns.append(local_tensor.assign(dtype_limits(local_tensor.dtype)[1], _weakref=False))
+                arg_pack_insns.append(local_tensor.assign(dtype_limits(local_tensor.dtype).max, _weakref=False))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "min", _weakref=False))
             else:
                 raise NotImplementedError(f"Intent {intent} not handled")
