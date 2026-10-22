@@ -327,3 +327,18 @@ def test_linear_reshaped_assign(reshaped):
     lhs.assign(rhs, eager=True, eager_strategy="compile")
 
     assert np.equal(dat2.data_ro.ravel(), dat1.data_ro[::2].ravel()).all()
+
+
+def test_from_components():
+    # Each component of the root axis has owned entries followed by ghost entries.
+    a = op3.AxisComponent([op3.AxisComponentRegion(2, "owned"), op3.AxisComponentRegion(1, "ghost")], "a")
+    b = op3.AxisComponent([op3.AxisComponentRegion(1, "owned"), op3.AxisComponentRegion(2, "ghost")], "b")
+    root_axes = op3.AxisTree(op3.Axis([a, b], "root"))
+    dat_a = op3.Dat(op3.AxisTree.from_iterable([3, 2]), data=np.arange(6))
+    dat_b = op3.Dat(op3.AxisTree.from_iterable([3, 2]), data=np.arange(6, 12))
+
+    dat = op3.Dat.from_components(root_axes, [dat_a, dat_b])
+
+    # The owned entries of all components are stored before the ghost entries.
+    assert dat.axes.block_shape == (2,)
+    assert np.array_equal(dat.buffer.data_ro, [0, 1, 2, 3, 6, 7, 4, 5, 8, 9, 10, 11])
