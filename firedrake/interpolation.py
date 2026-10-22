@@ -272,6 +272,12 @@ class Interpolator(abc.ABC):
         self.default_missing_val = expr.options.default_missing_val
         self.access = expr.options.access
 
+        # The callable built by the last assembly, with the tensor and the
+        # options used to build it (see _reusable_callable).
+        self._callable = None
+        self._callable_tensor = None
+        self._callable_options = None
+
     @abc.abstractmethod
     def _get_callable(
         self,
@@ -377,7 +383,7 @@ class Interpolator(abc.ABC):
             )
             return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
 
-        result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type, pyop3_compiler_parameters=pyop3_compiler_parameters)()
+        result = self._reusable_callable(tensor, bcs, mat_type, sub_mat_type, pyop3_compiler_parameters)()
 
         if self.rank == 2:
             # Assembling the operator
@@ -391,6 +397,40 @@ class Interpolator(abc.ABC):
         else:
             assert isinstance(tensor, Function | Cofunction | None)
             return tensor.assign(result) if tensor else result
+
+    def _reusable_callable(self, tensor, bcs, mat_type, sub_mat_type, pyop3_compiler_parameters):
+        """Return a callable to perform interpolation, reusing the last one for the same tensor and options."""
+        # A callable costs much more to build than to execute. A callable
+        # writes into the tensor that was used to build it, so it is reused
+        # only for the same tensor. Without a tensor, every assembly must return
+        # a new result, and a matrix is usually assembled once, so only rank 1
+        # callables are reused. The matrix-free operator of an interpolation
+        # assembles into the same tensor on every application, so it builds its
+        # callable once.
+        if bcs is None:
+            bcs_key = ()
+        else:
+            bcs_key = tuple(bcs)
+        if pyop3_compiler_parameters is None:
+            parameters_key = {}
+        else:
+            parameters_key = dict(pyop3_compiler_parameters)
+        options = (bcs_key, mat_type, sub_mat_type, parameters_key)
+
+        reusable = (
+            self.rank == 1
+            and tensor is not None
+            and tensor is self._callable_tensor
+            and options == self._callable_options
+        )
+        if not reusable:
+            self._callable = self._get_callable(
+                tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type,
+                pyop3_compiler_parameters=pyop3_compiler_parameters,
+            )
+            self._callable_tensor = tensor
+            self._callable_options = options
+        return self._callable
 
     def _check_mat_type(
             self,
