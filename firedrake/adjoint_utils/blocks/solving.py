@@ -49,11 +49,7 @@ class CachedSolverBlock(Block):
         self.tangent_cache = tangent_cache
         self.adjoint_cache = adjoint_cache
         self.hessian_cache = hessian_cache
-
-    @property
-    def adj_sol(self):
-        """The adjoint solution of this block, or ``None`` before the adjoint."""
-        return self.adj_state
+        self.adj_state = None
 
     def _coefficient_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
