@@ -20,6 +20,7 @@ from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 
 import pyop3 as op3
 from pyop3.cache import memory_and_disk_cache, default_parallel_hashkey
+from pyop3.constants import Intent
 from pyop3.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
@@ -325,17 +326,28 @@ def gather_integer_subdomain_ids(knls):
     return all_integer_subdomain_ids
 
 
-def as_pyop3_local_kernel(ast, nargs, access=op3.INC):
-    """Convert a loopy kernel to a PyOP2 ``pyop2.LocalKernel``.
+def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Function:
+    """Convert a TSFC kernel to a pyop3 function.
 
-    :arg ast: The kernel code. This could be, for example, a loopy kernel.
-    :arg name: The kernel name.
-    :arg nargs: The number of arguments expected by the kernel.
-    :arg access: Access descriptor for the first kernel argument.
+    Parameters
+    ----------
+    ast
+        The kernel code, for example a loopy kernel.
+    nargs
+        The number of arguments that the kernel expects.
+    access
+        The access descriptor of the first kernel argument. The other
+        arguments are read-only.
+
+    Returns
+    -------
+    op3.Function
+        The pyop3 function that calls the kernel.
+
     """
-    # all but the first argument to the kernel are read-only
     accesses = tuple([access] + [op3.READ]*(nargs-1))
-    return op3.Function(ast, accesses)
+    # TSFC kernels add their result to the output argument.
+    return op3.Function(ast, accesses, requires_zeroed_output_arguments=True)
 
 
 def extract_numbered_coefficients(expr, numbers):
