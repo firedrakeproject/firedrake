@@ -391,7 +391,7 @@ of `N` can be assembled:
         integral_types = set(['cell'])
         assembly_opts = kwargs.get('assembly_opts')
         J = self._matrix_builder((), assembly_opts, integral_types)
-        with dNdu.dat.vec as vec:
+        with dNdu.vec_ro as vec:
             J.petscmat.setDiagonal(vec)
         return J
 

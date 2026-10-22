@@ -33,12 +33,13 @@ dependencies = [
   "packaging",
   # TODO RELEASE
   # "petsc4py==XXX",
-  "petsctools>=2026.1",
+  # TODO RELEASE
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
   "pyadjoint-ad>=2026.10",
   "pycparser",
-  "pytools[siphash]",
+  "pytools>=2026.1.1",
   "requests",
   "rtree>=1.2",
   "scipy",
@@ -168,7 +169,8 @@ requires = [
   "numpy",
   # TODO RELEASE
   # "petsc4py==XXX",
-  "petsctools",
+  # TODO RELEASE
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",
@@ -182,7 +184,6 @@ script-files = [
   "firedrake/scripts/firedrake-zenodo",
   "scripts/firedrake-check",
   "scripts/firedrake-run-split-tests",
-  "pyop2/scripts/spydump",
 ]
 
 [tool.setuptools.package-data]
@@ -196,11 +197,9 @@ firedrake = [
   "icons/*.png",
   "_check/**",
 ]
-pyop2 = [
-  "*.h",
-  "*.pxd",
+pyop3 = [
   "*.pyx",
-  "codegen/c/*.c",
+  "compile/*.c",
 ]
 
 [tool.cython-lint]

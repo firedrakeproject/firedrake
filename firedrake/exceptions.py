@@ -61,6 +61,11 @@ class UnrecognisedDeviceError(FiredrakeException):
     """
 
 
+class CommMismatchError(FiredrakeException):
+    """Raised when MPI communicators do not include identical sets of ranks.
+    """
+
+
 class SerialExecutionOnlyError(FiredrakeException):
     """Raised when calling any Firedrake method that only runs in serial.
     """
