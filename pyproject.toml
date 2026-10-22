@@ -28,7 +28,8 @@ dependencies = [
   "firedrake-rtree>=2026.3.0",
   "immutabledict",
   "libsupermesh>=2026.1",
-  "loopy>2024.1",
+  # TODO RELEASE
+  "loopy @ git+https://github.com/inducer/loopy.git@main",
   "numpy",
   "packaging",
   # TODO RELEASE
