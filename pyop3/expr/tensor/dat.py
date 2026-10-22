@@ -295,6 +295,28 @@ class Dat(Tensor):
         array = np.asarray(sequence, dtype=dtype)
         return cls.from_array(array, **kwargs)
 
+    @classmethod
+    def from_components(cls, root_axes: AxisTree, dats: Sequence[Dat], **kwargs) -> Dat:
+        """Return a dat whose root components hold the entries of ``dats``, in order.
+
+        The axes below the root of the first dat are attached to every root
+        component, so all the dats must have the same shape below the root.
+
+        """
+        from pyop3.index_tree import AffineSliceComponent, Slice
+
+        root = root_axes.root
+        subtree = dats[0].axes.subtree({dats[0].axes.root.label: dats[0].axes.root.component.label})
+        axes = root_axes
+        for component in root.components:
+            axes = axes.add_subtree({root.label: component.label}, subtree)
+
+        data = np.empty(axes.buffer_size(include_ghosts=True), dtype=dats[0].dtype)
+        for component, dat in zip(root.components, dats, strict=True):
+            component_axes = axes[Slice(root.label, [AffineSliceComponent(component.label)])]
+            data[component_axes.buffer_slice(include_ghosts=True)] = dat.data_ro_with_halos.reshape(-1)
+        return cls(axes, data=data, **kwargs)
+
     # }}}
 
     @property
