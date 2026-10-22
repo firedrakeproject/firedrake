@@ -114,6 +114,34 @@ def test_disk_checkpointing_parallel():
     assert np.allclose(assemble((grad_J_disk - grad_J_mem)**2*dx), 0.0)
 
 
+@pytest.mark.parallel(nprocs=3)
+def test_rank_local_checkpoint_copy_preserves_function_uids():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    source = Function(V)
+
+    if MPI.COMM_WORLD.rank == 0:
+        source.block_variable.save_output()
+
+    next_function = Function(V)
+    uids = MPI.COMM_WORLD.allgather(next_function.ufl_id())
+    assert len(set(uids)) == 1, f"Function IDs diverged after checkpoint save: {uids}"
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_rank_local_checkpoint_copy_preserves_cofunction_uids():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    source = Cofunction(V.dual())
+
+    if MPI.COMM_WORLD.rank == 0:
+        source.block_variable.save_output()
+
+    next_cofunction = Cofunction(V.dual())
+    uids = MPI.COMM_WORLD.allgather(next_cofunction.ufl_id())
+    assert len(set(uids)) == 1, f"Cofunction IDs diverged after checkpoint save: {uids}"
+
+
 @pytest.mark.skipcomplex
 def test_disk_checkpointing_successive_writes():
     from firedrake.adjoint import checkpointable_mesh
