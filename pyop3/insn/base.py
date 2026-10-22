@@ -372,19 +372,40 @@ class FunctionArgument(abc.ABC):
 
 @pyop3.record.frozenrecord()
 class Function(pyop3.obj.Object):
-    """A callable function."""
+    """A callable function.
+
+    Parameters
+    ----------
+    loopy_kernel
+        The loopy kernel that implements the function.
+    access_descrs
+        The access descriptor of each kernel argument.
+    include_dirs
+        The include directories that are needed to compile the kernel.
+    lib_dirs
+        The library directories that are needed to link the kernel.
+    libs
+        The libraries that are needed to link the kernel.
+    requires_zeroed_output_arguments
+        Whether the kernel adds its result to its output arguments. Then the
+        temporaries of the ``MIN_WRITE`` and ``MAX_WRITE`` arguments start
+        from zero, not from the identity of the reduction.
+
+    """
 
     # {{{ instance attrs
 
     code: Any
     _access_descrs: tuple[Intent, ...]
     _compiler_options: pyop3.cc.CompilerOptions
+    requires_zeroed_output_arguments: bool
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
             type(self),
             utils._loopy_key_builder(self.code),
             self._access_descrs,
+            self.requires_zeroed_output_arguments,
         )
 
     get_instruction_executor_cache_key = get_disk_cache_key
@@ -397,6 +418,7 @@ class Function(pyop3.obj.Object):
         include_dirs: Iterable[str] = (),
         lib_dirs: Iterable[str] = (),
         libs: Iterable[str] = (),
+        requires_zeroed_output_arguments: bool = False,
     ):
         lpy_args = loopy_kernel.default_entrypoint.args
         if len(lpy_args) != len(access_descrs):
@@ -414,6 +436,7 @@ class Function(pyop3.obj.Object):
         object.__setattr__(self, "code", loopy_kernel)
         object.__setattr__(self, "_access_descrs", access_descrs)
         object.__setattr__(self, "_compiler_options", compiler_options)
+        object.__setattr__(self, "requires_zeroed_output_arguments", requires_zeroed_output_arguments)
 
     # }}}
 
@@ -716,19 +739,21 @@ class AbstractAssignment(AbstractAssignmentLike):
 
     @cached_property
     def argument_intents(self) -> dict:
-        if self.assignment_type == AssignmentType.WRITE:
-            assignee_intent = Intent.WRITE
-        else:
-            assert self.assignment_type == AssignmentType.INC
-            assignee_intent = Intent.INC
+        assignee_intent = assignment_type_as_intent(self.assignment_type)
         return ((self._assignee, assignee_intent), (self.expression, Intent.READ))
 
     def __str__(self) -> str:
-        if self.assignment_type == AssignmentType.WRITE:
-            operator = "="
-        else:
-            assert self.assignment_type == AssignmentType.INC
-            operator = "+="
+        match self.assignment_type:
+            case AssignmentType.WRITE:
+                operator = "="
+            case AssignmentType.INC:
+                operator = "+="
+            case AssignmentType.MAX:
+                operator = "max="
+            case AssignmentType.MIN:
+                operator = "min="
+            case _:
+                raise AssertionError(f"{self.assignment_type} not recognised")
 
         # 'assignee' and 'expression' might be multi-component and thus have
         # multi-line representations. We want to line these up.

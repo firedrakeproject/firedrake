@@ -96,6 +96,37 @@ def test_multi_component_scalar_copy_with_two_outer_loops(factory):
     assert all(dat1.data_ro[m * a:] == dat0.data_ro[m * a:])
 
 
+@pytest.mark.parametrize("mode", ["max", "min"])
+def test_reduction_assignment(mode):
+    m = 10
+    initial = 0.5
+    axis = op3.Axis(m)
+    dat0 = op3.Dat(axis, data=np.arange(m, dtype=op3.ScalarType))
+    dat1 = op3.Dat(axis, data=np.full(m, initial, dtype=op3.ScalarType))
+
+    op3.loop(p := axis.iter(), dat1[p].assign(dat0[p], mode), eager=True)
+
+    reduction = {"max": np.maximum, "min": np.minimum}[mode]
+    assert np.allclose(dat1.data_ro, reduction(dat0.data_ro, initial))
+
+
+@pytest.mark.parametrize("intent", [op3.MAX_WRITE, op3.MIN_WRITE])
+def test_reduction_kernel_with_zeroed_output(factory, intent):
+    m = 10
+    initial = 4.5
+    axis = op3.Axis(m)
+    dat0 = op3.Dat(axis, data=np.arange(m, dtype=op3.ScalarType))
+    dat1 = op3.Dat(axis, data=np.full(m, initial, dtype=op3.ScalarType))
+
+    # The kernel adds its input to its output argument, like a TSFC kernel does.
+    lpy_kernel = factory._loopy_kernel((1,), "y[i_0] = y[i_0] + x[i_0]", ["x", "y"], op3.ScalarType)
+    kernel = op3.Function(lpy_kernel, [op3.READ, intent], requires_zeroed_output_arguments=True)
+    op3.loop(p := axis.iter(), kernel(dat0[p], dat1[p]), eager=True)
+
+    reduction = {op3.MAX_WRITE: np.maximum, op3.MIN_WRITE: np.minimum}[intent]
+    assert np.allclose(dat1.data_ro, reduction(dat0.data_ro, initial))
+
+
 def test_loop_over_parametrised_length(factory):
     length = op3.Scalar(np.int32(0))
     iter_axes = op3.Axis([op3.AxisComponent(length, "pt0")], "ax0")

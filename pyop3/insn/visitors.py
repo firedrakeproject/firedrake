@@ -19,7 +19,8 @@ from pyop3.buffer import (
     ConcreteBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, MAX_RW, MIN_RW, READ, RW, WRITE
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+from pyop3.dtypes import dtype_limits
 from pyop3.expr import (
     Dat,
     LinearDatBufferExpression,
@@ -218,6 +219,20 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             elif intent == MIN_RW:
                 arg_pack_insns.append(local_tensor.assign(func_arg, _weakref=False))
                 arg_unpack_insns.insert(0, func_arg.assign(local_tensor, "min", _weakref=False))
+            elif intent in {MAX_WRITE, MIN_WRITE}:
+                # The temporary starts from the identity of the reduction, so
+                # that the entries which the kernel does not write leave the
+                # global data unchanged. A kernel that adds its result to its
+                # output argument instead needs a temporary that starts from zero.
+                mode = "max" if intent == MAX_WRITE else "min"
+                if called_func.function.requires_zeroed_output_arguments:
+                    initial = 0
+                elif intent == MAX_WRITE:
+                    initial = dtype_limits(local_tensor.dtype).min
+                else:
+                    initial = dtype_limits(local_tensor.dtype).max
+                arg_pack_insns.append(local_tensor.assign(initial, _weakref=False))
+                arg_unpack_insns.insert(0, func_arg.assign(local_tensor, mode, _weakref=False))
             else:
                 raise NotImplementedError(f"Intent {intent} not handled")
 
