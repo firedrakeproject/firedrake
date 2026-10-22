@@ -99,14 +99,15 @@ def test_multi_component_scalar_copy_with_two_outer_loops(factory):
 @pytest.mark.parametrize("mode", ["max", "min"])
 def test_reduction_assignment(mode):
     m = 10
+    initial = 0.5
     axis = op3.Axis(m)
     dat0 = op3.Dat(axis, data=np.arange(m, dtype=op3.ScalarType))
-    dat1 = op3.Dat(axis, data=np.full(m, (m - 1) / 2, dtype=op3.ScalarType))
+    dat1 = op3.Dat(axis, data=np.full(m, initial, dtype=op3.ScalarType))
 
     op3.loop(p := axis.iter(), dat1[p].assign(dat0[p], mode), eager=True)
 
     reduction = {"max": np.maximum, "min": np.minimum}[mode]
-    assert np.allclose(dat1.data_ro, reduction(dat0.data_ro, (m - 1) / 2))
+    assert np.allclose(dat1.data_ro, reduction(dat0.data_ro, initial))
 
 
 def test_loop_over_parametrised_length(factory):
