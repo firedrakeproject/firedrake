@@ -2,7 +2,7 @@ import numpy
 import string
 from collections import defaultdict
 from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, as_tuple
-from firedrake.functionspaceimpl import FiredrakeDualSpace, entity_dofs_key
+from firedrake.functionspaceimpl import FiredrakeDualSpace
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -147,11 +147,6 @@ def _make_kernel_args(kernel, element, *args):
     return kernel_args
 
 
-def _make_element_key(element):
-    """Returns a cache key for a finat element."""
-    return entity_dofs_key(element.complex.get_topology()) + entity_dofs_key(element.entity_dofs())
-
-
 def prolong_kernel(expression, Vf):
     Vc = expression.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
@@ -163,11 +158,8 @@ def prolong_kernel(expression, Vf):
         # inject
         ncandidate = hierarchy.coarse_to_fine_cells[levelf].shape[1]
     coordinates = Vc.mesh().coordinates
-    key = (("prolong", ncandidate)
-           + (Vf.block_size,)
-           + _make_element_key(Vf.finat_element)
-           + _make_element_key(Vc.finat_element)
-           + _make_element_key(coordinates.function_space().finat_element))
+    key = ("prolong", ncandidate, Vf.block_size,
+           Vf.finat_element, Vc.finat_element, coordinates.function_space().finat_element)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     try:
         return cache[key]
@@ -277,11 +269,8 @@ def prolong_matrix_kernel(Vc, Vf):
         raise ValueError("Can only build hierarchy interpolation matrices from coarse to fine spaces")
     ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     coordinates = Vc.mesh().coordinates
-    key = (("prolong_matrix", ncandidate)
-           + (Vf.block_size,)
-           + _make_element_key(Vf.finat_element)
-           + _make_element_key(Vc.finat_element)
-           + _make_element_key(coordinates.function_space().finat_element))
+    key = ("prolong_matrix", ncandidate, Vf.block_size,
+           Vf.finat_element, Vc.finat_element, coordinates.function_space().finat_element)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     try:
         return cache[key]
@@ -389,11 +378,8 @@ def restrict_kernel(Vf, Vc):
         assert Vc.mesh().extruded
     ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     coordinates = Vc.mesh().coordinates
-    key = (("restrict", ncandidate)
-           + (Vf.block_size,)
-           + _make_element_key(Vf.finat_element)
-           + _make_element_key(Vc.finat_element)
-           + _make_element_key(coordinates.function_space().finat_element))
+    key = ("restrict", ncandidate, Vf.block_size,
+           Vf.finat_element, Vc.finat_element, coordinates.function_space().finat_element)
     cache = hierarchy._shared_data_cache["transfer_kernels"]
     try:
         return cache[key]
@@ -485,14 +471,10 @@ def inject_kernel(Vf, Vc):
     if Vc.finat_element.is_dg():
         hierarchy, level = utils.get_level(Vc.mesh())
         ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
-        key = (("inject", ncandidate)
-               + (Vf.block_size,)
-               + entity_dofs_key(Vc.finat_element.complex.get_topology())
-               + entity_dofs_key(Vf.finat_element.complex.get_topology())
-               + entity_dofs_key(Vc.finat_element.entity_dofs())
-               + entity_dofs_key(Vf.finat_element.entity_dofs())
-               + entity_dofs_key(Vc.mesh().coordinates.function_space().finat_element.entity_dofs())
-               + entity_dofs_key(Vf.mesh().coordinates.function_space().finat_element.entity_dofs()))
+        key = ("inject", ncandidate, Vf.block_size,
+               Vf.finat_element, Vc.finat_element,
+               Vf.mesh().coordinates.function_space().finat_element,
+               Vc.mesh().coordinates.function_space().finat_element)
         cache = hierarchy._shared_data_cache["transfer_kernels"]
         try:
             return cache[key]

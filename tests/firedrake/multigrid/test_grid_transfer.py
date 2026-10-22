@@ -94,13 +94,13 @@ def degrees(space):
         return (0, 1, 2)
 
 
-def element(family, cell, degree, shape):
+def element(family, cell, degree, shape, variant=None):
     if shape == "symmetric-tensor":
-        return TensorElement(family, cell=cell, degree=degree, symmetry=True)
+        return TensorElement(family, cell=cell, degree=degree, symmetry=True, variant=variant)
     elif shape == "vector":
-        return VectorElement(family, cell=cell, degree=degree)
+        return VectorElement(family, cell=cell, degree=degree, variant=variant)
     elif shape == "scalar":
-        return FiniteElement(family, cell=cell, degree=degree)
+        return FiniteElement(family, cell=cell, degree=degree, variant=variant)
     else:
         raise ValueError(f"Unrecognized shape {shape}")
 
@@ -116,9 +116,9 @@ def exact_primal(mesh, shape, degree):
     return expr
 
 
-def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
+def run_injection(hierarchy, shape, space, degrees, exact=exact_primal, variant=None):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape, variant=variant)
 
         mesh = hierarchy[-1]
         V = FunctionSpace(mesh, Ve)
@@ -134,9 +134,9 @@ def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
             assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
-def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal):
+def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal, variant=None):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape, variant=variant)
 
         mesh = hierarchy[0]
         V = FunctionSpace(mesh, Ve)
@@ -229,6 +229,95 @@ def test_grid_transfer_KMV(transfer_type):
     degrees = (2, 5)
     shape = "scalar"
     run_transfer(hierarchy, shape, space, degrees, transfer_type)
+
+
+@pytest.mark.parametrize("variants", [("equispaced", "spectral"), ("spectral", "equispaced")])
+@pytest.mark.parametrize("transfer_type", ["prolongation", "injection"])
+def test_grid_transfer_variants(variants, transfer_type):
+    """Check transfers between element variants that share their entity DoFs.
+
+    The variants have different bases and different entity permutations, so
+    each variant needs its own transfer kernels and its own node maps.
+    """
+    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    run = {"prolongation": run_prolongation, "injection": run_injection}[transfer_type]
+    for variant in variants:
+        run(hierarchy, "scalar", "DG", (2,), variant=variant)
+
+
+@pytest.mark.parallel([1, 2])
+def test_grid_transfer_reuses_loops():
+    """Check that repeated transfers reuse their loops on new arguments.
+
+    A subfunction of a mixed function has a different data layout from a
+    function in the same space, so it gets a loop of its own. The second
+    pass over the degrees must not build any new loops.
+    """
+    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    Vc = FunctionSpace(hierarchy[0], "CG", 2)
+    Vf = FunctionSpace(hierarchy[1], "CG", 2)
+    Wf = Vf * FunctionSpace(hierarchy[1], "DG", 0)
+    loops = hierarchy._shared_data_cache["transfer_loops"]
+
+    for degree in (1, 2):
+        expr = exact_primal(hierarchy[0], "scalar", degree)
+        coarse = Function(Vc).interpolate(expr)
+        expect = Function(Vf).interpolate(exact_primal(hierarchy[1], "scalar", degree))
+        fine = Function(Vf)
+        prolong(coarse, fine)
+        assert numpy.allclose(fine.dat.data_ro, expect.dat.data_ro)
+
+        mixed = Function(Wf)
+        prolong(coarse, mixed.subfunctions[0])
+        assert numpy.allclose(mixed.subfunctions[0].dat.data_ro, expect.dat.data_ro)
+        assert len(loops) == 2
+
+
+@pytest.mark.parallel([1, 2])
+def test_grid_transfer_reuses_interpolation_operators():
+    """Check that repeated transfers reuse their interpolation operators on new arguments.
+
+    The RT element has no pointwise dual basis, so its transfers interpolate
+    through a quadrature space. The second pass must not assemble any new
+    interpolation operators.
+    """
+    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    Vc = FunctionSpace(hierarchy[0], "RT", 1)
+    Vf = FunctionSpace(hierarchy[1], "RT", 1)
+    Wf = Vf * FunctionSpace(hierarchy[1], "DG", 0)
+    operators = hierarchy._shared_data_cache["interpolation_operators"]
+
+    def exact(mesh, shift):
+        # This field is in RT1, so every transfer reproduces it exactly
+        x, y = SpatialCoordinate(mesh)
+        return as_vector([shift + x, 2 * shift + y])
+
+    num_operators = []
+    for shift in (1, 2):
+        coarse = Function(Vc).interpolate(exact(hierarchy[0], shift))
+        expect = Function(Vf).interpolate(exact(hierarchy[1], shift))
+
+        fine = Function(Vf)
+        prolong(coarse, fine)
+        assert numpy.allclose(fine.dat.data_ro, expect.dat.data_ro)
+
+        mixed = Function(Wf)
+        prolong(coarse, mixed.subfunctions[0])
+        assert numpy.allclose(mixed.subfunctions[0].dat.data_ro, expect.dat.data_ro)
+
+        injected = Function(Vc)
+        inject(expect, injected)
+        assert numpy.allclose(injected.dat.data_ro, coarse.dat.data_ro)
+
+        # Restriction is the adjoint of prolongation
+        fine_dual = assemble(inner(expect, TestFunction(Vf)) * dx)
+        coarse_dual = Cofunction(Vc.dual())
+        restrict(fine_dual, coarse_dual)
+        assert numpy.isclose(assemble(action(coarse_dual, coarse)), assemble(action(fine_dual, fine)))
+        num_operators.append(len(operators))
+
+    assert num_operators[0] > 0
+    assert num_operators[1] == num_operators[0]
 
 
 @pytest.fixture(params=["interval-interval",
