@@ -535,6 +535,11 @@ class WithGeometryBase:
             self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
             name=f"{self.name}_broken" if self.name else None)
 
+    # A quadrature rule is compared and hashed by its repr, which prints the
+    # point set. The space is built once, so that callers that need it on
+    # every call (e.g. multigrid transfers) do not build, hash and compare a
+    # new rule and element each time.
+    @cached_method()
     def quadrature_space(self):
         """Return a :class:`.WithGeometryBase` with a ``Quadrature`` element
         defined on the point set required for interpolating external data into this space.
@@ -542,7 +547,8 @@ class WithGeometryBase:
         Returns
         -------
         WithGeometryBase :
-            The new function space with a ``Quadrature`` FiniteElement.
+            The new function space with a ``Quadrature`` FiniteElement. The
+            same space is returned on every call.
         """
         ufl_element = self.ufl_element()
         if not self.finat_element.has_pointwise_dual_basis:
