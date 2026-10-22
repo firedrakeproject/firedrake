@@ -245,6 +245,34 @@ def test_grid_transfer_variants(variants, transfer_type):
         run(hierarchy, "scalar", "DG", (2,), variant=variant)
 
 
+@pytest.mark.parallel([1, 2])
+def test_grid_transfer_reuses_loops():
+    """Check that repeated transfers reuse their loops on new arguments.
+
+    A subfunction of a mixed function has a different data layout from a
+    function in the same space, so it gets a loop of its own. The second
+    pass over the degrees must not build any new loops.
+    """
+    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    Vc = FunctionSpace(hierarchy[0], "CG", 2)
+    Vf = FunctionSpace(hierarchy[1], "CG", 2)
+    Wf = Vf * FunctionSpace(hierarchy[1], "DG", 0)
+    loops = hierarchy._shared_data_cache["transfer_loops"]
+
+    for degree in (1, 2):
+        expr = exact_primal(hierarchy[0], "scalar", degree)
+        coarse = Function(Vc).interpolate(expr)
+        expect = Function(Vf).interpolate(exact_primal(hierarchy[1], "scalar", degree))
+        fine = Function(Vf)
+        prolong(coarse, fine)
+        assert numpy.allclose(fine.dat.data_ro, expect.dat.data_ro)
+
+        mixed = Function(Wf)
+        prolong(coarse, mixed.subfunctions[0])
+        assert numpy.allclose(mixed.subfunctions[0].dat.data_ro, expect.dat.data_ro)
+        assert len(loops) == 2
+
+
 @pytest.fixture(params=["interval-interval",
                         "quadrilateral",
                         "quadrilateral-interval",

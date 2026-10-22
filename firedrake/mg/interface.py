@@ -80,33 +80,7 @@ def prolong(coarse, fine):
         else:
             fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
         Vf = fine.function_space()
-        Vc = coarse.function_space()
-
-        # XXX: Should be able to figure out locations by pushing forward
-        # reference cell node locations to physical space.
-        # x = \sum_i c_i \phi_i(x_hat)
-        node_locations = utils.physical_node_locations(Vf)
-
-        kernel, oriented, needs_cell_sizes = kernels.prolong_kernel(coarse, Vf)
-        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
-        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
-        kernel_args = [
-            fine.dat[n],
-            coarse.dat[compose_map(coarse)],
-            node_locations.dat[n],
-        ]
-        # source mesh quantities
-        source_mesh = Vc.mesh()
-        coarse_coords = source_mesh.coordinates
-        kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
-        if oriented:
-            co = source_mesh.cell_orientations()
-            kernel_args.append(co.dat[compose_map(co)])
-        if needs_cell_sizes:
-            cs = source_mesh.cell_sizes
-            kernel_args.append(cs.dat[compose_map(cs)])
-
-        op3.loop(n, kernel(*kernel_args), eager=True)
+        _transfer(_prolong_loop, coarse, fine)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -159,35 +133,7 @@ def restrict(fine_dual, coarse_dual):
             coarse_dual = coarsest
         else:
             coarse_dual = Function(Vc.reconstruct(mesh=meshes[next_level]))
-        Vf = fine_dual.function_space()
-        Vc = coarse_dual.function_space()
-
-        # XXX: Should be able to figure out locations by pushing forward
-        # reference cell node locations to physical space.
-        # x = \sum_i c_i \phi_i(x_hat)
-        node_locations = utils.physical_node_locations(Vf.dual())
-
-        kernel, oriented, needs_cell_sizes = kernels.restrict_kernel(Vf, Vc)
-        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
-        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
-
-        kernel_args = [
-            coarse_dual.dat[compose_map(coarse_dual)],
-            fine_dual.dat[n],
-            node_locations.dat[n],
-        ]
-        # source mesh quantities
-        source_mesh = Vc.mesh()
-        coarse_coords = source_mesh.coordinates
-        kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
-        if oriented:
-            co = source_mesh.cell_orientations()
-            kernel_args.append(co.dat[compose_map(co)])
-        if needs_cell_sizes:
-            cs = source_mesh.cell_sizes
-            kernel_args.append(cs.dat[compose_map(cs)])
-
-        op3.loop(n, kernel(*kernel_args), eager=True)
+        _transfer(_restrict_loop, fine_dual, coarse_dual)
         fine_dual = coarse_dual
 
     return coarse_dual
@@ -245,50 +191,7 @@ def inject(fine, coarse):
             coarse = coarsest
         else:
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
-        Vc = coarse.function_space()
-        Vf = fine.function_space()
-        (kernel, oriented, needs_cell_sizes), dg = kernels.inject_kernel(Vf, Vc)
-        if dg and not hierarchy.nested:
-            raise NotImplementedError("Multigrid DG injection not implemented on non-nested hierarchies.")
-        if not dg:
-            node_locations = utils.physical_node_locations(Vc)
-
-            n = Vc.nodal_axes.blocked(Vc.shape).free.iter()
-            compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())(n)
-            kernel_args = [
-                coarse.dat[n],
-                fine.dat[compose_map(fine)],
-                node_locations.dat[n],
-            ]
-            # source mesh quantities
-            source_mesh = Vf.mesh()
-            fine_coords = source_mesh.coordinates
-            kernel_args.append(fine_coords.dat[compose_map(fine_coords)])
-            if oriented:
-                co = source_mesh.cell_orientations()
-                kernel_args.append(co.dat[compose_map(co)])
-            if needs_cell_sizes:
-                cs = source_mesh.cell_sizes
-                kernel_args.append(cs.dat[compose_map(cs)])
-
-            op3.loop(n, kernel(*kernel_args), eager=True)
-        else:
-            c = Vc.mesh().cells.owned.iter()
-            compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())(c)
-            coarse_coords = Vc.mesh().coordinates
-            fine_coords = Vf.mesh().coordinates
-
-            op3.loop(
-                c,
-                kernel(
-                    coarse.dat[coarse.function_space().cell_node_map(c)],
-                    fine.dat[compose_map(fine)],
-                    fine_coords.dat[compose_map(fine_coords)],
-                    coarse_coords.dat[coarse_coords.function_space().cell_node_map(c)],
-                    utils.coarse_cell_child_count(Vc, Vf)[c],
-                ),
-                eager=True,
-            )
+        _transfer(_inject_loop, fine, coarse)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -386,3 +289,129 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
         result = Q.matMult(result)
 
     return AssembledMatrix(arguments, result, bcs=bcs)
+
+
+def _transfer(build_loop, source, target):
+    """Transfer source into target with the loop returned by build_loop."""
+    # A loop costs much more to build than to execute. Thus each loop is built
+    # once for each pair of function spaces and data layouts, and is cached on
+    # the hierarchy. A later call executes the cached loop on the Dats of its
+    # own arguments, which replace the Dats used to build the loop.
+    hierarchy, _ = utils.get_level(target.function_space().mesh())
+    key = (build_loop,
+           source.function_space(), source.dat.axes,
+           target.function_space(), target.dat.axes)
+    cache = hierarchy._shared_data_cache["transfer_loops"]
+    try:
+        loop, source_name, target_name = cache[key]
+    except KeyError:
+        loop = build_loop(source, target)
+        loop, source_name, target_name = cache.setdefault(key, (loop, source.dat.name, target.dat.name))
+    loop(**{source_name: source.dat, target_name: target.dat})
+
+
+def _prolong_loop(coarse, fine):
+    """Return the loop that prolongs coarse into fine."""
+    Vf = fine.function_space()
+    Vc = coarse.function_space()
+
+    # XXX: Should be able to figure out locations by pushing forward
+    # reference cell node locations to physical space.
+    # x = \sum_i c_i \phi_i(x_hat)
+    node_locations = utils.physical_node_locations(Vf)
+
+    kernel, oriented, needs_cell_sizes = kernels.prolong_kernel(coarse, Vf)
+    n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+    compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
+    kernel_args = [
+        fine.dat[n],
+        coarse.dat[compose_map(coarse)],
+        node_locations.dat[n],
+    ]
+    # source mesh quantities
+    source_mesh = Vc.mesh()
+    coarse_coords = source_mesh.coordinates
+    kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
+    if oriented:
+        co = source_mesh.cell_orientations()
+        kernel_args.append(co.dat[compose_map(co)])
+    if needs_cell_sizes:
+        cs = source_mesh.cell_sizes
+        kernel_args.append(cs.dat[compose_map(cs)])
+    return op3.loop(n, kernel(*kernel_args))
+
+
+def _restrict_loop(fine_dual, coarse_dual):
+    """Return the loop that restricts fine_dual into coarse_dual."""
+    Vf = fine_dual.function_space()
+    Vc = coarse_dual.function_space()
+
+    # XXX: Should be able to figure out locations by pushing forward
+    # reference cell node locations to physical space.
+    # x = \sum_i c_i \phi_i(x_hat)
+    node_locations = utils.physical_node_locations(Vf.dual())
+
+    kernel, oriented, needs_cell_sizes = kernels.restrict_kernel(Vf, Vc)
+    n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+    compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
+    kernel_args = [
+        coarse_dual.dat[compose_map(coarse_dual)],
+        fine_dual.dat[n],
+        node_locations.dat[n],
+    ]
+    # source mesh quantities
+    source_mesh = Vc.mesh()
+    coarse_coords = source_mesh.coordinates
+    kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
+    if oriented:
+        co = source_mesh.cell_orientations()
+        kernel_args.append(co.dat[compose_map(co)])
+    if needs_cell_sizes:
+        cs = source_mesh.cell_sizes
+        kernel_args.append(cs.dat[compose_map(cs)])
+    return op3.loop(n, kernel(*kernel_args))
+
+
+def _inject_loop(fine, coarse):
+    """Return the loop that injects fine into coarse."""
+    Vc = coarse.function_space()
+    Vf = fine.function_space()
+    (kernel, oriented, needs_cell_sizes), dg = kernels.inject_kernel(Vf, Vc)
+    if dg:
+        hierarchy, _ = utils.get_level(Vc.mesh())
+        if not hierarchy.nested:
+            raise NotImplementedError("Multigrid DG injection not implemented on non-nested hierarchies.")
+        c = Vc.mesh().cells.owned.iter()
+        compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())(c)
+        coarse_coords = Vc.mesh().coordinates
+        fine_coords = Vf.mesh().coordinates
+        return op3.loop(
+            c,
+            kernel(
+                coarse.dat[Vc.cell_node_map(c)],
+                fine.dat[compose_map(fine)],
+                fine_coords.dat[compose_map(fine_coords)],
+                coarse_coords.dat[coarse_coords.function_space().cell_node_map(c)],
+                utils.coarse_cell_child_count(Vc, Vf)[c],
+            ),
+        )
+
+    node_locations = utils.physical_node_locations(Vc)
+    n = Vc.nodal_axes.blocked(Vc.shape).free.iter()
+    compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())(n)
+    kernel_args = [
+        coarse.dat[n],
+        fine.dat[compose_map(fine)],
+        node_locations.dat[n],
+    ]
+    # source mesh quantities
+    source_mesh = Vf.mesh()
+    fine_coords = source_mesh.coordinates
+    kernel_args.append(fine_coords.dat[compose_map(fine_coords)])
+    if oriented:
+        co = source_mesh.cell_orientations()
+        kernel_args.append(co.dat[compose_map(co)])
+    if needs_cell_sizes:
+        cs = source_mesh.cell_sizes
+        kernel_args.append(cs.dat[compose_map(cs)])
+    return op3.loop(n, kernel(*kernel_args))
