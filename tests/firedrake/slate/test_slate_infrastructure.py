@@ -308,6 +308,13 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
 
 
+def test_inverse_block_extraction(mixed_matrix):
+    splitter = ExtractSubBlock()
+    inverse = mixed_matrix.inv
+
+    assert splitter.split(inverse, (0, 0)) == inverse.blocks[0, 0]
+
+
 def test_implicit_casting_add_sub():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)

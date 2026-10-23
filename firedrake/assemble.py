@@ -19,12 +19,13 @@ from firedrake import (parameters, solving,
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
+from firedrake.exceptions import MismatchingFunctionSpaceError
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.functionspaceimpl import is_mixed
-from firedrake.interpolation import get_interpolator
+from firedrake.interpolation import get_interpolator, get_runtime_tabulation_coordinates, SameMeshInterpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
-from firedrake.mesh import get_mesh_topologies, MeshLoopIndex
+from firedrake.mesh import get_mesh_topologies, MeshGeometry, MeshLoopIndex
 from firedrake.slate import slac, slate
 from firedrake.slate.slac.kernel_builder import CellFacetKernelArg, LayerCountKernelArg, LayerKernelArg
 from firedrake.utils import ScalarType, tuplify
@@ -89,6 +90,8 @@ def assemble(expr, *args, **kwargs):
         boundary condition. Default is `True`.
     diagonal : bool
         If assembling a matrix is it diagonal?
+    access : pyop3.constants.Intent
+        Access descriptor for combining updates to the output tensor.
     weight : float
         Weight of the boundary condition, i.e. the scalar in front of the
         identity matrix corresponding to the boundary nodes.
@@ -146,6 +149,30 @@ def assemble(expr, *args, **kwargs):
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
+def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
+                       *args, **kwargs) -> "FormAssembler":
+    """Construct the assembler for the rank of ``form``, forwarding the options it takes."""
+    diagonal = kwargs.pop("diagonal", False)
+    nargs = len(form.arguments())
+    if nargs == 0:
+        return ZeroFormAssembler(form, form_compiler_parameters=kwargs.get("form_compiler_parameters"),
+                                 pyop3_compiler_parameters=kwargs.get("pyop3_compiler_parameters"))
+    elif nargs == 1 or diagonal:
+        return OneFormAssembler(form, *args,
+                                bcs=kwargs.get("bcs", None),
+                                form_compiler_parameters=kwargs.get("form_compiler_parameters"),
+                                pyop3_compiler_parameters=kwargs.get("pyop3_compiler_parameters"),
+                                needs_zeroing=kwargs.get("needs_zeroing", True),
+                                zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
+                                access=kwargs.get("access", op3.INC),
+                                diagonal=diagonal,
+                                weight=kwargs.get("weight", 1.0))
+    elif nargs == 2:
+        return TwoFormAssembler(form, *args, **kwargs)
+    else:
+        raise ValueError(f'Expecting a 0-, 1-, or 2-form: got {form}')
+
+
 def get_assembler(form, *args, **kwargs):
     """Create an assembler.
 
@@ -157,7 +184,6 @@ def get_assembler(form, *args, **kwargs):
     """
     is_base_form_preprocessed = kwargs.pop('is_base_form_preprocessed', False)
     fc_params = kwargs.get('form_compiler_parameters', None)
-    pyop3_compiler_parameters = kwargs.get('pyop3_compiler_parameters', None)
     if isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed:
         # If not assembling a matrix, internal BaseForm nodes are matfree by default
         # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
@@ -167,22 +193,7 @@ def get_assembler(form, *args, **kwargs):
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
-        diagonal = kwargs.pop('diagonal', False)
-        if len(form.arguments()) == 0:
-            return ZeroFormAssembler(form, form_compiler_parameters=fc_params, pyop3_compiler_parameters=pyop3_compiler_parameters)
-        elif len(form.arguments()) == 1 or diagonal:
-            return OneFormAssembler(form, *args,
-                                    bcs=kwargs.get("bcs", None),
-                                    form_compiler_parameters=fc_params,
-                                    pyop3_compiler_parameters=pyop3_compiler_parameters,
-                                    needs_zeroing=kwargs.get("needs_zeroing", True),
-                                    zero_bc_nodes=kwargs.get("zero_bc_nodes", True),
-                                    diagonal=diagonal,
-                                    weight=kwargs.get("weight", 1.0))
-        elif len(form.arguments()) == 2:
-            return TwoFormAssembler(form, *args, **kwargs)
-        else:
-            raise ValueError('Expecting a 0-, 1-, or 2-form: got %s' % (form))
+        return get_form_assembler(form, *args, **kwargs)
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.core.base_form_operator.BaseFormOperator):
         # BaseForm preprocessing can turn BaseForm into an Expr (cf. case (6) in `restructure_base_form`)
         return ExprAssembler(form)
@@ -316,6 +327,41 @@ class AbstractFormAssembler(abc.ABC):
             Result of assembly: `float` for 0-forms, `firedrake.cofunction.Cofunction` or `firedrake.function.Function` for 1-forms, and `matrix.MatrixBase` for 2-forms.
 
         """
+
+
+def _can_fuse_operator(operator: ufl.core.base_form_operator.BaseFormOperator,
+                       covering_domains: set) -> bool:
+    """Can TSFC assemble ``operator`` in the kernel of the expression that holds it?
+
+    ``covering_domains`` are the domains that the enclosing integral's measure covers,
+    or the domains that the enclosing interpolation targets.
+    """
+    if not isinstance(operator, ufl.Interpolate):
+        return False
+    # A fused interpolation must have a terminal dual argument. Otherwise,
+    # that argument needs to be assembled before the enclosing expression.
+    dual_arg, expression = operator.argument_slots()
+    if not isinstance(dual_arg, (ufl.Coargument, ufl.Cofunction)):
+        return False
+    if not all(any(domain is covering_domain
+                   or (isinstance(domain, MeshGeometry) and isinstance(covering_domain, MeshGeometry)
+                       and domain.submesh_ancestors[-1] is covering_domain.submesh_ancestors[-1]
+                       and domain.topological_dimension == covering_domain.topological_dimension)
+                   for covering_domain in covering_domains)
+               for domain in extract_domains(operator)):
+        return False
+    # The enclosing expression iterates over its own cells. It can therefore
+    # absorb only an interpolation that maps cells to cells and reaches every
+    # target cell; every other interpolation keeps its own interpolator.
+    interpolator = get_interpolator(operator)
+    if not isinstance(interpolator, SameMeshInterpolator) or not interpolator.covers_target:
+        return False
+    # Nested interpolations can be fused only when all of them meet the same
+    # conditions.
+    for op in ufl.algorithms.extract_base_form_operators(expression):
+        if not _can_fuse_operator(op, covering_domains):
+            return False
+    return True
 
 
 class BaseFormAssembler(AbstractFormAssembler):
@@ -452,26 +498,30 @@ class BaseFormAssembler(AbstractFormAssembler):
             in a post-order fashion.
         """
         if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+            # Only the output matrix uses the requested allocation integral types.
+            # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
+            allocation_integral_types = self._allocation_integral_types if expr is self._form else None
             if args and self._mat_type != "matfree":
                 # Retrieve the Form's children
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
                 # Substitute the base form operators by their output
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
             form = expr
-            rank = len(form.arguments())
-            if rank == 0:
-                assembler = ZeroFormAssembler(form, form_compiler_parameters=self._form_compiler_params, pyop3_compiler_parameters=self._pyop3_compiler_parameters)
-            elif rank == 1 or (rank == 2 and self._diagonal):
-                assembler = OneFormAssembler(form, form_compiler_parameters=self._form_compiler_params,
-                                             pyop3_compiler_parameters=self._pyop3_compiler_parameters,
-                                             zero_bc_nodes=self._zero_bc_nodes, diagonal=self._diagonal, weight=self._weight)
-            elif rank == 2:
-                assembler = TwoFormAssembler(form, bcs=bcs, form_compiler_parameters=self._form_compiler_params, pyop3_compiler_parameters=self._pyop3_compiler_parameters,
-                                             mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
-                                             options_prefix=self._options_prefix, appctx=self._appctx, weight=self._weight,
-                                             allocation_integral_types=self.allocation_integral_types)
-            else:
-                raise AssertionError
+            # Only matrices need allocation_integral_types, bcs are delayed to the output for 1-forms
+            is_matrix = len(form.arguments()) == 2 and not self._diagonal
+            assembler = get_form_assembler(
+                form,
+                bcs=bcs if is_matrix else (),
+                form_compiler_parameters=self._form_compiler_params,
+                pyop3_compiler_parameters=self._pyop3_compiler_parameters,
+                mat_type=self._mat_type,
+                sub_mat_type=self._sub_mat_type,
+                options_prefix=self._options_prefix,
+                appctx=self._appctx,
+                diagonal=self._diagonal,
+                weight=self._weight,
+                allocation_integral_types=allocation_integral_types if is_matrix else None,
+            )
             return assembler.assemble(tensor=tensor)
         elif isinstance(expr, ufl.Adjoint):
             if len(args) != 1:
@@ -701,14 +751,30 @@ class BaseFormAssembler(AbstractFormAssembler):
     def base_form_operands(expr):
         if isinstance(expr, (ufl.FormSum, ufl.Adjoint, ufl.Action)):
             return expr.ufl_operands
+        if isinstance(expr, slate.TensorBase):
+            # A zero tensor wraps no integrals for TSFC to compile.
+            operands = [BaseFormAssembler.base_form_operands(child)
+                        for child in expr.operands or (expr.form,)
+                        if not isinstance(child, ufl.ZeroBaseForm)]
+            return list(dict.fromkeys(itertools.chain.from_iterable(operands)))
         if isinstance(expr, ufl.Form):
+            # Filter the base-form operands because a fusible interpolation is
+            # compiled with the enclosing integral instead of as a child.
+            children = set()
+            for integral in expr.integrals():
+                domains = {integral.ufl_domain(), *integral.extra_domain_integral_type_map()}
+                children.update(op for op in ufl.algorithms.extract_base_form_operators(integral.integrand())
+                                if not _can_fuse_operator(op, domains))
             # Use reversed to treat base form operators
             # in the order in which they have been made.
-            return list(reversed(expr.base_form_operators()))
+            return [op for op in reversed(expr.base_form_operators()) if op in children]
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
-            # Conserve order
+            # Filter the base-form operands because a fusible interpolation is
+            # compiled with the enclosing operator instead of as a child.
+            domains = set(extract_domains(expr.argument_slots()[0])) if isinstance(expr, ufl.Interpolate) else set()
+            # Preserve the order in which the operands were created.
             children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
-                                     if isinstance(e, ufl.form.BaseForm))
+                                     if isinstance(e, ufl.form.BaseForm) and not _can_fuse_operator(e, domains))
             return list(children)
         return []
 
@@ -903,8 +969,8 @@ class BaseFormAssembler(AbstractFormAssembler):
             expr = BaseFormAssembler.restructure_base_form_postorder(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
-        # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
-        if isinstance(original_expr, ufl.form.Form) and isinstance(expr, ufl.form.Form):
+        # to transmit the cache. Both objects must support the assembler cache.
+        if isinstance(original_expr, (ufl.form.Form, ufl.Interpolate)) and isinstance(expr, (ufl.form.Form, ufl.Interpolate)):
             expr._cache = original_expr._cache
         return expr
 
@@ -959,8 +1025,8 @@ class FormAssembler(AbstractFormAssembler):
 
     def __new__(cls, *args, **kwargs):
         form = args[0]
-        if not isinstance(form, (ufl.Form, slate.TensorBase)):
-            raise TypeError(f"The first positional argument must be of ufl.Form or slate.TensorBase: got {type(form)} ({form})")
+        if not isinstance(form, (ufl.Form, ufl.Interpolate, slate.TensorBase)):
+            raise TypeError(f"The first positional argument must be of ufl.Form, ufl.Interpolate, or slate.TensorBase: got {type(form)} ({form})")
         # It is expensive to construct new assemblers because extracting the data
         # from the form is slow. Since all of the data structures in the assembler
         # are persistent apart from the output tensor, we stash the assembler on the
@@ -981,9 +1047,10 @@ class FormAssembler(AbstractFormAssembler):
         self = super().__new__(cls)
         self._initialised = False
         self.__init__(*args, **kwargs)
-        if _FORM_CACHE_KEY not in form._cache:
-            form._cache[_FORM_CACHE_KEY] = {}
-        form._cache[_FORM_CACHE_KEY][key] = self
+        if key is not None:
+            if _FORM_CACHE_KEY not in form._cache:
+                form._cache[_FORM_CACHE_KEY] = {}
+            form._cache[_FORM_CACHE_KEY][key] = self
         return self
 
     @classmethod
@@ -1019,15 +1086,20 @@ class ParloopFormAssembler(FormAssembler):
     form_compiler_parameters : dict
         Optional parameters to pass to the TSFC and/or Slate compilers.
     needs_zeroing : bool
-        Should ``tensor`` be zeroed before assembling?
+        Whether a caller-provided ``tensor`` should be zeroed before
+        assembly. Newly allocated tensors are initialized by ``allocate``.
+    access : pyop3.constants.Intent
+        Access descriptor for combining updates to the output tensor.
 
     """
     # NOTE: I think it would be nice to pass the tensor in here as we need it for codegen. But
     # that is difficult to achieve.
-    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, pyop3_compiler_parameters=None):
+    def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True, pyop3_compiler_parameters=None,
+                 access=op3.INC):
         super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters)
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
+        self._access = access
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -1057,6 +1129,8 @@ class ParloopFormAssembler(FormAssembler):
         pyop3_compiler_parameters.update(self._pyop3_compiler_parameters)
 
         if tensor is None:
+            # The allocator owns initialization of a new tensor. Zeroing is
+            # only relevant when the caller supplies an existing tensor.
             tensor = self.allocate()
         else:
             self._check_tensor(tensor)
@@ -1097,7 +1171,20 @@ class ParloopFormAssembler(FormAssembler):
     @staticmethod
     @abc.abstractmethod
     def _as_pyop3_type(tensor, indices=None):
-        """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
+        """Cast a Firedrake tensor to a PyOP3 data structure, optionally indexing it.
+
+        Parameters
+        ----------
+        tensor : firedrake.Function or firedrake.Cofunction or firedrake.matrix.MatrixBase
+            The Firedrake tensor to convert.
+        indices : tuple of int or None, optional
+            Component indices with which to select a sub-tensor.
+
+        Returns
+        -------
+        pyop3.Scalar or pyop3.Dat or pyop3.Mat
+            The PyOP3 object that represents ``tensor``.
+        """
 
     def parloops(self, tensor):
         if hasattr(self, "_parloops"):
@@ -1141,10 +1228,10 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        if isinstance(self._form, ufl.Form):
+        if isinstance(self._form, (ufl.Form, ufl.Interpolate)):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
-                parameters=self._form_compiler_params
+                parameters=self._form_compiler_params, access=self._access
             )
         elif isinstance(self._form, slate.TensorBase):
             kernels = slac.compile_expression(
@@ -1243,14 +1330,15 @@ class OneFormAssembler(ParloopFormAssembler):
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None, needs_zeroing=True,
-                   zero_bc_nodes=True, diagonal=False, weight=1.0):
+                   zero_bc_nodes=True, diagonal=False, weight=1.0, access=op3.INC):
         bcs = solving._extract_bcs(bcs)
-        return tuple(bcs), tuplify(form_compiler_parameters), tuplify(pyop3_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight
+        return tuple(bcs), tuplify(form_compiler_parameters), tuplify(pyop3_compiler_parameters), needs_zeroing, zero_bc_nodes, diagonal, weight, access
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None, needs_zeroing=True,
-                 zero_bc_nodes=True, diagonal=False, weight=1.0):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing)
+                 zero_bc_nodes=True, diagonal=False, weight=1.0, access=op3.INC):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing,
+                         access=access)
         self._weight = weight
         self._diagonal = diagonal
         self._zero_bc_nodes = zero_bc_nodes
@@ -1321,7 +1409,7 @@ class OneFormAssembler(ParloopFormAssembler):
 
 
 def TwoFormAssembler(form, *args, **kwargs):
-    assert isinstance(form, (ufl.form.Form, slate.TensorBase))
+    assert isinstance(form, (ufl.form.Form, ufl.Interpolate, slate.TensorBase))
     mat_type = kwargs.pop('mat_type', None)
     sub_mat_type = kwargs.pop('sub_mat_type', None)
     mat_spec = make_mat_spec(mat_type, sub_mat_type, form.arguments())
@@ -1452,8 +1540,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,
                  mat_spec=None, options_prefix=None, appctx=None, weight=1.0,
-                 allocation_integral_types=None, pyop3_compiler_parameters=None):
-        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing)
+                 allocation_integral_types=None, pyop3_compiler_parameters=None, access=op3.INC):
+        super().__init__(form, bcs=bcs, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=pyop3_compiler_parameters, needs_zeroing=needs_zeroing,
+                         access=access)
         self._mat_spec = mat_spec
         self._options_prefix = options_prefix
         self._appctx = appctx
@@ -1612,22 +1701,20 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         component = V.component
         if component is not None:
             V = V.parent
+        space = V if V.parent is None else V.parent
         if V.index is None:
             index = Ellipsis
         else:
-            # TODO: use field_axis instead
-            index = utils.single_valued(
-                axes.trees[0].root.component_labels[V.index]
-                for axes in [tensor.M.row_axes, tensor.M.column_axes]
-            )
-        space = V if V.parent is None else V.parent
+            # The label comes from the space of the boundary condition, because
+            # the other argument of a rectangular form can have different labels.
+            index = space.field_axis.component_labels[V.index]
         if isinstance(bc, DirichletBC):
-            # if fs.topological != self.topological:
-            #     raise RuntimeError("Dirichlet BC defined on a different function space")
-            if space.topological != spaces[0].topological:
-                raise RuntimeError("bc space does not match the test function space")
-            elif space.topological != spaces[1].topological:
-                raise RuntimeError("bc space does not match the trial function space")
+            if not any(bc.parent_function_space.topological == fs.topological for fs in spaces):
+                raise MismatchingFunctionSpaceError(
+                    "bc space does not match the test or trial function space")
+            if spaces[0].topological != spaces[1].topological:
+                # Not on a diagonal block, we cannot set diagonal entries
+                return
 
             # NOTE: This is only OK in parallel with mixed spaces because we
             # apply the BC to local submat, where DoF interleaving is not
@@ -1870,8 +1957,12 @@ class ParloopBuilder:
         column_space = column_arg.function_space()
         i, j = indices
 
-        row_bcs = self._bcs
-        col_bcs = [bc for bc in self._bcs if isinstance(bc, DirichletBC)]
+        # A boundary condition only constrains the argument that shares its space.
+        row_bcs = [bc for bc in self._bcs
+                   if bc.parent_function_space.topological == row_space.topological]
+        col_bcs = [bc for bc in self._bcs
+                   if isinstance(bc, DirichletBC)
+                   and bc.parent_function_space.topological == column_space.topological]
 
         if matrix.petscmat.type == PETSc.Mat.Type.NEST:
             ii = list(range(len(row_space))) if i is None else [i]
@@ -1945,6 +2036,8 @@ class ParloopBuilder:
                 raise NotImplementedError("subdomain_data only supported with cell integrals")
             if self._subdomain_id not in ["everywhere", "otherwise"]:
                 raise ValueError("Cannot use subdomain data and subdomain_id")
+            if isinstance(subdomain_data, MeshLoopIndex):
+                return subdomain_data
             return MeshLoopIndex(
                 subdomain_data,
                 self._mesh,
@@ -2015,6 +2108,11 @@ class ParloopBuilder:
     def _as_parloop_arg_constant(self, arg, index):
         const = next(self._constants)
         return const.dat
+
+    @_as_parloop_arg.register(kernel_args.TabulationKernelArg)
+    def _as_parloop_arg_tabulation(self, arg, index):
+        reference_coordinates = get_runtime_tabulation_coordinates(arg, self._mesh)
+        return pack(reference_coordinates, index)
 
     @_as_parloop_arg.register(kernel_args.CellOrientationsKernelArg)
     def _as_parloop_arg_cell_orientations(self, _, index):

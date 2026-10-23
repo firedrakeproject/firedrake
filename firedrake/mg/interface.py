@@ -299,14 +299,6 @@ def inject(fine, coarse):
     return coarse
 
 
-def _bc_matches_space(bc, V):
-    """Return whether a boundary condition is defined on (a subspace of) V."""
-    fs = bc.function_space()
-    while fs.component is not None and fs.parent is not None:
-        fs = fs.parent
-    return fs == V
-
-
 @PETSc.Log.EventDecorator()
 def assemble_prolongation_aij(Vc, Vf, bcs=None):
     """Assemble the explicit AIJ matrix prolonging Vc to Vf.
@@ -350,8 +342,8 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
 
     lgmaps = None
     if bcs:
-        row_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vrow)]
-        col_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vcol)]
+        row_bcs = [bc for bc in bcs if bc.parent_function_space.topological == Vrow.topological]
+        col_bcs = [bc for bc in bcs if bc.parent_function_space.topological == Vcol.topological]
         if row_bcs or col_bcs:
             lgmaps = (Vrow.lgmap(row_bcs), Vcol.lgmap(col_bcs))
 
@@ -382,7 +374,8 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
 
     if needs_quadrature:
         interp = interpolate(ufl_expr.TrialFunction(Vf), Vtarget)
-        Q = assemble(interp, bcs=bcs, mat_type="aij").petscmat
+        target_bcs = [bc for bc in bcs or () if bc.parent_function_space.topological == Vtarget.topological]
+        Q = assemble(interp, bcs=target_bcs, mat_type="aij").petscmat
         result = Q.matMult(result)
 
     return AssembledMatrix(arguments, result, bcs=bcs)
