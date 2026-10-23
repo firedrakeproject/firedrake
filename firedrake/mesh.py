@@ -2496,13 +2496,22 @@ class MeshTopology(AbstractMeshTopology):
         return dmcommon.cell_facet_adjacency(self.topology_dm, self._cell_numbering, self.cell_closure, self.ufl_cell().num_facets, self._cell_closure_facet_offset)
 
     @cached_property
-    def cell_facet_neighbours(self):
-        dset = op2.DataSet(self.cell_set, dim=self.ufl_cell().num_facets)
+    def cell_facet_neighbours_dat(self):
+        """Return the neighbouring cell across each local facet of every cell.
 
-        cell_facet_neighbours = op2.Dat(
-            dset,
-            self._cell_facet_adjacency[0],
-            dtype=IntType,
+        Returns
+        -------
+        pyop3.Dat
+            A Dat over all cells on this rank (owned and ghost) with one entry for
+            each local facet. Entry ``[c, i]`` is the Firedrake number of the cell
+            that shares local facet ``i`` of cell ``c``, or ``-1`` where no
+            neighbouring cell is present on this rank.
+        """
+        axes = op3.AxisTree.from_iterable([self.cells.as_axis, self.ufl_cell().num_facets])
+
+        cell_facet_neighbours = op3.Dat(
+            axes,
+            data=self._cell_facet_adjacency[0],
             name="cell-facet-neighbours-dat"
         )
 
@@ -2516,7 +2525,7 @@ class MeshTopology(AbstractMeshTopology):
         return sum(len(topology[d]) for d in range(facet_dim))
 
     @cached_property
-    def cell_facet_coord_transforms(self):
+    def cell_facet_coord_transforms_dat(self):
         """Computes affine reference coordinate transforms between neighbouring cells across a given facet.
 
         For each cell `c` and local facet `i`, this method constructs the affine map
@@ -2537,16 +2546,14 @@ class MeshTopology(AbstractMeshTopology):
         num_facets = self.ufl_cell().num_facets
         ref_dim = self.ufl_cell().topological_dimension
 
-        A_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim, ref_dim))
-        b_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim))
-
         # Create local numpy buffers
         A_transform = np.full((self.num_cells(), num_facets, ref_dim, ref_dim), np.nan)
         b_transform = np.full((self.num_cells(), num_facets, ref_dim), np.nan)
 
-        facet_cells = self.interior_facets.facet_cell  # all local facets (owned + halos)
-        local_facets = self.interior_facets.local_facet_dat.data_ro_with_halos
-        local_facet_orientations = self.interior_facets.local_facet_orientation_dat.data_ro_with_halos
+        # Consider only the interior facets that this rank sees (owned + ghost)
+        facet_cells = self._support_dat("interior_facet", only_owned=False).data_ro_with_halos
+        local_facets = self._interior_facet_local_numbers_dat.data_ro_with_halos
+        local_facet_orientations = self._interior_facet_local_orientation_dat.data_ro_with_halos
 
         ref_cell = FIAT.ufc_cell(self.ufl_cell())
         E, e, E_inv = (np.stack(x) for x in make_facet_embedding_maps(ref_cell))
@@ -2556,6 +2563,7 @@ class MeshTopology(AbstractMeshTopology):
         t = np.stack([o_coord_maps[o][1] for o in range(len(o_coord_maps))])
         Q_inv = np.linalg.inv(Q)
 
+        # Exclude ghost facets whose other adjacent cell is not known to this rank
         known_facets = (facet_cells != -1).all(axis=1)
         c0, c1 = facet_cells[known_facets].T
         lf0, lf1 = local_facets[known_facets].T
@@ -2586,19 +2594,11 @@ class MeshTopology(AbstractMeshTopology):
         A_transform[c1, lf1] = A_table[lf1, lf0, o1, o0]
         b_transform[c1, lf1] = b_table[lf1, lf0, o1, o0]
 
-        cell_facet_A = op2.Dat(
-            A_dset,
-            A_transform,
-            dtype=RealType,
-            name="cell-facet-coord-transforms-A-dat"
-        )
+        A_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, ref_dim, ref_dim])
+        b_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, ref_dim])
 
-        cell_facet_b = op2.Dat(
-            b_dset,
-            b_transform,
-            dtype=RealType,
-            name="cell-facet-coord-transforms-b-dat"
-        )
+        cell_facet_A = op3.Dat(A_axes, data=A_transform, name="cell-facet-coord-transforms-A-dat")
+        cell_facet_b = op3.Dat(b_axes, data=b_transform, name="cell-facet-coord-transforms-b-dat")
 
         return cell_facet_A, cell_facet_b
 
