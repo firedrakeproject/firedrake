@@ -52,21 +52,23 @@ _with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_t
 class CoordinatelessFunction(ufl.Coefficient):
     r"""A function on a mesh topology."""
 
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
-        r"""
-        :param function_space: the :class:`.FunctionSpace`, or
-            :class:`.MixedFunctionSpace` on which to build this
-            :class:`Function`.
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
+                 *, _uid: int | None = None):
+        """Initialize a coordinateless function.
 
-            Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`)
-            providing initial values (optional).
-            This :class:`Function` will share data with the provided
-            value.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
-               (defaults to ``ScalarType``).
+        Parameters
+        ----------
+        function_space : FunctionSpace or MixedFunctionSpace
+            Function space on which to build this function.
+        val : array-like or pyop3.Dat, optional
+            Data that this function will share.
+        name : str, optional
+            User-defined name for this function.
+        dtype : data type, optional
+            Data type for this function. Defaults to ``ScalarType``.
+        _uid : int, optional
+            Internal identifier to retain when creating an adjoint checkpoint copy.
+
         """
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
                                            functionspaceimpl.MixedFunctionSpace)), \
@@ -77,7 +79,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         # User comm
         self.comm = function_space.comm
         self._function_space = function_space
-        self.uid = _new_uid(self.comm)
+        self.uid = _new_uid(self.comm) if _uid is None else _uid
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
 
@@ -233,20 +235,24 @@ class Function(ufl.Coefficient, FunctionMixin):
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 count=None):
-        r"""
-        :param function_space: the :class:`.FunctionSpace`,
-            or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
-            Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.  In this
-            case, the function values are copied.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`) providing initial values (optional).
-            If val is an existing :class:`Function`, then the data will be shared.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
-               (defaults to ``ScalarType``).
-        :param count: The :class:`ufl.Coefficient` count which creates the
-            symbolic identity of this :class:`Function`.
+                 count=None, *, _uid: int | None = None):
+        """Initialize a function.
+
+        Parameters
+        ----------
+        function_space : FunctionSpace or MixedFunctionSpace or Function
+            Function space on which to build this function. If this is a function,
+            its function space is used.
+        val : array-like, pyop3.Dat, or Function, optional
+            Initial data. If this is a function, its data is shared.
+        name : str, optional
+            User-defined name for this function.
+        dtype : data type, optional
+            Data type for this function. Defaults to ``ScalarType``.
+        count : int, optional
+            UFL coefficient count that defines this function's symbolic identity.
+        _uid : int, optional
+            Internal identifier to retain when creating an adjoint checkpoint copy.
         """
         V = function_space
         if isinstance(V, Function):
@@ -262,7 +268,8 @@ class Function(ufl.Coefficient, FunctionMixin):
             self._data = val
         else:
             self._data = CoordinatelessFunction(V.topological,
-                                                val=val, name=name, dtype=dtype)
+                                                val=val, name=name, dtype=dtype,
+                                                _uid=_uid)
 
         self._function_space = V
         ufl.Coefficient.__init__(

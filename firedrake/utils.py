@@ -37,6 +37,8 @@ import petsctools
 # MPI key value for storing a per communicator universal identifier
 FIREDRAKE_UID = MPI.Comm.Create_keyval()
 
+_next_comm_index = 0
+
 RealType_c = as_cstr(RealType)
 ScalarType_c = as_cstr(ScalarType)
 IntType_c = as_cstr(IntType)
@@ -121,12 +123,22 @@ def device_matrix_type(*, warn: bool = True) -> str | None:
     return _device_mat_type_map[dev_type]
 
 
-def _new_uid(comm):
-    uid = comm.Get_attr(FIREDRAKE_UID)
-    if uid is None:
-        uid = 0
-    comm.Set_attr(FIREDRAKE_UID, uid + 1)
-    return uid
+def _new_uid(comm: MPI.Comm) -> int:
+    """Return an identifier that is the same on all ranks of comm and unique across communicators.
+
+    The first call on ``comm`` is collective over ``comm``.
+    """
+    global _next_comm_index
+    attr = comm.Get_attr(FIREDRAKE_UID)
+    if attr is None:
+        comm_index = comm.allreduce(_next_comm_index, op=MPI.MAX)
+        _next_comm_index = comm_index + 1
+        count = 0
+    else:
+        comm_index, count = attr
+    comm.Set_attr(FIREDRAKE_UID, (comm_index, count + 1))
+    n = comm_index + count
+    return n * (n + 1) // 2 + count
 
 
 def unique(iterable):

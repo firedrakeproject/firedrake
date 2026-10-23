@@ -46,18 +46,24 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @PETSc.Log.EventDecorator()
     @CofunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 count=None):
-        r"""
-        :param function_space: the :class:`.FunctionSpace`,
-            or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
-            Alternatively, another :class:`Cofunction` may be passed here and its function space
-            will be used to build this :class:`Cofunction`.  In this
-            case, the function values are copied.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`) providing initial values (optional).
-            If val is an existing :class:`Cofunction`, then the data will be shared.
-        :param name: user-defined name for this :class:`Cofunction` (optional).
-        :param dtype: optional data type for this :class:`Cofunction`
-               (defaults to ``ScalarType``).
+                 count=None, *, _uid: int | None = None):
+        """Initialize a cofunction.
+
+        Parameters
+        ----------
+        function_space : FunctionSpace or MixedFunctionSpace or Cofunction
+            Function space on which to build this cofunction. If this is a cofunction,
+            its function space and values are copied.
+        val : array-like or pyop3.Dat, optional
+            Initial data. If this is a cofunction, its data is shared.
+        name : str, optional
+            User-defined name for this cofunction.
+        dtype : data type, optional
+            Data type for the cofunction. Defaults to ``ScalarType``.
+        count : int, optional
+            UFL coefficient count that defines this cofunction's symbolic identity.
+        _uid : int, optional
+            Internal identifier to retain when creating an adjoint checkpoint copy.
         """
 
         V = function_space
@@ -75,7 +81,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         # User comm
         self.comm = V.comm
         self._function_space = V
-        self.uid = utils._new_uid(self.comm)
+        self.uid = utils._new_uid(self.comm) if _uid is None else _uid
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
