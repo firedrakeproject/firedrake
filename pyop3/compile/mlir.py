@@ -38,7 +38,6 @@ from xdsl.dialects.builtin import (
 INDEX_TYPE = IndexType()
 FLOAT_TYPES = (f32, f64)
 
-
 @dataclasses.dataclass
 class Argument:
     name: str
@@ -50,7 +49,6 @@ class Argument:
 
     def __repr__(self):
         return f"<{self.name}, dtype: {self.dtype}, shape: {self.shape or '?'}>"
-
 
 def get_mlir_type(dtype):
     # NOTE: Default to f64 if dtype is None, possibly wrong.
@@ -577,6 +575,10 @@ class MLIRBuilder:
             self.symbol_table.define(expr, self.process(expr))
         return self.symbol_table[expr]
 
+    @_process.register(imp.Assignment)
+    def process_assignment(self, leaf):
+        ... 
+
     # }}}
 
     # {{{ gem types
@@ -789,5 +791,3 @@ class MLIRBuilder:
             {key: ssa for key, ssa in self._buffers.items() if key in argument_names}
         )
         self._buffers = original_buffers 
-
-
