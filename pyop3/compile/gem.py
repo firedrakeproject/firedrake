@@ -34,7 +34,7 @@ from pyop3.buffer import (
     NullBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE, Intent
 from pyop3.dtypes import IntType
 from pyop3.insn.base import (
     AbstractAssignment,
@@ -226,8 +226,18 @@ class GemCompiler(Pyop3Compiler):
             lhs, rhs = insn
             new_lhs = gem.replace_variables(lhs, gem_var_replace_map)
             new_rhs = gem.replace_variables(rhs, gem_var_replace_map)
-            # NOTE: Not sure if this is the right intent here
-            insn = gem.impero.Assignment(new_lhs, new_rhs, "write")
+
+            # FIXME: This is a hack that assumes that the function only writes to
+            # one argument which is the first one
+            match call.function.intents[0]:
+                case Intent.WRITE:
+                    mode = "write"
+                case Intent.INC:
+                    mode = "inc"
+                case _:
+                    raise NotImplementedError
+
+            insn = gem.impero.Assignment(new_lhs, new_rhs, mode)
             self._add_instruction(insn)
 
     def arg(self, name, dtype, shape):
