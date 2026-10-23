@@ -354,8 +354,7 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
 
     """
     accesses = tuple([access] + [op3.READ]*(nargs-1))
-    # TSFC kernels add their result to the output argument.
-    return op3.Function(ast, accesses, requires_zeroed_output_arguments=True)
+    return op3.Function(ast, accesses)
 
 
 def extract_numbered_coefficients(expr, numbers):

@@ -28,8 +28,7 @@ def integrate_rhs(family, degree):
     x[0,0] = 0.5 * (c[1,2] + c[0,2])
     """
 
-    par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)},
-             kernel_kwargs={"requires_zeroed_output_arguments": True})
+    par_loop((domain, instructions), dx, {'x': (f, INC), 'c': (coords, READ)})
 
     g = assemble(f * dx)
 
