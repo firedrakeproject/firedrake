@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.slate.slate import ScalarMul, UnaryOp, as_slate
+from firedrake.matrix import ImplicitMatrix
 from ufl.form import FormSum
 import math
 
@@ -379,6 +380,30 @@ def test_implicit_casting_action():
     assert A * w == expected
     # ufl Form times slate AssembledVector
     assert a * W == expected
+
+
+@pytest.mark.parallel([1, 3])
+def test_matfree_slate_sum_product_uses_implicit_matrix():
+    mesh = UnitSquareMesh(5, 5)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    q = TestFunction(Q)
+    p = TrialFunction(Q)
+    A = inner(grad(u), grad(v)) * dx
+    B = Tensor(inner(div(u), q) * dx)
+    M = Tensor(inner(p, q) * dx)
+    # M.inv * B is the L2 projection of div(u) into DG0.
+    form = A + B.T * M.inv * B
+    assert isinstance(form, FormSum)
+    assert len(form.components()) == 2
+
+    assembled = assemble(form, mat_type="matfree")
+
+    assert isinstance(assembled, ImplicitMatrix)
+    assert isinstance(assembled.a, FormSum)
+    assert len(assembled.a.components()) == 2
 
 
 def test_illegal_add_sub():

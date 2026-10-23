@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.assemble import get_assembler
+from firedrake.matrix import ImplicitMatrix
 from firedrake.utils import ScalarType
 import ufl
 
@@ -181,6 +182,23 @@ def test_matrix_formsum(M):
     out = assemble(formsum, tensor=res2)
     assert out is res2
     assert np.allclose(sumfirst.petscmat[:, :], res2.petscmat[:, :], rtol=1E-14)
+
+
+@pytest.mark.parallel([1, 3])
+def test_matfree_form_sum_uses_implicit_matrix(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    A = interpolate(u, W)
+    B = interpolate(2 * u, W)
+    form = ufl.FormSum((A, 1), (B, 1))
+    assert len(form.components()) == 2
+
+    assembled = assemble(form, mat_type="matfree")
+
+    assert isinstance(assembled, ImplicitMatrix)
+    assert isinstance(assembled.a, ufl.FormSum)
+    assert len(assembled.a.components()) == 2
 
 
 def test_formsum_vector_self(a):
