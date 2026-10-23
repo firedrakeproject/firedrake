@@ -105,6 +105,8 @@ class TSFCKernel:
             Map from local constant numbers in the provided (split) form to constant numbers in the original form.
         dont_split_numbers : tuple
             Block-local coefficient numbers of coefficients that are not to be split into components by form compiler.
+        access : Intent
+            The access descriptor of the output tensor.
         diagonal : bool
             If assembling a matrix is it diagonal?
 
@@ -199,7 +201,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
         Coefficients that are not to be split into components by form compiler.
     diagonal : bool
         If assembling a matrix is it diagonal?
-    access
+    access : Intent
         The access descriptor of the output tensor.
 
     Returns
@@ -341,7 +343,7 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
         The kernel code, for example a loopy kernel.
     nargs
         The number of arguments that the kernel expects.
-    access
+    access : Intent
         The access descriptor of the first kernel argument. The other
         arguments are read-only.
 

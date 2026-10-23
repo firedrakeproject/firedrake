@@ -90,6 +90,8 @@ def assemble(expr, *args, **kwargs):
         boundary condition. Default is `True`.
     diagonal : bool
         If assembling a matrix is it diagonal?
+    access : pyop3.constants.Intent
+        Access descriptor for combining updates to the output tensor.
     weight : float
         Weight of the boundary condition, i.e. the scalar in front of the
         identity matrix corresponding to the boundary nodes.
@@ -1086,6 +1088,8 @@ class ParloopFormAssembler(FormAssembler):
     needs_zeroing : bool
         Whether a caller-provided ``tensor`` should be zeroed before
         assembly. Newly allocated tensors are initialized by ``allocate``.
+    access : pyop3.constants.Intent
+        Access descriptor for combining updates to the output tensor.
 
     """
     # NOTE: I think it would be nice to pass the tensor in here as we need it for codegen. But
@@ -1304,6 +1308,8 @@ class OneFormAssembler(ParloopFormAssembler):
     ----------
     form : ufl.Form or slate.TensorBase
         1-form.
+    access : pyop3.constants.Intent
+        Access descriptor for combining updates to the output tensor.
 
     Notes
     -----
@@ -1506,6 +1512,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     ----------
     form : ufl.Form or slate.TensorBasehe
         2-form.
+    access : pyop3.constants.Intent
+        Access descriptor for combining updates to the output tensor.
 
     Notes
     -----
