@@ -451,14 +451,14 @@ class DirichletBC(BCBase, DirichletBCMixin):
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
 
-        :arg r: a :class:`.Function` or :class:`.Matrix` to which the
+        :arg r: a :class:`firedrake.function.Function` or :class:`.Matrix` to which the
             boundary condition should be applied.
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
             no effect if ``r`` is a :class:`.Matrix` rather than a
-            :class:`.Function` . If ``u`` is absent, then the boundary
+            :class:`firedrake.function.Function` . If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
 
@@ -514,11 +514,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self
 
 
-class EquationBC(object):
+class EquationBC:
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
 
     :param eq: the linear/nonlinear form equation
-    :param u: the :class:`.Function` to solve for
+    :param u: the :class:`firedrake.function.Function` to solve for
     :arg sub_domain: see :class:`.DirichletBC` .
     :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)
