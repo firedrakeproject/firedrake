@@ -280,11 +280,8 @@ class GenericSolveBlock(Block):
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
-        if isinstance(dFdm, ufl.Form):
-            dFdm = firedrake.adjoint(dFdm)
-            dFdm = firedrake.action(dFdm, adj_sol)
-        else:
-            dFdm = dFdm(adj_sol)
+        dFdm = firedrake.adjoint(dFdm)
+        dFdm = firedrake.action(dFdm, adj_sol)
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
         return dFdm
 
