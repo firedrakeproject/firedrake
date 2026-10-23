@@ -356,7 +356,6 @@ class Function(ufl.Coefficient, FunctionMixin):
             return self._components[indices]
 
     @PETSc.Log.EventDecorator()
-    @FunctionMixin._ad_annotate_project
     def project(self, b, *args, **kwargs):
         r"""Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or a
         UFL expression.

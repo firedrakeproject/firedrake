@@ -1,48 +1,98 @@
+import firedrake
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
 from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
-from firedrake import function
-from ufl.domain import extract_unique_domain
+from firedrake.adjoint_utils.variational_solver import NonlinearVariationalSolverMixin
 
 
 def annotate_project(project):
+    """
+    A wrapper for the bare project() call to handle
+    switching annotation on/off without dispatching
+    into all the types of projectors.
+    """
+
     @wraps(project)
     def wrapper(*args, **kwargs):
-        """The project call performs an equation solve, and so it too must be annotated so that the
-        adjoint and tangent linear models may be constructed automatically by pyadjoint.
-
-        To disable the annotation of this function, just pass :py:data:`annotate=False`. This is useful in
-        cases where the solve is known to be irrelevant or diagnostic for the purposes of the adjoint
-        computation (such as projecting fields to other function spaces for the purposes of
-        visualisation)."""
-
-        ad_block_tag = kwargs.pop("ad_block_tag", None)
         annotate = annotate_tape(kwargs)
+        if annotate:
+            return project(*args, **kwargs)
+
+        with stop_annotating():
+            return project(*args, **kwargs)
+
+    return wrapper
+
+
+def annotate_super_project(project):
+    """
+    A wrapper for SupermeshProjector.project(), only handles
+    the code path that leads to the creation of a
+    SupermeshProjectBlock.
+    """
+
+    @wraps(project)
+    def wrapper(self, **kwargs):
+        annotate = annotate_tape(kwargs)
+        V = self.target.function_space()
         if annotate:
             bcs = kwargs.get("bcs", [])
             sb_kwargs = ProjectBlock.pop_kwargs(kwargs)
-            if isinstance(args[1], function.Function):
+            if self._target_is_function:
                 # block should be created before project because output might also be an input that needs checkpointing
-                output = args[1]
-                V = output.function_space()
-                if isinstance(args[0], function.Function) and extract_unique_domain(args[0]) != V.mesh():
-                    block = SupermeshProjectBlock(args[0], V, output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
-                else:
-                    block = ProjectBlock(args[0], V, output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
+                block = SupermeshProjectBlock(self.source, V, self.target, bcs, ad_block_tag=self.ad_block_tag, **sb_kwargs)
 
         with stop_annotating():
-            output = project(*args, **kwargs)
+            output = project(self, **kwargs)
 
         if annotate:
             tape = get_working_tape()
-            if not isinstance(args[1], function.Function):
-                if isinstance(args[0], function.Function) and extract_unique_domain(args[0]) != args[1].mesh():
-                    block = SupermeshProjectBlock(args[0], args[1], output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
-                else:
-                    block = ProjectBlock(args[0], args[1], output, bcs, ad_block_tag=ad_block_tag, **sb_kwargs)
+            if not self._target_is_function:
+                block = SupermeshProjectBlock(self.source, V, output, bcs, ad_block_tag=self.ad_block_tag, **sb_kwargs)
             tape.add_block(block)
             block.add_output(output.create_block_variable())
 
         return output
 
     return wrapper
+
+
+class ProjectorMixin(NonlinearVariationalSolverMixin):
+    """A wrapper over the nonlinear variational solver mixin for projectors.
+
+    This establishes the form used for adjoint evaluation of the projector.
+    """
+
+    def __init__(self, ad_block_tag=None):
+        V = self.target.function_space()
+        mesh = V.mesh()
+        ad_target = firedrake.Function(V)
+
+        dx = firedrake.dx(mesh)
+        w = firedrake.TestFunction(V)
+        Pv = firedrake.TrialFunction(V)
+        a = firedrake.inner(Pv, w) * dx
+        L = firedrake.inner(self.source, w) * dx
+        p = firedrake.LinearVariationalProblem(a, L, ad_target)
+
+        # If we project from an expression containing u (e.g. u + c) onto u, the
+        # resulting form looks nonlinear. However, the projection is in effect a
+        # solve onto a temporary function (here ad_target), followed by an implicit
+        # assignment. Instead of representing this as an explicit solve and assign
+        # block, we solve for a temporary function and modify _ad_u on the problem.
+        # This is used for creating the output variable (and thus the dependency
+        # resolution), in effect merging the implicit assignment into the block
+        # output phase.
+        p._ad_u = self.target
+
+        solver_params = firedrake.LinearVariationalSolver.DEFAULT_SNES_PARAMETERS | self.solver_parameters
+
+        self._init_as_solver(p, forward_kwargs={"solver_parameters": solver_params}, ad_block_tag=ad_block_tag)
+
+    @NonlinearVariationalSolverMixin._ad_annotate_init
+    def _init_as_solver(self, problem, **kwargs):
+        return
+
+    @staticmethod
+    def _ad_annotate_project(project):
+        return NonlinearVariationalSolverMixin._ad_annotate_solve(project)
