@@ -868,23 +868,26 @@ def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: 
         for evaluation, _, basis_indices
         in dual_evaluate(operand, dual_arg, element, kernel_cfg)
     ))
-    return evaluate_element_values(terminal, mt, ctx, vec, element, beta=element.get_indices())
+    return translate_finat(terminal, mt, ctx, vec, element, beta=element.get_indices())
 
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
     vec = ctx.coefficient(terminal, mt.restriction)
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
-    return evaluate_element_values(terminal, mt, ctx, vec, element)
+    return translate_finat(terminal, mt, ctx, vec, element)
 
 
-def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: ContextBase,
-                            vec: gem.Node, element: FiniteElementBase,
-                            beta: tuple | None = None) -> gem.Node:
-    """Evaluate the function whose values ``vec`` holds, at the current points.
+def translate_finat(terminal: ufl.core.expr.Expr,
+                    mt: ModifiedTerminal,
+                    ctx: ContextBase,
+                    vec: gem.Node,
+                    element: FiniteElementBase,
+                    beta: tuple | None = None) -> gem.Node:
+    """Tabulate the basis functions of ``element`` at the current points and contract them with ``vec``.
 
-    ``beta`` are the basis indices of ``vec``. They default to the indices that
-    the context caches for ``terminal``.
+    The tuple ``beta`` contains the indices that run over the basis functions.
+    It defaults to the indices cached for ``terminal``.
     """
     domain = extract_unique_domain(terminal)
 
