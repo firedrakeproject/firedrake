@@ -12,7 +12,10 @@ import pyop3.node
 from pyop3 import utils
 
 
-class IdentityVisitor(pyop3.node.NodeVisitor):
+class ObjectVisitor(pyop3.node.NodeVisitor):
+    pass
+
+class IdentityVisitor(ObjectVisitor):
     """Visitor that reproduces an unchanged pyop3 object.
 
     This class is intended to be subclassed by 'reconstruction' visitors that

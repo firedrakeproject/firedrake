@@ -1,4 +1,5 @@
 import abc
+import contextlib
 import dataclasses
 import functools
 import numbers
@@ -19,6 +20,7 @@ import pyop3.config
 import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
+import pyop3.visitors
 
 from pyop3.axis_tree.tree import (
     UNIT_AXIS_TREE,
@@ -97,14 +99,192 @@ class Executable:
         pass
 
 
-class CodegenContext(ABC):
-    """
-    Base class for code generation backends
+class LoopVisitor(pyop3.visitors.ObjectVisitor):
+    """Abstract class for visitors that compile pyop3 objects.
 
-    Class designed solely for use in codegen.py, as an interface to specific backends.
+    Unlike other visitors, this visitor treats axis trees as a tree
+    of loops and traverses things accordingly.
+
     """
 
-    def __init__(self, *, named_terminal_buffer_intents, comm: MPI.Comm, propagate_negatives: bool, mask_array_accesses: bool) -> None:
+    def __init__(self):
+        self.loop_indices = {}
+        super().__init__()
+
+    @contextlib.contextmanager
+    def active_loop_indices(self, extra):
+        prev = self.loop_indices.copy()
+        self.loop_indices |= extra
+        yield
+        self.loop_indices = prev
+
+    @contextlib.contextmanager
+    def enter_loop(self, *args, **kwargs):
+        yield
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any, /):
+        utils.raise_missing_dispatch_handler(obj)
+
+    # {{{ pyop3.insn
+
+    @process.register
+    def _(self, null: pyop3.insn.NullInstruction, /, *args, **kwargs): 
+        pass
+
+    @process.register
+    def _(self, insn_list: pyop3.insn.InstructionList) -> None:
+        for insn in insn_list: 
+            self(insn)
+
+    @process.register(Loop)
+    def _(self, loop) -> None:
+        self._compile_loop(loop, loop.index.iterset)
+
+    @process.register(NonEmptyArrayAssignment)
+    def parse_assignment(self, assignment: NonEmptyArrayAssignment):
+        if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
+            self._compile_petsc_mat(assignment)
+        else:
+            self._compile_array_assignment(
+                assignment,
+                assignment.axis_trees,
+            )
+
+    def _compile_array_assignment(
+            self,
+            assignment, 
+            axis_trees, 
+            *,
+            iname_replace_maps=None, 
+            # TODO document these under "Other Parameters"
+            axis_tree=None, 
+            paths=None
+    ):
+        if paths is None:
+            paths = []
+        if iname_replace_maps is None: 
+            iname_replace_maps = []
+
+        if axis_tree is None:
+            # First time calling this function, fetch from axis_trees
+            axis_tree, *axis_trees = axis_trees
+            paths += [idict()]
+            iname_replace_maps += [idict()]
+
+        assert not axis_tree.is_empty
+        if isinstance(axis_tree, pyop3.axis_tree.AbstractUnitAxisTree):
+            if axis_trees: 
+                self._compile_array_assignment(
+                    assignment, 
+                    axis_trees, 
+                    iname_replace_maps=iname_replace_maps, 
+                    axis_tree=None, 
+                    paths=paths,
+                )
+            else:
+                self.add_leaf_assignment(
+                    assignment.assignee,
+                    assignment.expression,
+                    assignment.assignment_type,
+                    paths, 
+                    iname_replace_maps, 
+                )
+            return
+
+        axis = axis_tree.node_map[paths[-1]]
+        for component in axis.components:
+            new_paths = paths.copy()
+            new_paths[-1] = paths[-1] | {axis.label: component.label}
+
+            if axis_tree.linearize(new_paths[-1], partial=True).size == 0:
+                continue
+
+            with self.enter_loop(component.size, iname_replace_maps[-1]) as iname:
+                new_maps = iname_replace_maps.copy()
+                new_maps[-1] = iname_replace_maps[-1] | {axis.label: iname}
+
+                if axis_tree.node_map[new_paths[-1]]:
+                    self._compile_array_assignment(
+                        assignment, 
+                        axis_trees, 
+                        iname_replace_maps=new_maps, 
+                        axis_tree=axis_tree, 
+                        paths=new_paths
+                    )
+                elif axis_trees:
+                    self._compile_array_assignment(
+                        assignment, 
+                        axis_trees, 
+                        iname_replace_maps=new_maps, 
+                        axis_tree=None, 
+                        paths=new_paths
+                    )
+                else:
+                    self.add_leaf_assignment(
+                        assignment.assignee,
+                        assignment.expression,
+                        assignment.assignment_type,
+                        new_paths, 
+                        new_maps, 
+                    )
+
+    def _compile_loop(
+        self,
+        loop,
+        axis_tree,
+        *,
+        axis=None,
+        path=None,
+        iname_map=None,
+    ) -> None:
+        if axis_tree is UNIT_AXIS_TREE:
+            for statement in loop.statements:
+                self(statement)
+            return
+
+        if utils.strictly_all(x is None for x in {axis, path, iname_map}):
+            axis = axis_tree.root
+            path = idict()
+            iname_map = idict()
+
+        for component in axis.components:
+            path_ = path | {axis.label: component.label}
+
+            if axis_tree.linearize(path_, partial=True).size == 0:
+                continue
+
+            with self.enter_loop(component.size, iname_map) as iname:
+                iname_replace_map_ = iname_map | {axis.label: iname}
+
+                if subaxis := axis_tree.node_map[path_]:
+                    self._compile_loop(
+                        loop,
+                        axis_tree,
+                        axis=subaxis,
+                        path=path_,
+                        iname_map=iname_replace_map_
+                    )
+                else:
+                    with self.active_loop_indices({
+                        (loop.index.id, axis_label): iname
+                        for axis_label, iname in iname_replace_map_.items()
+                    }):
+                        for statement in loop.statements:
+                            self(statement)
+
+
+class Pyop3Compiler(LoopVisitor):
+    """Abstract class that visits pyop3 objects and lowers them to another IR."""
+
+    def __init__(
+        self,
+        *,
+        named_terminal_buffer_intents,
+        comm: MPI.Comm,
+        propagate_negatives: bool,
+        mask_array_accesses: bool,
+    ) -> None:
         # buffer (from original inputs) -> intent
         self.named_terminal_buffer_intents = named_terminal_buffer_intents
         self.comm = comm
@@ -126,6 +306,8 @@ class CodegenContext(ABC):
 
         # assignee name -> indirection expression
         self._assignees = {}
+
+        super().__init__()
 
     @property
     def domains(self) -> Tuple:
@@ -186,7 +368,7 @@ class CodegenContext(ABC):
         self._temporary_shapes = shapes
 
     @abstractmethod
-    def lower_expr(self, expr, iname_maps, loop_indices, 
+    def lower_expr(self, expr, iname_maps,
                    intent: Intent | None = None, paths = None):
         """
         Lower a PyOP3 expression to the target's IR representation.
@@ -203,7 +385,6 @@ class CodegenContext(ABC):
         buffer: IndexedBuffer, 
         layouts, 
         iname_maps, 
-        loop_indices, 
         *,
         intent
     ):
@@ -220,7 +401,6 @@ class CodegenContext(ABC):
             assignment_type,
             paths, 
             iname_maps, 
-            loop_indices
         ):
         pass
 
@@ -333,3 +513,6 @@ class CodegenContext(ABC):
         ctx += f"Subkernels: {str(self.subkernels)}\n\n"
         return ctx 
 
+    @abc.abstractmethod
+    def finalize_kernel(self):
+        pass

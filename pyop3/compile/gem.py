@@ -24,6 +24,7 @@ import pyop3.config
 import pyop3.constants
 import pyop3.dtypes
 import pyop3.expr
+import pyop3.insn
 from pyop3 import mpi, utils
 from pyop3.axis_tree.tree import (
     UNIT_AXIS_TREE,
@@ -34,7 +35,7 @@ from pyop3.buffer import (
     NullBuffer,
     PetscMatBuffer,
 )
-from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE, Intent
 from pyop3.dtypes import IntType
 from pyop3.insn.base import (
     AbstractAssignment,
@@ -48,8 +49,8 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.compile.context import CodegenContext, Executable
 from pyop3.compile.mlir import MLIRBuilder
+from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
 
 def _mlir_module_to_mlir_string(tu: ModuleOp) -> str:
     from xdsl.printer import Printer 
@@ -129,239 +130,6 @@ class GemExecutable(Executable):
     def _(arr: np.ndarray, /) -> int:
         return Memref.from_array(arr)
 
-
-class GemCodegenContext(CodegenContext):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def arg(self, name, dtype, shape):
-        # wrong abstraction I think?
-        # print("not doing arg")
-        pass
-
-    def var(self, iname: str, *args) -> pym.primitives.Variable:
-        raise NotImplementedError
-        return pym.var(iname)
-
-    def add_domain(self, iname, *args):
-        raise NotImplementedError
-        nargs = len(args)
-        if nargs == 1:
-            start, stop = 0, args[0]
-        else:
-            assert nargs == 2
-            start, stop = args[0], args[1]
-        domain_str = f"{{ [{iname}]: {start} <= {iname} < {stop} }}"
-        self._domains.append(domain_str)
-
-    def add_assignment(self, assignee, expression, assignment_type):
-        match assignment_type:
-            case AssignmentType.WRITE:
-                mode = "write"
-            case AssignmentType.INC:
-                mode = "inc"
-            case AssignmentType.MAX:
-                raise NotImplementedError
-            case AssignmentType.MIN:
-                raise NotImplementedError
-            case _:
-                raise NotImplementedError
-
-        insn = gem.impero.Assignment(assignee, expression, mode)
-        self._add_instruction(insn)
-
-    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
-        # If multiple temporaries with the same initializer are used then they
-        # can be shared.
-        can_reuse = initializer is not None and read_only
-        if can_reuse:
-            key = initializer.data.tobytes()
-            if key in self._reusable_temporaries:
-                return self._reusable_temporaries[key]
-
-        name_in_kernel = self.unique_name(prefix)
-        arg = gem.Variable(name_in_kernel, shape, dtype=dtype, data=initializer)
-        self._arguments.append(arg)
-
-        if can_reuse:
-            self._reusable_temporaries[key] = name_in_kernel
-
-        return name_in_kernel
-
-    def add_function_call(self, call, loop_indices):
-        gem_args = [
-            self.lower_buffer_access(arg, None, None, loop_indices=loop_indices, intent=intent)
-            for arg, intent in zip(call.arguments, call.function.intents, strict=True)
-        ]
-
-        gem_var_replace_map = {
-            kernel_arg_name: gem_expr
-            for kernel_arg_name, gem_expr in zip(call.function.code[1], gem_args, strict=True)
-        }
-        for insn in call.function.code[0]:
-            lhs, rhs = insn
-            new_lhs = gem.replace_variables(lhs, gem_var_replace_map)
-            new_rhs = gem.replace_variables(rhs, gem_var_replace_map)
-            insn = gem.impero.Assignment(new_lhs, new_rhs, "write")
-            self._add_instruction(insn)
-
-    @contextlib.contextmanager
-    def enter_loop(self, size, replace_map, loop_indices):
-        if size == 1:
-            yield None
-            return
-
-        gem_size = self.lower_expr(size, [replace_map], loop_indices, is_index=True)
-        index = gem.Index(extent=gem_size)
-        yield index
-
-    def lower_buffer_access(
-        self,
-        buffer_view: pyop3.buffer.IndexedBuffer,
-        layouts,
-        iname_maps,
-        loop_indices,
-        *,
-        intent,
-    ) -> pym.Expression: 
-        if self.propagate_negatives:
-            raise NotImplementedError
-
-
-        name_in_kernel = self.add_buffer(buffer_view, intent)
-
-        buffer = buffer_view.buffer
-        if isinstance(buffer, PetscMatBuffer):
-            buffer = buffer_view.denested.getPythonContext().buffer
-
-        if layouts is None:
-            # this happens for local kernels where we want a var not an indexed
-            assert iname_maps is None
-
-            if loop_indices:
-                extra_idxs = []
-                for loop_idx in loop_indices.values():
-                    extra_idxs.append(loop_idx)
-                multiindex = tuple(extra_idxs)
-
-                # shape = tuple(i.extent for i in multiindex) + buffer.shape
-
-                var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
-
-                idx_expr = tuple(gem.Index(s) for s in buffer.shape)
-                indexed = gem.Indexed(var, idx_expr)
-
-                ct = gem.ComponentTensor(indexed, multiindex+idx_expr)
-                return gem.partial_indexed(ct, multiindex)
-
-                breakpoint()
-
-                return gem.Indexed(ct, multiindex+idx_expr)
-            else:
-                return gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
-
-        else:
-            if len(layouts) != 1:
-                raise NotImplementedError("multiindex needs loop indices per dim")
-
-            iname_map = utils.just_one(iname_maps)
-            layout = utils.just_one(layouts)
-            idx_expr = self.lower_expr(layout, [iname_map], loop_indices, is_index=True)
-            if isinstance(idx_expr, gem.Literal):
-                # idx_expr = gem.VariableIndex(idx_expr.value)
-                idx_expr = idx_expr.value
-            else:
-                idx_expr = gem.VariableIndex(idx_expr)
-
-            extra_idxs = []
-            for loop_idx in loop_indices.values():
-                if loop_idx not in idx_expr.free_indices:
-                    extra_idxs.append(loop_idx)
-            extra_idxs = tuple(extra_idxs)
-
-            var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
-
-            indexed = gem.Indexed(var, (idx_expr,))
-
-            ct = gem.ComponentTensor(indexed, extra_idxs+(idx_expr,))
-
-            return gem.Indexed(ct, extra_idxs+(idx_expr,))
-
-            # shape = buffer.shape
-            multiindex = (idx_expr,)
-            if extra_idxs:
-                # shape = tuple(i.extent for i in extra_idxs) + shape
-                multiindex = extra_idxs + multiindex
-
-            return gem.Indexed(var, multiindex)
-
-            # multiindex = []
-            # added = []
-            # assert len(layouts) == len(iname_maps)
-            # for size, layout, iname_map in zip(buffer.shape, layouts, iname_maps, strict=True):
-            #     lowered = self.lower_expr(layout, [iname_map], loop_indices, is_index=True)
-            #     if isinstance(lowered, gem.Literal):
-            #         idx = lowered.value
-            #     else:
-            #         idx = gem.VariableIndex(lowered)
-            #     multiindex.append(idx)
-
-
-        # e.g. dat0 : shape=(200,) free_indices=()
-        # var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
-        #
-        #     # # e.g. for i < 100: dat0[i] : shape=() free_indices=(i,)
-        #     # var = gem.Indexed(var, multiindex)
-        #
-        # # missing_loop_indices = ???
-        #
-        # return var
-
-    # NOTE: This could probably be refactored
-    def add_leaf_assignment(
-        self,
-        assignee,
-        expression,
-        assignment_type,
-        paths,
-        iname_replace_maps,
-        loop_indices,
-    ):
-        intent = assignment_type_as_intent(assignment_type)
-        lexpr = self.lower_expr(
-            assignee,
-            iname_replace_maps,
-            loop_indices,
-            intent=intent,
-            paths=paths,
-        )
-        rexpr = self.lower_expr(
-            expression,
-            iname_replace_maps,
-            loop_indices,
-            paths=paths,
-        )
-
-        if self.mask_array_accesses:
-            raise NotImplementedError
-
-        self.add_assignment(lexpr, rexpr, assignment_type)
-
-    def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None, is_index=False) -> pym.Expression:
-        return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self, is_index=is_index)
-
-    def finalize_kernel(self, function_name, compiler_parameters, cc_options):
-        return (
-            GemExecutable(
-                self.instructions,
-                **cc_options,
-            ),
-            dict(sorted(utils.invert_mapping(self.kernel_names).items())), # SAM: Sorted to maintain order 
-            self.buffer_intents,
-        )
-
-
 # TODO: use overloadedexpressionevaluator
 @functools.singledispatch
 def _lower_expr(obj: Any, /, *args, **kwargs) -> pym.Expression:
@@ -433,12 +201,12 @@ def _(
     context,
     **kwargs,
 ) -> pym.ExpressionNode:
-    return context.lower_buffer_access(expr.buffer_view, [0], iname_maps, loop_indices, intent=intent)
+    return context.lower_buffer_access(expr.buffer_view, [0], iname_maps, intent=intent)
 
 
 @_lower_expr.register(pyop3.expr.LinearDatBufferExpression)
 def _(expr: pyop3.expr.LinearDatBufferExpression, /, iname_maps, loop_indices, *, intent, context, **kwargs) -> pym.Expression:
-    return context.lower_buffer_access(expr.buffer_view, [expr.layout], iname_maps, loop_indices, intent=intent)
+    return context.lower_buffer_access(expr.buffer_view, [expr.layout], iname_maps, intent=intent)
 
 
 @_lower_expr.register(pyop3.expr.NonlinearDatBufferExpression)
@@ -448,7 +216,6 @@ def _(expr: pyop3.expr.NonlinearDatBufferExpression, /, iname_maps, loop_indices
         expr.buffer_view,
         [expr.layouts[path]],
         iname_maps,
-        loop_indices,
         intent=intent,
     )
 
@@ -464,7 +231,6 @@ def _(mat_expr: pyop3.expr.MatPetscMatBufferExpression, /, iname_maps, loop_indi
         mat_expr.buffer_view,
         layouts,
         iname_maps,
-        loop_indices,
         intent=intent,
     )
 
@@ -477,9 +243,254 @@ def _(expr: pyop3.expr.MatArrayBufferExpression, /, iname_maps, loop_indices, *,
         expr.buffer_view,
         layouts,
         iname_maps,
-        loop_indices,
         intent=intent,
     )
+
+
+class GemCompiler(Pyop3Compiler):
+
+    def __init__(self, /, **kwargs):
+        super().__init__(**kwargs)
+
+    @functools.singledispatchmethod
+    def process(self, obj: Any, /, *args, **kwargs):
+        super().process(obj, *args, **kwargs)
+
+    @process.register
+    def _(self, call: pyop3.insn.StandaloneCalledFunction):
+        gem_args = [
+            self.lower_buffer_access(arg, None, None, intent=intent)
+            for arg, intent in zip(call.arguments, call.function.intents, strict=True)
+        ]
+
+        gem_var_replace_map = {
+            kernel_arg_name: gem_expr
+            for kernel_arg_name, gem_expr in zip(call.function.code[1], gem_args, strict=True)
+        }
+        for insn in call.function.code[0]:
+            lhs, rhs = insn
+            new_lhs = gem.replace_variables(lhs, gem_var_replace_map)
+            new_rhs = gem.replace_variables(rhs, gem_var_replace_map)
+
+            # FIXME: This is a hack that assumes that the function only writes to
+            # one argument which is the first one
+            match call.function.intents[0]:
+                case Intent.WRITE:
+                    mode = "write"
+                case Intent.INC:
+                    mode = "inc"
+                case _:
+                    raise NotImplementedError
+
+            insn = gem.impero.Assignment(new_lhs, new_rhs, mode)
+            self._add_instruction(insn)
+
+    def arg(self, name, dtype, shape):
+        # wrong abstraction I think?
+        print("not doing arg")
+        pass
+
+    def var(self, iname: str, *args) -> pym.primitives.Variable:
+        raise NotImplementedError
+        return pym.var(iname)
+
+    def add_domain(self, iname, *args):
+        raise NotImplementedError
+        nargs = len(args)
+        if nargs == 1:
+            start, stop = 0, args[0]
+        else:
+            assert nargs == 2
+            start, stop = args[0], args[1]
+        domain_str = f"{{ [{iname}]: {start} <= {iname} < {stop} }}"
+        self._domains.append(domain_str)
+
+    def add_assignment(self, assignee, expression, assignment_type):
+        match assignment_type:
+            case AssignmentType.WRITE:
+                mode = "write"
+            case AssignmentType.INC:
+                mode = "inc"
+            case AssignmentType.MAX:
+                raise NotImplementedError
+            case AssignmentType.MIN:
+                raise NotImplementedError
+            case _:
+                raise NotImplementedError
+
+        insn = gem.impero.Assignment(assignee, expression, mode)
+        self._add_instruction(insn)
+
+    def add_temporary(self, prefix="t", dtype=IntType, *, shape=(), initializer: np.ndarray = None, read_only: bool = False) -> str:
+        # If multiple temporaries with the same initializer are used then they
+        # can be shared.
+        can_reuse = initializer is not None and read_only
+        if can_reuse:
+            key = initializer.data.tobytes()
+            if key in self._reusable_temporaries:
+                return self._reusable_temporaries[key]
+
+        name_in_kernel = self.unique_name(prefix)
+        arg = gem.Variable(name_in_kernel, shape, dtype=dtype, data=initializer)
+        self._arguments.append(arg)
+
+        if can_reuse:
+            self._reusable_temporaries[key] = name_in_kernel
+
+        return name_in_kernel
+
+    @contextlib.contextmanager
+    def enter_loop(self, size, replace_map):
+        if size == 1:
+            yield None
+            return
+
+        gem_size = self.lower_expr(size, [replace_map], is_index=True)
+        index = gem.Index(extent=gem_size)
+        yield index
+
+    def lower_buffer_access(
+        self,
+        buffer_view: pyop3.buffer.IndexedBuffer,
+        layouts,
+        iname_maps,
+        *,
+        intent,
+    ) -> pym.Expression: 
+        if self.propagate_negatives:
+            raise NotImplementedError
+
+        name_in_kernel = self.add_buffer(buffer_view, intent)
+
+        buffer = buffer_view.buffer
+        if isinstance(buffer, PetscMatBuffer):
+            buffer = buffer_view.denested.getPythonContext().buffer
+
+        if isinstance(buffer, pyop3.buffer.NullBuffer):
+            # blow up temporaries to full loop size
+            # NOTE: we should only do this once per temporary
+            extra_shape = tuple(i.extent for i in self.loop_indices.values())
+            # for loop_idx in self.loop_indices.values():
+            # shape = 
+            var = gem.Variable(name_in_kernel, extra_shape+buffer.shape, dtype=buffer.dtype, data="null")
+
+            extra_idxs = []
+            for loop_idx in self.loop_indices.values():
+                extra_idxs.append(loop_idx)
+            extra_idxs = tuple(extra_idxs)
+
+            if layouts is None:
+                # t -> T[i]
+                return gem.partial_indexed(var, extra_idxs)
+            else:
+                # t[j, k] -> T[i, j, k]
+                iname_map = utils.just_one(iname_maps)
+                layout = utils.just_one(layouts)
+                idx_expr = self.lower_expr(layout, [iname_map], is_index=True)
+                if isinstance(idx_expr, gem.Literal):
+                    # idx_expr = gem.VariableIndex(idx_expr.value)
+                    idx_expr = idx_expr.value
+                else:
+                    idx_expr = gem.VariableIndex(idx_expr)
+
+                indexed = gem.Indexed(var, extra_idxs+(idx_expr,))
+                return indexed
+                ct = gem.ComponentTensor(indexed, extra_idxs)
+
+                return gem.Indexed(ct, extra_idxs+(idx_expr,))
+
+        if layouts is None:
+            # this happens for local kernels where we want a var not an indexed
+            assert iname_maps is None
+
+            # if self.loop_indices:
+            #     extra_idxs = []
+            #     for loop_idx in self.loop_indices.values():
+            #         extra_idxs.append(loop_idx)
+            #     multiindex = tuple(extra_idxs)
+            #
+            #     var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
+            #
+            #     idx_expr = tuple(gem.Index(s) for s in buffer.shape)
+            #     indexed = gem.Indexed(var, idx_expr)
+            #
+            #     ct = gem.ComponentTensor(indexed, multiindex+idx_expr)
+            #     retval = gem.partial_indexed(ct, multiindex)
+            #     # breakpoint()
+            #     return retval
+            # else:
+            return gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
+
+        else:
+            if len(layouts) != 1:
+                raise NotImplementedError("multiindex needs loop indices per dim")
+
+            iname_map = utils.just_one(iname_maps)
+            layout = utils.just_one(layouts)
+            idx_expr = self.lower_expr(layout, [iname_map], is_index=True)
+            if isinstance(idx_expr, gem.Literal):
+                # idx_expr = gem.VariableIndex(idx_expr.value)
+                idx_expr = idx_expr.value
+            else:
+                idx_expr = gem.VariableIndex(idx_expr)
+
+            # extra_idxs = []
+            # for loop_idx in self.loop_indices.values():
+            #     if loop_idx not in idx_expr.free_indices:
+            #         extra_idxs.append(loop_idx)
+            # extra_idxs = tuple(extra_idxs)
+
+            var = gem.Variable(name_in_kernel, buffer.shape, dtype=buffer.dtype, data=buffer_view)
+
+            indexed = gem.Indexed(var, (idx_expr,))
+            return indexed
+            #
+            # ct = gem.ComponentTensor(indexed, extra_idxs+(idx_expr,))
+            #
+            # retval = gem.Indexed(ct, extra_idxs+(idx_expr,))
+            # # if name_in_kernel == "t_3":
+            # #     breakpoint()
+            # return retval
+
+    # NOTE: This could probably be refactored
+    def add_leaf_assignment(
+        self,
+        assignee,
+        expression,
+        assignment_type,
+        paths,
+        iname_replace_maps,
+    ):
+        intent = assignment_type_as_intent(assignment_type)
+        lexpr = self.lower_expr(
+            assignee,
+            iname_replace_maps,
+            intent=intent,
+            paths=paths,
+        )
+        rexpr = self.lower_expr(
+            expression,
+            iname_replace_maps,
+            paths=paths,
+        )
+
+        if self.mask_array_accesses:
+            raise NotImplementedError
+
+        self.add_assignment(lexpr, rexpr, assignment_type)
+
+    def lower_expr(self, expr, iname_maps, *, intent=READ, paths=None, is_index=False) -> pym.Expression:
+        return _lower_expr(expr, iname_maps, self.loop_indices, intent=intent, paths=paths, context=self, is_index=is_index)
+
+    def finalize_kernel(self, function_name, compiler_parameters, cc_options):
+        return (
+            GemExecutable(
+                self.instructions,
+                **cc_options,
+            ),
+            utils.invert_mapping(self.kernel_names),
+            self.buffer_intents,
+        )
 
 def cast_memref_arg_to_ctype_type(arg: Any) -> type:
     """ 
@@ -573,4 +584,3 @@ class Memref:
             offset=0,
             shape=(ctypes.c_int64 * rank)(*shape),
             strides=(ctypes.c_int64 * rank)(*strides),
-        )

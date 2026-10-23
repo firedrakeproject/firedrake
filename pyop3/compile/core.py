@@ -44,8 +44,6 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.compile.loopy import LoopyCodegenContext
-from pyop3.compile.gem import GemCodegenContext
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters, cc_options) -> Hashable:
     return (op.disk_cache_key, compiler_parameters, cc_options, pyop3.config)
@@ -78,31 +76,44 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
         cs_expr = (insn,)
 
     if compiler_parameters.backend == "loopy":
-        make_context = LoopyCodegenContext
-    elif compiler_parameters.backend == "gem":
-        make_context = GemCodegenContext
+        from pyop3.compile.loopy import LoopyCompiler
 
-    context = make_context(
-        named_terminal_buffer_intents=op.named_terminal_buffer_intents,
-        comm=op.comm,
-        propagate_negatives=compiler_parameters.propagate_negatives,
-        mask_array_accesses=compiler_parameters.mask_array_accesses,
-    )
-    # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
-    # explicitly dealing with contexts at this point. Can always sniff them out again.
-    # for context, ex in cs_expr:
-    for ex in cs_expr:
-        # add external loop indices as kernel arguments
-        # FIXME: removed because cs_expr needs to sniff the context now
-        loop_indices = {}
+        compiler = LoopyCompiler(
+            named_terminal_buffer_intents=op.named_terminal_buffer_intents,
+            comm=op.comm,
+            propagate_negatives=compiler_parameters.propagate_negatives,
+            mask_array_accesses=compiler_parameters.mask_array_accesses,
+        )
+        # NOTE: so I think LoopCollection is a better abstraction here - don't want to be
+        # explicitly dealing with contexts at this point. Can always sniff them out again.
+        # for context, ex in cs_expr:
+        for ex in cs_expr:
+            for e in pyop3.collections.as_tuple(ex): # TODO: get rid of this loop
+                # context manager?
+                compiler.set_temporary_shapes(_collect_temporary_shapes(e))
+                compiler(e)
 
-        for e in pyop3.collections.as_tuple(ex): # TODO: get rid of this loop
-            # context manager?
-            context.set_temporary_shapes(_collect_temporary_shapes(e))
-            _compile(e, loop_indices, context)
+    else:
+        from pyop3.compile.gem import GemCompiler
 
-    executable, arguments, buffer_intents = context.finalize_kernel(function_name, compiler_parameters, cc_options)
-    del context  # the context is done, don't touch it again
+        assert compiler_parameters.backend == "gem"
+        compiler = GemCompiler(
+            named_terminal_buffer_intents=op.named_terminal_buffer_intents,
+            comm=op.comm,
+            propagate_negatives=compiler_parameters.propagate_negatives,
+            mask_array_accesses=compiler_parameters.mask_array_accesses,
+        )
+        # TODO: This should really just live inside GemCompiler
+        for ex in cs_expr:
+            for e in pyop3.collections.as_tuple(ex): # TODO: get rid of this loop
+
+                compiler.set_temporary_shapes(_collect_temporary_shapes(e))
+                # TODO: have a top-level .call() or similar. There is a difference in what
+                # we want to do at the top-level vs recursively
+                compiler(e)
+
+    executable, arguments, buffer_intents = compiler.finalize_kernel(function_name, compiler_parameters, cc_options)
+    del compiler  # the compiler is done, don't touch it again
 
     # Replace buffers with their indices, dropping any temporaries. Also
     # match the calling order for the kernel.
@@ -121,304 +132,8 @@ def _compile_static(op: InstructionExecutionContext, compiler_parameters: Parsed
 
     return executable, kernel_name_to_buffer_info, buffer_intents_by_index
 
-@functools.singledispatch
-def _compile(expr: Any, loop_indices: Dict, codegen_context: CodegenContext) -> None:
-    raise TypeError(f"No handler defined for {type(expr).__name__}")
-
-@_compile.register(NullInstruction)
-def _(null, *args, **kwargs): 
-    pass
-
-@_compile.register(InstructionList)
-def _(
-    insn_list, 
-    loop_indices, 
-    codegen_context
-) -> None:
-    for insn in insn_list: 
-        _compile(insn, loop_indices, codegen_context)
-
-@_compile.register(Loop)
-def _(
-    loop, 
-    loop_indices, 
-    codegen_context
-) -> None:
-    _compile_loop(
-        loop, 
-        loop.index.iterset, 
-        loop_indices, 
-        codegen_context,
-    )
-
-@_compile.register(StandaloneCalledFunction)
-def _(call, loop_indices, codegen_context):
-    codegen_context.add_function_call(call, loop_indices)
-
-@_compile.register(NonEmptyArrayAssignment)
-def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_context: CodegenContext):
-    if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
-        _compile_petsc_mat(assignment, loop_indices, codegen_context)
-    else:
-        _compile_array_assignment(
-            assignment,
-            loop_indices,
-            assignment.axis_trees,
-            codegen_context,
-        )
-
-def _compile_petsc_mat(
-    assignment,
-    loop_indices,
-    codegen_context,
-):
-    if not isinstance(codegen_context, LoopyCodegenContext):
-        raise NotImplementedError("Only supported for Loopy")
-    # We need to know whether the matrix is the assignee or not because we need
-    # to know whether to put MatGetValues or MatSetValues
-    if isinstance(assignment.assignee.buffer_view.buffer, PetscMatBuffer):
-        mat = assignment.assignee
-        expr = assignment.expression
-        setting_mat_values = True
-    else:
-        mat = assignment.expression
-        expr = assignment.assignee
-        setting_mat_values = False
-
-    row_axis_tree, column_axis_tree = assignment.axis_trees
-
-    assert isinstance(expr, pyop3.expr.BufferExpression)
-
-    # now emit the right line of code, this should properly be a lp.ScalarCallable
-    # https://petsc.org/release/manualpages/Mat/MatGetValuesLocal/
-    mat_name = codegen_context.add_buffer(mat.buffer_view, assignment_type_as_intent(assignment.assignment_type))
-    array_name = codegen_context.add_buffer(expr.buffer_view, READ)
-
-    rsize = row_axis_tree.size
-    csize = column_axis_tree.size
-
-    # these sizes can be expressions that need evaluating
-    rsize_var = codegen_context.register_extent(
-        rsize,
-        {},
-        loop_indices,
-    )
-
-    csize_var = codegen_context.register_extent(
-        csize,
-        {},
-        loop_indices,
-    )
-
-    # convert the generic expressions to 
-    # for example:
-    #
-    #   map0[3*i0 + i1]
-    #   map0[3*i0 + i2 + 3]
-    #
-    # to the shared top-level layout:
-    #
-    #   map0[3*i0]
-    #
-    # which is what Mat{Get,Set}Values() needs.
-    layout_exprs = []
-    for layout in [mat.row_layout, mat.column_layout]:
-        subst_sublayout = layout.layouts[idict()]
-        subst_layout = pyop3.expr.LinearDatBufferExpression(layout.buffer, subst_sublayout)
-        layout_expr = codegen_context.lower_expr(subst_layout, ((),), loop_indices)
-        layout_exprs.append(layout_expr)
-    irow, icol = layout_exprs
-
-    # FIXME:
-    blocked = False
-
-    # hacky
-    myargs = [
-        assignment, mat_name, array_name, rsize_var, csize_var, irow, icol, blocked
-    ]
-    if setting_mat_values:
-        match assignment.assignment_type:
-            case AssignmentType.WRITE:
-                call_str = _petsc_mat_store(*myargs)
-            case AssignmentType.INC:
-                call_str = _petsc_mat_add(*myargs)
-            case _:
-                raise AssertionError
-    else:
-        call_str = _petsc_mat_load(*myargs)
-
-    codegen_context.add_cinstruction(call_str)
 
 
-def _compile_array_assignment(
-        assignment, 
-        loop_indices, 
-        axis_trees, 
-        codegen_context,
-        *,
-        iname_replace_maps=None, 
-        # TODO document these under "Other Parameters"
-        axis_tree=None, 
-        paths=None
-):
-    if paths is None:
-        paths = []
-    if iname_replace_maps is None: 
-        iname_replace_maps = []
-
-    if axis_tree is None:
-        # First time calling this function, fetch from axis_trees
-        axis_tree, *axis_trees = axis_trees
-        paths += [idict()]
-        iname_replace_maps += [idict()]
-
-    assert not axis_tree.is_empty
-    if isinstance(axis_tree, pyop3.axis_tree.AbstractUnitAxisTree):
-        if axis_trees: 
-            _compile_array_assignment(
-                assignment, 
-                loop_indices, 
-                axis_trees, 
-                codegen_context,
-                iname_replace_maps=iname_replace_maps, 
-                axis_tree=None, 
-                paths=paths,
-            )
-        else:
-            codegen_context.add_leaf_assignment(
-                assignment.assignee,
-                assignment.expression,
-                assignment.assignment_type,
-                paths, 
-                iname_replace_maps, 
-                loop_indices
-            )
-        return
-
-    axis = axis_tree.node_map[paths[-1]]
-    for component in axis.components:
-        new_paths = paths.copy()
-        new_paths[-1] = paths[-1] | {axis.label: component.label}
-
-        if axis_tree.linearize(new_paths[-1], partial=True).size == 0:
-            continue
-
-        with codegen_context.enter_loop(component.size, iname_replace_maps[-1], loop_indices) as iname:
-            new_maps = iname_replace_maps.copy()
-            new_maps[-1] = iname_replace_maps[-1] | {axis.label: iname}
-
-            if axis_tree.node_map[new_paths[-1]]:
-                _compile_array_assignment(
-                    assignment, 
-                    loop_indices, 
-                    axis_trees, 
-                    codegen_context,
-                    iname_replace_maps=new_maps, 
-                    axis_tree=axis_tree, 
-                    paths=new_paths
-                )
-            elif axis_trees:
-                _compile_array_assignment(
-                    assignment, 
-                    loop_indices, 
-                    axis_trees, 
-                    codegen_context,
-                    iname_replace_maps=new_maps, 
-                    axis_tree=None, 
-                    paths=new_paths
-                )
-            else:
-                codegen_context.add_leaf_assignment(
-                    assignment.assignee,
-                    assignment.expression,
-                    assignment.assignment_type,
-                    new_paths, 
-                    new_maps, 
-                    loop_indices
-                )
-
-def _compile_loop(
-        loop,
-        axis_tree,
-        loop_indices,
-        codegen_context,
-        *,
-        axis=None,
-        path=None,
-        iname_map=None,
-) -> None:
-    if axis_tree is UNIT_AXIS_TREE:
-        # NOTE: might need an expression here sometimes
-        for statement in loop.statements:
-            _compile(
-                statement,
-                # loop_indices | dict(loop_exprs),
-                loop_indices,
-                codegen_context,
-            )
-        return
-
-    if utils.strictly_all(x is None for x in {axis, path, iname_map}):
-        axis = axis_tree.root
-        path = idict()
-        iname_map = idict()
-
-    for component in axis.components:
-        path_ = path | {axis.label: component.label}
-
-        if axis_tree.linearize(path_, partial=True).size == 0:
-            continue
-
-        with codegen_context.enter_loop(component.size, iname_map, loop_indices) as iname:
-            iname_replace_map_ = iname_map | {axis.label: iname}
-
-            if subaxis := axis_tree.node_map[path_]:
-                _compile_loop(
-                    loop,
-                    axis_tree,
-                    loop_indices,
-                    codegen_context,
-                    axis=subaxis,
-                    path=path_,
-                    iname_map=iname_replace_map_
-                )
-            else:
-                loop_indices |= idict({
-                    (loop.index.id, axis_label): iname
-                    for axis_label, iname in iname_replace_map_.items()
-                })
-                for statement in loop.statements:
-                    _compile(
-                        statement,
-                        loop_indices,
-                        codegen_context,
-                    )
-
-@_compile.register(Exscan)
-def _(exscan, loop_indices, codegen_context):
-    if not isinstance(codegen_context, LoopyCodegenContext):
-        raise NotImplementedError("Only supported for Loopy")
-
-    if exscan.scan_type != "+": 
-        raise NotImplementedError 
- 
-    domain_var = codegen_context.register_extent(
-        exscan.extent,
-        {},
-        loop_indices,
-    )
-
-    iname = codegen_context.unique_name("i")
-    codegen_context.add_domain(iname, domain_var)
-
-    iname_var = codegen_context.var(iname)
-    iname_map = {exscan.scan_axis.label: iname}
-
-    lexpr = codegen_context.lower_expr(exscan.assignee, [iname_map], loop_indices, intent=RW)
-    rexpr = lexpr + codegen_context.lower_expr(exscan.expression, [iname_map], loop_indices)
-
-    lexpr = pym.substitute(lexpr, {iname: iname_var+1})
-    codegen_context.add_assignment(lexpr, rexpr)
 
 # NOTE: Make this overloaded function into class?
 @functools.singledispatch

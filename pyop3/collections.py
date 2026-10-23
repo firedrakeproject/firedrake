@@ -135,6 +135,12 @@ class OrderedSet(AbstractOrderedSet):
         else:
             self._values.pop(index)
 
+    def discard(self, value, /):
+        try:
+            self.remove(value)
+        except KeyError:
+            pass
+
     def clear(self):
         self._values.clear()
 
