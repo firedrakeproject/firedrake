@@ -235,7 +235,7 @@ class BCBase:
     def zero(self, r):
         r"""Zero the boundary condition nodes on ``r``.
 
-        :arg r: a :class:`.Function` to which the
+        :arg r: a :class:`firedrake.function.Function` to which the
             boundary condition should be applied.
 
         """
@@ -254,7 +254,7 @@ class BCBase:
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
         r"""Set the boundary nodes to a prescribed (external) value.
-        :arg r: the :class:`Function` to which the value should be applied.
+        :arg r: the :class:`firedrake.function.Function` to which the value should be applied.
         :arg val: the prescribed value.
         """
 
@@ -315,7 +315,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the boundary condition values. This can be a :class:`.Function` on
+    :arg g: the boundary condition values. This can be a :class:`firedrake.function.Function` on
         ``V``, or a UFL expression that can be interpolated into
         ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a

@@ -585,13 +585,6 @@ class CompiledCodeExecutor:
             ]
             assert not new_buffers_for_exec_args
 
-        # if "MatSetValues" in str(self) and "slate_wrapper" in str(self):
-        #     if "subkernel0_interior_facet_horiz_top_to__exterior_facet_top_integral_otherwise" in str(self):
-        #         breakpoint()
-        # if "slate_wrapper" in str(self):
-        #     import pyop3.debug
-        #     pyop3.debug.maybe_breakpoint()
-
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
             "Attempting to pass a null pointer to the executable",

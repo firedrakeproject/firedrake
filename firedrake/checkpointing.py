@@ -63,7 +63,7 @@ class DumbCheckpoint:
 
     r"""A very dumb checkpoint object.
 
-    This checkpoint object is capable of writing :class:`~.Function`\s
+    This checkpoint object is capable of writing :class:`firedrake.function.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
     number of processes and a :func:`~.Mesh` constructed identically.
 
@@ -83,7 +83,7 @@ class DumbCheckpoint:
     .. note::
 
        This object contains both a PETSc ``Viewer``, used for storing
-       and loading :class:`~.Function` data, and an :class:`h5py.File`
+       and loading :class:`firedrake.function.Function` data, and an :class:`h5py.File`
        opened on the same file handle.  *DO NOT* call
        :meth:`h5py.File.close` on the latter, this will cause
        breakages.
@@ -351,7 +351,7 @@ class HDF5File:
 
     r"""An object to facilitate checkpointing.
 
-    This checkpoint object is capable of writing :class:`~.Function`\s
+    This checkpoint object is capable of writing :class:`firedrake.function.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
     number of processes and a :func:`~.Mesh` constructed identically.
 

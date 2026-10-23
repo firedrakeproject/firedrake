@@ -139,11 +139,13 @@ source/petsc_configure_options.txt:
 	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
+	sphinx-apidoc -f -T -o source/apidoc ../firedrake ../firedrake/cython/*.so
+	sphinx-apidoc -f -T -o source/apidoc ../pyop3 ../pyop3/**/*.so
 
 clean:
 	-rm -rf $(BUILDDIR)/*
 	-rm -rf $(GENERATED_FILES)
+	-rm -rf source/apidoc
 
 buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html

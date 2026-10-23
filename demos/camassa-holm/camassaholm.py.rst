@@ -103,8 +103,8 @@ two variables.
   V = FunctionSpace(mesh, "CG", 1)
   W = MixedFunctionSpace((V, V))
 
-We construct a :class:`~.Function` to store the two variables at time
-level ``n``, and :attr:`~.Function.subfunctions` it so that we can
+We construct a :class:`Function <firedrake.function.Function>` to store the two variables at time
+level ``n``, and :attr:`firedrake.function.Function.subfunctions` it so that we can
 interpolate the initial condition into the two components.
 
 .. code-block:: python
@@ -146,7 +146,7 @@ solver since the problem is one dimensional).
 
 Next we build the weak form of the timestepping algorithm. This is expressed
 as a mixed nonlinear problem, which must be written as a bilinear form
-that is a function of the output :class:`~.Function` ``w1``.
+that is a function of the output :class:`Function <firedrake.function.Function>` ``w1``.
 
 .. code-block:: python
 
@@ -158,7 +158,7 @@ that is a function of the output :class:`~.Function` ``w1``.
   m0, u0 = split(w0)
 
 Note the use of :func:`split(w1) <ufl.split_functions.split>` here, which splits up a
-:class:`~.Function` so that it may be inserted into a UFL
+:class:`Function <firedrake.function.Function>` so that it may be inserted into a UFL
 expression.
 
 .. code-block:: python
@@ -183,7 +183,7 @@ rather than blocked system.
       'ksp_type': 'preonly',
       'pc_type': 'lu'})
 
-Next we use the other form of :attr:`~.Function.subfunctions`, ``w0.subfunctions``,
+Next we use the other form of :attr:`firedrake.function.Function.subfunctions`, ``w0.subfunctions``,
 which is the way to split up a Function in order to access its data
 e.g. for output.
 
