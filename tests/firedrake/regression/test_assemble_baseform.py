@@ -149,7 +149,7 @@ def test_scalar_formsum(f, scale):
 
     result = assemble(formsum, tensor=tensor)
     assert result is tensor
-    assert result.dat.data_ro.item() == expected
+    assert result.dat.global_data.item() == expected
 
 
 def test_vector_formsum(a):
@@ -317,7 +317,7 @@ def test_cofunction_riesz_representation(a):
             M = assemble(mass)
             Mr = Function(V)
             with r.dat.vec_ro as v_vec:
-                with Mr.dat.vec as res_vec:
+                with Mr.dat.vec_wo as res_vec:
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity
@@ -325,7 +325,7 @@ def test_cofunction_riesz_representation(a):
 
         # Check residual
         for a, b in zip(Mr.subfunctions, c.subfunctions):
-            assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
+            assert np.allclose(a.dat.data_ro, b.dat.data_ro, rtol=1e-14)
 
 
 def test_function_riesz_representation(f):
@@ -354,7 +354,7 @@ def test_function_riesz_representation(f):
             M = assemble(mass)
             Mf = Function(V)
             with f.dat.vec_ro as v_vec:
-                with Mf.dat.vec as res_vec:
+                with Mf.dat.vec_wo as res_vec:
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity
@@ -362,7 +362,7 @@ def test_function_riesz_representation(f):
 
         # Check residual
         for a, b in zip(Mf.subfunctions, r.subfunctions):
-            assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
+            assert np.allclose(a.dat.data_ro, b.dat.data_ro, rtol=1e-14)
 
 
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):

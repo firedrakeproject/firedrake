@@ -4,6 +4,17 @@ import numpy as np
 import pytest
 
 
+def get_mat_values(mat, *nest_indices):
+    if mat.petscmat.type == "nest":
+        subpetscmat = mat.petscmat.getNestSubMatrix(*nest_indices)
+        return subpetscmat[:, :]
+    else:
+        row_index, column_index = nest_indices
+        row_label = mat.M.row_axes.trees[0].root.component_labels[row_index]
+        column_label = mat.M.column_axes.trees[0].root.component_labels[column_index]
+        return mat.M[row_label, column_label].values
+
+
 @pytest.mark.parametrize("degree", [1, 2])
 def test_area(degree):
     expected_conv = degree * 2
@@ -105,10 +116,10 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
     dW1 = W1.dof_count
 
     A = np.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
-    A[:dW0, :dW0] = L.M[0, 0].values
-    A[:dW0, dW0:dW0+dW1] = L.M[0, 1].values
-    A[dW0:dW0+dW1, :dW0] = L.M[1, 0].values
-    A[dW0:dW0+dW1, dW0:dW0+dW1] = L.M[1, 1].values
+    A[:dW0, :dW0] = get_mat_values(L, 0, 0)
+    A[:dW0, dW0:dW0+dW1] = get_mat_values(L, 0, 1)
+    A[dW0:dW0+dW1, :dW0] = get_mat_values(L, 1, 0)
+    A[dW0:dW0+dW1, dW0:dW0+dW1] = get_mat_values(L, 1, 1)
 
     uvecs, s, vvecs = np.linalg.svd(A)
 
@@ -122,10 +133,10 @@ def test_betti1_cylinder(horiz_complex, vert_complex):
                    + inner(div(u), div(v)))*dx, bcs=(bc0 + bc1))
 
     A0 = np.zeros((dW0+dW1, dW0+dW1), dtype=ScalarType)
-    A0[:dW0, :dW0] = L0.M[0, 0].values
-    A0[:dW0, dW0:dW0+dW1] = L0.M[0, 1].values
-    A0[dW0:dW0+dW1, :dW0] = L0.M[1, 0].values
-    A0[dW0:dW0+dW1, dW0:dW0+dW1] = L0.M[1, 1].values
+    A0[:dW0, :dW0] = get_mat_values(L0, 0, 0)
+    A0[:dW0, dW0:dW0+dW1] = get_mat_values(L0, 0, 1)
+    A0[dW0:dW0+dW1, :dW0] = get_mat_values(L0, 1, 0)
+    A0[dW0:dW0+dW1, dW0:dW0+dW1] = get_mat_values(L0, 1, 1)
 
     u, s, v = np.linalg.svd(A0)
 
@@ -180,10 +191,10 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     dW2 = W2.dof_count
 
     A = np.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
-    A[:dW1, :dW1] = L.M[0, 0].values
-    A[:dW1, dW1:dW1+dW2] = L.M[0, 1].values
-    A[dW1:dW1+dW2, :dW1] = L.M[1, 0].values
-    A[dW1:dW1+dW2, dW1:dW1+dW2] = L.M[1, 1].values
+    A[:dW1, :dW1] = get_mat_values(L, 0, 0)
+    A[:dW1, dW1:dW1+dW2] = get_mat_values(L, 0, 1)
+    A[dW1:dW1+dW2, :dW1] = get_mat_values(L, 1, 0)
+    A[dW1:dW1+dW2, dW1:dW1+dW2] = get_mat_values(L, 1, 1)
 
     u, s, v = np.linalg.svd(A)
 
@@ -191,10 +202,10 @@ def test_betti2_cylinder(horiz_complex, vert_complex):
     assert nharmonic == 0
 
     A0 = np.zeros((dW1+dW2, dW1+dW2), dtype=ScalarType)
-    A0[:dW1, :dW1] = L0.M[0, 0].values
-    A0[:dW1, dW1:dW1+dW2] = L0.M[0, 1].values
-    A0[dW1:dW1+dW2, :dW1] = L0.M[1, 0].values
-    A0[dW1:dW1+dW2, dW1:dW1+dW2] = L0.M[1, 1].values
+    A0[:dW1, :dW1] = get_mat_values(L0, 0, 0)
+    A0[:dW1, dW1:dW1+dW2] = get_mat_values(L0, 0, 1)
+    A0[dW1:dW1+dW2, :dW1] = get_mat_values(L0, 1, 0)
+    A0[dW1:dW1+dW2, dW1:dW1+dW2] = get_mat_values(L0, 1, 1)
 
     u, s, v = np.linalg.svd(A0)
 

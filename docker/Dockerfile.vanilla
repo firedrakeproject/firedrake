@@ -136,7 +136,7 @@ ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 ENV HDF5_MPI=ON
 ENV MPICC=mpicc
-ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
+ENV CFLAGS="-O1 -mtune=generic -fno-fast-math" CPPFLAGS="-O1 -mtune=generic -fno-fast-math"
 
 # Install Firedrake
 # - If installing 'main' then petsc4py and slepc4py are installed from source,
