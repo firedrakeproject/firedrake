@@ -121,7 +121,11 @@ def test_rank_local_checkpoint_copy_preserves_function_uids():
     source = Function(V)
 
     if MPI.COMM_WORLD.rank == 0:
-        source.block_variable.save_output()
+        block_variable = source.block_variable
+        block_variable.save_output()
+        checkpoint = block_variable.checkpoint
+        assert checkpoint.ufl_id() == source.ufl_id()
+        assert checkpoint.count() != source.count()
 
     next_function = Function(V)
     uids = MPI.COMM_WORLD.allgather(next_function.ufl_id())
@@ -135,7 +139,11 @@ def test_rank_local_checkpoint_copy_preserves_cofunction_uids():
     source = Cofunction(V.dual())
 
     if MPI.COMM_WORLD.rank == 0:
-        source.block_variable.save_output()
+        block_variable = source.block_variable
+        block_variable.save_output()
+        checkpoint = block_variable.checkpoint
+        assert checkpoint.ufl_id() == source.ufl_id()
+        assert checkpoint.count() != source.count()
 
     next_cofunction = Cofunction(V.dual())
     uids = MPI.COMM_WORLD.allgather(next_cofunction.ufl_id())

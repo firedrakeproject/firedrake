@@ -229,7 +229,6 @@ class FunctionMixin(FloatingType):
             val=self.dat.copy(),
             name=self.name(),
             dtype=self.dat.dtype,
-            count=self.count(),
             _uid=self.uid,
         )
 

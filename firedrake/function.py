@@ -54,12 +54,12 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
                  *, _uid: int | None = None):
-        """Initialize function data.
+        """Initialize a coordinateless function.
 
         Parameters
         ----------
         function_space : FunctionSpace or MixedFunctionSpace
-            Space on which to build this function.
+            Function space on which to build this function.
         val : array-like or pyop3.Dat, optional
             Data that this function will share.
         name : str, optional
@@ -241,7 +241,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         Parameters
         ----------
         function_space : FunctionSpace or MixedFunctionSpace or Function
-            Space on which to build this function. If this is a function,
+            Function space on which to build this function. If this is a function,
             its function space is used.
         val : array-like, pyop3.Dat, or Function, optional
             Initial data. If this is a function, its data is shared.

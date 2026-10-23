@@ -52,7 +52,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         Parameters
         ----------
         function_space : FunctionSpace or MixedFunctionSpace or Cofunction
-            Space on which to build this cofunction. If this is a cofunction,
+            Function space on which to build this cofunction. If this is a cofunction,
             its function space and values are copied.
         val : array-like or pyop3.Dat, optional
             Initial data. If this is a cofunction, its data is shared.
