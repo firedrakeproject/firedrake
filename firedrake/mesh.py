@@ -3638,6 +3638,13 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
         V = functionspaceimpl.WithGeometry(coordinates.function_space(), self)
         self._coordinates_function = function.Function(V, val=coordinates)
 
+    def __eq__(self, other: object) -> bool:
+        return other is self
+
+    # Defining __eq__ disables inherited hashing, but mesh objects are used as
+    # keys in Firedrake and UFL caches. Use the matching identity hash.
+    __hash__ = object.__hash__
+
     def _ufl_signature_data_(self, *args, **kwargs):
         return (type(self), self.extruded, self.variable_layers,
                 super()._ufl_signature_data_(*args, **kwargs))
