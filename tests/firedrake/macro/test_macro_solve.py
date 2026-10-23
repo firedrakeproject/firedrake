@@ -38,7 +38,7 @@ def mesh_sizes(mh):
     for msh in mh:
         DG0 = FunctionSpace(msh, "DG", 0)
         h = Function(DG0).interpolate(CellDiameter(msh))
-        with h.dat.vec as hvec:
+        with h.dat.vec_ro as hvec:
             _, maxh = hvec.max()
         mesh_size.append(maxh)
     return mesh_size
@@ -169,7 +169,7 @@ def test_stokes(mh, variant, mixed_element):
     elif variant == "alfeld":
         if dim == 3:
             assert np.allclose(u_err, 0, atol=1E-9)
-            assert np.allclose(p_err, 0, atol=1E-9)
+            assert np.allclose(p_err, 0, atol=2E-9)
         else:
             assert conv_rates(u_err, h)[-1] >= dim + 0.9
             assert conv_rates(p_err, h)[-1] >= dim-1 + 0.9

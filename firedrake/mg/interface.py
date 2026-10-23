@@ -1,11 +1,13 @@
-from pyop2 import op2
 from fractions import Fraction
 
+import pyop3 as op3
+
 from firedrake import ufl_expr, dmhooks
-from firedrake.assemble import assemble
+from firedrake.assemble import assemble, modified_lgmaps
 from firedrake.interpolation import interpolate
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.mesh import extract_mesh_topologies
 from firedrake.matrix import AssembledMatrix
 from firedrake.petsc import PETSc
 from ufl.duals import is_dual
@@ -38,6 +40,7 @@ def check_arguments(coarse, fine, needs_dual=False):
 
 
 @PETSc.Log.EventDecorator()
+@op3.cache.with_heavy_caches(lambda c, f: extract_mesh_topologies(c.function_space().mesh()))
 def prolong(coarse, fine):
     check_arguments(coarse, fine)
     Vc = coarse.function_space()
@@ -78,35 +81,32 @@ def prolong(coarse, fine):
             fine = Function(Vf.reconstruct(mesh=meshes[next_level]))
         Vf = fine.function_space()
         Vc = coarse.function_space()
-        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf)
 
-        kernel = kernels.prolong_kernel(coarse, Vf)
+        kernel, oriented, needs_cell_sizes = kernels.prolong_kernel(coarse, Vf)
+        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
         kernel_args = [
-            fine.dat(op2.WRITE),
-            coarse.dat(op2.READ, compose_map(coarse)),
-            node_locations.dat(op2.READ),
+            fine.dat[n],
+            coarse.dat[compose_map(coarse)],
+            node_locations.dat[n],
         ]
         # source mesh quantities
         source_mesh = Vc.mesh()
         coarse_coords = source_mesh.coordinates
-        kernel_args.append(coarse_coords.dat(op2.READ, compose_map(coarse_coords)))
-        if kernel.oriented:
+        kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
+        if oriented:
             co = source_mesh.cell_orientations()
-            kernel_args.append(co.dat(op2.READ, compose_map(co)))
-        if kernel.needs_cell_sizes:
+            kernel_args.append(co.dat[compose_map(co)])
+        if needs_cell_sizes:
             cs = source_mesh.cell_sizes
-            kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        for d in [coarse, coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, fine.node_set, *kernel_args)
+            kernel_args.append(cs.dat[compose_map(cs)])
+
+        op3.loop(n, kernel(*kernel_args), eager=True)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -117,6 +117,7 @@ def prolong(coarse, fine):
 
 
 @PETSc.Log.EventDecorator()
+@op3.cache.with_heavy_caches(lambda f, c: extract_mesh_topologies(c.function_space().mesh()))
 def restrict(fine_dual, coarse_dual):
     check_arguments(coarse_dual, fine_dual, needs_dual=True)
     Vf = fine_dual.function_space()
@@ -160,44 +161,45 @@ def restrict(fine_dual, coarse_dual):
             coarse_dual = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vf = fine_dual.function_space()
         Vc = coarse_dual.function_space()
-        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())
 
         # XXX: Should be able to figure out locations by pushing forward
         # reference cell node locations to physical space.
         # x = \sum_i c_i \phi_i(x_hat)
         node_locations = utils.physical_node_locations(Vf.dual())
 
-        kernel = kernels.restrict_kernel(Vf, Vc)
+        kernel, oriented, needs_cell_sizes = kernels.restrict_kernel(Vf, Vc)
+        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+        compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
+
         kernel_args = [
-            coarse_dual.dat(op2.INC, compose_map(coarse_dual)),
-            fine_dual.dat(op2.READ),
-            node_locations.dat(op2.READ),
+            coarse_dual.dat[compose_map(coarse_dual)],
+            fine_dual.dat[n],
+            node_locations.dat[n],
         ]
         # source mesh quantities
         source_mesh = Vc.mesh()
         coarse_coords = source_mesh.coordinates
-        kernel_args.append(coarse_coords.dat(op2.READ, compose_map(coarse_coords)))
-        if kernel.oriented:
+        kernel_args.append(coarse_coords.dat[compose_map(coarse_coords)])
+        if oriented:
             co = source_mesh.cell_orientations()
-            kernel_args.append(co.dat(op2.READ, compose_map(co)))
-        if kernel.needs_cell_sizes:
+            kernel_args.append(co.dat[compose_map(co)])
+        if needs_cell_sizes:
             cs = source_mesh.cell_sizes
-            kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
-        # Have to do this, because the node set core size is not right for
-        # this expanded stencil
-        for d in [coarse_coords]:
-            d.dat.global_to_local_begin(op2.READ)
-            d.dat.global_to_local_end(op2.READ)
-        op2.par_loop(kernel, fine_dual.node_set, *kernel_args)
+            kernel_args.append(cs.dat[compose_map(cs)])
+
+        op3.loop(n, kernel(*kernel_args), eager=True)
         fine_dual = coarse_dual
+
     return coarse_dual
 
 
 @PETSc.Log.EventDecorator()
+@op3.cache.with_heavy_caches(lambda f, c: extract_mesh_topologies(c.function_space().mesh()))
 def inject(fine, coarse):
     check_arguments(coarse, fine)
     Vf = fine.function_space()
     Vc = coarse.function_space()
+
     if len(Vc) > 1:
         if len(Vc) != len(Vf):
             raise ValueError("Mixed spaces have different lengths")
@@ -245,54 +247,55 @@ def inject(fine, coarse):
             coarse = Function(Vc.reconstruct(mesh=meshes[next_level]))
         Vc = coarse.function_space()
         Vf = fine.function_space()
-        kernel, dg = kernels.inject_kernel(Vf, Vc)
+        (kernel, oriented, needs_cell_sizes), dg = kernels.inject_kernel(Vf, Vc)
         if dg and not hierarchy.nested:
             raise NotImplementedError("Multigrid DG injection not implemented on non-nested hierarchies.")
         if not dg:
-            compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())
             node_locations = utils.physical_node_locations(Vc)
+
+            n = Vc.nodal_axes.blocked(Vc.shape).free.iter()
+            compose_map = lambda u: utils.coarse_node_to_fine_node_map(Vc, u.function_space())(n)
             kernel_args = [
-                coarse.dat(op2.WRITE),
-                fine.dat(op2.READ, compose_map(fine)),
-                node_locations.dat(op2.READ),
+                coarse.dat[n],
+                fine.dat[compose_map(fine)],
+                node_locations.dat[n],
             ]
             # source mesh quantities
             source_mesh = Vf.mesh()
             fine_coords = source_mesh.coordinates
-            kernel_args.append(fine_coords.dat(op2.READ, compose_map(fine_coords)))
-            if kernel.oriented:
+            kernel_args.append(fine_coords.dat[compose_map(fine_coords)])
+            if oriented:
                 co = source_mesh.cell_orientations()
-                kernel_args.append(co.dat(op2.READ, compose_map(co)))
-            if kernel.needs_cell_sizes:
+                kernel_args.append(co.dat[compose_map(co)])
+            if needs_cell_sizes:
                 cs = source_mesh.cell_sizes
-                kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
-            # Have to do this, because the node set core size is not right for
-            # this expanded stencil
-            for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, coarse.node_set, *kernel_args)
+                kernel_args.append(cs.dat[compose_map(cs)])
+
+            op3.loop(n, kernel(*kernel_args), eager=True)
         else:
-            compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())
+            c = Vc.mesh().cells.owned.iter()
+            compose_map = lambda u: utils.coarse_cell_to_fine_node_map(Vc, u.function_space())(c)
             coarse_coords = Vc.mesh().coordinates
             fine_coords = Vf.mesh().coordinates
-            # Have to do this, because the node set core size is not right for
-            # this expanded stencil
-            for d in [fine, fine_coords]:
-                d.dat.global_to_local_begin(op2.READ)
-                d.dat.global_to_local_end(op2.READ)
-            op2.par_loop(kernel, Vc.mesh().cell_set,
-                         coarse.dat(op2.INC, coarse.cell_node_map()),
-                         fine.dat(op2.READ, compose_map(fine)),
-                         fine_coords.dat(op2.READ, compose_map(fine_coords)),
-                         coarse_coords.dat(op2.READ, coarse_coords.cell_node_map()),
-                         utils.coarse_cell_child_count(Vc, Vf)(op2.READ))
+
+            op3.loop(
+                c,
+                kernel(
+                    coarse.dat[coarse.function_space().cell_node_map(c)],
+                    fine.dat[compose_map(fine)],
+                    fine_coords.dat[compose_map(fine_coords)],
+                    coarse_coords.dat[coarse_coords.function_space().cell_node_map(c)],
+                    utils.coarse_cell_child_count(Vc, Vf)[c],
+                ),
+                eager=True,
+            )
 
         if needs_quadrature:
             # Transfer to the actual target space
             new_coarse = coarsest if j == repeat - 1 else Function(Vcoarsest.reconstruct(mesh=meshes[next_level]))
             coarse = new_coarse.interpolate(coarse)
         fine = coarse
+
     return coarse
 
 
@@ -343,41 +346,37 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     if levelc + Fraction(1, hierarchy.refinements_per_level) != levelf:
         raise ValueError("Only implemented on consecutive levels")
 
-    row_map = utils.identity_node_map(Vrow)
-    col_map = utils.fine_node_to_coarse_node_map(Vrow, Vcol)
-    sparsity = op2.Sparsity((Vrow.dof_dset, Vcol.dof_dset),
-                            [(row_map, col_map, None)],
-                            name=f"{Vrow.name}_{Vcol.name}_hierarchy_interpolation_sparsity",
-                            nest=False,
-                            block_sparse=False)
-    mat = op2.Mat(sparsity)
+    mat = op3.Mat.empty(Vrow.axes, Vcol.axes)
 
     lgmaps = None
     if bcs:
         row_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vrow)]
         col_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vcol)]
         if row_bcs or col_bcs:
-            lgmaps = [(Vrow.local_to_global_map(row_bcs), Vcol.local_to_global_map(col_bcs))]
+            lgmaps = (Vrow.lgmap(row_bcs), Vcol.lgmap(col_bcs))
 
-    kernel = kernels.prolong_matrix_kernel(Vcol, Vrow)
+    kernel, oriented, needs_cell_sizes = kernels.prolong_matrix_kernel(Vcol, Vrow)
     node_locations = utils.physical_node_locations(Vrow)
     source_mesh = Vcol.mesh()
     source_coords = source_mesh.coordinates
-    compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vrow, u.function_space())
+
+    n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+    compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vrow, u.function_space())(n)
+
     kernel_args = [
-        mat(op2.INC, (row_map, col_map), lgmaps=lgmaps),
-        node_locations.dat(op2.READ),
-        source_coords.dat(op2.READ, compose_map(source_coords)),
+        mat[n, utils.fine_node_to_coarse_node_map(Vrow, Vcol)(n)],
+        node_locations.dat[n],
+        source_coords.dat[compose_map(source_coords)],
     ]
-    if kernel.oriented:
+    if oriented:
         co = source_mesh.cell_orientations()
-        kernel_args.append(co.dat(op2.READ, compose_map(co)))
-    if kernel.needs_cell_sizes:
+        kernel_args.append(co.dat[compose_map(co)])
+    if needs_cell_sizes:
         cs = source_mesh.cell_sizes
-        kernel_args.append(cs.dat(op2.READ, compose_map(cs)))
-    source_coords.dat.global_to_local_begin(op2.READ)
-    source_coords.dat.global_to_local_end(op2.READ)
-    op2.par_loop(kernel, Vrow.node_set, *kernel_args)
+        kernel_args.append(cs.dat[compose_map(cs)])
+
+    with modified_lgmaps(mat, lgmaps):
+        op3.loop(n, kernel(*kernel_args), eager=True)
     mat.assemble()
     result = mat.handle
 

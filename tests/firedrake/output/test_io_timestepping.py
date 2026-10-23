@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 import ufl
 import finat.ufl
 import os
