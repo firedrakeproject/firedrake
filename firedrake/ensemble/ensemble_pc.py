@@ -79,6 +79,7 @@ class EnsembleBJacobiPC(EnsemblePCBase):
     """
     prefix = "ebjacobi_"
 
+    @PETSc.Log.EventDecorator()
     def initialize(self, pc):
         super().initialize(pc)
 
@@ -138,6 +139,7 @@ class EnsembleBJacobiPC(EnsemblePCBase):
 
         self.sub_ksps = tuple(sub_ksps)
 
+    @PETSc.Log.EventDecorator()
     def apply_impl(self, pc, x, y):
         sub_vecs = zip(self.x.subfunctions, self.y.subfunctions)
         for sub_ksp, (subx, suby) in zip(self.sub_ksps, sub_vecs):

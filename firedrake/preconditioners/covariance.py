@@ -29,6 +29,7 @@ class CovariancePC(petsctools.PCBase):
     needs_python_pmat = True
     prefix = "covariance"
 
+    @PETSc.Log.EventDecorator()
     def initialize(self, pc):
         from firedrake.adjoint.covariance_operator import CovarianceMatCtx
         A, P = pc.getOperators()
@@ -61,6 +62,7 @@ class CovariancePC(petsctools.PCBase):
             self.y = primal
             self._apply_op = covariance.apply_action
 
+    @PETSc.Log.EventDecorator()
     def apply(self, pc, x, y):
         """Apply the action or inverse of the covariance operator
         to x, putting the result in y.

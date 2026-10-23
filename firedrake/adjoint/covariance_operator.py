@@ -227,6 +227,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
             include_dirs=BLASLAPACK_INCLUDE.split(),
             ldargs=BLASLAPACK_LIB.split())
 
+    @PETSc.Log.EventDecorator()
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
@@ -276,6 +277,7 @@ class PetscNoiseBackend(NoiseBackendBase):
         self._zb = Function(self.broken_space)
         self.M = inner(self._zb, TestFunction(self.broken_space))*dx
 
+    @PETSc.Log.EventDecorator()
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
@@ -317,6 +319,7 @@ class VOMNoiseBackend(NoiseBackendBase):
     NoiseBackendBase
     WhiteNoiseGenerator
     """
+    @PETSc.Log.EventDecorator()
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
@@ -392,6 +395,7 @@ class WhiteNoiseGenerator:
 
         petsctools.cite("Croci2018")
 
+    @PETSc.Log.EventDecorator()
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
@@ -730,6 +734,7 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
     def rng(self):
         return self._rngs
 
+    @PETSc.Log.EventDecorator()
     def sample(self, rng=None, tensor=None):
         tensor = tensor or Function(self.function_space())
         for cov, tsub, rsub in zip(self.subcovariances,
@@ -738,11 +743,13 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
             cov.sample(rng=rsub, tensor=tsub)
         return tensor
 
+    @PETSc.Log.EventDecorator()
     def norm(self, x):
         return sum(cov.norm(xsub)
                    for cov, xsub in zip(self.subcovariances,
                                         x.subfunctions))
 
+    @PETSc.Log.EventDecorator()
     def apply_inverse(self, x, tensor=None):
         tensor = tensor or Cofunction(self.function_space().dual())
         for cov, xsub, tsub in zip(self.subcovariances,
@@ -751,6 +758,7 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
             cov.apply_inverse(xsub, tensor=tsub)
         return tensor
 
+    @PETSc.Log.EventDecorator()
     def apply_action(self, x, tensor=None):
         tensor = tensor or Function(self.function_space())
         for cov, xsub, tsub in zip(self.subcovariances,
@@ -855,6 +863,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
         CG = 'CG'
         IP = 'IP'
 
+    @PETSc.Log.EventDecorator()
     def __init__(self, V: WithGeometry, L: float | Constant,
                  sigma: float | Constant = 1., m: int = 2,
                  rng: WhiteNoiseGenerator | None = None,
@@ -925,6 +934,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     def rng(self):
         return self._rng
 
+    @PETSc.Log.EventDecorator()
     def sample(self, *, rng: WhiteNoiseGenerator | None = None,
                tensor: Function | None = None):
         tensor = tensor or Function(self.function_space())
@@ -943,6 +953,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         return tensor.assign(self._weight*self._u)
 
+    @PETSc.Log.EventDecorator()
     def norm(self, x: Function):
         if self.iterations == 0:
             sigma_x = (1/self.stddev)*x
@@ -957,6 +968,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         return assemble(inner(self._u, self._u)*dx)
 
+    @PETSc.Log.EventDecorator()
     def apply_inverse(self, x: Function, *,
                       tensor: Cofunction | None = None):
         tensor = tensor or Cofunction(self.function_space().dual())
@@ -978,6 +990,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
         return tensor.assign(lamda1*b)
 
+    @PETSc.Log.EventDecorator()
     def apply_action(self, x: Cofunction, *,
                      tensor: Function | None = None):
         tensor = tensor or Function(self.function_space())
@@ -1128,6 +1141,7 @@ class CovarianceMatCtx:
             raise ValueError(
                 f"Unrecognised CovarianceMat operation {operation}")
 
+    @PETSc.Log.EventDecorator()
     def mult(self, mat, x, y):
         """Apply the action or inverse of the covariance operator
         to x, putting the result in y.

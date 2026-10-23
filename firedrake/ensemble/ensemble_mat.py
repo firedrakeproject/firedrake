@@ -167,6 +167,7 @@ class EnsembleBlockDiagonalMatCtx(EnsembleMatCtxBase):
                 raise ValueError(
                     f"Col sizes of block {i} and col_space {i} of EnsembleBlockDiagonalMat must match.")
 
+    @PETSc.Log.EventDecorator()
     def mult_impl(self, A, x, y):
         for block, xsub, ysub in zip(self.block_mats,
                                      x.subfunctions,
@@ -174,6 +175,7 @@ class EnsembleBlockDiagonalMatCtx(EnsembleMatCtxBase):
             with xsub.dat.vec_ro as xvec, ysub.dat.vec_wo as yvec:
                 block.mult(xvec, yvec)
 
+    @PETSc.Log.EventDecorator()
     def setUp(self, mat):
         for bmat in self.block_mats:
             bmat.setUp()
