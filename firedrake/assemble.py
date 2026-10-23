@@ -1171,7 +1171,20 @@ class ParloopFormAssembler(FormAssembler):
     @staticmethod
     @abc.abstractmethod
     def _as_pyop3_type(tensor, indices=None):
-        """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
+        """Cast a Firedrake tensor to a PyOP3 data structure, optionally indexing it.
+
+        Parameters
+        ----------
+        tensor : firedrake.Function or firedrake.Cofunction or firedrake.matrix.MatrixBase
+            The Firedrake tensor to convert.
+        indices : tuple of int or None, optional
+            Component indices with which to select a sub-tensor.
+
+        Returns
+        -------
+        pyop3.Scalar or pyop3.Dat or pyop3.Mat
+            The PyOP3 object that represents ``tensor``.
+        """
 
     def parloops(self, tensor):
         if hasattr(self, "_parloops"):

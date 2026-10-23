@@ -98,15 +98,19 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
 
     Parameters
     ----------
-    operand: ufl.Expr
-        A primal expression
-    dual_arg: ufl.Coargument | ufl.Cofunction
-        A dual argument or coefficient
+    operand : ufl.Expr
+        A primal expression.
+    dual_arg : ufl.Coargument or ufl.Cofunction
+        A dual argument or coefficient.
+    parameters : dict or None, optional
+        Compiler parameters to pass to TSFC.
+    name : str, optional
+        The name to use for the generated kernel.
 
     Returns
     -------
-    pyop2.op2.Kernel
-        The kernel
+    tsfc.kernel_interface.firedrake_loopy.Kernel
+        The generated kernel.
     """
     source_mesh = extract_unique_domain(operand)
     target_space = dual_arg.arguments()[0].ufl_function_space()
@@ -271,7 +275,7 @@ def prolong_kernel(expression, Vf):
 
 
 def prolong_matrix_kernel(Vc, Vf):
-    """Return a PyOP2 kernel that assembles the local prolongation matrices mapping Vc to Vf.
+    """Return a kernel that assembles local prolongation matrices from ``Vc`` to ``Vf``.
 
     Parameters
     ----------
@@ -282,8 +286,8 @@ def prolong_matrix_kernel(Vc, Vf):
 
     Returns
     -------
-    pyop2.op2.Kernel
-        A kernel that fills in the local dense matrix of the point evaluation
+    tsfc.kernel_interface.firedrake_loopy.Kernel
+        A kernel descriptor that fills in the local dense matrix of the point evaluation
         prolongation operator, for each fine grid cell and its overlapping
         coarse grid cells.
 

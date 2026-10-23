@@ -208,9 +208,9 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
 
     Returns
     -------
-    Tuple
-        A tuple of tuples of
-        (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
+    tuple of SplitKernel
+        A tuple of split kernels, each of which contains the local indices and
+        the TSFC kernel information for one form component.
 
     Notes
     ----
