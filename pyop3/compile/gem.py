@@ -226,8 +226,8 @@ class GemCompiler(Pyop3Compiler):
             lhs, rhs = insn
             new_lhs = gem.replace_variables(lhs, gem_var_replace_map)
             new_rhs = gem.replace_variables(rhs, gem_var_replace_map)
+            # NOTE: Not sure if this is the right intent here
             insn = gem.impero.Assignment(new_lhs, new_rhs, "write")
-            # breakpoint()
             self._add_instruction(insn)
 
     def arg(self, name, dtype, shape):
