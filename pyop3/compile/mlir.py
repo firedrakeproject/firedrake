@@ -72,9 +72,8 @@ def is_float(t) -> bool:
 def is_intlike(t) -> bool:
     return t == INDEX_TYPE or isinstance(t, IntegerType)
 
-
 def _binary_handler(float_op, int_op):
-    """Return a `process` handler for a GEM node with two scalar children.
+    """Return a process handler for a GEM node with two scalar children.
 
     :arg float_op:  MLIR operation for floating point operand. Use None if op only defined for integers
     :arg int_op: MLIR operation for integer operand
@@ -117,7 +116,7 @@ class SymbolTable:
 
 
 class MLIRBuilder:
-    """Visitor that populates an MLIR Object.
+    """OUTDATED DESC: Visitor that populates an MLIR Object.
 
     This class is intended to be subclassed by 'reconstruction' visitors that
     build similar objects.
@@ -210,6 +209,7 @@ class MLIRBuilder:
 
         modop.verify()
 
+        # Update the return values to match similar to Loopy 
         return modop, self.arguments, f"_mlir_ciface_{name}"
 
     # {{{ helpers
@@ -319,9 +319,9 @@ class MLIRBuilder:
         return self._convert_type(a, target), self._convert_type(b, target)
 
     def _binary(self, a, b, float_op, int_op) -> SSAValue:
-        """Apply `float_op` or `int_op` to `a` and `b` after promoting them to a common type.
+        """Apply float_op or int_op to a and b after promoting them to a common type.
 
-        `float_op` can be `None` for operations that are only defined for integers.
+        float_op can be None for operations that are only defined for integers.
         """
         a, b = self._align_scalars(a, b)
         if is_float(a.type):
@@ -359,19 +359,19 @@ class MLIRBuilder:
         -> isinstance(node.data.buffer, ArrayBuffer) -> function argument
 
         """
-        # Assuming buffer is flat, we are doing one-form assembly anyway
-        assert len(node.data.buffer.shape) == 1
-
-        shape = list(map(int, node.data.buffer.shape))
         mlir_type = get_mlir_type(node.dtype)
 
-        if isinstance(node.data.buffer, NullBuffer):
+        # NOTE: This is not nice. How else do I differ between temps and func args? 
+        if node.data == "null":
+            # ASSUMPTION: In temporary shape, first element is cell loop, second is actual shape.
+            shape = [node.shape[1]]  
             return self._declare_global(
                 node.name, mlir_type, np.zeros(shape=shape, dtype=node.dtype), constant=False
             )
 
         elif isinstance(node.data.buffer, ArrayBuffer):
-            memref_type = MemRefType(mlir_type, shape=[DYNAMIC_INDEX])
+            shape = [DYNAMIC_INDEX]
+            memref_type = MemRefType(mlir_type, shape=shape)
             arg = self._entry_block.insert_arg(memref_type, len(self._entry_block.args))
             arg.name_hint = node.name
 
@@ -394,7 +394,7 @@ class MLIRBuilder:
     def _declare_global(
         self, name: str, mlir_type, array: np.ndarray, *, constant: bool
     ) -> SSAValue:
-        """Declare a private module-level `memref.global` and fetch it in the entry block.
+        """Declare a private module-level memref.global and fetch it in the entry block.
 
         The fetch is placed in the entry block so that it dominates all uses.
 
@@ -451,7 +451,9 @@ class MLIRBuilder:
         return self._to_index(self.process(idx))
 
     def linearise_index(self, strides, multiindex) -> SSAValue:
-        """ Receives a list of ints and gem.{Index, VariableIndex} and returns SSA linearised access """
+        """ Receives a list of ints and gem.{Index, VariableIndex} and returns SSA linearised           access 
+        """
+
         assert len(multiindex) == len(strides), "Strides length must match indices"
 
         # linearised = sum(index * stride)
@@ -512,7 +514,11 @@ class MLIRBuilder:
 
     @index_into.register(gem.Variable)
     def _(self, aggregate, multiindex) -> SSAValue:
-        # NOTE: This is while Connor debugs multiindices in GEM
+        # FIXME: There is a bug here. Probably unsurprisingly
+        # ASSUMPTION: First element is index is cell loop
+        if len(multiindex) > 1: 
+            multiindex = multiindex[1:] 
+
         return self._load(aggregate, multiindex, [1])
 
     # }}}
@@ -549,24 +555,6 @@ class MLIRBuilder:
         with self.enter_for(tree.index):
             self.process(tree.children[0])
 
-    @_process.register(imp.Return)
-    def process_return(self, leaf):
-        """ Store value of expression into variable
-
-        If variable is Indexed - we store into the buffer
-        If variable is not Indexed, we just store by name into symbol table
-
-        """
-        var = leaf.variable
-        value = self.process(leaf.expression)
-
-        if not isinstance(var, gem.Indexed):
-            self.symbol_table.define(var.name, value)
-            return
-
-        buf, idx = self._address(var)
-        self.insert(memref.StoreOp.get(value, buf, idx))
-
     @_process.register(imp.Evaluate)
     def process_evaluate(self, leaf):
         """ Calculate value within expression and assign to temporary """
@@ -577,7 +565,37 @@ class MLIRBuilder:
 
     @_process.register(imp.Assignment)
     def process_assignment(self, leaf):
-        ... 
+        """ 
+        Assigment has two modes:
+        - write
+        - inc 
+
+        If 'inc', we load the current value and add 
+        """
+        
+        var = leaf.assignee
+        value = self.process(leaf.expression)
+        dtype = get_mlir_type(var.dtype)
+
+        # Exit early if variable is not a buffer 
+        if not isinstance(var, gem.Indexed):
+            self.symbol_table.define(var.name, value)
+            return
+
+        buf, idx = self._address(var)
+
+        # If inc, we load initial value and add  
+        if leaf.mode == "inc":
+            current = self.insert(memref.LoadOp.get(buf, idx))
+
+            if is_float(dtype):
+                addop = arith.AddfOp(current, value) 
+            else:
+                addop = arith.AddiOp(current, value)
+
+            value = self.insert(addop)  
+
+        self.insert(memref.StoreOp.get(value, buf, idx))
 
     # }}}
 
@@ -718,8 +736,7 @@ class MLIRBuilder:
     def _enter_loop(self, index, loop_function, terminator_function):
         """Open a loop over index and make its body the current insertion point.
 
-        The loop index is bound in a new symbol table scope. On exit, the body
-        is terminated, and the builder and the scope are removed again.
+        The loop index is bound in a new symbol table scope. When exiting, the builder and scope are removed - as the values are no longer valid
 
         :arg index: numbers.Integral or gem.Index, denoting extent of domain
         :arg loop_function: Callable that takes the lower bound, the upper bound, the
@@ -757,9 +774,11 @@ class MLIRBuilder:
     def outermost(self):
         """ Increments the visible outermost scope of the insertion problem, while inside the context
 
+        This is what will be used for entering a GPU launch context - all CPU components outside it should not be accessible. 
+
         The current outermost region, and the SSA values that are defined in it,
         become invisible to everything inside the context. Operations that are
-        hoisted with `insert_at_entry` are inserted one level deeper instead.
+        hoisted with insert_at_entry are inserted one level deeper instead.
 
         The constant and buffer caches are emptied while inside the context,
         because their SSA values are not valid there, and they are restored on
