@@ -842,7 +842,7 @@ class SupermeshProjectBlock(Block):
       * :math:`M_{AB}` is the mixed mass matrix for :math:`V_A` and
         :math:`V_B`,
       * :math:`v_A` and :math:`v_B` are vector representations of the source
-        and target :class:`.Function` s.
+        and target :class:`firedrake.function.Function` s.
 
     This can be broken into two steps:
       Step 1. form RHS, multiplying the source with the mixed mass matrix;

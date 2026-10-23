@@ -3466,7 +3466,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
-        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
+        """Return the :class:`pyop3.index_tree.tree.Map` from vertex only mesh cells to
         parent mesh cells.
         """
         dest_axis = self._parent_mesh._uid
@@ -4791,7 +4791,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
                          Can be used with any "extrusion_type" to make annulus, torus, etc.
     :arg kernel:         a ``pyop2.Kernel`` to produce coordinates for
-                         the extruded mesh. See :func:`~.make_extruded_coords`
+                         the extruded mesh. See :func:`firedrake.extrusion_utils.make_extruded_coords`
                          for more details.
     :arg gdim:           number of spatial dimensions of the
                          resulting mesh (this is only used if a

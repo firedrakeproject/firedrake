@@ -13,11 +13,6 @@ RealType = numpy.dtype(PETSc.RealType)
 ScalarType = numpy.dtype(PETSc.ScalarType)
 
 
-# dtypes can either be a numpy dtype object or just a class deriving from np.number
-# return isinstance(obj, np.dtype) or issubclass(obj, np.number)
-DTypeT = np.dtype | type
-
-
 DTypeLimit = collections.namedtuple("DTypeLimit", ["min", "max"])
 
 

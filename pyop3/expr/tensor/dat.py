@@ -31,7 +31,7 @@ from pyop3.axis_tree.tree import (
 )
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer
 from pyop3.cache import cached_method
-from pyop3.dtypes import DTypeT, IntType
+from pyop3.dtypes import IntType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.expr.base import Terminal
 from pyop3.index_tree import ScalarIndex
@@ -291,7 +291,7 @@ class Dat(Tensor):
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
-    def from_sequence(cls, sequence: Sequence, dtype: DTypeT, **kwargs) -> Dat:
+    def from_sequence(cls, sequence: Sequence, dtype, **kwargs) -> Dat:
         array = np.asarray(sequence, dtype=dtype)
         return cls.from_array(array, **kwargs)
 
@@ -596,7 +596,7 @@ class Dat(Tensor):
     def maxpy(self, alphas: Iterable[numbers.Number], dats: Iterable[Dat]) -> None:
         """Compute a sequence of axpy operations.
 
-        This is equivalent to calling `axpy` for each pair of
+        This is equivalent to calling ``axpy`` for each pair of
         scalars and `Dat` in the input sequences.
 
         Parameters
@@ -604,7 +604,7 @@ class Dat(Tensor):
         alphas :
             A sequence of scalars.
         dats :
-            A sequence of `Dat`s.
+            A sequence of `Dat`.
 
         """
         for alpha, dat in zip(alphas, dats, strict=True):

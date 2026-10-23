@@ -435,7 +435,7 @@ class Function(pyop3.obj.Object):
         /,
         name: str,
         c_code: str,
-        args: Iterable[tuple[str, DTypeT, Intent]],
+        args: Iterable[tuple[str, np.dtype, Intent]],
         *,
         preambles=(),
         **kwargs,

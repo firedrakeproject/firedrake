@@ -69,7 +69,7 @@ def project(
     v
         The :class:`ufl.core.expr.Expr` to project.
     V
-        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+        The :class:`.FunctionSpace` or :class:`firedrake.function.Function` to project into.
     bcs
         Boundary conditions to apply in the projection.
     solver_parameters
@@ -82,14 +82,14 @@ def project(
     quadrature_degree
         Quadrature degree to use when approximating integrands.
     name
-        The name of the resulting :class:`.Function`.
+        The name of the resulting :class:`firedrake.function.Function`.
     ad_block_tag
         String for tagging the resulting block on the Pyadjoint tape.
 
     Returns
     -------
     firedrake.function.Function
-        The :class:`.Function` on the new :class:`.FunctionSpace`.
+        The :class:`firedrake.function.Function` on the new :class:`.FunctionSpace`.
 
     Notes
     -----
@@ -97,10 +97,10 @@ def project(
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
 
-    If ``V`` is a :class:`.Function` then ``v`` is projected into ``V``
+    If ``V`` is a :class:`firedrake.function.Function` then ``v`` is projected into ``V``
     and ``V`` is returned. If `V` is a :class:`.FunctionSpace` then
-    ``v`` is projected into a new :class:`.Function` and that
-    :class:`.Function` is returned.
+    ``v`` is projected into a new :class:`firedrake.function.Function` and that
+    :class:`firedrake.function.Function` is returned.
 
     """
     val = Projector(
@@ -311,7 +311,7 @@ def Projector(
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
     allowing the solver to be reused. Projection reverts to an assign
-    operation if ``v`` is a :class:`.Function` and belongs to the same
+    operation if ``v`` is a :class:`firedrake.function.Function` and belongs to the same
     function space as ``v_out``.
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
@@ -321,7 +321,7 @@ def Projector(
     v
         The :class:`ufl.core.expr.Expr` to project.
     v_out
-        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+        The :class:`.FunctionSpace` or :class:`firedrake.function.Function` to project into.
     bcs
         Boundary conditions to apply in the projection.
     solver_parameters

@@ -3,7 +3,7 @@ Overview
 ========
 
 This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
-and enables users to generate a randomised :class:`.Function` from a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace`.
+and enables users to generate a randomised :class:`firedrake.function.Function` from a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace`.
 This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
 
 Generator
@@ -11,7 +11,7 @@ Generator
 
 A :class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
 :class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
-and they can be used to generate a randomised :class:`.Function` by passing a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace` as the first argument.
+and they can be used to generate a randomised :class:`firedrake.function.Function` by passing a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace` as the first argument.
 
 Example:
 
@@ -205,16 +205,16 @@ def __getattr__(module_attr):
                 st += sp + s.replace('(', '(*').replace('d0, d1, ..., dn', 'V').replace(')', '*)') + '\n\n'
                 st += sp + 'Generate a function :math:`f` = Function(V), internally call the original method *' + name + '* with given arguments, and return :math:`f`.\n\n'
                 st += sp + ':arg V: :class:`.FunctionSpace`\n\n'
-                st += sp + ':returns: :class:`.Function`\n\n'
+                st += sp + ':returns: :class:`firedrake.function.Function`\n\n'
                 st += sp + s.replace('(', '(*').replace(')', '*)') + '\n\n'
             elif 'size=None' in s:
                 name = s[:s.find('(')]
                 st += sp + name + '(*args, **kwargs)\n\n'
                 s = '*' + name + '* ' + s[len(name):]
                 st += sp + s.replace('(', '(*V, ').replace(', size=None', '').replace(')', '*)') + '\n\n'
-                st += sp + 'Generate a :class:`.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
+                st += sp + 'Generate a :class:`firedrake.function.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
                 st += sp + ':arg V: :class:`.FunctionSpace`\n\n'
-                st += sp + ':returns: :class:`.Function`\n\n'
+                st += sp + ':returns: :class:`firedrake.function.Function`\n\n'
                 st += sp + "The original documentation is found at `<https://numpy.org/doc/stable/reference/random/generated/numpy.random." + name + ".html>`__, which is reproduced below with appropriate changes.\n\n"
                 st += sp + s.replace('(', '(*').replace(')', '*)') + '\n\n'
             elif '.. math::' in s:
@@ -232,7 +232,7 @@ def __getattr__(module_attr):
                             "    The original documentation is found at `<https://numpy.org/doc/stable/reference/random/generator.html#numpy.random.Generator>`__, which is reproduced below with appropriate changes.\n"
                             "\n"
                             "    Users can pass to many of the available distribution methods\n"
-                            "    a :class:`.FunctionSpace` as the first argument to obtain a randomised :class:`.Function`.\n"
+                            "    a :class:`.FunctionSpace` as the first argument to obtain a randomised :class:`firedrake.function.Function`.\n"
                             "\n"
                             "    .. note ::\n"
                             "        FunctionSpace, V, has to be passed as\n"

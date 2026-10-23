@@ -2407,14 +2407,6 @@ def merge_axis_trees(trees: Iterable[AxisTree], *, only_unit: bool = False) -> A
 def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -> AxisTree:
     """Merge two axis trees together.
 
-    Parameters
-    ----------
-
-    only_unit
-        Whether or not the second tree is allowed to introduce new axes that
-        are not 'unit' axes. This option is useful for when one is happy to
-        have extra axes that do not materially affect the output shape.
-
     If the second tree has no common axes (share a lable) with the first then it is
     appended to every leaf of the first tree. Any common axes are skipped.
 
@@ -2427,6 +2419,15 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -
         AxisTree.from_nest({axis_a: [axis_b, axis_c]})
 
         is added to axis_a: things should split up.
+
+
+    Parameters
+    ----------
+
+    only_unit
+        Whether or not the second tree is allowed to introduce new axes that
+        are not 'unit' axes. This option is useful for when one is happy to
+        have extra axes that do not materially affect the output shape.
 
     """
     if tree1 and not isinstance(tree1, _UnitAxisTree):

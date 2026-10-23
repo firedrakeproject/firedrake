@@ -210,12 +210,12 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
     Given a form, this computes its linearization with respect to the
-    provided :class:`.Function`.  The resulting form has one
+    provided :class:`firedrake.function.Function`.  The resulting form has one
     additional :class:`Argument` in the same finite element space as
     the Function.
 
     :arg form: a :class:`~ufl.classes.Form` to compute the derivative of.
-    :arg u: a :class:`.Function` to compute the derivative with
+    :arg u: a :class:`firedrake.function.Function` to compute the derivative with
          respect to.
     :arg du: an optional :class:`Argument` to use as the replacement
          in the new form (constructed automatically if not provided).
