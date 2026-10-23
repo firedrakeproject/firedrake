@@ -109,6 +109,43 @@ def test_forward(u, nn):
     assert np.allclose(y_F.dat.data_ro, assembled_N.dat.data_ro)
 
 
+@pytest.mark.skipcomplex
+@pytest.mark.skiptorch
+def test_forward_multiple_inputs(u, V):
+    """A second input is passed to the model unless parameter training is enabled."""
+    model = Linear(2 * V.dim(), V.dim()).double()
+    other = Function(V).assign(2.0)
+    N = ml_operator(model, function_space=V)(u, other)
+    actual = assemble(N)
+    expected = model(torch.cat([to_torch(u, batched=False), to_torch(other, batched=False)]))
+    assert np.allclose(actual.dat.data_ro, expected.detach().numpy())
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.skiptorch
+@pytest.mark.parametrize("depth", [1, 2, 3])
+def test_nested_operator_adjoint(depth: int) -> None:
+    """Nested interpolation and ML operators preserve the adjoint action."""
+    class Scale(Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return 2 * x
+
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(1 + x)
+    w = Function(V).interpolate(2 - x)
+    N = ml_operator(Scale(), function_space=V)
+    value = f
+    for _ in range(depth):
+        value = N(interpolate(value, V))
+    form = inner(value, TestFunction(V)) * dx
+    actual = assemble(action(adjoint(derivative(form, f)), w))
+    expected = assemble(2 ** depth * inner(w, TestFunction(V)) * dx)
+    with assemble(actual - expected).dat.vec_ro as difference:
+        assert difference.norm() < 1e-12
+
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
 def test_forward_mixed(V, nn):

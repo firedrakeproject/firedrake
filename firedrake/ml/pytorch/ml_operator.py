@@ -87,6 +87,13 @@ class PytorchOperator(MLOperator):
         # Default: set PyTorch annotation on, unless otherwise specified.
         return self.operator_data.get('torch_grad_enabled', True)
 
+    @property
+    def _model_inputs(self):
+        """Exclude the trailing parameter handle when parameter training is enabled."""
+        if self.operator_data.get('model_parameters', False):
+            return self.ufl_operands[:-1]
+        return self.ufl_operands
+
     # --- Callbacks --- #
 
     def _pre_forward_callback(self, *operands, unsqueeze=False):
@@ -111,16 +118,28 @@ class PytorchOperator(MLOperator):
     def _vjp(self, y):
         """Implement the vector-Jacobian product (VJP) for a given vector `y`."""
         model = self.model
-        x = self._pre_forward_callback(*self.ufl_operands)
+        x = self._pre_forward_callback(*self._model_inputs)
         y_P = self._pre_forward_callback(y)
         _, vjp = torch_func.vjp(lambda x: model(x), x, y_P)
         vjp_F = self._post_forward_callback(vjp)
         return vjp_F
 
+    def _backward(self, y):
+        """Accumulate model parameter gradients using the adjoint seed ``y``."""
+        model = self.model
+        x = self._pre_forward_callback(*self._model_inputs)
+        y_P = self._pre_forward_callback(y)
+        with torch.set_grad_enabled(True):
+            output = model(x)
+        output.backward(y_P)
+        params = self.ufl_operands[-1]
+        dummy_output = self._pre_forward_callback(params)
+        return from_torch(dummy_output, params.ufl_function_space().dual())
+
     def _jvp(self, z):
         """Implement the Jacobian-vector product (JVP) for a given vector `z`."""
         model = self.model
-        x = self._pre_forward_callback(*self.ufl_operands)
+        x = self._pre_forward_callback(*self._model_inputs)
         z_P = self._pre_forward_callback(z)
         _, jvp = torch_func.jvp(lambda x: model(x), x, z_P)
         jvp_F = self._post_forward_callback(jvp)
@@ -131,7 +150,7 @@ class PytorchOperator(MLOperator):
         # Get the model
         model = self.model
         # Don't unsqueeze so that we end up with a rank 2 tensor
-        x = self._pre_forward_callback(*self.ufl_operands, unsqueeze=False)
+        x = self._pre_forward_callback(*self._model_inputs, unsqueeze=False)
         jac = torch_func.jacobian(lambda x: model(x), x)
 
         # For big matrices, assembling the Jacobian is not a good idea and one should instead
@@ -151,7 +170,7 @@ class PytorchOperator(MLOperator):
         model = self.model
 
         # Get the input operands
-        ops = self.ufl_operands
+        ops = self._model_inputs
 
         # By default PyTorch annotation is on (i.e. equivalent to `with torch.enable_grad()`)
         with torch.set_grad_enabled(self.torch_grad_enabled):
@@ -171,7 +190,7 @@ class PytorchOperator(MLOperator):
 
 
 # Helper functions #
-def ml_operator(model, function_space, inputs_format=0):
+def ml_operator(model, function_space, inputs_format=0, *, model_parameters: bool = False):
     """Helper function for instantiating the :class:`~.PytorchOperator` class.
 
     This function facilitates having a two-stage instantiation which dissociates between class arguments
@@ -197,6 +216,10 @@ def ml_operator(model, function_space, inputs_format=0):
     inputs_format: int
                    The format of the input data of the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
                    Other strategies can also be considered by subclassing the :class:`.PytorchOperator` class.
+    model_parameters : bool
+        If True, the last operand is a Firedrake handle for the model parameters and is
+        excluded from the model inputs. Its adjoint action accumulates gradients in
+        ``model.parameters()`` for a PyTorch optimiser.
 
     Returns
     -------
@@ -209,7 +232,7 @@ def ml_operator(model, function_space, inputs_format=0):
     if inputs_format not in (0, 1):
         raise ValueError('Expecting inputs_format to be 0 or 1')
 
-    operator_data = {'model': model, 'inputs_format': inputs_format}
+    operator_data = {'model': model, 'inputs_format': inputs_format, 'model_parameters': model_parameters}
     return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
 
 
