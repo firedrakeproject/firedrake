@@ -1,7 +1,7 @@
 from firedrake.adjoint_utils.blocks.assembly import AssembleBlock  # noqa F401
 from firedrake.adjoint_utils.blocks.solving import (  # noqa F401
-    GenericSolveBlock, SolveLinearSystemBlock, ProjectBlock,
-    SupermeshProjectBlock, SolveVarFormBlock,
+    CachedSolverBlock, GenericSolveBlock,
+    ProjectBlock, SupermeshProjectBlock, SolveVarFormBlock,
     NonlinearVariationalSolveBlock
 )
 from firedrake.adjoint_utils.blocks.function import (  # noqa F401
