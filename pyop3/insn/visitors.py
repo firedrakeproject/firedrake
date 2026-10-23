@@ -222,12 +222,9 @@ def _(called_func: pyop3.insn.CalledFunction, /) -> pyop3.insn.InstructionList:
             elif intent in {MAX_WRITE, MIN_WRITE}:
                 # The temporary starts from the identity of the reduction, so
                 # that the entries which the kernel does not write leave the
-                # global data unchanged. A kernel that adds its result to its
-                # output argument instead needs a temporary that starts from zero.
+                # global data unchanged.
                 mode = "max" if intent == MAX_WRITE else "min"
-                if called_func.function.requires_zeroed_output_arguments:
-                    initial = 0
-                elif intent == MAX_WRITE:
+                if intent == MAX_WRITE:
                     initial = dtype_limits(local_tensor.dtype).min
                 else:
                     initial = dtype_limits(local_tensor.dtype).max
