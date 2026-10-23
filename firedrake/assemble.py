@@ -1308,8 +1308,6 @@ class OneFormAssembler(ParloopFormAssembler):
     ----------
     form : ufl.Form or slate.TensorBase
         1-form.
-    access : pyop3.constants.Intent
-        Access descriptor for combining updates to the output tensor.
 
     Notes
     -----
@@ -1512,8 +1510,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
     ----------
     form : ufl.Form or slate.TensorBasehe
         2-form.
-    access : pyop3.constants.Intent
-        Access descriptor for combining updates to the output tensor.
 
     Notes
     -----
