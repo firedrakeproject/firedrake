@@ -1,7 +1,7 @@
 import firedrake
 from functools import wraps
 from pyadjoint.tape import annotate_tape, stop_annotating, get_working_tape
-from firedrake.adjoint_utils.blocks import ProjectBlock, SupermeshProjectBlock
+from firedrake.adjoint_utils.blocks import SupermeshProjectBlock
 from firedrake.adjoint_utils.variational_solver import NonlinearVariationalSolverMixin
 
 
@@ -37,7 +37,7 @@ def annotate_super_project(project):
         V = self.target.function_space()
         if annotate:
             bcs = kwargs.get("bcs", [])
-            sb_kwargs = ProjectBlock.pop_kwargs(kwargs)
+            sb_kwargs = SupermeshProjectBlock.pop_kwargs(kwargs)
             if self._target_is_function:
                 # block should be created before project because output might also be an input that needs checkpointing
                 block = SupermeshProjectBlock(self.source, V, self.target, bcs, ad_block_tag=self.ad_block_tag, **sb_kwargs)
@@ -62,6 +62,10 @@ class ProjectorMixin(NonlinearVariationalSolverMixin):
 
     This establishes the form used for adjoint evaluation of the projector.
     """
+
+    # we are a solver representing a project, so the eventual block on
+    # the tape is also annotated as such
+    _is_project = True
 
     def __init__(self, ad_block_tag=None):
         V = self.target.function_space()
