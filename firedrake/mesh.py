@@ -1515,8 +1515,10 @@ class MeshTopology(AbstractMeshTopology):
         # List all possible combinations into a multidimensional array of shape (nf, nf, no, no)
         nf, no = len(E), len(Q)  # number of facets, number of orientations for each facet
         combinations = np.meshgrid(np.arange(nf), np.arange(nf), np.arange(no), np.arange(no), indexing="ij")
-        # Call compute_transform once on all the nf x nf x no x no combinations
+
+        # Call compute_transform once for every possible combination
         A_table, b_table = compute_transform(*(x.ravel() for x in combinations))
+
         # Undo flattening so the result can be looked-up
         A_table = A_table.reshape(nf, nf, no, no, ref_dim, ref_dim)
         b_table = b_table.reshape(nf, nf, no, no, ref_dim)
