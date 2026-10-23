@@ -402,12 +402,17 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
-                self._function_arg = firedrake.Function(V)
-                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
                 # Probe the dual basis before choosing interpolation over projection.
-                _ = interpolator.target_space.finat_element.dual_basis
-                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
+                _ = V.finat_element.dual_basis
+                can_interpolate = True
             except (NotImplementedError, AttributeError):
+                can_interpolate = False
+
+            if can_interpolate:
+                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
+                self._function_arg = firedrake.Function(V)
+                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
+            else:
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
