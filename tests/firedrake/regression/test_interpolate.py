@@ -81,6 +81,20 @@ def test_subset_interpolation_reduction(access):
     assert np.allclose(reduced.dat.data_ro, expected)
 
 
+@pytest.mark.parametrize(
+    ("access", "value"),
+    [(op3.MIN_WRITE, 2.0), (op3.MAX_WRITE, -2.0)],
+    ids=["min", "max"],
+)
+def test_form_interpolation_reduction_writes_candidate(access, value):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+
+    result = assemble(interpolate(Constant(value), V, access=access))
+
+    assert np.allclose(result.dat.data_ro, value)
+
+
 @pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_cross_mesh_interpolation_reduction(access):
     source_mesh = UnitSquareMesh(4, 4)

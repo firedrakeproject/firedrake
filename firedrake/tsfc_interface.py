@@ -52,13 +52,14 @@ _cachedir = environ.get(
 )
 
 
-def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal):
+def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal, return_increments):
     return default_parallel_hashkey(
         form.signature(),
         prefix,
         utils.tuplify(parameters),
         dont_split_numbers,
         diagonal,
+        return_increments,
     )
 
 
@@ -113,7 +114,8 @@ class TSFCKernel:
         """
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  dont_split_numbers=dont_split_numbers,
-                                 diagonal=diagonal)
+                                 diagonal=diagonal,
+                                 return_increments=(access == op3.INC))
         kernels = []
         for kernel in tree:
             domain_number = domain_number_map[kernel.domain_number]

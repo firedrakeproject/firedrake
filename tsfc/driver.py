@@ -44,7 +44,8 @@ TSFCIntegralDataInfo.__doc__ = """
     """
 
 
-def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), diagonal=False):
+def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), diagonal=False,
+                 return_increments=True):
     """Compiles a UFL form into a set of assembly kernels.
 
     Parameters
@@ -59,6 +60,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         Coefficient numbers of coefficients that are not to be split into components by form compiler.
     diagonal : bool
         Are we building a kernel for the diagonal of a rank-2 element tensor?
+    return_increments : bool
+        Whether kernels increment their output arguments instead of assigning
+        their complete local result.
 
     Returns
     -------
@@ -71,7 +75,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     if isinstance(form, ufl.Interpolate):
         kernel = compile_expression_dual_evaluation(
             form, form.ufl_element(), parameters=parameters,
-            name=f"{prefix}_cell_integral",
+            name=f"{prefix}_cell_integral", return_increments=return_increments,
         )
         return [] if kernel is None else [kernel]
 
@@ -99,7 +103,8 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     for integral_data in form_data.integral_data:
         start = time.time()
         if integral_data.integrals:
-            kernel = compile_integral(integral_data, form_data, prefix, parameters, diagonal=diagonal)
+            kernel = compile_integral(integral_data, form_data, prefix, parameters,
+                                      diagonal=diagonal, return_increments=return_increments)
             if kernel is not None:
                 kernels.append(kernel)
         logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
@@ -129,7 +134,8 @@ def make_kernel_builder(integral_data_info: TSFCIntegralDataInfo,
     return builder
 
 
-def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False):
+def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=False,
+                     return_increments=True):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
@@ -185,7 +191,8 @@ def compile_integral(integral_data, form_data, prefix, parameters, *, diagonal=F
         integrand_exprs = builder.compile_integrand(integral.integrand(), params, ctx)
         integral_exprs = builder.construct_integrals(integrand_exprs, params)
         builder.stash_integrals(integral_exprs, params, ctx)
-    return builder.construct_kernel(kernel_name, ctx, log=parameters["add_petsc_events"])
+    return builder.construct_kernel(kernel_name, ctx, log=parameters["add_petsc_events"],
+                                    return_increments=return_increments)
 
 
 def validate_domains(form):
@@ -229,7 +236,8 @@ def preprocess_parameters(parameters):
 
 
 def compile_expression_dual_evaluation(expression, ufl_element, *,
-                                       domain=None, parameters=None, name=None):
+                                       domain=None, parameters=None, name=None,
+                                       return_increments=False):
     """Compile a UFL expression to be evaluated against a compile-time known reference element's dual basis.
 
     Useful for interpolating UFL expressions into e.g. N1curl spaces.
@@ -238,6 +246,8 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     :arg ufl_element: The UFL element of the target space.
     :arg domain: optional UFL domain the expression is defined on (required when expression contains no domain).
     :arg parameters: parameters object
+    :arg return_increments: Whether the output argument is incremented rather
+        than assigned.
     :returns: Loopy-based Kernel object.
     """
     parameters = preprocess_parameters(parameters)
@@ -277,4 +287,5 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     ctx = builder.create_context()
     reps = builder.compile_interpolate(expression, ufl_element, parameters, ctx)
     builder.stash_integrals(reps, parameters, ctx)
-    return builder.construct_kernel(name, ctx, log=parameters["add_petsc_events"])
+    return builder.construct_kernel(name, ctx, log=parameters["add_petsc_events"],
+                                    return_increments=return_increments)

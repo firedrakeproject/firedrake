@@ -331,7 +331,7 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         provided by the kernel interface."""
         return check_requirements(ir)
 
-    def construct_kernel(self, name, ctx, log=False):
+    def construct_kernel(self, name, ctx, log=False, return_increments=True):
         """Construct a fully built :class:`Kernel`.
 
         This function contains the logic for building the argument
@@ -340,6 +340,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
         :arg name: kernel name
         :arg ctx: kernel builder context to get impero_c from
         :arg log: bool if the Kernel should be profiled with Log events
+        :arg return_increments: Does codegen for Return nodes increment the
+            output argument, or assign to it?
         :returns: :class:`Kernel` object
         """
         impero_c, _, _, tabulations, active_variables = self.compile_gem(ctx)
@@ -457,7 +459,8 @@ class KernelBuilder(KernelBuilderBase, KernelBuilderMixin):
             args.append(kernel_args.TabulationKernelArg(tab_loopy_arg))
         index_names = get_index_names(ctx['quadrature_indices'], self.argument_multiindices, ctx['index_cache'])
         ast, event_name = generate_loopy(impero_c, [arg.loopy_arg for arg in args],
-                                         self.scalar_type, name, index_names, log=log)
+                                         self.scalar_type, name, index_names, log=log,
+                                         return_increments=return_increments)
         flop_count = count_flops(impero_c)  # Estimated total flops for this kernel.
         return Kernel(ast=ast,
                       arguments=tuple(args),
