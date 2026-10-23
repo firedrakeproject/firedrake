@@ -45,6 +45,24 @@ def test_create_submesh_comm_self(reorder, ignore_halo):
 
 
 @pytest.mark.parallel([1, 3])
+def test_submesh_comm_self_distinct_from_parent():
+    comm = COMM_WORLD.Dup()
+    subcomm = COMM_WORLD.Split(color=COMM_WORLD.rank, key=0)
+    mesh = UnitSquareMesh(4, 4, comm=comm)
+    submesh = Submesh(mesh, ignore_halo=True, comm=subcomm)
+    assert submesh != mesh
+
+    V = FunctionSpace(mesh, "CG", 1)
+    Vsub = FunctionSpace(submesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    xsub, ysub = SpatialCoordinate(submesh)
+    u = Function(V).interpolate(x + 10*y)
+    usub = Function(Vsub).assign(u)
+    expected = Function(Vsub).interpolate(xsub + 10*ysub)
+    assert np.allclose(usub.dat.data_ro, expected.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("ignore_halo", [False, True])
 def test_submesh_comm_self_entity_classes(ignore_halo):
     """A submesh on COMM_SELF must own every point that it holds.
