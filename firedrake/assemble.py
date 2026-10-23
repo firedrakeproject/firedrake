@@ -14,10 +14,8 @@ from tsfc import kernel_args
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
 from ufl.algorithms.restructure_base_form import restructure_base_form
-import finat.ufl
 import pyop3 as op3
-from firedrake import (extrusion_utils as eutils, parameters, solving,
-                       tsfc_interface, utils)
+from firedrake import parameters, solving, tsfc_interface, utils
 from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
