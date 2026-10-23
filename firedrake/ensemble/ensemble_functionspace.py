@@ -2,7 +2,6 @@ from functools import cached_property
 from typing import Collection
 
 from ufl.duals import is_primal, is_dual
-from pyop2.mpi import MPI
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble import Ensemble
 from firedrake.functionspace import MixedFunctionSpace
@@ -93,13 +92,6 @@ class EnsembleFunctionSpaceBase:
     .ensemble_function.EnsembleCofunction
     """
     def __init__(self, local_spaces: Collection, ensemble: Ensemble):
-        meshes = set(V.mesh().unique() for V in local_spaces)
-        nlocal_meshes = len(meshes)
-        max_local_meshes = ensemble.ensemble_comm.allreduce(nlocal_meshes, MPI.MAX)
-        if max_local_meshes > 1:
-            raise ValueError(
-                f"{self.__class__.__name__} local_spaces must all be defined on the same mesh.")
-        self._mesh = meshes.pop()
         self._ensemble = ensemble
         self._local_spaces = tuple(local_spaces)
 
@@ -141,7 +133,7 @@ class EnsembleFunctionSpaceBase:
     def mesh(self):
         """The :class:`~firedrake.mesh.Mesh` on the local ensemble.comm.
         """
-        return self._mesh
+        return self._full_local_space.mesh()
 
     def dual(self):
         """The dual to this function space.
