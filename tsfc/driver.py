@@ -85,6 +85,10 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
+    do_apply_integral_scaling = parameters.setdefault(
+        "do_apply_integral_scaling", True)
+    do_apply_function_pullbacks = parameters.setdefault(
+        "do_apply_function_pullbacks", True)
     form_data = ufl_utils.compute_form_data(
         form,
         coefficients_to_split=tuple(
@@ -93,6 +97,8 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
             if type(c.ufl_element()) == finat.ufl.MixedElement and i not in dont_split_numbers
         ),
         complex_mode=complex_mode,
+        do_apply_integral_scaling=do_apply_integral_scaling,
+        do_apply_function_pullbacks=do_apply_function_pullbacks
     )
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
@@ -387,7 +393,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     finalise_options = dict(mode.finalise_options, replace_delta=True)
     expressions = impero_utils.preprocess_gem(expressions, **finalise_options)
     index_ordering = get_index_ordering(quadrature_multiindex, return_variables)
-    impero_c = impero_utils.compile_gem(list(zip(return_variables, expressions)), index_ordering)
+    impero_c = impero_utils.compile_gem(list(zip(return_variables, expressions)), index_ordering, emit_return_accumulate=False)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements(expressions)
