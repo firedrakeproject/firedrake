@@ -247,6 +247,8 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
         # Map local domain/coefficient/constant numbers (as seen inside the
         # compiler) to the global coefficient/constant numbers
         meshes = extract_domains(f)
+        if any(mesh.extruded for mesh in meshes):
+            f = _split_extruded_interior_facets(f)
         domain_number_map = tuple(all_meshes.index(m) for m in meshes)
         coefficient_numbers = tuple(
             numbering[c] for c in f.coefficients()
@@ -288,6 +290,35 @@ def _real_mangle(form):
     if reals == [True, False]:
         replacements[a[1]] = conj(TestFunction(a[1].function_space()))
     return ufl.replace(form, replacements)
+
+
+def _split_extruded_interior_facets(form: Form) -> Form:
+    """Split the interior facet integrals over extruded meshes.
+
+    The interior facets of an extruded mesh are the union of its vertical
+    and horizontal interior facets. Each ``interior_facet`` integral over an
+    extruded mesh is replaced by an ``interior_facet_vert`` integral and an
+    ``interior_facet_horiz`` integral, which TSFC can compile.
+
+    Parameters
+    ----------
+    form
+        The form to transform.
+
+    Returns
+    -------
+    ufl.classes.Form
+        A form that has no ``interior_facet`` integrals over extruded meshes.
+
+    """
+    integrals = []
+    for integral in form.integrals():
+        if integral.integral_type() == "interior_facet" and integral.ufl_domain().extruded:
+            integrals.append(integral.reconstruct(integral_type="interior_facet_vert"))
+            integrals.append(integral.reconstruct(integral_type="interior_facet_horiz"))
+        else:
+            integrals.append(integral)
+    return Form(integrals)
 
 
 def clear_cache(comm=None):

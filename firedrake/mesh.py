@@ -670,6 +670,23 @@ class AbstractMeshTopology(abc.ABC):
             # return self.points[op3.atom(self.cell_label)]
             return self.points[cell_slice]
 
+        subset_names = self._entity_subset_names(name)
+        if len(subset_names) == 1:
+            subsets = [self._entity_subset_component(name)]
+        else:
+            # Each subset becomes one component of the set, which is labelled
+            # with the name of the subset.
+            subsets = [
+                self._entity_subset_component(subset_name, label=subset_name)
+                for subset_name in subset_names
+            ]
+        return self.points[op3.Slice(self._uid, subsets, label=name)]
+
+    def _entity_subset_names(self, name: str) -> tuple[str, ...]:
+        """Return the names of the disjoint entity sets whose union is the named set."""
+        return (name,)
+
+    def _entity_subset_component(self, name: str, *, label: Any = None) -> op3.SubsetSliceComponent:
         match name:
             case "exterior_facet":
                 if isinstance(self, ExtrudedMeshTopology):
@@ -680,26 +697,19 @@ class AbstractMeshTopology(abc.ABC):
                     )
                 else:
                     numbering_sec = self._plex_to_entity_numbering_sec(stratum=self.dimension-1)
-                    label = self.facet_label
+                    stratum_label = self.facet_label
 
             case "interior_facet":
-                if isinstance(self, ExtrudedMeshTopology):
-                    # TODO: arguably over fussy
-                    raise TypeError(
-                        "Cannot use 'interior_facets' for extruded meshes, use 'interior_facets_vert', "
-                        "'interior_facets_horiz'"
-                    )
-                else:
-                    numbering_sec = self._plex_to_entity_numbering_sec(stratum=self.dimension-1)
-                    label = self.facet_label
+                numbering_sec = self._plex_to_entity_numbering_sec(stratum=self.dimension-1)
+                stratum_label = self.facet_label
 
             case "exterior_facet_top" | "exterior_facet_bottom" | "interior_facet_horiz":
                 numbering_sec = self._plex_to_entity_numbering_sec("facet_horiz")
-                label = self.facet_horiz_label
+                stratum_label = self.facet_horiz_label
 
             case "exterior_facet_vert" | "interior_facet_vert":
                 numbering_sec = self._plex_to_entity_numbering_sec("facet_vert")
-                label = self.facet_vert_label
+                stratum_label = self.facet_vert_label
 
             case _:
                 raise AssertionError
@@ -707,8 +717,7 @@ class AbstractMeshTopology(abc.ABC):
         plex_indices_is = self._entity_indices_is("plex", name)
         subset_indices = dmcommon.section_offsets(numbering_sec, plex_indices_is, sort=True)
         subset_dat = op3.Dat.from_array(subset_indices.indices, comm=self.comm)
-        subset = op3.Slice(self._uid, [op3.SubsetSliceComponent(label, subset_dat)], label=name)
-        return self.points[subset]
+        return op3.SubsetSliceComponent(stratum_label, subset_dat, label=label)
 
     @cached_property
     def cells(self) -> op3.IndexedAxisTree:
@@ -809,6 +818,13 @@ class AbstractMeshTopology(abc.ABC):
                 raise NotImplementedError
 
     def _entity_indices_plex_by_name(self, name: str) -> PETSc.IS:
+        subset_names = self._entity_subset_names(name)
+        if len(subset_names) > 1:
+            indices = self._entity_indices_is("plex", subset_names[0])
+            for subset_name in subset_names[1:]:
+                indices = indices.union(self._entity_indices_is("plex", subset_name))
+            return indices
+
         match name:
             case "cell":
                 return self._entity_indices_is(
@@ -1076,6 +1092,12 @@ class AbstractMeshTopology(abc.ABC):
     def interior_facet_vert_local_facet_indices(self) -> op3.Dat:
         local_facet_index = dmcommon.local_facet_number(self, "interior_vert")
         axis_tree = op3.AxisTree.from_iterable([self.interior_facets_vert.as_axis(), 2])
+        return op3.Dat(axis_tree, data=local_facet_index.flatten())
+
+    @cached_property
+    def interior_facet_horiz_local_facet_indices(self) -> op3.Dat:
+        local_facet_index = dmcommon.local_facet_number(self, "interior_horiz")
+        axis_tree = op3.AxisTree.from_iterable([self.interior_facets_horiz.as_axis(), 2])
         return op3.Dat(axis_tree, data=local_facet_index.flatten())
 
     @cached_property
@@ -2922,6 +2944,22 @@ class ExtrudedMeshTopology(MeshTopology):
     @property
     def facet_vert_label(self):
         return (self._base_mesh.facet_label, 1)
+
+    def _entity_subset_names(self, name: str) -> tuple[str, ...]:
+        if name == "interior_facet":
+            # The interior facets of an extruded mesh are the union of its
+            # vertical and horizontal interior facets, which are points of
+            # different strata.
+            return ("interior_facet_vert", "interior_facet_horiz")
+        else:
+            return (name,)
+
+    @cached_property
+    def interior_facet_local_facet_indices(self) -> op3.Dat:
+        return op3.Dat.from_components(
+            self.interior_facets.materialize(),
+            [self.interior_facet_vert_local_facet_indices, self.interior_facet_horiz_local_facet_indices],
+        )
 
     @property
     def edge_label(self):

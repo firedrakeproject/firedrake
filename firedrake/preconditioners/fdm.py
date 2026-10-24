@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from textwrap import dedent
 from functools import cached_property, partial
 from itertools import chain, product
@@ -9,9 +8,7 @@ from firedrake.preconditioners.base import PCBase
 from firedrake.preconditioners.facet_split import restricted_dofs, split_dofs
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.functionspace import FunctionSpace
-from firedrake.functionspaceimpl import WithGeometry
 from firedrake.function import Function
-from firedrake.cofunction import Cofunction
 from firedrake.cython.dmcommon import get_preallocation
 from firedrake.parloops import par_loop, READ, WRITE
 from firedrake.ufl_expr import TestFunction, TestFunctions, TrialFunction, TrialFunctions
@@ -2184,15 +2181,19 @@ class PoissonFDMPC(FDMPC):
             eta = float(self.appctx.get("eta"))
 
             lgmap = self.lgmaps[V]
-            index_facet, local_facet_data, nfacets = extrude_interior_facet_maps(V)
-            index_coef, _, _ = extrude_interior_facet_maps(Gq_facet or Gq)
+            coefficient = Gq if Gq_facet is None else Gq_facet
+            mesh = V.mesh()
+            nfacets = mesh.interior_facets.owned.local_size
+            index_facet = V.interior_facet_node_list
+            index_coef = coefficient.function_space().interior_facet_node_list
+            local_facet_data = mesh.interior_facet_local_facet_indices.data_ro.reshape((-1, 2))
             rows = numpy.zeros((2, sdim), dtype=PETSc.IntType)
 
             for e in range(nfacets):
                 # for each interior facet: compute the SIPG stiffness matrix Ae
-                ie = index_facet(e)
-                je = numpy.reshape(index_coef(e), (2, -1))
-                lfd = local_facet_data(e)
+                ie = index_facet[e]
+                je = numpy.reshape(index_coef[e], (2, -1))
+                lfd = local_facet_data[e]
                 idir = lfd // 2
 
                 if PT_facet:
@@ -2340,7 +2341,7 @@ class PoissonFDMPC(FDMPC):
         if Piola:
             # make DGT functions with the second order coefficient
             # and the Piola tensor for each side of each facet
-            dS_int = ufl.dS_h(degree=quad_deg) + ufl.dS_v(degree=quad_deg) if mesh.extruded else ufl.dS(degree=quad_deg)
+            dS_int = ufl.dS(degree=quad_deg)
             area = ufl.FacetArea(mesh)
             ifacet_inner = lambda v, u: ((ufl.inner(v('+'), u('+')) + ufl.inner(v('-'), u('-')))/area)*dS_int
 
@@ -2483,56 +2484,6 @@ def fdm_setup_ipdg(fdm_element, eta, comm=None):
                 Abc[j, j] += eta
         Afdm.append(numpy_to_petsc(Abc, bdof, comm=comm))
     return Afdm, Dfacet, bdof
-
-
-def extrude_interior_facet_maps(V: WithGeometry | Function | Cofunction) -> tuple[Callable, Callable, int]:
-    """Tabulate the nodes and the local facet numbers of the cells that share each interior facet.
-
-    On extruded meshes, the vertical facets come before the horizontal facets.
-    The local facet numbers follow the numbering of the facets of the reference
-    tensor-product cell, where the facets ``2*k`` and ``2*k+1`` are normal to the
-    ``k``-th axis.
-
-    Parameters
-    ----------
-    V
-        The function space, or a function in the function space.
-
-    Returns
-    -------
-    facet_to_nodes_fun : Callable
-        Maps an interior facet to the nodes of the two cells that share it.
-    local_facet_data_fun : Callable
-        Maps an interior facet to its local facet number in each of the two cells that share it.
-    nfacets : int
-        The number of interior facets that this process owns.
-    """
-    if isinstance(V, (Function, Cofunction)):
-        V = V.function_space()
-    mesh = V.mesh()
-    if mesh.extruded:
-        iterset_vert = mesh.interior_facets_vert.owned
-        iterset_horiz = mesh.interior_facets_horiz.owned
-        nvert = iterset_vert.local_size
-        nhoriz = iterset_horiz.local_size
-        facet_to_nodes = numpy.concatenate([
-            V._iterset_to_node_map_dat("interior_facet_vert").data_ro[:nvert],
-            V._iterset_to_node_map_dat("interior_facet_horiz").data_ro[:nhoriz],
-        ])
-        # The first cell is below a horizontal facet, so the facet is the
-        # top facet (5) of the first cell and the bottom facet (4) of the second cell.
-        local_facet_data = numpy.concatenate([
-            mesh.interior_facet_vert_local_facet_indices.data_ro.reshape((-1, 2))[:nvert],
-            numpy.tile(numpy.array([5, 4], dtype=PETSc.IntType), (nhoriz, 1)),
-        ])
-    else:
-        nfacets = mesh.interior_facets.owned.local_size
-        facet_to_nodes = V.interior_facet_node_list[:nfacets]
-        local_facet_data = mesh.interior_facet_local_facet_indices.data_ro.reshape((-1, 2))[:nfacets]
-
-    facet_to_nodes_fun = lambda e: facet_to_nodes[e]
-    local_facet_data_fun = lambda e: local_facet_data[e]
-    return facet_to_nodes_fun, local_facet_data_fun, len(facet_to_nodes)
 
 
 def extrude_node_map(node_map, bsize=1):
