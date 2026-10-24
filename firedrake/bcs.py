@@ -238,6 +238,9 @@ class BCBase(object):
             index = fs.parent.index
         else:
             index = fs.index
+        if index is None:
+            # A space that is not a subspace of a mixed space is field 0 of itself.
+            index = 0
         cmpt = fs.component
         # TODO: need to test this logic
         field_renumbering = dict([f, i] for i, f in enumerate(field))
