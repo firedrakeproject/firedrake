@@ -649,13 +649,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_solver_replace_forms()
-        # `bcs` holds the DirichletBCs reconstructed from this block's own
-        # checkpointed dependencies; `forward_nlvs` was built once (cloned
-        # from the user's problem) and reuses the same solver across every
-        # recompute, so its problem's bcs must be swapped for this block's
-        # own checkpointed ones before solving, or a reused solver would
-        # keep solving with whichever BC data was set most recently.
-        self._ad_solvers["forward_nlvs"]._problem.bcs = bcs
         self._ad_solvers["forward_nlvs"].solve()
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
@@ -727,11 +720,19 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
+    def _ad_assign_bcs(self, problem):
+        for block_variable in self.get_dependencies():
+            bc = block_variable.output
+            if bc in problem._ad_bc_map:
+                problem._ad_bc_map[bc].function_arg.assign(
+                    block_variable.saved_output.function_arg)
+
     def _ad_solver_replace_forms(self, solver=Solver.FORWARD):
         if solver == Solver.FORWARD:
             problem = self._ad_solvers["forward_nlvs"]._problem
             self._ad_assign_coefficients(problem.F, solver)
             self._ad_assign_coefficients(problem.J, solver)
+            self._ad_assign_bcs(problem)
         else:
             self._ad_assign_coefficients(
                 self._ad_solvers["adjoint_lvs"]._problem.J, solver)

@@ -29,11 +29,7 @@ class DirichletBCBlock(Block):
             self.collapsed_space = self.function_space.collapse()
 
         if len(args) >= 2 and isinstance(args[1], OverloadedType):
-            # The dependency is the boundary value actually applied by the
-            # BC: a Function on this space, either supplied directly or
-            # produced (and taped) by interpolating the supplied expression.
-            # Otherwise the value is a UFL zero or literal constant
-            # expression and there is nothing to depend on.
+            # A zero or literal constant value has no dependency.
             self.add_dependency(args[1])
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,

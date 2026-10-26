@@ -37,30 +37,17 @@ class DirichletBCMixin(FloatingType):
     def _ad_annotate_function_arg(function_arg):
         @wraps(function_arg)
         def wrapper(self, g):
-            # The interpolation of the boundary value is only taped when
-            # this BC is added as a dependency of another block, in
-            # _ad_will_add_as_dependency; taping it here as well would
-            # leave a dangling duplicate block on the tape.
+            # The interpolation of g is taped in _ad_will_add_as_dependency.
             with stop_annotating():
                 ret = function_arg(self, g)
-            # The block's dependency is the boundary value this BC actually
-            # applies: g itself if it lives on this space, otherwise the
-            # Function that g is interpolated into by the annotated assemble
-            # call in the setter. Depending on the latter composes the
-            # DirichletBCBlock with the taped interpolation, whose own block
-            # provides the adjoint and tangent-linear of the boundary value.
+            # The DirichletBCBlock depends on the Function that holds the applied value.
             self._ad_args = (self.function_space(), self._function_arg)
             return ret
         return wrapper
 
     def _ad_will_add_as_dependency(self):
-        """Refresh the boundary value before this BC's block is taped.
-
-        Accessing ``function_arg`` re-assembles the interpolation of the
-        boundary value through the annotated ``assemble``, so the
-        `DirichletBCBlock` taped by `FloatingType` depends on the
-        interpolation output that is current at this point on the tape.
-        """
+        """Tape the interpolation of the boundary value before this BC is used."""
+        # The getter reassembles the boundary value.
         self.function_arg
         super()._ad_will_add_as_dependency()
 

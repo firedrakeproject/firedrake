@@ -358,6 +358,26 @@ def test_dirichlet_bc_projected_value():
 
 
 @pytest.mark.skipcomplex
+def test_dirichlet_bc_value_in_form():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    f = Function(V).interpolate(x + y)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+    bc = DirichletBC(V, f, "on_boundary")
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, bcs=bc))
+    solver.solve()
+
+    J = assemble(inner(u, u)*dx)
+    rf = ReducedFunctional(J, Control(f))
+    h = Function(V).interpolate(x*y)
+    assert taylor_test(rf, f, h) > 1.95
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)

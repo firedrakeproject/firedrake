@@ -633,8 +633,8 @@ class EquationBCSplit(BCBase):
         return self.f.integrals()
 
     def coefficients(self):
-        subs = (self.f, *self.bcs)
-        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in subs))
+        objs = (self.f, *self.bcs)
+        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in objs))
 
     def add(self, bc):
         if not isinstance(bc, (DirichletBC, EquationBCSplit)):
