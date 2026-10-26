@@ -1,6 +1,7 @@
 from os.path import abspath, dirname, join
 import numpy as np
 import pytest
+import pyop3 as op3
 from firedrake import *
 
 cwd = abspath(dirname(__file__))
@@ -16,7 +17,7 @@ def mat_equals(a, b):
 def test_constant():
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
     f = assemble(interpolate(Constant(1.0), cg1))
-    assert np.allclose(1.0, f.dat.data)
+    assert np.allclose(1.0, f.dat.data_ro)
 
 
 def test_zero_expression():
@@ -43,13 +44,13 @@ def test_function():
     # g shall be equivalent to:
     h = assemble(interpolate(x[0], V2))
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize(
     ("access", "initial", "expected"),
-    [(op2.INC, 2.0, 2.0), (op2.MIN, 3.0, 3.0), (op2.MAX, -3.0, -3.0)],
+    [(op3.INC, 2.0, 2.0), (op3.MIN_WRITE, 3.0, 3.0), (op3.MAX_WRITE, -3.0, -3.0)],
     ids=["inc", "min", "max"],
 )
 def test_in_place_interpolation_preserves_reduction(access, initial, expected):
@@ -62,7 +63,7 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
 
 
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+@pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_subset_interpolation_reduction(access):
     mesh = UnitSquareMesh(2, 2)
     x, y = SpatialCoordinate(mesh)
@@ -74,13 +75,27 @@ def test_subset_interpolation_reduction(access):
 
     # The DoFs outside the cells of the subset receive no value, so they stay zero.
     exact = assemble(interpolate(x + y, V))
-    reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op2.INC))
+    reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op3.INC))
     expected = np.where(reached.dat.data_ro > 0, exact.dat.data_ro, 0)
     reduced = assemble(interpolate(x + y, V, subset=subset, access=access))
     assert np.allclose(reduced.dat.data_ro, expected)
 
 
-@pytest.mark.parametrize("access", [op2.MIN, op2.MAX], ids=["min", "max"])
+@pytest.mark.parametrize(
+    ("access", "value"),
+    [(op3.MIN_WRITE, 2.0), (op3.MAX_WRITE, -2.0)],
+    ids=["min", "max"],
+)
+def test_form_interpolation_reduction_writes_candidate(access, value):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+
+    result = assemble(interpolate(Constant(value), V, access=access))
+
+    assert np.allclose(result.dat.data_ro, value)
+
+
+@pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_cross_mesh_interpolation_reduction(access):
     source_mesh = UnitSquareMesh(4, 4)
     target_mesh = UnitSquareMesh(2, 2)
@@ -91,10 +106,10 @@ def test_cross_mesh_interpolation_reduction(access):
 
     source = Function(source_space).interpolate(x_source + y_source)
     exact = Function(target_space).interpolate(x_target + y_target)
-    initial = 0.75 if access == op2.MIN else -0.25
+    initial = 0.75 if access == op3.MIN_WRITE else -0.25
     expected = (
         np.minimum(initial, exact.dat.data_ro)
-        if access == op2.MIN
+        if access == op3.MIN_WRITE
         else np.maximum(initial, exact.dat.data_ro)
     )
 
@@ -126,8 +141,12 @@ def test_mixed_expression():
 
     f1 = Function(V1).interpolate(expressions[0])
     g1 = Function(V2).interpolate(expressions[1])
-    assert np.allclose(f.dat.data, f1.dat.data)
-    assert np.allclose(g.dat.data, g1.dat.data)
+    f1_data = f1.dat.data_ro
+    g1_data = g1.dat.data_ro
+
+    assert np.allclose(fg.dat.data_ro, np.concatenate([f1_data, g1_data]))
+    assert np.allclose(f.dat.data_ro, f1_data)
+    assert np.allclose(g.dat.data_ro, g1_data)
 
 
 def test_mixed_function():
@@ -149,8 +168,8 @@ def test_mixed_function():
     f, g = w.subfunctions
     f1 = Function(W1).interpolate(x)
     g1 = Function(W2).interpolate(expressions[-1])
-    assert np.allclose(f.dat.data, f1.dat.data)
-    assert np.allclose(g.dat.data, g1.dat.data)
+    assert np.allclose(f.dat.data_ro, f1.dat.data_ro)
+    assert np.allclose(g.dat.data_ro, g1.dat.data_ro)
 
 
 def test_inner():
@@ -165,7 +184,7 @@ def test_inner():
     # g shall be equivalent to:
     h = assemble(interpolate(x, V2))
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 def test_coordinates():
@@ -176,7 +195,7 @@ def test_coordinates():
     x = SpatialCoordinate(cg2.mesh())
     g = assemble(interpolate(x[0]*x[0], cg2))
 
-    assert np.allclose(f.dat.data, g.dat.data)
+    assert np.allclose(f.dat.data_ro, g.dat.data_ro)
 
 
 def test_piola():
@@ -191,7 +210,7 @@ def test_piola():
     # g shall be equivalent to:
     h = project(f[0], V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 def test_vector():
@@ -206,7 +225,7 @@ def test_vector():
     # g shall be equivalent to:
     h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 def test_tensor():
@@ -223,7 +242,7 @@ def test_tensor():
     # g shall be equivalent to:
     h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 def test_constant_expression():
@@ -235,7 +254,7 @@ def test_constant_expression():
     f = project(as_vector((x[0], x[1])), U)
     g = assemble(interpolate(div(f), V))
 
-    assert np.allclose(2.0, g.dat.data)
+    assert np.allclose(2.0, g.dat.data_ro)
 
 
 def test_compound_expression():
@@ -250,7 +269,7 @@ def test_compound_expression():
     # g shall be equivalent to:
     h = assemble(interpolate(3.0 + sin(pi * x[0]), V))
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 def test_restricted_extruded_interval():
@@ -278,7 +297,7 @@ def test_hdiv_extruded_interval():
     u = assemble(interpolate(expr, U))
     u_proj = project(expr, U)
 
-    assert np.allclose(u.dat.data, u_proj.dat.data)
+    assert np.allclose(u.dat.data_ro, u_proj.dat.data_ro)
 
 
 def test_hcurl_extruded_interval():
@@ -289,7 +308,7 @@ def test_hcurl_extruded_interval():
     u = assemble(interpolate(expr, U))
     u_proj = project(expr, U)
 
-    assert np.allclose(u.dat.data, u_proj.dat.data)
+    assert np.allclose(u.dat.data_ro, u_proj.dat.data_ro)
 
 
 def test_dpc_into_dq_extruded_interval():
@@ -320,7 +339,7 @@ def test_hdiv_2d():
     # g shall be equivalent to:
     h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 def test_hcurl_2d():
@@ -339,7 +358,7 @@ def test_hcurl_2d():
     # g shall be equivalent to:
     h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert np.allclose(g.dat.data_ro, h.dat.data_ro)
 
 
 def test_cell_orientation():
@@ -356,7 +375,7 @@ def test_cell_orientation():
     # g shall be close to:
     h = project(f, V)
 
-    assert abs(g.dat.data - h.dat.data).max() < 1e-2
+    assert abs(g.dat.data_ro - h.dat.data_ro).max() < 1e-2
 
 
 def test_cell_orientation_curve():
@@ -367,9 +386,8 @@ def test_cell_orientation_curve():
     V = VectorFunctionSpace(m, 'DG', 0)
     f = assemble(interpolate(CellNormal(m), V))
 
-    assert np.allclose(f.dat.data, [[1 / 2, sqrt(3) / 2],
-                                    [-1, 0],
-                                    [1 / 2, -sqrt(3) / 2]])
+    expected = np.asarray([[1/2, sqrt(3)/2], [-1, 0], [1/2, -sqrt(3)/2]])
+    assert np.allclose(f.dat.data_ro, expected)
 
 
 def test_cellvolume():
@@ -392,7 +410,8 @@ def test_cellvolume_higher_order_coords():
     def warp(x):
         return x * (x - 1)*(x + 19/12.0)
 
-    f.dat.data[1:3, 1] = warp(f.dat.data[1:3, 0])
+    f_data = f.dat.data_rw
+    f_data[1:3, 1] = warp(f_data[1:3, 0])
 
     mesh = Mesh(f)
     g = assemble(interpolate(CellVolume(mesh), FunctionSpace(mesh, 'DG', 0)))
@@ -412,7 +431,7 @@ def test_mixed():
     V = FunctionSpace(m, 'P', 1)
     g = assemble(interpolate(dot(grad(f[0]), grad(f[3])), V))
 
-    assert np.allclose(1.0, g.dat.data)
+    assert np.allclose(1.0, g.dat.data_ro)
 
 
 def test_lvalue_rvalue():
@@ -435,7 +454,7 @@ def test_trace():
     x_tr_dir = assemble(interpolate(expr, tr))
     x_tr_cg = assemble(interpolate(x_cg, tr))
 
-    assert np.allclose(x_tr_cg.dat.data, x_tr_dir.dat.data)
+    assert np.allclose(x_tr_cg.dat.data_ro, x_tr_dir.dat.data_ro)
 
 
 @pytest.mark.parallel([1, 3])
@@ -479,7 +498,7 @@ def test_adjoint_Pk(rank, mat_type, degree, cell, shape):
     else:
         assert expect.function_space() == result.function_space()
         for x, y in zip(result.subfunctions, expect.subfunctions):
-            assert np.allclose(x.dat.data, y.dat.data)
+            assert np.allclose(x.dat.data_ro, y.dat.data_ro)
 
 
 def test_adjoint_dg():
@@ -491,7 +510,7 @@ def test_adjoint_dg():
     u_cg = assemble(conj(TestFunction(cg1)) * dx)
     v_adj = assemble(interpolate(TestFunction(cg1), L))
 
-    assert np.allclose(u_cg.dat.data, v_adj.dat.data)
+    assert np.allclose(u_cg.dat.data_ro, v_adj.dat.data_ro)
 
 
 @pytest.mark.parametrize("degree", range(1, 4))
@@ -515,15 +534,20 @@ def test_zeroform(degree, cofunc):
 
 
 @pytest.mark.skipcomplex  # complex numbers are not orderable
-def test_interpolate_periodic_coords_max():
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("access,seam", [(MAX, 1), (MIN, 0), (op3.MAX_WRITE, 1), (op3.MIN_WRITE, 0)])
+def test_interpolate_periodic_coords_reduction(access, seam):
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)
 
-    continuous = assemble(interpolate(SpatialCoordinate(mesh), V, access=MAX))
+    continuous = assemble(interpolate(SpatialCoordinate(mesh), V, access=access))
 
-    # All nodes on the "seam" end up being 1, not 0.
-    assert np.allclose(np.unique(continuous.dat.data_ro.round(decimals=16)),
-                       [0.25, 0.5, 0.75, 1])
+    # Each rank holds only part of the nodes, so the values are collected from all ranks.
+    local_values = np.unique(continuous.dat.data_ro.round(decimals=16))
+    values = np.unique(np.concatenate(mesh.comm.allgather(local_values)))
+
+    # The nodes on the "seam" take the value that the reduction selects from 0 and 1.
+    assert np.allclose(values, sorted({0.25, 0.5, 0.75, seam}))
 
 
 def test_basic_dual_eval_cg3():
@@ -532,13 +556,13 @@ def test_basic_dual_eval_cg3():
     x = SpatialCoordinate(mesh)
     expr = Constant(1.)
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
     expr = x[0]**3
     # Account for cell and corresponding expression being flipped onto
     # reference cell before reaching FIAT
     expr_fiat = (1-x[0])**3
     f = assemble(interpolate(expr, V))
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
+    assert np.allclose(f.dat.data_ro[V.cell_node_list], [node(expr_fiat) for node in f.function_space().finat_element.fiat_equivalent.dual_basis()])
 
 
 def test_basic_dual_eval_bdm():
@@ -558,6 +582,7 @@ def test_quadrature():
     mesh = UnitIntervalMesh(1)
     Qse = FiniteElement("Quadrature", mesh.ufl_cell(), degree=2, quad_scheme="default")
     Qs = FunctionSpace(mesh, Qse)
+
     fiat_rule = Qs.finat_element.fiat_equivalent
     # For spatial coordinate we should get 2 points per cell
     x, = SpatialCoordinate(mesh)
@@ -565,11 +590,12 @@ def test_quadrature():
     # reference cell before reaching FIAT
     expr_fiat = 1-x
     xq = assemble(interpolate(expr_fiat, Qs))
-    assert np.allclose(xq.dat.data_ro[xq.cell_node_map().values].T, fiat_rule._points)
+    assert np.allclose(xq.dat.data_ro.reshape((2, 1)), fiat_rule._points)
+
     # For quadrature weight we should 2 equal weights for each cell
     w = QuadratureWeight(mesh)
     wq = assemble(interpolate(w, Qs))
-    assert np.allclose(wq.dat.data_ro[wq.cell_node_map().values].T, fiat_rule._weights)
+    assert np.allclose(wq.dat.data_ro, fiat_rule._weights)
 
 
 def test_interpolation_tensor_convergence():
@@ -612,7 +638,7 @@ def test_interpolation_tensor_symmetric():
     assert np.isclose(norm(fexp - f), 0)
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_interpolation_on_hex():
     # "cube_hex.msh" contains all possible facet orientations.
     meshfile = join(cwd, "..", "meshes", "cube_hex.msh")
@@ -770,6 +796,27 @@ def test_interpolator_reuse(family, degree, mode):
         assert np.allclose(result.dat.data, expected)
 
 
+def test_mixed_space_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    rg = RandomGenerator(PCG64(seed=123456789))
+    w = rg.uniform(W)
+
+    bcs = [DirichletBC(W.sub(0), 0, 1),
+           DirichletBC(W.sub(1), 0, 2),
+           DirichletBC(V, 0, (3, 4))]
+
+    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
+    result = assemble(action(I, w))
+
+    for bc in bcs[:-1]:
+        bc.zero(w)
+    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
+
+    assert np.allclose(result.dat.data, expected.dat.data)
+
+
 @pytest.mark.parallel([1, 3])
 def test_interpolation_matrix_into_tensor():
     mesh = UnitSquareMesh(2, 2)
@@ -802,27 +849,6 @@ def test_same_space_interp_bcs():
 
     expected = Function(V).assign(2 * w)
     DirichletBC(V, w, 1).apply(expected)
-
-    assert np.allclose(result.dat.data, expected.dat.data)
-
-
-def test_mixed_space_bcs():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "CG", 1)
-    W = V * V
-    rg = RandomGenerator(PCG64(seed=123456789))
-    w = rg.uniform(W)
-
-    bcs = [DirichletBC(W.sub(0), 0, 1),
-           DirichletBC(W.sub(1), 0, 2),
-           DirichletBC(V, 0, (3, 4))]
-
-    I = assemble(interpolate(sum(TrialFunction(W)), V), bcs=bcs)
-    result = assemble(action(I, w))
-
-    for bc in bcs[:-1]:
-        bc.zero(w)
-    expected = assemble(interpolate(sum(w), V), bcs=bcs[-1:])
 
     assert np.allclose(result.dat.data, expected.dat.data)
 

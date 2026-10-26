@@ -22,7 +22,7 @@ from finat.quadrature import make_quadrature
 from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
-from gem.unconcatenate import unconcatenate
+from gem.unconcatenate import split_contraction
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
                          CellVertices, CellVolume, Coefficient, FacetArea,
@@ -48,7 +48,7 @@ from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
                             TSFCConstantMixin, entity_avg, one_times,
                             preprocess_expression, simplify_abs)
 
-from pyop2.caching import serial_cache
+from pyop3.cache import serial_cache
 
 
 class ContextBase(ProxyKernelInterface):
@@ -412,11 +412,10 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
         if is_complex(kernel_cfg["scalar_type"]):
             evaluation = gem.MathFunction("conj", evaluation)
         # The dual argument contracts over the nodes, so the basis indices
-        # reduce here instead of indexing the return value.  A direct sum
-        # tabulates into a Concatenate that only its own component can split.
-        var, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
-        for v, expr in unconcatenate([(var, evaluation)], kernel_cfg["index_cache"]):
-            evaluations.append((gem.Product(expr, v), tuple(quadrature_indices) + v.index_ordering(), ()))
+        # reduce here instead of indexing the return value.
+        contraction = gem.Product(evaluation, gem_dual[basis_indices])
+        for expr, indices in split_contraction(contraction, basis_indices, kernel_cfg["index_cache"]):
+            evaluations.append((expr, tuple(quadrature_indices) + indices, ()))
     return evaluations
 
 
@@ -869,23 +868,26 @@ def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: 
         for evaluation, _, basis_indices
         in dual_evaluate(operand, dual_arg, element, kernel_cfg)
     ))
-    return evaluate_element_values(terminal, mt, ctx, vec, element, beta=element.get_indices())
+    return translate_finat(terminal, mt, ctx, vec, element, beta=element.get_indices())
 
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
     vec = ctx.coefficient(terminal, mt.restriction)
     element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
-    return evaluate_element_values(terminal, mt, ctx, vec, element)
+    return translate_finat(terminal, mt, ctx, vec, element)
 
 
-def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, ctx: ContextBase,
-                            vec: gem.Node, element: FiniteElementBase,
-                            beta: tuple | None = None) -> gem.Node:
-    """Evaluate the function whose values ``vec`` holds, at the current points.
+def translate_finat(terminal: ufl.core.expr.Expr,
+                    mt: ModifiedTerminal,
+                    ctx: ContextBase,
+                    vec: gem.Node,
+                    element: FiniteElementBase,
+                    beta: tuple | None = None) -> gem.Node:
+    """Tabulate the basis functions of ``element`` at the current points and contract them with ``vec``.
 
-    ``beta`` are the basis indices of ``vec``. They default to the indices that
-    the context caches for ``terminal``.
+    The tuple ``beta`` contains the indices that run over the basis functions.
+    It defaults to the indices cached for ``terminal``.
     """
     domain = extract_unique_domain(terminal)
 
@@ -918,22 +920,21 @@ def evaluate_element_values(terminal: ufl.core.expr.Expr, mt: ModifiedTerminal, 
     if beta is None:
         beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
     zeta = element.get_value_indices()
-    vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
+    vec_beta = gem.Indexed(vec, beta)
     # The value indices, the form's own quadrature points and the argument
-    # indices are bound outside this contraction, so they stay free.
+    # indices are bound outside this contraction, so they stay free.  An
+    # interpolated value also carries its interpolation points, which are
+    # summed here.
     unsummed_indices = set(chain(zeta, ctx.point_indices, *ctx.argument_multiindices))
     unsummed_indices.update(ctx.unsummed_coefficient_indices)
     value_dict = {}
     for alpha, table in per_derivative.items():
         table_qi = gem.Indexed(table, beta + zeta)
         summands = []
-        # An interpolated value also carries its interpolation points and the
-        # argument indices, so split only along beta, and also sum over the
-        # interpolation points.
-        for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache, indices=beta):
-            indices = tuple(i for i in var.free_indices if i not in unsummed_indices)
-            value = gem.IndexSum(gem.Product(expr, var), indices)
-            summands.append(gem.optimise.contraction(value))
+        for expr, indices in split_contraction(gem.Product(table_qi, vec_beta), beta, ctx.index_cache):
+            indices += tuple(i for i in expr.free_indices
+                             if i not in unsummed_indices and i not in indices)
+            summands.append(gem.optimise.contraction(gem.IndexSum(expr, indices)))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 

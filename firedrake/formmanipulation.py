@@ -14,14 +14,16 @@ from ufl.algorithms.analysis import has_type
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.dag_traverser import DAGTraverser
 
-from pyop2 import MixedDat
-from pyop2.utils import as_tuple
-
+from firedrake import utils
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.cofunction import Cofunction
-from firedrake.slate.slate import Block, TensorBase, as_slate
+from firedrake.slate.slate import (
+    Add, AssembledVector, Block, BlockAssembledVector, DiagonalTensor,
+    Factorization, Inverse, Mul, Reciprocal, ScalarMul, Solve, Tensor,
+    TensorBase, Transpose, as_slate,
+)
 from firedrake.ufl_expr import Coargument
 
 
@@ -30,7 +32,8 @@ def subspace(V, indices):
     if len(indices) == 1:
         W = V[indices[0]]
     else:
-        W = MixedFunctionSpace([V[i] for i in indices])
+        labels = [V._labels[i] for i in indices]
+        W = MixedFunctionSpace([V[i] for i in indices], _labels=labels)
     return W.collapse()
 
 
@@ -79,7 +82,7 @@ class ExtractSubBlock(DAGTraverser):
             # Convert a UFL sum that contains Slate components into Slate.
             form = as_slate(form)
 
-        return self(form, blocks=tuple(as_tuple(i) for i in argument_indices))
+        return self(form, blocks=tuple(utils.as_tuple(i) for i in argument_indices))
 
     @functools.singledispatchmethod
     def process(self, o, blocks):
@@ -96,12 +99,6 @@ class ExtractSubBlock(DAGTraverser):
         if expand_derivatives(form).empty():
             return self(ZeroBaseForm(o.arguments()), blocks=blocks)
         return form
-
-    @process.register(TensorBase)
-    def _(self, o, blocks):
-        from firedrake.slate.slac.optimise import push_block
-
-        return push_block(Block(o, blocks))
 
     @process.register(Adjoint)
     def _(self, o, blocks):
@@ -195,10 +192,16 @@ class ExtractSubBlock(DAGTraverser):
 
         # We only need the test space for Cofunction
         W = subspace(V, indices)
-        if len(W) == 1:
-            return Cofunction(W, val=o.dat[indices[0]])
+        # This is needed because the indices and labels do not match when we split things
+        slice_ = [
+            o.dat.axes.trees[0].root.component_labels[i]
+            for i in indices
+        ]
+        if len(indices) == 1:
+            # return a non-mixed thing
+            return Cofunction(W, val=o.dat[utils.just_one(slice_)])
         else:
-            return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
+            return Cofunction(W, val=o.dat[slice_])
 
     @process.register(Matrix)
     def _(self, o, blocks):
@@ -215,12 +218,12 @@ class ExtractSubBlock(DAGTraverser):
             if fields is not None:
                 asplit = self._subspace_argument(a, blocks)
                 for f in fields:
-                    fset = V.dof_dset.field_ises[f]
+                    fset = V.field_ises[f]
                     iset = iset.expand(fset)
             else:
                 fields = tuple(range(len(V)))
                 asplit = a
-                for fset in V.dof_dset.field_ises:
+                for fset in V.field_ises:
                     iset = iset.expand(fset)
 
             ises.append(iset)
@@ -299,6 +302,62 @@ class ExtractSubBlock(DAGTraverser):
             return self(ZeroBaseForm(o.arguments()), blocks=blocks)
         return o._ufl_expr_reconstruct_(operand, dual_arg)
 
+    @process.register(Transpose)
+    def _(self, o, blocks):
+        if not blocks:
+            return o
+        return Transpose(*(self(child, blocks=blocks[::-1]) for child in o.children))
+
+    @process.register(Add)
+    @process.register(DiagonalTensor)
+    @process.register(Reciprocal)
+    @process.register(ScalarMul)
+    def _(self, o, blocks):
+        return self.reuse_if_untouched(o, blocks=blocks)
+
+    @process.register(Factorization)
+    @process.register(Inverse)
+    @process.register(Solve)
+    def _(self, o, blocks):
+        # These operators are not distributive over block extraction.
+        expression = self.reuse_if_untouched(o, blocks=())
+        return Block(expression, blocks) if blocks else expression
+
+    @process.register(Mul)
+    def _(self, o, blocks):
+        if blocks and len(blocks) == 2 and all(operand.rank == 2 for operand in o.operands):
+            A, B = o.operands
+            row, col = blocks
+            full_col_A = tuple(range(len(A.arguments()[1].function_space())))
+            full_row_B = tuple(range(len(B.arguments()[0].function_space())))
+            A = self(A, blocks=(row, full_col_A))
+            B = self(B, blocks=(full_row_B, col))
+            return type(o)(A, B)
+
+        # A non-matrix product cannot distribute the outer block across its operands.
+        expression = self.reuse_if_untouched(o, blocks=())
+        return Block(expression, blocks) if blocks else expression
+
+    @process.register(Tensor)
+    def _(self, o, blocks):
+        return Tensor(Block(o, blocks).form) if blocks else o
+
+    @process.register(AssembledVector)
+    def _(self, o, blocks):
+        return BlockAssembledVector(o._function, o, blocks) if blocks else o
+
+    @process.register(Block)
+    def _(self, o, blocks):
+        if blocks:
+            reindexed = tuple(
+                tuple(big[i] for i in small)
+                for big, small in zip(o._indices, blocks)
+            )
+        else:
+            reindexed = o._indices
+        child, = o.children
+        return self(child, blocks=reindexed)
+
 
 class ExtractSubExpression(ExtractSubBlock):
 
@@ -375,5 +434,10 @@ def split_form(form, diagonal=False):
             if i != j:
                 continue
         f = splitter.split(form, idx)
+        # Set any non-mixed components to None, rather than zero
+        idx = tuple(
+            x if shape[i] > 1 else None
+            for i, x in enumerate(idx)
+        )
         forms.append(SplitForm(indices=idx[:rank], form=f))
     return tuple(forms)

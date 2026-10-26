@@ -1,8 +1,11 @@
-from firedrake import *
 import pytest
 
+from firedrake import *
 
-def run_two_poisson(typ):
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("typ", ["mg", "splitmg", "fas"])
+def test_two_poisson_gmg(typ):
     if typ == "mg":
         parameters = {"snes_type": "ksponly",
                       "ksp_type": "preonly",
@@ -95,35 +98,8 @@ def run_two_poisson(typ):
         exact.interpolate(sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1]))
 
     sol_P2, sol_P1 = u.subfunctions
-    return norm(assemble(exact_P2 - sol_P2)), norm(assemble(exact_P1 - sol_P1))
+    P2 = norm(assemble(exact_P2 - sol_P2))
+    P1 = norm(assemble(exact_P1 - sol_P1))
 
-
-@pytest.mark.parametrize("typ",
-                         ["mg",
-                          "splitmg",
-                          "fas"])
-def test_two_poisson_gmg(typ):
-    P2, P1 = run_two_poisson(typ)
-    assert P2 < 4e-6
-    assert P1 < 1e-3
-
-
-@pytest.mark.parallel
-def test_two_poisson_gmg_parallel_mg():
-    P2, P1 = run_two_poisson("mg")
-    assert P2 < 4e-6
-    assert P1 < 1e-3
-
-
-@pytest.mark.parallel
-def test_two_poisson_gmg_parallel_splitmg():
-    P2, P1 = run_two_poisson("splitmg")
-    assert P2 < 4e-6
-    assert P1 < 1e-3
-
-
-@pytest.mark.parallel
-def test_two_poisson_gmg_parallel_fas():
-    P2, P1 = run_two_poisson("fas")
     assert P2 < 4e-6
     assert P1 < 1e-3

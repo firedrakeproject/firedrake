@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import numpy
 import abc
 
+import dataclasses
 from functools import cached_property, partial
 from typing import Literal, Callable, Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
@@ -13,16 +16,22 @@ from ufl.constantvalue import as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
 
-from pyop2 import op2
+import pyop3 as op3
+from pyop3.cache import with_heavy_caches
+from pyop3.dtypes import get_mpi_dtype
+from pyop3.mpi import temp_internal_comm
+
 from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 
+from tsfc import kernel_args
+from tsfc.ufl_utils import RUNTIME_POINT_VARIABLE
+
 from firedrake.utils import IntType
+from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action, extract_domains
-from firedrake.mesh import (MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry,
-                            MeshTopology, VertexOnlyMesh)
 from firedrake.petsc import PETSc
-from firedrake.halo import _get_mtype
 from firedrake.functionspaceimpl import WithGeometry
+from firedrake.mesh import get_mesh_topologies, MeshLoopIndex
 from firedrake.matrix import ImplicitMatrix, MatrixBase, Matrix
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.bcs import DirichletBC
@@ -54,12 +63,12 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : pyop2.types.set.Subset or None
+    subset : pyop3.Slice or None
         An optional subset to apply the interpolation over.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
-    access : pyop2.types.access.Access or None
-        The pyop2 access descriptor for combining updates to shared
+    access : pyop3.constants.Intent or None
+        The pyop3 access descriptor for combining updates to shared
         DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``.
         ``WRITE``, ``MIN``, and ``MAX`` are supported when interpolating across
         meshes. Only ``INC`` is supported for the matrix-free adjoint
@@ -83,8 +92,8 @@ class InterpolateOptions:
         the :meth:`interpolate` method or (b) set to zero.
         Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
     """
-    subset: op2.Subset | None = None
-    access: Literal[op2.WRITE, op2.MIN, op2.MAX, op2.INC] | None = None
+    subset: op3.Slice | None = None
+    access: Literal[op3.WRITE, op3.MIN_WRITE, op3.MAX_WRITE, op3.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
 
@@ -126,7 +135,13 @@ class Interpolate(UFLInterpolate):
     def _ufl_expr_reconstruct_(
             self, expr: Expr, v: WithGeometry | BaseForm | None = None, **interp_data
     ):
-        interp_data = interp_data or asdict(self.options)
+        # Note that we can't use dataclasses.asdict here because we can't deepcopy
+        # PETSc objects, this is the recommended workaround.
+        options = {
+            field.name: getattr(self.options, field.name)
+            for field in dataclasses.fields(self.options)
+        }
+        interp_data = options | interp_data
         return UFLInterpolate._ufl_expr_reconstruct_(self, expr, v=v, **interp_data)
 
     @property
@@ -141,9 +156,9 @@ class Interpolate(UFLInterpolate):
         return self._options
 
     def subdomain_data(self):
-        """Return cell-iteration subdomain data for the target mesh."""
+        """Return the loop over the target cells that the interpolation reaches."""
         domain = self.target_space.mesh().unique()
-        return {domain: {"cell": [self.options.subset]}}
+        return {domain: {"cell": [self._interpolator._loop_index]}}
 
     @cached_property
     def _interpolator(self):
@@ -198,6 +213,7 @@ class Interpolate(UFLInterpolate):
 
 
 @PETSc.Log.EventDecorator()
+@with_heavy_caches(lambda expr, *a, **kw: get_mesh_topologies(expr))
 def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate:
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
@@ -249,7 +265,14 @@ class Interpolator(abc.ABC):
         self.subset = expr.options.subset
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
-        self.access = expr.options.access
+        # An interpolation kernel never reads the output, it only reduces its
+        # results into it. Therefore, MIN and MAX are the WRITE reductions.
+        access = expr.options.access
+        if access is op3.MIN_RW:
+            access = op3.MIN_WRITE
+        elif access is op3.MAX_RW:
+            access = op3.MAX_WRITE
+        self.access = access
 
     @abc.abstractmethod
     def _get_callable(
@@ -258,6 +281,7 @@ class Interpolator(abc.ABC):
         bcs: Iterable[DirichletBC] | None = None,
         mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
+        pyop3_compiler_parameters=None,
     ) -> Callable[[], Function | Cofunction | MatrixBase | Number]:
         """Return a callable to perform interpolation.
 
@@ -297,12 +321,14 @@ class Interpolator(abc.ABC):
         """
         pass
 
+    # TODO: compiler params not universally handled
     def assemble(
         self,
         tensor: Function | Cofunction | MatrixBase | None = None,
         bcs: Iterable[DirichletBC] | None = None,
         mat_type: Literal["aij", "baij", "nest", "matfree"] | None = None,
         sub_mat_type: Literal["aij", "baij"] | None = None,
+        pyop3_compiler_parameters=None,
     ) -> Function | Cofunction | MatrixBase | Number:
         """Assemble the interpolation. The result depends on the rank (number of arguments)
         of the :class:`Interpolate` expression:
@@ -354,7 +380,7 @@ class Interpolator(abc.ABC):
             )
             return ImplicitMatrix(self.ufl_interpolate, ctx, bcs=bcs)
 
-        result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type)()
+        result = self._get_callable(tensor=tensor, bcs=bcs, mat_type=mat_type, sub_mat_type=sub_mat_type, pyop3_compiler_parameters=pyop3_compiler_parameters)()
 
         if self.rank == 2:
             # Assembling the operator
@@ -417,11 +443,11 @@ class CrossMeshInterpolator(Interpolator):
         self.source_mesh = source_mesh
         self.target_mesh = target_mesh
 
-        if self.access == op2.INC:
+        if self.access == op3.INC:
             raise NotImplementedError(
                 "Increment access is not implemented for cross-mesh interpolation."
             )
-        self.access = self.access or op2.WRITE
+        self.access = self.access or op3.WRITE
 
         if self.allow_missing_dofs:
             self.missing_points_behaviour = MissingPointsBehaviour.IGNORE
@@ -510,7 +536,7 @@ class CrossMeshInterpolator(Interpolator):
         target_mesh = self.target_space.mesh().unique()
         target_space_vec = VectorFunctionSpace(target_mesh, self._target_space_element)
         f_dest_node_coords = assemble(interpolate(target_mesh.coordinates, target_space_vec))
-        dest_node_coords = f_dest_node_coords.dat.data_ro.reshape(-1, target_mesh.geometric_dimension)
+        dest_node_coords = f_dest_node_coords.dat.data_ro
         try:
             vom = VertexOnlyMesh(
                 self.source_mesh.unique(),
@@ -554,7 +580,7 @@ class CrossMeshInterpolator(Interpolator):
         elif self.ufl_interpolate.is_adjoint:
             return interpolate(TestFunction(self.target_space), self.dual_arg)
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None, pyop3_compiler_parameters=None):
         from firedrake.assemble import assemble
         if bcs:
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
@@ -566,7 +592,7 @@ class CrossMeshInterpolator(Interpolator):
             f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
         # Each target DoF receives a single value. Therefore, MIN and MAX only
         # combine that value with the current values of a supplied output.
-        reduction = {op2.MIN: numpy.minimum, op2.MAX: numpy.maximum}.get(self.access) if f is tensor else None
+        reduction = {op3.MIN_WRITE: numpy.minimum, op3.MAX_WRITE: numpy.maximum}.get(self.access) if f is tensor else None
 
         point_eval, point_eval_input_ordering = self._symbolic_expressions
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -638,6 +664,7 @@ class CrossMeshInterpolator(Interpolator):
                 assemble(action(point_eval_input_ordering, point_eval), tensor=f_point_eval_input_ordering)
                 # We assign these values to the output function
                 if self.allow_missing_dofs and self.default_missing_val is None:
+                    f.dat.buffer.sync_roots()
                     indices = numpy.where(~numpy.isnan(f_point_eval_input_ordering.dat.data_ro))[0]
                 else:
                     indices = slice(None)
@@ -679,34 +706,14 @@ class SameMeshInterpolator(Interpolator):
         self.source_mesh = source_mesh
         self.target_mesh = target_mesh
 
-        subset = self.subset
-        if subset is None:
-            target = self.target_mesh.unique().topology
-            source = self.source_mesh.unique().topology
-            if all(isinstance(m, MeshTopology) for m in [target, source]) and target is not source:
-                composed_map, result_integral_type = source.trans_mesh_entity_map(target, "cell", "everywhere", None)
-                if result_integral_type != "cell":
-                    raise AssertionError("Only cell-cell interpolation supported.")
-                indices_active = composed_map.indices_active_with_halo
-                make_subset = not indices_active.all()
-                make_subset = target.comm.allreduce(make_subset, op=MPI.LOR)
-                if make_subset:
-                    if not self.allow_missing_dofs:
-                        raise ValueError("Iteration (sub)set unclear: run with `allow_missing_dofs=True`.")
-                    subset = op2.Subset(target.cell_set, numpy.where(indices_active))
-                else:
-                    # Do not need subset as target <= source.
-                    pass
-        self.subset = subset
-
         if not isinstance(self.dual_arg, Coargument):
             # Matrix-free assembly of 0-form or 1-form requires INC access
-            if self.access and self.access != op2.INC:
+            if self.access and self.access != op3.INC:
                 raise ValueError("Matfree adjoint interpolation requires INC access")
-            self.access = op2.INC
+            self.access = op3.INC
         elif self.access is None:
             # Default access for forward 1-form or 2-form (forward and adjoint)
-            self.access = op2.WRITE
+            self.access = op3.WRITE
 
     @property
     def _needs_adjoint_weighting(self):
@@ -717,32 +724,50 @@ class SameMeshInterpolator(Interpolator):
     def _weighted_dual_arg(self):
         return Function(self.dual_arg.function_space())
 
-    def _par_loop_target_nodes(self, f: Function | Cofunction, name: str,
-                               value: float, access: Literal[op2.WRITE, op2.INC, op2.MIN, op2.MAX]) -> None:
-        """Write or increment ``value`` at each node of ``f`` in the cells of the iteration set.
+    @cached_property
+    def _loop_index(self) -> MeshLoopIndex:
+        """The loop over the target cells that the interpolation reaches."""
+        target_mesh = self.target_mesh.unique()
+        source_mesh = self.source_mesh.unique()
+        if source_mesh is not target_mesh and source_mesh.submesh_youngest_common_ancestor(target_mesh):
+            # Only the target cells that the source mesh covers are reached.
+            if self.subset is not None:
+                raise NotImplementedError("Interpolation between submeshes over a subset is not supported")
+            return target_mesh.iter("cell", intersect_meshes=[source_mesh])
+        elif self.subset is not None:
+            return target_mesh.iter("cell", subdomain_id=self.subset)
+        else:
+            return target_mesh.iter("cell")
+
+    @cached_property
+    def covers_target(self) -> bool:
+        """Whether the interpolation reaches every target cell."""
+        target_mesh = self.target_mesh.unique()
+        reached = self._loop_index.plex_indices.size
+        total = target_mesh.iter("cell").plex_indices.size
+        with temp_internal_comm(target_mesh.comm) as icomm:
+            return icomm.allreduce(reached == total, op=MPI.LAND)
+
+    def _loop_target_nodes(self, f: Function | Cofunction, value: float,
+                           mode: Literal["inc", "min", "max"]) -> None:
+        """Combine ``value`` with each node of ``f`` in the cells of the iteration set.
 
         Parameters
         ----------
         f
             The function or cofunction on the target space to update.
-        name
-            The prefix of the generated kernel names.
         value
-            The value to write or to add.
-        access
-            The access descriptor of the par_loop.
+            The value to combine with the nodes.
+        mode
+            How ``value`` is combined with the current node values.
         """
-        operator = "+=" if access is op2.INC else "="
         target_mesh = self.target_mesh.unique()
-        iterset = target_mesh.cell_set if self.subset is None else self.subset
-        for k, fk in enumerate(f.subfunctions):
-            node_map = get_assembly_entity_node_map(fk.function_space(), target_mesh)
-            kernel_code = f"""
-            void {name}_{k}(PetscScalar *restrict w) {{
-                for (PetscInt i=0; i<{node_map.arity * fk.dat.cdim}; i++) w[i] {operator} {value!r};
-            }}"""
-            kernel = op2.Kernel(kernel_code, f"{name}_{k}")
-            op2.par_loop(kernel, iterset, fk.dat(access, node_map))
+        for fk in f.subfunctions:
+            op3.loop(
+                c := self._loop_index,
+                fk.dat[target_mesh.closure(c)].assign(value, mode),
+                eager=True,
+            )
 
     def _initialize_minmax(self, tensor: Function | Cofunction) -> None:
         """Set the identity of the MIN or MAX reduction on the nodes that the interpolation reaches.
@@ -751,20 +776,20 @@ class SameMeshInterpolator(Interpolator):
         """
         # A node can be reached only from the halo cells of its owner. The
         # opposite reduction carries the identity from the halo copies to the
-        # owner. Therefore, the MIN identity is written with MAX access, and the
-        # MAX identity with MIN access.
+        # owner. Therefore, the MIN identity is written with a MAX reduction,
+        # and the MAX identity with a MIN reduction.
         finfo = numpy.finfo(tensor.dat.dtype)
-        if self.access is op2.MIN:
-            value, access = float(finfo.max), op2.MAX
+        if self.access is op3.MIN_WRITE:
+            value, mode = float(finfo.max), "max"
         else:
-            value, access = float(finfo.min), op2.MIN
-        self._par_loop_target_nodes(tensor, "minmax_init", value, access)
+            value, mode = float(finfo.min), "min"
+        self._loop_target_nodes(tensor, value, mode)
 
     @cached_property
     def _adjoint_weight(self):
         weight = Function(self.dual_arg.function_space())
-        self._par_loop_target_nodes(weight, "multiplicity", 1.0, op2.INC)
-        with weight.dat.vec as weight_vec:
+        self._loop_target_nodes(weight, 1.0, "inc")
+        with weight.dat.vec_rw as weight_vec:
             weight_vec.reciprocal()
         return weight
 
@@ -775,17 +800,17 @@ class SameMeshInterpolator(Interpolator):
         This is the user's `Interpolate` carrying the assembly options, and the
         weighted copy of the dual argument when the adjoint needs one.
         """
-        options = asdict(self.ufl_interpolate.options)
-        options.update(subset=self.subset, access=self.access)
         dual_arg = self._weighted_dual_arg if self._needs_adjoint_weighting else self.dual_arg
-        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg, **options)
+        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg,
+                                                           subset=self.subset, access=self.access)
 
     def _update_weighted_dual_arg(self):
-        self.dual_arg.dat.copy(self._weighted_dual_arg.dat)
-        with self._adjoint_weight.dat.vec_ro as weight, self._weighted_dual_arg.dat.vec as dual:
+        self._weighted_dual_arg.dat.assign(self.dual_arg.dat, eager=True)
+        with self._adjoint_weight.dat.vec_ro as weight, self._weighted_dual_arg.dat.vec_rw as dual:
             dual.pointwiseMult(dual, weight)
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
+                      pyop3_compiler_parameters=None):
         from firedrake.assemble import get_form_assembler
 
         # The output tensor can share a dat with an input. Then the kernel would
@@ -795,19 +820,17 @@ class SameMeshInterpolator(Interpolator):
         output = None
         reads_output = False
         if isinstance(tensor, Function | Cofunction):
-            inputs = set()
-            for coefficient in self._interpolate_to_assemble.coefficients():
-                inputs.update(coefficient.dat)
-            for mesh in extract_domains(self._interpolate_to_assemble):
-                inputs.update(mesh.coordinates.dat)
-            if set(tensor.dat) & inputs:
+            inputs = {coefficient.dat.buffer for coefficient in self._interpolate_to_assemble.coefficients()}
+            inputs.update(mesh.coordinates.dat.buffer for mesh in extract_domains(self._interpolate_to_assemble))
+            if tensor.dat.buffer in inputs:
                 output = tensor
                 # MIN and MAX combine the result with the current output values.
                 # Therefore, we must copy the output into the temporary before assembly.
-                reads_output = self.access in {op2.MIN, op2.MAX}
+                reads_output = self.access in {op3.MIN_WRITE, op3.MAX_WRITE}
 
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
+                                       pyop3_compiler_parameters=pyop3_compiler_parameters,
                                        needs_zeroing=False, access=self.access)
 
         copy_input = None
@@ -815,9 +838,9 @@ class SameMeshInterpolator(Interpolator):
         if output is not None:
             tensor = assembler.allocate()
             if reads_output:
-                copy_input = partial(output.dat.copy, tensor.dat)
-            copy_output = partial(tensor.dat.copy, output.dat)
-        elif tensor is None and self.access in {op2.MIN, op2.MAX}:
+                copy_input = partial(tensor.dat.assign, output.dat, eager=True)
+            copy_output = partial(output.dat.assign, tensor.dat, eager=True)
+        elif tensor is None and self.access in {op3.MIN_WRITE, op3.MAX_WRITE}:
             tensor = assembler.allocate()
             self._initialize_minmax(tensor)
 
@@ -825,7 +848,7 @@ class SameMeshInterpolator(Interpolator):
         # interpolation has no local kernels to write a WRITE output.
         # Therefore, we must zero the output explicitly in both cases.
         needs_zeroing = tensor is not None and (
-            self.access is op2.INC or (self.access is op2.WRITE and not assembler.local_kernels))
+            self.access is op3.INC or (self.access is op3.WRITE and not assembler.local_kernels))
 
         def callable():
             if self._needs_adjoint_weighting:
@@ -864,14 +887,15 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
                 "The target vom and source vom must be linked by input ordering!"
             )
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
+                      pyop3_compiler_parameters=None):
         if bcs:
             raise NotImplementedError("bcs not implemented for vom-to-vom interpolation.")
         mat_type = mat_type or "matfree"
 
         if self.rank == 1:
             f = tensor or Function(self.ufl_interpolate.function_space())
-            self.mat = self._build_python_mat(_get_mtype(f.dat)[0])
+            self.mat = self._build_python_mat(get_mpi_dtype(f.dat.dtype, f.function_space().block_size)[0])
             if self.ufl_interpolate.is_adjoint:
                 assert isinstance(self.dual_arg, Cofunction)
                 assert isinstance(f, Cofunction)
@@ -894,7 +918,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
             if mat_type == "matfree":
                 # Create a temporary function to get the correct MPI type
                 temp_source_func = Function(self.interpolate_args[1].function_space())
-                self.mat = self._build_python_mat(_get_mtype(temp_source_func.dat)[0])
+                self.mat = self._build_python_mat(get_mpi_dtype(temp_source_func.dat.dtype, temp_source_func.function_space().block_size)[0])
             else:
                 self.mat = self._create_permutation_mat(mat_type)
 
@@ -908,7 +932,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         # to perform the permutation.
         source_size, target_size, _, _ = self._get_mat_sizes()
         ctx = VomOntoVomMatContext(
-            self.original_vom.input_ordering_without_halos_sf,
+            self.original_vom.input_ordering_sf,
             self.forward_reduce,
             self.target_space,
             self.source_mesh,
@@ -955,7 +979,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         end = start + source_size[0]
         contiguous_indices = numpy.arange(start, end, dtype=IntType)
         perm = numpy.zeros(nleaves, dtype=IntType)  # result stored in here
-        sf = self.original_vom.input_ordering_without_halos_sf
+        sf = self.original_vom.input_ordering_sf
         mpi_int = MPI._typedict[numpy.dtype(IntType).char]
         sf.bcastBegin(mpi_int, contiguous_indices, perm, MPI.REPLACE)
         sf.bcastEnd(mpi_int, contiguous_indices, perm, MPI.REPLACE)
@@ -974,7 +998,7 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         return mat
 
     def _get_mat_sizes(self):
-        nroots, leaves, _ = self.original_vom.input_ordering_without_halos_sf.getGraph()
+        nroots, leaves, _ = self.original_vom.input_ordering_sf.getGraph()
         nleaves = len(leaves)
         local_sizes = self.target_space.comm.allgather(nroots)
         source_size = (self.target_space.block_size * nroots, self.target_space.block_size * sum(local_sizes))
@@ -989,175 +1013,37 @@ class VomOntoVomInterpolator(SameMeshInterpolator):
         return {"aij", "baij", "matfree", None}
 
 
-def get_assembly_entity_node_map(fs: WithGeometry, target_mesh: MeshGeometry,
-                                 integral_type: str = "cell",
-                                 subdomain_id: str | int = "everywhere",
-                                 all_integer_subdomain_ids: dict | None = None) -> op2.Map | None:
-    """Return the map between entities of the target mesh and nodes of the function space.
-
-    If the function space is not defined on the target mesh then its node map is
-    composed with a map between target and source cells.
-    """
-    if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
-        source_mesh = fs.mesh()
-        m_ = fs.cell_node_map()
-        # NOTE: source_mesh and m_ are None when interpolating from a Real
-        # space, in the trans-mesh case too.
-        if source_mesh is not target_mesh and source_mesh and m_:
-            # Since the par_loop is over the target mesh cells we need to
-            # compose a map that takes us from target mesh cells to the
-            # function space nodes on the source mesh.
-            if source_mesh.extruded:
-                # ExtrudedSet cannot be a map target so we need to build
-                # this ourselves
-                m_ = vom_cell_parent_node_map_extruded(target_mesh, m_)
-            else:
-                m_ = compose_map_and_cache(target_mesh.cell_parent_cell_map, m_)
-    else:
-        m_ = fs.entity_node_map(target_mesh.topology, integral_type, subdomain_id,
-                                all_integer_subdomain_ids)
-    return m_
-
-
-def compose_map_and_cache(map1: op2.Map, map2: op2.Map | None) -> op2.ComposedMap | None:
-    """
-    Retrieve a :class:`pyop2.ComposedMap` map from the cache of map1
-    using map2 as the cache key. The composed map maps from the iterset
-    of map1 to the toset of map2. Makes :class:`pyop2.ComposedMap` and
-    caches the result on map1 if the composed map is not found.
-
-    :arg map1: The map with the desired iterset from which the result is
-        retrieved or cached
-    :arg map2: The map with the desired toset
-
-    :returns:  The composed map
-    """
-    cache_key = hash((map2, "composed"))
-    try:
-        cmap = map1._cache[cache_key]
-    except KeyError:
-        # Real function space case separately
-        cmap = None if map2 is None else op2.ComposedMap(map2, map1)
-        map1._cache[cache_key] = cmap
-    return cmap
-
-
-def vom_cell_parent_node_map_extruded(vertex_only_mesh: MeshGeometry, extruded_cell_node_map: op2.Map) -> op2.Map:
-    """Build a map from the cells of a vertex only mesh to the nodes of the
-    nodes on the source mesh where the source mesh is extruded.
+def get_runtime_tabulation_coordinates(arg: kernel_args.TabulationKernelArg,
+                                       mesh: MeshGeometry) -> Function:
+    """Return the reference coordinates that a kernel tabulates its runtime point at.
 
     Parameters
     ----------
-    vertex_only_mesh : :class:`mesh.MeshGeometry`
-        The ``mesh.VertexOnlyMesh`` whose cells we iterate over.
-    extruded_cell_node_map : :class:`pyop2.Map`
-        The cell node map of the function space on the extruded mesh within
-        which the ``mesh.VertexOnlyMesh`` is immersed.
+    arg
+        The kernel argument that receives the runtime points.
+    mesh
+        The mesh that the kernel iterates over.
 
     Returns
     -------
-    :class:`pyop2.Map`
-        The map from the cells of the vertex only mesh to the nodes of the
-        source mesh's cell node map. The map iterset is the
-        ``vertex_only_mesh.cell_set`` and the map toset is the
-        ``extruded_cell_node_map.toset``.
+    Function
+        The coordinates of the points of ``mesh`` in the reference cell of
+        its parent mesh.
 
-    Notes
-    -----
-
-    For an extruded mesh the cell node map is a map from a
-    :class:`pyop2.ExtrudedSet` (the cells of the extruded mesh) to a
-    :class:`pyop2.Set` (the nodes of the extruded mesh).
-
-    Take for example
-
-    ``mx = ExtrudedMesh(UnitIntervalMesh(2), 3)`` with
-    ``mx.layers = 4``
-
-    which looks like
-
-    .. code-block:: text
-
-        -------------------layer 4-------------------
-        | parent_cell_num =  2 | parent_cell_num =  5 |
-        |                      |                      |
-        | extrusion_height = 2 | extrusion_height = 2 |
-        -------------------layer 3-------------------
-        | parent_cell_num =  1 | parent_cell_num =  4 |
-        |                      |                      |
-        | extrusion_height = 1 | extrusion_height = 1 |
-        -------------------layer 2-------------------
-        | parent_cell_num =  0 | parent_cell_num =  3 |
-        |                      |                      |
-        | extrusion_height = 0 | extrusion_height = 0 |
-        -------------------layer 1-------------------
-          base_cell_num = 0      base_cell_num = 1
-
-
-    If we declare ``FunctionSpace(mx, "CG", 2)`` then the node numbering (i.e.
-    Degree of Freedom/DoF numbering) is
-
-    .. code-block:: text
-
-        6 ---------13----------20---------27---------34
-        |                       |                     |
-        5          12          19         26         33
-        |                       |                     |
-        4 ---------11----------18---------25---------32
-        |                       |                     |
-        3          10          17         24         31
-        |                       |                     |
-        2 ---------9-----------16---------23---------30
-        |                       |                     |
-        1          8           15         22         29
-        |                       |                     |
-        0 ---------7-----------14---------21---------28
-          base_cell_num = 0       base_cell_num = 1
-
-    Cell node map values for an extruded mesh are indexed by the base cell
-    number (rows) and the degree of freedom (DoF) index (columns). So
-    ``extruded_cell_node_map.values[0] = [14, 15, 16,  0,  1,  2,  7,  8,  9]``
-    are all the DoF/node numbers for the ``base_cell_num = 0``.
-    Similarly
-    ``extruded_cell_node_map.values[1] = [28, 29, 30, 21, 22, 23, 14, 15, 16]``
-    contain all 9 of the DoFs for ``base_cell_num = 1``.
-    To get the DoFs/nodes for the rest of the  cells we need to include the
-    ``extruded_cell_node_map.offset``, which tells us how far each cell's
-    DoFs/nodes are translated up from the first layer to the second, and
-    multiply these by the the given ``extrusion_height``. So in our example
-    ``extruded_cell_node_map.offset = [2, 2, 2, 2, 2, 2, 2, 2, 2]`` (we index
-    this with the DoF/node index - it's an array because each DoF/node in the
-    extruded mesh cell, in principal, can be offset upwards by a different
-    amount).
-    For ``base_cell_num = 0`` with ``extrusion_height = 1``
-    (``parent_cell_num = 1``) we add ``1*2 = 2`` to each of the DoFs/nodes in
-    ``extruded_cell_node_map.values[0]`` to get
-    ``extruded_cell_node_map.values[0] + 1 * extruded_cell_node_map.offset[0] =
-    [16, 17, 18,  2,  3,  4,  9, 10, 11]`` where ``0`` is the DoF/node index.
-
-    For each cell (vertex) of a vertex only mesh immersed in a parent
-    extruded mesh, we can can get the corresponding ``base_cell_num`` and
-    ``extrusion_height`` of the parent extruded mesh. Armed with this
-    information we use the above to work out the corresponding DoFs/nodes on
-    the parent extruded mesh.
-
+    Raises
+    ------
+    ValueError
+        If ``arg`` is not the runtime tabulation argument.
+    TypeError
+        If ``mesh`` is not a :class:`VertexOnlyMesh`.
     """
-    if not isinstance(vertex_only_mesh.topology, VertexOnlyMeshTopology):
-        raise TypeError("The input mesh must be a VertexOnlyMesh")
-    cnm = extruded_cell_node_map
-    vmx = vertex_only_mesh
-    dofs_per_target_cell = cnm.arity
-    base_cells = vmx.cell_parent_base_cell_list
-    heights = vmx.cell_parent_extrusion_height_list
-    assert cnm.values_with_halo.shape[1] == dofs_per_target_cell
-    assert len(cnm.offset) == dofs_per_target_cell
-    target_cell_parent_node_list = [
-        cnm.values_with_halo[base_cell, :] + height * cnm.offset[:]
-        for base_cell, height in zip(base_cells, heights)
-    ]
-    return op2.Map(
-        vmx.cell_set, cnm.toset, dofs_per_target_cell, target_cell_parent_node_list
-    )
+    # FIXME: name-matching is a stopgap; get this from a coefficient map handed
+    # down by compile_expression_dual_evaluation, or a Cofunction/Coargument target.
+    if arg.loopy_arg.name != RUNTIME_POINT_VARIABLE:
+        raise ValueError(f"Expecting the runtime tabulation argument {RUNTIME_POINT_VARIABLE}: got {arg.loopy_arg.name}")
+    if not isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise TypeError(f"Runtime tabulation is only supported on a VertexOnlyMesh: got {type(mesh.topology).__name__}")
+    return mesh.reference_coordinates
 
 
 @no_annotations
@@ -1454,7 +1340,12 @@ class MixedInterpolator(Interpolator):
             sub_bcs = []
             for space, index in zip(spaces, indices):
                 subspace = space.sub(index)
-                sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
+                # filter the bcs and drop index information because the sub interpolate
+                # doesn't know that it's part of a bigger expression
+                sub_bcs.extend(
+                    bc.reconstruct(V=subspace.collapse())
+                    for bc in bcs if space_equals(bc.function_space(), subspace)
+                )
             Isub[indices] = (get_interpolator(block), sub_bcs)
 
         return Isub
@@ -1470,7 +1361,7 @@ class MixedInterpolator(Interpolator):
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
         for indices, (interp, sub_bcs) in Isub.items():
             blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)().petscmat
-        isrows, iscols = (V.dof_dset.field_ises for V in spaces)
+        isrows, iscols = (V.field_ises for V in spaces)
         return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
@@ -1482,7 +1373,10 @@ class MixedInterpolator(Interpolator):
         matnest = self._build_matnest(Isub, sub_mat_type="aij")
         return matnest.convert("aij")
 
-    def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None):
+    def _get_callable(
+        self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
+        pyop3_compiler_parameters=None,
+    ):
         mat_type = mat_type or "aij"
         sub_mat_type = sub_mat_type or "aij"
         Isub = self._get_sub_interpolators(bcs=bcs)

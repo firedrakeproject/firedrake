@@ -1,12 +1,8 @@
-from types import SimpleNamespace
-
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import _runtime_tabulation_coordinates
 from firedrake.utils import complex_mode
 from firedrake.matrix import MatrixBase
-from tsfc.ufl_utils import RUNTIME_POINT_VARIABLE
 import ufl
 
 
@@ -44,19 +40,6 @@ def test_interp_self(V1):
     b = assemble(conj(TestFunction(V1)) * dx)
     a.interpolate(a)
     assert np.allclose(a.dat.data_ro, b.dat.data_ro)
-
-
-def test_runtime_tabulation_error_types():
-    """Report invalid runtime-tabulation arguments and meshes separately."""
-    arg = SimpleNamespace(loopy_arg=SimpleNamespace(name="not-runtime"))
-    mesh = SimpleNamespace(topology=object())
-
-    with pytest.raises(ValueError, match="runtime tabulation argument"):
-        _runtime_tabulation_coordinates(arg, mesh)
-
-    arg.loopy_arg.name = RUNTIME_POINT_VARIABLE
-    with pytest.raises(TypeError, match="VertexOnlyMesh"):
-        _runtime_tabulation_coordinates(arg, mesh)
 
 
 def test_assemble_interp_adjoint_tensor(mesh, V1, f1):
@@ -172,7 +155,7 @@ def test_assemble_interp_adjoint_matrix(V1, V2):
     assert a.petscmat.getSize() == (V1.dim(), V2.dim())
 
     res = Cofunction(V1.dual())
-    with c2.dat.vec_ro as x, res.dat.vec_ro as y:
+    with c2.dat.vec_ro as x, res.dat.vec_wo as y:
         a.petscmat.mult(x, y)
     assert np.allclose(res.dat.data, c1.dat.data)
 
