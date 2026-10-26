@@ -44,9 +44,9 @@ def test_mass_matrix_variable_layers_extrusion():
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    A1 = assemble(Tensor(v*u*dx)).M.values
-    A2 = assemble(v*u*dx).M.values
-    A3 = assemble(Tensor(v*u*dx).inv).M.values
+    A1 = assemble(Tensor(inner(u, v)*dx)).M.values
+    A2 = assemble(inner(u, v)*dx).M.values
+    A3 = assemble(Tensor(inner(u, v)*dx).inv).M.values
 
     # check A1==A2
     assert np.allclose(A1, A2, rtol=1e-12)

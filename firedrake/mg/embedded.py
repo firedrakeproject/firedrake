@@ -1,13 +1,16 @@
 import firedrake
 import ufl
 import finat.ufl
+import warnings
 import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
+from .interface import assemble_prolongation_aij
 from finat.element_factory import create_element
+from .utils import get_level
 
-__all__ = ("TransferManager", )
+__all__ = ("TransferManager",)
 
 
 class Op(IntEnum):
@@ -32,21 +35,26 @@ class TransferManager(object):
             self._work_vec = {}
             self._V_dof_weights = {}
 
-    def __init__(self, *, native_transfers=None, use_averaging=True):
-        """
-        An object for managing transfers between levels in a multigrid
-        hierarchy (possibly via embedding in DG spaces).
+    def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree"):
+        """Manage transfers between levels in a multigrid hierarchy.
 
-        :arg native_transfers: dict mapping UFL element
-           to "natively supported" transfer operators. This should be
-           a three-tuple of (prolong, restrict, inject).
-        :arg use_averaging: Use averaging to approximate the
-           projection out of the embedded DG space? If False, a global
-           L2 projection will be performed.
+        Parameters
+        ----------
+        native_transfers : dict
+            A mapping from UFL elements to natively supported transfer
+            operators. Each value must be a three-tuple containing the
+            prolong, restrict, and inject operators.
+        use_averaging : bool
+            Whether to use averaging to approximate the projection out of an
+            embedded DG space. If false, perform a global L2 projection.
+        mat_type : str
+            The matrix assembly type for prolongation and restriction.
         """
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
         self.caches = {}
+        self.mat_type = mat_type
+        self._mat_cache = {}
 
     def is_native(self, element, gdim, op):
         if element in self.native_transfers:
@@ -78,7 +86,12 @@ class TransferManager(object):
             return self.native_transfers[element][op]
         except KeyError:
             if self.is_native(element, gdim, op):
-                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                if self.mat_type == "aij":
+                    ops = self._prolong_aij, self._restrict_aij, firedrake.inject
+                elif self.mat_type == "matfree":
+                    ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                else:
+                    raise ValueError(f"Unsupported mat_type {self.mat_type}")
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 
@@ -292,6 +305,23 @@ class TransferManager(object):
                     self.V_inv_mass_ksp(Vt).solve(work, t)
         self.cache_dat_versions(Vs, transfer_op, source, target)
 
+    def transfer(self, x, y):
+        """Transfer a function/cofunction.
+
+        :arg x: The source (co)function.
+        :arg y: The target (co)function.
+        """
+        _, xlevel = get_level(x.function_space().mesh())
+        _, ylevel = get_level(y.function_space().mesh())
+        if ufl.duals.is_dual(x):
+            if xlevel > ylevel:
+                return self.restrict(x, y)
+            return y.interpolate(x)
+        elif xlevel < ylevel:
+            return self.prolong(x, y)
+        else:
+            return self.inject(x, y)
+
     def prolong(self, uc, uf):
         """Prolong a function.
 
@@ -309,7 +339,7 @@ class TransferManager(object):
         self.op(uf, uc, transfer_op=Op.INJECT)
 
     def restrict(self, source, target):
-        """Restrict a dual function.
+        """Restrict a cofunction.
 
         :arg source: The source (fine grid) :class:`.Cofunction`.
         :arg target: The target (coarse grid) :class:`.Cofunction`.
@@ -362,3 +392,69 @@ class TransferManager(object):
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
+
+    def _prolongation_matrix(self, Vc, Vf):
+        """Assemble and cache the prolongation matrix mapping Vc to Vf.
+
+        Parameters
+        ----------
+        Vc : WithGeometry
+            The source (coarse grid) function space.
+        Vf : WithGeometry
+            The target (fine grid) function space.
+
+        Returns
+        -------
+        AssembledMatrix
+            The cached prolongation matrix mapping Vc to Vf.
+
+        """
+        key = (Vc, Vf)
+        try:
+            return self._mat_cache[key]
+        except KeyError:
+            P = assemble_prolongation_aij(Vc, Vf)
+            return self._mat_cache.setdefault(key, P)
+
+    def _prolong_aij(self, uc, uf):
+        """Prolong a function by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        uc : Function
+            The source (coarse grid) function.
+        uf : Function
+            The target (fine grid) function.
+
+        """
+        Vc = uc.function_space()
+        Vf = uf.function_space()
+        P = self._prolongation_matrix(Vc, Vf)
+        with uc.dat.vec_ro as x, uf.dat.vec_wo as y:
+            P.petscmat.mult(x, y)
+
+    def _restrict_aij(self, rf, rc):
+        """Restrict a cofunction by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        rf : Cofunction
+            The source (fine grid) cofunction.
+        rc : Cofunction
+            The target (coarse grid) cofunction.
+
+        """
+        Vc = rc.function_space().dual()
+        Vf = rf.function_space().dual()
+        P = self._prolongation_matrix(Vc, Vf)
+        with rf.dat.vec_ro as x, rc.dat.vec_wo as y:
+            P.petscmat.multTranspose(x, y)
+
+
+def AdaptiveTransferManager(*args, **kwargs):
+    """Deprecated alias for `TransferManager`."""
+    warnings.warn(
+        "The ``AdaptiveTransferManager`` class is deprecated and will be removed in a future release. "
+        "Please use the ``TransferManager`` class instead.", FutureWarning
+    )
+    return TransferManager(*args, **kwargs)

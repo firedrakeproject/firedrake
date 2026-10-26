@@ -72,8 +72,13 @@ def _push_block_transpose(expr, self, indices):
     return Transpose(*map(self, expr.children, repeat(indices[::-1]))) if indices else expr
 
 
+@_push_block.register(ScalarMul)
+def _push_block_scalar_mul(expr, self, indices):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor, indices))
+
+
 @_push_block.register(Add)
-@_push_block.register(Negative)
 @_push_block.register(DiagonalTensor)
 @_push_block.register(Reciprocal)
 def _push_block_distributive(expr, self, indices):
@@ -84,11 +89,25 @@ def _push_block_distributive(expr, self, indices):
 @_push_block.register(Factorization)
 @_push_block.register(Inverse)
 @_push_block.register(Solve)
-@_push_block.register(Mul)
 def _push_block_stop(expr, self, indices):
     """Blocks cannot be pushed further into this set of nodes."""
     expr = type(expr)(*map(self, expr.children, repeat(tuple())))
     return Block(expr, indices) if indices else expr
+
+
+@_push_block.register(Mul)
+def _push_block_mul(expr, self, indices):
+    """Pushes matrix blocks through products when their indices permit it."""
+    if indices and len(indices) == 2 and all(operand.rank == 2 for operand in expr.operands):
+        A, B = expr.operands
+        row, col = indices
+        full_col_A = tuple(range(len(A.arguments()[1].function_space())))
+        full_row_B = tuple(range(len(B.arguments()[0].function_space())))
+        A = self(Block(A, (row, full_col_A)), ())
+        B = self(Block(B, (full_row_B, col)), ())
+        return type(expr)(A, B)
+
+    return _push_block_stop(expr, self, indices)
 
 
 @_push_block.register(Tensor)
@@ -138,10 +157,15 @@ def _push_diag(expr, self, diag):
 
 @_push_diag.register(Transpose)
 @_push_diag.register(Add)
-@_push_diag.register(Negative)
 def _push_diag_distributive(expr, self, diag):
     """Distributes the DiagonalTensors into these nodes"""
     return type(expr)(*map(self, expr.children, repeat(diag)))
+
+
+@_push_diag.register(ScalarMul)
+def _push_diag_scalar_mul(expr, self, diag):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor, diag))
 
 
 @_push_diag.register(Factorization)
@@ -243,7 +267,6 @@ def _drop_double_transpose_transpose(expr, self):
         return type(expr)(*map(self, expr.children))
 
 
-@_drop_double_transpose.register(Negative)
 @_drop_double_transpose.register(Add)
 @_drop_double_transpose.register(Mul)
 @_drop_double_transpose.register(Solve)
@@ -253,6 +276,12 @@ def _drop_double_transpose_transpose(expr, self):
 def _drop_double_transpose_distributive(expr, self):
     """Distribute into the children of the expression. """
     return type(expr)(*map(self, expr.children))
+
+
+@_drop_double_transpose.register(ScalarMul)
+def _drop_double_transpose_scalar_mul(expr, self):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor))
 
 
 @singledispatch
@@ -280,11 +309,16 @@ def _push_mul_vector(expr, self, state):
     return expr
 
 
-@_push_mul.register(Negative)
 @_push_mul.register(Add)
 def _push_mul_distributive(expr, self, state):
     """Distribute the multiplication into the children of the expression. """
     return type(expr)(*map(self, expr.children, (state,)*len(expr.children)))
+
+
+@_push_mul.register(ScalarMul)
+def _push_mul_scalar_mul(expr, self, state):
+    tensor, = expr.children
+    return ScalarMul(expr.scalar, self(tensor, state))
 
 
 @_push_mul.register(Inverse)

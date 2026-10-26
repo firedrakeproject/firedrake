@@ -20,13 +20,13 @@ from pyop2.utils import as_tuple
 import firedrake
 import firedrake.matrix as matrix
 import firedrake.utils as utils
-from firedrake import ufl_expr
-from firedrake import slate
-from firedrake import solving
+from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -92,6 +92,14 @@ class BCBase(object):
         if fs.index is None:
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
+
+    @property
+    def parent_function_space(self):
+        """The top-level function space, walking up through indexed or component subspaces."""
+        V = self._function_space
+        while V.parent is not None:
+            V = V.parent
+        return V
 
     @cached_property
     def domain_args(self):
@@ -179,8 +187,8 @@ class BCBase(object):
         with temp_internal_comm(self._function_space.mesh().comm) as icomm:
             num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
             if num_global_nodes == 0 and icomm.rank == 0:
-                logger.warn(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
-                            "Did you choose the right label?")
+                logger.warning(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                               "Did you choose the right label?")
 
         return bcnodes
 
@@ -199,8 +207,8 @@ class BCBase(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.MatrixBase):
-            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
+        if not isinstance(r, Function | Cofunction):
+            raise NotImplementedError(f"Zeroing bcs not supported for {type(r).__name__}")
 
         for idx in self._indices:
             r = r.sub(idx)
@@ -427,7 +435,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         corresponding rows and columns.
 
         """
-        if isinstance(r, matrix.MatrixBase):
+        if isinstance(r, ufl.Matrix):
             raise NotImplementedError("Capability to delay bc application has been dropped. Use assemble(a, bcs=bcs, ...) to obtain a fully assembled matrix")
 
         fs = self._function_space

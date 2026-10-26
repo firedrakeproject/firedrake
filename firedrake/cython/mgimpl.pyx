@@ -3,9 +3,9 @@
 # Low-level numbering for multigrid support
 import cython
 import numpy as np
-from firedrake.cython import dmcommon
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
+from pyop2.mpi import MPI
 
 cimport numpy as np
 cimport petsc4py.PETSc as PETSc
@@ -55,13 +55,16 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
+def coarse_to_fine_nodes(Vc, Vf, const PetscInt[:, ::1] coarse_to_fine_cells):
     cdef:
-        np.ndarray fine_map, coarse_map, coarse_to_fine_map
-        np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, l, m, node, fine, layer
+        const PetscInt[:, ::1] fine_map, coarse_map
+        PetscInt[:, ::1] coarse_to_fine_map
+        const PetscInt[::1] coarse_offset, fine_offset
+        const PetscInt[::1] coarse_offset_quotient, fine_offset_quotient
+        PetscInt i, j, k, ll, m, node, fine, layer
+        PetscInt coarse_node_layer, fine_layer, fine_node_layer
         PetscInt coarse_per_cell, fine_per_cell, fine_cell_per_coarse_cell, coarse_cells
-        PetscInt fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
+        PetscInt fine_layers, coarse_layer, coarse_layers, ratio
         bint extruded
 
     fine_map = Vf.cell_node_map().values
@@ -69,6 +72,9 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
 
     fine_cell_per_coarse_cell = coarse_to_fine_cells.shape[1]
     extruded = Vc.extruded
+    coarse_cells = coarse_map.shape[0]
+    coarse_per_cell = coarse_map.shape[1]
+    fine_per_cell = fine_map.shape[1]
 
     if extruded:
         coarse_offset = Vc.offset
@@ -77,10 +83,13 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
         fine_layers = Vf.mesh().layers - 1
 
         ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
-    coarse_cells = coarse_map.shape[0]
-    coarse_per_cell = coarse_map.shape[1]
-    fine_per_cell = fine_map.shape[1]
+        assert ratio * coarse_layers == fine_layers  # check ratio is an int
+        coarse_offset_quotient = np.zeros(coarse_per_cell, dtype=IntType)
+        fine_offset_quotient = np.zeros(fine_per_cell, dtype=IntType)
+        if Vc.offset_quotient is not None:
+            coarse_offset_quotient = Vc.offset_quotient
+        if Vf.offset_quotient is not None:
+            fine_offset_quotient = Vf.offset_quotient
 
     ndof = fine_per_cell * fine_cell_per_coarse_cell
     if extruded:
@@ -95,32 +104,45 @@ def coarse_to_fine_nodes(Vc, Vf, np.ndarray coarse_to_fine_cells):
             if extruded:
                 for coarse_layer in range(coarse_layers):
                     k = 0
-                    for l in range(fine_cell_per_coarse_cell):
-                        fine = coarse_to_fine_cells[i, l]
+                    for ll in range(fine_cell_per_coarse_cell):
+                        fine = coarse_to_fine_cells[i, ll]
+                        if fine < 0:
+                            k += fine_per_cell * ratio
+                            continue
                         for layer in range(ratio):
                             fine_layer = coarse_layer * ratio + layer
+                            coarse_node_layer = (coarse_layer + coarse_offset_quotient[j]) % coarse_layers
+                            coarse_node_layer -= coarse_offset_quotient[j] % coarse_layers
                             for m in range(fine_per_cell):
-                                coarse_to_fine_map[node + coarse_offset[j]*coarse_layer, k] = (fine_map[fine, m] +
-                                                                                               fine_offset[m]*fine_layer)
+                                fine_node_layer = (fine_layer + fine_offset_quotient[m]) % fine_layers
+                                fine_node_layer -= fine_offset_quotient[m] % fine_layers
+                                coarse_to_fine_map[node + coarse_offset[j]*coarse_node_layer, k] = (fine_map[fine, m] +
+                                                                                                    fine_offset[m]*fine_node_layer)
                                 k += 1
             else:
                 k = 0
-                for l in range(fine_cell_per_coarse_cell):
-                    fine = coarse_to_fine_cells[i, l]
+                for ll in range(fine_cell_per_coarse_cell):
+                    fine = coarse_to_fine_cells[i, ll]
+                    if fine < 0:
+                        k += fine_per_cell
+                        continue
                     for m in range(fine_per_cell):
                         coarse_to_fine_map[node, k] = fine_map[fine, m]
                         k += 1
 
-    return coarse_to_fine_map
+    return np.asarray(coarse_to_fine_map)
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
+def fine_to_coarse_nodes(Vf, Vc, const PetscInt[:, ::1] fine_to_coarse_cells):
     cdef:
-        np.ndarray fine_map, coarse_map, fine_to_coarse_map
-        np.ndarray coarse_offset, fine_offset
-        PetscInt i, j, k, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
+        const PetscInt[:, ::1] fine_map, coarse_map
+        PetscInt[:, ::1] fine_to_coarse_map
+        const PetscInt[::1] coarse_offset, fine_offset
+        const PetscInt[::1] coarse_offset_quotient, fine_offset_quotient
+        PetscInt i, j, k, ll, node, fine_layer, fine_layers, coarse_layer, coarse_layers, ratio
+        PetscInt fine_node_layer, coarse_node_layer
         PetscInt coarse_per_cell, fine_per_cell, coarse_cell, fine_cells
         bint extruded
 
@@ -128,6 +150,8 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
     coarse_map = Vc.cell_node_map().values
 
     extruded = Vc.extruded
+    coarse_per_cell = coarse_map.shape[1]
+    fine_per_cell = fine_map.shape[1]
 
     if extruded:
         coarse_offset = Vc.offset
@@ -136,31 +160,42 @@ def fine_to_coarse_nodes(Vf, Vc, np.ndarray fine_to_coarse_cells):
         fine_layers = Vf.mesh().layers - 1
 
         ratio = fine_layers // coarse_layers
-        assert ratio * coarse_layers == fine_layers # check ratio is an int
+        assert ratio * coarse_layers == fine_layers  # check ratio is an int
+        coarse_offset_quotient = np.zeros(coarse_per_cell, dtype=IntType)
+        fine_offset_quotient = np.zeros(fine_per_cell, dtype=IntType)
+        if Vc.offset_quotient is not None:
+            coarse_offset_quotient = Vc.offset_quotient
+        if Vf.offset_quotient is not None:
+            fine_offset_quotient = Vf.offset_quotient
 
     fine_cells = fine_to_coarse_cells.shape[0]
     coarse_per_fine = fine_to_coarse_cells.shape[1]
-    coarse_per_cell = coarse_map.shape[1]
-    fine_per_cell = fine_map.shape[1]
     fine_to_coarse_map = np.full((Vf.dof_dset.total_size,
                                   coarse_per_fine*coarse_per_cell),
                                  -1,
                                  dtype=IntType)
 
     for i in range(fine_cells):
-        for l, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
+        for ll, coarse_cell in enumerate(fine_to_coarse_cells[i, :]):
+            if coarse_cell < 0:
+                continue
             for j in range(fine_per_cell):
                 node = fine_map[i, j]
                 if extruded:
                     for fine_layer in range(fine_layers):
                         coarse_layer = fine_layer // ratio
+                        fine_node_layer = (fine_layer + fine_offset_quotient[j]) % fine_layers
+                        fine_node_layer -= fine_offset_quotient[j] % fine_layers
                         for k in range(coarse_per_cell):
-                            fine_to_coarse_map[node + fine_offset[j]*fine_layer, k] = coarse_map[coarse_cell, k] + coarse_offset[k]*coarse_layer
+                            coarse_node_layer = (coarse_layer + coarse_offset_quotient[k]) % coarse_layers
+                            coarse_node_layer -= coarse_offset_quotient[k] % coarse_layers
+                            fine_to_coarse_map[node + fine_offset[j]*fine_node_layer, k] = (
+                                coarse_map[coarse_cell, k] + coarse_offset[k]*coarse_node_layer)
                 else:
                     for k in range(coarse_per_cell):
-                        fine_to_coarse_map[node, coarse_per_cell*l + k] = coarse_map[coarse_cell, k]
+                        fine_to_coarse_map[node, coarse_per_cell*ll + k] = coarse_map[coarse_cell, k]
 
-    return fine_to_coarse_map
+    return np.asarray(fine_to_coarse_map)
 
 
 def create_lgmap(PETSc.DM dm):
@@ -174,7 +209,6 @@ def create_lgmap(PETSc.DM dm):
         PETSc.LGMap lgmap = PETSc.LGMap()
         PetscInt *indices
         PetscInt i, size
-        PetscInt start, end
 
     # Not necessary on one process
     if dm.comm.size == 1:
@@ -192,114 +226,172 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
-# Exposition:
-#
-# These next functions compute maps from coarse mesh cells to fine
-# mesh cells and provide a consistent vertex reordering of each fine
-# cell inside each coarse cell.  In parallel, this is somewhat
-# complicated because the DMs only provide information about
-# relationships between non-overlapped meshes, and we only have
-# overlapped meshes.  We there need to translate non-overlapped DM
-# numbering into overlapped-DM numbering and vice versa, as well as
-# translating between firedrake numbering and DM numbering.
-#
-# A picture is useful here to make things clearer.
-#
-# To translate between overlapped and non-overlapped DM points, we
-# need to go via global numbers (which don't change)
-#
-#      DM_orig<--.    ,-<--DM_new
-#         |      |    |      |
-#     L2G v  G2L ^    v L2G  ^ G2L
-#         |      |    |      |
-#         '-->-->Global-->---'
-#
-# Mapping between Firedrake numbering and DM numbering is carried out
-# by computing the section permutation `get_entity_renumbering` above.
-#
-#            .->-o2n->-.
-#      DM_new          Firedrake
-#            `-<-n2o-<-'
-#
-# Finally, coarse to fine maps are produced on the non-overlapped DM
-# and subsequently composed with the appropriate sequence of maps to
-# get to Firedrake numbering (and vice versa).
-#
-#     DM_orig_coarse
-#           |
-#           v coarse_to_fine_cells [coarse_cell = floor(fine_cell / 2**tdim)]
-#           |
-#      DM_orig_fine
-@cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_cells(mc, mf, clgmaps, flgmaps):
-    """Return a map from (renumbered) cells in a coarse mesh to those
-    in a refined fine mesh.
+def transform_source_points(PETSc.DM dm):
+    """Find the point that produced each point of a transformed DMPlex.
 
-    :arg mc: the coarse mesh to create the map from.
-    :arg mf: the fine mesh to map to.
-    :arg clgmaps: coarse lgmaps (non-overlapped and overlapped)
-    :arg flgmaps: fine lgmaps (non-overlapped and overlapped)
-    :returns: Two arrays, one mapping coarse to fine cells, the second fine to coarse cells.
+    Parameters
+    ----------
+    dm : PETSc.DM
+        A DMPlex made by a transform, such as a refinement, of a DMPlex on
+        which ``setSaveTransform`` was called first.
+
+    Returns
+    -------
+    numpy.ndarray
+        For each point of ``dm``, the point of the original DMPlex that
+        produced it.
+
     """
     cdef:
-        PETSc.DM cdm, fdm
-        PetscInt cStart, cEnd, c, val, dim, nref, ncoarse
-        PetscInt i, ccell, fcell, nfine
-        np.ndarray coarse_to_fine
-        np.ndarray fine_to_coarse
-        np.ndarray co2n, fn2o, idx
+        PETSc.PetscDMPlexTransform transform = NULL
+        PetscInt pStart, pEnd, p, source
+        PetscInt[::1] points
 
-    cdm = mc.topology_dm
-    fdm = mf.topology_dm
-    dim = cdm.getDimension()
-    nref = <PetscInt> 2 ** dim
-    ncoarse = mc.cell_set.size
-    nfine = mf.cell_set.size
-    co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
-    _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
-    coarse_to_fine = np.full((ncoarse, nref), -1, dtype=PETSc.IntType)
-    fine_to_coarse = np.full((nfine, 1), -1, dtype=PETSc.IntType)
-    # Walk owned fine cells:
-    cStart, cEnd = 0, nfine
+    CHKERR(DMPlexGetTransform(dm.dm, &transform))
+    if transform == NULL:
+        raise ValueError(
+            "The DMPlex did not save its transform; call setSaveTransform "
+            "before creating it so hierarchy point maps can be built"
+        )
+    pStart, pEnd = dm.getChart()
+    points = np.empty(pEnd - pStart, dtype=IntType)
+    for p in range(pStart, pEnd):
+        CHKERR(DMPlexTransformGetSourcePoint(transform, p, NULL, NULL, &source, NULL))
+        points[p - pStart] = source
+    return np.asarray(points)
 
-    if mc.comm.size > 1:
-        cno, co = clgmaps
-        fno, fo = flgmaps
-        # Compute global numbers of original cell numbers
-        fo.apply(fn2o, result=fn2o)
-        # Compute local numbers of original cells on non-overlapped mesh
-        fn2o = fno.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
-        # Need to permute order of co2n so it maps from non-overlapped
-        # cells to new cells (these may have changed order).  Need to
-        # map all known cells through.
-        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
-        # LocalToGlobal
-        co.apply(idx, result=idx)
-        # GlobalToLocal
-        # Drop values that did not exist on non-overlapped mesh
-        idx = cno.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
-        co2n = co2n[idx]
 
-    for c in range(cStart, cEnd):
-        # get original (overlapped) cell number
-        fcell = fn2o[c]
-        # The owned cells should map into non-overlapped cell numbers
-        # (due to parallel growth strategy)
-        assert 0 <= fcell < cEnd
+def compose_points(outer, inner):
+    """Compose two point maps.
 
-        # Find original coarse cell (fcell / nref) and then map
-        # forward to renumbered coarse cell (again non-overlapped
-        # cells should map into owned coarse cells)
-        ccell = co2n[fcell // nref]
-        assert 0 <= ccell < ncoarse
-        fine_to_coarse[c, 0] = ccell
-        for i in range(nref):
-            if coarse_to_fine[ccell, i] == -1:
-                coarse_to_fine[ccell, i] = c
-                break
-    return coarse_to_fine, fine_to_coarse
+    Parameters
+    ----------
+    outer : numpy.ndarray
+        The map to apply second.
+    inner : numpy.ndarray
+        The map to apply first. Negative or out-of-range entries mean that
+        the corresponding point has no parent.
+
+    Returns
+    -------
+    numpy.ndarray
+        ``outer[inner]``, with -1 where the input or composed map has no
+        corresponding point.
+
+    """
+    points = np.full(inner.shape, -1, dtype=IntType)
+    found = (inner >= 0) & (inner < outer.size)
+    points[found] = outer[inner[found]]
+    return points
+
+
+def overlapped_fine_to_coarse_points(coarse_mesh, fine_mesh, fine_to_coarse_points,
+                                     coarse_lgmap, fine_lgmap):
+    """Renumber a refinement of unoverlapped DMPlexes onto the DMPlexes of two meshes.
+
+    A hierarchy refines unoverlapped DMPlexes and adds overlap only when it
+    builds each mesh. The saved transform relates the points of the
+    unoverlapped DMPlexes, so this function carries both ends of the relation
+    over to the meshes through the global point numbers.
+
+    Parameters
+    ----------
+    coarse_mesh, fine_mesh : MeshGeometry
+        The coarse mesh, and the mesh built from the refinement of its
+        unoverlapped DMPlex.
+    fine_to_coarse_points : numpy.ndarray
+        For each point of the unoverlapped fine DMPlex, the point of the
+        unoverlapped coarse DMPlex that produced it, as given by
+        `transform_source_points`. This is a DMPlex point map; it does not use
+        Firedrake cell numbering.
+    coarse_lgmap, fine_lgmap : PETSc.LGMap or None
+        The point local-to-global maps of the unoverlapped coarse and fine
+        DMPlexes, as given by `create_lgmap`. These maps are ``None`` when
+        the hierarchy has no overlap or when it is serial.
+
+    Returns
+    -------
+    numpy.ndarray
+        For each point of ``fine_mesh.topology_dm``, the point of
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1 when the
+        corresponding parent point is not present in the coarse local DMPlex.
+        The result remains in DMPlex point numbering; `coarse_to_fine_cells`
+        composes it with the Firedrake cell numberings when it builds cell
+        maps.
+
+    """
+    if coarse_lgmap is None and fine_lgmap is None:
+        # Without overlap, the refined and final DMPlexes retain the same
+        # local point numbering, so no local-to-global translation is needed.
+        return fine_to_coarse_points
+    pStart, pEnd = fine_mesh.topology_dm.getChart()
+    fine_points = np.arange(pStart, pEnd, dtype=IntType)
+    create_lgmap(fine_mesh.topology_dm).apply(fine_points, result=fine_points)
+    fine_points = fine_lgmap.applyInverse(fine_points, PETSc.LGMap.MapMode.MASK)
+    coarse_points = compose_points(fine_to_coarse_points, fine_points)
+    coarse_lgmap.apply(coarse_points, result=coarse_points)
+    return create_lgmap(coarse_mesh.topology_dm).applyInverse(coarse_points, PETSc.LGMap.MapMode.MASK)
+
+
+def coarse_to_fine_cells(coarse_mesh, fine_mesh, fine_to_coarse_points):
+    """Build the cell maps between two meshes from the refinement of their points.
+
+    Parameters
+    ----------
+    coarse_mesh, fine_mesh : MeshGeometry
+        The coarse and fine meshes.
+    fine_to_coarse_points : numpy.ndarray
+        For each point of ``fine_mesh.topology_dm``, the point of
+        ``coarse_mesh.topology_dm`` that it was refined from, or -1 when no
+        corresponding coarse point exists. This map uses DMPlex point
+        numbering.
+
+    Returns
+    -------
+    coarse_to_fine_cells : numpy.ndarray
+        For each owned coarse cell, the owned fine cells obtained from it, in
+        increasing order, using Firedrake cell numbering. Every row is as
+        wide as the busiest coarse cell on any process. After adaptive
+        refinement, a coarse cell that was not refined has fewer children,
+        so its row is right-padded with -1. Here -1 is only padding.
+    fine_to_coarse_cells : numpy.ndarray
+        For each owned fine cell, the owned coarse cell from which it was
+        obtained, using Firedrake cell numbering. Here -1 marks a fine cell
+        that has no parent in the coarse mesh. This happens in a
+        `SubmeshHierarchy` that contains interior facets. A fine facet inside
+        a coarse cell comes from that volume cell, which is not a cell of the
+        coarse submesh.
+
+    """
+    ncoarse = coarse_mesh.cell_set.size
+    nfine = fine_mesh.cell_set.size
+    cStart, cEnd = coarse_mesh.topology_dm.getHeightStratum(0)
+    fStart, _ = fine_mesh.topology_dm.getHeightStratum(0)
+    coarse_cells, _ = get_entity_renumbering(coarse_mesh.topology_dm, coarse_mesh._cell_numbering, "cell")
+    _, fine_points = get_entity_renumbering(fine_mesh.topology_dm, fine_mesh._cell_numbering, "cell")
+
+    parents = fine_to_coarse_points[fine_points[:nfine] + fStart]
+    # The point map uses DMPlex numbering, but cell kernels consume maps in
+    # Firedrake cell numbering. Reindex only parents in the coarse cell stratum.
+    is_cell = (cStart <= parents) & (parents < cEnd)
+    parents[is_cell] = coarse_cells[parents[is_cell] - cStart]
+
+    # A facet submesh that includes interior facets can contain a fine facet
+    # inside a coarse volume cell. Its source is a coarse volume cell, which
+    # is not a cell in the coarse facet submesh, so keep its parent as -1.
+    parents[~is_cell | (parents >= ncoarse)] = -1
+
+    fine = np.flatnonzero(parents >= 0).astype(IntType)
+    coarse = parents[fine]
+    order = np.argsort(coarse, kind="stable")
+    counts = np.bincount(coarse, minlength=ncoarse)
+    width = coarse_mesh.comm.allreduce(int(counts.max(initial=0)), op=MPI.MAX)
+    coarse_to_fine_cells = np.full((ncoarse, width), -1, dtype=IntType)
+    columns = np.arange(len(order)) - np.repeat(np.cumsum(counts) - counts, counts)
+    coarse_to_fine_cells[coarse[order], columns] = fine[order]
+    return coarse_to_fine_cells, parents.reshape(-1, 1)
 
 
 @cython.boundscheck(False)

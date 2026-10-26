@@ -95,6 +95,14 @@ def _skip_test_dependency(dependency):
         except ImportError:
             return skip
 
+    elif dependency == "pygraphviz":
+        try:
+            import pygraphviz  # noqa: F401
+            del pygraphviz
+            return not skip
+        except ImportError:
+            return skip
+
     elif dependency in ("mumps", "hypre"):
         return dependency not in get_external_packages()
 
@@ -111,6 +119,7 @@ dependency_skip_markers_and_reasons = (
     ("matplotlib", "skipplot", "Matplotlib is not installed"),
     ("netgen", "skipnetgen", "Netgen and ngsPETSc are not installed"),
     ("vtk", "skipvtk", "VTK is not installed"),
+    ("pygraphviz", "skipgraphviz", "pygraphviz is not installed"),
 )
 
 
@@ -140,15 +149,15 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
-        "skipcomplexnoslate: mark as skipped in complex mode due to lack of Slate"
-    )
-    config.addinivalue_line(
-        "markers",
         "skipslepc: mark as skipped if slepc4py is not installed"
     )
     config.addinivalue_line(
         "markers",
         "skipvtk: mark as skipped if vtk is not installed"
+    )
+    config.addinivalue_line(
+        "markers",
+        "skipgraphviz: mark as skipped if pygraphviz is not installed"
     )
     config.addinivalue_line(
         "markers",
@@ -173,19 +182,19 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(session, config, items):
-    from firedrake.utils import complex_mode, device_matrix_type, SLATE_SUPPORTS_COMPLEX
+    from firedrake.utils import complex_mode, device_matrix_type
 
     for item in items:
         if complex_mode:
-            if item.get_closest_marker("skipcomplex") is not None:
-                item.add_marker(pytest.mark.skip(reason="Test makes no sense in complex mode"))
-            if item.get_closest_marker("skipcomplexnoslate") and not SLATE_SUPPORTS_COMPLEX:
-                item.add_marker(pytest.mark.skip(reason="Test skipped due to lack of Slate complex support"))
+            skipcomplex_marker = item.get_closest_marker("skipcomplex")
+            if skipcomplex_marker is not None:
+                reason = skipcomplex_marker.kwargs.get("reason", "Test makes no sense in complex mode")
+                item.add_marker(pytest.mark.skip(reason=reason))
         else:
             if item.get_closest_marker("skipreal") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test makes no sense unless in complex mode"))
 
-        if device_matrix_type(False) is None:
+        if device_matrix_type(warn=False) is None:
             if item.get_closest_marker("skipnogpu") is not None:
                 item.add_marker(pytest.mark.skip(reason="Test requires GPU hardware to run."))
 

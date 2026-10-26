@@ -214,3 +214,38 @@ def test_patch_pc_real():
     solve(a == L, star_solution, solver_parameters=star_solver_parameters)
 
     assert errornorm(patch_solution, star_solution) < 1e-8
+
+
+def test_pcpatch_cell_orientation():
+    m = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(m)
+    m.init_cell_orientations(x)
+
+    V = FunctionSpace(m, 'RTCF', 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx + inner(avg(u), avg(v)) * dS
+    L = inner(Constant([1., 1., 1.]), v) * dx
+
+    patch_solver_parameters = {
+        "ksp_type": "preonly",
+        "ksp_max_it": 1,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.PatchPC",
+        "patch_pc_patch_construct_type": "star",
+        "patch_pc_patch_construct_dim": 0,
+    }
+    patch_solution = Function(V)
+    solve(a == L, patch_solution, solver_parameters=patch_solver_parameters)
+
+    star_solver_parameters = {
+        "ksp_type": "preonly",
+        "ksp_max_it": 1,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMStarPC",
+        "pc_star_construct_dim": 0,
+    }
+    star_solution = Function(V)
+    solve(a == L, star_solution, solver_parameters=star_solver_parameters)
+
+    assert errornorm(patch_solution, star_solution) < 1e-8

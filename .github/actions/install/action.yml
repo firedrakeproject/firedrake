@@ -17,6 +17,10 @@ inputs:
     description: Scalar type ('default' or 'complex')
     type: string
     default: default
+  int_type:
+    description: Integer type ('int32' or 'int64')
+    type: string
+    default: int32
   gpu:
     description: Target GPU platform
     type: string
@@ -53,6 +57,7 @@ runs:
           apt-get -y install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure \
               --scalar-type ${{ inputs.scalar_type }} \
+              --int-type ${{ inputs.int_type }} \
               --gpu-arch ${{ inputs.gpu }} \
               --show-system-packages)
           : # Dependencies needed to run the test suite
@@ -66,6 +71,7 @@ runs:
           brew install \
             $(python3 ./firedrake-repo/scripts/firedrake-configure \
               --scalar-type ${{ inputs.scalar_type }} \
+              --int-type ${{ inputs.int_type }} \
               --show-system-packages)
         else
           echo "Unrecognised 'os' input: '${{ inputs.os }}"
@@ -80,10 +86,14 @@ runs:
         : # Clone PETSc
         if [ ${{ inputs.base_ref }} = 'main' ]; then
           git clone --depth 1 https://gitlab.com/petsc/petsc.git
+          EXTRA_CONFIGURE_OPTIONS=""
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \
             --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
             https://gitlab.com/petsc/petsc.git
+          : # The SLEPc packaged with PETSc v3.26.0 doesn't actually build against
+          : # slepc4py==3.26.0
+          EXTRA_CONFIGURE_OPTIONS="--download-slepc-commit=v3.26.0"
         else
           echo "Unrecognised 'base_ref' input: '${{ inputs.base_ref }}"
           exit 1
@@ -101,9 +111,11 @@ runs:
         cd petsc
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
+          --int-type ${{ inputs.int_type }} \
           --gpu-arch ${{ inputs.gpu }} \
           --show-petsc-configure-options | \
           xargs -L1 ./configure \
+            $EXTRA_CONFIGURE_OPTIONS \
             --with-make-np=$NPROCS \
             --download-slepc
         make
@@ -114,6 +126,7 @@ runs:
       run: |
         export $(python3 ./firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
+          --int-type ${{ inputs.int_type }} \
           --gpu-arch ${{ inputs.gpu }} \
           --show-env)
         export SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH

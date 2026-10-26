@@ -2,7 +2,7 @@
 
 import numpy
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, ScalarType, RealType
+from firedrake.utils import ScalarType, RealType
 
 cimport numpy
 cimport petsc4py.PETSc as PETSc
@@ -15,15 +15,15 @@ MAGIC = {2: (22, 3, 2),
          3: (81, 4, 3)}
 
 
-ctypedef int (*compiled_call)(PetscScalar *,PetscScalar *,PetscScalar *,
-                                PetscScalar *, PetscScalar *,
-                                PetscScalar *, PetscScalar *, int)
+ctypedef int (*compiled_call)(PetscScalar *, PetscScalar *, PetscScalar *,
+                              PetscScalar *, PetscScalar *,
+                              PetscScalar *, PetscScalar *, int)
 
 
 cdef extern from "libsupermesh-c.h" nogil:
-    void libsupermesh_tree_intersection_finder_set_input(long* nnodes_a, int* dim_a, long* nelements_a, int* loc_a, long* nnodes_b, int* dim_b, long* nelements_b, int* loc_b, double* positions_a, long* enlist_a, double* positions_b, long* enlist_b);
-    void libsupermesh_tree_intersection_finder_query_output(long* nindices);
-    void libsupermesh_tree_intersection_finder_get_output(long* nelements, long* nindices, long* indices, long* ind_ptr);
+    void libsupermesh_tree_intersection_finder_set_input(long* nnodes_a, int* dim_a, long* nelements_a, int* loc_a, long* nnodes_b, int* dim_b, long* nelements_b, int* loc_b, double* positions_a, long* enlist_a, double* positions_b, long* enlist_b)
+    void libsupermesh_tree_intersection_finder_query_output(long* nindices)
+    void libsupermesh_tree_intersection_finder_get_output(long* nelements, long* nindices, long* indices, long* ind_ptr)
 
 
 # Compute M_AB:
@@ -50,7 +50,7 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         numpy.ndarray vertices_A, vertices_B
         numpy.ndarray outmat
         PetscInt cell_A, cell_B, i, gdim, num_dof_A, num_dof_B
-        PetscInt num_cell_B, num_cell_A, num_vertices
+        PetscInt num_cell_A, num_vertices
         PetscInt insert_mode = PETSc.InsertMode.ADD_VALUES
         const PetscInt *V_A_map
         const PetscInt *V_B_map
@@ -59,7 +59,6 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
 
     num_cell_A = V_A.mesh().cell_set.size
-    num_cell_B = V_B.mesh().cell_set.size
 
     outmat = numpy.empty((V_B.cell_node_map().arity,
                           V_A.cell_node_map().arity), dtype=ScalarType)
@@ -161,7 +160,7 @@ def intersection_finder(mesh_A, mesh_B):
     libsupermesh_tree_intersection_finder_query_output(&nindices)
 
     indices = numpy.empty((nindices,), dtype=int)
-    indptr  = numpy.empty((mesh_A.num_cells() + 1,), dtype=int)
+    indptr = numpy.empty((mesh_A.num_cells() + 1,), dtype=int)
 
     libsupermesh_tree_intersection_finder_get_output(&ncells_A, &nindices, <long*>indices.data, <long*>indptr.data)
 

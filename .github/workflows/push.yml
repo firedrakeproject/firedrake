@@ -14,6 +14,7 @@ jobs:
       source_ref: ${{ github.ref_name }}
       base_ref: ${{ github.ref_name }}
       test_complex: true
+      test_int64: true
       test_cuda: true
       test_macos: true
       deploy_website: true
