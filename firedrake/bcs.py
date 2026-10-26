@@ -409,9 +409,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 can_interpolate = False
 
             if can_interpolate:
-                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
+                interp = firedrake.interpolate(g, V)
                 self._function_arg = firedrake.Function(V)
-                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
+                self._function_arg_update = partial(firedrake.assemble, interp, tensor=self._function_arg)
             else:
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
