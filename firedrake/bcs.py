@@ -18,7 +18,6 @@ from pyop2.mpi import temp_internal_comm
 from pyop2.utils import as_tuple
 
 import firedrake
-import firedrake.matrix as matrix
 import firedrake.utils as utils
 from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
