@@ -182,13 +182,6 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "dmcommon.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/extrusion_numbering.pyx: petsc, numpy
-    cython_list.append(Extension(
-        name="firedrake.cython.extrusion_numbering",
-        language="c",
-        sources=[os.path.join("firedrake", "cython", "extrusion_numbering.pyx")],
-        **(mpi_ + petsc_ + numpy_)
-    ))
     # firedrake/cython/hdf5interface.pyx: petsc, numpy, hdf5
     cython_list.append(Extension(
         name="firedrake.cython.hdf5interface",
@@ -210,12 +203,12 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "patchimpl.pyx")],
         **(mpi_ + petsc_ + numpy_)
     ))
-    # firedrake/cython/rtree.pyx: numpy, rtree-capi
+    # firedrake/cython/rtree.pyx: petsc, numpy, rtree-capi
     cython_list.append(Extension(
         name="firedrake.cython.rtree",
         language="c",
         sources=[os.path.join("firedrake", "cython", "rtree.pyx")],
-        **(mpi_ + numpy_ + rtree_)
+        **(mpi_ + petsc_ + numpy_ + rtree_)
     ))
     # firedrake/cython/supermeshimpl.pyx: petsc, numpy, supermesh
     cython_list.append(Extension(
@@ -224,13 +217,37 @@ def extensions():
         sources=[os.path.join("firedrake", "cython", "supermeshimpl.pyx")],
         **(mpi_ + petsc_ + numpy_ + libsupermesh_ + spatialindex_)
     ))
-    # pyop2/sparsity.pyx: petsc, numpy,
     cython_list.append(Extension(
-        name="pyop2.sparsity",
+        name="firedrake._functionspaceimpl_cy",
         language="c",
-        sources=[os.path.join("pyop2", "sparsity.pyx")],
-        **(mpi_ + petsc_ + numpy_)
+        sources=[os.path.join("firedrake", "_functionspaceimpl_cy.pyx")],
+        **(mpi_ + petsc_ + numpy_),
     ))
+    cython_list.append(Extension(
+        name="pyop3._buffer_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "_buffer_cy.pyx")],
+        **(mpi_ + petsc_ + numpy_),
+    ))
+    cython_list.append(Extension(
+        name="pyop3._sf_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "_sf_cy.pyx")],
+        **(mpi_ + petsc_ + numpy_),
+    ))
+    cython_list.append(Extension(
+        name="pyop3._utils_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "_utils_cy.pyx")],
+        **(mpi_ + petsc_ + numpy_),
+    ))
+    cython_list.append(Extension(
+        name="pyop3.axis_tree._tree_cy",
+        language="c",
+        sources=[os.path.join("pyop3", "axis_tree", "_tree_cy.pyx")],
+        **(mpi_ + petsc_ + numpy_),
+    ))
+
     # PYBIND11 EXTENSIONS
     pybind11_list = []
     # tinyasm/tinyasm.cpp: petsc, pybind11

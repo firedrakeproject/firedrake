@@ -53,7 +53,7 @@ def test_function():
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
-    h.dat.data[:] = np.random.rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_count)
     assert taylor_test(Jhat, f, h) > 1.9
 
 
@@ -250,7 +250,7 @@ def test_real_space_assign_numpy():
     mesh = UnitSquareMesh(1, 1)
     R = FunctionSpace(mesh, "R", 0)
     dst = Function(R)
-    src = dst.dat.dataset.layout_vec.array_r.copy()
+    src = R.template_vec.array_r.copy()
     data = 1 + np.arange(src.shape[0])
     src[:] = data
     dst._ad_assign_numpy(dst, src, offset=0)
@@ -295,7 +295,7 @@ def test_ad_dot(riesz_representation):
     dJhat = Jhat.derivative(apply_riesz=True)
 
     h = Function(V)
-    h.dat.data[:] = np.random.rand(V.dof_dset.size)
+    h.dat.data[:] = np.random.rand(V.dof_count)
     dJdh = dJhat._ad_dot(h, options={'riesz_representation': riesz_representation})
     assert taylor_test(Jhat, f, h, dJdm=dJdh) > 1.9
 
