@@ -100,9 +100,20 @@ class SymbolTable:
         self._scopes.pop()
 
     def define(self, key, value: SSAValue) -> None:
-        """ Key should not be re-defined. SSA only permits single definition """
-        assert key not in self._scopes[-1]
+        """ Key should only be defined once """
+        assert any(key not in scope for scope in self._scopes)
         self._scopes[-1][key] = value
+
+    def update(self, key, value: SSAValue) -> None:
+        """ SSA value of a key is updated - used for summation operations
+        
+        Key should already exist 
+        """
+        assert any(key in scope for scope in self._scopes) 
+        for scope in reversed(self._scopes):
+            if key in scope:
+                scope[key] = value
+                break
 
     def __getitem__(self, key) -> SSAValue:
         """ Seek SSAValue from innermost -> outermost scope """
@@ -116,11 +127,7 @@ class SymbolTable:
 
 
 class MLIRBuilder:
-    """OUTDATED DESC: Visitor that populates an MLIR Object.
-
-    This class is intended to be subclassed by 'reconstruction' visitors that
-    build similar objects.
-
+    """ Class traverses an Impero AST and builds an MLIR Module Operation
     """
     def __init__(self) -> None:
         # If we can know function arguments in advance, we can create FuncOp as opposed to Block
@@ -467,22 +474,14 @@ class MLIRBuilder:
 
         return linearised if linearised is not None else self._const(0, INDEX_TYPE)
 
-    def row_major_strides(self, shape):
-        strides = []
-        acc = 1
-        for extent in reversed(shape):
-            strides.append(acc)
-            acc *= extent
-        return strides[::-1]
-
     def _address(self, node) -> tuple[SSAValue, list[SSAValue]]:
         """Return the buffer and the (flat) index """
         # TODO: Figure out why this assert is actually true
         variable = node.children[0]
         assert isinstance(variable, gem.Variable)
 
-        # TODO: In what scenario do we have more than one multiindex? 
-        index_ssa = self.get_index_ssa(node.multiindex[0]) 
+        multiindex = node.multiindex[0] if len(node.multiindex) == 1 else node.multiindex[1]
+        index_ssa = self.get_index_ssa(multiindex) 
         return self.buffer_for(variable), [index_ssa]
 
     def _load(self, aggregate, multiindex, strides) -> SSAValue:
@@ -509,7 +508,7 @@ class MLIRBuilder:
 
     @index_into.register(gem.Literal)
     def _(self, aggregate, multiindex) -> SSAValue:
-        strides = self.row_major_strides([mi.extent for mi in multiindex])
+        strides = row_major_strides([mi.extent for mi in multiindex])
         return self._load(aggregate, multiindex, strides)
 
     @index_into.register(gem.Variable)
@@ -552,48 +551,111 @@ class MLIRBuilder:
         # NOTE: Index hopefully tagged with parallel at this stage
         # if tree.index.is_parallel...
 
-        with self.enter_for(tree.index):
+        accumulators = self.find_accumulators(tree.children[0])
+
+        with self.enter_for(tree.index, accumulators=accumulators):
             self.process(tree.children[0])
+
+    # NOTE: I think I can clean this up. Can I use pre_traversal instead of walk?  
+    # Only got walk because of the Impero nodes. 
+    def find_accumulators(self, tree) -> list[gem.IndexSum]:
+        """Return the IndexSums that are accumulated within `tree` but initialised outside of it.
+        MLIR is an SSA compiler. Any scalar sums must be passed as iterator arguments.
+
+        Given Impero AST construction, we need to seek any potential args 
+        BEFORE entering loop.
+        """
+        accumulated = dict()
+        initialised = set()
+
+        def walk(node):
+            if isinstance(node, imp.Accumulate):
+                accumulated.setdefault(node.indexsum, None)
+            elif isinstance(node, imp.Initialise):
+                initialised.add(node.indexsum)
+            elif isinstance(node, (imp.Block, imp.For)):
+                for child in node.children:
+                    walk(child)
+
+        walk(tree)
+        carried = [s for s in accumulated if s not in initialised]
+        assert all(s in self.symbol_table for s in carried), "IndexSum has not been instantiated"
+        return carried
 
     @_process.register(imp.Evaluate)
     def process_evaluate(self, leaf):
-        """ Calculate value within expression and assign to temporary """
-        expr = leaf.expression
-        if expr not in self.symbol_table:
-            self.symbol_table.define(expr, self.process(expr))
-        return self.symbol_table[expr]
+        """ 
+        Calculate value within expression and assign to temporary 
+
+        I feel that we don't need this... Determine reason and revisit. 
+        """
+        return
+
+        # expr = leaf.expression
+        # if expr not in self.symbol_table:
+        #     self.symbol_table.define(expr, self.process(expr))
+        # return self.symbol_table[expr]
+
+    @_process.register(imp.Initialise)
+    def process_initialise(self, leaf):
+        """ Bind IndexSum to zero, the initial value for summation 
+
+        Every loop that accumulates into the sum carries this value as an iter_arg.
+
+        """
+        indexsum = leaf.indexsum
+        assert not indexsum.shape
+
+        zero = self._const(0, get_mlir_type(indexsum.dtype))
+        self.symbol_table.define(indexsum, zero)
+
+    @_process.register(imp.Accumulate)
+    def process_accumulate(self, leaf):
+        """Add terms to scalar gem.IndexSum, and rebind the sum to the result.
+
+        """
+        indexsum = leaf.indexsum
+
+        assert indexsum in self.symbol_table, "IndexSum has not been instantiated"
+        # Inside the summation loop(s) this is the iter_arg of the innermost scf.for
+        acc = self.symbol_table[indexsum]
+
+        # The summed indices are bound by the enclosing For loops.
+        term = self.process(indexsum.children[0])
+        
+        if not acc.type == term.type:
+            raise TypeError(f"Accumulator and Summee should match type ({acc.type}, {term.type})")
+        summed = self._binary(acc, term, arith.AddfOp, arith.AddiOp)
+
+        self.symbol_table.update(indexsum, summed)
+        return summed
 
     @_process.register(imp.Assignment)
     def process_assignment(self, leaf):
-        """ 
-        Assigment has two modes:
-        - write
-        - inc 
+        """Store the value of `leaf.expression` into the buffer of `leaf.assignee`.
 
-        If 'inc', we load the current value and add 
+        For mode 'inc' the current value is loaded and the expression is added to it.
         """
-        
-        var = leaf.assignee
+        assignee = leaf.assignee
+        if not isinstance(assignee, gem.Indexed):
+            raise NotImplementedError(
+                f"Assignment to {type(assignee).__name__} is not supported, expected gem.Indexed"
+            )
+
+        buf, idx = self._address(assignee)
         value = self.process(leaf.expression)
-        dtype = get_mlir_type(var.dtype)
 
-        # Exit early if variable is not a buffer 
-        if not isinstance(var, gem.Indexed):
-            self.symbol_table.define(var.name, value)
-            return
+        if not buf.type.element_type == value.type:
+            raise TypeError(f"Buffer and Value types do not match: {buf.type.element_type}, {value.type}")
 
-        buf, idx = self._address(var)
-
-        # If inc, we load initial value and add  
-        if leaf.mode == "inc":
-            current = self.insert(memref.LoadOp.get(buf, idx))
-
-            if is_float(dtype):
-                addop = arith.AddfOp(current, value) 
-            else:
-                addop = arith.AddiOp(current, value)
-
-            value = self.insert(addop)  
+        match leaf.mode:
+            case "write":
+                pass
+            case "inc":
+                current = self.insert(memref.LoadOp.get(buf, idx))
+                value = self._binary(current, value, arith.AddfOp, arith.AddiOp)
+            case _:
+                raise NotImplementedError(f"Assignment mode {leaf.mode!r} is not supported")
 
         self.insert(memref.StoreOp.get(value, buf, idx))
 
@@ -624,9 +686,17 @@ class MLIRBuilder:
         return self.process(leaf.expression)
 
     @_process.register(gem.Indexed)
-    @_process.register(gem.Gather)
     def _(self, leaf):
         return self.index_into(leaf.children[0], leaf.multiindex)
+    
+    @_process.register(gem.IndexSum)
+    def process_indexsum(self, leaf):
+        """
+        IndexSum should only be processed through imp.Accumulate
+        
+        If we are reaching this point, we have not cached the result correctly
+        """
+        raise ValueError("IndexSum should be processed via imp.Accumulate, the result is failing to cache if here.")
 
     # }}}
 
@@ -700,50 +770,15 @@ class MLIRBuilder:
             if isinstance(node, gem.Variable) and isinstance(node.data.buffer, ArrayBuffer):
                 self._argument_devices[node.name] = HOST_DEVICE
 
-    # FIXME: I am not particularly happy with the lambda function argument 
+    # TODO: Can we move this to ImplicitBuilder?
     @contextlib.contextmanager
-    def enter_for(self, index):
+    def enter_for(self, index, accumulators=()):
         """Open an `scf.for` loop over index
 
         :arg index: numbers.Integral or gem.Index, denoting extent of domain
-        """
-        with self._enter_loop(
-            index,
-            lambda lb, ub, step, region: scf.ForOp(lb, ub, step, [], region),
-            scf.YieldOp,
-        ):
-            yield
-
-    @contextlib.contextmanager
-    def enter_parallel(self, index, is_outermost=False):
-        """Open an `scf.parallel` loop over index
-
-        :arg index: numbers.Integral or gem.Index, denoting extent of domain
-        :arg is_outermost: boolean flag which defines if this loop should be considered outermost loop for GPU
-
-        """
-        # TODO: Add GPU mapping dimensions
-        with self._enter_loop(
-            index,
-            lambda lb, ub, step, region: scf.ParallelOp([lb], [ub], [step], region),
-            scf.ReduceOp,
-        ):
-            # TODO: Pretty ugly line. Other way?
-            with self.outermost() if is_outermost else contextlib.nullcontext():
-                yield
-
-    @contextlib.contextmanager
-    def _enter_loop(self, index, loop_function, terminator_function):
-        """Open a loop over index and make its body the current insertion point.
-
-        The loop index is bound in a new symbol table scope. When exiting, the builder and scope are removed - as the values are no longer valid
-
-        :arg index: numbers.Integral or gem.Index, denoting extent of domain
-        :arg loop_function: Callable that takes the lower bound, the upper bound, the
-            step and the body region, and returns the loop operation.
-        :arg terminator_function: Callable that returns the operation that terminates
-            the loop body.
-
+        :arg accumulators: keys in the symbol table (e.g. gem.IndexSum) whose values are
+            carried through the loop as iter_args. Inside the loop they are bound to the
+            block arguments, and after the loop they are rebound to the loop results.
         """
         assert isinstance(index, (numbers.Integral, gem.Index))
 
@@ -756,7 +791,52 @@ class MLIRBuilder:
         ub = self.get_index_ssa(extent)
         step = self._const(1, INDEX_TYPE)
 
-        loop_op = loop_function(lb, ub, step, Region(Block(arg_types=[INDEX_TYPE])))
+        init = [self.symbol_table[key] for key in accumulators]
+        arg_types = [INDEX_TYPE, *(value.type for value in init)]
+
+        loop_op = scf.ForOp(lb, ub, step, init, Region(Block(arg_types=arg_types)))
+        self.insert(loop_op)
+
+        body = loop_op.body.block
+        self.symbol_table.push()
+        self.symbol_table.define(index, body.args[0])
+
+        for key, arg in zip(accumulators, body.args[1:]):
+            self.symbol_table.define(key, arg)
+
+        self._builder_stack.append(Builder(InsertPoint.at_end(body)))
+
+        yield
+
+        self.insert(scf.YieldOp(*(self.symbol_table[key] for key in accumulators)))
+        self._builder_stack.pop()
+        self.symbol_table.pop()
+
+        # Include the summed arguments into the scope upon exit  
+        for key, result in zip(accumulators, loop_op.results):
+            self.symbol_table.update(key, result)
+
+    @contextlib.contextmanager
+    def enter_parallel(self, index, is_outermost=False):
+        """Open an `scf.parallel` loop over index
+
+        :arg index: numbers.Integral or gem.Index, denoting extent of domain
+        :arg is_outermost: boolean flag which defines if this loop should be considered outermost loop for GPU
+
+        """
+        # TODO: Add GPU mapping dimensions
+        assert isinstance(index, (numbers.Integral, gem.Index))
+
+        extent = index if isinstance(index, numbers.Integral) else index.extent
+
+        # Loop bounds must be read on host and used for setting GPU grid bounds
+        self.declare_runtime_expr_on_host(extent)
+
+        lb = self._const(0, INDEX_TYPE)
+        ub = self.get_index_ssa(extent)
+        step = self._const(1, INDEX_TYPE)
+
+        loop_op = scf.ParallelOp([lb], [ub], [step], Region(Block(arg_types=[INDEX_TYPE])))
         self.insert(loop_op)
 
         body = loop_op.body.block
@@ -766,7 +846,7 @@ class MLIRBuilder:
 
         yield
 
-        self.insert(terminator_function())
+        self.insert(scf.ReduceOp())
         self._builder_stack.pop()
         self.symbol_table.pop()
 
@@ -810,3 +890,12 @@ class MLIRBuilder:
             {key: ssa for key, ssa in self._buffers.items() if key in argument_names}
         )
         self._buffers = original_buffers 
+
+
+def row_major_strides(shape):
+    strides = []
+    acc = 1
+    for extent in reversed(shape):
+        strides.append(acc)
+        acc *= extent
+    return strides[::-1]
