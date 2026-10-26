@@ -289,6 +289,42 @@ def test_time_dependent():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("solver_form", ["Jp", "objective"])
+def test_nlvs_replay_with_solver_form(solver_form):
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    def J(c):
+        u = Function(V)
+        v = TestFunction(V)
+        w = TrialFunction(V)
+        F = inner(grad(u), grad(v))*dx + inner(u, v)*dx - c*x*v*dx
+        if solver_form == "Jp":
+            # A single LU solve with Jp makes the solution depend on Jp.
+            problem = NonlinearVariationalProblem(
+                F, u, Jp=inner(w, v)*dx + c*inner(grad(w), grad(v))*dx)
+            sp = {"snes_type": "ksponly", "ksp_type": "preonly", "pc_type": "lu"}
+        else:
+            # A single line search step that minimizes the objective makes the
+            # solution depend on the objective.
+            problem = NonlinearVariationalProblem(
+                F, u, objective=inner(u, u)*dx - c**2*x*u/2*dx)
+            sp = {"snes_max_it": 1, "snes_convergence_test": "skip",
+                  "snes_linesearch_type": "secant"}
+        NonlinearVariationalSolver(problem, solver_parameters=sp).solve()
+        return assemble(inner(u, u)*dx)
+
+    c = Function(R, val=1.0)
+    rf = ReducedFunctional(J(c), Control(c))
+    c_new = Function(R, val=2.0)
+    with stop_annotating():
+        J_new = J(c_new)
+    assert_approx_equal(rf(c_new), J_new)
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)
