@@ -238,6 +238,8 @@ class BCBase(object):
             index = fs.parent.index
         else:
             index = fs.index
+        if index is None:
+            index = 0
         cmpt = fs.component
         # TODO: need to test this logic
         field_renumbering = dict([f, i] for i, f in enumerate(field))
