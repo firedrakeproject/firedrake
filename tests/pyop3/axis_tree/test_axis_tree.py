@@ -1,5 +1,6 @@
 import collections
 import re
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -46,3 +47,25 @@ def test_ragged_axis_tree_subtree_sizes():
     check_subtree_size(axes, ["A"], "(2 * dat_#_buffer[i_{A}])", lambda i: 2 * [1, 2, 1][i])
     check_subtree_size(axes, ["A", "B"], "dat_#_buffer[i_{A}]", lambda i, j: [1, 2, 1][i])
     check_subtree_size(axes, ["A", "B", "C"], "0", lambda i, j, k: 0)
+
+
+def test_axis_forest_getitem_caches_mismatched_trees():
+    # The slice matches the axis of tree_a but not that of tree_b, so the
+    # forest has to try, and skip, tree_b on every indexing.
+    tree_a = op3.AxisTree(op3.Axis(5, "a"))
+    tree_b = op3.AxisTree(op3.Axis(5, "b"))
+    forest = op3.AxisForest([tree_a, tree_b])
+    index = op3.Slice("a", [op3.AffineSliceComponent(None, 1, 4)])
+
+    indexed = forest[index]
+    with pytest.raises(op3.exceptions.InvalidIndexTargetException):
+        tree_b[index]
+
+    # Indexing again must reuse both the result for tree_a and the failure for tree_b.
+    with mock.patch.object(
+        op3.axis_tree.tree.AbstractNonUnitAxisTree, "_getitem_uncached",
+        side_effect=AssertionError("indexed tree is rebuilt"),
+    ):
+        assert forest[index] is indexed
+        with pytest.raises(op3.exceptions.InvalidIndexTargetException):
+            tree_b[index]

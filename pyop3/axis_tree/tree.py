@@ -69,6 +69,14 @@ OWNED_REGION_LABEL = "owned"
 GHOST_REGION_LABEL = "ghost"
 
 
+@dataclasses.dataclass(frozen=True)
+class _IndexingFailure:
+    """The type and arguments of an exception raised by indexing an axis tree."""
+
+    exc_type: type[Exception]
+    args: tuple
+
+
 class LoopContextAwareAxisTreeLike(pyop3.obj.Object):
     """Base class for things that look like axis trees or forests."""
 
@@ -869,11 +877,22 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         if pyop3.index_tree.tree.has_loop_indices(indices):
             return self._getitem_uncached(indices, strict=strict)
         else:
-            return self._getitem_cached(indices, strict=strict)
+            indexed = self._getitem_cached(indices, strict=strict)
+            if isinstance(indexed, _IndexingFailure):
+                raise indexed.exc_type(*indexed.args)
+            return indexed
 
     @cached_method()
     def _getitem_cached(self, indices, *, strict):
-        return self._getitem_uncached(indices, strict=strict)
+        # An axis forest tries the same indices on each of its trees and skips
+        # the trees that they do not match, so failures are just as repeated as
+        # successes and we want to cache them too. We cannot cache the exception
+        # itself because its traceback keeps every frame of the failed indexing
+        # alive, so we only keep its type and arguments.
+        try:
+            return self._getitem_uncached(indices, strict=strict)
+        except (pyop3.exceptions.InvalidIndexTargetException, pyop3.exceptions.IncompatibleAxisTargetException) as e:
+            return _IndexingFailure(type(e), e.args)
 
     def _getitem_uncached(
         self,
@@ -2253,9 +2272,6 @@ class AxisForest(LoopContextFreeAxisTreeLike):
                 indexed_tree = tree.getitem(indices, strict=strict)
                 indexed_trees.append(indexed_tree)
             except (pyop3.exceptions.InvalidIndexTargetException, pyop3.exceptions.IncompatibleAxisTargetException):
-                # FIXME: This is a performance bottleneck in some cases because we cannot
-                # cache exceptions (leads to reference leaks). The solution is to stash the
-                # boolean 'can_index' or similar.
                 pass
 
         if not indexed_trees:
