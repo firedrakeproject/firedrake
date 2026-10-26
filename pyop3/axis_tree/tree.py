@@ -2242,10 +2242,23 @@ class AxisForest(LoopContextFreeAxisTreeLike):
         return self.getitem(indices, strict=False)
 
     def getitem(self, indices, *, strict=False):
-        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
+        import pyop3.index_tree.tree
 
         if utils.is_ellipsis_type(indices):
             return self
+
+        # Same caching strategy as AbstractNonUnitAxisTree.getitem
+        if pyop3.index_tree.tree.has_loop_indices(indices):
+            return self._getitem_uncached(indices, strict=strict)
+        else:
+            return self._getitem_cached(indices, strict=strict)
+
+    @cached_method()
+    def _getitem_cached(self, indices, *, strict):
+        return self._getitem_uncached(indices, strict=strict)
+
+    def _getitem_uncached(self, indices, *, strict):
+        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
 
         indexed_trees = []
         for tree in self.trees:
@@ -2253,9 +2266,9 @@ class AxisForest(LoopContextFreeAxisTreeLike):
                 indexed_tree = tree.getitem(indices, strict=strict)
                 indexed_trees.append(indexed_tree)
             except (pyop3.exceptions.InvalidIndexTargetException, pyop3.exceptions.IncompatibleAxisTargetException):
-                # FIXME: This is a performance bottleneck in some cases because we cannot
-                # cache exceptions (leads to reference leaks). The solution is to stash the
-                # boolean 'can_index' or similar.
+                # FIXME: This is a performance bottleneck for loop indices, which are not
+                # cached, because we cannot cache exceptions (leads to reference leaks).
+                # The solution is to stash the boolean 'can_index' or similar.
                 pass
 
         if not indexed_trees:
