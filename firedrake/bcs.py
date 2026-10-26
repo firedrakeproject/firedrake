@@ -405,7 +405,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 # Probe the dual basis before choosing interpolation over projection.
                 _ = V.finat_element.dual_basis
                 can_interpolate = True
-            except (NotImplementedError, AttributeError):
+            except NotImplementedError:
                 can_interpolate = False
 
             if can_interpolate:
