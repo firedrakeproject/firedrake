@@ -617,21 +617,22 @@ class SolveVarFormBlock(GenericSolveBlock):
 
 
 class NonlinearVariationalSolveBlock(GenericSolveBlock):
-    def __init__(self, equation, func, bcs, adj_cache, problem_J,
+    def __init__(self, equation, func, bcs, adj_cache, problem_forms,
                  solver_kwargs, **kwargs):
         lhs = equation.lhs
         rhs = equation.rhs
 
         self._adj_cache = adj_cache
         self._dFdm_cache = adj_cache.setdefault("dFdm_cache", {})
-        self.problem_J = problem_J
         self.solver_kwargs = solver_kwargs
 
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
-        if self.problem_J is not None:
-            for coeff in self.problem_J.coefficients():
-                self.add_dependency(coeff, no_duplicates=True)
+        # The forward solve also assembles the Jacobian, preconditioner and objective.
+        for form in problem_forms:
+            if form is not None:
+                for coeff in form.coefficients():
+                    self.add_dependency(coeff, no_duplicates=True)
 
     def _init_solver_parameters(self, args, kwargs):
         super()._init_solver_parameters(args, kwargs)
@@ -723,8 +724,9 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
     def _ad_solver_replace_forms(self, solver=Solver.FORWARD):
         if solver == Solver.FORWARD:
             problem = self._ad_solvers["forward_nlvs"]._problem
-            self._ad_assign_coefficients(problem.F, solver)
-            self._ad_assign_coefficients(problem.J, solver)
+            for form in (problem.F, problem.J, problem.Jp, problem.E):
+                if form is not None:
+                    self._ad_assign_coefficients(form, solver)
         else:
             self._ad_assign_coefficients(
                 self._ad_solvers["adjoint_lvs"]._problem.J, solver)
