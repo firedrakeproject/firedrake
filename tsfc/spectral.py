@@ -160,7 +160,10 @@ def flatten(var_reps, index_cache):
         expression for _, expression in plan))
 
 
-finalise_options = dict(replace_delta=False, remove_componenttensors=False)
+# Delta cancellation removes the Deltas of summed indices, but a sum over a
+# single entry is simplified to an indexing before it can cancel anything.
+# Lower whichever Deltas remain.
+finalise_options = dict(remove_componenttensors=False)
 
 
 def classify(argument_indices, expression, delta_inside):
