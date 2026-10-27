@@ -9,7 +9,7 @@ from functools import cached_property
 import firedrake
 import numpy
 from pyadjoint.tape import annotate_tape
-from pyop3.cache import with_heavy_caches
+from pyop3.cache import cached_on, with_heavy_caches
 from tsfc import kernel_args
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
@@ -1100,6 +1100,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
         self._access = access
+        self._parloops = None
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -1146,13 +1147,18 @@ class ParloopFormAssembler(FormAssembler):
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
         for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
-            parloop, lgmaps, setup_callables = parloop_info
+            parloop, lgmaps, setup_callables, tensor_name, arg_names = parloop_info
             for setup in setup_callables:
                 setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
-                arg_replace_map = {self._tensor_id[local_kernel]: subtensor}
+                # The loops can be built for another form with the same signature.
+                kinfo = local_kernel.kinfo
+                coefficients = itertools.chain(_FormHandler.iter_active_coefficients(self._form, kinfo),
+                                               _FormHandler.iter_constants(self._form, kinfo))
+                arg_replace_map = {name: c.dat for name, c in zip(arg_names, coefficients, strict=True) if name is not None}
+                arg_replace_map[tensor_name] = subtensor
                 parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
@@ -1187,35 +1193,57 @@ class ParloopFormAssembler(FormAssembler):
         """
 
     def parloops(self, tensor):
-        if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_id")
-        else:
-            tensor_id = {}
-            parloops_ = []
-            for local_kernel, subdomain_id in self.local_kernels:
-                # TODO: Move this about
-                subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
-                tensor_id[local_kernel] = subtensor.name
-
-                parloop_builder = ParloopBuilder(
-                    self._form,
-                    tensor,
-                    self._bcs,
-                    local_kernel,
-                    subdomain_id,
-                    self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
-                    diagonal=self.diagonal,
-                )
-                parloops_.append((
-                    parloop_builder.build(),
-                    parloop_builder.collect_lgmaps(tensor, local_kernel.indices),
-                    parloop_builder.setup_callables,
-                ))
-            self._parloops = parloops_
-            self._tensor_id = tensor_id
-
+        if self._parloops is None:
+            self._parloops = self._build_parloops(tensor)
         return self._parloops
+
+    @cached_on(
+        get_obj=lambda self, tensor: get_mesh_topologies(self._form),
+        get_key=lambda self, tensor: self._parloops_key(tensor),
+        multi=True,
+    )
+    def _build_parloops(self, tensor):
+        """Return the loops that assemble the form into ``tensor``, shared by the forms with the same key."""
+        parloops = []
+        for local_kernel, subdomain_id in self.local_kernels:
+            parloop_builder = ParloopBuilder(
+                self._form,
+                tensor,
+                self._bcs,
+                local_kernel,
+                subdomain_id,
+                self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
+                diagonal=self.diagonal,
+            )
+            parloop = parloop_builder.build()
+            parloops.append((
+                parloop,
+                parloop_builder.collect_lgmaps(tensor, local_kernel.indices),
+                parloop_builder.setup_callables,
+                self._as_pyop3_type(tensor, local_kernel.indices).name,
+                parloop_builder.coefficient_names + parloop_builder.constant_names,
+            ))
+        return parloops
+
+    def _parloops_key(self, tensor):
+        """Return the key of the loops in the cache on the mesh."""
+        spaces = [a.function_space() for a in self._form.arguments()]
+        spaces.extend(c.function_space() for c in self._form.coefficients())
+        return (
+            type(self),
+            self._form.signature(),
+            self._form.ufl_domains(),
+            # Subspaces of a mixed space compare equal, but the loops index the dat of their parent.
+            tuple((V, V.parent, V.index) for V in spaces),
+            # The loops iterate over the subdomain data, which is not part of the signature.
+            utils.freeze(self._form.subdomain_data()),
+            tuple(self._bcs),
+            tuplify(self._form_compiler_params),
+            self.diagonal,
+            self._access,
+            # The loops index the data of the tensor, which can be a view into a larger tensor.
+            self._as_pyop3_type(tensor).axis_trees,
+        )
 
     @cached_property
     def local_kernels(self):
@@ -1548,6 +1576,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self._appctx = appctx
         self.weight = weight
         self._allocation_integral_types = allocation_integral_types
+
+    def _parloops_key(self, tensor):
+        # The loops set the lgmaps of the matrix, which depend on its type.
+        return (*super()._parloops_key(tensor), tensor.petscmat.type)
 
     @with_heavy_caches(lambda self: get_mesh_topologies(self._form))
     def allocate(self):
@@ -1911,6 +1943,12 @@ class ParloopBuilder:
         self.setup_callables = []
         """List of callables to execute before the parloop."""
 
+        self.coefficient_names = []
+        """Names of the parloop arguments that take the active coefficients, or None for a copy."""
+
+        self.constant_names = []
+        """Names of the parloop arguments that take the constants."""
+
         self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
         self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
         self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
@@ -2102,11 +2140,16 @@ class ParloopBuilder:
 
             # We have to perform the copy every time the parloop is invoked
             self.setup_callables.append(copy_into_coeff)
-        return pack(coeff, index)
+            self.coefficient_names.append(None)
+            return pack(coeff, index)
+        packed = pack(coeff, index)
+        self.coefficient_names.append(packed.name)
+        return packed
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
         const = next(self._constants)
+        self.constant_names.append(const.dat.name)
         return const.dat
 
     @_as_parloop_arg.register(kernel_args.TabulationKernelArg)

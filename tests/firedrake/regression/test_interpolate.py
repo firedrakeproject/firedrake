@@ -815,6 +815,31 @@ def test_interpolator_reuse(family, degree, mode):
         assert np.allclose(result.dat.data, expected)
 
 
+@pytest.mark.parallel(2)
+@pytest.mark.parametrize("mode", ["forward", "adjoint"])
+@pytest.mark.parametrize("family,degree", [("CG", 1), ("DG", 0)])
+def test_interpolate_new_coefficients(family, degree, mode):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, family, degree)
+    rg = RandomGenerator(PCG64(seed=123456789))
+    for k in range(3):
+        # Interpolations with new coefficients reuse the assembler of the first one
+        if mode == "forward":
+            u = rg.uniform(V)
+            c = Constant(k + 1)
+            expr = interpolate(c * u, V)
+            expected = (k + 1) * u.dat.data_ro
+
+        elif mode == "adjoint":
+            u = Cofunction(V.dual())
+            u.assign(rg.uniform(V.dual()))
+            expr = interpolate(TestFunction(V), u)
+            expected = u.dat.data_ro
+
+        result = assemble(expr)
+        assert np.allclose(result.dat.data_ro, expected)
+
+
 def test_mixed_space_bcs():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
