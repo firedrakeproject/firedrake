@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from firedrake import *
 from firedrake.slate.slac import compile_expression as compile_slate
@@ -78,3 +79,19 @@ def test_determinism_and_caching(tensor):
 
     for k1, k2 in zip(kernel1, kernel3):
         assert k1 is not k2
+
+
+def test_caching_distinguishes_coefficient_positions():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "DG", 0)
+    f = Function(V).assign(1)
+    g = Function(V).assign(10)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    M = assemble(inner(u, v) * dx).petscmat.getDiagonal().array
+
+    # Both expressions have the same structure, but the third term uses
+    # a different coefficient
+    for c, expected in [(f, 24), (g, 51)]:
+        A = Tensor(f * inner(u, v) * dx) + Tensor(2 * g * inner(u, v) * dx) + Tensor(3 * c * inner(u, v) * dx)
+        assert np.allclose(assemble(A).petscmat.getDiagonal().array, expected * M)
