@@ -157,21 +157,37 @@ class TensorBase(BaseForm):
             return self
         return self.reconstruct(*operands)
 
+    def signature(self):
+        """Signature for use with JIT caches, which does not depend on the coefficients."""
+        return self._signature
+
     @cached_property
-    def expression_hash(self):
+    def _signature(self):
         from firedrake.slate.slac.utils import traverse_dags
+        from ufl.algorithms.signature import compute_form_signature
+        # The kernel numbers its coefficients and constants by their position
+        # in the whole expression. Therefore, the terminals of every operand are
+        # numbered by that position, and not by their position in the operand.
+        renumbering = {domain: i for i, domain in enumerate(self.ufl_domains())}
+        renumbering.update((c, i) for i, c in enumerate(self.coefficients()))
+        renumbering.update((c, i) for i, c in enumerate(self.constants()))
         hashdata = []
         for op in traverse_dags([self]):
-            if isinstance(op, AssembledVector):
-                data = (type(op).__name__, op.arg_function_spaces[0].ufl_element()._ufl_signature_data_(), )
+            if isinstance(op, BlockAssembledVector):
+                data = (type(op).__name__, op._indices, op.arg_function_spaces[0].ufl_element()._ufl_signature_data_(),
+                        tuple(renumbering[c] for c in op.coefficients()))
+            elif isinstance(op, AssembledVector):
+                data = (type(op).__name__, op.arg_function_spaces[0].ufl_element()._ufl_signature_data_(),
+                        tuple(renumbering[c] for c in op.coefficients()))
             elif isinstance(op, Block):
                 data = (type(op).__name__, op._indices, )
-            elif isinstance(op, BlockAssembledVector):
-                data = (type(op).__name__, op._indices, op._original_function, op._function)
             elif isinstance(op, Factorization):
                 data = (type(op).__name__, op.decomposition, )
-            elif isinstance(op, Tensor):
+            elif isinstance(op, Tensor) and isinstance(op.form, ZeroBaseForm):
+                # A zero form has no coefficients to number.
                 data = (op.form.signature(), op.diagonal, )
+            elif isinstance(op, Tensor):
+                data = (compute_form_signature(op.form, renumbering), op.diagonal, )
             elif isinstance(op, ScalarMul):
                 data = (type(op).__name__, op.scalar, )
             elif isinstance(op, (UnaryOp, BinaryOp)):
