@@ -28,6 +28,7 @@ from pyop3.utils import (  # noqa: F401
     is_sorted,
     unique_name as op3_unique_name,
 )
+from pyop3.cache import default_hashkey
 
 from functools import cache
 from firedrake.exceptions import UnrecognisedDeviceError
@@ -273,5 +274,30 @@ def cached_property_until(key: Callable[[Self], Hashable]):
                 setattr(self, cache_attribute, (current_value, result))
                 return result
             return cached_value[1]
+        return wrapper
+    return decorator
+
+
+def cached_method_until(key: Callable[[Self], Hashable]):
+    """Decorator for a method whose results are cached until some value changes.
+
+    This is the counterpart of `cached_property_until` but for methods.
+    When a decorated method is called, its results are cached against the set of arguments
+    it was called with. All cached results are discarded when ``self.value`` changes.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            cache_attribute = f"_{func.__qualname__}_cache"
+            current_value = key(self)
+            cached_value = getattr(self, cache_attribute, None)
+            if cached_value is None or cached_value[0] != current_value:
+                cached_value = (current_value, {})
+                setattr(self, cache_attribute, cached_value)
+            results = cached_value[1]
+            args_key = default_hashkey(*args, **kwargs)
+            if args_key not in results:
+                results[args_key] = func(self, *args, **kwargs)
+            return results[args_key]
         return wrapper
     return decorator

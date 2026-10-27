@@ -58,6 +58,38 @@ def vom_state_by_particle_id(vom):
 
 # Tests
 @pytest.mark.parallel([1, 3])
+def test_topology_caches_recompute_after_version_increment():
+    """Verify that the VOM's topology caches get recomputed after bumping its topology version."""
+    mesh = UnitSquareMesh(2, 2)
+    vom = VertexOnlyMesh(mesh, [[0.25, 0.25], [0.75, 0.75]])
+    topology = vom.topology
+    points, cells = topology.points, topology.cells
+    parent_cells = topology.cell_parent_cell_list
+    global_index = topology.cell_global_index
+
+    # The values are reused while the versions do not change.
+    assert topology.points is points
+    assert topology.cells is cells
+    assert topology.cell_parent_cell_list is parent_cells
+
+    # A new parent cell assignment recomputes only the parent cell data.
+    topology._parent_cell_assignment_version += 1
+    new_parent_cells = topology.cell_parent_cell_list
+    assert new_parent_cells is not parent_cells
+    assert np.array_equal(new_parent_cells, parent_cells)
+    assert topology.points is points
+    assert topology.cell_global_index is global_index
+
+    # A new topology version recomputes all of them.
+    topology._topology_version += 1
+    assert topology.points is not points
+    assert topology.cells is not cells
+    assert topology.cell_global_index is not global_index
+    assert topology.cell_parent_cell_list is not new_parent_cells
+    assert np.array_equal(topology.cell_parent_cell_list, parent_cells)
+
+
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize(
     "with_halos",
     [False, True],
