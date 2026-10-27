@@ -265,7 +265,8 @@ def get_level(obj):
 
 def has_level(obj):
     """Does the provided object have level info?"""
-    return hasattr(obj.topological, "__level_info__")
+    hierarchy, _ = get_level(obj)
+    return hierarchy is not None
 
 
 def _cache_key(Vc, Vf, needs_coarse_entity_dofs=True):

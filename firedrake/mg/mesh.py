@@ -3,6 +3,7 @@ import warnings
 from fractions import Fraction
 from collections import defaultdict
 from collections.abc import Sequence
+from contextlib import contextmanager
 import pyop2
 from pyop2.datatypes import IntType
 
@@ -13,7 +14,7 @@ from functools import cached_property
 from firedrake import utils
 from firedrake.cython import mgimpl as impl
 import firedrake.cython.dmcommon as dmcommon
-from .utils import set_level
+from .utils import get_level, set_level
 
 __all__ = ("HierarchyBase", "MeshHierarchy", "ExtrudedMeshHierarchy", "NonNestedHierarchy",
            "SemiCoarsenedExtrudedHierarchy", "SubmeshHierarchy")
@@ -212,6 +213,30 @@ class HierarchyBase(object):
         return self.add_mesh(mesh.refine_marked_elements(markers))
 
 
+@contextmanager
+def temporary_hierarchy(meshes: Sequence, **kwargs):
+    """Put meshes in a hierarchy, and restore their previous levels on exit.
+
+    Parameters
+    ----------
+    meshes
+        List of meshes (coarse to fine).
+    **kwargs
+        Keyword arguments for `HierarchyBase`.
+
+    Yields
+    ------
+    HierarchyBase
+        The hierarchy of ``meshes``.
+    """
+    level_info = [get_level(m) for m in meshes]
+    try:
+        yield HierarchyBase(meshes, **kwargs)
+    finally:
+        for m, (hierarchy, level) in zip(meshes, level_info):
+            set_level(m, hierarchy, level)
+
+
 def MeshHierarchy(mesh, refinement_levels=0,
                   refinements_per_level=1,
                   netgen_flags=None,
@@ -308,16 +333,6 @@ def MeshHierarchy(mesh, refinement_levels=0,
             after(rdm, i)
         if is_netgen:
             ngmeshes.append(_snap_to_netgen(rdm, mesh.netgen_mesh))
-        # Fix up coords if refining embedded circle or sphere
-        if hasattr(mesh, '_radius'):
-            # FIXME, really we need some CAD-like representation
-            # of the boundary we're trying to conform to.  This
-            # doesn't DTRT really for cubed sphere meshes (the
-            # refined meshes are no longer gnonomic).
-            coords = rdm.getCoordinatesLocal().array.reshape(-1, mesh.geometric_dimension)
-            scale = mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
-            coords *= scale
-
         dms.append(rdm)
         cdm = rdm
 
@@ -369,8 +384,47 @@ def MeshHierarchy(mesh, refinement_levels=0,
             meshes[i], meshes[i+1], points[i], lgmaps[i], lgmaps[i+1])
         for i in range(len(points))
     }
+    if not is_netgen:
+        for i, points in enumerate(fine_to_coarse_points.values(), start=1):
+            meshes[i] = _prolong_coordinates(meshes[i-1], meshes[i], points)
+            if hasattr(mesh, '_radius'):
+                # FIXME, really we need some CAD-like representation
+                # of the boundary we're trying to conform to.  This
+                # doesn't DTRT really for cubed sphere meshes (the
+                # refined meshes are no longer gnonomic).
+                coords = meshes[i].coordinates.dat.data
+                coords *= mesh._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
     return HierarchyBase(meshes, refinements_per_level=refinements_per_level,
                          nested=nested, fine_to_coarse_points=fine_to_coarse_points)
+
+
+def _prolong_coordinates(coarse, fine, fine_to_coarse_points: np.ndarray):
+    """Return a mesh on the topology of ``fine`` with the coordinates of ``coarse``.
+
+    Parameters
+    ----------
+    coarse
+        The mesh that was refined.
+    fine
+        The refined mesh, with the coordinates of its DMPlex.
+    fine_to_coarse_points
+        The DMPlex point of ``coarse`` that each DMPlex point of ``fine`` was
+        refined from.
+
+    Returns
+    -------
+    MeshGeometry
+        A mesh on the topology of ``fine``.
+    """
+    # Locate the fine nodes with the DMPlex coordinates, which stay nested.
+    plex_coarse = firedrake.mesh.make_mesh_from_mesh_topology(coarse.topology, "plex_coordinates")
+    V = coarse.coordinates.function_space()
+    source = firedrake.Function(V.reconstruct(mesh=plex_coarse), val=coarse.coordinates.dat)
+    target = firedrake.Function(V.reconstruct(mesh=fine))
+    points = {Fraction(1, 1): fine_to_coarse_points}
+    with temporary_hierarchy([plex_coarse, fine], fine_to_coarse_points=points):
+        firedrake.prolong(source, target)
+    return firedrake.Mesh(target, name=fine.name, tolerance=fine.tolerance)
 
 
 def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
