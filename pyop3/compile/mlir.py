@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import functools
 import contextlib
-import dataclasses
 import numbers
 import types
 import numpy as np
+from collections.abc import Mapping
 from typing import Any
 
+import pyop3.config 
 from pyop3 import utils
-from pyop3.buffer import NullBuffer, ArrayBuffer
+from pyop3.buffer import NullBuffer, ArrayBuffer, IndexedBuffer
 from pyop3.device import Device, HOST_DEVICE, get_current_device
 
 from gem import gem, impero as imp
@@ -38,23 +39,7 @@ from xdsl.dialects.builtin import (
 INDEX_TYPE = IndexType()
 FLOAT_TYPES = (f32, f64)
 
-@dataclasses.dataclass
-class Argument:
-    name: str
-    dtype: np.dtype
-    shape: tuple[int, ...] | None
-
-    def __str__(self):
-        return self.name
-
-    def __repr__(self):
-        return f"<{self.name}, dtype: {self.dtype}, shape: {self.shape or '?'}>"
-
 def get_mlir_type(dtype):
-    # NOTE: Default to f64 if dtype is None, possibly wrong.
-    if dtype is None:
-        return f64
-
     dt = np.dtype(dtype)
     if dt.kind == "f":
         return f64 if dt.itemsize == 8 else f32
@@ -71,17 +56,6 @@ def is_float(t) -> bool:
 # NOTE: Do I want this function? It feels wrong grouping these types
 def is_intlike(t) -> bool:
     return t == INDEX_TYPE or isinstance(t, IntegerType)
-
-def _binary_handler(float_op, int_op):
-    """Return a process handler for a GEM node with two scalar children.
-
-    :arg float_op:  MLIR operation for floating point operand. Use None if op only defined for integers
-    :arg int_op: MLIR operation for integer operand
-    """
-    def handler(self, expr):
-        a, b = (self.process(c) for c in expr.children)
-        return self._binary(a, b, float_op, int_op)
-    return handler
 
 
 class SymbolTable:
@@ -128,14 +102,42 @@ class SymbolTable:
 
 class MLIRBuilder:
     """ Class traverses an Impero AST and builds an MLIR Module Operation
+
     """
-    def __init__(self) -> None:
-        # If we can know function arguments in advance, we can create FuncOp as opposed to Block
-        self._entry_block = Block()
+    def __init__(
+        self, root, arguments: Mapping[str, IndexedBuffer], name: str = "imp_kernel"
+    ) -> None:
+        """Create the kernel FuncOp, with one memref argument for each buffer in `arguments`.
+
+        :arg root: Impero tree that `build` translates.
+        :arg arguments: Map from the kernel name of each buffer to its buffer view.
+            Temporaries (views of a `NullBuffer`) are not function arguments and are dropped.
+        :arg name: The name of the generated MLIR kernel
+
+        """
+        self._root = root
+
+        # Kernel name -> buffer view, for the buffers that are function arguments
+        # Excluding NullBuffers that are not function arguments 
+        self._arguments: dict[str, IndexedBuffer] = {
+            kernel_name: buffer_view
+            for kernel_name, buffer_view in arguments.items()
+            if not isinstance(buffer_view.buffer, NullBuffer)
+        }
+
+        # Collect MLIR memref types for FuncOp operation
+        arg_types = [
+            MemRefType(get_mlir_type(buffer_view.buffer.dtype), shape=[DYNAMIC_INDEX])
+            for buffer_view in self._arguments.values()
+        ]
+
+        self._func_op = func.FuncOp(name, (arg_types, ()))
+        self._func_op.attributes["llvm.emit_c_interface"] = UnitAttr()
+        entry_block = self._func_op.body.block
 
         # Builder stack - Builder object acts as bridge to generate code for a given reg/block/op
         self._builder_stack: list[Builder] = [
-            Builder(InsertPoint.at_end(self._entry_block))
+            Builder(InsertPoint.at_end(entry_block))
         ]
 
         # Index into the builder stack of the region that `insert_at_entry` targets
@@ -150,24 +152,35 @@ class MLIRBuilder:
         # Constant attribute -> SSAValue of its arith.constant in the entry block
         self._constants: dict[FloatAttr | IntegerAttr, SSAValue] = dict()
 
-        # Globally defined constants - like quadrature weights
+        # Globally defined arrays - like quadrature weights
         self.global_ops: list[Operation] = list()
 
         self._name_generator = utils.UniqueNameGenerator()
 
-        # Arguments to return to buffer
-        self._arguments: list[Argument] = list()
-
         # Argument name -> Device that the argument must be placed on
-        self._argument_devices: dict[str, Device] = dict()
+        self._argument_devices: dict[str, Device] = dict.fromkeys(self._arguments, get_current_device())
+
+        # Buffer mapping from buffer-name to SSA argument 
+        self._buffers = dict(zip(self._arguments, entry_block.args))
+
+
+    def to_string(self, operation: ModuleOp) -> str: 
+        """ Returns Module operation as a string """ 
+        from xdsl.printer import Printer 
+        from io import StringIO
+        output = StringIO()
+        printer = Printer(stream=output)
+        printer.print_op(operation)
+        return output.getvalue()
 
     @property
     def builder(self) -> Builder:
         return self._builder_stack[-1]
 
     @property
-    def arguments(self) -> list[Argument]:
-        return sorted(self._arguments, key=lambda arg: arg.name)
+    def arguments(self) -> dict[str, IndexedBuffer]:
+        """ Arguments as pyop3 buffers """
+        return [arg.buffer for arg in self._arguments.values()]
 
     @property
     def argument_devices(self) -> dict[str, Device]:
@@ -179,45 +192,22 @@ class MLIRBuilder:
         """
         return self._argument_devices
 
-    def build(self, root, name: str = "imp_kernel") -> tuple[ModuleOp, list[Argument], str]:
-        """Construct the MLIR module, containing a FuncOp, given an Impero tree.
+    def build(self) -> tuple[ModuleOp, dict[str, IndexedBuffer], str]:
+        """Construct the MLIR module, containing the kernel FuncOp, from the Impero tree.
 
-        :arg root: The Impero tree.
-        :arg name: The name of the generated MLIR kernel.
-
-        :returns tuple
-            The module, the kernel arguments (sorted by name), and the name of the C
-            interface symbol.
-
+        :returns tuple (The module, the kernel arguments, ctype function name)
         """
-    
-        self.process(root)
-        n = len(self._arguments)
+        self.process(self._root)
+        self.insert(func.ReturnOp())
 
-        perm = sorted(range(n), key=lambda i: self._arguments[i].name)
-        arg_types = [self._entry_block.args[i].type for i in perm]
+        modop = ModuleOp([*self.global_ops, self._func_op])
 
-        func_op = func.FuncOp(name, (arg_types, ()))
-        func_op.attributes["llvm.emit_c_interface"] = UnitAttr()
-        new_block = func_op.body.block
+        if pyop3.config.debug_checks:
+            modop.verify()
 
-        for new_index, old_index in enumerate(perm):
-            old_arg = self._entry_block.args[old_index]
-            new_arg = new_block.args[new_index]
-            old_arg.replace_all_uses_with(new_arg)
+        module_code = self.to_string(modop)
 
-        ops = list(self._entry_block.ops)
-        for op in ops:
-            op.detach()
-        new_block.add_ops(ops)
-        new_block.add_op(func.ReturnOp())
-
-        modop = ModuleOp([*self.global_ops, func_op])
-
-        modop.verify()
-
-        # Update the return values to match similar to Loopy 
-        return modop, self.arguments, f"_mlir_ciface_{name}"
+        return module_code, self.arguments, f"_mlir_ciface_{self._func_op.sym_name.data}"
 
     # {{{ helpers
 
@@ -359,34 +349,21 @@ class MLIRBuilder:
 
     @_declare_buffer.register(gem.Variable)
     def _(self, node: gem.Variable) -> SSAValue:
-        """ Creates runtime-tensors
+        """Declare a temporary as a module-level global.
 
-        Determining between function argument and temporary:
-        -> isinstance(node.data.buffer, NullBuffer) -> temporary
-        -> isinstance(node.data.buffer, ArrayBuffer) -> function argument
+        Function arguments are declared when the builder is created, so only
+        temporaries reach this point.
 
         """
-        mlir_type = get_mlir_type(node.dtype)
-
-        # NOTE: This is not nice. How else do I differ between temps and func args? 
+        # NOTE: This is not nice. How else do I differ between temps and func args?
         if node.data == "null":
             # ASSUMPTION: In temporary shape, first element is cell loop, second is actual shape.
-            shape = [node.shape[1]]  
+            shape = [node.shape[1]]
             return self._declare_global(
-                node.name, mlir_type, np.zeros(shape=shape, dtype=node.dtype), constant=False
+                node.name, get_mlir_type(node.dtype), np.zeros(shape=shape, dtype=node.dtype), constant=False
             )
 
-        elif isinstance(node.data.buffer, ArrayBuffer):
-            shape = [DYNAMIC_INDEX]
-            memref_type = MemRefType(mlir_type, shape=shape)
-            arg = self._entry_block.insert_arg(memref_type, len(self._entry_block.args))
-            arg.name_hint = node.name
-
-            self._arguments.append(Argument(node.name, node.dtype, shape))
-            self._argument_devices.setdefault(node.name, get_current_device())
-            return arg
-
-        raise NotImplementedError(f"Unsupported buffer type: {type(node.data.buffer).__name__}")
+        raise ValueError(f"{node.name!r} is neither a temporary nor a kernel argument")
 
     @_declare_buffer.register(gem.Literal)
     def _(self, node: gem.Literal) -> SSAValue:
@@ -458,7 +435,7 @@ class MLIRBuilder:
         return self._to_index(self.process(idx))
 
     def linearise_index(self, strides, multiindex) -> SSAValue:
-        """ Receives a list of ints and gem.{Index, VariableIndex} and returns SSA linearised           access 
+        """ Receives a list of ints and gem.{Index, VariableIndex} and returns SSA linearised access 
         """
 
         assert len(multiindex) == len(strides), "Strides length must match indices"
@@ -702,26 +679,43 @@ class MLIRBuilder:
 
     # {{{ gem operations
 
-    # TODO: This is kind of ugly imo, but it is concise at least   
-    _process.register(gem.Sum)(_binary_handler(arith.AddfOp, arith.AddiOp))
-    _process.register(gem.Product)(_binary_handler(arith.MulfOp, arith.MuliOp))
-    _process.register(gem.Division)(_binary_handler(arith.DivfOp, arith.DivSIOp))
-    _process.register(gem.MinValue)(_binary_handler(arith.MinimumfOp, arith.MinSIOp))
-    _process.register(gem.MaxValue)(_binary_handler(arith.MaximumfOp, arith.MaxSIOp))
-    _process.register(gem.FloorDiv)(_binary_handler(None, arith.FloorDivSIOp))
-    _process.register(gem.Remainder)(_binary_handler(None, arith.RemSIOp))
-    _process.register(gem.LogicalAnd)(_binary_handler(None, arith.AndIOp))
-    _process.register(gem.LogicalOr)(_binary_handler(None, arith.OrIOp))
+    # Maps each binary GEM node type to its MLIR (float_op, int_op) pair.
+    # A float_op of None means that the operation is only defined for integers.
+    _binary_ops = {
+        gem.Sum: (arith.AddfOp, arith.AddiOp),
+        gem.Product: (arith.MulfOp, arith.MuliOp),
+        gem.Division: (arith.DivfOp, arith.DivSIOp),
+        gem.MinValue: (arith.MinimumfOp, arith.MinSIOp),
+        gem.MaxValue: (arith.MaximumfOp, arith.MaxSIOp),
+        gem.FloorDiv: (None, arith.FloorDivSIOp),
+        gem.Remainder: (None, arith.RemSIOp),
+        gem.LogicalAnd: (None, arith.AndIOp),
+        gem.LogicalOr: (None, arith.OrIOp),
+    }
 
-    _CMPF = {"<": "olt", "<=": "ole", ">": "ogt", ">=": "oge", "==": "oeq", "!=": "one"}
-    _CMPI = {"<": "slt", "<=": "sle", ">": "sgt", ">=": "sge", "==": "eq", "!=": "ne"}
+    @_process.register(gem.Scalar)
+    def process_binary(self, expr):
+        """Process a GEM node with two scalar children through the _binary_ops table.
+
+        Other scalar nodes that do not have a more specific handler raise a missing handler error.
+        """
+        if type(expr) not in self._binary_ops:
+            utils.raise_missing_dispatch_handler(expr)
+
+        float_op, int_op = self._binary_ops[type(expr)]
+        a, b = (self.process(c) for c in expr.children)
+        return self._binary(a, b, float_op, int_op)
+
+    # Mapping between Impero/GEM equality comparisons and MLIR for ordered/signed comparison operators
+    compare_ordered_floats = {"<": "olt", "<=": "ole", ">": "ogt", ">=": "oge", "==": "oeq", "!=": "one"}
+    compare_signed_ints = {"<": "slt", "<=": "sle", ">": "sgt", ">=": "sge", "==": "eq", "!=": "ne"}
 
     @_process.register(gem.Comparison)
     def _(self, expr):
         a, b = self._align_scalars(*(self.process(c) for c in expr.children))
         if is_float(a.type):
-            return self.insert(arith.CmpfOp(a, b, self._CMPF[expr.operator]))
-        return self.insert(arith.CmpiOp(a, b, self._CMPI[expr.operator]))
+            return self.insert(arith.CmpfOp(a, b, self.compare_ordered_floats[expr.operator]))
+        return self.insert(arith.CmpiOp(a, b, self.compare_signed_ints[expr.operator]))
 
     @_process.register(gem.Conditional)
     def _(self, expr):
@@ -862,19 +856,18 @@ class MLIRBuilder:
 
         The constant and buffer caches are emptied while inside the context,
         because their SSA values are not valid there, and they are restored on
-        exit. Funtcion arguments are not reset because they are valid across 
-        scope (passed as CPU/GPU arguments as per device mapping) 
+        exit. Function arguments stay visible because they are valid in every
+        scope (they are passed as CPU/GPU arguments as per the device mapping).
 
         """
         original_scopes = self.symbol_table._scopes
         original_constants = self._constants
         original_buffers = self._buffers
 
-        argument_names = {arg.name for arg in self._arguments}
         self.symbol_table._scopes = original_scopes[1:]
         self._constants = dict()
         self._buffers = {
-            key: ssa for key, ssa in original_buffers.items() if key in argument_names
+            key: ssa for key, ssa in original_buffers.items() if key in self._arguments
         }
         self._entry_depth += 1
 
@@ -883,13 +876,7 @@ class MLIRBuilder:
         self._entry_depth -= 1
         self.symbol_table._scopes = [original_scopes[0]] + self.symbol_table._scopes
         self._constants = original_constants
-
-        # Arguments that were first used inside the context must stay declared
-        argument_names = {arg.name for arg in self._arguments}
-        original_buffers.update(
-            {key: ssa for key, ssa in self._buffers.items() if key in argument_names}
-        )
-        self._buffers = original_buffers 
+        self._buffers = original_buffers
 
 
 def row_major_strides(shape):

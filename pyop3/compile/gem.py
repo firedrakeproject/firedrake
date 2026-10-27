@@ -52,21 +52,15 @@ from pyop3.insn.base import (
 from pyop3.compile.mlir import MLIRBuilder
 from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
 
-def _mlir_module_to_mlir_string(tu: ModuleOp) -> str:
-    from xdsl.printer import Printer 
-    from io import StringIO
-    output = StringIO()
-    printer = Printer(stream=output)
-    printer.print_op(tu)
-    return output.getvalue()
-
 @dataclasses.dataclass
 class GemExecutable(Executable):
 
     instructions: tuple
+    arguments: dict
 
-    def __init__(self, instructions, **kwargs):
+    def __init__(self, instructions, arguments, **kwargs):
         self.instructions = instructions
+        self.arguments = arguments
         super().__init__(**kwargs)
 
     @cached_property
@@ -86,11 +80,9 @@ class GemExecutable(Executable):
             insns.append(new_insn)
         impero = gem.impero_utils.compile_gem_new(insns, ())
 
-        # WILO: Fixing the impero AST tree for cell loop indices 
-        builder = MLIRBuilder() 
-        modop, kernel_args, func_name = builder.build(impero.tree) 
-        module_code = _mlir_module_to_mlir_string(modop)
-        
+        builder = MLIRBuilder(impero.tree, self.arguments) 
+        module_code, kernel_args, func_name = builder.build() 
+
         """Compile the code and return a function pointer."""
         # ideally move this logic somewhere else
         cppargs = (
@@ -115,10 +107,6 @@ class GemExecutable(Executable):
         ]
         func.restype = None
         return func
-    
-    @property
-    def arguments(self):
-        return tuple(a for a in self.buffer_views)
 
     @functools.singledispatchmethod
     @staticmethod
@@ -128,7 +116,7 @@ class GemExecutable(Executable):
     @as_callable_arg.register
     @staticmethod
     def _(arr: np.ndarray, /) -> int:
-        return Memref.from_array(arr)
+        return MemrefBuilder.from_array(arr)
 
 # TODO: use overloadedexpressionevaluator
 @functools.singledispatch
@@ -287,7 +275,7 @@ class GemCompiler(Pyop3Compiler):
 
     def arg(self, name, dtype, shape):
         # wrong abstraction I think?
-        print("not doing arg")
+        # print("not doing arg")
         pass
 
     def var(self, iname: str, *args) -> pym.primitives.Variable:
@@ -483,31 +471,29 @@ class GemCompiler(Pyop3Compiler):
         return _lower_expr(expr, iname_maps, self.loop_indices, intent=intent, paths=paths, context=self, is_index=is_index)
 
     def finalize_kernel(self, function_name, compiler_parameters, cc_options):
+        buffer_arguments = utils.invert_mapping(self.kernel_names)
+        executable = GemExecutable(
+            self.instructions,
+            buffer_arguments,
+            **cc_options
+        )
+
         return (
-            GemExecutable(
-                self.instructions,
-                **cc_options,
-            ),
-            utils.invert_mapping(self.kernel_names),
+            executable,
+            buffer_arguments,
             self.buffer_intents,
         )
 
+
+# TODO: Everything memref-related needs to be cleaned up. This is ugly 
 def cast_memref_arg_to_ctype_type(arg: Any) -> type:
     """ 
-    Takes in compile/mlir.py::Argument (memref) and returns ctype 
-    arg has three attrs: name, dtype, shape.
-
-    If the shape is not given, assume dynamic shape for the ctype arg. 
-    The object will be a flat 1-D array. 
-
-    The dtype will be a numpy dtype.
-
-    I would also like a flag that says if it is a CPU or GPU buffer 
+    Receive a pyop3 buffer object and translate to Memref ctype object
     """
     rank = 1 if arg.shape is None else len(arg.shape)
-    return ctypes.POINTER(Memref.ctype(rank, np.dtype(arg.dtype)))
+    return ctypes.POINTER(MemrefBuilder.ctype(rank, arg.dtype))
 
-class Memref:
+class MemrefBuilder:
     """
     Builds ctypes descriptors conforming to MLIR's memref ABI.
     
@@ -515,7 +501,7 @@ class Memref:
     (Hopefully it does not change)
 
     The descriptor layout must match the struct produced by
-    `cast_memref_arg_to_ctype_type` for the same (rank, dtype).
+    cast_memref_arg_to_ctype_type for the same (rank, dtype).
     Although all memrefs are rank-1 through PyOP3, with dynamic extents
     """
 
@@ -561,11 +547,6 @@ class Memref:
         pass 
 
     @classmethod
-    def from_pointer(cls, address: int, shape, dtype):
-        """Wraps pointer, to Memref struct type compatible with _mlir_ciface """
-        return cls._build(address, tuple(shape), np.dtype(dtype))
-
-    @classmethod
     def _build(cls, address: int, shape: tuple[int, ...], dtype: np.dtype):
         rank = len(shape)
         struct_type = cls.ctype(rank, dtype)
@@ -584,3 +565,4 @@ class Memref:
             offset=0,
             shape=(ctypes.c_int64 * rank)(*shape),
             strides=(ctypes.c_int64 * rank)(*strides),
+        ) 

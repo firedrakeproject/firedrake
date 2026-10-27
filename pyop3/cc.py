@@ -739,8 +739,7 @@ def make_so(compiler, code, extension, comm):
                         + ('-o', str(lowered_name))
                     )
 
-                    with timer("mlir-opt"): 
-                        _run(mlir_opt_cmd, logfile, errfile, step="Lowering")
+                    _run(mlir_opt_cmd, logfile, errfile, step="Lowering")
 
                     # mlir -> llvm
                     llname = filename.with_suffix(".ll")
@@ -751,8 +750,8 @@ def make_so(compiler, code, extension, comm):
                         str(lowered_name),
                         '-o', str(llname),
                     )
-                    with timer("mlir-translate"):
-                        _run(translate_cmd, logfile, errfile, step="Translating", filemode="a")
+
+                    _run(translate_cmd, logfile, errfile, step="Translating", filemode="a")
 
                     # llvm -> shared library
                     # NOTE: How can I guarantee this is clang??
@@ -761,8 +760,8 @@ def make_so(compiler, code, extension, comm):
                         + (str(llname),) + compiler.ldflags + ("-lmlir_cuda_runtime",)
                         + ('-o', str(soname))
                     )
-                    with timer("clang"):
-                        _run(cc, logfile, errfile, step="Compilation", filemode="a")
+
+                    _run(cc, logfile, errfile, step="Compilation", filemode="a")
                 elif not compiler.ld:
                     # Compile and link
                     cc = (exe,) + compiler_flags + ('-o', str(soname), str(cname)) + compiler.ldflags
@@ -774,6 +773,7 @@ def make_so(compiler, code, extension, comm):
                     # Extract linker specific "cflags" from ldflags and link
                     ld = tuple(shlex.split(compiler.ld)) + ('-o', str(soname), str(oname)) + tuple(expandWl(compiler.ldflags))
                     _run(ld, logfile, errfile, step="Linker", filemode="a")
+
         except subprocess.CalledProcessError as e:
             msg = dedent(f"""
                 Command "{e.cmd}" return error status {e.returncode}.
@@ -861,12 +861,3 @@ def clear_compiler_disk_cache(prompt=False):
             shutil.rmtree(directory, ignore_errors=True)
         else:
             print("Not removing cached libraries")
-
-
-@contextmanager
-def timer(description="Operation"):
-    start_time = time.perf_counter()
-    yield
-    end_time = time.perf_counter()
-    elapsed_time = end_time - start_time
-    print(f"{description}: {elapsed_time*1000:.4f} milliseconds")
