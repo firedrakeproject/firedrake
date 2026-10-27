@@ -68,7 +68,7 @@ def prolong(coarse, fine):
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature target space
-        Vf = Vf.quadrature_space()
+        Vf = Vf.quadrature_space
 
     finest = fine
     Vfinest = finest.function_space()
@@ -145,7 +145,7 @@ def restrict(fine_dual, coarse_dual):
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature source space
-        Vq = Vf.quadrature_space()
+        Vq = Vf.quadrature_space
 
     coarsest = coarse_dual.zero()
     meshes = hierarchy._meshes
@@ -234,7 +234,7 @@ def inject(fine, coarse):
 
     if needs_quadrature := not Vc.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature target space
-        Vc = Vc.quadrature_space()
+        Vc = Vc.quadrature_space
 
     coarsest = coarse.zero()
     Vcoarsest = coarsest.function_space()
@@ -328,7 +328,7 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     Vtarget = Vf
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature target space
-        Vf = Vf.quadrature_space()
+        Vf = Vf.quadrature_space
     Vrow, Vcol = Vf, Vc
 
     hierarchy, levelc = utils.get_level(Vcol.mesh())

@@ -81,6 +81,25 @@ def test_subset_interpolation_reduction(access):
     assert np.allclose(reduced.dat.data_ro, expected)
 
 
+@pytest.mark.parallel([1, 2])
+def test_subset_adjoint_interpolation():
+    mesh = UnitSquareMesh(2, 2)
+    x, y = SpatialCoordinate(mesh)
+    indicator = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x < 0.5, 1, 0))
+    mesh = RelabeledMesh(mesh, [indicator], [100])
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Cofunction(V.dual()).assign(1)
+
+    # The weights of the matrix-free adjoint depend on the cells of the subset.
+    for subset in [None, mesh.cell_subset(100)]:
+        A = assemble(interpolate(TrialFunction(V), V, subset=subset), mat_type="aij")
+        expected = Cofunction(V.dual())
+        with u.dat.vec_ro as x, expected.dat.vec_wo as y:
+            A.petscmat.multTranspose(x, y)
+        result = assemble(interpolate(TestFunction(V), u, subset=subset))
+        assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
+
+
 @pytest.mark.parametrize(
     ("access", "value"),
     [(op3.MIN_WRITE, 2.0), (op3.MAX_WRITE, -2.0)],

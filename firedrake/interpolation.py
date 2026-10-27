@@ -17,7 +17,7 @@ from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
 
 import pyop3 as op3
-from pyop3.cache import with_heavy_caches
+from pyop3.cache import cached_on, with_heavy_caches
 from pyop3.dtypes import get_mpi_dtype
 from pyop3.mpi import temp_internal_comm
 
@@ -461,7 +461,7 @@ class CrossMeshInterpolator(Interpolator):
         if into_quadrature_space := not self.target_space.finat_element.has_pointwise_dual_basis:
             self.original_target_space = self.target_space
             r"""The original target space for interpolation, as specified by the user."""
-            self.target_space = self.target_space.quadrature_space()
+            self.target_space = self.target_space.quadrature_space
             r"""The target space for the cross-mesh interpolation. Must have point-evaluation dofs.
             If ``self.original_target_space`` does not have point-evaluation dofs, then this is
             an intermediate quadrature space."""
@@ -785,13 +785,18 @@ class SameMeshInterpolator(Interpolator):
             value, mode = float(finfo.min), "min"
         self._loop_target_nodes(tensor, value, mode)
 
-    @cached_property
-    def _adjoint_weight(self):
+    @cached_on(
+        get_obj=lambda self: get_mesh_topologies(self.ufl_interpolate),
+        get_key=lambda self: (self.dual_arg.function_space(), self.subset),
+        multi=True,
+    )
+    def _adjoint_weight(self) -> op3.Dat:
+        """The reciprocal of the number of cells in the iteration set whose closure contains each node of the dual argument."""
         weight = Function(self.dual_arg.function_space())
         self._loop_target_nodes(weight, 1.0, "inc")
         with weight.dat.vec_rw as weight_vec:
             weight_vec.reciprocal()
-        return weight
+        return weight.dat
 
     @cached_property
     def _interpolate_to_assemble(self):
@@ -806,7 +811,7 @@ class SameMeshInterpolator(Interpolator):
 
     def _update_weighted_dual_arg(self):
         self._weighted_dual_arg.dat.assign(self.dual_arg.dat, eager=True)
-        with self._adjoint_weight.dat.vec_ro as weight, self._weighted_dual_arg.dat.vec_rw as dual:
+        with self._adjoint_weight().vec_ro as weight, self._weighted_dual_arg.dat.vec_rw as dual:
             dual.pointwiseMult(dual, weight)
 
     def _get_callable(self, tensor=None, bcs=None, mat_type=None, sub_mat_type=None,
