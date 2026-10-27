@@ -435,34 +435,38 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     @classmethod
     def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
+        current_device = get_current_device()
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
         if pyop3.config.debug_checks:
-            data = np.full(shape, 666, dtype=dtype)
+            data = current_device.full(shape, 666, dtype=dtype)
         else:
-            data = np.empty(shape, dtype=dtype)
+            data = current_device.empty(shape, dtype=dtype)
         return cls(data, **kwargs)
 
     @classmethod
     def zeros(cls, shape, dtype=None, **kwargs):
+        current_device = get_current_device()
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
-        data = np.zeros(shape, dtype=dtype)
+        data = current_device.zeros(shape, dtype=dtype)
         return cls(data, **kwargs)
 
     @classmethod
     def full(cls, size: numbers.Integral, fill_value: numbers.Number, dtype=None, **kwargs):
+        current_device = get_current_device()
         if not isinstance(fill_value, int) or dtype != IntType:
             raise NotImplementedError("Casting")
 
-        data = np.full(size, fill_value, dtype=dtype)
+        data = current_device.full(size, fill_value, dtype=dtype)
         return cls(data, **kwargs)
 
     @classmethod
     def from_scalar(cls, value: numbers.Number, *, dtype=None, **kwargs):
-        data = np.array([value], dtype=dtype)
+        current_device = get_current_device()
+        data = current_device.array([value], dtype=dtype)
         return cls(data, **kwargs)
 
     # }}}
@@ -1577,6 +1581,14 @@ def _(mat: PETSc.Mat, /):
 @_extract_handle.register
 def _(array: np.ndarray, /) -> np.ndarray:
     return array
+
+try:
+    import cupy as cp
+    @_extract_handle.register(cp.ndarray)
+    def _(array: cp.ndarray, /) -> cp.ndarray:
+        return array 
+except ImportError:
+    pass
 
 
 @pyop3.record.frozenrecord()

@@ -1,5 +1,6 @@
 import numpy as np
 from firedrake import *
+import pyop3 as op3 
 
 
 mesh = UnitSquareMesh(3, 3)
@@ -22,7 +23,10 @@ def demo2():
     # do a regular one first to make sure that it still runs
     # assemble(c*v*dx)
 
-    gem_a = assemble(c*v*dx, pyop3_compiler_parameters={"backend": "gem"}, form_compiler_parameters={"backend": "gem"})
+    gem_a = assemble(c*v*dx, 
+        pyop3_compiler_parameters={"backend": "gem"}, 
+        form_compiler_parameters={"backend": "gem"}
+    )
 
 
 def demo3():
@@ -43,6 +47,22 @@ def demo3():
     print(f"sum of entries = {total!r}, expected 0.25")
     assert np.isclose(total, 0.25)
 
-demo1()
+def demo4():
+    V = FunctionSpace(mesh, "P", 2)
+
+    c = Constant(10)
+    v = TestFunction(V)
+
+    gpu = op3.CUDAGPU()
+
+    with op3.offloading(gpu):
+        gem_a = assemble(
+            c*v*dx, 
+            pyop3_compiler_parameters={"backend": "gem"}, 
+            form_compiler_parameters={"backend": "gem"}
+        )
+
+# demo1()
 # demo2()
 # demo3()
+demo4()

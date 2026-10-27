@@ -10,6 +10,7 @@ from typing import Any, List, Dict, Tuple, Self
 from mpi4py import MPI
 
 import numpy as np
+import cupy as cp
 import petsctools
 from immutabledict import immutabledict as idict
 
@@ -477,7 +478,7 @@ class Pyop3Compiler(LoopVisitor):
 
             # Extract the underlying data as that is what we need to generate code
             handle = buffer_view.handle
-            if isinstance(handle, np.ndarray):
+            if isinstance(handle, (np.ndarray, cp.ndarray)):
                 if isinstance(handle.dtype, np.dtypes.IntDType):
                     name_in_kernel = self.unique_name("idat")
                 else:

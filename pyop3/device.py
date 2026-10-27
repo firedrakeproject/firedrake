@@ -2,11 +2,13 @@ import abc
 import contextlib
 import contextvars
 import functools
+import numbers
 from typing import Any
 
 import numpy as np
 
 from pyop3 import utils
+from pyop3.dtypes import DTypeT
 
 try:
     import cupy as cp
@@ -33,6 +35,32 @@ class Device(abc.ABC):
     def zeros_like(self, arr):
         pass
 
+    @abc.abstractmethod
+    def empty(self, shape: int | tuple[int, ...], *, dtype: DTypeT | None = None):
+        """Return a new array on this device whose values are not initialized.
+        """
+
+    @abc.abstractmethod
+    def zeros(self, shape: int | tuple[int, ...], *, dtype: DTypeT | None = None):
+        """Return a new array on this device that is filled with zeros.
+        """
+
+    @abc.abstractmethod
+    def full(
+        self,
+        shape: int | tuple[int, ...],
+        fill_value: numbers.Number,
+        *,
+        dtype: DTypeT | None = None,
+    ):
+        """Return a new array on this device that is filled with fill_value.
+        """
+
+    @abc.abstractmethod
+    def array(self, obj: Any, *, dtype: DTypeT | None = None):
+        """Return a new array on this device that contains a copy of obj.
+        """
+
     def __str__(self):
         return self.name
 
@@ -53,6 +81,10 @@ class CPU(Device):
             output = arr
             if constant:
                 output = flag_constant(output)
+        elif isinstance(arr, list):
+            output = np.array(arr) 
+            if constant:
+                output = flag_constant(arr)
         else:
             raise TypeError(f"{type(arr)} not supported.")
 
@@ -60,6 +92,18 @@ class CPU(Device):
 
     def zeros_like(self, arr):
         return np.zeros_like(arr)
+
+    def empty(self, shape, *, dtype=None):
+        return np.empty(shape, dtype=dtype)
+
+    def zeros(self, shape, *, dtype=None):
+        return np.zeros(shape, dtype=dtype)
+
+    def full(self, shape, fill_value, *, dtype=None):
+        return np.full(shape, fill_value, dtype=dtype)
+
+    def array(self, obj, *, dtype=None):
+        return np.array(obj, dtype=dtype)
 
 
 class CUDAGPU(Device):
@@ -77,6 +121,8 @@ class CUDAGPU(Device):
             # TODO: Raise No GPU exception
             raise NotImplementedError 
 
+        DEVICE_TO_ARRAY_TYPE[self] = cp.ndarray
+
     @property
     def cp(self):
         import cupy as cp
@@ -87,6 +133,18 @@ class CUDAGPU(Device):
     
     def zeros_like(self, arr):
         return self.cp.zeros_like(arr)
+
+    def empty(self, shape, *, dtype=None):
+        return self.cp.empty(shape, dtype=dtype)
+
+    def zeros(self, shape, *, dtype=None):
+        return self.cp.zeros(shape, dtype=dtype)
+
+    def full(self, shape, fill_value, *, dtype=None):
+        return self.cp.full(shape, fill_value, dtype=dtype)
+
+    def array(self, obj, *, dtype=None):
+        return self.cp.array(obj, dtype=dtype)
 
 HOST_DEVICE = CPU()
 
