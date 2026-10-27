@@ -157,7 +157,8 @@ from firedrake.ensemble import (  # noqa: F401
 from firedrake.randomfunctiongen import *  # noqa: F401
 from firedrake.external_operators import (  # noqa: F401
     AbstractExternalOperator, assemble_method,
-    PointexprOperator, point_expr, MLOperator
+    PointexprOperator, point_expr, MLOperator,
+    ReducedFunctionalOperator,
 )
 from firedrake.progress_bar import ProgressBar  # noqa: F401
 
