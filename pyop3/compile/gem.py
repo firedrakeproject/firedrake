@@ -6,6 +6,7 @@ import dataclasses
 import functools
 import itertools
 import numbers
+import ctypes
 import os
 from functools import cached_property
 from typing import Any
@@ -48,16 +49,18 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
+from pyop3.compile.mlir import MLIRBuilder
 from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
-
 
 @dataclasses.dataclass
 class GemExecutable(Executable):
 
     instructions: tuple
+    arguments: dict
 
-    def __init__(self, instructions, **kwargs):
+    def __init__(self, instructions, arguments, **kwargs):
         self.instructions = instructions
+        self.arguments = arguments
         super().__init__(**kwargs)
 
     @cached_property
@@ -77,13 +80,43 @@ class GemExecutable(Executable):
             insns.append(new_insn)
         impero = gem.impero_utils.compile_gem_new(insns, ())
 
-        print(impero.tree)
-        raise NotImplementedError("This is where we need to work next")
+        builder = MLIRBuilder(impero.tree, self.arguments) 
+        module_code, kernel_args, func_name = builder.build() 
 
-    @property
-    def arguments(self):
-        return tuple(a for a in self.buffer_views)
+        """Compile the code and return a function pointer."""
+        # ideally move this logic somewhere else
+        cppargs = (
+        )
+        ldargs = (
+            "-lm",
+            *(f"-L{libdir}" for libdir in self.lib_dirs),
+            *(f"-l{lib}" for lib in self.libs),
+        )
 
+        # NOTE: no - instead of this inspect the compiler parameters!!!
+        # TODO: Make some sort of function in config.py
+        if "LIKWID_MODE" in os.environ:
+            cppargs += ("-DLIKWID_PERFMON",)
+            ldargs += ("-llikwid",)
+
+        dll = pyop3.cc.load(module_code, "mlir", cppargs, ldargs, comm=self.comm)
+
+        func = getattr(dll, func_name)
+        func.argtypes = [
+            cast_memref_arg_to_ctype_type(arg) for arg in kernel_args
+        ]
+        func.restype = None
+        return func
+
+    @functools.singledispatchmethod
+    @staticmethod
+    def as_callable_arg(handle: Any, /) -> int:
+        utils.raise_missing_dispatch_handler(handle)
+
+    @as_callable_arg.register
+    @staticmethod
+    def _(arr: np.ndarray, /) -> int:
+        return MemrefBuilder.from_array(arr)
 
 # TODO: use overloadedexpressionevaluator
 @functools.singledispatch
@@ -242,7 +275,7 @@ class GemCompiler(Pyop3Compiler):
 
     def arg(self, name, dtype, shape):
         # wrong abstraction I think?
-        print("not doing arg")
+        # print("not doing arg")
         pass
 
     def var(self, iname: str, *args) -> pym.primitives.Variable:
@@ -438,11 +471,98 @@ class GemCompiler(Pyop3Compiler):
         return _lower_expr(expr, iname_maps, self.loop_indices, intent=intent, paths=paths, context=self, is_index=is_index)
 
     def finalize_kernel(self, function_name, compiler_parameters, cc_options):
+        buffer_arguments = utils.invert_mapping(self.kernel_names)
+        executable = GemExecutable(
+            self.instructions,
+            buffer_arguments,
+            **cc_options
+        )
+
         return (
-            GemExecutable(
-                self.instructions,
-                **cc_options,
-            ),
-            utils.invert_mapping(self.kernel_names),
+            executable,
+            buffer_arguments,
             self.buffer_intents,
         )
+
+
+# TODO: Everything memref-related needs to be cleaned up. This is ugly 
+def cast_memref_arg_to_ctype_type(arg: Any) -> type:
+    """ 
+    Receive a pyop3 buffer object and translate to Memref ctype object
+    """
+    rank = 1 if arg.shape is None else len(arg.shape)
+    return ctypes.POINTER(MemrefBuilder.ctype(rank, arg.dtype))
+
+class MemrefBuilder:
+    """
+    Builds ctypes descriptors conforming to MLIR's memref ABI.
+    
+    Source for descriptor is here: https://mlir.llvm.org/doxygen/structStridedMemRefType.html
+    (Hopefully it does not change)
+
+    The descriptor layout must match the struct produced by
+    cast_memref_arg_to_ctype_type for the same (rank, dtype).
+    Although all memrefs are rank-1 through PyOP3, with dynamic extents
+    """
+
+    @staticmethod
+    @functools.lru_cache # Using cache so that it reuses ctype byrefs - no need to making new instances
+    def ctype(rank: int, dtype: np.dtype) -> type:
+        elem_ctype = np.ctypeslib.as_ctypes_type(np.dtype(dtype))
+
+        class MemRefCType(ctypes.Structure):
+            _fields_ = [
+                ("allocated", ctypes.POINTER(elem_ctype)),
+                ("aligned", ctypes.POINTER(elem_ctype)),
+                ("offset", ctypes.c_int64),
+                ("shape", ctypes.c_int64 * rank),
+                ("strides", ctypes.c_int64 * rank),
+            ]
+
+        MemRefCType.__name__ = f"MemRefCType_{np.dtype(dtype).name}_{rank}d"
+        return MemRefCType
+
+    @functools.singledispatchmethod
+    @classmethod
+    def from_array(cls, array: Any, *, rank: int | None = None):
+        raise NotImplementedError("No casting for array of this type.")
+
+    @from_array.register(np.ndarray)
+    @classmethod
+    def _(cls, array: np.ndarray, *, rank: int | None = None):
+        """Wrap a numpy array, taking shape/strides from the array itself"""
+        shape = array.shape if rank is None or rank == array.ndim else (array.size,)
+        return cls._build(array.ctypes.data, shape, np.dtype(array.dtype))
+    
+    try:
+        import cupy as cp
+        @from_array.register(cp.ndarray)
+        @classmethod
+        def _(cls, array: cp.ndarray, *, rank: int | None = None):
+            """Wrap a CuPy array, taking shape/strides from the array itself"""
+            shape = array.shape if rank is None or rank == array.ndim else (array.size,)
+            return cls._build(array.data.ptr, shape, np.dtype(array.dtype))
+
+    except ImportError:
+        pass 
+
+    @classmethod
+    def _build(cls, address: int, shape: tuple[int, ...], dtype: np.dtype):
+        rank = len(shape)
+        struct_type = cls.ctype(rank, dtype)
+        elem_ctype = np.ctypeslib.as_ctypes_type(dtype)
+        ptr = ctypes.cast(ctypes.c_void_p(address), ctypes.POINTER(elem_ctype))
+
+        strides, acc = [], 1
+        for extent in reversed(shape):
+            strides.append(acc)
+            acc *= extent
+        strides.reverse()
+
+        return struct_type(
+            allocated=ptr,
+            aligned=ptr,
+            offset=0,
+            shape=(ctypes.c_int64 * rank)(*shape),
+            strides=(ctypes.c_int64 * rank)(*strides),
+        ) 
