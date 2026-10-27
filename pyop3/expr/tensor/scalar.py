@@ -81,7 +81,8 @@ class Scalar(Tensor):
     transform: ClassVar[None] = None
 
     def copy(self) -> Scalar:
-        name = f"{self.name}_copy"
+        # Arguments are replaced by name, so the copy needs a name of its own.
+        name = utils.maybe_generate_name(f"{self.name}_copy", None, None)
         buffer = self._buffer.copy()
         return self.record_new(_name=name, _buffer=buffer)
 

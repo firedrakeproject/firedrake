@@ -12,6 +12,7 @@ from petsc4py import PETSc
 
 import pyop3.cache
 import pyop3.record
+import pyop3.utils
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
 from pyop3.cache import cached_method
 from pyop3.exceptions import InvalidIndexCountException
@@ -271,7 +272,8 @@ class Tensor(TerminalExpression, abc.ABC):
             of the original object.
 
         """
-        name = f"{self.name}_copy"
+        # Arguments are replaced by name, so the copy needs a name of its own.
+        name = pyop3.utils.maybe_generate_name(f"{self.name}_copy", None, None)
         buffer = self.buffer.duplicate(copy=copy, constant=constant)
         return self.record_new(_name=name, _buffer=buffer)
 

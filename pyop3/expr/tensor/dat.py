@@ -352,7 +352,8 @@ class Dat(Tensor):
         if self.transform is not None:
             raise RuntimeError
 
-        name = f"{self.name}_copy"
+        # Arguments are replaced by name, so the copy needs a name of its own.
+        name = utils.maybe_generate_name(f"{self.name}_copy", None, None)
         buffer = self.buffer.duplicate(copy=copy, constant=constant)
         return self.record_new(name=name, buffer=buffer)
 
