@@ -315,7 +315,7 @@ def test_time_dependent_dirichlet_bc_from_other_space(reuse_bc):
 
         for i in range(nsteps):
             t = (i + 1)*dt
-            expr = amp*amp*sin(2*pi*t)*(x + y)
+            expr = amp*amp*amp*sin(2*pi*t)*(x + y)
             if reuse_bc:
                 g.interpolate(expr)
                 solver.solve()
@@ -331,7 +331,11 @@ def test_time_dependent_dirichlet_bc_from_other_space(reuse_bc):
     amp = Function(R, val=1.0)
     J0 = J(amp)
     rf = ReducedFunctional(J0, Control(amp))
-    assert taylor_test(rf, amp, Constant(0.1)) > 1.95
+    h = Function(R, val=0.1)
+    dJdm = rf.derivative()._ad_dot(h)
+    Hm = rf.hessian(h)._ad_dot(h)
+    assert taylor_test(rf, amp, h, dJdm=dJdm, Hm=Hm) > 2.9
+    assert taylor_test(rf, amp, h) > 1.95
 
 
 @pytest.mark.skipcomplex
