@@ -61,6 +61,9 @@ class HierarchyBase(object):
         Is this mesh hierarchy nested?
     redistribute :
         Redistribute adaptively refined meshes that have empty ranks?
+    coarse_facet_label : int or None
+        Optional subdomain ID used to label the facets of each coarse cell
+        on the next level. This is required by coarse-patch transfer.
     fine_to_coarse_points :
         Dict of numpy arrays for each level that was refined from the level
         below it. Each array maps fine DMPlex points to their coarse DMPlex
