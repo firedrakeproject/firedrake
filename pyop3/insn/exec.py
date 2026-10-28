@@ -33,6 +33,17 @@ from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
+# Groups of access intents used by CompiledCodeExecutor._buffer_exchanges.
+# They are built once here: a set display such as {READ, RW} in a function
+# body is built again on every evaluation, and every member is hashed through
+# the Python-level Enum.__hash__. That function runs for every buffer of every
+# kernel call, so this cost was noticeable.
+_INTENTS_NEEDING_VALID_DATA = frozenset({READ, RW, MAX_RW, MIN_RW})
+_REDUCTION_INTENTS = frozenset({INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE})
+_RW_REDUCTION_INTENTS = frozenset({MAX_RW, MIN_RW})
+_MIN_INTENTS = frozenset({MIN_WRITE, MIN_RW})
+_MAX_INTENTS = frozenset({MAX_WRITE, MAX_RW})
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
@@ -618,15 +629,39 @@ class CompiledCodeExecutor:
             }
             assert not new_buffers_for_intents
 
+            # Usually only a few of the buffers are replaced (the tensor
+            # assembled into and the coefficients), and the rest (layouts,
+            # maps) are the original ones. Only build a new buffer view for
+            # a replaced buffer. For an unchanged buffer the view is the
+            # original one, so its handle is read directly.
+            #
+            # The pointer of an unchanged array buffer is stored the first
+            # time it is needed (self._unchanged_pointers). The handle of an
+            # ArrayBuffer is its device array, which is allocated once for
+            # each device and then updated in place, so the pointer does not
+            # change (_default_exec_arguments relies on the same property).
+            # Matrix buffers are not stored, because the PETSc Mat inside a
+            # PetscMatBuffer can be replaced. Only the pointers of buffers
+            # that are used unchanged are computed, because an original buffer
+            # that is always replaced may no longer be valid.
             new_buffers_for_exec_args = dict(new_buffers)
-            exec_arguments = [
-                self._handle_to_pointer(
-                    buf_view.record_new(
-                        buffer=new_buffers_for_exec_args.pop(buf_view.buffer, buf_view.buffer)
-                    ).handle
-                )
-                for buf_view in self.kernel_name_to_buffer_info.values()
-            ]
+            handle_to_pointer = self._bound_handle_to_pointer
+            unchanged_pointers = self._unchanged_pointers
+            exec_arguments = []
+            for i, buf_view in enumerate(self.kernel_name_to_buffer_info.values()):
+                new_buffer = new_buffers_for_exec_args.pop(buf_view.buffer, None)
+                if new_buffer is None:
+                    try:
+                        pointer = unchanged_pointers[i]
+                    except KeyError:
+                        pointer = handle_to_pointer(buf_view.handle)
+                        if isinstance(buf_view.buffer, pyop3.buffer.ArrayBuffer):
+                            unchanged_pointers[i] = pointer
+                    exec_arguments.append(pointer)
+                else:
+                    exec_arguments.append(
+                        handle_to_pointer(buf_view.record_new(buffer=new_buffer).handle)
+                    )
             assert not new_buffers_for_exec_args
 
         # if "MatSetValues" in str(self) and "slate_wrapper" in str(self):
@@ -706,8 +741,9 @@ class CompiledCodeExecutor:
         reductions = []
         broadcasts = []
         finalizers = []
+        buffer_exchanges = self._bound_buffer_exchanges
         for buffer, intent in buffer_intents.items():
-            inits, reds, bcasts, fins = self._buffer_exchanges(buffer, intent)
+            inits, reds, bcasts, fins = buffer_exchanges(buffer, intent)
             initializers.extend(inits)
             reductions.extend(reds)
             broadcasts.extend(bcasts)
@@ -759,6 +795,23 @@ class CompiledCodeExecutor:
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
         return "", "<PetscMat>"
+
+    # In Python 3.13, every attribute access of a functools.singledispatchmethod
+    # builds a new function and calls functools.update_wrapper on it. These two
+    # methods are called once per buffer in every call of the executor, so they
+    # are bound once here and the bound functions are used in __call__.
+    @cached_property
+    def _unchanged_pointers(self) -> dict[int, int]:
+        """Pointers of unchanged buffers, by position in the argument list."""
+        return {}
+
+    @cached_property
+    def _bound_handle_to_pointer(self) -> Callable[[Any], int]:
+        return self._handle_to_pointer
+
+    @cached_property
+    def _bound_buffer_exchanges(self) -> Callable:
+        return self._buffer_exchanges
 
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
@@ -822,7 +875,7 @@ class CompiledCodeExecutor:
         # leaf points then we don't need to do a reduction. Along similar lines we could
         # also create custom SFs for different parloops depending on the access pattern.
 
-        if intent in {READ, RW, MAX_RW, MIN_RW}:
+        if intent in _INTENTS_NEEDING_VALID_DATA:
             # Make sure everything is up-to-date before we compute
             if not buffer._roots_valid:
                 initializers.append(buffer.sync_roots_begin)
@@ -843,12 +896,12 @@ class CompiledCodeExecutor:
             initializers.append(lambda: setattr(buffer, "_pending_reduction", None))
 
         # reductions
-        if intent in {INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE}:
+        if intent in _REDUCTION_INTENTS:
             # We don't need to update roots if performing the same reduction
             # again. For example we can increment into a buffer as many times
             # as we want. The reduction only needs to be done when the
             # data is read. This only applies to non-RW reductions.
-            if intent not in {MAX_RW, MIN_RW} and buffer._pending_reduction == intent:
+            if intent not in _RW_REDUCTION_INTENTS and buffer._pending_reduction == intent:
                 pass
             else:
                 # We assume that all points are visited, and therefore that
@@ -862,10 +915,10 @@ class CompiledCodeExecutor:
                 # set leaves to appropriate nil value
                 if intent == INC:
                     nil = 0
-                elif intent in {MIN_WRITE, MIN_RW}:
+                elif intent in _MIN_INTENTS:
                     nil = pyop3.dtypes.dtype_limits(buffer.dtype).max
                 else:
-                    assert intent in {MAX_WRITE, MAX_RW}
+                    assert intent in _MAX_INTENTS
                     nil = pyop3.dtypes.dtype_limits(buffer.dtype).min
 
                 def _init_nil():
