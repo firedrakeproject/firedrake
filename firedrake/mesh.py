@@ -2542,13 +2542,13 @@ class MeshTopology(AbstractMeshTopology):
             (A_dat, b_dat) indexed are by Firedrake cell number (owend and halo) and local facet number and
             store respectively the matrix and translation vector of each cell-to-cell reference coordinate transforms.
         """
-        from FIAT.reference_element import make_facet_neighbouring_cell_maps
-        num_facets = self.ufl_cell().num_facets
-        ref_dim = self.ufl_cell().topological_dimension
+        ref_cell = self.ufl_cell()
+        num_facets = ref_cell.num_facets
+        cell_dim = ref_cell.topological_dimension
 
         # Create local numpy buffers
-        A_transform = np.full((self.num_cells(), num_facets, ref_dim, ref_dim), np.nan)
-        b_transform = np.full((self.num_cells(), num_facets, ref_dim), np.nan)
+        A_transform = np.full((self.num_cells(), num_facets, cell_dim, cell_dim), np.nan)
+        b_transform = np.full((self.num_cells(), num_facets, cell_dim), np.nan)
 
         # Consider only the interior facets that this rank sees (owned + ghost)
         facet_cells = self._support_dat("interior_facet", only_owned=False).data_ro_with_halos
@@ -2562,15 +2562,15 @@ class MeshTopology(AbstractMeshTopology):
         o0, o1 = local_facet_orientations[known_facets].T
 
         ref_cell = FIAT.ufc_cell(self.ufl_cell())
-        A_table, b_table = make_facet_neighbouring_cell_maps(ref_cell)
+        A_table, b_table = ref_cell.facet_neighbour_coord_maps
 
         A_transform[c0, lf0] = A_table[lf0, lf1, o0, o1]
         b_transform[c0, lf0] = b_table[lf0, lf1, o0, o1]
         A_transform[c1, lf1] = A_table[lf1, lf0, o1, o0]
         b_transform[c1, lf1] = b_table[lf1, lf0, o1, o0]
 
-        A_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, ref_dim, ref_dim])
-        b_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, ref_dim])
+        A_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, cell_dim, cell_dim])
+        b_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, cell_dim])
 
         cell_facet_A = op3.Dat(A_axes, data=A_transform, name="cell-facet-coord-transforms-A-dat")
         cell_facet_b = op3.Dat(b_axes, data=b_transform, name="cell-facet-coord-transforms-b-dat")
