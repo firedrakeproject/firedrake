@@ -235,7 +235,7 @@ class BCBase:
     def zero(self, r):
         r"""Zero the boundary condition nodes on ``r``.
 
-        :arg r: a :class:`.Function` to which the
+        :arg r: a :class:`firedrake.function.Function` to which the
             boundary condition should be applied.
 
         """
@@ -254,7 +254,7 @@ class BCBase:
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
         r"""Set the boundary nodes to a prescribed (external) value.
-        :arg r: the :class:`Function` to which the value should be applied.
+        :arg r: the :class:`firedrake.function.Function` to which the value should be applied.
         :arg val: the prescribed value.
         """
 
@@ -315,7 +315,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the boundary condition values. This can be a :class:`.Function` on
+    :arg g: the boundary condition values. This can be a :class:`firedrake.function.Function` on
         ``V``, or a UFL expression that can be interpolated into
         ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a
@@ -451,14 +451,14 @@ class DirichletBC(BCBase, DirichletBCMixin):
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
 
-        :arg r: a :class:`.Function` or :class:`.Matrix` to which the
+        :arg r: a :class:`firedrake.function.Function` or :class:`.Matrix` to which the
             boundary condition should be applied.
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
             no effect if ``r`` is a :class:`.Matrix` rather than a
-            :class:`.Function` . If ``u`` is absent, then the boundary
+            :class:`firedrake.function.Function` . If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
 
@@ -514,11 +514,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self
 
 
-class EquationBC(object):
+class EquationBC:
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
 
     :param eq: the linear/nonlinear form equation
-    :param u: the :class:`.Function` to solve for
+    :param u: the :class:`firedrake.function.Function` to solve for
     :arg sub_domain: see :class:`.DirichletBC` .
     :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)

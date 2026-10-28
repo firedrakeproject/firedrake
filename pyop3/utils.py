@@ -22,7 +22,7 @@ import pyop3.config
 import pyop3.constants
 import pyop3.exceptions
 from pyop3.collections import unique  # noqa: F401
-from pyop3.dtypes import DTypeT, IntType
+from pyop3.dtypes import IntType
 from pyop3.exceptions import (
     UnhashableObjectException,
 )
@@ -308,7 +308,7 @@ def strict_floordiv(num: numbers.Number, fac):
     return num // fac
 
 
-def as_dtype(dtype: DTypeT | None, default: np.dtype) -> np.dtype:
+def as_dtype(dtype, default: np.dtype) -> np.dtype:
     return np.dtype(dtype) if dtype else default
 
 

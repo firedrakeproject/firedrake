@@ -323,7 +323,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     def sub(self, indices: tuple[int] | int) -> "Function":
-        """Extract the `i`th sub function of this function.
+        """Extract the i-th sub function of this function.
 
         If the `Function` is defined on a `~.VectorFunctionSpace` or
         `~.TensorFunctionSpace` this returns a proxy object indexing the 'i'th

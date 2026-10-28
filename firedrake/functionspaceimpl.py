@@ -2240,7 +2240,7 @@ class ProxyFunctionSpace(FunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+    r"""Can this proxy make :class:`pyop3.expr.tensor.dat.Dat` objects"""
 
     def collapse(self) -> "FunctionSpace":
         """Drop the proxy metadata, returning a plain function space.
@@ -2254,7 +2254,7 @@ class ProxyFunctionSpace(FunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.types.dat.Dat`.
+        r"""Create a :class:`pyop3.expr.tensor.dat.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """

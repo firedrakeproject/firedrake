@@ -363,13 +363,6 @@ class LoopIndex(AbstractLoopIndex):
 
 @pyop3.record.frozenrecord()
 class LoopContextFreeLoopIndex(AbstractLoopIndex, UnitIndex):
-    """
-    Parameters
-    ----------
-    iterset: AxisTree or ContextSensitiveAxisTree (!!!)
-        Only add context later on
-
-    """
 
     # {{{ instance attrs
 
@@ -595,63 +588,63 @@ class AbstractMap(pyop3.obj.Object):
 
 @pyop3.record.frozenrecord()
 class Map(AbstractMap):
-    """
-
-    Parameters
-    ----------
-    connectivity :
-        The mappings from input to output for the map. This must be provided as
-        an iterable of mappings because the map can both map from *entirely different*
-        indices (e.g. multi-component loops that expand to different
-        context-free indices) and *semantically equivalent* indices (e.g. a loop
-        over ``axes[subset].index()`` has two possible sets of paths and index
-        expressions and the map may map from one or both of these but the
-        result should be the same). Accordingly, the ``connectivity`` argument
-        should provide the different indices as different entries in the iterable,
-        and the equivalent indices as different entries in each mapping.
-
-        NOTE: I think this is dead now
-
-        In fact I think to understand the situation we need to consider the following:
-
-        closure(mesh.cells.index()) is hard because mesh.cells is an indexed view of mesh.points,
-        and so the loop index carries information on both about. We can feasibly have
-        closure(point) AND closure(cell) being separately valid mappings and we don't know
-        which we want until we have a target set of axes to make a choice. We therefore want
-        to propagate both for as long as possible.
-        We could similarly imagine a scenario where closure(cell) yields POINTS, not cells,
-        edges and vertices. What do we do then??? That is similar in that we get different
-        axis trees that we want to propagate to the end!
-
-        With this in mind, connectivity is therefore the map:
-
-        {
-            input_index_label: [
-                [*possible component outputs],
-                [*possible component outputs]
-            ]
-        }
-
-        for example, closure gives
-        {
-            points: [
-                [points],
-            ]
-            cells: [
-                [cells, edges, vertices],
-                [points],
-            ]
-            edges: [
-                [edges, vertices],
-                [points],
-            ]
-            ...
-        }
-
-        but this is really hard because indexing things now gives different AXIS TREES,
-        not just different expressions! Indexing therefore must produce an axis forest...
-
-    """
+    # """
+    #
+    # Parameters
+    # ----------
+    # connectivity :
+    #     The mappings from input to output for the map. This must be provided as
+    #     an iterable of mappings because the map can both map from *entirely different*
+    #     indices (e.g. multi-component loops that expand to different
+    #     context-free indices) and *semantically equivalent* indices (e.g. a loop
+    #     over ``axes[subset].index()`` has two possible sets of paths and index
+    #     expressions and the map may map from one or both of these but the
+    #     result should be the same). Accordingly, the ``connectivity`` argument
+    #     should provide the different indices as different entries in the iterable,
+    #     and the equivalent indices as different entries in each mapping.
+    #
+    #     NOTE: I think this is dead now
+    #
+    #     In fact I think to understand the situation we need to consider the following:
+    #
+    #     closure(mesh.cells.index()) is hard because mesh.cells is an indexed view of mesh.points,
+    #     and so the loop index carries information on both about. We can feasibly have
+    #     closure(point) AND closure(cell) being separately valid mappings and we don't know
+    #     which we want until we have a target set of axes to make a choice. We therefore want
+    #     to propagate both for as long as possible.
+    #     We could similarly imagine a scenario where closure(cell) yields POINTS, not cells,
+    #     edges and vertices. What do we do then??? That is similar in that we get different
+    #     axis trees that we want to propagate to the end!
+    #
+    #     With this in mind, connectivity is therefore the map:
+    #
+    #     {
+    #         input_index_label: [
+    #             [*possible component outputs],
+    #             [*possible component outputs]
+    #         ]
+    #     }
+    #
+    #     for example, closure gives
+    #     {
+    #         points: [
+    #             [points],
+    #         ]
+    #         cells: [
+    #             [cells, edges, vertices],
+    #             [points],
+    #         ]
+    #         edges: [
+    #             [edges, vertices],
+    #             [points],
+    #         ]
+    #         ...
+    #     }
+    #
+    #     but this is really hard because indexing things now gives different AXIS TREES,
+    #     not just different expressions! Indexing therefore must produce an axis forest...
+    #
+    # """
 
     connectivity: idict
 

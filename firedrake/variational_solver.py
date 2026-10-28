@@ -67,7 +67,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                  is_linear=False, restrict=False):
         r"""
         :param F: the nonlinear form
-        :param u: the :class:`.Function` to solve for
+        :param u: the :class:`firedrake.function.Function` to solve for
         :param bcs: the boundary conditions (optional)
         :param J: the Jacobian J = dF/du (optional)
         :param Jp: a form used for preconditioning the linear system,
@@ -186,7 +186,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         F
             The new residual form, defaults to the reconstructed original residual.
         u
-            The new solution :class:`.Function`, defaults to the mapped original solution.
+            The new solution :class:`firedrake.function.Function`, defaults to the mapped original solution.
         bcs
             The new boundary conditions, defaults to the reconstructed original bcs.
         J
@@ -375,7 +375,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
                The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
-               :class:`.Function` or :class:`.Cofunction` with positive
+               :class:`firedrake.function.Function` or :class:`.Cofunction` with positive
                values on cells to refine.
 
         Example usage of the ``solver_parameters`` option: to set the
@@ -498,7 +498,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         The callback is called as ``callback(ctx, u)`` when PETSc asks the
         solution DM to refine, where ``ctx`` is the current
         `_SNESContext`. It must return a DG0
-        :class:`.Function` or :class:`.Cofunction` on the current solution
+        :class:`firedrake.function.Function` or :class:`.Cofunction` on the current solution
         mesh, with positive values on cells to refine.
         """
         if not callable(callback):
@@ -529,14 +529,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ----------
         bounds : tuple of firedrake.function.Function
             Optional bounds on the solution, given as ``(lower, upper)``.
-            ``lower`` and ``upper`` must both be :class:`~.Function`\s.
+            ``lower`` and ``upper`` must both be :class:`firedrake.function.Function`\s.
 
         Returns
         -------
         firedrake.function.Function
             The (possibly adapted) solution. If the solver performed
             mesh adaptation during the solve, this is the solution
-            :class:`~.Function` on the adapted mesh, which may differ
+            :class:`firedrake.function.Function` on the adapted mesh, which may differ
             from the ``u`` that was passed in to the
             :class:`.NonlinearVariationalProblem`.
 
@@ -621,7 +621,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         r"""
         :param a: the bilinear form
         :param L: the linear form
-        :param u: the :class:`.Function` to which the solution will be assigned
+        :param u: the :class:`firedrake.function.Function` to which the solution will be assigned
         :param bcs: the boundary conditions (optional)
         :param aP: an optional operator to assemble to precondition
                  the system (if not provided a preconditioner may be

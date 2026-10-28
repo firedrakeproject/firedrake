@@ -22,7 +22,7 @@ from pyop3 import utils
 from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet
 from pyop3.device import Device, get_current_device, on_host
-from pyop3.dtypes import DTypeT, IntType, ScalarType
+from pyop3.dtypes import IntType, ScalarType
 from pyop3.sf import NullStarForest, StarForest
 from pyop3.utils import (
     readonly,
@@ -158,7 +158,7 @@ class NullBuffer(AbstractArrayBuffer):
     def __init__(
         self,
         shape: tuple[numbers.Integral, ...] | numbers.Integral,
-        dtype: DTypeT | None = None,
+        dtype=None,
         *,
         name: str | None = None,
         prefix: str | None = None,
@@ -435,7 +435,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # {{{ constructors
 
     @classmethod
-    def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
+    def empty(cls, shape, dtype=None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 

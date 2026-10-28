@@ -53,7 +53,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             Alternatively, another :class:`Cofunction` may be passed here and its function space
             will be used to build this :class:`Cofunction`.  In this
             case, the function values are copied.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop3.expr.tensor.dat.Dat`) providing initial values (optional).
             If val is an existing :class:`Cofunction`, then the data will be shared.
         :param name: user-defined name for this :class:`Cofunction` (optional).
         :param dtype: optional data type for this :class:`Cofunction`
@@ -183,9 +183,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         Parameters
         ----------
-        subset : pyop2.types.set.Subset
-                 A subset of the domain indicating the nodes to zero.
-                 If `None` then the whole function is zeroed.
+        subset
+             A subset of the domain indicating the nodes to zero.
+             If `None` then the whole function is zeroed.
 
         Returns
         -------
@@ -203,9 +203,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         ----------
         expr : ufl.form.BaseForm
             Expression to be assigned.
-        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
-            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
-            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed cofunction.
+        subset
+            Subset of values to assign to.
         expr_from_assemble : bool
             Flag indicating whether the expression results from an assemble operation
             performed within the current method. Required for the `CofunctionAssignBlock`.
@@ -409,7 +408,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
     @property
     def cell_set(self):
-        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
+        r"""The :class:`pyop3.axis_tree.tree.IndexedAxisTree` of cells for the mesh on which this
         :class:`Cofunction` is defined."""
         return self.function_space()._mesh.cell_set
 
