@@ -107,7 +107,7 @@ class InterpolateOptions:
     default_missing_val: float | None = None
 
 
-def split_mixed_coefficients(expr: Expr) -> Expr:
+def _split_mixed_coefficients(expr: Expr) -> Expr:
     replacements = {
         c: as_vector([
             sub[i]
@@ -198,7 +198,7 @@ class Interpolate(UFLInterpolate):
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
-            split_operand = split_mixed_coefficients(operand)
+            split_operand = _split_mixed_coefficients(operand)
             if split_operand != operand:
                 return get_interpolator(self._ufl_expr_reconstruct_(split_operand))
             if has_mixed_arguments or len(self.target_space) > 1:
@@ -626,11 +626,12 @@ class CrossMeshInterpolator(Interpolator):
                     source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
                         I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
-                        res = assemble(action(I, self._interpolate_from_quadrature)).petscmat
+                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
                         I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
-                        res = assemble(action(self._interpolate_from_quadrature, I)).petscmat
-                return res
+                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
+                else:
+                    return res
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1

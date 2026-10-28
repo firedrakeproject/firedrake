@@ -398,7 +398,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 integral_types.update(("interior_facet_vert", "interior_facet_horiz"))
             else:
                 integral_types.add("interior_facet")
-        return tuple(integral_types)
+        return tuple(sorted(integral_types))
 
     @staticmethod
     def _as_pyop2_type(tensor, indices=None):
@@ -504,10 +504,11 @@ class BaseFormAssembler(AbstractFormAssembler):
                         petsc_mat.mult(v_vec, res_vec)
                     return res
                 elif isinstance(rhs, MatrixBase):
-                    result = tensor.petscmat if tensor else PETSc.Mat()
-                    lhs.petscmat.matMult(rhs.petscmat, result=result)
+                    result = lhs.petscmat.matMult(rhs.petscmat)
                     if tensor is None:
                         tensor = Matrix(expr, result, bcs=bcs, options_prefix=self._options_prefix)
+                    else:
+                        result.copy(tensor.petscmat, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
                     return tensor
                 else:
                     raise TypeError("Incompatible RHS for Action.")
