@@ -1196,8 +1196,15 @@ class ZeroFormAssembler(ParloopFormAssembler):
     """Diagonal assembly not possible for zero forms."""
 
     @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        return
+    def _cache_key(cls, form, form_compiler_parameters=None, pyop3_compiler_parameters=None):
+        # Reuse the assembler of a form (see FormAssembler.__new__). A zero
+        # form has no boundary conditions, and the output scalar is passed to
+        # the cached loops by name on each call, as for one forms. Without
+        # this, each assemble(form) of the same scalar form builds new loops,
+        # and pyop3 computes the cache key of each new loop instruction again,
+        # which costs milliseconds. Diagnostics assemble the same scalar forms
+        # in every time step.
+        return tuplify(form_compiler_parameters), tuplify(pyop3_compiler_parameters)
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, form_compiler_parameters=None, pyop3_compiler_parameters=None):
