@@ -1,11 +1,8 @@
 import numpy
 import string
 from collections import defaultdict
-from pyop2 import op2
-from pyop2.utils import as_tuple
-from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType
-from firedrake.functionspacedata import entity_dofs_key
-from firedrake.functionspaceimpl import FiredrakeDualSpace
+from firedrake.utils import IntType, as_cstr, complex_mode, ScalarType, as_tuple
+from firedrake.functionspaceimpl import FiredrakeDualSpace, entity_dofs_key
 from firedrake.mg import utils
 
 from ufl.algorithms import estimate_total_polynomial_degree
@@ -20,6 +17,7 @@ import gem.impero_utils as impero_utils
 
 import ufl
 import tsfc
+import pyop3 as op3
 
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 
@@ -127,7 +125,7 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
     kernel = compile_expression_dual_evaluation(expression,
                                                 ufl_element,
                                                 parameters=parameters,
-                                                name="pyop2_kernel_"+name)
+                                                name="pyop3_kernel_"+name)
     return kernel
 
 
@@ -158,18 +156,12 @@ def prolong_kernel(expression, Vf):
     Vc = expression.ufl_function_space()
     hierarchy, levelf = utils.get_level(Vf.mesh())
     hierarchy, levelc = utils.get_level(Vc.mesh())
-    if Vc.mesh().extruded:
-        assert Vf.mesh().extruded
-        level_ratio = (Vc.mesh().layers - 1) // (Vf.mesh().layers - 1)
-    else:
-        level_ratio = 1
     if levelf > levelc:
         # prolong
         ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
     else:
         # inject
         ncandidate = hierarchy.coarse_to_fine_cells[levelf].shape[1]
-        ncandidate *= level_ratio
     coordinates = Vc.mesh().coordinates
     key = (("prolong", ncandidate)
            + (Vf.block_size,)
@@ -187,17 +179,137 @@ def prolong_kernel(expression, Vf):
         element = create_element(expression.ufl_element())
         num_verts = len(element.cell.get_vertices())
 
-        kernel_code = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_prolong(PetscScalar *R, PetscScalar *f, const PetscScalar *X, const PetscScalar *Xc
-                                         %(cell_orient)s%(cell_sizes)s)
-        {
+        kernel_code = """
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
             double bestdist = 1e10;
+            for (int i = 0; i < %(ncandidate)d; i++) {
+                const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
+                double celldist = 2*bestdist;
+                to_reference_coords_kernel(Xref, X, Xci);
+                if (%(inside_cell)s) {
+                    cell = i;
+                    break;
+                }
+
+                celldist = %(celldist_l1_c_expr)s;
+                if (celldist < bestdist) {
+                    bestdist = celldist;
+                    bestcell = i;
+                }
+            }
+            if (cell == -1) {
+                /* We didn't find a cell that contained this point exactly.
+                   Did we find one that was close enough? */
+                if (bestdist < 10) {
+                    cell = bestcell;
+                } else {
+                    fprintf(stderr, "Could not identify cell in transfer operator. Point: ");
+                    for (int coord = 0; coord < %(tdim)s; coord++) {
+                      fprintf(stderr, "%%.14e ", X[coord]);
+                    }
+                    fprintf(stderr, "\\n");
+                    fprintf(stderr, "Number of candidates: %%d. Best distance located: %%14e", %(ncandidate)d, bestdist);
+                    abort();
+                }
+            }
+            const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
+            const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
+            for ( int i = 0; i < %(Rdim)d; i++ ) {
+                R[i] = 0;
+            }
+            pyop3_kernel_evaluate(%(kernel_args)s);
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
+               "ncandidate": ncandidate,
+               "Rdim": Vf.block_size,
+               "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
+               "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
+               "Xc_cell_inc": coords_element.space_dimension(),
+               "coarse_cell_inc": element.space_dimension(),
+               "tdim": element.cell.get_spatial_dimension()}
+
+        # Now build a pyop3 function wrapping this
+        kernel_args = [
+            ("R", ScalarType, op3.WRITE),
+            ("f", ScalarType, op3.READ),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append(("co", ScalarType, op3.READ))
+        if kernel.needs_cell_sizes:
+            kernel_args.append(("cs", ScalarType, op3.READ))
+        func = op3.Function.from_c_string(
+            "pyop3_kernel_prolong",
+            kernel_code,
+            kernel_args,
+            preambles=[
+                ("20_to_reference_kernel", str(to_reference_kernel)),
+                ("20_eval", evaluate_code),
+            ],
+        )
+
+        return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
+
+
+def prolong_matrix_kernel(Vc, Vf):
+    """Return a PyOP2 kernel that assembles the local prolongation matrices mapping Vc to Vf.
+
+    Parameters
+    ----------
+    Vc : WithGeometry
+        The source (coarse grid) function space.
+    Vf : WithGeometry
+        The target (fine grid) function space.
+
+    Returns
+    -------
+    pyop2.op2.Kernel
+        A kernel that fills in the local dense matrix of the point evaluation
+        prolongation operator, for each fine grid cell and its overlapping
+        coarse grid cells.
+
+    """
+    hierarchy, levelf = utils.get_level(Vf.mesh())
+    hierarchy, levelc = utils.get_level(Vc.mesh())
+    if levelf <= levelc:
+        raise ValueError("Can only build hierarchy interpolation matrices from coarse to fine spaces")
+    ncandidate = hierarchy.fine_to_coarse_cells[levelf].shape[1]
+    coordinates = Vc.mesh().coordinates
+    key = (("prolong_matrix", ncandidate)
+           + (Vf.block_size,)
+           + _make_element_key(Vf.finat_element)
+           + _make_element_key(Vc.finat_element)
+           + _make_element_key(coordinates.function_space().finat_element))
+    cache = hierarchy._shared_data_cache["transfer_kernels"]
+    try:
+        return cache[key]
+    except KeyError:
+        kernel = dual_evaluation_kernel(ufl.TrialFunction(Vc), ufl.TestFunction(Vf.dual()))
+        evaluate_code = lp.generate_code_v2(kernel.ast).device_code()
+        to_reference_kernel = to_reference_coordinates(coordinates.ufl_element())
+        coords_element = create_element(coordinates.ufl_element())
+        element = create_element(Vc.ufl_element())
+        num_verts = len(element.cell.get_vertices())
+        row_dim = Vf.block_size
+        source_cell_inc = element.space_dimension()
+        source_stencil_inc = ncandidate * source_cell_inc
+        local_tensor_size = row_dim * source_stencil_inc
+        cell_tensor_size = row_dim * source_cell_inc
+
+        kernel_code = """
+            PetscScalar Xref[%(tdim)d];
+            PetscScalar B[%(cell_tensor_size)d];
+            int cell = -1;
+            int bestcell = -1;
+            double bestdist = 1e10;
+            for (int i = 0; i < %(local_tensor_size)d; i++) {
+                A[i] = 0;
+            }
+            for (int i = 0; i < %(cell_tensor_size)d; i++) {
+                B[i] = 0;
+            }
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
                 double celldist = 2*bestdist;
@@ -229,30 +341,46 @@ def prolong_kernel(expression, Vf):
                     abort();
                 }
             }
-            const PetscScalar *fi = f + cell*%(coarse_cell_inc)d;
             const PetscScalar *Xci = Xc + cell*%(Xc_cell_inc)d;
-            for ( int i = 0; i < %(Rdim)d; i++ ) {
-                R[i] = 0;
+            pyop3_kernel_evaluate(%(kernel_args)s);
+            for (int i = 0; i < %(row_dim)d; i++) {
+                for (int j = 0; j < %(source_cell_inc)d; j++) {
+                    A[i*%(source_stencil_inc)d + cell*%(source_cell_inc)d + j] =
+                        B[i*%(source_cell_inc)d + j];
+                }
             }
-            pyop2_kernel_evaluate(%(kernel_args)s);
-        }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
-               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "R", "co+cell", f"cs+cell*{num_verts}", "Xci", "fi", "Xref"),
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "B", "co+cell", f"cs+cell*{num_verts}", "Xci", "Xref"),
                "ncandidate": ncandidate,
-               "Rdim": Vf.block_size,
+               "row_dim": row_dim,
+               "source_cell_inc": source_cell_inc,
+               "source_stencil_inc": source_stencil_inc,
+               "cell_tensor_size": cell_tensor_size,
+               "local_tensor_size": local_tensor_size,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
                "Xc_cell_inc": coords_element.space_dimension(),
-               "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_prolong")
-        transfer_kernel.oriented = kernel.oriented
-        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
-        return cache.setdefault(key, transfer_kernel)
+        kernel_args = [
+            ("A", ScalarType, op3.INC),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append("co", ScalarType, op3.READ),
+        if kernel.needs_cell_sizes:
+            kernel_args.append("cs", ScalarType, op3.READ),
+
+        transfer_kernel = op3.Function.from_c_string(
+            "pyop3_kernel_prolong_matrix",
+            kernel_code,
+            kernel_args,
+            preambles=[
+                ("20_to_reference_kernel", str(to_reference_kernel)),
+                ("20_eval", evaluate_code),
+            ],
+        )
+        return cache.setdefault(key, (transfer_kernel, kernel.oriented, kernel.needs_cell_sizes))
 
 
 def restrict_kernel(Vf, Vc):
@@ -278,14 +406,7 @@ def restrict_kernel(Vf, Vc):
         element = create_element(Vc.ufl_element())
         num_verts = len(element.cell.get_vertices())
 
-        kernel_code = """#include <petsc.h>
-        %(to_reference)s
-        %(evaluate)s
-
-        __attribute__((noinline)) /* Clang bug */
-        static void pyop2_kernel_restrict(PetscScalar *R, PetscScalar *b, const PetscScalar *X, const PetscScalar *Xc
-                                          %(cell_orient)s%(cell_sizes)s)
-        {
+        kernel_code = """
             PetscScalar Xref[%(tdim)d];
             int cell = -1;
             int bestcell = -1;
@@ -293,6 +414,7 @@ def restrict_kernel(Vf, Vc):
             for (int i = 0; i < %(ncandidate)d; i++) {
                 const PetscScalar *Xci = Xc + i*%(Xc_cell_inc)d;
                 double celldist = 2*bestdist;
+
                 to_reference_coords_kernel(Xref, X, Xci);
                 if (%(inside_cell)s) {
                     cell = i;
@@ -325,14 +447,9 @@ def restrict_kernel(Vf, Vc):
 
             {
             const PetscScalar *Ri = R + cell*%(coarse_cell_inc)d;
-            pyop2_kernel_evaluate(%(kernel_args)s);
+            pyop3_kernel_evaluate(%(kernel_args)s);
             }
-        }
-        """ % {"to_reference": str(to_reference_kernel),
-               "evaluate": evaluate_code,
-               "cell_orient": ", const PetscScalar *co" if kernel.oriented else "",
-               "cell_sizes": ", const PetscScalar *cs" if kernel.needs_cell_sizes else "",
-               "kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
+        """ % {"kernel_args": _make_kernel_args(kernel, element, "Ri", "co+cell", f"cs+cell*{num_verts}", "Xc", "b", "Xref"),
                "ncandidate": ncandidate,
                "inside_cell": inside_check(element.cell, eps=1e-8, X="Xref"),
                "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, X="Xref"),
@@ -340,21 +457,34 @@ def restrict_kernel(Vf, Vc):
                "coarse_cell_inc": element.space_dimension(),
                "tdim": element.cell.get_spatial_dimension()}
 
-        transfer_kernel = op2.Kernel(kernel_code, name="pyop2_kernel_restrict")
-        transfer_kernel.oriented = kernel.oriented
-        transfer_kernel.needs_cell_sizes = kernel.needs_cell_sizes
-        return cache.setdefault(key, transfer_kernel)
+        # Now build a pyop3 function wrapping this
+        kernel_args = [
+            ("R", ScalarType, op3.INC),
+            ("b", ScalarType, op3.READ),
+            ("X", ScalarType, op3.READ),
+            ("Xc", ScalarType, op3.READ),
+        ]
+        if kernel.oriented:
+            kernel_args.append(("co", ScalarType, op3.READ))
+        if kernel.needs_cell_sizes:
+            kernel_args.append(("cs", ScalarType, op3.READ))
+        func = op3.Function.from_c_string(
+            "pyop3_kernel_restrict",
+            kernel_code,
+            kernel_args,
+            preambles=[
+                ("20_to_reference_kernel", str(to_reference_kernel)),
+                ("20_eval", evaluate_code),
+            ],
+        )
+
+        return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
 
 
 def inject_kernel(Vf, Vc):
     if Vc.finat_element.is_dg():
         hierarchy, level = utils.get_level(Vc.mesh())
-        if Vf.extruded:
-            assert Vc.extruded
-            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-        else:
-            level_ratio = 1
-        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1] * level_ratio
+        ncandidate = hierarchy.coarse_to_fine_cells[level].shape[1]
         key = (("inject", ncandidate)
                + (Vf.block_size,)
                + entity_dofs_key(Vc.finat_element.complex.get_topology())
@@ -367,7 +497,7 @@ def inject_kernel(Vf, Vc):
         try:
             return cache[key]
         except KeyError:
-            return cache.setdefault(key, (dg_injection_kernel(Vf, Vc, ncandidate), True))
+            return cache.setdefault(key, ((dg_injection_kernel(Vf, Vc, ncandidate), False, False), True))
     else:
         expression = ufl.Coefficient(Vf)
         return (prolong_kernel(expression, Vc), False)
@@ -419,8 +549,6 @@ class MacroKernelBuilder(firedrake_interface.KernelBuilderBase):
 def dg_injection_kernel(Vf, Vc, ncell):
     from firedrake import Tensor, AssembledVector, TestFunction, TrialFunction
     from firedrake.slate.slac import compile_expression
-    if complex_mode:
-        raise NotImplementedError("In complex mode we are waiting for Slate")
     macro_builder = MacroKernelBuilder(ScalarType, ncell)
     macro_builder._domain_integral_type_map = {Vf.mesh(): "cell"}
     macro_builder._entity_ids = {Vf.mesh(): (0,)}
@@ -603,7 +731,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     ]
     eval_kernel, _ = generate_loopy(
         impero_c, eval_args,
-        ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+        ScalarType, kernel_name="pyop3_kernel_evaluate", index_names=index_names)
 
     # The coarse cell's children come first in its row of
     # coarse_cell_to_fine_node_map. Skip the slots after them, which only
@@ -618,7 +746,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     subkernels.append(eval_kernel)
 
     fill_insn, extra_domains = _generate_call_insn(
-        "pyop2_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
+        "pyop3_kernel_evaluate", eval_args, iname_prefix="fill", id="fill",
         depends_on=depends_on, within_inames_is_final=True)
     instructions.append(fill_insn)
     domains.extend(extra_domains)
@@ -648,14 +776,17 @@ def dg_injection_kernel(Vf, Vc, ncell):
     domains.extend(extra_domains)
     depends_on |= {inv_insn.id}
 
-    kernel_name = "pyop2_kernel_injection_dg"
+    kernel_name = "pyop3_kernel_injection_dg"
     kernel = lp.make_kernel(
         domains, instructions, kernel_data, name=kernel_name,
         target=tsfc.parameters.target, lang_version=(2018, 2))
-    kernel = lp.merge([kernel, *subkernels]).with_entrypoints({kernel_name})
-    return op2.Kernel(
-        kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-        headers=Ainv.headers, events=Ainv.events)
+    kernel = lp.merge([kernel, *subkernels]).with_entrypoints(kernel_name)
+
+    # return op2.Kernel(
+    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
+    #     headers=Ainv.headers, events=Ainv.events)
+    kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
+    return op3.Function(kernel, kernel_intents)
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

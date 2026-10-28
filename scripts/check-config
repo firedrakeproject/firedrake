@@ -8,8 +8,10 @@ of hardcoded values (via CI).
 
 """
 
+import argparse
 import pathlib
 import re
+from typing import Literal
 
 
 REPO_ROOT = pathlib.Path(__file__).parent.parent
@@ -19,11 +21,14 @@ class InvalidConfigurationException(Exception):
     pass
 
 
-def main():
+def main(mode: Literal["main", "release"]) -> None:
     check_min_python_version()
-    check_petsc_version()
-    check_slepc_version()
-    check_petsc_version_spec()
+
+    # We use a dev version of PETSc+SLEPc for main, so these checks aren't useful
+    if mode == "release":
+        check_petsc_version()
+        check_slepc_version()
+        check_petsc_version_spec()
 
 
 def check_min_python_version() -> None:
@@ -109,4 +114,7 @@ def check_file_contains_pattern(
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("mode", choices=["main", "release"])
+    args = parser.parse_args()
+    main(args.mode)

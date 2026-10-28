@@ -448,7 +448,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                 if parentdm.getAttr("__setup_hooks__"):
                     add_hook(parentdm, teardown=partial(pop_appctx, newdm, new_context))
 
-    ises = new_context._x.function_space()._ises
+    ises = new_context._x.function_space().field_ises
     new_context._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
     new_context.set_nullspace(new_context._nullspace, ises, transpose=False, near=False)
     new_context._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
@@ -458,44 +458,26 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     return new_context
 
 
-@_reconstruct.register(firedrake.slate.AssembledVector)
-def reconstruct_slate_assembled_vector(tensor, self, coefficient_mapping=None):
-    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
-    return type(tensor)(form)
-
-
 @_reconstruct.register(firedrake.slate.BlockAssembledVector)
 def reconstruct_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
     form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
-    block = self(tensor.block, self, coefficient_mapping=coefficient_mapping)
-    return type(tensor)(form, *block.children, block.indices)
+    block = self(tensor._block, self, coefficient_mapping=coefficient_mapping)
+    child, = block.children
+    return type(tensor)(form, child, block._indices)
 
 
-@_reconstruct.register(firedrake.slate.Block)
-def reconstruct_slate_block(tensor, self, coefficient_mapping=None):
-    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
-    return type(tensor)(*children, indices=tensor._indices)
-
-
-@_reconstruct.register(firedrake.slate.Factorization)
-def reconstruct_slate_factorization(tensor, self, coefficient_mapping=None):
-    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
-    return type(tensor)(*children, decomposition=tensor.decomposition)
-
-
-@_reconstruct.register(firedrake.slate.Tensor)
+@_reconstruct.register(firedrake.slate.TensorBase)
 def reconstruct_slate_tensor(tensor, self, coefficient_mapping=None):
+    if tensor.children:
+        children = (self(c, self, coefficient_mapping=coefficient_mapping)
+                    for c in tensor.children)
+        return tensor.reconstruct(*children)
+
     form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
-    return type(tensor)(form, diagonal=tensor.diagonal)
+    return tensor.reconstruct(form)
 
 
-@_reconstruct.register(firedrake.slate.TensorOp)
-def reconstruct_slate_tensor_op(tensor, self, coefficient_mapping=None):
-    children = (self(c, self, coefficient_mapping=coefficient_mapping) for c in tensor.children)
-    return type(tensor)(*children)
-
-
-class Interpolation(object):
+class Interpolation:
     def __init__(self, Vcoarse, Vfine, manager, cbcs=None, fbcs=None):
         self.cprimal = firedrake.Function(Vcoarse)
         self.fprimal = firedrake.Function(Vfine)
@@ -544,7 +526,7 @@ class Interpolation(object):
             w.axpy(1.0, y)
 
 
-class Injection(object):
+class Injection:
     def __init__(self, Vcoarse, Vfine, manager, cbcs=None):
         self.cfn = firedrake.Function(Vcoarse)
         self.ffn = firedrake.Function(Vfine)
@@ -576,8 +558,8 @@ def create_interpolation(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    row_size = V_f.dof_dset.layout_vec.getSizes()
-    col_size = V_c.dof_dset.layout_vec.getSizes()
+    row_size = V_f.template_vec.getSizes()
+    col_size = V_c.template_vec.getSizes()
     cbcs = tuple(cctx._problem.dirichlet_bcs())
     fbcs = tuple(fctx._problem.dirichlet_bcs())
 
@@ -605,8 +587,8 @@ def create_injection(dmc, dmf):
     V_c = cctx._problem.u_restrict.function_space()
     V_f = fctx._problem.u_restrict.function_space()
 
-    row_size = V_c.dof_dset.layout_vec.getSizes()
-    col_size = V_f.dof_dset.layout_vec.getSizes()
+    row_size = V_c.template_vec.getSizes()
+    col_size = V_f.template_vec.getSizes()
 
     if (V_c.ufl_element().family() == "Real"
             and V_f.ufl_element().family() == "Real"):
@@ -615,7 +597,7 @@ def create_injection(dmc, dmf):
         # PETSc will apply the transpose of the injection.
         # It does not make sense to implement Injection.multTranspose,
         # instead we return a concrete identity matrix.
-        dvec = V_c.dof_dset.layout_vec.duplicate()
+        dvec = V_c.template_vec.duplicate()
         dvec.set(1.0)
         return PETSc.Mat().createDiagonal(dvec)
 

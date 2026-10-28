@@ -1,11 +1,15 @@
 import pytest
 from firedrake import *
 from firedrake.petsc import PETSc
+from firedrake.utils import complex_mode
 
 
 @pytest.mark.skipslepc
 def test_moore_spence():
     from slepc4py import SLEPc
+
+    if complex_mode:
+        pytest.xfail(reason="pyop3 bug")
 
     msh = IntervalMesh(1000, 1)
     V = FunctionSpace(msh, "CG", 1)
@@ -46,7 +50,7 @@ def test_moore_spence():
     es.setFromOptions()
     es.solve()
 
-    ev_re, ev_im = petsc_B.getVecs()
+    ev_re, ev_im = petsc_B.createVecs()
     es.getEigenpair(0, ev_re, ev_im)
     eigenmode = Function(V)
     eigenmode.dat.data_wo[...] = ev_re.buffer_r

@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.bcs import restricted_function_space
 from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual, is_primal
 
@@ -47,27 +48,6 @@ def dual(request):
     return request.param == "dual"
 
 
-def test_function_space_cached(mesh):
-    "FunctionSpaces defined on the same mesh and element are cached."
-    assert FunctionSpace(mesh, "CG", 1) == FunctionSpace(mesh, "CG", 1)
-    assert FunctionSpace(mesh, "CG", 1).topological == FunctionSpace(mesh, "CG", 1).topological
-    assert FunctionSpace(mesh, "CG", 1)._shared_data == FunctionSpace(mesh, "CG", 1)._shared_data
-
-
-def test_function_spaces_shared_data(mesh):
-    V = FunctionSpace(mesh, "CG", 1)
-    Q = VectorFunctionSpace(mesh, "Lagrange", 1)
-    assert V != Q
-    assert V.topological != Q.topological
-    assert V._shared_data == Q._shared_data
-    assert V.node_set is Q.node_set
-    assert V.dof_dset != Q.dof_dset
-    V_data = V._shared_data
-    Q_data = Q._shared_data
-    assert V_data.global_numbering is Q_data.global_numbering
-    assert V_data.map_cache is Q_data.map_cache
-
-
 def test_function_space_different_mesh_differ(mesh, mesh2):
     "FunctionSpaces defined on different meshes differ."
     assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh2, "CG", 1)
@@ -109,6 +89,34 @@ def test_mixed_function_space_split(fs):
 
 def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
+
+
+@pytest.mark.parametrize("restrict", [False, True])
+def test_collapsed_subspace_argument_hash(restrict):
+    # UFL hashes Arguments by repr, so collapsing a subspace must drop the
+    # proxy metadata that FunctionSpace.__eq__ ignores. Otherwise a collapsed
+    # subspace and the equal plain space carry Arguments that compare equal
+    # but hash apart, and replace() silently fails to substitute.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, MixedElement([FiniteElement("CG", triangle, 1),
+                                          FiniteElement("DG", triangle, 0)]))
+    if restrict:
+        V = restricted_function_space(V, [{"on_boundary"}, frozenset()])
+
+    for Vsub in V:
+        W = Vsub.collapse()
+        P = FunctionSpace(mesh, Vsub.ufl_element())
+        if Vsub.boundary_set:
+            P = RestrictedFunctionSpace(P, boundary_set=Vsub.boundary_set)
+        assert W == P
+        assert repr(W) == repr(P)
+        assert hash(W) == hash(P)
+
+        u, w = TrialFunction(P), TrialFunction(W)
+        assert u == w and hash(u) == hash(w)
+        # The substitution must actually reach into the form.
+        a = replace(inner(u, TestFunction(P)) * dx, {u: w})
+        assert a.arguments()[1] is w
 
 
 @pytest.mark.parametrize("space",
@@ -291,7 +299,7 @@ def test_reconstruct_component(space, dg0, rt1, mesh, mesh2, dual):
         assert V2.mesh() == mesh2
         assert V1.ufl_element() == V2.ufl_element()
         assert V1.index == V2.index
-        assert V1.component == V2.component == component
+        assert V1.component == V2.component == (component,)
 
 
 def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
@@ -307,12 +315,140 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             assert V1.mesh() == mesh
             assert V2.mesh() == mesh2
             assert V1.ufl_element() == V2.ufl_element()
-            assert V1.component == V2.component == component
+            assert V1.component == V2.component == (component,)
             assert V1.parent is not None and V2.parent is not None
             assert is_dual(V1.parent) == is_dual(V2.parent) == dual
             assert is_primal(V1.parent) == is_primal(V2.parent) != dual
             assert V1.parent.ufl_element() == V2.parent.ufl_element()
             assert V1.parent.index == V2.parent.index == index
+
+
+# TODO
+# class TestFunctionSpaceLayout:
+#
+#     @pytest.fixture(scope="class")
+#     def mesh(self):
+#         return UnitIntervalMesh(3)
+#
+#     @staticmethod
+#     def flatten_axis_labels(axis_tree):
+#         return tuple(axis.label for axis in axis_tree.nodes)
+#
+#     def check_space_layout(self, space, layout_labels, indexed_labels):
+#         assert self.flatten_axis_labels(space.layout_axes) == layout_labels
+#         assert self.flatten_axis_labels(space.axes) == indexed_labels
+#
+#     @pytest.mark.parametrize(
+#         ["layout", "layout_labels"],
+#         [
+#             [(), ("mesh", "dof")],
+#         ],
+#     )
+#     def test_scalar(self, mesh, layout, layout_labels):
+#         indexed_labels = ("firedrake_default_topology", "dof1", "dof0")
+#         space = FunctionSpace(mesh, "CG", 1, layout=layout)
+#         self.check_space_layout(space, layout_labels, indexed_labels)
+#
+#     @pytest.mark.parametrize(
+#         ["layout", "layout_labels"],
+#         [
+#             [(), ("mesh", "dof", "dim0")],
+#             [("dim0",), ("dim0", "mesh", "dof")],
+#         ],
+#     )
+#     def test_vector(self, mesh, layout, layout_labels):
+#         indexed_labels = ("firedrake_default_topology", "dof1", "dim0", "dof0", "dim0")
+#
+#         vector_space = VectorFunctionSpace(mesh, "CG", 1, layout=layout)
+#         self.check_space_layout(vector_space, layout_labels, indexed_labels)
+#
+#     @pytest.mark.parametrize(
+#         ["layout", "layout_labels"],
+#         [
+#             [(), ("field", "mesh", "dof", "mesh", "dof")],
+#             [("mesh",), ("mesh", "field", "dof", "dof")],
+#             # This is only valid because the subspaces match
+#             # FIXME: currently fails because the axes aren't quite identical
+#             # TODO: Test this, should now work
+#             # [("mesh", "dof"), ("mesh", "dof", "field")],
+#             # Invalid configurations
+#             [("dof",), None],
+#             [("badlabel",), None],
+#         ],
+#     )
+#     def test_mixed_same_subspaces(self, mesh, layout, layout_labels):
+#         cg1_space = FunctionSpace(mesh, "CG", 1)
+#
+#         mixed_space = MixedFunctionSpace([cg1_space, cg1_space], layout=layout)
+#         indexed_labels = (
+#             "field",
+#             "firedrake_default_topology",
+#             "dof1",
+#             "dof0",
+#             "firedrake_default_topology",
+#             "dof1",
+#             "dof0",
+#         )
+#
+#         if layout_labels is None:  # invalid configuration
+#             with pytest.raises(InvalidFunctionSpaceLayoutException):
+#                 self.check_space_layout(mixed_space, layout_labels, indexed_labels)
+#         else:
+#             self.check_space_layout(mixed_space, layout_labels, indexed_labels)
+#
+#     @pytest.mark.parametrize(
+#         ["layout", "layout_labels"],
+#         [
+#             [(), ("field", "mesh", "dof", "dim0", "mesh", "dof")],
+#             [("mesh",), ("mesh", "field", "dof", "dim0", "dof")],
+#         ],
+#     )
+#     def test_mixed_with_vector_subspace(self, mesh, layout, layout_labels):
+#         indexed_labels = (
+#             "field",
+#             "firedrake_default_topology",
+#             "dof1",
+#             "dim0",
+#             "dof0",
+#             "dim0",
+#             "firedrake_default_topology",
+#             "dof1",
+#             "dof0",
+#         )
+#
+#         vector_space = VectorFunctionSpace(mesh, "CG", 1)
+#         scalar_space = FunctionSpace(mesh, "CG", 1)
+#         mixed_space = MixedFunctionSpace([vector_space, scalar_space], layout=layout)
+#         self.check_space_layout(mixed_space, layout_labels, indexed_labels)
+#
+#     @pytest.mark.parametrize(
+#         ["layout", "layout_labels"],
+#         [
+#             [(), ("field", "mesh", "dof", "dof")],
+#             [("mesh",), None],
+#         ],
+#     )
+#     def test_mixed_real(self, mesh, layout, layout_labels):
+#         cg1_space = FunctionSpace(mesh, "CG", 1)
+#         real_space = FunctionSpace(mesh, "R", 0)
+#         mixed_space = MixedFunctionSpace([cg1_space, real_space], layout=layout)
+#
+#         # '.axes' for Real spaces think that they are just a DG0 space
+#         indexed_labels = (
+#             "field",
+#             "firedrake_default_topology",
+#             "dof1",
+#             "dof0",
+#             "firedrake_default_topology",
+#             "dof1",
+#             "dof0",
+#         )
+#
+#         if layout_labels is None:  # invalid configuration
+#             with pytest.raises(InvalidFunctionSpaceLayoutException):
+#                 self.check_space_layout(mixed_space, layout_labels, indexed_labels)
+#         else:
+#             self.check_space_layout(mixed_space, layout_labels, indexed_labels)
 
 
 @pytest.mark.parametrize("family", ("CG", "BDM", "DG"))

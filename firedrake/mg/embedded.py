@@ -6,6 +6,7 @@ import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
+from .interface import assemble_prolongation_aij
 from finat.element_factory import create_element
 from .utils import get_level
 
@@ -34,21 +35,26 @@ class TransferManager(object):
             self._work_vec = {}
             self._V_dof_weights = {}
 
-    def __init__(self, *, native_transfers=None, use_averaging=True):
-        """
-        An object for managing transfers between levels in a multigrid
-        hierarchy (possibly via embedding in DG spaces).
+    def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree"):
+        """Manage transfers between levels in a multigrid hierarchy.
 
-        :arg native_transfers: dict mapping UFL element
-           to "natively supported" transfer operators. This should be
-           a three-tuple of (prolong, restrict, inject).
-        :arg use_averaging: Use averaging to approximate the
-           projection out of the embedded DG space? If False, a global
-           L2 projection will be performed.
+        Parameters
+        ----------
+        native_transfers : dict
+            A mapping from UFL elements to natively supported transfer
+            operators. Each value must be a three-tuple containing the
+            prolong, restrict, and inject operators.
+        use_averaging : bool
+            Whether to use averaging to approximate the projection out of an
+            embedded DG space. If false, perform a global L2 projection.
+        mat_type : str
+            The matrix assembly type for prolongation and restriction.
         """
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
         self.caches = {}
+        self.mat_type = mat_type
+        self._mat_cache = {}
 
     def is_native(self, element, gdim, op):
         if element in self.native_transfers:
@@ -80,7 +86,12 @@ class TransferManager(object):
             return self.native_transfers[element][op]
         except KeyError:
             if self.is_native(element, gdim, op):
-                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                if self.mat_type == "aij":
+                    ops = self._prolong_aij, self._restrict_aij, firedrake.inject
+                elif self.mat_type == "matfree":
+                    ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                else:
+                    raise ValueError(f"Unsupported mat_type {self.mat_type}")
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 
@@ -218,13 +229,13 @@ class TransferManager(object):
         try:
             return cache._work_vec[key]
         except KeyError:
-            return cache._work_vec.setdefault(key, V.dof_dset.layout_vec.duplicate())
+            return cache._work_vec.setdefault(key, V.template_vec.duplicate())
 
     def requires_transfer(self, V, transfer_op, source, target):
         """Determine whether either the source or target have been modified since
         the last time a grid transfer was executed with them."""
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
-        dat_versions = (source.dat.dat_version, target.dat.dat_version)
+        dat_versions = (source.dat.buffer.state, target.dat.buffer.state)
         try:
             return self.cache(V)._dat_versions[key] != dat_versions
         except KeyError:
@@ -233,7 +244,7 @@ class TransferManager(object):
     def cache_dat_versions(self, V, transfer_op, source, target):
         """Record the returned dat_versions of the source and target."""
         key = (transfer_op, weakref.ref(source.dat), weakref.ref(target.dat))
-        dat_versions = (source.dat.dat_version, target.dat.dat_version)
+        dat_versions = (source.dat.buffer.state, target.dat.buffer.state)
         self.cache(V)._dat_versions[key] = dat_versions
 
     @PETSc.Log.EventDecorator()
@@ -304,12 +315,13 @@ class TransferManager(object):
         _, ylevel = get_level(y.function_space().mesh())
         if ufl.duals.is_dual(x):
             if xlevel > ylevel:
-                return self.restrict(x, y)
-            return y.interpolate(x)
+                self.restrict(x, y)
+            else:
+                y.interpolate(x)
         elif xlevel < ylevel:
-            return self.prolong(x, y)
+            self.prolong(x, y)
         else:
-            return self.inject(x, y)
+            self.inject(x, y)
 
     def prolong(self, uc, uf):
         """Prolong a function.
@@ -381,6 +393,63 @@ class TransferManager(object):
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
+
+    def _prolongation_matrix(self, Vc, Vf):
+        """Assemble and cache the prolongation matrix mapping Vc to Vf.
+
+        Parameters
+        ----------
+        Vc : WithGeometry
+            The source (coarse grid) function space.
+        Vf : WithGeometry
+            The target (fine grid) function space.
+
+        Returns
+        -------
+        AssembledMatrix
+            The cached prolongation matrix mapping Vc to Vf.
+
+        """
+        key = (Vc, Vf)
+        try:
+            return self._mat_cache[key]
+        except KeyError:
+            P = assemble_prolongation_aij(Vc, Vf)
+            return self._mat_cache.setdefault(key, P)
+
+    def _prolong_aij(self, uc, uf):
+        """Prolong a function by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        uc : Function
+            The source (coarse grid) function.
+        uf : Function
+            The target (fine grid) function.
+
+        """
+        Vc = uc.function_space()
+        Vf = uf.function_space()
+        P = self._prolongation_matrix(Vc, Vf)
+        with uc.dat.vec_ro as x, uf.dat.vec_wo as y:
+            P.petscmat.mult(x, y)
+
+    def _restrict_aij(self, rf, rc):
+        """Restrict a cofunction by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        rf : Cofunction
+            The source (fine grid) cofunction.
+        rc : Cofunction
+            The target (coarse grid) cofunction.
+
+        """
+        Vc = rc.function_space().dual()
+        Vf = rf.function_space().dual()
+        P = self._prolongation_matrix(Vc, Vf)
+        with rf.dat.vec_ro as x, rc.dat.vec_wo as y:
+            P.petscmat.multTranspose(x, y)
 
 
 def AdaptiveTransferManager(*args, **kwargs):

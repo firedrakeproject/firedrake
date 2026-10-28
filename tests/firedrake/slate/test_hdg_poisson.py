@@ -59,7 +59,7 @@ def run_LDG_H_problem(r, degree, quads=False):
     a = ((inner(q, v) - inner(u, div(v)))*dx
          + inner(uhat('+'), jump(v, n=n))*dS
          + inner(uhat, dot(v, n))*ds
-         - inner(grad(w), q)*dx
+         - inner(q, grad(w))*dx
          + inner(jump(qhat, n=n), w('+'))*dS
          + inner(dot(qhat, n), w)*ds
          # Transmission condition

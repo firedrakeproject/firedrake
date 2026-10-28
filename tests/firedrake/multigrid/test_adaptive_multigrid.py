@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
+from firedrake.cython import mgimpl
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -76,8 +77,8 @@ def test_refine_marked_elements_populates_cell_maps(coarse_mesh):
     coarse_to_fine = mh.coarse_to_fine_cells[0]
     fine_to_coarse = mh.fine_to_coarse_cells[1]
 
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+    assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
     assert (fine_to_coarse >= -1).all()
     assert (fine_to_coarse >= 0).any()
     assert (coarse_to_fine >= 0).any()
@@ -94,14 +95,16 @@ def test_refine_marked_elements_is_local():
     # regardless of marking.
     nx = 8
     mesh = UnitSquareMesh(nx, nx)
-    ncoarse = mesh.cell_set.size
+    ncoarse = mesh.cells.owned.local_size
 
     M = FunctionSpace(mesh, "DG", 0)
     markers = Function(M)
     markers.dat.data_wo[0] = 1
 
     refined_mesh = mesh.refine_marked_elements(markers)
-    coarse_to_fine, _ = refined_mesh.adaptive_cell_maps
+    mh = MeshHierarchy(mesh)
+    mh.add_mesh(refined_mesh)
+    coarse_to_fine = mh.coarse_to_fine_cells[0]
 
     n_children = (coarse_to_fine >= 0).sum(axis=1)
     unmarked = np.ones(ncoarse, dtype=bool)
@@ -126,16 +129,19 @@ def test_refine_marked_elements_repeats(coarse_mesh):
         markers.dat.data_wo[:1] = n
 
         refined_mesh = mesh.refine_marked_elements(markers)
-        coarse_to_fine, fine_to_coarse = refined_mesh.adaptive_cell_maps
+        mh = MeshHierarchy(mesh)
+        mh.add_mesh(refined_mesh)
+        coarse_to_fine = mh.coarse_to_fine_cells[0]
+        fine_to_coarse = mh.fine_to_coarse_cells[1]
 
-        assert coarse_to_fine.shape[0] == mesh.cell_set.size
-        assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+        assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+        assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
         for coarse_cell, fine_cells in enumerate(coarse_to_fine):
             fine_cells = fine_cells[(fine_cells >= 0) & (fine_cells < fine_to_coarse.shape[0])]
             assert (fine_to_coarse[fine_cells, 0] == coarse_cell).all()
         assert np.allclose(assemble(1*dx(refined_mesh)), assemble(1*dx(mesh)))
 
-        ncells[n] = mesh.comm.allreduce(refined_mesh.cell_set.size)
+        ncells[n] = mesh.comm.allreduce(refined_mesh.cells.owned.local_size)
         max_children[n] = mesh.comm.allreduce(
             (coarse_to_fine >= 0).sum(axis=1).max(initial=0), op=MPI.MAX)
 
@@ -152,16 +158,39 @@ def test_add_mesh_rejects_unrelated_mesh():
     mh = MeshHierarchy(UnitSquareMesh(2, 2))
 
     other = UnitSquareMesh(4, 4)
-    assert other.adaptive_parent is None
+    assert other._adaptive_parent is None
     with pytest.raises(ValueError):
         mh.add_mesh(other)
 
     markers = Function(FunctionSpace(other, "DG", 0))
     markers.dat.data_wo[:1] = 1
     foreign = other.refine_marked_elements(markers)
-    assert foreign.adaptive_parent is other
+    assert foreign._adaptive_parent is other
     with pytest.raises(ValueError):
         mh.add_mesh(foreign)
+
+
+def test_hierarchy_rejects_partial_cell_maps():
+    mesh = UnitSquareMesh(1, 1)
+    with pytest.raises(ValueError, match="must be provided together"):
+        HierarchyBase((mesh,), coarse_to_fine_cells={}, fine_to_coarse_cells=None)
+
+
+@pytest.mark.parallel([1, 2])
+def test_mesh_hierarchy_without_overlap_uses_local_point_maps():
+    dparams = {"overlap_type": (DistributedMeshOverlapType.NONE, 0)}
+    transformed = []
+    mh = MeshHierarchy(
+        UnitSquareMesh(4, 4, distribution_parameters=dparams),
+        refinement_levels=1,
+        distribution_parameters=dparams,
+        callbacks=(lambda dm, level: None, lambda dm, level: transformed.append(dm)),
+    )
+
+    assert np.array_equal(
+        mh.fine_to_coarse_points[1],
+        mgimpl.transform_source_points(transformed[0]),
+    )
 
 
 @pytest.mark.parallel([1, 2, 4])
@@ -175,7 +204,7 @@ def test_adapt_basic():
     assert np.allclose(assemble(1*dx(mesh)), assemble(1*dx(base)))
 
 
-def test_CG1_native_transfers_use_adaptive_cell_maps(coarse_mesh):
+def test_CG1_native_transfers(coarse_mesh):
     mesh = coarse_mesh
     mh = MeshHierarchy(mesh)
 
@@ -237,8 +266,8 @@ def _assert_adapt_after_uniform_refinement(mh):
     coarse_to_fine = mh.coarse_to_fine_cells[level - 1]
     fine_to_coarse = mh.fine_to_coarse_cells[level]
 
-    assert coarse_to_fine.shape[0] == mesh.cell_set.size
-    assert fine_to_coarse.shape == (refined_mesh.cell_set.size, 1)
+    assert coarse_to_fine.shape[0] == mesh.cells.owned.local_size
+    assert fine_to_coarse.shape == (refined_mesh.cells.owned.local_size, 1)
     # A rank may legitimately own zero local cells (e.g. more ranks than
     # coarse cells), leaving these arrays empty on that rank alone, so the
     # "some entry is valid" check must be collective, not per-rank.
@@ -294,8 +323,7 @@ def test_adapt_preserves_mesh_metadata(degree):
 @pytest.mark.parametrize("refine", [1, 2])
 def test_adapt_after_uniform_refinement(coarse_mesh, refine):
     """A hierarchy built by uniform refinement can be adaptively refined."""
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-    mh = MeshHierarchy(coarse_mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(coarse_mesh, refine)
     _assert_adapt_after_uniform_refinement(mh)
 
 
@@ -306,14 +334,12 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     Its plex numbers cells by refinement case, so its owned cells are
     interleaved with its halo cells, which the cell maps must not assume away.
     """
-    netgen_flags = {} if hasattr(coarse_mesh, "netgen_mesh") else None
-
     M = FunctionSpace(coarse_mesh, "DG", 0)
     markers = Function(M)
     markers.dat.data_wo[:1] = 1
     mesh = coarse_mesh.refine_marked_elements(markers)
 
-    mh = MeshHierarchy(mesh, refine, netgen_flags=netgen_flags)
+    mh = MeshHierarchy(mesh, refine)
     assert len(mh) == refine + 1
     assert np.allclose(assemble(1*dx(mh[-1])), assemble(1*dx(coarse_mesh)))
 
@@ -321,8 +347,8 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
     for level in range(refine):
         coarse_to_fine = mh.coarse_to_fine_cells[level]
         fine_to_coarse = mh.fine_to_coarse_cells[level + 1]
-        assert coarse_to_fine.shape == (mh[level].cell_set.size, nref)
-        assert fine_to_coarse.shape == (mh[level + 1].cell_set.size, 1)
+        assert coarse_to_fine.shape == (mh[level].cells.owned.local_size, nref)
+        assert fine_to_coarse.shape == (mh[level + 1].cells.owned.local_size, 1)
         # Uniform refinement splits every owned coarse cell into nref owned
         # fine cells, each of which points back at the cell it came from.
         assert (coarse_to_fine >= 0).all()
@@ -331,7 +357,6 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
         assert (fine_to_coarse[coarse_to_fine, 0] == parents).all()
 
 
-@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
 def test_dg_injection_conserves_mass(mh, family, degree):
@@ -341,9 +366,9 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     for level in range(len(mh) - 1):
         coarse_mesh = mh[level]
         fine_mesh = mh[level + 1]
-        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cell_set.size]
+        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cells.owned.local_size]
         valid = children >= 0
-        assert (children[valid] < fine_mesh.cell_set.size).all()
+        assert (children[valid] < fine_mesh.cells.owned.local_size).all()
         # Adaptive refinement gives rows different child counts, so the map
         # should be padded with -1.
         padded |= bool((children < 0).any())
@@ -355,7 +380,7 @@ def test_dg_injection_conserves_mass(mh, family, degree):
         # Compute mass on each coarse cell
         W_coarse = FunctionSpace(coarse_mesh, "DG", 0)
         mass_coarse = assemble(inner(u_coarse, TestFunction(W_coarse)) * dx).dat.data_ro
-        mass_coarse = mass_coarse[:coarse_mesh.cell_set.size]
+        mass_coarse = mass_coarse[:coarse_mesh.cells.owned.local_size]
 
         W_fine = FunctionSpace(fine_mesh, "DG", 0)
         mass_per_child = assemble(inner(u_fine, TestFunction(W_fine)) * dx).dat.data_ro
@@ -366,7 +391,6 @@ def test_dg_injection_conserves_mass(mh, family, degree):
     assert mh[0].comm.allreduce(padded, MPI.LOR)
 
 
-@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
 @pytest.mark.parametrize("degree", [0, 1])
 def test_dg_injection_conserves_mass_extruded(degree):
