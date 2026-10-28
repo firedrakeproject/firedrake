@@ -39,10 +39,16 @@ from firedrake.cython import dmcommon
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType
+from firedrake.utils import IntType, cached_property_until, cached_method_until
 
 from firedrake._functionspaceimpl_cy import _get_ndofs_extruded, _partition_constrained_points
 
+cached_property_until_mesh_topology_changes = cached_property_until(
+    lambda self: self.mesh()._topology_version
+)
+cached_method_until_mesh_topology_changes = cached_method_until(
+    lambda self: self.mesh()._topology_version
+)
 
 def check_element(element, top=True):
     """Run some checks on the provided element.
@@ -673,7 +679,7 @@ class AbstractFunctionSpace:
         else:
             return self.nodal_axes.root
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def axes(self) -> op3.AxisForest:
         # TODO: The nodal axis tree for restricted function spaces is wrong
@@ -703,7 +709,7 @@ class AbstractFunctionSpace:
     def nodal_axis_constraints(self) -> tuple[AxisConstraint, ...]:
         pass
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def dm_axes(self) -> op3.AxisTree:
         """Axis tree describing the 'true' data layout in a DM (pointwise) sense.
@@ -722,7 +728,7 @@ class AbstractFunctionSpace:
         # could just pop things off - but that's quite unclear...
         return layout_from_spec(self.layout, self.dm_axis_constraints, self.comm)
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def nodal_layout_axes(self) -> op3.AxisTree:
         """Axis tree describing the 'true' data layout in a nodal sense.
@@ -789,7 +795,7 @@ class AbstractFunctionSpace:
 
     # {{{ PETSc
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def dm(self):
         r"""A PETSc DM describing the data layout for this FunctionSpace."""
         dm = self._dm()
@@ -828,7 +834,7 @@ class AbstractFunctionSpace:
     def local_section(self):
         return self.section
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def template_vec(self):
         if is_mixed(self):
@@ -889,7 +895,7 @@ class AbstractFunctionSpace:
 
     # {{{ maps
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def cell_node_map(self) -> op3.Map:
         return self._iterset_to_node_map("cell")
 
@@ -901,7 +907,7 @@ class AbstractFunctionSpace:
     def exterior_facet_node_map(self) -> op3.Map:
         return self._iterset_to_node_map("exterior_facet")
 
-    @cached_method()
+    @cached_method_until_mesh_topology_changes
     def _iterset_to_node_map(self, iter_type):
         map_dat = self._iterset_to_node_map_dat(iter_type)
 
@@ -914,7 +920,7 @@ class AbstractFunctionSpace:
             },
         )
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def cell_node_map_dat(self) -> op3.Dat:
         return self._iterset_to_node_map_dat("cell")
 
@@ -954,7 +960,7 @@ class AbstractFunctionSpace:
             )
         return self.interior_facet_node_map_dat.data_ro
 
-    @cached_method()
+    @cached_method_until_mesh_topology_changes
     @_with_mesh_heavy_cache
     def _iterset_to_node_map_dat(
         self,
@@ -992,7 +998,7 @@ class AbstractFunctionSpace:
     def interior_facet_dof_map_dat(self) -> op3.Dat:
         return self._iterset_to_dof_map_dat("interior_facet")
 
-    @cached_method()
+    @cached_method_until_mesh_topology_changes
     def _iterset_to_dof_map_dat(
         self,
         iter_type: Literal["cell", "exterior_facet", "interior_facet"],
@@ -1269,7 +1275,7 @@ class FunctionSpace(AbstractFunctionSpace):
         facet_points = numpy.asarray(facet_points, dtype=IntType)
         return (closure_section, closure_indices, facet_points)
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     @_with_mesh_heavy_cache
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
@@ -1358,7 +1364,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
         return tuple(constraints)
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def nodal_axis_constraints(self) -> tuple[AxisConstraint, ...]:
         constraints = [AxisConstraint(self._nodes_axis)]
         for i, dim in enumerate(self.shape):
@@ -1367,7 +1373,7 @@ class FunctionSpace(AbstractFunctionSpace):
             constraints.append(constraint)
         return tuple(constraints)
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def plex_axes(self) -> op3.IndexedAxisTree:
         # NOTE: We now have different but very similar treatment for R and AxR spaces
         if self._is_real_tensor_product:
@@ -1499,7 +1505,7 @@ class FunctionSpace(AbstractFunctionSpace):
             fake_axes, unindexed=unindexed, targets=targets,
         )
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def _nodes_axis(self) -> op3.Axis:
         scalar_axis_tree = self.dm_axes.blocked(self.shape)
 
@@ -1519,7 +1525,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
         return op3.Axis([op3.AxisComponent(regions, sf=scalar_axis_tree.sf, size=scalar_axis_tree.size)], "layoutnodes")
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_with_mesh_heavy_cache
     def nodal_axes(self) -> op3.IndexedAxisTree:
         if self._is_real_tensor_product:
@@ -1594,7 +1600,7 @@ class FunctionSpace(AbstractFunctionSpace):
         base_section.setUp()
         return base_section
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @utils.deprecated("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
@@ -1604,7 +1610,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return self.field_ises
 
     # TODO: rename 'global_field_ises' and 'local...'
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def field_ises(self) -> tuple[PETSc.IS]:
         """A list of PETSc ISes defining the global indices for each set in
@@ -1617,7 +1623,7 @@ class FunctionSpace(AbstractFunctionSpace):
         is_.setBlockSize(self.block_size)
         return (is_,)
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def local_ises(self) -> tuple[PETSc.IS]:
         is_ = PETSc.IS().createStride(self.axes.buffer_size(include_ghosts=True), comm=MPI.COMM_SELF)
@@ -1625,7 +1631,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return (is_,)
 
     # TODO: rename local section
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def section(self):
         from firedrake import FunctionSpace
@@ -1681,7 +1687,7 @@ class FunctionSpace(AbstractFunctionSpace):
         # old numbering).
         return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def _restricted_section(self):
         """A PETSc section that stores restricted values at the end.
 
@@ -1769,7 +1775,7 @@ class FunctionSpace(AbstractFunctionSpace):
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def node_count(self):
         r"""The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`FunctionSpace.rank` 0, this
@@ -1779,7 +1785,7 @@ class FunctionSpace(AbstractFunctionSpace):
             raise NotImplementedError
         return self.nodal_axes.local_size
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def dof_count(self):
         r"""The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`FunctionSpace.node_count` ."""
@@ -1808,14 +1814,14 @@ class FunctionSpace(AbstractFunctionSpace):
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
     # NOTE: superseded by .lgmap()
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def _lgmap(self) -> PETSc.LGMap:
         """Return the mapping from process-local to global DoF numbering."""
         indices = self.axes.blocked(self.shape).global_numbering
         return PETSc.LGMap().create(indices.data_ro_with_halos.copy(), bsize=self.block_size, comm=self.comm)
 
     # NOTE: superseded by .lgmap()?
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def _unblocked_lgmap(self) -> PETSc.LGMap:
         """Return the local-to-global mapping with a block size of 1."""
         if self.block_size == 1:
@@ -1961,11 +1967,11 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     parent = None
     rank = 1
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def plex_axes(self) -> op3.IndexedAxisTree:
         return self._make_axes("plex")
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def nodal_axes(self) -> op3.IndexedAxisTree:
         return self._make_axes("nodal")
 
@@ -2009,14 +2015,14 @@ class MixedFunctionSpace(AbstractFunctionSpace):
             axis_tree, unindexed=unindexed, targets=targets
         )
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def dm_axis_constraints(self) -> tuple[AxisConstraint, ...]:
         return merge_axis_constraints(
             self.field_axis,
             [space.dm_axis_constraints for space in self._orig_spaces],
         )
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def nodal_axis_constraints(self) -> tuple[AxisConstraint, ...]:
         return merge_axis_constraints(
             self.field_axis,
@@ -2139,7 +2145,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         See also :attr:`FunctionSpace.dof_count` and :attr:`FunctionSpace.node_count`."""
         return self.template_vec.getSize()
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def field_ises(self) -> tuple[PETSc.IS, ...]:
         """A list of PETSc ISes defining the global indices for each set in
@@ -2169,7 +2175,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         """
         return self.field_ises
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     @_dof_dset_cached
     def local_ises(self) -> tuple[PETSc.IS, ...]:
         """A list of PETSc ISes defining the local indices for each set in
@@ -2378,7 +2384,7 @@ class RealFunctionSpace(FunctionSpace):
 
     """
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def dm_axis_constraints(self) -> tuple[AxisConstraint]:
         # Get the number of DoFs per cell, it is illegal to have DoFs on
         # other entities.
@@ -2422,15 +2428,15 @@ class RealFunctionSpace(FunctionSpace):
             constraints.append(constraint)
         return tuple(constraints)
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def nodal_axis_constraints(self) -> tuple[AxisConstraint]:
         return self.dm_axis_constraints
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def plex_axes(self) -> op3.IndexedAxisTree:
         return self._make_axes("plex")
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def nodal_axes(self) -> op3.IndexedAxisTree:
         return self._make_axes("nodal")
 

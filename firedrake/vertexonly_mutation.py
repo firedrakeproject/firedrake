@@ -92,7 +92,7 @@ class VertexOnlyMeshMutator:
         """
         old_local_size = self._migrate_swarm(absorbed_vom_indices)
         self._rebuild_topology()
-        step_sf = self._create_topology_step_sf(old_local_size)
+        step_sf = self._build_topology_step_sf(old_local_size)
         self._refresh_topology_fields(step_sf)
 
 
@@ -230,7 +230,7 @@ class VertexOnlyMeshMutator:
         if not no_ghosts_global:
             raise AssertionError("Unexpected VOM ghost points post migration")
 
-    def _create_topology_step_sf(self, old_local_size: int,) -> PETSc.SF:
+    def _build_topology_step_sf(self, old_local_size: int,) -> PETSc.SF:
         """Create and record the SF for the latest topology change.
 
         Parameters
@@ -250,13 +250,14 @@ class VertexOnlyMeshMutator:
         # Each particle carries its old rank and local index in the (`inputrank`, `inputindex`) DMSwarm field
         # as rewritten by _migrate_swarm.
     
-        step_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, old_local_size, topology._new_to_old_point_renumbering)
+        step_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, old_local_size, topology._old_to_new_point_renumbering)
     
         # Store the one step SF under the new topology version number
         # i.e., the SF stored under key k maps VOM version k (new) -> VOM version k-1 (old) 
         topology._topology_step_sfs[topology._topology_version] = step_sf
         return step_sf
 
+    # TODO: needs refactoring
     def _refresh_topology_fields(self, step_sf: PETSc.SF) -> None:
         """Refresh topology-dependent fields after rebuilding the VOM.
 

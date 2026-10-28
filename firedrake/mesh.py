@@ -507,6 +507,11 @@ class AbstractMeshTopology(abc.ABC):
     variable_layers = False
     """No variable layers on unstructured mesh"""
 
+    @cached_property_until_topology_changes
+    def _pyop3_cache(self) -> defaultdict:
+        """Stores the results that pyop3 caches on this topology with `pyop3.cache.cached_on`."""
+        return defaultdict(dict)
+
     @property
     @abc.abstractmethod
     def dimension(self):
