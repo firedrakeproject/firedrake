@@ -97,10 +97,6 @@ def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
     assert_fs_layout(vom, T, n_expected)
     assert T.dim() == n_old_global_dofs - n_global_absorbed * bs
 
-    
-
-# FIXME
-@pytest.mark.skip(reason="Needs VertexOnlyMeshMutator._refresh_topology_fields")
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
     """Check the FunctionSpace layout after two successive VOM rebuilds."""

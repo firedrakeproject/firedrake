@@ -18,6 +18,7 @@ from typing import Tuple
 from mpi4py import MPI
 
 import pyop3 as op3
+from pyop3.dtypes import get_mpi_dtype
 from pyop3.cache import with_heavy_caches
 import petsctools
 
@@ -83,17 +84,47 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         if isinstance(val, op3.Dat):
             assert val.comm == self.comm
-            self.dat = val
+            self._dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name())
+            self._dat = function_space.make_dat(val, dtype, self.name())
+
+        self._mesh_topology_version = self._mesh_topology._topology_version
+        self._mesh_topology._register_function(self)
 
         if isinstance(function_space, functionspaceimpl.MixedFunctionSpace):
-            assert function_space._labels == self.dat.axes.trees[0].root.component_labels
+            assert function_space._labels == self._dat.axes.trees[0].root.component_labels
 
     @property
     def topological(self):
         r"""The underlying coordinateless function."""
         return self
+
+    @property
+    def _mesh_topology(self):
+        """The mesh topology on which this function is defined."""
+        return self._function_space.mesh()
+
+    # Turn the dat into a property which handles the lazy migration of a function's data
+    # in response to a change in the underlying mesh topology
+    @property
+    def dat(self) -> op3.Dat:
+        """The data of this function, defined on the current topology of its mesh."""
+        self._migrate_to_current_topology()
+        return self._dat
+
+    def _migrate_to_current_topology(self) -> None:
+        """Move the data of this funcion to the current topology of its mesh."""
+        # Check if the mesh topology version stored on the function is outdated
+        if self._mesh_topology_version == self._mesh_topology._topology_version:
+            return
+        # Check if the function is DG0 and fail appropriately
+        # VOMs only support DG0 functions in Firedrake so if we're not DG0 then cannot be on a VOM.
+        fs = self.function_space()
+        is_dg0 = fs.cell_node_map_dat.data_ro.shape[1] == 1
+        if is_dg0:
+            _migrate_dg0_coef(self)
+        else:
+            raise NotImplementedError("Function migration is currently implemented only for DG0 functions defined on vertex-only meshes.")
 
     @PETSc.Log.EventDecorator()
     def copy(self, *, deepcopy=False):
@@ -904,3 +935,53 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
         comm=function.comm
     )
     return getattr(dll, c_name)
+
+def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf: PETSc.SF) -> op3.Dat:
+    """Move the values of a DG0 coefficient on a vertex-only mesh to the current topology.
+
+    Parameters
+    ----------
+    cfunc
+        The coefficient whose values are stored on an older topology version.
+    migration_sf
+        SF with the cells of the older version as roots and the cells of the
+        current version as leaves.
+
+    Returns
+    -------
+    op3.Dat
+        A new Dat on the current topology that holds the moved values.
+    """
+    # Accessing dat would trigger the migration again, so we access _dat instead
+    old_vals = cfunc._dat.data_ro
+    old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], -1))) # (n_cells, block_size)
+    block_size = old_vals.shape[1]
+    space = cfunc.function_space().topological
+    new_vals = np.empty((space.mesh().num_cells(), block_size), dtype=old_vals.dtype)
+    unit, _ = get_mpi_dtype(old_vals.dtype, block_size)
+    migration_sf.bcastBegin(unit, old_vals, new_vals, MPI.REPLACE)
+    migration_sf.bcastEnd(unit, old_vals, new_vals, MPI.REPLACE)
+    return space.make_dat(new_vals, name=cfunc._dat.name)
+
+def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
+    """Move the data of a coefficient to the current topology of its mesh.
+
+    Parameters
+    ----------
+    coefficient
+        The coefficient whose data can be stored on an older topology version.
+
+    Raises
+    ------
+    NotImplementedError
+        If the topology has changed and it is not a vertex-only mesh topology.
+    """
+    topology = coef._mesh_topology
+    # For a Real space, there's one global value which doesn't depend on the mesh topology.
+    if not isinstance(coef.function_space().topological, functionspaceimpl.RealFunctionSpace):
+        # TODO: Should we add an extra check here to verify that the Function is defined on a VOM? 
+        # The current implementation only works with VOMs, but I don't think it would be too hard to extend the SF-migration stuff
+        # to work for DG0 on other meshes.
+        migration_sf = topology._get_migration_sf(coef._mesh_topology_version)
+        coef._dat = _migrate_dg0_dat(coef, migration_sf)
+    coef._mesh_topology_version = topology._topology_version

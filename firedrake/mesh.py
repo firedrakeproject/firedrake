@@ -50,7 +50,7 @@ from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
 from firedrake.adjoint_utils import MeshGeometryMixin
-from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError
+from firedrake.exceptions import VertexOnlyMeshMissingPointsError, NonUniqueMeshSequenceError, FunctionMigrationError
 import gem
 
 try:
@@ -2300,6 +2300,17 @@ class MeshTopology(AbstractMeshTopology):
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
 
+    def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
+        """Method for recording a function defined on this topology.
+
+        Unless the topology is bound to change, the function does not need to be recorded.
+
+        Parameters
+        ----------
+        function
+            The function to record.
+        """
+
     @cached_property
     def _ufl_cell(self):
         plex = self.topology_dm
@@ -3610,6 +3621,54 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     def _register_function(self, function):
         self._live_functions[function.uid] = function
+    
+    def _get_migration_sf(self, source_version: int) -> PETSc.SF:
+        """Return the SF that moves cell data from an older topology version to the current one.
+
+        Parameters
+        ----------
+        source_version
+            The topology version on which the data is stored.
+
+        Returns
+        -------
+        PETSc.SF
+            SF with the cells of ``source_version`` as roots and the cells of
+            the current version as leaves.
+
+        Raises
+        ------
+        FunctionMigrationError
+            If the step SF for one of the versions in between is not available.
+        """
+        target_version = self._topology_version
+        if not source_version < target_version:
+            raise ValueError(
+                f"Expected a source version older than {target_version}, got {source_version}."
+            )
+        try:
+            migration_sf = self._topology_step_sfs[source_version + 1]
+            for version in range(source_version + 2, target_version + 1):
+                migration_sf = migration_sf.compose(self._topology_step_sfs[version])
+        except KeyError as exc:
+            raise FunctionMigrationError(
+                f"The step SF to topology version {exc.args[0]} is not available."
+            ) from exc
+        return migration_sf
+
+    def _migrate_all_functions(self) -> None:
+        """Move the data of every live function on this topology to the current version."""
+        # NOTE: migration is a collective operation since it relies on SF.bcast and SF.compose which
+        # are collective operations. This implies that all ranks must migrate the same functions in the same order.
+        # Sorting by ``uid`` guarantees consistent order since ``uid`` is built out of a counter that advances in step on every rank
+        # and creating Functions is a collective operation in Firedrake.
+        # ---
+        # TODO: Should we do a parallel set intersection of keys in the live functions set before migrating as
+        # some functions may have died on some ranks but could be still alive on others?
+        for uid in sorted(self._live_functions.keys()):
+            function = self._live_functions.get(uid)
+            if function is not None:
+                function._migrate_to_current_topology()
 
 
 class CellOrientationsRuntimeError(RuntimeError):
@@ -6074,6 +6133,18 @@ class MeshSequenceTopology:
             raise NonUniqueMeshSequenceError(f"Found multiple meshes in {self} where a single mesh is expected")
         m, = set(self._meshes)
         return m
+
+    def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
+        """Method for recording a function defined on this topology.
+    
+        Functions on mixed topologies cannot be migrated, so the function
+        is not recorded.
+
+        Parameters
+        ----------
+        function
+            The function to record.
+        """
 
 
 def get_mesh_topologies(expr) -> frozenset[AbstractMeshTopology]:

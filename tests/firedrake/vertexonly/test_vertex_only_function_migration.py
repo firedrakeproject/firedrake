@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import IntType
 from firedrake.vertexonly_mutation import VertexOnlyMeshMutator
 from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
@@ -55,7 +56,7 @@ def cell_midpoints(mesh, with_halos=False):
 def locate_points(mesh, points):
     """Get local data (reference coordinates + parent cells) from physical point coordinates."""
     parent_cells, refcoords, _ = mesh.locate_cells_ref_coords_and_dists(points)
-    return np.asarray(parent_cells, dtype=int), np.asarray(refcoords, dtype=float)
+    return np.asarray(parent_cells, dtype=IntType), np.asarray(refcoords, dtype=float)
 
 
 def assign_function_values_using_pids(pids, value_size, dtype):
@@ -80,7 +81,7 @@ def test_vom_functions_migrate_lazily(vom, vom_fs):
 
     mutator = VertexOnlyMeshMutator(vom)
 
-    absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
+    absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
 
     new_vom_topo_version = vom.topology._topology_version
@@ -125,7 +126,7 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs):
 
     mutator = VertexOnlyMeshMutator(vom)
 
-    absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
+    absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
 
     new_vom_topo_version = vom.topology._topology_version
@@ -199,12 +200,12 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
     old_dat.data_wo.reshape(-1, value_size)[:] = f_vals_before_migration
 
     old_function_topo_version = f._mesh_topology_version
-    old_local_count = vom.cell_set.size
+    old_local_count = vom.topology.cells.owned.local_size
 
     # Remove every other particle on each rank (by construction, no cross-rank exchange occurs here)
     mutator = VertexOnlyMeshMutator(vom)
 
-    absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
+    absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
     absorbed_pids = {int(pids_before_migration[i]) for i in absorbed_local_indices}
 
     expected_surviving_pids = {int(pid) for pid in pids_before_migration if pid not in absorbed_pids}
@@ -228,7 +229,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
         # -- check storage was correctly replaced (uses current FS layout)
         and new_dat is not old_dat
         and new_dat.dataset is vom_fs.dof_dset
-        and new_dat.dataset.size == vom.cell_set.size  # owned nodes match VOM
+        and new_dat.dataset.size == vom.topology.cells.owned.local_size  # owned nodes match VOM
         and new_dat.dataset.cdim == vom_fs.block_size  # scalar components stored per node matches FS
         and f.function_space() is vom_fs
         and f._mesh_topology_version == vom.topology._topology_version
@@ -255,7 +256,7 @@ def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs):
     # Remove all particles from each rank
     mutator = VertexOnlyMeshMutator(vom)
 
-    absorbed_local_indices = np.arange(0, vom.cell_set.size, dtype=int)
+    absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, dtype=IntType)
     mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
 
     new_vom_version = vom.topology._topology_version
@@ -294,7 +295,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
     mutator = VertexOnlyMeshMutator(vom)
 
     pids_before_migration = vom._particle_ids.dat.data_ro.copy()
-    old_local_count = vom.cell_set.size
+    old_local_count = vom.topology.cells.owned.local_size
 
     old_dat = f.dat
     # Assign PID-dependent values
@@ -303,7 +304,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
 
     all_midpoints = cell_midpoints(parent_mesh, with_halos=True)
 
-    ghost_cells = np.arange(parent_mesh.cell_set.size, parent_mesh.cell_set.total_size, dtype=int)
+    ghost_cells = np.arange(parent_mesh.cell_set.size, parent_mesh.cell_set.total_size, dtype=IntType)
 
     new_coords = vom.coordinates.dat.data_ro.copy()
 
@@ -356,7 +357,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
         expected_local_count += 1
 
     migration_is_correct = (
-        vom.cell_set.size == expected_local_count
+        vom.topology.cells.owned.local_size == expected_local_count
         and f_values_after_migration.shape == (expected_local_count, value_size)
         and np.allclose(f_values_after_migration, expected_values)
         and f._mesh_topology_version == vom.topology._topology_version
@@ -376,7 +377,7 @@ def test_vom_functions_migrate_under_successive_vom_rebuilds(vom, vom_fs):
     mutator = VertexOnlyMeshMutator(vom)
 
     v0 = vom.topology._topology_version
-    local_count_v0 = vom.cell_set.size
+    local_count_v0 = vom.topology.cells.owned.local_size
     f_version_v0 = f._mesh_topology_version
 
     parallel_assert(f_version_v0 == v0,
@@ -398,7 +399,7 @@ def test_vom_functions_migrate_under_successive_vom_rebuilds(vom, vom_fs):
     old_dat.data_wo.reshape((-1, value_size))[:] = values_v0
 
     # First VOM rebuild: absorb the current first particle on each rank
-    absorbed_indices_v1 = np.asarray([0], dtype=int)
+    absorbed_indices_v1 = np.asarray([0], dtype=IntType)
     absorbed_pids_v1 = pids_v0[absorbed_indices_v1[0]]
 
     mutator.rebuild_vom(absorbed_indices_v1)
@@ -417,7 +418,7 @@ def test_vom_functions_migrate_under_successive_vom_rebuilds(vom, vom_fs):
     parallel_assert(g._mesh_topology_version == v1)
 
     # Second VOM rebuild: absorb the current last particle on each rank
-    absorbed_indices_v2 = np.asarray([vom.cell_set.size - 1], dtype=int)
+    absorbed_indices_v2 = np.asarray([vom.topology.cells.owned.local_size - 1], dtype=IntType)
     absorbed_pids_v2 = pids_v1[absorbed_indices_v2[0]]
 
     mutator.rebuild_vom(absorbed_indices_v2)
@@ -445,7 +446,7 @@ def test_vom_functions_migrate_under_successive_vom_rebuilds(vom, vom_fs):
         actual_surviving_pids == expected_surviving_pids
         and absorbed_pids_v1 not in actual_surviving_pids
         and absorbed_pids_v2 not in actual_surviving_pids
-        and vom.cell_set.size == expected_local_count
+        and vom.topology.cells.owned.local_size == expected_local_count
         and values_v2.shape == (expected_local_count, value_size)
         and np.allclose(values_v2, expected_values_v2)
         and new_dat is not old_dat

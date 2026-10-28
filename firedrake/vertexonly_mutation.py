@@ -2,7 +2,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 from firedrake.utils import IntType
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
-# from firedrake.function import migrate_dg0_dat
+from firedrake.function import _migrate_dg0_coef
 from firedrake.petsc import PETSc
 import firedrake.cython.dmcommon as dmcommon
 from mpi4py import MPI
@@ -93,7 +93,7 @@ class VertexOnlyMeshMutator:
         old_local_size = self._migrate_swarm(absorbed_vom_indices)
         self._rebuild_topology()
         step_sf = self._build_topology_step_sf(old_local_size)
-        self._refresh_topology_fields(step_sf)
+        self._refresh_topology_fields()
 
 
     def _migrate_swarm(self, absorbed_vom_indices: ArrayLike | None = None) -> int:
@@ -257,45 +257,12 @@ class VertexOnlyMeshMutator:
         topology._topology_step_sfs[topology._topology_version] = step_sf
         return step_sf
 
-    # TODO: needs refactoring
-    def _refresh_topology_fields(self, step_sf: PETSc.SF) -> None:
-        """Refresh topology-dependent fields after rebuilding the VOM.
-
-        Parameters
-        ----------
-        step_sf
-            SF mapping the rebuilt topology to the previous topology.
-
-        Returns
-        -------
-        None
-        """
-        swarm = self.vom.topology_dm
-        topology = self.vom.topology
-        gdim = self.vom.geometric_dimension
-        parent_tdim = self.parent_mesh.topological_dimension
-        
-        # Migrate the particle ID field through the step SF
-        topology._particle_ids = migrate_dg0_dat(topology._particle_ids, topology._particle_ids.function_space(), step_sf)
-    
-        # Rebuild coordinate fields
-        coords_fs = self.vom._coordinates.function_space()
-        ref_coords_fs = self.vom.reference_coordinates.function_space().topological
-    
-        coords_data = dmcommon.reordered_coords(swarm, coords_fs.dm.getDefaultSection(),
-                                                (topology.num_vertices(), gdim))
-    
-        # Resize the CoordinatelessFunction dat buffer and assign new values
-        self.vom._coordinates._dat =    coords_fs.make_dat(val=coords_data, name=self.vom._coordinates.name())  # returns a new op2.Dat
-    
-        if parent_tdim > 0:
-            ref_coords_data = dmcommon.reordered_coords(swarm, ref_coords_fs.dm.getDefaultSection(),
-                                                        (topology.num_vertices(), parent_tdim), reference_coord=True)
-            self.vom.reference_coordinates._data._dat = ref_coords_fs.make_dat(val=ref_coords_data, name=self.vom.reference_coordinates.name())  # returns a new op2.Dat
-        else:
-            # This should have been already set to None when the VOM was first constructed
-            self.vom.reference_coordinates = None
-    
-        # Mark that coordinate functions were rebuilt by synchronising their topology versions
-        self.vom._coordinates._mesh_topology_version = topology._topology_version
-        self.vom.reference_coordinates.topological._mesh_topology_version = topology._topology_version
+    def _refresh_topology_fields(self) -> None:
+        """Move the fields of the VOM to the rebuilt topology."""
+        fields = [self.vom.coordinates.topological, self.vom._particle_ids]
+        if self.vom.reference_coordinates is not None:
+            # A VOM's reference coordinates remain undefined when building a VOM embedded
+            # in a parent mesh with topological dimension 0.
+            fields.append(self.vom.reference_coordinates)
+        for cfunc in fields:
+            cfunc._migrate_to_current_topology()
