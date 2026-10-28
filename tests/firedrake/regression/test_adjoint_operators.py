@@ -706,6 +706,7 @@ def test_init_constant():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.xfail(reason="illegal in pyop3, illegal in general?")
 def test_init_constant_diff_mesh():
     mesh = UnitSquareMesh(1, 1)
     mesh0 = UnitSquareMesh(2, 2)

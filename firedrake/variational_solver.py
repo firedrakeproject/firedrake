@@ -6,8 +6,12 @@ from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
 
+import pyop3 as op3
+from pyop3.cache import with_heavy_caches
+
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
+from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
@@ -143,6 +147,20 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     @cached_property
     def dm(self):
         return self.u_restrict.function_space().dm
+
+    @cached_property
+    def _mesh_topologies(self) -> frozenset:
+        """Return all mesh topologies associated with the variational problem.
+
+        These are used as 'heavy' caches.
+
+        """
+        # TODO: This breaks for certain inputs (e.g. FormSum) but this
+        # is a very heavy-handed way to fix that
+        try:
+            return op3.collections.OrderedFrozenSet([d.topology for d in extract_domains(self.F)])
+        except:  # noqa: E722
+            return ()
 
     def rediscretise(self,
                      F: ufl.BaseForm | slate.TensorBase | None = None,
@@ -447,11 +465,11 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx.set_objective(self.snes)
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=False)
-        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space()._ises,
+        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space().field_ises,
                           transpose=True, near=False)
-        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=True)
         ctx._nullspace = nullspace
         ctx._nullspace_T = transpose_nullspace
@@ -464,10 +482,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         dm = self.snes.getDM()
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
-
-        # Used for custom grid transfer.
-        self._transfer_operators = ()
-        self._setup = False
 
     @property
     def _problem(self):
@@ -504,6 +518,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
+    @with_heavy_caches(lambda self, *a, **kw: self._problem._mesh_topologies)
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
@@ -562,23 +577,24 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.setVariableBounds(lb, ub)
 
         work = self.snes.getSolution()
-        with problem.u_restrict.dat.vec as u:
+        with problem.u_restrict.dat.vec_ro as u:
             u.copy(work)
-            with ExitStack() as stack:
-                # Ensure options database has full set of options (so monitors
-                # work right)
-                for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self._ctx, appctx=self._ctx) for dm in problem_dms],
-                                 self._transfer_operators):
-                    stack.enter_context(ctx)
-                self.snes.solve(None, work)
-                # Adaptivity changes the DM, keep the _SNESContext up to date
-                self._ctx = dmhooks.get_appctx(self.snes.getDM())
+
+        with ExitStack() as stack:
+            stack.enter_context(self.inserted_options())
+            dmctxs = [dmhooks.add_hooks(dm, self._ctx, appctx=self._ctx) for dm in problem_dms]
+            for dmctx in dmctxs:
+                stack.enter_context(dmctx)
+
+            self.snes.solve(None, work)
+
+            # Adaptivity changes the DM, keep the _SNESContext up to date
+            self._ctx = dmhooks.get_appctx(self.snes.getDM())
+
         problem = self._ctx._problem
         solution = self.snes.getSolution()
-        with problem.u_restrict.dat.vec as u:
+        with problem.u_restrict.dat.vec_wo as u:
             solution.copy(u)
-        self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
         solving_utils.check_convergence(self.snes)
