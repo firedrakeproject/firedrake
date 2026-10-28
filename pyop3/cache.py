@@ -35,7 +35,9 @@ from pyop3.constants import _nothing
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
 _CACHE_CIDX = itertools.count()
-_KNOWN_CACHES = []
+# Live caches by unique ID, and one record per kind of freed cache
+_KNOWN_CACHES = {}
+_KNOWN_CACHE_IDS = itertools.count()
 
 
 # TODO: This should live in utils.py but there is a (bad) import of pyop3.cache
@@ -144,7 +146,7 @@ def cached_method(key=default_hashkey, make_cache: Callable[[], Mapping] = dict)
 def cache_filter(comm=None, comm_name=None, alive=False, function=None, cache_type=None):
     """ Filter PyOP2 caches based on communicator, function or cache type.
     """
-    caches = _KNOWN_CACHES
+    caches = list(_KNOWN_CACHES.values())
     if comm is not None:
         with temp_internal_comm(comm) as icomm:
             cache_collection = icomm.Get_attr(comm_cache_keyval)
@@ -199,8 +201,6 @@ class _AbstractInstrumentedCache(abc.ABC):
         self.func = func
         self.func_module = func.__module__
         self.func_name = func.__qualname__
-        self.known_cache_index = len(_KNOWN_CACHES)
-        _KNOWN_CACHES.append(weakref.proxy(self))
 
     @property
     @abc.abstractmethod
@@ -229,12 +229,20 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
         self.miss = 0
 
         super().__init__(cidx, comm_name, func)
+        self.known_cache_index = next(_KNOWN_CACHE_IDS)
+        _KNOWN_CACHES[self.known_cache_index] = weakref.proxy(self)
 
     def __str__(self) -> str:
         return f"{type(self.cache).__name__}({self.func_name})"
 
     def __del__(self):
-        _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm_name, self.func, self.hit, self.miss, self.size, self.maxsize)
+        # Merge into a single record per kind so that _KNOWN_CACHES stays bounded
+        del _KNOWN_CACHES[self.known_cache_index]
+        key = (self.cidx, self.cache_name, self.cache_loc, self.comm_name, self.func)
+        if key not in _KNOWN_CACHES:
+            _KNOWN_CACHES[key] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm_name, self.func, 0, 0, self.size, self.maxsize)
+        _KNOWN_CACHES[key].hit += self.hit
+        _KNOWN_CACHES[key].miss += self.miss
 
     def __getitem__(self, key):
         try:
