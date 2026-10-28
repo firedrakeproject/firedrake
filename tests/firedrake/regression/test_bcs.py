@@ -83,17 +83,29 @@ def test_zero_bcs_wrong_fs(V, f2):
         bc.zero(f2)
 
 
-def test_init_bcs_wrong_fs(V, f2):
-    "Initialise a DirichletBC with a Function on an incompatible FunctionSpace."
-    with pytest.raises(RuntimeError):
-        DirichletBC(V, f2, 1)
+def test_init_bcs_mismatching_fs(V, f2):
+    "Initialise a DirichletBC with a Function on a different FunctionSpace."
+    if V.value_shape == f2.ufl_shape:
+        bc = DirichletBC(V, f2, 1)
+        g = bc.function_arg
+        assert g.function_space() == V
+        assert errornorm(f2, g) < 1E-12
+    else:
+        with pytest.raises(RuntimeError):
+            DirichletBC(V, f2, 1)
 
 
-def test_set_bcs_wrong_fs(V, f2):
-    "Set a DirichletBC to a Function on an incompatible FunctionSpace."
+def test_set_bcs_mismatching_fs(V, f2):
+    "Set a DirichletBC to a Function on a different FunctionSpace."
     bc = DirichletBC(V, 32, 1)
-    with pytest.raises(RuntimeError):
+    if V.value_shape == f2.ufl_shape:
         bc.set_value(f2)
+        g = bc.function_arg
+        assert g.function_space() == V
+        assert errornorm(f2, g) < 1E-12
+    else:
+        with pytest.raises(RuntimeError):
+            bc.set_value(f2)
 
 
 def test_homogeneous_bcs(a, u, V):
