@@ -256,7 +256,9 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             coefficient_numbers,
             constant_numbers,
             dont_split_numbers,
-            diagonal,
+            # The diagonal of a block in which both arguments are Real is
+            # a functional after _real_mangle, and its value is the diagonal entry.
+            diagonal and bool(f.arguments()),
         )
         for kinfo in tsfc_kernel.kernels:
             kernels.append(SplitKernel(idx, kinfo))
