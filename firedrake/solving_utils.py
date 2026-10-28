@@ -1,10 +1,11 @@
 import typing
 import weakref
+from contextlib import ExitStack, contextmanager
 from itertools import chain
 
 import numpy
 
-from firedrake import dmhooks, parameters
+from firedrake import dmhooks, parameters, utils
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
@@ -324,6 +325,29 @@ class _SNESContext:
             snes = weakref.proxy(snes)
         self.snes = snes
 
+    def _get_problem_dms(self, solution_dm: PETSc.DM) -> list[PETSc.DM]:
+        forms = (self._problem.F, self._problem.J, self._problem.Jp, self._problem.E)
+        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        problem_dms = []
+        for coefficient in chain(coefficients, self._problem.dirichlet_bcs()):
+            dm = coefficient.function_space().dm
+            if dm == solution_dm:
+                continue
+            if dm not in problem_dms:
+                problem_dms.append(dm)
+        problem_dms.append(solution_dm)
+        return problem_dms
+
+    @contextmanager
+    def _problem_hooks(self, solution_dm: PETSc.DM, *, include_problem_dms: bool):
+        dms = (self._get_problem_dms(solution_dm) if include_problem_dms
+               else (solution_dm,))
+        with ExitStack() as stack:
+            dmctxs = [dmhooks.add_hooks(dm, self, appctx=self) for dm in dms]
+            for dmctx in dmctxs:
+                stack.enter_context(dmctx)
+            yield
+
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
                     mat_type: str | None = None,
@@ -372,7 +396,11 @@ class _SNESContext:
 
     def solve_jacobian(self, b: Cofunction, x: Function, *,
                        transpose: bool = False) -> None:
-        """Solve with the Jacobian and preconditioner of the most recent solve.
+        """Solve with the current Jacobian and preconditioner.
+
+        If a previous solve has already assembled the Jacobian, its operators
+        and KSP setup are reused. Otherwise, the Jacobian is assembled at the
+        current solution before the KSP is set up.
 
         Parameters
         ----------
@@ -396,8 +424,16 @@ class _SNESContext:
             raise RuntimeError("This context is not attached to a SNES")
         ksp = snes.getKSP()
         solve = ksp.solveTranspose if transpose else ksp.solve
-        with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
-            with dmhooks.add_hooks(self._problem.dm, self, appctx=self):
+        solution_dm = self._problem.dm
+        needs_assembly = not self._jacobian_assembled
+        with self._problem_hooks(solution_dm, include_problem_dms=needs_assembly):
+            if needs_assembly:
+                snes.computeJacobian(self._x.dat._work_vec,
+                                     self._jac.petscmat,
+                                     self._pjac.petscmat)
+                snes.setUp()
+
+            with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
                 solve(bvec, xvec)
         check_convergence(ksp)
 

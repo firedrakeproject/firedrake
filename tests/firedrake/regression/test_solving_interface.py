@@ -465,14 +465,30 @@ def test_la_solve_rejects_unknown_kwarg(mass_system):
         solve(A, x, b, not_a_kwarg=1)
 
 
-def _jacobian_solver(V, u):
+def _jacobian_solver(V, u, solver_parameters=None):
     v = TestFunction(V)
-    F = inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
+    coefficient_space = FunctionSpace(V.mesh(), "DG", 0)
+    coefficient = Function(coefficient_space).assign(1)
+    F = coefficient * inner(grad(u), grad(v))*dx - inner(Constant(1), v)*dx
     bc = DirichletBC(V, 0, "on_boundary")
     problem = NonlinearVariationalProblem(F, u, bcs=bc)
     return NonlinearVariationalSolver(
-        problem, solver_parameters={"ksp_type": "preonly", "pc_type": "lu"}
+        problem, solver_parameters=solver_parameters
     )
+
+
+def _jacobian_solver_parameters(solver_type):
+    if solver_type == "lu":
+        return {"ksp_type": "preonly", "pc_type": "lu"}
+    elif solver_type == "mg":
+        return {
+            "ksp_type": "cg",
+            "pc_type": "mg",
+            "ksp_rtol": 1.0e-10,
+            "mg_levels_ksp_type": "chebyshev",
+            "mg_levels_pc_type": "jacobi",
+        }
+    raise ValueError(f"unknown solver type: {solver_type}")
 
 
 def test_solve_jacobian_uses_own_operator():
@@ -507,11 +523,13 @@ def test_solve_jacobian_uses_own_operator():
     assert not np.allclose(other.dat.data_ro, expected.dat.data_ro)
 
 
-def test_solve_jacobian_matches_assembled_jacobian():
+@pytest.mark.parametrize("solver_type", ("lu", "mg"))
+def test_solve_jacobian_matches_assembled_jacobian(solver_type):
+    solver_parameters = _jacobian_solver_parameters(solver_type)
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
-    solver = _jacobian_solver(V, u)
+    solver = _jacobian_solver(V, u, solver_parameters)
     solver.solve()
 
     bc = DirichletBC(V, 0, "on_boundary")
@@ -523,9 +541,28 @@ def test_solve_jacobian_matches_assembled_jacobian():
         actual = Function(V)
         solver._ctx.solve_jacobian(b, actual, transpose=transpose)
         expected = Function(V)
-        solve(J, expected, b, solver_parameters={"ksp_type": "preonly",
-                                                 "pc_type": "lu"})
+        solve(J, expected, b, solver_parameters=solver_parameters)
         assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
+@pytest.mark.parametrize("solver_type", ("lu", "mg"))
+def test_solve_jacobian_without_prior_solve(solver_type):
+    solver_parameters = _jacobian_solver_parameters(solver_type)
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    solver = _jacobian_solver(V, u, solver_parameters)
+
+    bc = DirichletBC(V, 0, "on_boundary")
+    L = inner(Constant(1), TestFunction(V))*dx
+    b = assemble(L, bcs=bc)
+    J = assemble(derivative(solver._problem.F, u), bcs=bc)
+
+    actual = Function(V)
+    solver._ctx.solve_jacobian(b, actual)
+    expected = Function(V)
+    solve(J, expected, b, solver_parameters=solver_parameters)
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
 
 
 def test_solve_jacobian_without_snes_raises():

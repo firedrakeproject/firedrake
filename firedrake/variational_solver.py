@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ufl
-from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
@@ -9,7 +8,7 @@ from petsctools import OptionsManager, flatten_parameters
 import pyop3 as op3
 from pyop3.cache import with_heavy_caches
 
-from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
@@ -547,21 +546,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
-        problem = self._problem
-        forms = (problem.F, problem.J, problem.Jp, problem.E)
-        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
         solution_dm = self.snes.getDM()
-        # Grab the unique DMs for this problem
-        problem_dms = []
-        for c in chain(coefficients, problem.dirichlet_bcs()):
-            dm = c.function_space().dm
-            if dm == solution_dm:
-                # Make sure the solution dm is visited last
-                continue
-            if dm not in problem_dms:
-                problem_dms.append(dm)
-        problem_dms.append(solution_dm)
+        problem = self._problem
 
         if problem.restrict:
             # Transfer the initial guess into the RestrictedFunctionSpace
@@ -582,9 +568,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
-            dmctxs = [dmhooks.add_hooks(dm, self._ctx, appctx=self._ctx) for dm in problem_dms]
-            for dmctx in dmctxs:
-                stack.enter_context(dmctx)
+            # Keep appcontexts attached to every coefficient and DirichletBC DM
+            # for the full SNES solve, including adaptive refinement.
+            stack.enter_context(self._ctx._problem_hooks(solution_dm, include_problem_dms=True))
 
             self.snes.solve(None, work)
 
