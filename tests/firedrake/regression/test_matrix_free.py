@@ -416,7 +416,7 @@ def test_sub_matrix_whole_field_keeps_bcs(shape):
     v = TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
 
-    n = V.dof_dset.layout_vec.getSize()
+    n = V.dim()
     rows = PETSc.IS().createGeneral(range(n))
 
     A = assemble(a, bcs=bcs, mat_type="matfree")
