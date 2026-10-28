@@ -5,6 +5,7 @@ from itertools import chain
 import numpy
 
 from firedrake import dmhooks, parameters
+from firedrake.bcs import DirichletBC
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
@@ -262,9 +263,12 @@ class _SNESContext:
             # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
 
-        self.bcs_F = tuple(bc.extract_form('F') for bc in problem.bcs)
-        self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
-        self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
+        assembly_bcs = tuple(bc for bc in problem.bcs
+                             if not isinstance(bc, DirichletBC)
+                             or not bc.function_space().boundary_set)
+        self.bcs_F = tuple(bc.extract_form('F') for bc in assembly_bcs)
+        self.bcs_J = tuple(bc.extract_form('J') for bc in assembly_bcs)
+        self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in assembly_bcs)
 
         self._bc_residual = None
         if not pre_apply_bcs and next(problem.dirichlet_bcs(), None) is not None:

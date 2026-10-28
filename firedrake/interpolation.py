@@ -11,9 +11,10 @@ from typing import Hashable, Literal, Callable, Iterable
 from dataclasses import dataclass
 from numbers import Number
 
-from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms import extract_arguments, extract_coefficients, replace, expand_derivatives
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
+from ufl.tensors import as_vector
 from ufl.duals import is_dual
 from ufl.constantvalue import zero, as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
@@ -106,6 +107,19 @@ class InterpolateOptions:
     default_missing_val: float | None = None
 
 
+def split_mixed_coefficients(expr: Expr) -> Expr:
+    replacements = {
+        c: as_vector([
+            sub[i]
+            for sub in c.subfunctions
+            for i in numpy.ndindex(sub.ufl_shape)
+        ])
+        for c in extract_coefficients(expr)
+        if isinstance(c, Function) and len(c.function_space()) > 1
+    }
+    return expand_derivatives(replace(expr, replacements)) if replacements else expr
+
+
 class Interpolate(UFLInterpolate):
 
     def __init__(self, expr: Expr, V: WithGeometry | BaseForm, **kwargs):
@@ -184,6 +198,9 @@ class Interpolate(UFLInterpolate):
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
+            split_operand = split_mixed_coefficients(operand)
+            if split_operand != operand:
+                return get_interpolator(self._ufl_expr_reconstruct_(split_operand))
             if has_mixed_arguments or len(self.target_space) > 1:
                 return MixedInterpolator(self)
             raise NotImplementedError(
@@ -609,12 +626,11 @@ class CrossMeshInterpolator(Interpolator):
                     source_space = self.operand.function_space()
                     if self.ufl_interpolate.is_adjoint:
                         I = Matrix(interpolate(TestFunction(source_space), self.target_space), res)
-                        return assemble(action(I, self._interpolate_from_quadrature)).petscmat
+                        res = assemble(action(I, self._interpolate_from_quadrature)).petscmat
                     else:
                         I = Matrix(interpolate(TrialFunction(source_space), self.target_space), res)
-                        return assemble(action(self._interpolate_from_quadrature, I)).petscmat
-                else:
-                    return res
+                        res = assemble(action(self._interpolate_from_quadrature, I)).petscmat
+                return res
 
         elif self.ufl_interpolate.is_adjoint:
             assert self.rank == 1
