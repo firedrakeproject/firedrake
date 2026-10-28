@@ -3,10 +3,12 @@ import pytest
 
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, hexahedron, curl, dot, div, grad)
+                 quadrilateral, hexahedron, tetrahedron, curl, dot, div,
+                 grad, inner)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
+import tsfc.spectral
 from tsfc import compile_form
 
 
@@ -77,6 +79,11 @@ def count_storage(form):
                for temporary in temporaries.values()
                if temporary.shape and not (temporary.read_only
                                            and temporary.initializer is not None))
+
+
+def count_loops(form):
+    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    return len(kernel.ast.default_entrypoint.all_inames())
 
 
 @pytest.mark.parametrize(('cell', 'order'),
@@ -201,6 +208,66 @@ def test_equivalent_cells(cell, equivalent_cell, degree):
     b = helmholtz(equivalent_cell, degree)
     assert count_flops(a) == count_flops(b)
     assert count_flops(action(a)) == count_flops(action(b))
+
+
+@pytest.fixture
+def expanded(monkeypatch):
+    """Force the expanded representation, for comparison."""
+    def force(monkeypatch=monkeypatch):
+        collect_monomials = tsfc.spectral.collect_monomials
+        monkeypatch.setattr(
+            tsfc.spectral, "collect_monomials",
+            lambda expressions, classifier, _: collect_monomials(
+                expressions, classifier))
+    return force
+
+
+def piola_helmholtz(cell, degree):
+    m = Mesh(VectorElement('CG', cell, 1))
+    V = FunctionSpace(m, FiniteElement('RT', cell, degree))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return (inner(u, v) + inner(div(u), div(v)))*dx
+
+
+@pytest.mark.parametrize('cell', [triangle, tetrahedron],
+                         ids=lambda cell: cell.cellname)
+@pytest.mark.parametrize('degree', [1, 2, 3])
+def test_piola_map_is_preserved(cell, degree, expanded):
+    # Test and trial apply the same Piola map, so preserving it evaluates
+    # the physical basis once instead of pushing the geometry through both
+    # argument axes.
+    form = piola_helmholtz(cell, degree)
+    selected = count_flops(form)
+    expanded()
+    assert selected < count_flops(form)
+
+
+@pytest.mark.parametrize('cell', [triangle, tetrahedron],
+                         ids=lambda cell: cell.cellname)
+@pytest.mark.parametrize('degree', [1, 3])
+def test_preserving_a_map_is_never_worse(cell, degree, expanded):
+    # Expanding a map exposes scalar factorisation of its entries, which at
+    # some degrees beats sharing it.  Selection costs both, so neither
+    # representation may regress the other.
+    form = helmholtz(cell, degree)
+    selected = count_flops(form)
+    expanded()
+    assert selected <= count_flops(form)
+
+
+@pytest.mark.parametrize('cell', [triangle, tetrahedron],
+                         ids=lambda cell: cell.cellname)
+@pytest.mark.parametrize('degree', [1, 3])
+def test_shared_map_is_tabulated_in_one_loop(cell, degree, expanded):
+    # A map that both argument axes share is tabulated once, so it must be
+    # tabulated in one loop.  An index per axis fissions the loop nest that
+    # the expanded representation keeps whole, which costs more than the
+    # flops it saves.
+    form = piola_helmholtz(cell, degree)
+    selected = count_loops(form)
+    expanded()
+    assert selected <= count_loops(form)
 
 
 if __name__ == "__main__":
