@@ -222,6 +222,9 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     degree = V.ufl_element().degree() + residual_degree
     variant = "integral"
 
+    cell_prefix = options_prefix + "goal_cell_"
+    facet_prefix = options_prefix + "goal_facet_"
+
     # Testing F against cell bubbles isolates the cell residual.
     bubble_space = FunctionSpace(mesh, "B", dim + 1, variant=variant)
     bubble = Function(bubble_space).assign(1)
@@ -233,13 +236,10 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     cell_trial = TrialFunction(cell_space)
     cell_test = TestFunction(cell_space)
     cell_residual = Function(cell_space)
-    cell_problem = LinearVariationalProblem(
-        inner(cell_trial, bubble * cell_test) * dx,
-        _replace_arguments(F, bubble * cell_test), cell_residual,
-    )
-    cell_solver = LinearVariationalSolver(
-        cell_problem, options_prefix=options_prefix + "goal_cell_",
-    )
+    cell_lhs = inner(cell_trial, bubble * cell_test) * dx
+    cell_rhs = _replace_arguments(F, bubble * cell_test)
+    cell_problem = LinearVariationalProblem(cell_lhs, cell_rhs, cell_residual)
+    cell_solver = LinearVariationalSolver(cell_problem, options_prefix=cell_prefix)
     cell_solver.solve()
 
     # Testing the remainder against facet bubbles isolates the facet residual.
@@ -255,16 +255,11 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     facet_trial = TrialFunction(facet_space)
     facet_test = TestFunction(facet_space)
     facet_residual_hat = Function(facet_space)
-    facet_rhs = (_replace_arguments(F, facet_test)
-                 - inner(cell_residual, facet_test) * dx)
+    facet_rhs = _replace_arguments(F, facet_test) - inner(cell_residual, facet_test) * dx
     facet_lhs = (_both(inner(facet_trial / cone, facet_test)) * dS
                  + inner(facet_trial / cone, facet_test) * ds)
-    facet_problem = LinearVariationalProblem(
-        facet_lhs, facet_rhs, facet_residual_hat
-    )
-    facet_solver = LinearVariationalSolver(
-        facet_problem, options_prefix=options_prefix + "goal_facet_",
-    )
+    facet_problem = LinearVariationalProblem(facet_lhs, facet_rhs, facet_residual_hat)
+    facet_solver = LinearVariationalSolver(facet_problem, options_prefix=facet_prefix)
     facet_solver.solve()
     facet_residual = facet_residual_hat / cone
 
@@ -272,8 +267,7 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     indicator_test = TestFunction(indicator_space)
     indicators = assemble(
         inner(inner(cell_residual, dual_error), indicator_test) * dx
-        + inner(avg(inner(facet_residual, dual_error)),
-                _both(indicator_test)) * dS
+        + inner(avg(inner(facet_residual, dual_error)), _both(indicator_test)) * dS
         + inner(inner(facet_residual, dual_error), indicator_test) * ds
     )
     with indicators.dat.vec as vec:
@@ -531,12 +525,12 @@ class GoalOrientedMarker:
         high_degree = V.ufl_element().degree() + enrichment_degree
         high_space = V.reconstruct(degree=high_degree)
 
-        dual_low = Function(V, name="dwr_dual_low")
+        dual_low = Function(V, name="dual_low")
         goal_derivative = derivative(self.goal_functional, current_solution)
         rhs = assemble(goal_derivative, bcs=problem.bcs)
         ctx.solve_jacobian(rhs, dual_low, transpose=True)
 
-        primal_high = Function(high_space, name="dwr_primal_high")
+        primal_high = Function(high_space, name="primal_high")
         primal_high.interpolate(current_solution)
         high_problem = problem.rediscretise(u=primal_high)
 
@@ -544,12 +538,11 @@ class GoalOrientedMarker:
         transpose_nullspace = None if ctx._nullspace_T is None else ctx._nullspace_T.rediscretise(high_space)
         near_nullspace = None if ctx._near_nullspace is None else ctx._near_nullspace.rediscretise(high_space)
 
-        # The goal_enriched_ solver takes the options of the solver as
-        # defaults, but not the goal_ options of the other local solvers.
-        parameters = get_default_options(DefaultOptionSet(prefix, ("goal_",)))
-        parameters.pop("snes_adapt_sequence", None)
+        # The goal_enriched_ solver takes the options of the outer solver as
+        # defaults, but drops the snes_adapt_ options.
+        parameters = get_default_options(DefaultOptionSet(prefix, ("snes_adapt_",)))
 
-        primal_solver = NonlinearVariationalSolver(
+        high_solver = NonlinearVariationalSolver(
             high_problem,
             options_prefix=prefix + "goal_enriched_",
             solver_parameters=parameters,
@@ -557,12 +550,14 @@ class GoalOrientedMarker:
             transpose_nullspace=transpose_nullspace,
             near_nullspace=near_nullspace,
         )
-        primal_solver.solve()
+        high_solver_dm = high_solver.snes.getDM()
+        high_solver.solve()
+        assert high_solver.snes.getDM() == high_solver_dm
 
         goal_high = replace(self.goal_functional, {current_solution: primal_high})
-        dual_high = Function(high_space, name="dwr_dual_high")
+        dual_high = Function(high_space, name="dual_high")
         rhs_high = assemble(derivative(goal_high, primal_high), bcs=high_problem.bcs)
-        primal_solver._ctx.solve_jacobian(rhs_high, dual_high, transpose=True)
+        high_solver._ctx.solve_jacobian(rhs_high, dual_high, transpose=True)
 
         dual_error = dual_high - dual_low
         estimate = self._estimate_error(
