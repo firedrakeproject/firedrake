@@ -109,10 +109,13 @@ runs:
         fi
 
         cd petsc
-        : # DROP BEFORE MERGE: build petsc!9704, which is based on the PETSc
-        : # release branch and so also includes petsc!9672 and petsc!9673.
-        git fetch --depth 1 origin refs/merge-requests/9704/head
-        git checkout --detach FETCH_HEAD
+        if [ ${{ inputs.base_ref }} = 'main' ]; then
+          : # DROP BEFORE MERGE: cherry-pick petsc!9704 onto PETSc main.
+          git fetch --depth 1 origin main
+          git checkout --detach FETCH_HEAD
+          git fetch --depth 4 origin refs/merge-requests/9704/head
+          git cherry-pick $(git rev-list --reverse origin/main..FETCH_HEAD)
+        fi
         git rev-parse HEAD
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
