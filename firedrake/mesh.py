@@ -2813,6 +2813,9 @@ class ExtrudedMeshTopology(MeshTopology):
 
         # TODO: refactor to call super().__init__
 
+        # Set this before any versioned cache is read. It can be removed once super().__init__ is called.
+        self._topology_version = 0
+
         petsctools.cite("McRae2016")
         petsctools.cite("Bercea2016")
 
@@ -2870,9 +2873,6 @@ class ExtrudedMeshTopology(MeshTopology):
 
         # needed because we don't call super().__init__
         self._uid = f"mesh_{next(self.counter)}"
-
-        # NOTE: Once super().__init__ is implemented, the following line can be removed
-        self._topology_version = 0
 
     @cached_property
     def _ufl_cell(self):
@@ -3369,6 +3369,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         new_to_old_point_numbering = self._compute_new_to_old_point_renumbering(self._did_reordering)
         self._new_to_old_point_renumbering = new_to_old_point_numbering
         self._old_to_new_point_renumbering = utils.invert(new_to_old_point_numbering)
+        
+        # Changing the point numbering implies the topology of the VOM has changed
         self._topology_version += 1
 
     @cached_property

@@ -111,8 +111,8 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
     mutator = VertexOnlyMeshMutator(vom)
 
-    n_owned = vom.cell_set.size
-    vom_to_swarm = vom.cell_closure[:n_owned, -1]
+    n_owned = vom.topology.cells.owned.local_size
+    vom_to_swarm = vom.topology._new_to_old_point_renumbering[:n_owned]
 
     # Force the cached property to exist before the update
     # Calling `commit_reference_state` should update this property's data in place.
@@ -160,8 +160,8 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
 
     # Committing reference state should not rebuild or resize the VOM
     assert vom.topology._topology_version == old_topology_version
-    assert vom.num_cells() == old_num_cells
-    assert vom.cell_set.size == n_owned
+    assert vom.topology.num_cells() == old_num_cells
+    assert vom.cells.owned.local_size == n_owned
 
 
 # NOTE: This test like the ones validating the Function migration mechanism assumes that particle IDs
@@ -172,7 +172,7 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
 def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh):
     """Verify that rebuilding the VOM without absorption preserves particle state, that is
     we get the same set of particles and each particle ID remains associated
-    with the same physical coordinates, reference coordinates, and parent cell s
+    with the same physical coordinates, reference coordinates, and parent cells
     regardless of any change in VOM ordering.
     """
     points = cell_midpoints(parent_mesh, with_halos=False)
