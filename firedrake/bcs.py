@@ -1,6 +1,6 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 
-from functools import partial, reduce, cached_property
+from functools import reduce, cached_property
 import itertools
 
 import numpy as np
@@ -404,10 +404,10 @@ class DirichletBC(BCBase, DirichletBCMixin):
             try:
                 self._function_arg = firedrake.Function(V)
                 interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
-                # Call this here to check if the element supports interpolation
+                # Build the loops once and rerun them on each update. This also
+                # checks that the element supports interpolation.
                 # TODO: It's probably better to have a more explicit way of checking this
-                interpolator._get_callable()
-                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
+                self._function_arg_update = interpolator._get_callable(tensor=self._function_arg)
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
