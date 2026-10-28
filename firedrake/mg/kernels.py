@@ -591,6 +591,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
         macro_builder.coefficient_map[macro_builder.domain_coordinate[Vf.mesh()]])
     coarse_coordinates_arg = coarse_builder.generate_arg_from_expression(
         coarse_builder.coefficient_map[coarse_builder.domain_coordinate[Vc.mesh()]])
+    nchild_arg = lp.GlobalArg("nchild", dtype=IntType, shape=(1,))
     eval_args = [
         lp.GlobalArg(
             local_tensor.name, dtype=local_tensor.dtype, shape=local_tensor.shape,
@@ -598,10 +599,22 @@ def dg_injection_kernel(Vf, Vc, ncell):
         *macro_builder.kernel_args,
         macro_coordinates_arg,
         coarse_coordinates_arg,
+        nchild_arg,
     ]
     eval_kernel, _ = generate_loopy(
         impero_c, eval_args,
         ScalarType, kernel_name="pyop2_kernel_evaluate", index_names=index_names)
+
+    # The coarse cell's children come first in its row of
+    # coarse_cell_to_fine_node_map. Skip the slots after them, which only
+    # repeat a child.
+    is_child = pym.primitives.Comparison(
+        pym.var("entity"), "<", pym.subscript(pym.var(nchild_arg.name), (0,)))
+    callee = eval_kernel.default_entrypoint
+    eval_kernel = eval_kernel.with_kernel(callee.copy(instructions=[
+        insn.copy(predicates=insn.predicates | {is_child})
+        if "entity" in insn.within_inames else insn
+        for insn in callee.instructions]))
     subkernels.append(eval_kernel)
 
     fill_insn, extra_domains = _generate_call_insn(
@@ -618,7 +631,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
 
     kernel_data = [
         retarg, *macro_builder.kernel_args, macro_coordinates_arg,
-        coarse_coordinates_arg, *kernel_data]
+        coarse_coordinates_arg, nchild_arg, *kernel_data]
 
     u = TrialFunction(Vc)
     v = TestFunction(Vc)

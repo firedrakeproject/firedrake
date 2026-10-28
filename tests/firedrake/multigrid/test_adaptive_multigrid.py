@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from mpi4py import MPI
 from firedrake import *
-from firedrake.utils import complex_mode
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -34,10 +33,12 @@ def _linear_expr(mesh):
 def coarse_mesh(request):
     dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
     mesher = request.param
+    # Big enough that refining part of it leaves untouched cells behind, and
+    # that a coarse cell's child count varies widely across the mesh.
     if mesher == "firedrake-square":
-        return UnitSquareMesh(1, 1, distribution_parameters=dparams)
+        return UnitSquareMesh(4, 4, distribution_parameters=dparams)
     elif mesher == "firedrake-cube":
-        return UnitCubeMesh(1, 1, 1, distribution_parameters=dparams)
+        return UnitCubeMesh(2, 2, 2, distribution_parameters=dparams)
     elif mesher == "netgen-square":
         from netgen.occ import WorkPlane, OCCGeometry
         wp = WorkPlane()
@@ -330,10 +331,62 @@ def test_adapt_before_uniform_refinement(coarse_mesh, refine):
         assert (fine_to_coarse[coarse_to_fine, 0] == parents).all()
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_DG0(mh, operator):
-    """Prolongation & Injection test for DG0"""
+@pytest.mark.parametrize("family, degree", [("DG", 0), ("DG", 1), ("DG", 2)])
+def test_dg_injection_conserves_mass(mh, family, degree):
+    """Test that DG injection conserves mass locally on every coarse cell."""
+    rg = RandomGenerator(PCG64(seed=0))
+    padded = False
+    for level in range(len(mh) - 1):
+        coarse_mesh = mh[level]
+        fine_mesh = mh[level + 1]
+        children = mh.coarse_to_fine_cells[level][:coarse_mesh.cell_set.size]
+        valid = children >= 0
+        assert (children[valid] < fine_mesh.cell_set.size).all()
+        # Adaptive refinement gives rows different child counts, so the map
+        # should be padded with -1.
+        padded |= bool((children < 0).any())
+
+        u_fine = rg.uniform(FunctionSpace(fine_mesh, family, degree))
+        u_coarse = Function(FunctionSpace(coarse_mesh, family, degree))
+        inject(u_fine, u_coarse)
+
+        # Compute mass on each coarse cell
+        W_coarse = FunctionSpace(coarse_mesh, "DG", 0)
+        mass_coarse = assemble(inner(u_coarse, TestFunction(W_coarse)) * dx).dat.data_ro
+        mass_coarse = mass_coarse[:coarse_mesh.cell_set.size]
+
+        W_fine = FunctionSpace(fine_mesh, "DG", 0)
+        mass_per_child = assemble(inner(u_fine, TestFunction(W_fine)) * dx).dat.data_ro
+        mass_fine = np.where(valid, mass_per_child[children], 0).sum(axis=1)
+        assert np.allclose(mass_coarse, mass_fine, rtol=1e-12, atol=1e-14)
+
+    # Require at least one padded child row in the hierarchy.
+    assert mh[0].comm.allreduce(padded, MPI.LOR)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2, 4])
+@pytest.mark.parametrize("degree", [0, 1])
+def test_dg_injection_conserves_mass_extruded(degree):
+    """Test that DG injection should conserves mass globally on an extruded adaptive hierarchy."""
+    dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    base = corner_adaptive_hierarchy(UnitSquareMesh(4, 4, distribution_parameters=dparams), nlevels=2)
+    mh = ExtrudedMeshHierarchy(base, height=1, base_layer=2, refinement_ratio=2)
+    assert mh[0].comm.allreduce(bool((mh.coarse_to_fine_cells[1] < 0).any()), MPI.LOR)
+
+    rg = RandomGenerator(PCG64(seed=0))
+    for level in range(len(mh) - 1):
+        u_fine = rg.uniform(FunctionSpace(mh[level + 1], "DG", degree))
+        u_coarse = Function(FunctionSpace(mh[level], "DG", degree))
+        inject(u_fine, u_coarse)
+        assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
+
+
+@pytest.mark.parallel([1, 2, 4])
+def test_prolong_DG0(mh):
+    """Test prolongation with DG0."""
     V_coarse = FunctionSpace(mh[0], "DG", 0)
     V_fine = FunctionSpace(mh[-1], "DG", 0)
     u_coarse = Function(V_coarse)
@@ -343,23 +396,11 @@ def test_DG0(mh, operator):
     xf, *_ = SpatialCoordinate(V_fine.mesh())
     stepf = conditional(ge(xf, 0), 1, 0)
 
-    if operator == "prolong":
-        u_coarse.interpolate(stepc)
-        assert errornorm(stepc, u_coarse) <= 1e-12
+    u_coarse.interpolate(stepc)
+    assert errornorm(stepc, u_coarse) <= 1e-12
 
-        prolong(u_coarse, u_fine)
-        assert errornorm(stepf, u_fine) <= 1e-12
-    if operator == "inject":
-        u_fine.interpolate(stepf)
-        assert errornorm(stepf, u_fine) <= 1e-12
-
-        if complex_mode:
-            with pytest.raises(NotImplementedError):
-                inject(u_fine, u_coarse)
-            return
-        else:
-            inject(u_fine, u_coarse)
-        assert errornorm(stepc, u_coarse) <= 1e-12
+    prolong(u_coarse, u_fine)
+    assert errornorm(stepf, u_fine) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2, 4])
