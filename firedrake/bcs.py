@@ -1,6 +1,6 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 
-from functools import partial, reduce, cached_property
+from functools import reduce, cached_property
 import itertools
 
 import numpy as np
@@ -404,10 +404,19 @@ class DirichletBC(BCBase, DirichletBCMixin):
             try:
                 self._function_arg = firedrake.Function(V)
                 interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
-                # Call this here to check if the element supports interpolation
+                # Build the interpolation loops once, writing into
+                # self._function_arg, and run them on every update. This also
+                # checks that the element supports interpolation.
                 # TODO: It's probably better to have a more explicit way of checking this
-                interpolator._get_callable()
-                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
+                #
+                # interpolator.assemble(tensor=...) would build new loops on
+                # every call and then assign the tensor to itself, and with
+                # pyop3 each new loop costs a new compiled-code cache key
+                # (milliseconds). function_arg is updated on every apply, so
+                # new loops on each call add this cost to every solve. The
+                # loops read the coefficients of g when they run, so changes
+                # to the values of g are still seen.
+                self._function_arg_update = interpolator._get_callable(tensor=self._function_arg)
             except (NotImplementedError, AttributeError):
                 # Element doesn't implement interpolation
                 self._function_arg = firedrake.Function(V).project(g)
