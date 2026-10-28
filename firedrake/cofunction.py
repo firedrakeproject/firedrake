@@ -235,7 +235,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         values. Things like ``u.assign(2*v + Constant(3.0))``.
 
         """
-        from firedrake.assign import Assigner, parse_subset
+        from firedrake.assign import Assigner, copy_subset, parse_subset, zero_subset
 
         subset = parse_subset(subset)
 
@@ -250,7 +250,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         expr = ufl.as_ufl(expr)
         if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
             with stop_annotating(modifies=(self,)):
-                self.dat[subset].zero(eager=True)
+                if subset is Ellipsis:
+                    self.dat[subset].zero(eager=True)
+                else:
+                    # Zero on a subset, for example DirichletBC.zero. This
+                    # writes through cached buffer indices, the same entries
+                    # that self.dat[subset].zero(eager=True) writes.
+                    zero_subset(self.dat, subset)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
@@ -273,9 +279,15 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
             # TODO: Shouldn't need to cast the axes
             # self.dat[subset].assign(expr.dat[subset], eager=True)
-            lhs = self.dat[subset]
-            rhs = expr.dat[subset]
-            lhs.assign(rhs, eager=True)
+            if subset is Ellipsis:
+                lhs = self.dat[subset]
+                rhs = expr.dat[subset]
+                lhs.assign(rhs, eager=True)
+            else:
+                # Copy on a subset, for example DirichletBC.set in the
+                # matrix-free operator. The function spaces are equal, so the
+                # same buffer indices select the same nodes on both sides.
+                copy_subset(self.dat, expr.dat, subset)
             return self
         elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate

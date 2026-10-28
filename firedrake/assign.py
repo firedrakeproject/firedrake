@@ -358,6 +358,82 @@ class Assigner:
         return assign_op
 
 
+def subset_buffer_indices(dat: op3.Dat, subset: op3.Slice | op3.IndexTree) -> slice | np.ndarray:
+    """Return the indices into ``dat.buffer`` of the owned entries in a subset.
+
+    These are the same indices that ``dat[subset].data_wo`` writes through:
+    ``Dat.__getitem__`` indexes ``dat.axes`` with ``subset`` and
+    ``Dat.as_array`` takes ``axes.free.buffer_slice(include_ghosts=False)`` of
+    the result. Each of these steps is cached on the axis tree, so for a
+    subset that is used again (for example ``DirichletBC.node_set``) this
+    function is a few cache lookups. It does not build the indexed `op3.Dat`
+    and the assignment objects that ``dat[subset].zero()`` builds on every
+    call.
+
+    Parameters
+    ----------
+    dat
+        The dat to index. It can be the dat of a subfunction, in which case
+        the indices point into the buffer of the parent dat.
+    subset
+        The subset of nodes, as returned by `parse_subset`. It must not be
+        ``Ellipsis``.
+
+    Returns
+    -------
+    slice | np.ndarray
+        Indices into ``dat.buffer.data_wo`` (and ``data_ro``). Ghost entries
+        are not included, as for ``dat[subset].data_wo``.
+
+    """
+    return dat.axes.getitem(subset, strict=False).free.buffer_slice(include_ghosts=False)
+
+
+def zero_subset(dat: op3.Dat, subset: op3.Slice | op3.IndexTree) -> None:
+    """Set the owned entries of ``dat`` in ``subset`` to zero.
+
+    This has the same effect as ``dat[subset].zero(eager=True)``, including
+    the change of the buffer state that ``buffer.data_wo`` records (the ghost
+    entries become out of date). The boundary-condition methods call this once
+    per boundary condition in every application of a matrix-free operator, so
+    the cost of each call matters.
+
+    Parameters
+    ----------
+    dat
+        The dat to modify.
+    subset
+        The subset of nodes, not ``Ellipsis``.
+
+    """
+    indices = subset_buffer_indices(dat, subset)
+    dat.buffer.data_wo[indices] = 0
+
+
+def copy_subset(target: op3.Dat, source: op3.Dat, subset: op3.Slice | op3.IndexTree) -> None:
+    """Copy the owned entries of ``source`` in ``subset`` into ``target``.
+
+    This has the same effect as
+    ``target[subset].assign(source[subset], eager=True)``. Both dats must have
+    the same layout (the caller checks that the function spaces are equal), so
+    that the same subset gives entries in the same order on both sides.
+
+    Parameters
+    ----------
+    target
+        The dat to write.
+    source
+        The dat to read.
+    subset
+        The subset of nodes, not ``Ellipsis``.
+
+    """
+    # Read before write, in the same order as Tensor._array_assign, so that
+    # the buffer state changes happen in the same order too.
+    values = source.buffer.data_ro[subset_buffer_indices(source, subset)]
+    target.buffer.data_wo[subset_buffer_indices(target, subset)] = values
+
+
 @functools.singledispatch
 def parse_subset(obj: Any) -> op3.Slice | types.EllipsisType:
     raise TypeError
