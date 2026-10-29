@@ -484,7 +484,7 @@ class PointSetContext(ContextBase):
     @staticmethod
     def _make_basis_evaluation_key(finat_element, mt, entity_id):
         ufl_element = mt.terminal.ufl_element()
-        domain = extract_unique_domain(mt.terminal)
+        domain = extract_unique_domain(mt.terminal) or mt.terminal.ufl_function_space().ufl_domain()
         coordinate_element = domain.ufl_coordinate_element()
         # This way of caching is fragile.
         # Should implement _hash_key_() in ModifiedTerminal and include the entire mt in the key,
@@ -842,10 +842,11 @@ def translate_argument(terminal, mt, ctx):
         # A numerical hack that FFC used to apply on FIAT tables still
         # lives on after ditching FFC and switching to FInAT.
         return ffc_rounding(square, ctx.epsilon)
-    table = ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction)
+    domain = extract_unique_domain(terminal)
+    table = ctx.entity_selector(callback, domain, mt.restriction)
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
-        quad_multiindex_permuted = _make_quad_multiindex_permuted(terminal, mt, ctx)
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(domain, mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
@@ -861,35 +862,30 @@ def translate_constant_value(terminal, mt, ctx):
 def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: ContextBase) -> gem.Node:
     dual_arg, operand = terminal.argument_slots()
     domain = extract_unique_domain(operand) or dual_arg.ufl_function_space().ufl_domain()
-    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
+    ufl_element = dual_arg.ufl_function_space().ufl_element()
+    element = ctx.create_element(ufl_element, restriction=mt.restriction)
     kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
     vec = gem.Sum(*(
         gem.ComponentTensor(evaluation, basis_indices)
         for evaluation, _, basis_indices
         in dual_evaluate(operand, dual_arg, element, kernel_cfg)
     ))
-    return translate_finat(terminal, mt, ctx, vec, element, beta=element.get_indices())
+    return translate_ufl_element(ufl_element, domain, mt, ctx, vec)
 
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
     vec = ctx.coefficient(terminal, mt.restriction)
-    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
-    return translate_finat(terminal, mt, ctx, vec, element)
+    return translate_ufl_element(terminal.ufl_element(), extract_unique_domain(terminal), mt, ctx, vec)
 
 
-def translate_finat(terminal: ufl.core.expr.Expr,
-                    mt: ModifiedTerminal,
-                    ctx: ContextBase,
-                    vec: gem.Node,
-                    element: FiniteElementBase,
-                    beta: tuple | None = None) -> gem.Node:
-    """Tabulate the basis functions of ``element`` at the current points and contract them with ``vec``.
-
-    The tuple ``beta`` contains the indices that run over the basis functions.
-    It defaults to the indices cached for ``terminal``.
-    """
-    domain = extract_unique_domain(terminal)
+def translate_ufl_element(ufl_element: finat.ufl.FiniteElementBase,
+                          domain: ufl.AbstractDomain,
+                          mt: ModifiedTerminal,
+                          ctx: ContextBase,
+                          vec: gem.Node) -> gem.Node:
+    """Tabulate the basis functions of ``ufl_element`` and contract them with ``vec``."""
+    element = ctx.create_element(ufl_element, restriction=mt.restriction)
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
@@ -917,8 +913,7 @@ def translate_finat(terminal: ufl.core.expr.Expr,
                           for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
-    if beta is None:
-        beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
+    beta = ctx.index_cache.setdefault(ufl_element, element.get_indices())
     zeta = element.get_value_indices()
     vec_beta = gem.Indexed(vec, beta)
     # The value indices, the form's own quadrature points and the argument
@@ -953,13 +948,13 @@ def translate_finat(terminal: ufl.core.expr.Expr,
 
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
-        quad_multiindex_permuted = _make_quad_multiindex_permuted(terminal, mt, ctx)
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(domain, mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         result = mapper(result, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     return result
 
 
-def _make_quad_multiindex_permuted(terminal, mt, ctx):
+def _make_quad_multiindex_permuted(domain, mt, ctx):
     quad_rule = ctx.quadrature_rule
     # Note that each quad index here represents quad points on a physical
     # cell axis, but the table is indexed by indices representing the points
@@ -972,7 +967,6 @@ def _make_quad_multiindex_permuted(terminal, mt, ctx):
             if len(extents) != 1:
                 raise ValueError("Must have the same number of quadrature points in each symmetric axis")
     quad_multiindex_permuted = []
-    domain = extract_unique_domain(terminal)
     o = ctx.entity_orientation(domain, mt.restriction)
     if not isinstance(o, FIATOrientation):
         raise ValueError(f"Expecting an instance of FIATOrientation : got {o}")

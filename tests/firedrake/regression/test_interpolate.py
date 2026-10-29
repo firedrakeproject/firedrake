@@ -20,6 +20,12 @@ def test_constant():
     assert np.allclose(1.0, f.dat.data_ro)
 
 
+def test_domainless_constant():
+    cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
+    f = assemble(interpolate(1.0, cg1))
+    assert np.allclose(1.0, f.dat.data_ro)
+
+
 def test_zero_expression():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
