@@ -1,3 +1,4 @@
+import functools
 import numbers
 from collections.abc import Sequence
 import numpy as np
@@ -25,24 +26,58 @@ from firedrake.adjoint_utils.constant import ConstantMixin
 __all__ = ['Constant']
 
 
-def _create_const(value, comm):
-    data = np.array(value, dtype=ScalarType)
-    shape = data.shape
-    rank = len(shape)
+@functools.cache
+def _constant_axes(shape: tuple[int, ...]) -> op3.AxisTree:
+    """Return the axis tree of a `Constant` with the given value shape.
 
-    if rank == 0:
+    The tree depends only on the shape, because every `Constant` lives on
+    ``MPI.COMM_SELF``. One tree is made for each shape and shared by all
+    constants of that shape, in the same way that all the functions of a
+    function space share one axis tree.
+
+    Sharing the tree matters for speed. A new tree has a new star forest, so
+    pyop3 computes its layouts again, and that runs small pyop3 loops whose
+    compiled-code cache keys contain the new tree. A new tree for every
+    `Constant` made each construction cost several milliseconds, which is
+    large in a time loop that makes a `Constant` in every step. With a shared
+    tree the layouts are computed once for each shape.
+
+    Parameters
+    ----------
+    shape
+        The value shape of the constant, ``()`` for a scalar.
+
+    Returns
+    -------
+    op3.AxisTree
+        The axis tree for the data of the constant.
+
+    """
+    comm = MPI.COMM_SELF
+    if len(shape) == 0:
         # could maybe be a Scalar
         sf = op3.sf.single_star_sf(comm)
-        axes = op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
+        return op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
     else:
         sf = op3.sf.single_star_sf(comm, shape[0])
         root_component = op3.AxisComponent(shape[0], sf=sf)
         components = [root_component]
         for size in shape[1:]:
             components.append(op3.AxisComponent(size))
-        axes = op3.AxisTree.from_iterable((
+        return op3.AxisTree.from_iterable((
             op3.Axis(component, label=f"dim{i}") for i, component in enumerate(components)
         ))
+
+
+def _create_const(value, comm):
+    data = np.array(value, dtype=ScalarType)
+    shape = data.shape
+    rank = len(shape)
+
+    # The axis tree is shared between all constants of this shape (see
+    # _constant_axes). Each constant still has its own buffer for its data.
+    assert comm is MPI.COMM_SELF, "Constants are always defined on COMM_SELF"
+    axes = _constant_axes(shape)
     dat = op3.Dat(axes, data=data.flatten())
     return dat, rank, shape
 
