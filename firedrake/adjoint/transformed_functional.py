@@ -343,9 +343,9 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         """Evaluate the functional.
 
         Parameters
-        ---------
+        ----------
 
-        value
+        values
             Control values.
 
         Returns
@@ -371,10 +371,11 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         """Evaluate the derivative.
 
         Parameters
-        ---------
+        ----------
 
-        adj_value
-            Not supported.
+        adj_input
+            Only the default value 1 is supported. Other values raise
+            ``NotImplementedError``.
         apply_riesz
             Whether to apply the Riesz map to the result.
 
