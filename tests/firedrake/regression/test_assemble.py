@@ -327,7 +327,7 @@ def test_loops_shared_between_tensor_layouts(mesh):
     assert np.allclose(mixed.subfunctions[0].dat.data_ro, 0)
 
 
-def test_loops_shared_between_coefficient_layouts(mesh):
+def test_assemble_with_different_coefficient_layouts(mesh):
     x, y = SpatialCoordinate(mesh)
     W = FunctionSpace(mesh, "DG", 1) * FunctionSpace(mesh, "CG", 2)
 
