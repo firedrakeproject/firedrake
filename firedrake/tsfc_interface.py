@@ -52,13 +52,14 @@ _cachedir = environ.get(
 )
 
 
-def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal):
+def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal, return_increments):
     return default_parallel_hashkey(
         form.signature(),
         prefix,
         utils.tuplify(parameters),
         dont_split_numbers,
         diagonal,
+        return_increments,
     )
 
 
@@ -84,6 +85,7 @@ class TSFCKernel:
         coefficient_numbers,
         constant_numbers,
         dont_split_numbers,
+        access=op3.INC,
         diagonal=False
     ):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
@@ -104,13 +106,16 @@ class TSFCKernel:
             Map from local constant numbers in the provided (split) form to constant numbers in the original form.
         dont_split_numbers : tuple
             Block-local coefficient numbers of coefficients that are not to be split into components by form compiler.
+        access : Intent
+            The access descriptor of the output tensor.
         diagonal : bool
             If assembling a matrix is it diagonal?
 
         """
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  dont_split_numbers=dont_split_numbers,
-                                 diagonal=diagonal)
+                                 diagonal=diagonal,
+                                 return_increments=(access == op3.INC))
         kernels = []
         for kernel in tree:
             domain_number = domain_number_map[kernel.domain_number]
@@ -142,7 +147,7 @@ class TSFCKernel:
             #                                      len(kernel.arguments),
             #                                      flop_count=kernel.flop_count,
             #                                      events=events)
-            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments))
+            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments), access=access)
             kernels.append(KernelInfo(kernel=pyop3_kernel,
                                       integral_type=kernel.integral_type,
                                       subdomain_id=kernel.subdomain_id,
@@ -159,7 +164,7 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     return (
         form.signature(),
         name,
@@ -167,6 +172,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
         split,
         _make_dont_split_numbers(dont_split, form),
         diagonal,
+        access,
     )
 
 
@@ -177,7 +183,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     """Compile a form using TSFC.
 
     Parameters
@@ -197,12 +203,14 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
         Coefficients that are not to be split into components by form compiler.
     diagonal : bool
         If assembling a matrix is it diagonal?
+    access : Intent
+        The access descriptor of the output tensor.
 
     Returns
     -------
-    Tuple
-        A tuple of tuples of
-        (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
+    tuple of SplitKernel
+        A tuple of split kernels, each of which contains the local indices and
+        the TSFC kernel information for one form component.
 
     Notes
     ----
@@ -216,7 +224,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     """
 
     # Check that we get a Form
-    if not isinstance(form, Form):
+    if not isinstance(form, (Form, ufl.Interpolate)):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
     if parameters is None:
@@ -265,6 +273,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             coefficient_numbers,
             constant_numbers,
             dont_split_numbers,
+            access,
             diagonal,
         )
         for kinfo in tsfc_kernel.kernels:
@@ -278,7 +287,8 @@ def _real_mangle(form):
     """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
 
     a = form.arguments()
-    reals = [x.ufl_element().family() == "Real" for x in a]
+    # Real Coarguments are not integrated against, they are only contracted in Interpolate.
+    reals = [x.ufl_element().family() == "Real" and not isinstance(x, ufl.Coargument) for x in a]
     if not any(reals):
         return form
     replacements = {}
@@ -335,7 +345,7 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
         The kernel code, for example a loopy kernel.
     nargs
         The number of arguments that the kernel expects.
-    access
+    access : Intent
         The access descriptor of the first kernel argument. The other
         arguments are read-only.
 
