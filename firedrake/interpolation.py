@@ -823,7 +823,7 @@ class SameMeshInterpolator(Interpolator):
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
                                        pyop3_compiler_parameters=pyop3_compiler_parameters,
-                                       needs_zeroing=False, access=self.access)
+                                       needs_zeroing=(self.rank == 2), access=self.access)
 
         copy_input = None
         copy_output = None
