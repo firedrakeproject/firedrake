@@ -793,8 +793,9 @@ class SameMeshInterpolator(Interpolator):
         This is the user's `Interpolate` carrying the assembly options, and the
         weighted copy of the dual argument when the adjoint needs one.
         """
-        dual_arg = self._weighted_dual_arg if self._needs_adjoint_weighting else self.dual_arg
-        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg,
+        if not self._needs_adjoint_weighting:
+            return self.ufl_interpolate
+        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=self._weighted_dual_arg,
                                                            subset=self.subset, access=self.access)
 
     def _update_weighted_dual_arg(self):
