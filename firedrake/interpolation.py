@@ -19,7 +19,6 @@ from ufl.core.interpolate import Interpolate as UFLInterpolate
 import pyop3 as op3
 from pyop3.cache import cached_on, with_heavy_caches
 from pyop3.dtypes import get_mpi_dtype
-from pyop3.mpi import temp_internal_comm
 
 from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 
@@ -737,15 +736,6 @@ class SameMeshInterpolator(Interpolator):
             return target_mesh.iter("cell", subdomain_id=self.subset)
         else:
             return target_mesh.iter("cell")
-
-    @cached_property
-    def covers_target(self) -> bool:
-        """Whether the interpolation reaches every target cell."""
-        target_mesh = self.target_mesh.unique()
-        reached = self._loop_index.plex_indices.size
-        total = target_mesh.iter("cell").plex_indices.size
-        with temp_internal_comm(target_mesh.comm) as icomm:
-            return icomm.allreduce(reached == total, op=MPI.LAND)
 
     def _loop_target_nodes(self, f: Function | Cofunction, value: float,
                            mode: Literal["inc", "min", "max"]) -> None:

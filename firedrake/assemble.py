@@ -354,7 +354,17 @@ def _can_fuse_operator(operator: ufl.core.base_form_operator.BaseFormOperator,
     # absorb only an interpolation that maps cells to cells and reaches every
     # target cell; every other interpolation keeps its own interpolator.
     interpolator = get_interpolator(operator)
-    if not isinstance(interpolator, SameMeshInterpolator) or not interpolator.covers_target:
+    if not isinstance(interpolator, SameMeshInterpolator):
+        return False
+    if interpolator.subset is not None:
+        return False
+    # An interpolation from a submesh that is not an ancestor of the target mesh
+    # can miss some target cells. Therefore, we do not fuse it with a kernel that
+    # iterates over the target cells, even if the kernel only visits cells that
+    # the interpolation reaches.
+    source = interpolator.source_mesh.unique().topology
+    common = source.submesh_youngest_common_ancestor(interpolator.target_mesh.unique().topology)
+    if common is not None and common is not source:
         return False
     # Nested interpolations can be fused only when all of them meet the same
     # conditions.
