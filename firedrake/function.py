@@ -461,7 +461,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         should be used.
 
         """
-        from firedrake.assign import Assigner, parse_subset
+        from firedrake.assign import Assigner, copy_subset, parse_subset, zero_subset
 
         subset = parse_subset(subset)
         # Complete any pending reductions if we are doing subset assignment.
@@ -474,8 +474,25 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         if self.ufl_element().family() == "Real" and isinstance(expr, Number | Collection):
             self.dat.data_wo_with_halos[...] = expr
+        elif expr == 0 and subset is not Ellipsis:
+            # Zero on a subset, for example DirichletBC.zero. This writes
+            # through cached buffer indices, the same entries that
+            # self.dat[subset].zero(eager=True) writes.
+            zero_subset(self.dat, subset)
         elif expr == 0:
             self.dat[subset].zero(eager=True)
+        elif (
+            subset is not Ellipsis
+            and isinstance(expr, Function)
+            and self.ufl_element().family() != "Real"
+            and expr.function_space() == self.function_space()
+        ):
+            # Copy on a subset from a function on the same space, for example
+            # DirichletBC.apply. Assigner would build a new pyop3 loop on each
+            # call, and each new loop costs a new compiled-code cache key. The
+            # function spaces are equal, so the same subset selects the same
+            # nodes in both dats.
+            copy_subset(self.dat, expr.dat, subset)
         else:
             Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
