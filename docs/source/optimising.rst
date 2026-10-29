@@ -367,11 +367,11 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
 #. We will now add the capability for TAU to do tracing (rather than sampling). This will show a timeline of what the application is doing. This requires running configure and make again but this can be doing using the existing installation directory:
 
-    .. code-block:: console
+   .. code-block:: console
 
-      $ cd $MY_TAU_DIR/tau-2.35.2
-      $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/pdtoolkit-3.25.2 -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
-      $ make install
+     $ cd $MY_TAU_DIR/tau-2.35.2
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/pdtoolkit-3.25.2 -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
+     $ make install
 
 #. Run a tracing example:
 
