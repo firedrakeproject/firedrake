@@ -315,6 +315,48 @@ def test_two_nonlinear_solves():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.usefixtures("garbage_cleanup")
+@pytest.mark.parametrize("constant_jacobian", [False, True])
+def test_cached_adjoint_rhs(constant_jacobian: bool) -> None:
+    """A cached adjoint solver uses the current RHS for every derivative.
+
+    Interpolation adds a separate term to the adjoint residual. Since the
+    interpolation is the identity on V, the forward solution is exactly f/2.
+    """
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(1 + x)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(interpolate(u, V), v)*dx + inner(u - f, v)*dx
+    problem = NonlinearVariationalProblem(F, u)
+    problem._constant_jacobian = constant_jacobian
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        "ksp_type": "cg", "pc_type": "jacobi", "ksp_rtol": 1e-12,
+    })
+    solver.solve()
+    linear = ReducedFunctional(assemble(u*dx), Control(f))
+    quadratic = ReducedFunctional(assemble(0.5*u**2*dx), Control(f))
+    adjoint_solver = solver._ad_solvers["adjoint_lvs"]
+
+    for functional, seed, density in (
+        (linear, 1.0, 0.5),
+        (quadratic, -2.0, f/4),
+        (quadratic, 0.0, f/4),
+        (linear, 3.0, 0.5),
+    ):
+        gradient = functional.derivative(adj_input=seed)
+        with stop_annotating():
+            expected = assemble(Constant(seed)*density*v*dx)
+            error = assemble(gradient - expected)
+        with error.dat.vec_ro as vec:
+            assert vec.norm() < 1e-11
+        assert solver._ad_solvers["adjoint_lvs"] is adjoint_solver
+
+
+@pytest.mark.skipcomplex
 def test_real_solve(rg):
     mesh = UnitSquareMesh(8, 8)
     V = FunctionSpace(mesh, "CG", 1)
