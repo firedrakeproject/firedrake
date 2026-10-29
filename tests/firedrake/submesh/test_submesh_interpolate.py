@@ -88,6 +88,34 @@ def test_submesh_form_interp():
 
 
 @pytest.mark.parallel([1, 3])
+def test_submesh_interpolate_with_subset():
+    mesh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
+    x, y = SpatialCoordinate(mesh)
+    submesh = make_submesh(mesh, conditional(x < 1., 1, 0), 111)
+    source_space = FunctionSpace(submesh, "CG", 1)
+    target_space = FunctionSpace(mesh, "CG", 1)
+    xs, ys = SpatialCoordinate(submesh)
+    source = Function(source_space).interpolate(xs + 2 * ys)
+    subset = mesh.cell_subset(111)
+
+    actual = assemble(interpolate(source, target_space, subset=subset))
+    expected = assemble(interpolate(x + 2 * y, target_space, subset=subset))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+    operator = assemble(
+        interpolate(TrialFunction(source_space), target_space, subset=subset),
+        mat_type="aij",
+    )
+    dual_source = Cofunction(target_space.dual()).assign(1)
+    expected_adjoint = Cofunction(source_space.dual())
+    with dual_source.dat.vec_ro as source_vec, expected_adjoint.dat.vec_wo as target_vec:
+        operator.petscmat.multTranspose(source_vec, target_vec)
+
+    actual_adjoint = assemble(interpolate(TestFunction(source_space), dual_source, subset=subset))
+    assert np.allclose(actual_adjoint.dat.data_ro, expected_adjoint.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize('covered', [True, False])
 def test_submesh_form_interp_coverage(covered):
     # A Form iterates over its own cells, so it only fuses an interpolation

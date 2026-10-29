@@ -731,9 +731,8 @@ class SameMeshInterpolator(Interpolator):
         source_mesh = self.source_mesh.unique()
         if source_mesh is not target_mesh and source_mesh.submesh_youngest_common_ancestor(target_mesh):
             # Only the target cells that the source mesh covers are reached.
-            if self.subset is not None:
-                raise NotImplementedError("Interpolation between submeshes over a subset is not supported")
-            return target_mesh.iter("cell", intersect_meshes=[source_mesh])
+            subdomain_id = "everywhere" if self.subset is None else self.subset
+            return target_mesh.iter("cell", subdomain_id=subdomain_id, intersect_meshes=[source_mesh])
         elif self.subset is not None:
             return target_mesh.iter("cell", subdomain_id=self.subset)
         else:
