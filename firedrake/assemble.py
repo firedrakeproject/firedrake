@@ -507,7 +507,6 @@ class BaseFormAssembler(AbstractFormAssembler):
                 # Substitute the base form operators by their output
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
             form = expr
-            # Only matrices need allocation_integral_types, bcs are delayed to the output for 1-forms
             is_matrix = len(form.arguments()) == 2 and not self._diagonal
             assembler = get_form_assembler(
                 form,
@@ -520,7 +519,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 appctx=self._appctx,
                 diagonal=self._diagonal,
                 weight=self._weight,
-                allocation_integral_types=allocation_integral_types if is_matrix else None,
+                allocation_integral_types=allocation_integral_types,
             )
             return assembler.assemble(tensor=tensor)
         elif isinstance(expr, ufl.Adjoint):

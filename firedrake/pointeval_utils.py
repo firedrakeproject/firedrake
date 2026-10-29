@@ -13,7 +13,6 @@ import tsfc
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 from tsfc.loopy import generate as generate_loopy
 from tsfc.parameters import default_parameters
-from tsfc.ufl_utils import runtime_quadrature_element  # noqa: F401
 
 from firedrake import utils
 from firedrake.petsc import PETSc
