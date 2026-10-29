@@ -30,7 +30,7 @@ from firedrake.cofunction import Cofunction, RieszMap
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import parse_component_indices, is_mixed
-from firedrake.mesh import MeshGeometry, VertexOnlyMesh, extract_mesh_topologies
+from firedrake.mesh import MeshGeometry, VertexOnlyMesh, VertexOnlyMeshTopology, extract_mesh_topologies
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.exceptions import PointNotInDomainError
 
@@ -89,6 +89,9 @@ class CoordinatelessFunction(ufl.Coefficient):
             self._dat = function_space.make_dat(val, dtype, self.name())
 
         self._mesh_topology_version = self._mesh_topology._topology_version
+        r"""The topology version on which the values of this function are stored."""
+
+        # Register the function at the mesh level
         self._mesh_topology._register_function(self)
 
         if isinstance(function_space, functionspaceimpl.MixedFunctionSpace):
@@ -114,17 +117,11 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def _migrate_to_current_topology(self) -> None:
         """Move the data of this funcion to the current topology of its mesh."""
-        # Check if the mesh topology version stored on the function is outdated
+        # Check if the version of the mesh topology stored on this function is outdated
         if self._mesh_topology_version == self._mesh_topology._topology_version:
             return
-        # Check if the function is DG0 and fail appropriately
-        # VOMs only support DG0 functions in Firedrake so if we're not DG0 then cannot be on a VOM.
-        fs = self.function_space()
-        is_dg0 = fs.cell_node_map_dat.data_ro.shape[1] == 1
-        if is_dg0:
-            _migrate_dg0_coef(self)
-        else:
-            raise NotImplementedError("Function migration is currently implemented only for DG0 functions defined on vertex-only meshes.")
+        # If outdated, then migrate the function values
+        _migrate_dg0_coef(self)
 
     @PETSc.Log.EventDecorator()
     def copy(self, *, deepcopy=False):
@@ -952,6 +949,13 @@ def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf:
     op3.Dat
         A new Dat on the current topology that holds the moved values.
     """
+    space = cfunc.function_space().topological
+
+    # Check that the function is DG0 (one node per cell). This space naturally fits with the SF-based migration mechanism.
+    # For VOMs, only DG0 can ever be defined but we keep this check here for when we extend the functionality to other meshes.
+    if not space.finat_element.space_dimension() == 1:
+        raise NotImplementedError("SF-based function migration is only supported for DG0 functions.")
+    
     # Accessing dat would trigger the migration again, so we access _dat instead
     old_vals = cfunc._dat.data_ro
     old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], -1))) # (n_cells, block_size)
@@ -977,11 +981,13 @@ def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
         If the topology has changed and it is not a vertex-only mesh topology.
     """
     topology = coef._mesh_topology
-    # For a Real space, there's one global value which doesn't depend on the mesh topology.
+
+    # To be removed, once we extend SF-based migration to other meshes.
+    if not isinstance(topology, VertexOnlyMeshTopology):
+        raise NotImplementedError("Function migration is currently only supported for functions defined on vertex-only meshes.")
+
+    # For a Real space, there's one global value which doesn't depend on the mesh topology so no migration is needed.
     if not isinstance(coef.function_space().topological, functionspaceimpl.RealFunctionSpace):
-        # TODO: Should we add an extra check here to verify that the Function is defined on a VOM? 
-        # The current implementation only works with VOMs, but I don't think it would be too hard to extend the SF-migration stuff
-        # to work for DG0 on other meshes.
         migration_sf = topology._get_migration_sf(coef._mesh_topology_version)
         coef._dat = _migrate_dg0_dat(coef, migration_sf)
     coef._mesh_topology_version = topology._topology_version
