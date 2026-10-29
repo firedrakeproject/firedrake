@@ -33,7 +33,6 @@ def cell_midpoints(mesh, with_halos=False):
     """Return the midpoint of each cell of the mesh, in the cell order of the mesh."""
     V = VectorFunctionSpace(mesh, "DG", 0)
     x = Function(V).interpolate(SpatialCoordinate(mesh))
-
     return (x.dat.data_ro_with_halos if with_halos else x.dat.data_ro).copy()
 
 

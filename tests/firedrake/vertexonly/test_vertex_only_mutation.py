@@ -21,15 +21,11 @@ def parent_mesh(request):
 
 # Utility Functions
 
-
 def cell_midpoints(mesh, with_halos=False):
-    """Create deterministic physical point locations: one point at the midpoint of each mesh cell.
-    Setting `with_halos=False` ensures the function returns only midpoints that are owned by each rank."""
+    """Return the midpoint of each cell of the mesh, in the cell order of the mesh."""
     V = VectorFunctionSpace(mesh, "DG", 0)
     x = Function(V).interpolate(SpatialCoordinate(mesh))
-
-    data = x.dat.data_ro_with_halos if with_halos else x.dat.data_ro
-    return data.reshape((-1, mesh.geometric_dimension))
+    return (x.dat.data_ro_with_halos if with_halos else x.dat.data_ro).copy()
 
 
 def locate_points(mesh, points):
