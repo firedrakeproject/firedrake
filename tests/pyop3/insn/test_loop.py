@@ -399,6 +399,24 @@ MatSetValues(mat, 3, idxs, 3, idxs, values, ADD_VALUES);
     )
 
 
+def test_passthrough_petsc_object():
+    kernel = op3.Function.from_c_string(
+        "ksp_get_tolerances",
+        """
+        PetscCallVoid(KSPSetTolerances(K, PETSC_DEFAULT, PETSC_DEFAULT,
+                                       PETSC_DEFAULT, 8));
+        """,
+        [("K", op3.dtypes.OpaqueType("KSP"), op3.READ)],
+    )
+
+    ksp = PETSc.KSP().create(comm=PETSc.COMM_WORLD)
+    ksp.setTolerances(max_it=7)
+    arg = op3.OpaqueTerminal(op3.PetscObjectBuffer(ksp, comm=MPI.COMM_WORLD))
+
+    op3.loop(op3.Axis(10).iter(), kernel(arg), eager=True)
+    assert ksp.getTolerances()[-1] == 8
+
+
 def test_transpose(factory):
     n = 5
     # axis0 and axis1 must have different labels
@@ -438,3 +456,19 @@ def test_nested_multi_component_loops(factory):
         eager=True,
     )
     assert np.allclose(dat1.data_ro, dat0.data_ro)
+
+
+def test_c_string_kernel_with_unindexed_global():
+    # The size of a global with a star forest is a symbolic expression
+    sf = op3.sf.single_star_sf(MPI.COMM_SELF)
+    glob = op3.Dat(op3.Axis(op3.AxisComponent(1, sf=sf)), data=np.array([2.0], dtype=op3.ScalarType))
+    axis = op3.Axis(5)
+    dat = op3.Dat.zeros(axis, dtype=op3.ScalarType)
+
+    kernel = op3.Function.from_c_string(
+        "assign_global",
+        "y[0] = g[0];",
+        [("g", op3.ScalarType, op3.READ), ("y", op3.ScalarType, op3.WRITE)],
+    )
+    op3.loop(p := axis.iter(), kernel(glob, dat[p]), eager=True)
+    assert np.allclose(dat.data_ro, 2.0)

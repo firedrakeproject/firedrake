@@ -108,6 +108,16 @@ def test_set_bcs_mismatching_fs(V, f2):
             bc.set_value(f2)
 
 
+def test_set_function_on_bc_nodes(V, f):
+    "Copy the values of a Function onto the DirichletBC nodes of another Function."
+    bc = DirichletBC(V, 32, 1)
+    u = Function(V)
+    bc.set(u, f)
+    expected = np.zeros_like(u.dat.data_ro)
+    expected[bc.nodes] = 10
+    assert np.allclose(u.dat.data_ro, expected)
+
+
 def test_homogeneous_bcs(a, u, V):
     bcs = [DirichletBC(V, 32, 1)]
 
