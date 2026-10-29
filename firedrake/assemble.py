@@ -1029,6 +1029,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
         self._parloops = None
+        self._data_args = None
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -1072,19 +1073,19 @@ class ParloopFormAssembler(FormAssembler):
                     # FIXME: this doesn't work for matrices (yet)
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
-        for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
-            parloop, lgmaps, setup_callables, tensor_name, arg_names = parloop_info
+        for (local_kernel, _), parloop_info, data_args in zip(
+            self.local_kernels, self.parloops(tensor), self._parloop_data_args(tensor)
+        ):
+            parloop, lgmaps, setup_callables, tensor_name, _ = parloop_info
             for setup in setup_callables:
                 setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
-                # The loops can be built for another form with the same signature.
-                kinfo = local_kernel.kinfo
-                coefficients = itertools.chain(_FormHandler.iter_active_coefficients(self._form, kinfo),
-                                               _FormHandler.iter_constants(self._form, kinfo))
-                arg_replace_map = {name: c.dat for name, c in zip(arg_names, coefficients, strict=True) if name is not None}
-                arg_replace_map[tensor_name] = subtensor
+                # The loops can be built for another form with the same key, so
+                # pass the coefficients and constants of this form, and the
+                # output tensor of this call, which can change between calls.
+                arg_replace_map = {**data_args, tensor_name: subtensor}
                 parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
@@ -1109,6 +1110,55 @@ class ParloopFormAssembler(FormAssembler):
         if self._parloops is None:
             self._parloops = self._build_parloops(tensor)
         return self._parloops
+
+    def _parloop_data_args(self, tensor):
+        """Return the coefficient and constant arguments of the loops of this form.
+
+        The loops can be shared with other forms that have the same key (see
+        `_parloops_key`), so each call of the loops must pass the data of this
+        form. This method maps the argument names of each loop to the data of
+        the coefficients and constants of this form.
+
+        The maps are computed on the first call and stored on the assembler.
+        This is necessary for speed: solvers assemble the same form many
+        times, and the constants are found by a traversal of the UFL form.
+
+        Storing the maps is safe, because the data objects of a form do not
+        change during the life of the assembler. The form is immutable, so it
+        holds the same Function, Cofunction and Constant objects. The dat of a
+        Function or Cofunction is set once, when the object is created, and
+        `Function.assign` and `Constant.assign` write into the existing data.
+        The subfunctions of a mixed Function are a cached property, so their
+        dats are also created only once. The output tensor can change between
+        calls, so it is not part of these maps.
+
+        Parameters
+        ----------
+        tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase or op3.Scalar
+            The output tensor, used only to build the loops if they do not exist yet.
+
+        Returns
+        -------
+        tuple
+            For each local kernel, in the order of `local_kernels`, a dict
+            that maps the names of the loop arguments to the dats of the
+            coefficients and constants of this form.
+
+        """
+        if self._data_args is None:
+            data_args = []
+            for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
+                # The last entry holds the argument names of the coefficients,
+                # then of the constants, in the order of the kernel arguments.
+                arg_names = parloop_info[-1]
+                kinfo = local_kernel.kinfo
+                data = itertools.chain(_FormHandler.iter_active_coefficients(self._form, kinfo),
+                                       _FormHandler.iter_constants(self._form, kinfo))
+                # A name of None marks a coefficient that the loop reads from a
+                # private copy (see ParloopBuilder), so it takes no argument.
+                data_args.append({name: c.dat for name, c in zip(arg_names, data, strict=True) if name is not None})
+            self._data_args = tuple(data_args)
+        return self._data_args
 
     @cached_on(
         get_obj=lambda self, tensor: get_mesh_topologies(self._form),
