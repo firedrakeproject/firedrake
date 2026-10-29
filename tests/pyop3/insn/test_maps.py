@@ -157,6 +157,45 @@ def test_inc_from_tabulated_map(
     assert np.allclose(dat1.data_ro, expected)
 
 
+def test_inc_from_tabulated_map_reuses_compiled_code_for_new_map_data(vector_inc_kernel, monkeypatch):
+    from pyop3.insn.exec import InstructionExecutionContext
+
+    preprocess = InstructionExecutionContext.preprocess
+    num_preprocessed = 0
+
+    def counting_preprocess(self):
+        nonlocal num_preprocessed
+        if self._preprocessed is None:
+            num_preprocessed += 1
+        return preprocess(self)
+
+    monkeypatch.setattr(InstructionExecutionContext, "preprocess", counting_preprocess)
+
+    def inc_from_map(map_data):
+        # Build new axis trees each time so the loops only share their structure
+        m, n = map_data.shape
+        axis = op3.Axis({"pt0": m}, "ax0")
+        dat0 = op3.Dat(axis, data=np.arange(axis.size, dtype=op3.ScalarType))
+        dat1 = op3.Dat.zeros_like(dat0)
+        map_axes = op3.AxisTree.from_nest({axis: op3.Axis({"pt0": n}, "ax1")})
+        map_dat = op3.Dat(map_axes, data=map_data.flatten())
+        map0 = op3.Map({
+            idict({"ax0": "pt0"}): [[
+                op3.TabulatedMapComponent("ax0", "pt0", map_dat),
+            ]],
+        })
+        op3.loop(p := axis.iter(), vector_inc_kernel(dat0[map0(p)], dat1[p]), eager=True)
+        return dat1.data_ro, dat0.data_ro[map_data].sum(axis=1)
+
+    result, expected = inc_from_map(np.asarray([[1, 2, 0], [2, 0, 1], [3, 2, 3], [2, 0, 1]]))
+    assert np.allclose(result, expected)
+
+    num_preprocessed = 0
+    result, expected = inc_from_map(np.asarray([[0, 0, 0], [3, 3, 1], [1, 2, 3], [0, 3, 2]]))
+    assert np.allclose(result, expected)
+    assert num_preprocessed == 0
+
+
 def test_inc_from_multi_component_temporary(vector_inc_kernel):
     m, n = 3, 4
     arity = 2
