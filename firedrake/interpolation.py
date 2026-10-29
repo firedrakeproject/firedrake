@@ -786,9 +786,8 @@ class SameMeshInterpolator(Interpolator):
         self._loop_target_nodes(tensor, value, mode)
 
     @cached_on(
-        get_obj=lambda self: get_mesh_topologies(self.ufl_interpolate),
+        get_obj=lambda self: self.source_mesh.unique().topology,
         get_key=lambda self: (self.dual_arg.function_space(), self.subset),
-        multi=True,
     )
     def _adjoint_weight(self) -> op3.Dat:
         """The reciprocal of the number of cells in the iteration set whose closure contains each node of the dual argument."""

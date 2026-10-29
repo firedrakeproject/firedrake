@@ -435,6 +435,30 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     assert np.isclose(result_0, expected)
 
 
+@pytest.mark.parallel([1, 3])
+def test_submesh_adjoint_weight_cache_is_source_scoped():
+    mesh = UnitSquareMesh(4, 2)
+    x, y = SpatialCoordinate(mesh)
+    submesh = make_submesh(mesh, conditional(x < 0.5, 1, 0), 111)
+    V = FunctionSpace(mesh, "CG", 1)
+    Vsub = FunctionSpace(submesh, "CG", 1)
+    u = Cofunction(V.dual()).assign(1)
+
+    # Warm the cache with the full parent-to-parent adjoint interpolation.
+    assemble(interpolate(TestFunction(V), u))
+
+    operator = assemble(
+        interpolate(TrialFunction(Vsub), V, allow_missing_dofs=True),
+        mat_type="aij",
+    )
+    expected = Cofunction(Vsub.dual())
+    with u.dat.vec_ro as source_vec, expected.dat.vec_wo as target_vec:
+        operator.petscmat.multTranspose(source_vec, target_vec)
+
+    actual = assemble(interpolate(TestFunction(Vsub), u, allow_missing_dofs=True))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
 @pytest.mark.parallel(nprocs=8)
 def test_submesh_interpolate_3Dcell_2Dfacet_empty_rank_8_processes():
     # Regression test: ranks with zero Submesh cells crashed with IndexError
