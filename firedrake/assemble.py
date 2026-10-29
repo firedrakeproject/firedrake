@@ -1235,6 +1235,9 @@ class ParloopFormAssembler(FormAssembler):
             self._form.ufl_domains(),
             # Subspaces of a mixed space compare equal, but the loops index the dat of their parent.
             tuple((V, V.parent, V.index) for V in spaces),
+            # The loops index the data of each coefficient through its layout. A subfunction
+            # (a view into the dat of its parent) and a Function on the same subspace differ here.
+            tuple(c.dat.axis_trees for c in self._form.coefficients()),
             # The loops iterate over the subdomain data, which is not part of the signature.
             utils.freeze(self._form.subdomain_data()),
             tuple(self._bcs),
