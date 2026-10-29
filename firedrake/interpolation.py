@@ -827,9 +827,7 @@ class SameMeshInterpolator(Interpolator):
             inputs.update(mesh.coordinates.dat.buffer for mesh in extract_domains(self._interpolate_to_assemble))
             if tensor.dat.buffer in inputs:
                 output = tensor
-                # MIN and MAX combine the result with the current output values.
-                # Therefore, we must copy the output into the temporary before assembly.
-                reads_output = self.access in {op3.MIN_WRITE, op3.MAX_WRITE}
+                reads_output = self.access in {op3.MIN_WRITE, op3.MAX_WRITE} or self.subset is not None
 
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,

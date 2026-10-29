@@ -987,6 +987,21 @@ def test_interpolation_cell_subset():
     assert assemble((u-a/2)*dx) < 1e-14
 
 
+def test_in_place_interpolation_cell_subset():
+    mesh = UnitIntervalMesh(2)
+    x = SpatialCoordinate(mesh)
+
+    ind = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] > 0.5, 1, 0))
+
+    mesh = RelabeledMesh(mesh, [ind], [100])
+
+    # The cells outside the subset keep their values.
+    u = Function(FunctionSpace(mesh, "DG", 0)).assign(1)
+    u.interpolate(2*u, subset=mesh.cell_subset(100))
+
+    assert np.allclose(assemble(u*dx), 1.5)
+
+
 def test_interpolate_indexed():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "CG", 1)
