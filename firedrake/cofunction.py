@@ -96,7 +96,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @property
     def _mesh_topology(self):
         """The mesh topology on which this cofunction is defined."""
-        return self.function_space.topological.mesh()
+        return self._function_space.topological.mesh()
 
     @property
     def dat(self) -> op3.Dat:

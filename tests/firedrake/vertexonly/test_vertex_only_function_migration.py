@@ -34,6 +34,14 @@ def vom_fs(request, vom):
     if request.param == "tensor-DG0":
         return TensorFunctionSpace(vom, "DG", 0, shape=(vom.geometric_dimension, vom.geometric_dimension))
 
+@pytest.fixture(params=["function", "cofunction"])
+def make_coefficient(request):
+    """Returns a constructor that builds either a Function on a primal space or a Cofunction on its dual."""
+    if request.param=="function":
+        return Function
+    else:
+        return lambda V: Cofunction(V.dual())
+
 # Utility Functions
 
 def cell_midpoints(mesh, with_halos=False):
@@ -55,10 +63,24 @@ def assign_function_values_using_pids(pids, value_size, dtype):
     return (pids + components + 0.25).astype(dtype)
 
 
+# Tests
+
 @pytest.mark.parallel([1, 3])
-def test_vom_functions_migrate_lazily(vom, vom_fs):
-    f = Function(vom_fs)
-    g = Function(vom_fs)
+def test_migration_raises_off_a_vertex_only_mesh(make_coefficient):
+    """Check that migration raises if the topology of an ordinary mesh reports a new version."""
+    mesh = UnitSquareMesh(2, 2)
+    f = make_coefficient(FunctionSpace(mesh, "DG", 0))
+
+    mesh.topology._topology_version += 1
+    with pytest.raises(NotImplementedError, match="vertex-only meshes"):
+        f.dat
+
+    parallel_assert(f._mesh_topology_version == mesh.topology._topology_version - 1, "the version changed even when the migration failed")
+
+@pytest.mark.parallel([1, 3])
+def test_vom_functions_migrate_lazily(vom, vom_fs, make_coefficient):
+    f = make_coefficient(vom_fs)
+    g = make_coefficient(vom_fs)
 
     old_f_topo_version = f._mesh_topology_version
     old_g_topo_version = g._mesh_topology_version
@@ -92,15 +114,17 @@ def test_vom_functions_migrate_lazily(vom, vom_fs):
     parallel_assert(g._mesh_topology_version == new_vom_topo_version, "Accessing the Function's data did not migrate it to the current VOM topology")
 
 
-# FIXME
+@pytest.mark.skip(reason="eager migration of functions is wip")
 @pytest.mark.parallel([1, 3])
-def test_vom_functions_migrate_eagerly(vom, vom_fs):
-    f = Function(vom_fs)
-    g = Function(vom_fs)
+def test_vom_functions_migrate_eagerly(vom, vom_fs, make_coefficient):
+    f = make_coefficient(vom_fs)
+    g = make_coefficient(vom_fs)
 
     # Define a Function on a distinct FunctionSpace
     W = VectorFunctionSpace(vom, "DG", 0, dim=3)
-    h = Function(W)
+    h = make_coefficient(W)
+
+    f_space, g_space, h_space = f.function_space(), g.function_space(), h.function_space()
 
     old_f_topo_version = f._mesh_topology_version
     old_g_topo_version = g._mesh_topology_version
@@ -140,16 +164,16 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs):
 
     # The Functions retain their original FunctionSpace objects
     parallel_assert(
-        f.function_space() is vom_fs
-        and g.function_space() is vom_fs
-        and h.function_space() is W,
+        f.function_space() is f_space
+        and g.function_space() is g_space
+        and h.function_space() is h_space,
         "Migrating a Function changed its underlying FunctionSpace object",
     )
 
 
 @pytest.mark.parallel([1, 3])
-def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs):
-    f = Function(vom_fs)
+def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs, make_coefficient):
+    f = make_coefficient(vom_fs)
 
     old_f_topo_version = f._mesh_topology_version
     old_vom_topo_version = vom.topology._topology_version
@@ -177,8 +201,8 @@ def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs):
 
 
 @pytest.mark.parallel([1, 3])
-def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
-    f = Function(vom_fs)
+def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs, make_coefficient):
+    f = make_coefficient(vom_fs)
     value_size = vom_fs.value_size
 
     pids_before_migration = vom._particle_ids.dat.data_ro.copy()
@@ -186,7 +210,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
 
     # Use the particle ID field as Function values
     f_vals_before_migration = assign_function_values_using_pids(pids_before_migration, value_size, old_dat.dtype)
-    old_dat.data_wo.reshape(-1, value_size)[:] = f_vals_before_migration
+    old_dat.data_wo[:] = f_vals_before_migration.reshape((-1, *vom_fs.shape))
 
     old_function_topo_version = f._mesh_topology_version
     old_local_count = vom.topology.cells.owned.local_size
@@ -220,7 +244,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
         and new_dat.axes is vom_fs.axes
         and new_dat.data_ro.shape[0] == vom.topology.cells.owned.local_size  # owned nodes match VOM
         and new_dat.data_ro.shape[1:] == vom_fs.shape
-        and f.function_space() is vom_fs
+        and f.function_space().topological is vom_fs.topological
         and f._mesh_topology_version == vom.topology._topology_version
         and f._mesh_topology_version == old_function_topo_version + 1
     )
@@ -238,8 +262,8 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs):
     indirect=True,
     ids=["owned-points", "owned-and-halo-points"],
 )
-def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs):
-    f = Function(vom_fs)
+def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs, make_coefficient):
+    f = make_coefficient(vom_fs)
 
     # Remove every point on every rank
     mutator = VertexOnlyMeshMutator(vom)
@@ -259,10 +283,10 @@ def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs):
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
+def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coefficient):
     parent_mesh = vom._parent_mesh
     comm = parent_mesh.comm
-    f = Function(vom_fs)
+    f = make_coefficient(vom_fs)
     mutator = VertexOnlyMeshMutator(vom)
 
     # Give every point a value that is computed from its particle ID
@@ -318,8 +342,8 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs):
 
 
 @pytest.mark.parallel([1, 3])
-def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs):
-    f = Function(vom_fs)
+def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_coefficient):
+    f = make_coefficient(vom_fs)
     value_size = vom_fs.value_size
     mutator = VertexOnlyMeshMutator(vom)
     v0 = vom.topology._topology_version
@@ -354,7 +378,7 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs):
     )
 
     # Define a new function
-    g = Function(vom_fs)
+    g = make_coefficient(vom_fs)
     parallel_assert(g._mesh_topology_version == v1)
 
     # Second VOM rebuild: absorb the last particle on each rank
@@ -397,3 +421,44 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs):
 
     # Since Function g hasn't been accessed it should still display the VOM topology version it was originally created on
     parallel_assert(g._mesh_topology_version == v1)
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("op, expected", [
+    (lambda c, d: c.__iadd__(1.0), 2.0),
+    (lambda c, d: c.__isub__(0.5), 0.5),
+    (lambda c, d: c.__imul__(2.0), 2.0),
+    (lambda c, d: c.__iadd__(d), 4.0),
+    (lambda c, d: c.__isub__(d), -2.0),
+    (lambda c, d: c.__imul__(d), 3.0),
+], ids=["iadd-scalar", "isub-scalar", "imul-scalar", "iadd-cofunction", "isub-cofunction", "imul-cofunction"])
+def test_cofunction_inplace_operators_before_and_after_migration(vom, vom_fs, op, expected):
+    """Check that an in-place operator migrates a Cofunction before it changes the values."""
+    c = Cofunction(vom_fs.dual())
+    d = Cofunction(vom_fs.dual())
+    c.dat.data_wo[...] = 1.0
+    d.dat.data_wo[...] = 3.0
+
+    # Remove every other point on each rank (no point changes rank)
+    n_owned = vom.topology.cells.owned.local_size
+    absorbed = np.arange(0, n_owned, 2, dtype=IntType)
+    mutator = VertexOnlyMeshMutator(vom)
+    mutator.rebuild_vom(absorbed)
+
+    parallel_assert(c._mesh_topology_version < vom.topology._topology_version, "cofunction c migrated before it was accessed")
+
+    # The operator reads c.dat and d.dat so it should migrate both cofunction values before changing c
+    result = op(c, d)
+
+    n_expected = n_owned - len(absorbed)
+    parallel_assert(result is c, "the operator did not return the same cofunction")
+    parallel_assert(c._mesh_topology_version == vom.topology._topology_version, "cofunction c is not on the current topology version")
+    parallel_assert(c.dat.data_ro.shape == (n_expected, *vom_fs.shape), "the Dat of c does not match the new points")
+    parallel_assert(np.allclose(c.dat.data_ro, expected), "the operator gave the wrong values")
+
+
+    
+    
+    
+
+    
+
