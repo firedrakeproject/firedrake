@@ -1241,8 +1241,10 @@ class ParloopFormAssembler(FormAssembler):
             tuplify(self._form_compiler_params),
             self.diagonal,
             self._access,
-            # The loops index the data of the tensor, which can be a view into a larger tensor.
+            # The loops index the data of the tensor and of the coefficients, which can be views
+            # into a larger dat. A subfunction and a Function on the same subspace differ here.
             self._as_pyop3_type(tensor).axis_trees,
+            tuple(c.dat.axis_trees for c in self._form.coefficients()),
         )
 
     @cached_property
