@@ -1139,15 +1139,59 @@ class ParloopFormAssembler(FormAssembler):
         return parloops
 
     def _parloops_key(self, tensor):
-        """Return the key of the loops in the cache on the mesh."""
+        """Return the key of the loops in the cache on the mesh.
+
+        Two assemblers with equal keys share their loops, and each one
+        substitutes the data of its own coefficients and constants when it
+        assembles. The key must therefore hold everything that the built
+        loops depend on, other than the identity of that data.
+
+        The key is computed once per assembler, because the loops are stored
+        on the assembler after the first lookup, so it can be moderately
+        expensive. Each entry below is cheap to compute and to hash: the
+        signature and the axis trees cache their hashes.
+
+        Parameters
+        ----------
+        tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase or op3.Scalar
+            The output tensor that the loops are built for.
+
+        Returns
+        -------
+        tuple
+            The hashable key.
+
+        """
+        # The form is a UFL form or a Slate tensor. Both give their
+        # coefficients as Functions or Cofunctions, ordered as the local
+        # kernels number them.
+        coefficients = self._form.coefficients()
         spaces = [a.function_space() for a in self._form.arguments()]
-        spaces.extend(c.function_space() for c in self._form.coefficients())
+        spaces.extend(c.function_space() for c in coefficients)
+        if isinstance(tensor, firedrake.Cofunction | firedrake.Function):
+            # ParloopBuilder replaces a coefficient that shares its buffer with
+            # the output tensor by a private copy that is filled before each
+            # loop, and the loop then does not take that coefficient as an
+            # argument. Loops built with and without this copy are different.
+            aliased = tuple(c.dat.buffer == tensor.dat.buffer for c in coefficients)
+        else:
+            aliased = ()
         return (
             type(self),
             self._form.signature(),
             self._form.ufl_domains(),
             # Subspaces of a mixed space compare equal, but the loops index the dat of their parent.
             tuple((V, V.parent, V.index) for V in spaces),
+            # The loops index the data of each coefficient through its layout.
+            # A subfunction of a mixed Function is a view into the data of its
+            # parent, and a Function on the same subspace has data of its own.
+            # Both have the same space, parent and index, but they have
+            # different layouts, and a loop built for one gives wrong values
+            # for the other. Constants do not need this entry: each Constant
+            # has data of its own, with a layout that depends only on its
+            # shape, which is part of the signature.
+            tuple(c.dat.axis_trees for c in coefficients),
+            aliased,
             # The loops iterate over the subdomain data, which is not part of the signature.
             utils.freeze(self._form.subdomain_data()),
             tuple(self._bcs),
