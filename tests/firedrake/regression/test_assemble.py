@@ -327,6 +327,23 @@ def test_loops_shared_between_tensor_layouts(mesh):
     assert np.allclose(mixed.subfunctions[0].dat.data_ro, 0)
 
 
+def test_loops_shared_between_coefficient_layouts(mesh):
+    x, y = SpatialCoordinate(mesh)
+    W = FunctionSpace(mesh, "DG", 1) * FunctionSpace(mesh, "CG", 2)
+
+    # Standalone Functions on the subspaces of W
+    u1 = Function(W.sub(0)).interpolate(x + 2*y)
+    v1 = Function(W.sub(1)).interpolate(sin(4*pi*x)*cos(4*pi*y))
+    expected = assemble((u1 - v1)**2*dx)
+
+    # The subfunctions have the same spaces, but their dats are views into the dat of w
+    w = Function(W)
+    u2, v2 = w.subfunctions
+    u2.assign(u1)
+    v2.assign(v1)
+    assert np.isclose(assemble((u2 - v2)**2*dx), expected)
+
+
 @pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")
 def test_two_form_assembler_cache(mesh):
     from firedrake.assemble import _FORM_CACHE_KEY
