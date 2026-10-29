@@ -63,10 +63,22 @@ serve: html
 
 source/demos: copy_demos
 
-copy_demos:
+DEMO_TEX_ASSETS = $(wildcard ../demos/*/*.tex)
+DEMO_SVG_ASSETS = $(patsubst ../demos/%.tex,../demos/%.svg,$(DEMO_TEX_ASSETS))
+
+copy_demos: $(DEMO_SVG_ASSETS)
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
 	for file in source/demos/*.py.rst; do pylit --code-block-marker ".. code-block:: python" $$file; done
+
+# Compile TikZ sources for demo diagrams before copying assets into the Sphinx
+# source tree.
+../demos/%.svg: ../demos/%.tex
+	tmpdir=$$(mktemp -d); \
+	trap 'rm -rf "$$tmpdir"' EXIT; \
+	pdflatex -interaction=nonstopmode -halt-on-error \
+		-output-directory "$$tmpdir" "$<" >/dev/null; \
+	pdf2svg "$$tmpdir/$(basename $(notdir $@)).pdf" "$@"
 
 NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
 EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))
