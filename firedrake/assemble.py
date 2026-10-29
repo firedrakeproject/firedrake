@@ -1101,6 +1101,7 @@ class ParloopFormAssembler(FormAssembler):
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
         self._access = access
         self._parloops = None
+        self._data_args = None
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -1146,19 +1147,32 @@ class ParloopFormAssembler(FormAssembler):
                     # FIXME: this doesn't work for matrices (yet)
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
-        for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
-            parloop, lgmaps, setup_callables, tensor_name, arg_names = parloop_info
+        if self._data_args is None:
+            # The dats of the coefficients and constants of the form do not change, so find them
+            # once: iter_constants traverses the form, and solvers assemble the same form many times.
+            self._data_args = [
+                {
+                    name: c.dat
+                    for name, c in zip(
+                        parloop_info[-1],
+                        itertools.chain(_FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo),
+                                        _FormHandler.iter_constants(self._form, local_kernel.kinfo)),
+                        strict=True,
+                    )
+                    if name is not None
+                }
+                for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor))
+            ]
+
+        for (local_kernel, _), parloop_info, data_args in zip(self.local_kernels, self.parloops(tensor), self._data_args):
+            parloop, lgmaps, setup_callables, tensor_name, _ = parloop_info
             for setup in setup_callables:
                 setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
                 # The loops can be built for another form with the same signature.
-                kinfo = local_kernel.kinfo
-                coefficients = itertools.chain(_FormHandler.iter_active_coefficients(self._form, kinfo),
-                                               _FormHandler.iter_constants(self._form, kinfo))
-                arg_replace_map = {name: c.dat for name, c in zip(arg_names, coefficients, strict=True) if name is not None}
-                arg_replace_map[tensor_name] = subtensor
+                arg_replace_map = {**data_args, tensor_name: subtensor}
                 parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
