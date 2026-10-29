@@ -7,7 +7,7 @@ import ctypes
 from contextlib import contextmanager
 import os
 import sys
-from pyop3.cache import cached_on
+from pyop3.cache import cached_on, gc_disabled
 import ufl
 import finat.ufl
 import FIAT
@@ -3508,6 +3508,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def vert_label(self):
         return 0
 
+    @cached_property_until_topology_changes
+    def _composed_topology_migration_sfs(self) -> dict[int, PETSc.SF]:
+        "Stores a SF to current topology version, keyed by their source version"
+        return {}
+
     @cached_property_until_parent_cell_or_topology_changes
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
@@ -3544,7 +3549,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             cell_global_index = globalindex_field.ravel().copy()
         return cell_global_index
 
-    @cached_property_until_topology_changes
+    @cached_property  # cached once and never changed so that we always have a link to the original input ordering
     def input_ordering(self):
         """
         Return the input ordering of the mesh vertices as a
@@ -3644,32 +3649,61 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         target_version = self._topology_version
         if not source_version < target_version:
             raise ValueError(
-                f"Expected a source version older than {target_version}, got {source_version}."
-            )
-        try:
-            migration_sf = self._topology_step_sfs[source_version + 1]
-            for version in range(source_version + 2, target_version + 1):
-                migration_sf = migration_sf.compose(self._topology_step_sfs[version])
-        except KeyError as exc:
-            raise FunctionMigrationError(
-                f"The step SF to topology version {exc.args[0]} is not available."
-            ) from exc
-        return migration_sf
+                f"Expected a source version older than {target_version}, got {source_version}.")
+        composed = self._composed_topology_migration_sfs
+        if source_version not in composed:
+            # Start from the nearest newer version whose SF (to current topology) has already been composed,
+            # or from the current version at worse.
+            version = source_version + 1
+            while version < target_version and version not in composed:
+                version += 1
+            migration_sf = composed.get(version)
+            # Compose backwards all the down to ``source_version``.
+            for v in range(version-1, source_version-1, -1):
+                try:
+                    step_sf = self._topology_step_sfs[v+1] # v-1 -> v
+                except KeyError as err:
+                    raise FunctionMigrationError(f"The step SF to topology version {v+1} could not be found.") from err
+                migration_sf = step_sf if migration_sf is None else step_sf.compose(migration_sf)
+                composed[v] = migration_sf
+        return composed[source_version]
 
+    @gc_disabled()
     def _migrate_all_functions(self) -> None:
-        """Move the data of every live function on this topology to the current version."""
-        # NOTE: migration is a collective operation since it relies on SF.bcast and SF.compose which
-        # are collective operations. This implies that all ranks must migrate the same functions in the same order.
-        # Sorting by ``uid`` guarantees consistent order since ``uid`` is built out of a counter that advances in step on every rank
-        # and creating Functions is a collective operation in Firedrake.
-        # ---
-        # TODO: Should we do a parallel set intersection of keys in the live functions set before migrating as
-        # some functions may have died on some ranks but could be still alive on others?
-        for uid in sorted(self._live_functions.keys()):
-            function = self._live_functions.get(uid)
-            if function is not None:
-                function._migrate_to_current_topology()
+        """Move the data of every live function on this topology to the current version.
+        
+        Every rank must call this method, because data migration is collective.
+        Only the functions that are alive on every rank are migrated.
+        """
+        # NOTE: migration is collective since it relies on SF.bcast and SF.compose which
+        # are collective operations. 
+        # To migrate consistently, we need all ranks to migrate the same functions in the same order.
+        # Sorting by ``uid`` guarantees a consistent migration order since ``uid`` is built out of a communicator-level counter
+        # and creating Functions is collective in Firedrake.
+        
+        # ``dict`` copies weak references into ordinary ones: 
+        # no function can be freed from this point until the method returns.
+        # This keeps every function alive until migration is complete
+        live_functions = dict(self._live_functions)
+        common_uids = sorted(self.comm.allreduce(frozenset(live_functions), op=MPI.BAND))
+        live_topo_versions = [live_functions[uid]._mesh_topology_version for uid in common_uids]
 
+        # Do a safeguard check: make sure every rank agrees on the topology version of every function
+        if self.comm.allreduce(live_topo_versions != self.comm.bcast(live_topo_versions, root=0), op=MPI.LOR):
+            raise FunctionMigrationError(
+                "A function is on different topology versions on different ranks. "
+            )
+        # Compose the SFs newest first, so that each older SF reuses the next newer one.
+        for version in sorted(set(live_topo_versions) - {self._topology_version}, reverse=True):
+            self._get_migration_sf(version)
+
+        # Migrate the functions
+        for uid in common_uids:
+            live_functions[uid]._migrate_to_current_topology()
+
+        # Every live function is now on the current version, so no step SF is needed any more.
+        self._topology_step_sfs.clear()
+        self._composed_topology_migration_sfs.clear()
 
 class CellOrientationsRuntimeError(RuntimeError):
     """Exception raised when there are problems with cell orientations."""

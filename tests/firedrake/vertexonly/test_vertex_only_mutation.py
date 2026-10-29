@@ -714,3 +714,63 @@ def test_successive_vom_rebuilds(parent_mesh):
     global_count_v2 = parent_mesh.comm.allreduce(local_count_v2, op=MPI.SUM)
 
     assert (global_count_v2 == global_count_v0 - 2*parent_mesh.comm.size)
+
+
+@pytest.mark.parallel([1, 3])
+def test_rebuild_vom_keeps_input_ordering(parent_mesh):
+    """Verify that the input ordering VOM stays linked to the VOM through successive rebuilds. """
+    points = cell_midpoints(parent_mesh, with_halos=False)
+    vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
+    mutator = VertexOnlyMeshMutator(vom)
+    topology = vom.topology
+
+    io = vom.input_ordering
+    n_io = io.topology.num_cells()
+    mpi_type = MPI._typedict[np.dtype(IntType).char]
+
+    # Record the particle ID of each input point before any rebuild.
+    pids_io = np.full(n_io, -1, dtype=IntType)
+    pids = np.ascontiguousarray(topology._particle_ids.dat.data_ro)
+    sf = topology.input_ordering_sf
+    
+    # Reduce: leaves -> roots
+    # Send pids from current VOM cells to input points so that pids_io[i] = particle ID of input point i
+    sf.reduceBegin(mpi_type, pids, pids_io, MPI.REPLACE)
+    sf.reduceEnd(mpi_type, pids, pids_io, MPI.REPLACE)
+
+
+    # The first rebuild moves every particle a short distance, so that some particles change rank in parallel.
+    # The second rebuild removes every third particle.
+    for shift, absorb_every in ((0.05, None), (0.0, 3)):
+        n_owned = topology.cells.owned.local_size
+        new_coords = vom.coordinates.dat.data_ro + shift
+        new_parent_cells, new_refcoords = locate_points(parent_mesh, new_coords)
+        vom.coordinates.dat.data_wo[:] = new_coords
+        mutator.commit_reference_state(new_parent_cells, new_refcoords)
+        absorbed = None if absorb_every is None else np.arange(0, n_owned, absorb_every, dtype=IntType)
+        mutator.rebuild_vom(absorbed_vom_indices=absorbed)
+
+        # The input ordering VOM is the same mesh and it still holds the user's points.
+        parallel_assert(vom.input_ordering is io, "The input ordering VOM was replaced")
+        parallel_assert(topology.input_ordering is io.topology, "The input ordering topology was replaced")
+        parallel_assert(np.allclose(io.coordinates.dat.data_ro, points), "The input ordering points changed")
+
+        # The SF has the input points as roots and the current VOM cells as leaves.
+        sf = topology.input_ordering_sf
+        nroots, _, iremote = sf.getGraph()
+        nleaves = 0 if iremote is None else len(iremote)
+        parallel_assert(nroots == n_io, "The input ordering SF roots are not the input ordering points")
+        parallel_assert(nleaves == topology.cells.owned.local_size, "The input ordering SF leaves are not the current VOM cells")
+
+        # Each input point must reach the particle that it became.
+        pids = np.full(nleaves, -1, dtype=IntType)
+        
+        # Broadcast: roots -> leaves
+        # Send pids_io from input points to new VOM cells so thatp pids[i] = particle ID of cell i in the latest VOM
+        # These coincide with `topology._particle_ids` if and only if the input ordering SF maps input points to the latest VOM
+        sf.bcastBegin(mpi_type, pids_io, pids, MPI.REPLACE)
+        sf.bcastEnd(mpi_type, pids_io, pids, MPI.REPLACE)
+        parallel_assert(
+            np.array_equal(pids, topology._particle_ids.dat.data_ro),
+            "The input ordering SF and the step SFs disagree on the particles",
+        )

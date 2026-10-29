@@ -145,11 +145,16 @@ class VertexOnlyMeshMutator:
             owner_ranks_local = point_owner_ranks[plex_parent_cells_local]
             owner_plex_parent_cells_local = point_owner_indices[plex_parent_cells_local]
 
-
+        # The global index of each particle in the current version.
         offset = comm.exscan(n_owned) or 0  # offset for this rank in global arrays
         global_idxs_local = np.arange(offset, offset + n_owned, dtype=IntType)  # indices for this rank's owned particles in global arrays
-        input_idxs_local = np.arange(n_owned, dtype=IntType)  # local indices for this rank's owned particles in local arrays
-        input_ranks_local = np.full(n_owned, comm.rank)  # input ranks for this rank's owned particles
+
+        # Each particle keeps its position in the (original) input-ordering VOM through every rebuild
+        # Read these positions in the current VOM order
+        vom_to_swarm = topology._new_to_old_point_renumbering[:n_owned]
+        with swarm.field("inputrank") as input_ranks, swarm.field("inputindex") as input_indices:
+            input_ranks_local = input_ranks.ravel()[vom_to_swarm].copy()
+            input_indices_local = input_indices.ravel()[vom_to_swarm].copy()
     
         # Remove particles from the VOM
         absorbed = (
@@ -182,11 +187,6 @@ class VertexOnlyMeshMutator:
         survivors = ~is_absorbed
         n_survivors_local = int(survivors.sum())  # total number of survivors on this rank
     
-        # Reset the IO Swarm
-        # NOTE: it seems costly to re-build a new IO swarm every time the VOM mutates.
-        # Should we instead maintain a reference to the very first IO swarm?
-        topology.input_ordering_swarm = None
-    
         # Mutate the DMSwarm in-place
         # First compact the swarm to the new particles count
         swarm.setLocalSizes(n_survivors_local, 0)
@@ -200,7 +200,7 @@ class VertexOnlyMeshMutator:
         swarm.set_field("refcoord", refcoords_local[survivors])
         swarm.set_field("DMSwarm_rank", owner_ranks_local[survivors])
         swarm.set_field("inputrank", input_ranks_local[survivors])
-        swarm.set_field("inputindex", input_idxs_local[survivors])
+        swarm.set_field("inputindex", input_indices_local[survivors])
 
         # Redistribute particles accross ranks
         swarm.migrate(remove_sent_points=True)
@@ -244,16 +244,26 @@ class VertexOnlyMeshMutator:
             SF with the cells of the rebuilt topology as leaves and the cells
             of the previous topology as roots.
         """
+        comm = self.parent_mesh.comm
         swarm = self.vom.topology_dm
         topology = self.vom.topology
 
-        # Each particle carries its old rank and local index in the (`inputrank`, `inputindex`) DMSwarm field
-        # as rewritten by _migrate_swarm.
-    
-        step_sf = VertexOnlyMeshTopology._make_input_ordering_sf(swarm, old_local_size, topology._old_to_new_point_renumbering)
-    
-        # Store the one step SF under the new topology version number
-        # i.e., the SF stored under key k maps VOM version k (new) -> VOM version k-1 (old) 
+        # `_migrate_swarm` stores the global index of each particle in the previous version
+        # in the `globalindex` field. The owned cells of each rank are numbered contiguously,
+        # so the first global index on each rank gives the rank and the local index of each particle.
+        old_offsets = np.cumsum([0, *comm.allgather(old_local_size)[:-1]], dtype=IntType) # every rank knows every rank's offset
+        with swarm.field("globalindex") as global_indices:
+            old_global_idxs = global_indices.ravel()
+            old_ranks = np.searchsorted(old_offsets, old_global_idxs, side="right") - 1
+            remote = np.empty(2 * len(old_global_idxs), dtype=IntType)
+            remote[0::2] = old_ranks # old rank
+            remote[1::2] = old_global_idxs - old_offsets[old_ranks] # old local index = global index - rank offset
+
+            step_sf = PETSc.SF().create(comm=comm)
+            step_sf.setGraph(old_local_size, topology._old_to_new_point_renumbering, remote)
+
+            # The SF stored under key k maps VOM version k-1 (roots) to VOM version k (leaves).
+
         topology._topology_step_sfs[topology._topology_version] = step_sf
         return step_sf
 
