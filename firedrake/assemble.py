@@ -167,6 +167,13 @@ def get_assembler(form, *args, **kwargs):
         # Preprocessing can change the root BaseForm before assembler dispatch.
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+    if isinstance(form, (ufl.Form, ufl.Interpolate)):
+        numbers = {argument.number() for argument in form.arguments()}
+        if numbers != set(range(len(numbers))):
+            raise ValueError(
+                f"Arguments in {type(form).__name__} must be numbered contiguously from zero; "
+                f"got {sorted(numbers)}."
+            )
     if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:

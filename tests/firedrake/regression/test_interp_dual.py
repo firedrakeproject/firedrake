@@ -67,6 +67,13 @@ def test_assemble_interp_operator(V2, f1):
     assert np.allclose(a.dat.data, b.dat.data)
 
 
+def test_reject_noncontiguous_interp_arguments(V1):
+    interp = interpolate(Argument(V1, 2), V1)
+
+    with pytest.raises(ValueError, match="contiguous"):
+        assemble(interp)
+
+
 def test_assemble_interp_matrix(V1, V2, f1):
     # -- I(v1, V2) -- #
     v1 = TrialFunction(V1)
