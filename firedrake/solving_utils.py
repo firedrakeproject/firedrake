@@ -325,27 +325,21 @@ class _SNESContext:
             snes = weakref.proxy(snes)
         self.snes = snes
 
-    def _get_problem_dms(self, solution_dm: PETSc.DM) -> list[PETSc.DM]:
-        forms = (self._problem.F, self._problem.J, self._problem.Jp, self._problem.E)
-        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        problem_dms = []
-        for coefficient in chain(coefficients, self._problem.dirichlet_bcs()):
-            dm = coefficient.function_space().dm
-            if dm == solution_dm:
-                continue
-            if dm not in problem_dms:
-                problem_dms.append(dm)
-        problem_dms.append(solution_dm)
-        return problem_dms
-
     @contextmanager
-    def _problem_hooks(self, solution_dm: PETSc.DM, *, include_problem_dms: bool):
-        dms = (self._get_problem_dms(solution_dm) if include_problem_dms
-               else (solution_dm,))
+    def problem_hooks(self, solution_dm: PETSc.DM, *, include_coefficient_dms: bool):
+        problem_dms = [solution_dm]
+        if include_problem_dms:
+            problem = self._problem
+            objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
+            coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
+            for coefficient in coefficients:
+                dm = coefficient.function_space().dm
+                if dm not in problem_dms:
+                    problem_dms.append(dm)
+
         with ExitStack() as stack:
-            dmctxs = [dmhooks.add_hooks(dm, self, appctx=self) for dm in dms]
-            for dmctx in dmctxs:
-                stack.enter_context(dmctx)
+            for dm in problem_dms:
+                stack.enter_context(dmhooks.add_hooks(dm, self, appctx=self))
             yield
 
     def reconstruct(self,
@@ -423,10 +417,9 @@ class _SNESContext:
         if snes is None:
             raise RuntimeError("This context is not attached to a SNES")
         ksp = snes.getKSP()
-        solve = ksp.solveTranspose if transpose else ksp.solve
-        solution_dm = self._problem.dm
+        ksp_solve = ksp.solveTranspose if transpose else ksp.solve
         needs_assembly = not self._jacobian_assembled
-        with self._problem_hooks(solution_dm, include_problem_dms=needs_assembly):
+        with self.problem_hooks(snes.getDM(), include_coefficient_dms=needs_assembly):
             if needs_assembly:
                 snes.computeJacobian(self._x.dat._work_vec,
                                      self._jac.petscmat,
@@ -434,7 +427,7 @@ class _SNESContext:
                 snes.setUp()
 
             with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
-                solve(bvec, xvec)
+                ksp_solve(bvec, xvec)
         check_convergence(ksp)
 
     @property

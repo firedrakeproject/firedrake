@@ -725,11 +725,19 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
+    def _ad_assign_bcs(self, problem):
+        for block_variable in self.get_dependencies():
+            bc = block_variable.output
+            if bc in problem._ad_bc_map:
+                problem._ad_bc_map[bc].function_arg.assign(
+                    block_variable.saved_output.function_arg)
+
     def _ad_solver_replace_forms(self, solver=Solver.FORWARD):
         if solver == Solver.FORWARD:
             problem = self._ad_solvers["forward_nlvs"]._problem
             self._ad_assign_coefficients(problem.F, solver)
             self._ad_assign_coefficients(problem.J, solver)
+            self._ad_assign_bcs(problem)
         else:
             self._ad_assign_coefficients(
                 self._ad_solvers["adjoint_lvs"]._problem.J, solver)

@@ -546,9 +546,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        solution_dm = self.snes.getDM()
         problem = self._problem
-
         if problem.restrict:
             # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
@@ -568,9 +566,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
-            # Keep appcontexts attached to every coefficient and DirichletBC DM
-            # for the full SNES solve, including adaptive refinement.
-            stack.enter_context(self._ctx._problem_hooks(solution_dm, include_problem_dms=True))
+            stack.enter_context(self._ctx.problem_hooks(self.snes.getDM(), include_cofficient_dms=True))
 
             self.snes.solve(None, work)
 

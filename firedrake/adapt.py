@@ -298,8 +298,6 @@ def _dorfler_mark(indicators: Function, fraction: float) -> Function:
     if not 0 < fraction <= 1:
         raise ValueError("marking_fraction must lie in (0, 1]")
     with indicators.dat.vec_ro as vec:
-        if not np.isfinite(vec.norm()):
-            raise ConvergenceError("DWR error indicators contain non-finite values")
         _, eta_max = vec.max()
     markers = Function(indicators.function_space())
     markers.dat.data_wo[:] = indicators.dat.data_ro >= fraction * eta_max
