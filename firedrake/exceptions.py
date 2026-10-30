@@ -82,4 +82,3 @@ class PointNotInDomainError(FiredrakeException):
 
 class FunctionMigrationError(FiredrakeException):
     """Raised when automatic migration of Function data between mesh topology versions fails."""
-
