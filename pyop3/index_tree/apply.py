@@ -513,7 +513,7 @@ def _(subset: SubsetSliceComponent, regions, **kwargs) -> tuple:
         size = upper_index - lower_index
 
         if isinstance(region.size, numbers.Integral):
-            size_ = size
+            size_ = int(size)
         else:
             size_ = Scalar(size, constant=True)
         indexed_region = pyop3.axis_tree.AxisComponentRegion(size_, region.label)

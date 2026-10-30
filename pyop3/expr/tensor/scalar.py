@@ -13,6 +13,7 @@ from pyop3 import exceptions as exc
 from pyop3.axis_tree.tree import UNIT_AXIS_TREE
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
+from pyop3.device import get_current_device
 
 from .base import Tensor
 
@@ -56,7 +57,7 @@ class Scalar(Tensor):
                 buffer_kwargs["constant"] = constant
 
             if value is not None:
-                data = np.asarray([value])
+                data = get_current_device().asarray([value])
                 buffer = ArrayBuffer(data, **buffer_kwargs)
             else:
                 buffer = ArrayBuffer.empty(1, dtype=self.DEFAULT_DTYPE, **buffer_kwargs)

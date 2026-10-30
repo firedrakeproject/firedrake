@@ -326,10 +326,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
             pyop3.device.flag_constant(data)
 
         if type(data) != pyop3.device.DEVICE_TO_ARRAY_TYPE[get_current_device()]:
-            raise NotImplementedError(
-                "Current device does not match the array type, need to provide "
-                "data as a mapping so we know the right device"
-            )
+            data = get_current_device().asarray(data)
+            # raise NotImplementedError(
+            #     "Current device does not match the array type, need to provide "
+            #     "data as a mapping so we know the right device"
+            # )
 
         device_arrays = {get_current_device(): data}
 
@@ -563,10 +564,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
         if self._debug_is_poisoned:
             breakpoint()
 
+        array = self._current_device_array
+
         if intent in {"wo", "rw"}: 
             self.inc_state() 
 
-        array = self._current_device_array
         return readonly(array) if intent == "ro" else array
 
     # TODO: this would be nice to avoid halo exchanges

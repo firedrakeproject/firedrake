@@ -1557,6 +1557,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
         return self.layouts
 
     @cached_property
+    @on_host
     def sf(self) -> StarForest:
         _, sf_ = self._layouts_and_sf
         return sf_
