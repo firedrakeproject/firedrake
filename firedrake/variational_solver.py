@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ufl
-from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
@@ -9,7 +8,7 @@ from petsctools import OptionsManager, flatten_parameters
 import pyop3 as op3
 from pyop3.cache import with_heavy_caches
 
-from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
@@ -376,7 +375,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
                :class:`.Function` or :class:`.Cofunction` with positive
-               values on cells to refine.
+               values on cells to refine. If the callback returns ``None``,
+               the adaptation stops and keeps the current mesh and solution.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -457,7 +457,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx.set_snes(self.snes)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.function_space().template_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -483,10 +482,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
-        # Used for custom grid transfer.
-        self._transfer_operators = ()
-        self._setup = False
-
     @property
     def _problem(self):
         """The :class:`NonlinearVariationalProblem` to solve"""
@@ -499,7 +494,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         solution DM to refine, where ``ctx`` is the current
         `_SNESContext`. It must return a DG0
         :class:`.Function` or :class:`.Cofunction` on the current solution
-        mesh, with positive values on cells to refine.
+        mesh, with positive values on cells to refine. If the callback returns
+        ``None``, the adaptation stops and keeps the current mesh and solution.
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
@@ -550,23 +546,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
-        forms = (problem.F, problem.J, problem.Jp, problem.E)
-        objs = (*forms, *problem.bcs)
-        coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
-        solution_dm = self.snes.getDM()
-        # Grab the unique DMs for this problem
-        problem_dms = []
-        for c in coefficients:
-            dm = c.function_space().dm
-            if dm == solution_dm:
-                # Make sure the solution dm is visited last
-                continue
-            if dm not in problem_dms:
-                problem_dms.append(dm)
-        problem_dms.append(solution_dm)
-
         if problem.restrict:
             # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
@@ -580,31 +560,26 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
+        work = self.snes.getSolution()
         with problem.u_restrict.dat.vec_ro as u:
             u.copy(work)
 
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
-            dmctxs = [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]
-            for dmctx in dmctxs:
-                stack.enter_context(dmctx)
-            for top in self._transfer_operators:
-                stack.enter_context(top)
+            stack.enter_context(self._ctx.problem_hooks(self.snes.getDM(), include_cofficient_dms=True))
 
             self.snes.solve(None, work)
 
-            # The appctx might have been refined
+            # Adaptivity changes the DM, keep the _SNESContext up to date
             self._ctx = dmhooks.get_appctx(self.snes.getDM())
 
         problem = self._ctx._problem
         solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec_wo as u:
             solution.copy(u)
-        self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
-        solving_utils.check_snes_convergence(self.snes)
+        solving_utils.check_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
         comm = problem.u_restrict.function_space().mesh().comm
