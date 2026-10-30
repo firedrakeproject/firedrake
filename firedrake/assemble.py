@@ -426,7 +426,27 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @staticmethod
     def contract(a, lhs, rhs, tensor=None, bcs=(), options_prefix=None):
-        """Contract the last argument of ``lhs`` with the first argument of ``rhs``."""
+        """Contract the last argument of ``lhs`` with the first argument of ``rhs``.
+
+        Parameters
+        ----------
+        a : ufl.BaseForm or tuple[BaseArgument, BaseArgument]
+            Underlying form or its arguments, used to construct a new output matrix.
+        lhs, rhs : firedrake.Function or firedrake.Cofunction or MatrixBase
+            Assembled left and right operands.
+        tensor : firedrake.Function or firedrake.Cofunction or MatrixBase or None
+            Existing tensor in which to store the result. If None, allocate a
+            new tensor. This parameter is ignored for scalar results.
+        bcs : Sequence[DirichletBC or EquationBC or EquationBCSplit]
+            Boundary conditions associated with a newly allocated output matrix.
+        options_prefix : str or None
+            PETSc options prefix for a newly allocated output matrix.
+
+        Returns
+        -------
+        float or complex or firedrake.Function or firedrake.Cofunction or MatrixBase
+            Result of the contraction.
+        """
         if isinstance(lhs, MatrixBase):
             if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                 petsc_mat = lhs.petscmat

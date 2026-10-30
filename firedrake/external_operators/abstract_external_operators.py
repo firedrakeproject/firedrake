@@ -191,8 +191,8 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
 
         assemble = self.assembly_method()
         if assemble is None:
-            raise NotImplementedError(('The problem considered requires that your external operator class `%s`'
-                                       + ' has an implementation for %s !') % (type(self).__name__, str(self._assembly_key())))
+            raise NotImplementedError(f'The problem considered requires that your external operator class `{type(self).__name__}`'
+                                      f' has an implementation for {self._assembly_key()} !')
 
         # -- Assemble -- #
         result = assemble(self, assembly_opts=assembly_opts)
