@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms.restructure_base_form import restructure_base_form
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.duals import is_dual
@@ -130,7 +131,9 @@ class Interpolate(UFLInterpolate):
             # Need to create a Firedrake Argument so that it has a .function_space() method
             V = Argument(V.dual(), 1 if self.is_adjoint else 0)
 
-        self.target_space = V.arguments()[0].function_space()
+        # The dual slot contracts its highest-numbered primal argument.
+        *_, contracted = (a for a in V.arguments() if not is_dual(a))
+        self.target_space = contracted.function_space()
         if expr.ufl_shape != self.target_space.value_shape:
             raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
@@ -814,7 +817,8 @@ class SameMeshInterpolator(Interpolator):
             # Split the cofunction
             dual_split = dict(split_form(self.dual_arg))
             # Combine the splits by taking their action
-            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
+            expressions = {i: restructure_base_form(action(interp_split[i], dual_split[i[-1:]]))
+                           for i in interp_split}
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
@@ -1521,7 +1525,7 @@ class MixedInterpolator(Interpolator):
                 )
             if needs_action:
                 # Take the action of each sub-cofunction against each block
-                form = action(form, dual_split[indices[-1:]])
+                form = restructure_base_form(action(form, dual_split[indices[-1:]]))
             Isub[indices] = (get_interpolator(form), sub_bcs)
 
         return Isub

@@ -275,11 +275,8 @@ class GenericSolveBlock(Block):
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
-        if isinstance(dFdm, ufl.Form):
-            dFdm = firedrake.adjoint(dFdm)
-            dFdm = firedrake.action(dFdm, adj_sol)
-        else:
-            dFdm = dFdm(adj_sol)
+        dFdm = firedrake.adjoint(dFdm)
+        dFdm = firedrake.action(dFdm, adj_sol)
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
         return dFdm
 
@@ -352,7 +349,7 @@ class GenericSolveBlock(Block):
     def _assemble_soa_eq_rhs(self, dFdu_form, adj_sol, hessian_input, d2Fdu2):
         # Start piecing together the rhs of the soa equation
         b = hessian_input.copy()
-        if len(d2Fdu2.integrals()) > 0:
+        if not d2Fdu2.empty():
             b_form = firedrake.action(firedrake.adjoint(d2Fdu2), adj_sol)
         else:
             b_form = d2Fdu2
@@ -371,7 +368,7 @@ class GenericSolveBlock(Block):
                                             adj_sol)
                 d2Fdudm = ufl.algorithms.expand_derivatives(
                     firedrake.derivative(dFdu_adj, X, tlm_input))
-                if len(d2Fdudm.integrals()) > 0:
+                if not d2Fdudm.empty():
                     b_form += d2Fdudm
             elif not isinstance(c, firedrake.DirichletBC):
                 dFdu_adj = firedrake.action(firedrake.adjoint(dFdu_form),
@@ -379,7 +376,7 @@ class GenericSolveBlock(Block):
                 b_form += firedrake.derivative(dFdu_adj, c_rep, tlm_input)
 
         b_form = ufl.algorithms.expand_derivatives(b_form)
-        if len(b_form.integrals()) > 0:
+        if not b_form.empty():
             b -= firedrake.assemble(b_form)
 
         return b
