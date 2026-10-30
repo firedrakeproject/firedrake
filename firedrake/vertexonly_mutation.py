@@ -2,10 +2,9 @@ import numpy as np
 from numpy.typing import ArrayLike
 from firedrake.utils import IntType
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
-from firedrake.function import _migrate_dg0_coef
 from firedrake.petsc import PETSc
-import firedrake.cython.dmcommon as dmcommon
 from mpi4py import MPI
+
 
 class VertexOnlyMeshMutator:
     """Mutate a vertex-only mesh in place."""
@@ -15,8 +14,8 @@ class VertexOnlyMeshMutator:
 
         if not isinstance(self.vom.topology, VertexOnlyMeshTopology):
             raise TypeError(
-            "The VertexOnlyMeshMutator expects a vertex-only mesh object, with a VertexOnlyMeshTopology."
-        )
+                "The VertexOnlyMeshMutator expects a vertex-only mesh object, with a VertexOnlyMeshTopology."
+            )
 
         if self.parent_mesh.extruded:
             raise NotImplementedError(
@@ -30,7 +29,7 @@ class VertexOnlyMeshMutator:
         ----------
         new_parent_cells : numpy.ndarray
             Parent-cell numbers for locally owned VOM points. The expected
-            shape is ``(n_owned,)``, matching the VertexOnlyMeshTopology's ``cell_parent_cell_list field``. 
+            shape is ``(n_owned,)``, matching the VertexOnlyMeshTopology's ``cell_parent_cell_list field``.
             Values are assumed to be in the current VOM ordering.
         new_refcoords : numpy.ndarray
             Reference coordinates for locally owned VOM points. The expected
@@ -68,33 +67,32 @@ class VertexOnlyMeshMutator:
 
     def rebuild_vom(self, absorbed_vom_indices: ArrayLike | None = None) -> None:
         """Rebuild the vertex-only mesh (VOM) from its currently stored state.
-        
+
         The VOM must contain the target coordinates, reference coordinates,
         and parent-cell numbers before this method is called. The rebuild
         redistributes the remaining particles and refreshes topology-dependent data.
-    
+
         Parameters
         ----------
         absorbed_vom_indices : array_like, optional
             One-dimensional array containing the local VOM indices of
             particles to remove. Indices are interpreted in the current
             local VOM ordering. By default, no particles are removed.
-    
+
         Notes
         -----
         This is a collective operation over the parent mesh communicator.
         Every rank must call it, although each rank may provide different
         local particle indices.
-    
-        The method modifies the VOM, and its underlying DMSwarm, in place. 
-        It rebuilds the topology numbering, particle IDs, coordinate fields, 
+
+        The method modifies the VOM, and its underlying DMSwarm, in place.
+        It rebuilds the topology numbering, particle IDs, coordinate fields,
         clears topology-dependent caches, and increments the topology version.
         """
         old_local_size = self._migrate_swarm(absorbed_vom_indices)
         self._rebuild_topology()
         self._build_topology_step_sf(old_local_size)
         self._refresh_topology_fields()
-
 
     def _migrate_swarm(self, absorbed_vom_indices: ArrayLike | None = None) -> int:
         """Remove selected points and migrate the resulting swarm.
@@ -112,9 +110,9 @@ class VertexOnlyMeshMutator:
         comm = self.parent_mesh.comm
         swarm = self.vom.topology_dm
         topology = self.vom.topology
-        
+
         n_owned = topology.cells.owned.local_size
-    
+
         # Read data from the current VOM
         coords_local = self.vom.coordinates.dat.data_ro.copy()
         refcoords_local = self.vom.reference_coordinates.dat.data_ro.copy()
@@ -155,45 +153,45 @@ class VertexOnlyMeshMutator:
         with swarm.field("inputrank") as input_ranks, swarm.field("inputindex") as input_indices:
             input_ranks_local = input_ranks.ravel()[vom_to_swarm].copy()
             input_indices_local = input_indices.ravel()[vom_to_swarm].copy()
-    
+
         # Remove particles from the VOM
         absorbed = (
             np.empty(0, dtype=IntType)
             if absorbed_vom_indices is None
             else np.asarray(absorbed_vom_indices, dtype=IntType)
         )
-    
+
         is_one_dim_local = absorbed.ndim == 1
         is_one_dim_global = comm.allreduce(
             is_one_dim_local,
             op=MPI.LAND,
         )
-    
+
         if not is_one_dim_global:
             raise ValueError(
                 "`absorbed_vom_indices` must be a one-dimensional array on every rank."
             )
-    
+
         # Do a rank-local check: are all indices of particles to be removed valid?
         in_range_local = np.all((absorbed >= 0) & (absorbed < n_owned))
-    
+
         # Check for collective agreeement: does the above check hold on every rank?
         in_range_global = comm.allreduce(in_range_local, op=MPI.LAND)
         if not in_range_global:
             raise ValueError("`absorbed_vom_indices` contains an invalid local particle index on at least one rank.")
-    
+
         is_absorbed = np.zeros(n_owned, dtype=bool)
         is_absorbed[absorbed] = True
         survivors = ~is_absorbed
         n_survivors_local = int(survivors.sum())  # total number of survivors on this rank
-    
+
         # Mutate the DMSwarm in-place
         # First compact the swarm to the new particles count
         swarm.setLocalSizes(n_survivors_local, 0)
 
         # Rewrite the swarm's fields
         # NOTE: The result is that the mutated swarm's point order now becomes the current VOM order
-        cell_id_name = swarm.getCellDMActive().getCellID() # returns the name of the swarm field that stores each particle's parent cell number (in the old ordering)
+        cell_id_name = swarm.getCellDMActive().getCellID()  # returns the name of the swarm field that stores each particle's parent cell number (in the old ordering)
         swarm.set_field("DMSwarmPIC_coor", coords_local[survivors])
         swarm.set_field(cell_id_name, owner_plex_parent_cells_local[survivors])
         swarm.set_field("globalindex", global_idxs_local[survivors])
@@ -204,7 +202,7 @@ class VertexOnlyMeshMutator:
 
         # Redistribute particles accross ranks
         swarm.migrate(remove_sent_points=True)
-    
+
         # Convert the received plex cell numbers to Firedrake cell numbers on this rank.
         with swarm.field(cell_id_name) as swarm_plex_parent_cells:
             plex_parent_cells = swarm_plex_parent_cells.ravel().copy()
@@ -251,13 +249,13 @@ class VertexOnlyMeshMutator:
         # `_migrate_swarm` stores the global index of each particle in the previous version
         # in the `globalindex` field. The owned cells of each rank are numbered contiguously,
         # so the first global index on each rank gives the rank and the local index of each particle.
-        old_offsets = np.cumsum([0, *comm.allgather(old_local_size)[:-1]], dtype=IntType) # every rank knows every rank's offset
+        old_offsets = np.cumsum([0, *comm.allgather(old_local_size)[:-1]], dtype=IntType)  # every rank knows every rank's offset
         with swarm.field("globalindex") as global_indices:
             old_global_idxs = global_indices.ravel()
             old_ranks = np.searchsorted(old_offsets, old_global_idxs, side="right") - 1
             remote = np.empty(2 * len(old_global_idxs), dtype=IntType)
-            remote[0::2] = old_ranks # old rank
-            remote[1::2] = old_global_idxs - old_offsets[old_ranks] # old local index = global index - rank offset
+            remote[0::2] = old_ranks  # old rank
+            remote[1::2] = old_global_idxs - old_offsets[old_ranks]  # old local index = global index - rank offset
 
             step_sf = PETSc.SF().create(comm=comm)
             step_sf.setGraph(old_local_size, topology._old_to_new_point_renumbering, remote)

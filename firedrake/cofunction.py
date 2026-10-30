@@ -177,7 +177,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             component = type(self)(
                 self.function_space().sub(ix),
                 parent=self,
-                parent_index = indices,
+                parent_index=indices,
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component

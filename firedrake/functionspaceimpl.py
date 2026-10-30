@@ -50,6 +50,7 @@ cached_method_until_mesh_topology_changes = cached_method_until(
     lambda self: self.mesh()._topology_version
 )
 
+
 def check_element(element, top=True):
     """Run some checks on the provided element.
 

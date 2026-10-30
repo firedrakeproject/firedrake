@@ -63,7 +63,7 @@ import mpi4py  # noqa: F401
 
 
 if typing.TYPE_CHECKING:
-    from firedrake import CoordinatelessFunction, Function
+    from firedrake import CoordinatelessFunction, Function, Cofunction
 
 
 __all__ = [
@@ -3385,7 +3385,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         new_to_old_point_numbering = self._compute_new_to_old_point_renumbering(self._did_reordering)
         self._new_to_old_point_renumbering = new_to_old_point_numbering
         self._old_to_new_point_renumbering = utils.invert(new_to_old_point_numbering)
-        
+
         # Changing the point numbering implies the topology of the VOM has changed
         self._topology_version += 1
 
@@ -3626,7 +3626,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     def _register_function(self, function):
         self._live_functions[function.uid] = function
-    
+
     def _get_migration_sf(self, source_version: int) -> PETSc.SF:
         """Return the SF that moves cell data from an older topology version to the current one.
 
@@ -3661,7 +3661,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             # Compose backwards all the down to ``source_version``.
             for v in range(version-1, source_version-1, -1):
                 try:
-                    step_sf = self._topology_step_sfs[v+1] # v-1 -> v
+                    step_sf = self._topology_step_sfs[v+1]  # v-1 -> v
                 except KeyError as err:
                     raise FunctionMigrationError(f"The step SF to topology version {v+1} could not be found.") from err
                 migration_sf = step_sf if migration_sf is None else step_sf.compose(migration_sf)
@@ -3671,17 +3671,17 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     @gc_disabled()
     def _migrate_all_functions(self) -> None:
         """Move the data of every live function on this topology to the current version.
-        
+
         Every rank must call this method, because data migration is collective.
         Only the functions that are alive on every rank are migrated.
         """
         # NOTE: migration is collective since it relies on SF.bcast and SF.compose which
-        # are collective operations. 
+        # are collective operations.
         # To migrate consistently, we need all ranks to migrate the same functions in the same order.
         # Sorting by ``uid`` guarantees a consistent migration order since ``uid`` is built out of a communicator-level counter
         # and creating Functions is collective in Firedrake.
-        
-        # ``dict`` copies weak references into ordinary ones: 
+
+        # ``dict`` copies weak references into ordinary ones:
         # no function can be freed from this point until the method returns.
         # This keeps every function alive until migration is complete
         live_functions = dict(self._live_functions)
@@ -3705,6 +3705,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # Every live function is now on the current version, so no step SF is needed any more.
         self._topology_step_sfs.clear()
         self._composed_topology_migration_sfs.clear()
+
 
 class CellOrientationsRuntimeError(RuntimeError):
     """Exception raised when there are problems with cell orientations."""
@@ -6171,7 +6172,7 @@ class MeshSequenceTopology:
 
     def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
         """Method for recording a function defined on this topology.
-    
+
         Functions on mixed topologies cannot be migrated, so the function
         is not recorded.
 

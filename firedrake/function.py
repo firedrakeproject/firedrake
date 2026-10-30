@@ -75,7 +75,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
         ufl.Coefficient.__init__(self, function_space.ufl_function_space())
-            
+
         # User comm
         self.comm = function_space.comm
         self._function_space = function_space
@@ -951,6 +951,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     )
     return getattr(dll, c_name)
 
+
 def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf: PETSc.SF) -> op3.Dat:
     """Move the values of a DG0 coefficient on a vertex-only mesh to the current topology.
 
@@ -973,10 +974,10 @@ def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf:
     # For VOMs, only DG0 can ever be defined but we keep this check here for when we extend the functionality to other meshes.
     if not space.finat_element.space_dimension() == 1:
         raise NotImplementedError("SF-based function migration is only supported for DG0 functions.")
-    
+
     # Accessing dat would trigger the migration again, so we access _dat instead
     old_vals = cfunc._dat.data_ro
-    old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], -1))) # (n_cells, block_size)
+    old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], -1)))  # (n_cells, block_size)
     block_size = old_vals.shape[1]
     space = cfunc.function_space().topological
     new_vals = np.empty((space.mesh().num_cells(), block_size), dtype=old_vals.dtype)
@@ -984,6 +985,7 @@ def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf:
     migration_sf.bcastBegin(unit, old_vals, new_vals, MPI.REPLACE)
     migration_sf.bcastEnd(unit, old_vals, new_vals, MPI.REPLACE)
     return space.make_dat(new_vals, name=cfunc._dat.name)
+
 
 def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
     """Move the data of a coefficient to the current topology of its mesh.
