@@ -6,6 +6,7 @@ from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
 from mpi4py import MPI
 
+
 @pytest.fixture
 def parent_mesh():
     return UnitSquareMesh(5, 5, quadrilateral=False)
@@ -41,6 +42,7 @@ def locate_points(mesh, points):
     parent_cells, refcoords, _ = mesh.locate_cells_ref_coords_and_dists(points)
     return np.asarray(parent_cells, dtype=int), np.asarray(refcoords, dtype=float)
 
+
 def assert_fs_layout(vom, T, n_expected):
     """Check that the layout of the topological FunctionSpace T matches ``n_expected`` owned VOM points on this rank."""
     bs = T.block_size
@@ -57,6 +59,7 @@ def assert_fs_layout(vom, T, n_expected):
     }
     for name, ok in checks.items():
         parallel_assert(ok, f"{name} does not match {n_expected} points")
+
 
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_caches_recompute_after_vom_mutation(vom, vom_fs):
@@ -79,9 +82,9 @@ def test_vom_fs_caches_recompute_after_vom_mutation(vom, vom_fs):
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
     T = vom_fs.topological
-    bs = T.block_size # number of scalar DoFs per node
+    bs = T.block_size  # number of scalar DoFs per node
     n_owned = vom.topology.cells.owned.local_size
-    n_old_global_dofs = T.dim() # total number of scalar DoFs
+    n_old_global_dofs = T.dim()  # total number of scalar DoFs
 
     # Remove every other point on each rank
     absorbed = np.arange(0, n_owned, 2, dtype=IntType)
@@ -89,12 +92,13 @@ def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
     mutator = VertexOnlyMeshMutator(vom)
     mutator._migrate_swarm(absorbed)
     mutator._rebuild_topology()
-    
+
     n_expected = n_owned - len(absorbed)
     n_global_absorbed = vom.comm.allreduce(len(absorbed), op=MPI.SUM)
 
     assert_fs_layout(vom, T, n_expected)
     assert T.dim() == n_old_global_dofs - n_global_absorbed * bs
+
 
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):

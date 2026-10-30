@@ -35,15 +35,17 @@ def vom_fs(request, vom):
     if request.param == "tensor-DG0":
         return TensorFunctionSpace(vom, "DG", 0, shape=(vom.geometric_dimension, vom.geometric_dimension))
 
+
 @pytest.fixture(params=["function", "cofunction"])
 def make_coefficient(request):
     """Returns a constructor that builds either a Function on a primal space or a Cofunction on its dual."""
-    if request.param=="function":
+    if request.param == "function":
         return Function
     else:
         return lambda V: Cofunction(V.dual())
 
 # Utility Functions
+
 
 def cell_midpoints(mesh, with_halos=False):
     """Return the midpoint of each cell of the mesh, in the cell order of the mesh."""
@@ -77,6 +79,7 @@ def test_migration_raises_off_a_vertex_only_mesh(make_coefficient):
         f.dat
 
     parallel_assert(f._mesh_topology_version == mesh.topology._topology_version - 1, "the version changed even when the migration failed")
+
 
 @pytest.mark.parallel([1, 3])
 def test_vom_functions_migrate_lazily(vom, vom_fs, make_coefficient):
@@ -309,7 +312,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
         moved_pid = pids_before[0]
 
         _, sf_leaves, sf_remotes = parent_mesh.topology_dm.getPointSF().getGraph()
-        target_plex_cell_id = parent_mesh.topology._new_to_old_cell_numbering[target_cell] # plex ID of the target ghost cell
+        target_plex_cell_id = parent_mesh.topology._new_to_old_cell_numbering[target_cell]  # plex ID of the target ghost cell
         (destination_rank, ) = sf_remotes[sf_leaves == target_plex_cell_id, 0]
         destination_rank = int(destination_rank)
 
@@ -327,7 +330,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
         new_parent_cells[0] = target_cell
         ref_cell = FIAT.ufc_cell(parent_mesh.ufl_cell())
         new_refcoords[0] = np.mean(ref_cell.get_vertices(), axis=0)
-    
+
     vom.coordinates.dat.data_wo[:] = new_coords
     mutator.commit_reference_state(new_parent_cells, new_refcoords)
     mutator.rebuild_vom()
@@ -431,6 +434,7 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_c
     # Since Function g hasn't been accessed it should still display the VOM topology version it was originally created on
     parallel_assert(g._mesh_topology_version == v1)
 
+
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("op, expected", [
     (lambda c, d: c.__iadd__(1.0), 2.0),
@@ -463,11 +467,3 @@ def test_cofunction_inplace_operators_before_and_after_migration(vom, vom_fs, op
     parallel_assert(c._mesh_topology_version == vom.topology._topology_version, "cofunction c is not on the current topology version")
     parallel_assert(c.dat.data_ro.shape == (n_expected, *vom_fs.shape), "the Dat of c does not match the new points")
     parallel_assert(np.allclose(c.dat.data_ro, expected), "the operator gave the wrong values")
-
-
-    
-    
-    
-
-    
-

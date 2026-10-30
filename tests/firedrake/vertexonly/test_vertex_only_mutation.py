@@ -22,6 +22,7 @@ def parent_mesh(request):
 
 # Utility Functions
 
+
 def cell_midpoints(mesh, with_halos=False):
     """Return the midpoint of each cell of the mesh, in the cell order of the mesh."""
     V = VectorFunctionSpace(mesh, "DG", 0)
@@ -735,12 +736,11 @@ def test_rebuild_vom_keeps_input_ordering(parent_mesh):
     pids_io = np.full(n_io, -1, dtype=IntType)
     pids = np.ascontiguousarray(topology._particle_ids.dat.data_ro)
     sf = topology.input_ordering_sf
-    
+
     # Reduce: leaves -> roots
     # Send pids from current VOM cells to input points so that pids_io[i] = particle ID of input point i
     sf.reduceBegin(mpi_type, pids, pids_io, MPI.REPLACE)
     sf.reduceEnd(mpi_type, pids, pids_io, MPI.REPLACE)
-
 
     # The first rebuild moves every particle a short distance, so that some particles change rank in parallel.
     # The second rebuild removes every third particle.
@@ -767,7 +767,7 @@ def test_rebuild_vom_keeps_input_ordering(parent_mesh):
 
         # Each input point must reach the particle that it became.
         pids = np.full(nleaves, -1, dtype=IntType)
-        
+
         # Broadcast: roots -> leaves
         # Send pids_io from input points to new VOM cells so thatp pids[i] = particle ID of cell i in the latest VOM
         # These coincide with `topology._particle_ids` if and only if the input ordering SF maps input points to the latest VOM
