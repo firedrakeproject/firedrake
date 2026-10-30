@@ -53,7 +53,8 @@ _with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_t
 class CoordinatelessFunction(ufl.Coefficient):
     r"""A function on a mesh topology."""
 
-    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
+                 parent: "CoordinatelessFunction | None" = None, parent_index=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`, or
             :class:`.MixedFunctionSpace` on which to build this
@@ -74,13 +75,20 @@ class CoordinatelessFunction(ufl.Coefficient):
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
         ufl.Coefficient.__init__(self, function_space.ufl_function_space())
-
+            
         # User comm
         self.comm = function_space.comm
         self._function_space = function_space
         self.uid = _new_uid(self.comm)
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
+
+        self._parent = parent
+        r"""The function whose data this function views or ``None`` if this function owns its data."""
+        self._parent_index = parent_index
+        r"""The index into the Dat of` `_parent`` that selects the data of this function."""
+        if parent is not None:
+            val = parent.dat[parent_index]
 
         if isinstance(val, op3.Dat):
             assert val.comm == self.comm
@@ -121,7 +129,13 @@ class CoordinatelessFunction(ufl.Coefficient):
         if self._mesh_topology_version == self._mesh_topology._topology_version:
             return
         # If outdated, then migrate the function values
-        _migrate_dg0_coef(self)
+        if self._parent is None:
+            # Migrate the data owned by the function
+            _migrate_dg0_coef(self)
+        else:
+            # Read the Dat of the parent so it migrates to the new topology first
+            self._dat = self._parent.dat[self._parent_index]
+            self._mesh_topology_version = self._parent._mesh_topology_version
 
     @PETSc.Log.EventDecorator()
     def copy(self, *, deepcopy=False):
@@ -151,9 +165,8 @@ class CoordinatelessFunction(ufl.Coefficient):
             subfuncs = []
             for i, component in enumerate(self.function_space().field_axis.components):
                 subspace = self.function_space().sub(i)
-                subdat = self.dat[component.label]
                 subfunc = CoordinatelessFunction(
-                    subspace, subdat, name=f"{self.name()}[{subspace.index}]"
+                    subspace, parent=self, parent_index=component.label, name=f"{self.name()}[{subspace.index}]"
                 )
                 subfuncs.append(subfunc)
             return tuple(subfuncs)
@@ -172,7 +185,8 @@ class CoordinatelessFunction(ufl.Coefficient):
             ))
             component = type(self)(
                 self.function_space().sub(ix),
-                val=self.dat[indices],
+                parent=self,
+                parent_index=indices,
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component
@@ -308,6 +322,10 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
+    # NOTE: When migrating functions, a function that's a copy of another function
+    # migrates separately to it. That is, if f = g.copy(), then migrating f doesn't
+    # automatically migrate g. This is because migration creates a new Dat (due to changes in the
+    # data array sizes and layouts)
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
@@ -982,7 +1000,7 @@ def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
     """
     topology = coef._mesh_topology
 
-    # To be removed, once we extend SF-based migration to other meshes.
+    # To be removed, if we ever extend SF-based migration to other meshes.
     if not isinstance(topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Function migration is currently only supported for functions defined on vertex-only meshes.")
 

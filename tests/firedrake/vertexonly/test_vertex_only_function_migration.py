@@ -1,4 +1,5 @@
 from firedrake import *
+import FIAT
 from firedrake.utils import IntType
 from firedrake.vertexonly_mutation import VertexOnlyMeshMutator
 from pytest_mpi.parallel_assert import parallel_assert
@@ -319,6 +320,14 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
 
     # Commit new state + rebuild
     new_parent_cells, new_refcoords = locate_points(parent_mesh, new_coords)
+    # NOTE: locate_points only searches through owned cells so we need to update new_parent_cells and new_refcoords
+    # manually for the particle that's been moved to the ghost cell
+    if comm.rank == 0:
+        # only rank 0 knows target cell
+        new_parent_cells[0] = target_cell
+        ref_cell = FIAT.ufc_cell(parent_mesh.ufl_cell())
+        new_refcoords[0] = np.mean(ref_cell.get_vertices(), axis=0)
+    
     vom.coordinates.dat.data_wo[:] = new_coords
     mutator.commit_reference_state(new_parent_cells, new_refcoords)
     mutator.rebuild_vom()

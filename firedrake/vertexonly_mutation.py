@@ -92,7 +92,7 @@ class VertexOnlyMeshMutator:
         """
         old_local_size = self._migrate_swarm(absorbed_vom_indices)
         self._rebuild_topology()
-        step_sf = self._build_topology_step_sf(old_local_size)
+        self._build_topology_step_sf(old_local_size)
         self._refresh_topology_fields()
 
 
@@ -149,8 +149,8 @@ class VertexOnlyMeshMutator:
         offset = comm.exscan(n_owned) or 0  # offset for this rank in global arrays
         global_idxs_local = np.arange(offset, offset + n_owned, dtype=IntType)  # indices for this rank's owned particles in global arrays
 
-        # Each particle keeps its position in the (original) input-ordering VOM through every rebuild
-        # Read these positions in the current VOM order
+        # Keep the position (rank, index) of each particle in the (original) input-ordering VOM
+        # Read from the swarm then reorder the values to match the current VOM order
         vom_to_swarm = topology._new_to_old_point_renumbering[:n_owned]
         with swarm.field("inputrank") as input_ranks, swarm.field("inputindex") as input_indices:
             input_ranks_local = input_ranks.ravel()[vom_to_swarm].copy()

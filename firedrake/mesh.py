@@ -3685,6 +3685,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # no function can be freed from this point until the method returns.
         # This keeps every function alive until migration is complete
         live_functions = dict(self._live_functions)
+        # TODO: build a dict {key: is_alive}
         common_uids = sorted(self.comm.allreduce(frozenset(live_functions), op=MPI.BAND))
         live_topo_versions = [live_functions[uid]._mesh_topology_version for uid in common_uids]
 
