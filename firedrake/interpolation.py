@@ -131,7 +131,9 @@ class Interpolate(UFLInterpolate):
             # Need to create a Firedrake Argument so that it has a .function_space() method
             V = Argument(V.dual(), 1 if self.is_adjoint else 0)
 
-        self.target_space = V.arguments()[0].function_space()
+        # The dual slot contracts its highest-numbered primal argument.
+        *_, contracted = (a for a in V.arguments() if not is_dual(a))
+        self.target_space = contracted.function_space()
         if expr.ufl_shape != self.target_space.value_shape:
             raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
