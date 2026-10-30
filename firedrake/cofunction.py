@@ -46,7 +46,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @PETSc.Log.EventDecorator()
     @CofunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 count=None):
+                 count=None, parent: "Cofunction | None" = None, parent_index=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -79,14 +79,54 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
+        self._parent = parent
+        r"""The cofunction whose data this cofunction views or ``None`` if this cofunction owns its data."""
+        self._parent_index = parent_index
+        r"""The index into the Dat of ``_parent`` that selects the data of this cofunction."""
+        if parent is not None:
+            val = parent.dat[parent_index]
+
         if isinstance(val, Cofunction):
             val = val.dat
         if isinstance(val, op3.Dat):
             assert val.comm == self.comm
-            self.dat = val
+            self._dat = val
         else:
-            self.dat = function_space.make_dat(val, dtype, self.name())
+            self._dat = function_space.make_dat(val, dtype, self.name())
 
+        self._mesh_topology_version = self._mesh_topology._topology_version
+        r"""The topology version on which the values of this cofunction are stored."""
+
+        # Register the cofunction at the mesh level
+        self._mesh_topology._register_function(self)
+
+    @property
+    def _mesh_topology(self):
+        """The mesh topology on which this cofunction is defined."""
+        return self._function_space.topological.mesh()
+
+    @property
+    def dat(self) -> op3.Dat:
+        """The data of this cofunction, defined on the current topology of its mesh."""
+        self._migrate_to_current_topology()
+        return self._dat
+
+    def _migrate_to_current_topology(self) -> None:
+        """Move the data of this cofunction to the current topology of its mesh."""
+        # Check if the version of the mesh topology stored on this cofunction is outdated
+        if self._mesh_topology_version == self._mesh_topology._topology_version:
+            return
+        if self._parent is None:
+            from firedrake.function import _migrate_dg0_coef
+            _migrate_dg0_coef(self)
+        else:
+            self._dat = self._parent.dat[self._parent_index]
+            self._mesh_topology_version = self._parent._mesh_topology_version
+
+    # NOTE: When migrating cofunctions, a cofunction that's a copy of another cofunction
+    # migrates separately to it. That is, if f = g.copy(), then migrating f doesn't
+    # automatically migrate g. This is because migration creates a new Dat (due to changes in the
+    # data array sizes and layouts)
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
@@ -115,9 +155,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             subfuncs = []
             for i, component in enumerate(self.dat.axes.trees[0].root.components):
                 subspace = self.function_space().sub(i)
-                subdat = self.dat[component.label]
                 subfunc = type(self)(
-                    subspace, subdat, name=f"{self.name()}[{subspace.index}]"
+                    subspace, name=f"{self.name()}[{subspace.index}]",
+                    parent=self, parent_index=component.label
                 )
                 subfuncs.append(subfunc)
             return tuple(subfuncs)
@@ -136,7 +176,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             ))
             component = type(self)(
                 self.function_space().sub(ix),
-                val=self.dat[indices],
+                parent=self,
+                parent_index=indices,
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component
@@ -335,7 +376,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     def __iadd__(self, expr):
 
         if np.isscalar(expr):
-            self.dat += expr
+            dat = self.dat
+            dat += expr
             return self
         if isinstance(expr, Cofunction) and \
                 expr.function_space() == self.function_space():
@@ -348,11 +390,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     def __isub__(self, expr):
 
         if np.isscalar(expr):
-            self.dat -= expr
+            dat = self.dat
+            dat -= expr
             return self
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
-            self.dat -= expr.dat
+            dat = self.dat
+            dat -= expr.dat
             return self
 
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
@@ -362,11 +406,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     def __imul__(self, expr):
 
         if np.isscalar(expr):
-            self.dat *= expr
+            dat = self.dat
+            dat *= expr
             return self
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
-            self.dat *= expr.dat
+            dat = self.dat
+            dat *= expr.dat
             return self
         return NotImplemented
 

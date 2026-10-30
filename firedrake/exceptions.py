@@ -78,3 +78,7 @@ class PointNotInDomainError(FiredrakeException):
 
     def __str__(self):
         return f"Domain {self.domain} does not contain point {self.point}"
+
+
+class FunctionMigrationError(FiredrakeException):
+    """Raised when automatic migration of Function data between mesh topology versions fails."""

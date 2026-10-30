@@ -71,6 +71,7 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
     TODO
     """
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
             if multi:
@@ -794,6 +795,7 @@ class heavy_caches:
 def with_heavy_caches(get_obj: Callable) -> Callable:
     """Function decorator that pushes and pops lifetime objects."""
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
             assert pyop3.collections.is_ordered_sequence(obj)
