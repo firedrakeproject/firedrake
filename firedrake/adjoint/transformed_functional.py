@@ -343,9 +343,9 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         """Evaluate the functional.
 
         Parameters
-        ---------
+        ----------
 
-        value
+        values
             Control values.
 
         Returns
@@ -371,10 +371,15 @@ class L2TransformedFunctional(AbstractReducedFunctional):
         """Evaluate the derivative.
 
         Parameters
-        ---------
+        ----------
 
-        adj_value
-            Not supported.
+        adj_input
+            The adjoint value of the functional result, as in
+            ``pyadjoint.ReducedFunctional.derivative``: the seed of the
+            adjoint calculation, by which the returned derivative is scaled.
+            Only the default value 1, which gives the derivative of the
+            functional itself, is supported. Other values raise
+            ``NotImplementedError``.
         apply_riesz
             Whether to apply the Riesz map to the result.
 
