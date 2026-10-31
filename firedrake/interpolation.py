@@ -107,32 +107,32 @@ class InterpolateOptions:
     default_missing_val: float | None = None
 
 
-class NestedInterpolateLowerer(DAGTraverser):
-    """Lower nested Interpolate nodes to placeholder Functions."""
+# class NestedInterpolateLowerer(DAGTraverser):
+#     """Lower nested Interpolate nodes to placeholder Functions."""
 
-    def __init__(self):
-        super().__init__()
-        self.subs = {}  # placeholder Function -> interpolator
+#     def __init__(self):
+#         super().__init__()
+#         self.subs = {}  # placeholder Function -> interpolator
 
-    @singledispatchmethod
-    def process(self, o: Expr) -> Expr:
-        return super().process(o)
+#     @singledispatchmethod
+#     def process(self, o: Expr) -> Expr:
+#         return super().process(o)
 
-    @process.register(Expr)
-    @process.register(BaseForm)
-    def _(self, o: Expr | BaseForm) -> Expr | BaseForm:
-        return self.reuse_if_untouched(o)
+#     @process.register(Expr)
+#     @process.register(BaseForm)
+#     def _(self, o: Expr | BaseForm) -> Expr | BaseForm:
+#         return self.reuse_if_untouched(o)
 
-    @process.register(UFLInterpolate)
-    @DAGTraverser.postorder
-    def _(self, o: UFLInterpolate, operand: Expr) -> Expr:
-        # from firedrake.assemble import assemble
-        # return as_ufl(assemble(o._ufl_expr_reconstruct_(operand)))
+#     @process.register(UFLInterpolate)
+#     @DAGTraverser.postorder
+#     def _(self, o: UFLInterpolate, operand: Expr) -> Expr:
+#         # from firedrake.assemble import assemble
+#         # return as_ufl(assemble(o._ufl_expr_reconstruct_(operand)))
 
-        inner_node = o._ufl_expr_reconstruct_(operand)
-        fn = Function(o.ufl_function_space())
-        self.subs[fn] = get_interpolator(inner_node)
-        return as_ufl(fn)
+#         inner_node = o._ufl_expr_reconstruct_(operand)
+#         fn = Function(o.ufl_function_space())
+#         self.subs[fn] = get_interpolator(inner_node)
+#         return as_ufl(fn)
 
 class Interpolate(UFLInterpolate):
 
@@ -203,11 +203,11 @@ class Interpolate(UFLInterpolate):
         """
         operand, = self.ufl_operands
         # Check for nested Interpolates first
-        lowerer = NestedInterpolateLowerer()
-        lowered_operand = lowerer(operand)
-        if lowered_operand is not operand:
-            # return get_interpolator(self._ufl_expr_reconstruct_(lowered_operand))
-            return CompositeInterpolator(self._ufl_expr_reconstruct_(lowered_operand), lowerer.subs)
+        # lowerer = NestedInterpolateLowerer()
+        # lowered_operand = lowerer(operand)
+        # if lowered_operand is not operand:
+        #     # return get_interpolator(self._ufl_expr_reconstruct_(lowered_operand))
+        #     return CompositeInterpolator(self._ufl_expr_reconstruct_(lowered_operand), lowerer.subs)
         
         arguments = self.arguments()
         has_mixed_arguments = any(len(arg.function_space()) > 1 for arg in arguments)
@@ -1619,30 +1619,30 @@ class MixedInterpolator(Interpolator):
         return {"aij", "nest", "matfree", None}
 
 
-class CompositeInterpolator(Interpolator):
-    """
-    An interpolator for expressions containing nested interpolations (possibly defined across different meshes).
-    """
+# class CompositeInterpolator(Interpolator):
+#     """
+#     An interpolator for expressions containing nested interpolations (possibly defined across different meshes).
+#     """
 
-    def __init__(self, outer_expr, subs):
-        super().__init__(outer_expr)
-        self.subs = subs # {Function: Interpolator} returned by NestedInterpolateLowerer
-        self._outer = get_interpolator(outer_expr)
+#     def __init__(self, outer_expr, subs):
+#         super().__init__(outer_expr)
+#         self.subs = subs # {Function: Interpolator} returned by NestedInterpolateLowerer
+#         self._outer = get_interpolator(outer_expr)
 
-    def _get_callable(self, tensor=None, bcs=None, **kwargs):
-        inner_callables = [
-            interp._get_callable(tensor=fn)
-            for fn, interp in self.subs.items()
-        ]
-        outer_callable = self._outer._get_callable(tensor=tensor, bcs=bcs)
+#     def _get_callable(self, tensor=None, bcs=None, **kwargs):
+#         inner_callables = [
+#             interp._get_callable(tensor=fn)
+#             for fn, interp in self.subs.items()
+#         ]
+#         outer_callable = self._outer._get_callable(tensor=tensor, bcs=bcs)
 
-        def callable():
-            for c in inner_callables:
-                c()
-            return outer_callable()
+#         def callable():
+#             for c in inner_callables:
+#                 c()
+#             return outer_callable()
 
-        return callable
+#         return callable
 
-    @property
-    def _allowed_mat_types(self):
-        return self._outer._allowed_mat_types
+#     @property
+#     def _allowed_mat_types(self):
+#         return self._outer._allowed_mat_types
