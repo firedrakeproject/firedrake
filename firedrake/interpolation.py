@@ -1115,6 +1115,30 @@ def _build_interpolation_callables(
     if kernel.needs_external_coords:
         coefficients = [source_mesh.coordinates] + coefficients
 
+    constants = extract_firedrake_constants(expr)
+    pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
+
+    # A forward interpolation into a Dat on the same mesh reuses the loop of
+    # an earlier call with the same structure, and passes the data of this
+    # call by argument name. This avoids building the loop and computing its
+    # executor cache key on every call.
+    loop_key = None
+    if (
+        isinstance(dual_arg, Coargument)
+        and isinstance(tensor, op3.Dat)
+        and source_mesh is target_mesh
+        and not isinstance(target_mesh.topology, VertexOnlyMeshTopology)
+        and len(expr.arguments()) == 1
+        and isinstance(subset, Hashable)
+    ):
+        loop_key = _interpolation_loop_key(kernel, tensor, access, subset, expr,
+                                           coefficients, constants)
+        loop_cache = target_mesh.topology._interpolation_loops
+        entry = loop_cache.get(loop_key)
+        if entry is not None:
+            return _call_cached_interpolation_loop(entry, tensor, access, coefficients,
+                                                   constants, pyop3_compiler_parameters)
+
     if any(c.dat.buffer == tensor.buffer for c in coefficients):
         output = tensor
         tensor = op3.Dat.empty_like(tensor)
@@ -1157,10 +1181,13 @@ def _build_interpolation_callables(
     if kernel.needs_cell_sizes:
         local_kernel_args.append(pack(source_mesh.cell_sizes, loop_index))
 
+    coefficient_names = []
     for coefficient in coefficients:
-        local_kernel_args.append(pack(coefficient, loop_index))
+        packed_coefficient = pack(coefficient, loop_index)
+        coefficient_names.append(packed_coefficient.name)
+        local_kernel_args.append(packed_coefficient)
 
-    for const in extract_firedrake_constants(expr):
+    for const in constants:
         local_kernel_args.append(const.dat)
 
     # Finally, add the target mesh reference coordinates if they appear in the kernel
@@ -1188,7 +1215,12 @@ def _build_interpolation_callables(
     expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(loop_index, expression_kernel(*local_kernel_args))
 
-    pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
+    if loop_key is not None:
+        # The entry holds the kernel, so that its id in the key stays unique.
+        loop_cache[loop_key] = _InterpolationLoop(
+            parloop, kernel, tensor.name, tuple(coefficient_names),
+            tuple(const.dat.name for const in constants),
+        )
 
     def parloop_callable():
         with modified_lgmaps(tensor, lgmaps):
@@ -1198,6 +1230,124 @@ def _build_interpolation_callables(
         return parloop_callable, tensor.assemble
     else:
         return copyin + (parloop_callable, ) + copyout
+
+
+@dataclass(frozen=True)
+class _InterpolationLoop:
+    """A cached interpolation loop and the names of its data arguments."""
+    loop: op3.Loop
+    kernel: object
+    output_name: str
+    coefficient_names: tuple[str, ...]
+    constant_names: tuple[str, ...]
+
+
+def _space_key(V: WithGeometry) -> tuple[Hashable, ...]:
+    """Return a key for a function space and its position in a parent space.
+
+    Subspaces of a mixed space compare equal, but their data are indexed
+    in different ways.
+    """
+    return (V, V.parent, getattr(V, "index", None))
+
+
+def _interpolation_loop_key(kernel, tensor, access, subset, expr, coefficients,
+                            constants) -> tuple[Hashable, ...]:
+    """Return the key of a cached forward interpolation loop.
+
+    The key describes everything that the loop depends on except the values
+    and the identity of the data. It holds no Function or Constant.
+
+    Parameters
+    ----------
+    kernel
+        The TSFC kernel from :func:`compile_expression`. This is memory
+        cached on the expression structure, so it is keyed by identity.
+    tensor : op3.Dat
+        The output of the interpolation.
+    access : Literal[op3.WRITE, op3.MIN, op3.MAX, op3.INC]
+        pyop3 access descriptor.
+    subset : Hashable
+        The subdomain of the iteration set.
+    expr : Interpolate
+        The symbolic interpolation expression.
+    coefficients : list[Function]
+        The coefficients of the kernel.
+    constants : list[Constant]
+        The constants of the kernel.
+
+    Returns
+    -------
+    tuple[Hashable, ...]
+        The cache key.
+    """
+    dats = [tensor] + [c.dat for c in coefficients]
+    # For each dat the index of the first dat with the same buffer. Aliased
+    # arguments change the loop, for example an output that is also read
+    # is written into a private copy.
+    buffers = [d.buffer for d in dats]
+    buffer_pattern = tuple(
+        next(j for j, b in enumerate(buffers) if b is buffer) for buffer in buffers
+    )
+    return (
+        id(kernel),
+        access,
+        subset,
+        _space_key(expr.arguments()[0].function_space()),
+        extract_unique_domain(expr.argument_slots()[1]),
+        # A subfunction is a view into the data of its parent, so the layout
+        # differs from that of a Function on the same subspace.
+        tuple(d.axis_trees for d in dats),
+        tuple(_space_key(c.function_space()) for c in coefficients),
+        # Every Constant has its own axis labels, so the layout of a Constant
+        # is described by its shape and type.
+        tuple((c.ufl_shape, c.dat.dtype) for c in constants),
+        buffer_pattern,
+    )
+
+
+def _call_cached_interpolation_loop(entry, tensor, access, coefficients, constants,
+                                    pyop3_compiler_parameters) -> tuple[Callable, ...]:
+    """Return callables that run a cached interpolation loop on new data.
+
+    Parameters
+    ----------
+    entry : _InterpolationLoop
+        The cached loop.
+    tensor : op3.Dat
+        The output of the interpolation.
+    access : Literal[op3.WRITE, op3.MIN, op3.MAX, op3.INC]
+        pyop3 access descriptor.
+    coefficients : list[Function]
+        The coefficients of the kernel, in the order of the cached loop.
+    constants : list[Constant]
+        The constants of the kernel, in the order of the cached loop.
+    pyop3_compiler_parameters : dict
+        Compiler parameters of the loop.
+
+    Returns
+    -------
+    tuple[Callable, ...]
+        Tuple of callables which perform the interpolation.
+    """
+    copyin = ()
+    copyout = ()
+    if any(c.dat.buffer == tensor.buffer for c in coefficients):
+        # The loop writes into a private copy of an output that is also read.
+        output = tensor
+        tensor = op3.Dat.empty_like(output)
+        if access is not op3.WRITE:
+            copyin += (lambda: tensor.assign(output, eager=True),)
+        copyout += (lambda: output.assign(tensor, eager=True),)
+
+    data = {entry.output_name: tensor}
+    data.update(zip(entry.coefficient_names, (c.dat for c in coefficients), strict=True))
+    data.update(zip(entry.constant_names, (c.dat for c in constants), strict=True))
+
+    def parloop_callable():
+        entry.loop(**data, compiler_parameters=pyop3_compiler_parameters)
+
+    return copyin + (parloop_callable,) + copyout
 
 
 try:

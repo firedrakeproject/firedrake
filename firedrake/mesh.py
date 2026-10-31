@@ -711,6 +711,15 @@ class AbstractMeshTopology(abc.ABC):
         return self.points[subset]
 
     @cached_property
+    def _interpolation_loops(self) -> op3.cache.LRUCache:
+        """Cache of pyop3 loops for forward interpolation onto this topology.
+
+        The cache is bounded, because an expression with a changing Python
+        number makes a new kernel, and so a new entry, on every call.
+        """
+        return op3.cache.LRUCache(100)
+
+    @cached_property
     def cells(self) -> op3.IndexedAxisTree:
         return self._entity_axes("cell")
 
