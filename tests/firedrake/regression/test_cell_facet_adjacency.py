@@ -34,6 +34,7 @@ def test_cell_facet_neighbours_match_shared_closure_facets(mesh):
     num_facets = mesh.ufl_cell().num_facets
     neighbour_cells, neighbour_facets = topology._cell_facet_adjacency
 
+    # 1. Check that the neighbour_cells array is correct
     # Get the facet points of each cell, in local facet order.
     fstart, fend = topology.topology_dm.getHeightStratum(1)
     closure = topology.cell_closure
@@ -54,36 +55,29 @@ def test_cell_facet_neighbours_match_shared_closure_facets(mesh):
             expected_cells[c0, lf0], expected_facets[c0, lf0] = c1, lf1
             expected_cells[c1, lf1], expected_facets[c1, lf1] = c0, lf0
 
-    assert neighbour_cells.shape == (topology.cell_set.total_size, num_facets)
+    assert neighbour_cells.shape == (topology.cells.local_size, num_facets)
     assert np.array_equal(neighbour_cells, expected_cells)
     assert np.array_equal(neighbour_facets, expected_facets)
 
-    # The Dat in mesh.py must hold the same values as the Cython output.
-    assert topology.cell_facet_neighbours.data_ro.shape == (topology.cell_set.size, num_facets)
-    assert np.array_equal(topology.cell_facet_neighbours.data_ro_with_halos, neighbour_cells)
+    # 2. Check that the Dat is of the correct shape and holds the neighbour_cells array
+    assert topology.cell_facet_neighbours_dat.data_ro.shape == (topology.cells.owned.local_size, num_facets)
+    assert np.array_equal(topology.cell_facet_neighbours_dat.data_ro_with_halos, neighbour_cells)
 
 
 @pytest.mark.parallel([1, 3])
 def test_cell_facet_neighbours_match_interior_facets(mesh):
+    """Checks that the two cells on each side of an owned interior facet are
+    neighbours of each other across that facet."""
     topology = mesh.topology
-
-    neighbours = topology.cell_facet_neighbours.data_ro_with_halos
+    neighbours = topology.cell_facet_neighbours_dat.data_ro_with_halos
     neighbour_facets = topology._cell_facet_adjacency[1]
 
-    # Consider only facets owned by this rank
-    nowned_facets = topology.interior_facets.set.size
-    facet_cells = topology.interior_facets.facet_cell[:nowned_facets]
-    local_facets = topology.interior_facets.local_facet_dat.data_ro[:nowned_facets]
+    # Consider only the interior facets that this rank owns
+    facet_cells = topology._support_dat("interior_facet", only_owned=True).data_ro
+    local_facets = topology._interior_facet_local_numbers_dat.data_ro
 
     # Check that the neighbouring cell is attached to the right facet
     for (c0, c1), (lf0, lf1) in zip(facet_cells, local_facets):
-        if c0 == -1 or c1 == -1:
-            # Skip interior facets whose either adjacent cell isn't on this rank
-            continue
-
-        assert 0 <= c0 < topology.cell_set.total_size
-        assert 0 <= c1 < topology.cell_set.total_size
-
         assert neighbours[c0, lf0] == c1
         assert neighbours[c1, lf1] == c0
         assert neighbour_facets[c0, lf0] == lf1
@@ -102,7 +96,7 @@ def test_cell_facet_coord_transforms_map_facet_vertices_to_shared_vertices(mesh)
     # cell_closure contains the mesh vertices of each cell, in the order of the vertices of the FIAT reference cell.
     cell_vertices = topology.cell_closure[:, :len(vertices)]
     neighbour_cells, _ = topology._cell_facet_adjacency
-    A_dat, b_dat = topology.cell_facet_coord_transforms
+    A_dat, b_dat = topology.cell_facet_coord_transforms_dat
     A, b = A_dat.data_ro_with_halos, b_dat.data_ro_with_halos
 
     for c, lf in zip(*np.nonzero(neighbour_cells >= 0)):
