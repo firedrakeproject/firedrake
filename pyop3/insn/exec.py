@@ -175,11 +175,16 @@ class InstructionExecutionContext:
         # unpack instruction arguments into buffers, as these are what are
         # actually passed to the compiled code
         new_buffers = {}
-        for arg_name, new_arg in kwargs.items():
-            orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
-            new_arg_buffers = self._extract_buffers(new_arg)
-            for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
-                new_buffers[orig_buffer] = new_buffer
+        if kwargs:
+            name_to_buffer_map = self._argument_name_to_buffer_map
+            extract_buffers = self._bound_extract_buffers
+            for arg_name, new_arg in kwargs.items():
+                orig_arg_buffers = name_to_buffer_map[arg_name]
+                new_arg_buffers = extract_buffers(new_arg)
+                for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
+                    # Passing the original buffer needs no replacement
+                    if new_buffer is not orig_buffer:
+                        new_buffers[orig_buffer] = new_buffer
 
         # We shouldn't be calling preprocess() if we are hitting cache, this is
         # an important performance check. Perform the check at the last second
@@ -440,6 +445,12 @@ class InstructionExecutionContext:
                 name_to_buffer_map[arg.name] = arg_buffers
         return name_to_buffer_map
 
+    # Accessing a singledispatchmethod builds a new function every time, so
+    # bind it once for __call__
+    @cached_property
+    def _bound_extract_buffers(self) -> Callable:
+        return self._extract_buffers
+
     @cached_property
     def _executor_cache_key(self) -> Hashable:
         from pyop3.visitors import get_instruction_executor_cache_key
@@ -619,14 +630,22 @@ class CompiledCodeExecutor:
 
         """
         if not new_buffers:  # shortcut for the most common case
-            buffer_intents = self.buffer_intents
+            buffer_intents = self._default_buffer_intents
             exec_arguments = self._default_exec_arguments
+            mat_buffer_views = self._mat_buffer_views
+            if mat_buffer_views:
+                # The Mat inside a PetscMatBuffer can be replaced, so its
+                # pointer is computed on every call
+                handle_to_pointer = self._bound_handle_to_pointer
+                exec_arguments = list(exec_arguments)
+                for i, buf_view in mat_buffer_views:
+                    exec_arguments[i] = handle_to_pointer(buf_view.handle)
         else:
             new_buffers_for_intents = dict(new_buffers)
-            buffer_intents = {
-                new_buffers_for_intents.pop(orig_buffer, orig_buffer): intent
+            buffer_intents = tuple(
+                _buffer_intent_item(new_buffers_for_intents.pop(orig_buffer, orig_buffer), intent)
                 for orig_buffer, intent in self.buffer_intents.items()
-            }
+            )
             assert not new_buffers_for_intents
 
             # Usually only a few of the buffers are replaced (the tensor
@@ -742,7 +761,16 @@ class CompiledCodeExecutor:
         broadcasts = []
         finalizers = []
         buffer_exchanges = self._bound_buffer_exchanges
-        for buffer, intent in buffer_intents.items():
+        for buffer, intent, is_read_array in buffer_intents:
+            # A read-only array buffer with valid roots and leaves needs no
+            # exchange. The state is checked on every call because the
+            # buffer can be written between calls.
+            if (
+                is_read_array
+                and buffer._pending_reduction_private is None
+                and buffer._leaves_valid_private
+            ):
+                continue
             inits, reds, bcasts, fins = buffer_exchanges(buffer, intent)
             initializers.extend(inits)
             reductions.extend(reds)
@@ -814,9 +842,29 @@ class CompiledCodeExecutor:
         return self._buffer_exchanges
 
     @cached_property
-    def _default_exec_arguments(self) -> tuple[int]:
+    def _default_buffer_intents(self) -> tuple[tuple[pyop3.buffer.ConcreteBuffer, Any, bool], ...]:
+        """``(buffer, intent, is_read_array)`` for the original buffers."""
         return tuple(
-            self._handle_to_pointer(buffer_view.handle)
+            _buffer_intent_item(buffer, intent)
+            for buffer, intent in self.buffer_intents.items()
+        )
+
+    @cached_property
+    def _mat_buffer_views(self) -> tuple[tuple[int, pyop3.buffer.IndexedBuffer], ...]:
+        """Argument positions and views of the PETSc Mat buffers."""
+        return tuple(
+            (i, buffer_view)
+            for i, buffer_view in enumerate(self.kernel_name_to_buffer_info.values())
+            if isinstance(buffer_view.buffer, pyop3.buffer.PetscMatBuffer)
+        )
+
+    @cached_property
+    def _default_exec_arguments(self) -> tuple[int | None]:
+        """Pointers of the original buffers, ``None`` for PETSc Mat buffers."""
+        return tuple(
+            None
+            if isinstance(buffer_view.buffer, pyop3.buffer.PetscMatBuffer)
+            else self._handle_to_pointer(buffer_view.handle)
             for buffer_view in self.kernel_name_to_buffer_info.values()
         )
 
@@ -1121,6 +1169,11 @@ class CompiledCodeTemplate:
             for location, intent in self.buffer_intents
         })
         return CompiledCodeExecutor(self.executable, kernel_name_to_buffer_views, buffer_intents, comm)
+
+
+def _buffer_intent_item(buffer, intent) -> tuple[pyop3.buffer.ConcreteBuffer, Any, bool]:
+    """Return ``(buffer, intent, is_read_array)`` for the exchange loop."""
+    return buffer, intent, intent == READ and isinstance(buffer, pyop3.buffer.ArrayBuffer)
 
 
 @functools.singledispatch

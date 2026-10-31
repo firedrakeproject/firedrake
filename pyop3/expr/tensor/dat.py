@@ -497,14 +497,18 @@ class Dat(Tensor):
                 "Cannot nest vec contexts"
             )
         if block_shape is None:
-            block_shape = self.axes.block_shape
+            block_size = self._block_size
+        else:
+            block_size = np.prod(block_shape, dtype=int)
 
-        # Make sure all root values are correct
-        self.buffer.sync_roots()
+        # Make sure all root values are correct. With no pending reduction
+        # and no transfer in flight this does nothing.
+        buffer = self.buffer
+        if buffer._pending_reduction is not None or buffer._finalizer is not None:
+            buffer.sync_roots()
 
         # The block size may change between invocations
         # TODO: Should reset it back at the end
-        block_size = np.prod(block_shape, dtype=int)
         if block_size != self._work_vec.block_size:
             self._work_vec.setBlockSize(block_size)
 
@@ -559,6 +563,11 @@ class Dat(Tensor):
             # we don't trust PETSc to exhaustively track all modifications.
             self.buffer.state = max(self._work_vec.stateGet(), self.buffer.state+1)
             self.buffer._leaves_valid = False
+
+    @cached_property
+    def _block_size(self) -> int:
+        """The default block size of the PETSc Vec (the axes do not change)."""
+        return np.prod(self.axes.block_shape, dtype=int)
 
     @property
     def _work_vec(self) -> PETSc.Vec:

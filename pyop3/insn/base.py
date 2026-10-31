@@ -121,9 +121,30 @@ class Instruction(Node, abc.ABC):
     def named_terminals(self) -> tuple:
         return tuple(self.named_terminal_intents)
 
-    @with_self_heavy_cache
     def __call__(self, *, compiler_parameters=None, **kwargs) -> None:
-        self._get_execution_context(compiler_parameters)(**kwargs)
+        # Once a context is compiled, later calls with equal parameters use
+        # it directly, without the heavy cache or a frozen cache key
+        try:
+            context = self._compiled_execution_contexts[_context_key(compiler_parameters)]
+        except (KeyError, TypeError):
+            self._compile_and_call(compiler_parameters, **kwargs)
+        else:
+            context(**kwargs)
+
+    @with_self_heavy_cache
+    def _compile_and_call(self, compiler_parameters, **kwargs) -> None:
+        context = self._get_execution_context(compiler_parameters)
+        context(**kwargs)
+        try:
+            self._compiled_execution_contexts[_context_key(compiler_parameters)] = context
+        except TypeError:
+            # Parameters that cannot form a key always take this path
+            pass
+
+    @cached_property
+    def _compiled_execution_contexts(self) -> dict[Hashable, InstructionExecutionContext]:
+        """Compiled execution contexts, by the items of the compiler parameters."""
+        return {}
 
     @cached_method()
     def _get_execution_context(self, compiler_parameters) -> InstructionExecutionContext:
@@ -131,6 +152,21 @@ class Instruction(Node, abc.ABC):
 
         weak_self = weakref.ref(self)
         return InstructionExecutionContext(weak_self, compiler_parameters)
+
+
+def _context_key(compiler_parameters) -> Hashable:
+    """Return a key for the compiled context of ``compiler_parameters``.
+
+    Raises ``TypeError`` if the parameters are not a mapping. If a value is
+    unhashable, the returned key is unhashable too.
+
+    """
+    if compiler_parameters is None:
+        return None
+    try:
+        return tuple(compiler_parameters.items())
+    except AttributeError:
+        raise TypeError("Compiler parameters are not a mapping")
 
 
 class NonTerminalInstruction(Instruction, Operator):
