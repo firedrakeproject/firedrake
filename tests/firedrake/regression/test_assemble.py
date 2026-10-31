@@ -299,7 +299,9 @@ def test_loops_shared_between_coefficients(mesh, rank):
 
         # Forms with new coefficients share the loops
         result = assemble(form)
-        loops.add(id(get_assembler(form)._parloops))
+        assembler = get_assembler(form)
+        tensor = result if rank > 0 else assembler.allocate()
+        loops.add(id(assembler._build_parloops(tensor)))
         if rank == 0:
             assert np.isclose(result, expected)
         elif rank == 1:
