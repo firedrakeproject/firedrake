@@ -2,10 +2,12 @@ from functools import cached_property
 import numpy as np
 import ufl
 
-from ufl.form import BaseForm
-from pyop2 import op2
+import pyop3 as op3
 from pyadjoint.tape import stop_annotating, annotate_tape, get_working_tape
+from pyop3.cache import with_heavy_caches
+from ufl.form import BaseForm
 from finat.ufl import MixedElement
+
 import firedrake.assemble
 import firedrake.functionspaceimpl as functionspaceimpl
 from firedrake import utils, ufl_expr
@@ -13,9 +15,13 @@ from firedrake.utils import ScalarType
 from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
+from firedrake.mesh import extract_mesh_topologies
 from firedrake.petsc import PETSc
 
 __all__ = ["Cofunction", "RieszMap"]
+
+
+_with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.function_space().mesh()))
 
 
 class Cofunction(ufl.Cofunction, CofunctionMixin):
@@ -39,7 +45,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @PETSc.Log.EventDecorator()
     @CofunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 count=None):
+                 count=None, parent: "Cofunction | None" = None, parent_index=None):
         r"""
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
@@ -72,42 +78,54 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
 
+        self._parent = parent
+        r"""The cofunction whose data this cofunction views or ``None`` if this cofunction owns its data."""
+        self._parent_index = parent_index
+        r"""The index into the Dat of ``_parent`` that selects the data of this cofunction."""
+        if parent is not None:
+            val = parent.dat[parent_index]
+
         if isinstance(val, Cofunction):
             val = val.dat
-
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
+        if isinstance(val, op3.Dat):
             assert val.comm == self.comm
             self._dat = val
         else:
-            self._dat = V.make_dat(val, dtype, self.name())
+            self._dat = function_space.make_dat(val, dtype, self.name())
 
-        # Record the mesh topology version
         self._mesh_topology_version = self._mesh_topology._topology_version
+        r"""The topology version on which the values of this cofunction are stored."""
 
-        # Register the function on the mesh
+        # Register the cofunction at the mesh level
         self._mesh_topology._register_function(self)
 
     @property
     def _mesh_topology(self):
-        """Return the topology on which this cofunction is defined."""
+        """The mesh topology on which this cofunction is defined."""
         return self._function_space.topological.mesh()
 
     @property
-    def dat(self):
-        self._migrate_to_current_topology_version()
+    def dat(self) -> op3.Dat:
+        """The data of this cofunction, defined on the current topology of its mesh."""
+        self._migrate_to_current_topology()
         return self._dat
 
-    @dat.setter
-    def dat(self, value):
-        if value is self._dat:
+    def _migrate_to_current_topology(self) -> None:
+        """Move the data of this cofunction to the current topology of its mesh."""
+        # Check if the version of the mesh topology stored on this cofunction is outdated
+        if self._mesh_topology_version == self._mesh_topology._topology_version:
             return
-        raise AttributeError("A Cofunction's Dat cannot be replaced directly.")
+        if self._parent is None:
+            from firedrake.function import _migrate_dg0_coef
+            _migrate_dg0_coef(self)
+        else:
+            self._dat = self._parent.dat[self._parent_index]
+            self._mesh_topology_version = self._parent._mesh_topology_version
 
-    def _migrate_to_current_topology_version(self) -> None:
-        """Migrate this cofunction's data to the current topology version."""
-        from firedrake.function import _migrate_dg0_coefficient
-        _migrate_dg0_coefficient(self, self._function_space.topological)
-
+    # NOTE: When migrating cofunctions, a cofunction that's a copy of another cofunction
+    # migrates separately to it. That is, if f = g.copy(), then migrating f doesn't
+    # automatically migrate g. This is because migration creates a new Dat (due to changes in the
+    # data array sizes and layouts)
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
@@ -117,12 +135,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             and copy values.  If ``False``, then the new
             :class:`firedrake.function.CoordinatelessFunction` will share the dof values.
         """
-        if deepcopy:
-            val = type(self.dat)(self.dat)
-        else:
-            val = self.dat
+        dat = self.dat.copy() if deepcopy else self.dat
         return type(self)(self.function_space(),
-                          val=val, name=self.name(),
+                          val=dat, name=self.name(),
                           dtype=self.dat.dtype)
 
     def _analyze_form_arguments(self):
@@ -135,18 +150,37 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     def subfunctions(self):
         r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
-        return tuple(type(self)(fs, dat) for fs, dat in zip(self.function_space(), self.dat))
+        if functionspaceimpl.is_mixed(self.function_space()):
+            subfuncs = []
+            for i, component in enumerate(self.dat.axes.trees[0].root.components):
+                subspace = self.function_space().sub(i)
+                subfunc = type(self)(
+                    subspace, name=f"{self.name()}[{subspace.index}]",
+                    parent=self, parent_index=component.label
+                )
+                subfuncs.append(subfunc)
+            return tuple(subfuncs)
+        else:
+            return (self,)
 
     @cached_property
     def _components(self):
-        if self.function_space().rank == 0:
-            return (self, )
-        else:
-            if self.dof_dset.cdim == 1:
-                return (type(self)(self.function_space().sub(0), val=self.dat),)
-            else:
-                return tuple(type(self)(self.function_space().sub(i), val=op2.DatView(self.dat, j))
-                             for i, j in enumerate(np.ndindex(self.dof_dset.dim)))
+        shape = self.function_space().shape
+        assert len(shape) > 0
+        components = np.empty(shape, dtype=object)
+        for ix in np.ndindex(shape):
+            indices = op3.IndexTree.from_iterable((
+                op3.ScalarIndex(f"dim{i_}", None, j_)
+                for i_, j_ in enumerate(ix)
+            ))
+            component = type(self)(
+                self.function_space().sub(ix),
+                parent=self,
+                parent_index=indices,
+                name=f"view[{','.join(map(str, ix))}]({self.name()})"
+            )
+            components[ix] = component
+        return utils.readonly(components)
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -160,9 +194,15 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
         this returns a proxy object indexing the ith component of the space,
         suitable for use in boundary condition application."""
-        mixed = type(self.function_space().ufl_element()) is MixedElement
-        data = self.subfunctions if mixed else self._components
-        return data[i]
+        if type(self.function_space().ufl_element()) is MixedElement:
+            return self.subfunctions[i]
+        elif not self.function_space().shape:
+            # TODO: Decide if this is acceptable usage
+            if i != 0:
+                raise ValueError("Only allowed to index a scalar, non-mixed function using '0'.")
+            return self
+        else:
+            return self._components[i]
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
@@ -195,7 +235,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return self.assign(PETSc.ScalarType(0), subset=subset)
 
     @PETSc.Log.EventDecorator()
-    @utils.known_pyop2_safe
+    @_with_mesh_heavy_cache
     def assign(self, expr, subset=None, expr_from_assemble=False, allow_missing_dofs=False):
         """Set value to the pointwise value of expr.
 
@@ -235,16 +275,28 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         values. Things like ``u.assign(2*v + Constant(3.0))``.
 
         """
+        from firedrake.assign import Assigner, parse_subset
+
+        subset = parse_subset(subset)
+
+        # Complete any pending reductions if we are doing subset assignment.
+        # This is because assign uses 'cofunc.dat.data_wo' which assumes
+        # that all entries are modified and hence any pending reductions
+        # are skippable.
+        # Subfunctions also count as subset assignments.
+        if subset is not Ellipsis or self.function_space().parent:
+            self.dat.buffer.sync_roots()
+
         expr = ufl.as_ufl(expr)
         if isinstance(expr, (ufl.classes.Zero, ufl.ZeroBaseForm)):
             with stop_annotating(modifies=(self,)):
-                self.dat.zero(subset=subset)
+                self.dat[subset].zero(eager=True)
             return self
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
             if annotate_tape() and self != expr:
-                if subset is not None:
+                if subset is not Ellipsis:
                     raise NotImplementedError("Cofunction subset assignment "
                                               "annotation is not supported.")
                 self.block_variable = self.create_block_variable()
@@ -259,7 +311,11 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                         self, expr, rhs_from_assemble=expr_from_assemble)
                 )
 
-            expr.dat.copy(self.dat, subset=subset)
+            # TODO: Shouldn't need to cast the axes
+            # self.dat[subset].assign(expr.dat[subset], eager=True)
+            lhs = self.dat[subset]
+            rhs = expr.dat[subset]
+            lhs.assign(rhs, eager=True)
             return self
         elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
@@ -271,8 +327,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 assembled_expr = firedrake.assemble(expr)
                 return self.assign(assembled_expr, subset=subset, expr_from_assemble=True)
         else:
-            from firedrake.assign import Assigner
-            Assigner(self, expr, subset).assign(allow_missing_dofs=allow_missing_dofs)
+            Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
 
     def riesz_representation(self, riesz_map='L2', *, bcs=None,
@@ -317,29 +372,30 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         return riesz_map(self)
 
     @CofunctionMixin._ad_annotate_iadd
-    @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
         if np.isscalar(expr):
-            self.dat += expr
+            dat = self.dat
+            dat += expr
             return self
         if isinstance(expr, Cofunction) and \
-           expr.function_space() == self.function_space():
-            self.dat += expr.dat
+                expr.function_space() == self.function_space():
+            self.dat.data_rw[...] += expr.dat.data_ro
             return self
         # Let Python hit `BaseForm.__add__` which relies on ufl.FormSum.
         return NotImplemented
 
     @CofunctionMixin._ad_annotate_isub
-    @utils.known_pyop2_safe
     def __isub__(self, expr):
 
         if np.isscalar(expr):
-            self.dat -= expr
+            dat = self.dat
+            dat -= expr
             return self
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
-            self.dat -= expr.dat
+            dat = self.dat
+            dat -= expr.dat
             return self
 
         # Let Python hit `BaseForm.__sub__` which relies on ufl.FormSum.
@@ -349,13 +405,24 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     def __imul__(self, expr):
 
         if np.isscalar(expr):
-            self.dat *= expr
+            dat = self.dat
+            dat *= expr
             return self
         if isinstance(expr, Cofunction) and \
            expr.function_space() == self.function_space():
-            self.dat *= expr.dat
+            dat = self.dat
+            dat *= expr.dat
             return self
         return NotImplemented
+
+    def __float__(self) -> float:
+        if (
+            self.ufl_element().family() == "Real"
+            and self.function_space().shape == ()
+        ):
+            return float(utils.just_one(self.dat.global_data))
+        else:
+            raise ValueError("Can only cast scalar 'Real' cofunctions to float.")
 
     @PETSc.Log.EventDecorator()
     def interpolate(self,
@@ -391,21 +458,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         :class:`Cofunction` is defined."""
         return self.function_space()._mesh.cell_set
 
-    @property
-    def node_set(self):
-        r"""A :class:`pyop2.types.set.Set` containing the nodes of this
-        :class:`Cofunction`. One or (for rank-1 and 2
-        :class:`.FunctionSpace`\s) more degrees of freedom are stored
-        at each node.
-        """
-        return self.function_space().node_set
-
-    @property
-    def dof_dset(self):
-        r"""A :class:`pyop2.types.dataset.DataSet` containing the degrees of freedom of
-        this :class:`Cofunction`."""
-        return self.function_space().dof_dset
-
     def ufl_id(self):
         return self.uid
 
@@ -433,9 +485,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return self._name
         else:
             return super(Cofunction, self).__str__()
-
-    def cell_node_map(self):
-        return self.function_space().cell_node_map()
 
 
 class RieszMap:
@@ -548,7 +597,7 @@ class RieszMap:
 
             if self._inner_product == "l2":
                 for o, c in zip(output.subfunctions, value.subfunctions):
-                    o.dat.data[:] = c.dat.data_ro[:]
+                    o.dat.data_rw[:] = c.dat.data_ro[:]
             else:
                 solve, rhs, soln = self._solver
                 rhs.assign(value)

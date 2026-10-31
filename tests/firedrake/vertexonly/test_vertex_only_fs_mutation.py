@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.utils import IntType
 from firedrake.vertexonly_mutation import VertexOnlyMeshMutator
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
@@ -29,19 +30,10 @@ def vom_fs(request, vom):
 
 
 def cell_midpoints(mesh, with_halos=False):
-    """
-    Create deterministic physical point locations-one point at the midpoint of each mesh cell-returned in the cell order.
-    Setting `with_halos=False` ensures we only get midpoints that are owned by each rank."""
+    """Return the midpoint of each cell of the mesh, in the cell order of the mesh."""
     V = VectorFunctionSpace(mesh, "DG", 0)
     x = Function(V).interpolate(SpatialCoordinate(mesh))
-
-    data = x.dat.data_ro_with_halos if with_halos else x.dat.data_ro
-    cell_nodes = V.cell_node_list[:, 0]
-
-    if not with_halos:
-        cell_nodes = cell_nodes[:mesh.cell_set.size]
-
-    return data[cell_nodes].copy()
+    return (x.dat.data_ro_with_halos if with_halos else x.dat.data_ro).copy()
 
 
 def locate_points(mesh, points):
@@ -50,307 +42,151 @@ def locate_points(mesh, points):
     return np.asarray(parent_cells, dtype=int), np.asarray(refcoords, dtype=float)
 
 
+def assert_fs_layout(vom, T, n_expected):
+    """Check that the layout of the topological FunctionSpace T matches ``n_expected`` owned VOM points on this rank."""
+    bs = T.block_size
+    n_ises = sum(iset.getLocalSize() for iset in T.field_ises)
+    checks = {
+        "owned VOM cells": vom.topology.cells.owned.local_size == n_expected,
+        "all VOM cells": vom.topology.num_cells() == n_expected,
+        "axes": T.axes.local_size == n_expected * bs,
+        "dof_count": T.dof_count == n_expected * bs,
+        "section": T.section.getStorageSize() == n_expected * bs,
+        "template_vec": T.template_vec.getLocalSize() == n_expected * bs,
+        "field_ises": n_ises == n_expected * bs,
+        "cell_node_map_dat": T.cell_node_map_dat.data_ro.shape == (n_expected, 1),
+    }
+    for name, ok in checks.items():
+        parallel_assert(ok, f"{name} does not match {n_expected} points")
+
+
 @pytest.mark.parallel([1, 3])
-def test_vom_fs_data_refreshes_after_vom_mutation(vom, vom_fs):
+def test_vom_fs_caches_recompute_after_vom_mutation(vom, vom_fs):
     """Check that FunctionSpace caches get invalidated and recomputed after a VOM topology change."""
-    mutator = VertexOnlyMeshMutator(vom)
-
     T = vom_fs.topological
 
-    # Read topology-dependent properties from the caches
-    old_shared_data = T._shared_data
-    old_dof_dset = T.dof_dset
-    old_global_numbering = T.global_numbering
-    old_dm = T.dm
-    old_ises = T._ises
-    old_cell_node_list = T.cell_node_list
-    old_cell_node_map = T.cell_node_map()
+    names = [
+        "axes", "dm_axes", "nodal_layout_axes", "plex_axes", "nodal_axes", "_nodes_axis",
+        "dm_axis_constraints", "nodal_axis_constraints", "section", "dm", "template_vec",
+        "field_ises", "local_ises", "_lgmap", "cell_node_map", "cell_node_map_dat",
+    ]
+    old_vals = {name: getattr(T, name) for name in names}
 
-    # Mutate the VOM topologically by removing every other point on each rank
-    absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
+    vom.topology._topology_version += 1
 
-    new_shared_data = T._shared_data
-    new_dof_dset = T.dof_dset
-    new_global_numbering = T.global_numbering
-    new_dm = T.dm
-    new_ises = T._ises
-    new_cell_node_list = T.cell_node_list
-    new_cell_node_map = T.cell_node_map()
-
-    parallel_assert(new_shared_data is not old_shared_data)
-    parallel_assert(new_dof_dset is not old_dof_dset)
-    parallel_assert(new_global_numbering is not old_global_numbering)
-    parallel_assert(new_dm is not old_dm)
-    parallel_assert(new_ises is not old_ises)
-    parallel_assert(new_cell_node_list is not old_cell_node_list)
-    parallel_assert(new_cell_node_map is not old_cell_node_map)
+    for name in names:
+        parallel_assert(getattr(T, name) is not old_vals[name], f"{name} was not recomputed")
 
 
 @pytest.mark.parallel([1, 3])
-def test_vom_fs_data_resizes_to_match_vom_topology(vom, vom_fs):
+def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
     T = vom_fs.topological
+    bs = T.block_size  # number of scalar DoFs per node
+    n_owned = vom.topology.cells.owned.local_size
+    n_old_global_dofs = T.dim()  # total number of scalar DoFs
+
+    # Remove every other point on each rank
+    absorbed = np.arange(0, n_owned, 2, dtype=IntType)
+    # rebuild VOM
     mutator = VertexOnlyMeshMutator(vom)
+    mutator._migrate_swarm(absorbed)
+    mutator._rebuild_topology()
 
-    n_old_local_nodes = T.node_set.size  # 1 node per VOM point
-    n_old_global_dofs = T.dim()  # total number of scalar DoFs across all ranks
+    n_expected = n_owned - len(absorbed)
+    n_global_absorbed = vom.comm.allreduce(len(absorbed), op=MPI.SUM)
 
-    # Mutate the VOM topologically by removing every other point on each rank
-    absorbed_local_indices = np.arange(0, vom.cell_set.size, 2, dtype=int)
-    n_local_absorbed = len(absorbed_local_indices)
-    n_global_absorbed = vom.comm.allreduce(n_local_absorbed, op=MPI.SUM)
-
-    # Expected size post rebuild
-    expected_n_local_nodes = n_old_local_nodes - n_local_absorbed
-    expected_n_global_dofs = n_old_global_dofs - n_global_absorbed * T.block_size
-
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
-
-    new_n_global_dofs = T.dim()
-    new_ises = T._ises
-
-    # Check that the FS data structures are rebuilt appropriately to match the new VOM topology
-    fs_layout_matches_vom_topology_post_rebuild = (
-        vom.cell_set.size == expected_n_local_nodes
-        and T.dof_dset.size == expected_n_local_nodes
-        and T.node_set.size == expected_n_local_nodes
-        and T.node_set.total_size == expected_n_local_nodes
-        and T.node_count == expected_n_local_nodes
-        and T.dof_count == expected_n_local_nodes * T.block_size
-        and T.cell_node_list.shape == (vom.cell_set.size, 1)
-        and T.global_numbering.getStorageSize() == expected_n_local_nodes
-        and T.dm is T.dof_dset.dm
-        and new_ises is T.dof_dset.field_ises
-    )
-
-    parallel_assert(
-        fs_layout_matches_vom_topology_post_rebuild,
-        "The FunctionSpace layout does not match the rebuilt VOM topology",
-    )
-
-    assert new_n_global_dofs == expected_n_global_dofs
+    assert_fs_layout(vom, T, n_expected)
+    assert T.dim() == n_old_global_dofs - n_global_absorbed * bs
 
 
 @pytest.mark.parallel([1, 3])
 def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
+    """Check the FunctionSpace layout after two successive VOM rebuilds."""
     T = vom_fs.topological
     mutator = VertexOnlyMeshMutator(vom)
+    bs = T.block_size
 
-    block_size = T.block_size  # number of scalar DoFs per node
-    v0 = vom.topology._topology_version
+    n_expected = vom.topology.cells.owned.local_size
+    n_expected_global_dofs = T.dim()
+    for rebuild in (1, 2):
+        version = vom.topology._topology_version
+        old = {name: getattr(T, name) for name in ("axes", "section", "dm")}
 
-    shared_data_v0 = T._shared_data
-    dof_dset_v0 = T.dof_dset
-    dm_v0 = T.dm
+        # Remove every other point on each rank, starting with the second point.
+        absorbed = np.arange(1, n_expected, 2, dtype=IntType)
+        mutator.rebuild_vom(absorbed_vom_indices=absorbed)
+        n_expected -= len(absorbed)
+        n_expected_global_dofs -= vom.comm.allreduce(len(absorbed), op=MPI.SUM) * bs
 
-    n_local_nodes_v0 = T.node_set.size
-    n_global_dofs_v0 = T.dim()
-
-    # First rebuild
-    absorbed_v1 = np.arange(1, n_local_nodes_v0, 2, dtype=int)
-    n_global_absorbed_v1 = vom.comm.allreduce(
-        len(absorbed_v1),
-        op=MPI.SUM,
-    )
-
-    expected_local_nodes_v1 = n_local_nodes_v0 - len(absorbed_v1)
-    expected_global_dofs_v1 = n_global_dofs_v0 - n_global_absorbed_v1 * block_size
-
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_v1)
-
-    # Access thee FS state after the first rebuild
-    v1 = vom.topology._topology_version
-    shared_data_v1 = T._shared_data
-    dof_dset_v1 = T.dof_dset
-    dm_v1 = T.dm
-    n_global_dofs_v1 = T.dim()
-
-    fs_layout_matches_vom_topology_post_rebuild_1 = (
-        v1 == v0 + 1
-        and shared_data_v1 is not shared_data_v0
-        and dof_dset_v1 is not dof_dset_v0
-        and dm_v1 is not dm_v0
-        and vom.cell_set.size == expected_local_nodes_v1
-        and T.node_set.size == expected_local_nodes_v1
-        and T.node_set.total_size == expected_local_nodes_v1
-        and T.node_count == expected_local_nodes_v1
-        and T.dof_count == expected_local_nodes_v1 * block_size
-        and T.cell_node_list.shape == (vom.cell_set.size, 1)
-        and n_global_dofs_v1 == expected_global_dofs_v1
-    )
-
-    parallel_assert(
-        fs_layout_matches_vom_topology_post_rebuild_1,
-        "The FunctionSpace was not rebuilt correctly after the first VOM mutation"
-    )
-
-    # Second rebuild
-    absorbed_v2 = np.arange(1, vom.cell_set.size, 2, dtype=int)
-    n_global_absorbed_v2 = vom.comm.allreduce(
-        len(absorbed_v2),
-        op=MPI.SUM,
-    )
-
-    expected_local_nodes_v2 = expected_local_nodes_v1 - len(absorbed_v2)
-    expected_global_dofs_v2 = (
-        expected_global_dofs_v1 - n_global_absorbed_v2 * block_size
-    )
-
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_v2)
-
-    # Access the FS state after the second rebuild
-    v2 = vom.topology._topology_version
-    shared_data_2 = T._shared_data
-    dof_dset_2 = T.dof_dset
-    dm_2 = T.dm
-    n_global_dofs_2 = T.dim()
-
-    fs_layout_matches_vom_topology_post_rebuild_2 = (
-        v2 == v1 + 1
-        and shared_data_2 is not shared_data_v1
-        and dof_dset_2 is not dof_dset_v1
-        and dm_2 is not dm_v1
-        and vom.cell_set.size == expected_local_nodes_v2
-        and T.node_set.size == expected_local_nodes_v2
-        and T.node_set.total_size == expected_local_nodes_v2
-        and T.node_count == expected_local_nodes_v2
-        and T.dof_count == expected_local_nodes_v2 * block_size
-        and T.cell_node_list.shape == (vom.cell_set.size, 1)
-        and n_global_dofs_2 == expected_global_dofs_v2
-    )
-
-    parallel_assert(
-        fs_layout_matches_vom_topology_post_rebuild_2,
-        "The FunctionSpace was not rebuilt correctly after the second VOM mutation",
-    )
+        parallel_assert(vom.topology._topology_version == version + 1)
+        for name, value in old.items():
+            parallel_assert(getattr(T, name) is not value, f"rebuild {rebuild}: {name} was not recomputed")
+        assert_fs_layout(vom, T, n_expected)
+        assert T.dim() == n_expected_global_dofs
 
 
 @pytest.mark.parallel([1, 3])
-def test_vom_fs_rebuils_to_matche_empty_vom(vom, vom_fs):
+def test_vom_fs_rebuilds_to_match_empty_vom(vom, vom_fs):
+    """Check that the FunctionSpace layout is empty after every point is removed."""
     T = vom_fs.topological
 
-    # First ensure all topology-dependent structures exist and have been computed
-    _ = T.dof_dset
-    _ = T.global_numbering
-    _ = T.dm
-    _ = T._ises
-    _ = T.cell_node_list
-    _ = T.cell_node_map()
+    # Compute all topology-dependent structures before the rebuild
+    for name in ("axes", "section", "dm", "field_ises", "cell_node_map", "cell_node_map_dat"):
+        getattr(T, name)
 
-    # Mutate the VOM: remove all points from every rank
+    # Remove every point on every rank
+    n_owned = vom.topology.cells.owned.local_size
+    # rebuild VOM
     mutator = VertexOnlyMeshMutator(vom)
-    old_local_count = vom.cell_set.size
-    absorbed_local_indices = np.arange(old_local_count, dtype=int)
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
+    mutator._migrate_swarm(np.arange(n_owned, dtype=IntType))
+    mutator._rebuild_topology()
 
-    # Access the new state post rebuild
-    node_set = T.node_set
-    dof_dset = T.dof_dset
-    layout_vec = dof_dset.layout_vec
-    global_numbering = T.global_numbering
-    dm = T.dm
-    ises = T._ises
-    cell_node_list = T.cell_node_list
-    cell_node_map = T.cell_node_map()
-    global_dim = T.dim()
-
-    # Check that all FS data structures are now of size 0
-    fs_layout_is_empty = (
-        vom.cell_set.size == 0
-        and vom.cell_set.total_size == 0
-        and node_set.size == 0
-        and node_set.total_size == 0
-        and dof_dset.size == 0
-        and dof_dset.total_size == 0
-        and T.node_count == 0
-        and T.dof_count == 0
-        and global_dim == 0
-        and layout_vec.getLocalSize() == 0
-        and layout_vec.getSize() == 0
-        and global_numbering.getStorageSize() == 0
-        and cell_node_list.shape == (0, 1)
-        and cell_node_list.size == 0
-        and cell_node_map.values.size == 0
-        and cell_node_map.values_with_halo.size == 0
-        and dm is dof_dset.dm
-        and all(iset.getSize() == 0 for iset in ises)
-    )
-
-    parallel_assert(
-        fs_layout_is_empty,
-        "The FunctionSpace data structures are non-empty despite the VOM being empty"
-    )
+    assert_fs_layout(vom, T, 0)
+    parallel_assert(T.template_vec.getSize() == 0, "the global template vector is not empty")
+    assert T.dim() == 0
 
 
 @pytest.mark.parallel(nprocs=3)
 def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
-    mutator = VertexOnlyMeshMutator(vom)
+    """Check the FunctionSpace layout after one point moves from rank 0 to another rank."""
     T = vom_fs.topological
+    mutator = VertexOnlyMeshMutator(vom)
+    parent_topology = parent_mesh.topology
 
     old_global_dim = T.dim()
-    old_local_nodes = T.node_set.size
-    old_dof_dset = T.dof_dset
-    old_ises = T._ises
-    old_dm = T.dm
+    old_local_nodes = vom.topology.cells.owned.local_size
+    old = {name: getattr(T, name) for name in ("axes", "section", "dm", "field_ises")}
 
-    # Migrate the first particle on rank 0 to a neighbouring rank
+    # Move the first point on rank 0 to the midpoint of its first ghost cell.
+    # Firedrake numbers the owned cells first, so the ghost cells follow them.
     midpoints = cell_midpoints(parent_mesh, with_halos=True)
-
     new_coords = vom.coordinates.dat.data_ro.copy()
     destination_rank = None
-
-    ghost_cell_ids = np.arange(parent_mesh.cell_set.size, parent_mesh.cell_set.total_size, dtype=int)
-
     if parent_mesh.comm.rank == 0:
-        # New point is the midpoint of the first ghost cell
-        target_cell = ghost_cell_ids[0]
+        target_cell = parent_topology.cells.owned.local_size
         new_coords[0] = midpoints[target_cell]
 
         _, sf_leaves, sf_remotes = parent_mesh.topology_dm.getPointSF().getGraph()
-
-        leaf_owning_ranks = {
-            leaf: remote[0]
-            for leaf, remote in zip(sf_leaves, sf_remotes)
-        }
-
-        target_plex_cell = parent_mesh.topology.cell_closure[target_cell, -1]  # Firedrake cell ID -> plex cell ID
-        destination_rank = leaf_owning_ranks.get(target_plex_cell)
-
+        target_plex_cell = parent_topology._new_to_old_cell_numbering[target_cell]
+        (destination_rank,) = sf_remotes[sf_leaves == target_plex_cell, 0]
+        destination_rank = int(destination_rank)
     destination_rank = parent_mesh.comm.bcast(destination_rank, root=0)
+    parallel_assert(destination_rank != 0, "Rank 0 failed to choose a destination rank for its point")
 
-    parallel_assert(destination_rank is not None and destination_rank != 0, "Rank 0 failed to choose a destination rank to migrate its particle to")
-
-    # Commit new state on every rank
     new_parent_cells, new_ref_coords = locate_points(parent_mesh, new_coords)
     vom.coordinates.dat.data_wo[:] = new_coords
     mutator.commit_reference_state(new_parent_cells, new_ref_coords)
+    # rebuild VOM
+    mutator._migrate_swarm()
+    mutator._rebuild_topology()
 
-    mutator.rebuild_vom()
-
-    expected_local_nodes = old_local_nodes
-
+    n_expected = old_local_nodes
     if parent_mesh.comm.rank == 0:
-        expected_local_nodes -= 1
-
+        n_expected -= 1
     if parent_mesh.comm.rank == destination_rank:
-        expected_local_nodes += 1
+        n_expected += 1
 
-    # Check that the FS data structures are rebuilt appropriately to match the new VOM topology
-    fs_layout_matches_migration = (
-        vom.cell_set.size == expected_local_nodes
-        and T.node_set.size == expected_local_nodes
-        and T.node_set.total_size == expected_local_nodes  # no ghost points by construction
-        and T.dof_dset.size == expected_local_nodes
-        and T.node_count == expected_local_nodes
-        and T.dof_count == expected_local_nodes * T.block_size
-        and T.cell_node_list.shape == (expected_local_nodes, 1)
-        and T.global_numbering.getStorageSize() == expected_local_nodes
-        and T.dof_dset.layout_vec.getLocalSize() == expected_local_nodes * T.block_size
-        and T.dof_dset is not old_dof_dset
-        and T.dm is not old_dm
-        and T._ises is not old_ises
-        and T._ises is T.dof_dset.field_ises
-        and T.dim() == old_global_dim  # no points absorbed
-    )
-
-    parallel_assert(fs_layout_matches_migration, "The FunctionSpace layout does not match the migrated VOM topology")
+    for name, value in old.items():
+        parallel_assert(getattr(T, name) is not value, f"{name} was not recomputed")
+    assert_fs_layout(vom, T, n_expected)
+    assert T.dim() == old_global_dim

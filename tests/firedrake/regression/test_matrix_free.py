@@ -60,7 +60,6 @@ def bcs(problem, V):
                                      "lu"))
 @pytest.mark.parametrize("pmat_type", ("matfree", "aij"))
 def test_assembled_pc_equivalence(V, a, L, bcs, pc_type, pmat_type):
-
     u = Function(V)
 
     def residuals(parameters):
@@ -116,9 +115,9 @@ def test_matrixfree_action(a, V, bcs):
     Amf = assemble(a, mat_type="matfree", bcs=bcs)
 
     with f.dat.vec_ro as x:
-        with expect.dat.vec as y:
+        with expect.dat.vec_wo as y:
             A.petscmat.mult(x, y)
-        with actual.dat.vec as y:
+        with actual.dat.vec_wo as y:
             Amf.petscmat.mult(x, y)
 
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
@@ -255,11 +254,7 @@ def test_get_info(a, bcs, infotype):
              "max": A.petscmat.InfoType.GLOBAL_MAX}[infotype]
     info = ctx.getInfo(A.petscmat, info=itype)
     test, trial = a.arguments()
-    expect = ((test.function_space().dof_dset.total_size
-               * test.function_space().value_size)
-              + (trial.function_space().dof_dset.total_size
-                 * trial.function_space().value_size))
-
+    expect = (test.function_space().dof_count + trial.function_space().dof_count)
     expect *= ScalarType.itemsize
 
     if infotype == "sum":
@@ -308,7 +303,7 @@ def test_duplicate(a, bcs):
         ksp.solve(b, x)
 
     # Multiply with copied matrix B
-    with solution1.dat.vec_ro as x, solution2.dat.vec_ro as y:
+    with solution1.dat.vec_ro as x, solution2.dat.vec_wo as y:
         B_petsc.mult(x, y)
     # Check if original rhs is equal to BA^-1 (rhs)
     assert np.allclose(rhs.dat.data_ro, solution2.dat.data_ro)
@@ -403,4 +398,40 @@ def test_sub_matrix_not_subfield(shape):
     A = assemble(a, bcs=bcs, mat_type="aij")
     Amat = A.petscmat
     Asub_aij = Amat.createSubMatrix(rows, cols)
+    assert np.allclose(Asub_aij[:, :], Asub_dense)
+
+
+@pytest.mark.parametrize("shape", ["scalar", "vector", "component"])
+def test_sub_matrix_whole_field_keeps_bcs(shape):
+    # A general (non-stride) IS that spans the whole space selects field 0.
+    # The resulting submatrix must keep the Dirichlet rows of the original matrix.
+    mesh = UnitSquareMesh(2, 2)
+    if shape == "scalar":
+        V = FunctionSpace(mesh, "CG", 1)
+        bcs = DirichletBC(V, 0, (1, 3))
+    else:
+        V = VectorFunctionSpace(mesh, "CG", 1)
+        bcs = DirichletBC(V if shape == "vector" else V.sub(0), 0, (1, 3))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+
+    n = V.dim()
+    rows = PETSc.IS().createGeneral(range(n))
+
+    A = assemble(a, bcs=bcs, mat_type="matfree")
+    Amat = A.petscmat
+    Asub = Amat.createSubMatrix(rows, rows)
+    x, y = Asub.createVecs()
+
+    Asub_dense = np.zeros((n, n))
+    for i in range(n):
+        x.set(0.0)
+        x[i] = 1.0
+        Asub.mult(x, y)
+        Asub_dense[:, i] = y[:]
+
+    A = assemble(a, bcs=bcs, mat_type="aij")
+    Amat = A.petscmat
+    Asub_aij = Amat.createSubMatrix(rows, rows)
     assert np.allclose(Asub_aij[:, :], Asub_dense)
