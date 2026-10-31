@@ -6,6 +6,7 @@ from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
 from mpi4py import MPI
 
+
 @pytest.fixture
 def parent_mesh():
     return UnitSquareMesh(5, 5, quadrilateral=False)

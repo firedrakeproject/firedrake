@@ -32,14 +32,11 @@ from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import parse_component_indices, is_mixed
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh, VertexOnlyMeshTopology, extract_mesh_topologies
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
-from firedrake.exceptions import PointNotInDomainError, UnsupportedFunctionMigrationError, FunctionMigrationError
+from firedrake.exceptions import PointNotInDomainError
 
 
-__all__ = ['Function', 'PointNotInDomainError', 'CoordinatelessFunction', 'PointEvaluator', 'TopologyVersionMismatchError']
+__all__ = ['Function', 'CoordinatelessFunction', 'PointEvaluator']
 
-class TopologyVersionMismatchError(ValueError):
-    """Raised when a Function's mesh topology does not match the topology version stored on its mesh object. """
-    pass
 
 class _CFunction(ctypes.Structure):
     r"""C struct collecting data from a :class:`Function`"""
@@ -311,25 +308,11 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         self._function_space = V
         ufl.Coefficient.__init__(
-            self, self._function_space.ufl_function_space(), count=count
+            self, self.function_space().ufl_function_space(), count=count
         )
-
-        self._mesh_topo = self._function_space.topological.mesh() # MeshTopology
-        self._mesh_geom = self._function_space.mesh() # MeshGeometry
-
-        # Store the VOM topology version to detect topology changes
-        # Register Function on the VOM
-        if isinstance(self._mesh_topo, VertexOnlyMeshTopology):
-            self._mesh_topology_version = self._mesh_topo._topology_version
-            self._mesh_topo._live_functions[next(self._mesh_topo._function_counter)] = self
 
         if isinstance(function_space, Function):
             self.assign(function_space)
-    
-    # XXX: Added to bypass cached _data.dat
-    @property
-    def dat(self):
-        return self._data.dat
 
     def __str__(self):
         return ufl2unicode(self)
@@ -357,95 +340,12 @@ class Function(ufl.Coefficient, FunctionMixin):
         return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
-        if name == 'dat' or name == 'vec':
-            self._match_mesh_topology_version()
         val = getattr(self._data, name)
         return val
-    
-    def _match_mesh_topology_version(self):
-        # Skip coordinate functions as they get rebuilt when the VOM is rebuilt
-        # While `coordinates` is a property of any MeshGeometry object, `reference_coordinates` is only a property of the VOM
-        if hasattr(self._mesh_geom, "coordinates") and self is self._mesh_geom.coordinates:
-            return
-        if hasattr(self._mesh_geom, "reference_coordinates") and self is self._mesh_geom.reference_coordinates:
-            return
-        
-        if not isinstance(self._mesh_topo, VertexOnlyMeshTopology):
-            # _topology_version only exists on VOM
-            return
-        
-        current_mesh_version = self._mesh_topo._topology_version
-        
-        if current_mesh_version != self._mesh_topology_version:
-            self._rebuild_function(current_mesh_version)
-    
-    def _rebuild_function(self, current_version):
-        # Check if the mesh on which the function is defined is a VertexOnlyMesh
-        if not isinstance(self._mesh_topo, VertexOnlyMeshTopology):
-            raise TopologyVersionMismatchError(
-                "The mesh topology has changed since this Function was created, \
-                and function migration is currently only supported on VertexOnlyMeshes. \
-                Please re-create this Function on the updated mesh." 
-            )
 
-        # Get the latest one-step SF point mapping (indexed by current mesh version)
-        latest_topology_step_sf = self._mesh_topo._topology_step_sfs.get(current_version, None)
-        if latest_topology_step_sf is None:
-            raise RuntimeError(
-                f"Failed to migrate the Function data: the SF to version {current_version} could not be found."
-            )
-    
-        # Check that the element is DG0
-        # This is possibly not needed as Firedrake only allows degree 0 Functions to be defined on VertexOnlyMeshes
-        FS_topo = self._function_space.topological
-        element = FS_topo.ufl_element()
-        
-        if element.family() != "Discontinuous Lagrange" or element.degree() != 0:
-            raise RuntimeError(
-                "Function migration only supports degree 0 Functions defined on VertexOnlyMeshes."
-            )
-
-        # Migrate the Function data using the SF mapping
-
-        # First get the SF mapping from current mesh to the mesh at the time the Function was created
-        # Check if we need to chain multiple one-step SFs
-        if current_version - self._mesh_topology_version > 1:
-            # Compose multiple one-step SFs
-            chained_sf = latest_topology_step_sf # starts from latest V -> V-1
-            # Iterate backwards through the intermediate versions
-            for v in range(current_version-1, self._mesh_topology_version, -1):
-                step_sf = self._mesh_topo._topology_step_sfs.get(v, None) # maps V-1 -> V-2
-                if step_sf is None:
-                    raise RuntimeError(
-                        f"Failed to migrate the Function across multiple topology changes: \
-                        the intermediate topology mapping from version {v-1} to {v} could not be found."
-                    )
-                chained_sf = step_sf.compose(chained_sf) # V -> V-2
-            
-            # TODO: cache chained_sf from this particular composition?
-            latest_topology_step_sf = chained_sf
-
-        # Swap the data object
-        self._data = migrate_dg0_dat(self._data, FS_topo, latest_topology_step_sf)
-        self.__dict__.pop("dat", None) # drop cached dat
-
-        # Clear any expression caches as they need to be rebuilt
-        self._expression_cache.clear()
-
-        # Update the mesh topology version stored on the function
-        self._mesh_topology_version = current_version
-        
     def __dir__(self):
-            current = super(Function, self).__dir__()
-            return list(dict.fromkeys(dir(self._data) + current))
-
-    @property
-    def dat(self):
-        return self._data.dat
-
-    @dat.setter
-    def dat(self, value):
-        self._data.dat = value
+        current = super(Function, self).__dir__()
+        return list(dict.fromkeys(dir(self._data) + current))
 
     @cached_property
     @FunctionMixin._ad_annotate_subfunctions

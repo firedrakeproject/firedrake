@@ -18,6 +18,7 @@ from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.mesh import extract_mesh_topologies
 from firedrake.petsc import PETSc
 
+
 __all__ = ["Cofunction", "RieszMap"]
 
 

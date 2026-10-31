@@ -78,6 +78,7 @@ class VertexOnlyMeshMutator:
             One-dimensional array containing the local VOM indices of
             particles to remove. Indices are interpreted in the current
             local VOM ordering. By default, no particles are removed.
+
         Notes
         -----
         This is a collective operation over the parent mesh communicator.
@@ -159,11 +160,13 @@ class VertexOnlyMeshMutator:
             if absorbed_vom_indices is None
             else np.asarray(absorbed_vom_indices, dtype=IntType)
         )
+
         is_one_dim_local = absorbed.ndim == 1
         is_one_dim_global = comm.allreduce(
             is_one_dim_local,
             op=MPI.LAND,
         )
+
         if not is_one_dim_global:
             raise ValueError(
                 "`absorbed_vom_indices` must be a one-dimensional array on every rank."

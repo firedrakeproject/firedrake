@@ -50,9 +50,6 @@ cached_method_until_mesh_topology_changes = cached_method_until(
     lambda self: self.mesh()._topology_version
 )
 
-cached_property_until_topology_changes = cached_property_until(
-    lambda self: self._mesh._topology_version
-)
 
 def check_element(element, top=True):
     """Run some checks on the provided element.
@@ -220,7 +217,6 @@ class WithGeometryBase:
                 raise TypeError(f"Can only use MixedFunctionSpace with MeshSequenceGeometry: got {type(mesh)}")
 
         function_space = function_space.topological
-
         assert mesh.topology == function_space.mesh()
         assert mesh.topology != mesh
 
@@ -309,9 +305,9 @@ class WithGeometryBase:
             indices = parse_component_indices(indices, self.shape)
             return self._components[indices]
 
-    @property
+    @cached_property
     def dm(self):
-        dm = self.topological.dm
+        dm = self._dm()
         dmhooks.set_function_space(dm, self)
         return dm
 
@@ -448,6 +444,7 @@ class WithGeometryBase:
 
     def __getattr__(self, name):
         val = getattr(self.topological, name)
+        setattr(self, name, val)
         return val
 
     def __dir__(self):
@@ -2496,10 +2493,6 @@ class RealFunctionSpace(FunctionSpace):
 
     # used?
     global_numbering = None
-
-    @property
-    def _shared_data(self):
-        raise AttributeError("RealFunctionSpace has no shared data")
 
     def __eq__(self, other):
         if not isinstance(other, RealFunctionSpace):

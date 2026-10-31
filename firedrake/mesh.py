@@ -119,16 +119,6 @@ cached_method_until_topology_changes = cached_method_until(
 )
 
 
-cached_property_until_topology_changes = cached_property_until(
-    lambda self: self._topology_version
-)
-cached_property_until_parent_cell_assignment_changes = cached_property_until(
-    lambda self: (
-        self._topology_version,
-        self._parent_cell_assignment_version,
-    )
-)
-
 def _generate_default_submesh_name(name):
     """Generate the default submesh name from the mesh name.
 
@@ -1757,11 +1747,6 @@ class AbstractMeshTopology(abc.ABC):
     # }}}
 
     @property
-    @abc.abstractmethod
-    def _topology_is_mutable(self):
-        """Boolean flag indicating whether this mesh's topology may change after construction."""
-
-    @property
     def comm(self):
         return self.user_comm
 
@@ -2205,14 +2190,9 @@ class AbstractMeshTopology(abc.ABC):
         """
         raise NotImplementedError(f"Not implemented for {type(self)}")
 
-    def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
-        """Register a coefficient for topology migration."""
-        pass
-
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
-    _topology_is_mutable = False
 
     @PETSc.Log.EventDecorator("CreateMesh")
     def __init__(
@@ -2524,116 +2504,6 @@ class MeshTopology(AbstractMeshTopology):
         """
         # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
         return subdomain_id
-
-    @cached_property
-    def _cell_facet_adjacency(self):
-        return dmcommon.cell_facet_adjacency(self.topology_dm, self._cell_numbering, self.cell_closure, self.ufl_cell().num_facets, self._cell_closure_facet_offset)
-
-    @cached_property
-    def cell_facet_neighbours(self):
-        dset = op2.DataSet(self.cell_set, dim=self.ufl_cell().num_facets)
-
-        cell_facet_neighbours = op2.Dat(
-            dset,
-            self._cell_facet_adjacency[0],
-            dtype=IntType,
-            name="cell-facet-neighbours-dat"
-        )
-
-        return cell_facet_neighbours
-
-    @cached_property
-    def _cell_closure_facet_offset(self):
-        """Returns the correct column in cell_closure for a given local facet."""
-        facet_dim = self.cell_dimension() - 1
-        topology = FIAT.ufc_cell(self.ufl_cell()).get_topology()
-        return sum(len(topology[d]) for d in range(facet_dim))
-
-    @cached_property
-    def cell_facet_coord_transforms(self):
-        """Computes affine reference coordinate transforms between neighbouring cells across a given facet.
-
-        For each cell `c` and local facet `i`, this method constructs the affine map
-
-            X' = A[c,i] @ X + b[c,i],
-
-        where `X` are reference coordinates of a point lying on facet `i` in cell `c`
-        and `X'` are the coordinates of the same point expressed in neighbouring cell's
-        reference frame.
-
-        Returns
-        -------
-        tuple[pyop2.types.dat.Dat, pyop2.types.dat.Dat]
-            (A_dat, b_dat) indexed are by Firedrake cell number (owend and halo) and local facet number and
-            store respectively the matrix and translation vector of each cell-to-cell reference coordinate transforms.
-        """
-        from FIAT.reference_element import make_facet_embedding_maps, make_facet_orientation_maps
-        num_facets = self.ufl_cell().num_facets
-        ref_dim = self.ufl_cell().topological_dimension
-        A_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim, ref_dim))
-        b_dset = op2.DataSet(self.cell_set, dim=(num_facets, ref_dim))
-
-        # Create local numpy buffers
-        A_transform = np.full((self.num_cells(), num_facets, ref_dim, ref_dim), np.nan)
-        b_transform = np.full((self.num_cells(), num_facets, ref_dim), np.nan)
-
-        # Populate the local buffers by iterating over interior facets
-        # and extracting cell adjacency information from the mesh topology directly
-        facet_cells = self.interior_facets.facet_cell  # all local facets (owned + halos)
-        local_facets = self.interior_facets.local_facet_dat.data_ro_with_halos
-
-        local_facet_orientations = self.interior_facets.local_facet_orientation_dat.data_ro_with_halos
-
-        ref_cell = FIAT.ufc_cell(self.ufl_cell())
-        A, b, A_inv = make_facet_embedding_maps(ref_cell)
-        o_coord_maps = make_facet_orientation_maps(ref_cell)
-
-        Q_inv = {o: np.linalg.inv(Q) for o, (Q, _) in o_coord_maps.items()}
-
-        NODATAVAL = np.iinfo(local_facet_orientations.dtype).max
-
-        for f_idx in range(facet_cells.shape[0]):
-            c0, c1 = facet_cells[f_idx]  # adjacent cells
-            lf0, lf1 = local_facets[f_idx]  # local facet ID in each adjacent cell
-            o0, o1 = local_facet_orientations[f_idx]  # local orientation in each adjacent cell
-            if o0 == NODATAVAL or o1 == NODATAVAL:
-                # skip outer halo facets where adjacency data isn't available
-                continue
-
-            # Q_o maps facet coordinates from a cell in which the facet has orientation o to the facet's canonical coordinates.
-            Q0, t0 = o_coord_maps[o0]  # map orientation o0 -> canonical orientation
-            Q1, t1 = o_coord_maps[o1]  # map orientation o1 -> canonical orientaion
-
-            # o0 -> canonical orientation -> o1
-            Q01 = Q_inv[o1] @ Q0
-            t01 = Q_inv[o1] @ (t0 - t1)
-
-            # o1 -> canonical orientation with canonical orientation -> o0
-            Q10 = Q_inv[o0] @ Q1
-            t10 = Q_inv[o0] @ (t1 - t0)
-
-            # Compute forward transform c0 -> c1 and store on c0
-            A_transform[c0, lf0] = A[lf1] @ Q01 @ A_inv[lf0]
-            b_transform[c0, lf0] = b[lf1] + A[lf1] @ t01 - A_transform[c0, lf0]  @ b[lf0]
-
-            # Compute backward transform c1 -> c0 and store on c1
-            A_transform[c1, lf1] = A[lf0] @ Q10 @ A_inv[lf1]
-            b_transform[c1, lf1] = b[lf0] + A[lf0] @ t10 - A_transform[c1, lf1] @ b[lf1]
-        cell_facet_A = op2.Dat(
-            A_dset,
-            A_transform,
-            dtype=RealType,
-            name="cell-facet-coord-transforms-A-dat"
-        )
-
-        cell_facet_b = op2.Dat(
-            b_dset,
-            b_transform,
-            dtype=RealType,
-            name="cell-facet-coord-transforms-b-dat"
-        )
-
-        return cell_facet_A, cell_facet_b
 
     @staticmethod
     @PETSc.Log.EventDecorator()
@@ -3421,7 +3291,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     Representation of a vertex-only mesh topology immersed within
     another mesh.
     """
-    _topology_is_mutable = True
 
     @PETSc.Log.EventDecorator()
     def __init__(self, swarm, parentmesh, name, reorder, input_ordering_swarm=None, perm_is=None, distribution_name=None, permutation_name=None):
@@ -3458,13 +3327,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
                                          "overlap_type": (DistributedMeshOverlapType.NONE, 0)}
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
-        
-        # Registry of live functions defined on the VOM
-        self._live_functions = weakref.WeakValueDictionary()
-        self._function_counter = itertools.count()
-
-        # Records changes to parent cell assignment without yet changing the topology so that the right caches get invalidated
-        self._parent_cell_assignment_version = 0
 
         self._parent_cell_assignment_version = 0
 
@@ -3478,15 +3340,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._live_functions = weakref.WeakValueDictionary()
 
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
-
-        # Define a registry of all Functions defined on this mesh.
-        # `_live_functions` is a dictionary of the form {registration_id: Function} which stores each CoordinatelessFunction as a weak reference.
-        # This is chosen so that we're able to keep track of which Functions are defined on the mesh at the topology-level (which we expect to mutate)
-        # while still allowing Python's GC to delete a live Function when the last strong reference to it dies.
-        # The keys of this dictionary are integer IDs used to sort registered Functions (deterministically) by their creation order.
-        self._live_functions = weakref.WeakValueDictionary()
-        self._function_counter = itertools.count()
-
         self._init_particle_ids()
 
     @property
@@ -3569,6 +3422,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         assert tdim == cell.topological_dimension
         assert cell.is_simplex
 
+        import FIAT
         topology = FIAT.ufc_cell(cell).get_topology()
         entity_per_cell = np.zeros(len(topology), dtype=IntType)
         for d, ents in topology.items():
@@ -3763,88 +3617,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
         vertices as roots and this mesh's non-halo vertices as leaves.
         """
-        # The leaves have been ordered according to the pyop2 classes with non-halo
-        # cells first; self.cell_set.size is the number of rank-local non-halo cells.
-        return self.input_ordering_sf.createEmbeddedLeafSF(np.arange(self.cell_set.size, dtype=IntType))
-    
-    def _migrate_functions(self, functions_to_migrate):
-        """Eagerly migrate all Functions provided to the current topology version."""
-        import gc
-
-        # Disable garbage collection
-        gc.disable()
-
-        for f in functions_to_migrate:
-            f._migrate_to_current_topology_version()
-
-    def _register_function(self, function):
-        key = next(self._function_counter)
-        self._live_functions[key] = function
-
-    def _get_migration_sf(self, source_version: int) -> PETSc.SF:
-        """Return the SF mapping the current topology to an older version.
-
-        Parameters
-        ----------
-        source_version
-            Version of the topology on which the Coefficient data is stored.
-
-        Returns
-        -------
-        PETSc.SF
-            SF mapping points in the current topology to points in the topology given by ``source_version``.
-
-        Raises
-        ------
-        FunctionMigrationError
-            If a required one-step topology mapping is unavailable.
-        """
-        target_version = self._topology_version
-
-        if source_version >= target_version:
-            raise ValueError(
-                f"Expected a source version older than {target_version}, "
-                f"got {source_version}."
-            )
-
-        try:
-            migration_sf = self._topology_step_sfs[target_version]
-        except KeyError as exc:
-            raise FunctionMigrationError(
-                "Failed to migrate coefficient data because the topology "
-                f"mapping to version {target_version} could not be found."
-            ) from exc
-
-        for version in range(target_version - 1, source_version, -1):
-            try:
-                step_sf = self._topology_step_sfs[version]
-            except KeyError as exc:
-                raise FunctionMigrationError(
-                    "Failed to migrate coefficient data because the topology "
-                    f"mapping from version {version - 1} to version "
-                    f"{version} could not be found."
-                ) from exc
-
-            migration_sf = step_sf.compose(migration_sf)
-
-        # TODO: Cache composed SFs by source and target topology version?
-        return migration_sf
-
-    # FIXME
-    def _migrate_all_functions(self):
-        """
-        Migrate all live Functions registered on this mesh to its current topology version.
-        """
-        # NOTE: Sorting only affects local key order i.e., it only guarantees that we iterate over Functions
-        # in their creation order on this rank only.
-        # It does not guarantee that this ordering is the same across different MPI ranks which may have a different set of live Functions 
-        # and correspondingly different keys.
-        # Enforcing a consistent collective migration order would require a cross-rank coordination operation
-        # e.g., parallel set intersection of live Function keys?
-        for key in sorted(self._live_functions):
-            function = self._live_functions.get(key)
-            if function is not None:
-                function._migrate_to_current_topology_version()
+        warnings.warn(
+            "The property `input_ordering_without_halos_sf` has been deprecated. "
+            "VertexOnlyMeshes now do not include halo points. Access `input_ordering_sf` "
+            "for the underlying PETScSF. ", FutureWarning
+        )
+        return self.input_ordering_sf
 
     def _register_function(self, function):
         self._live_functions[function.uid] = function
@@ -3991,10 +3769,6 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
         # submesh
         self.submesh_parent = None
-
-        self._bounding_box_coords = None
-        self._rtree = None
-        self._saved_coordinate_dat_version = coordinates.dat.dat_version
 
         # Cache mesh object on the coordinateless coordinates function
         coordinates._as_mesh_geometry = weakref.ref(self)
@@ -4179,12 +3953,6 @@ values from f.)"""
         can be found.
 
         """
-        if self.coordinates.dat.dat_version != self._saved_coordinate_dat_version:
-            if "bounding_box_coords" in self.__dict__:
-                del self.bounding_box_coords
-        else:
-            if self._rtree:
-                return self._rtree
         # Change min and max to refer to an n-hypercube, where n is the
         # geometric dimension of the mesh, centred on the midpoint of the
         # bounding box. Its side length is the L1 diameter of the bounding box.
@@ -5339,9 +5107,6 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
         assumed to be a new vertex.
 
     """
-    from firedrake.functionspace import FunctionSpace
-    from firedrake.function import Function
-    
     petsctools.cite("nixonhill2023consistent")
 
     if tolerance is None:
@@ -6357,10 +6122,6 @@ class MeshSequenceTopology:
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
-
-    @property
-    def _topology_version(self):
-        return tuple(mesh._topology_version for mesh in self._meshes)
 
     def ufl_cell(self):
         return CellSequence([m.ufl_cell() for m in self._meshes])
