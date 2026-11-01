@@ -678,6 +678,16 @@ class CompiledCodeExecutor:
         broadcasts = []
         finalizers = []
         for buffer, intent in buffer_intents.items():
+            # A read-only array buffer with valid roots and leaves needs no
+            # exchange. Its state is read on every call because the buffer
+            # can be written between calls.
+            if (
+                intent == READ
+                and isinstance(buffer, pyop3.buffer.ArrayBuffer)
+                and buffer._roots_valid
+                and buffer._leaves_valid
+            ):
+                continue
             inits, reds, bcasts, fins = buffer_exchanges(buffer, intent)
             initializers.extend(inits)
             reductions.extend(reds)
