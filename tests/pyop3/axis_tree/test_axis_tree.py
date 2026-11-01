@@ -1,5 +1,6 @@
 import collections
 import re
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -46,3 +47,17 @@ def test_ragged_axis_tree_subtree_sizes():
     check_subtree_size(axes, ["A"], "(2 * dat_#_buffer[i_{A}])", lambda i: 2 * [1, 2, 1][i])
     check_subtree_size(axes, ["A", "B"], "dat_#_buffer[i_{A}]", lambda i, j: [1, 2, 1][i])
     check_subtree_size(axes, ["A", "B", "C"], "0", lambda i, j, k: 0)
+
+
+def test_axis_forest_getitem_is_cached():
+    tree_a = op3.AxisTree(op3.Axis(5, "a"))
+    tree_b = op3.AxisTree(op3.Axis(5, "b"))
+    forest = op3.AxisForest([tree_a, tree_b])
+    index = op3.Slice("a", [op3.AffineSliceComponent(None, 1, 4)])
+
+    indexed = forest[index]
+    with mock.patch.object(
+        op3.axis_tree.tree.AbstractNonUnitAxisTree, "getitem",
+        side_effect=AssertionError("forest indexes its trees again"),
+    ):
+        assert forest[index] is indexed
