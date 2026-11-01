@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.assemble import TwoFormAssembler
+from firedrake.assemble import TwoFormAssembler, get_assembler
 from firedrake.utils import ScalarType
 
 
@@ -149,6 +149,56 @@ def test_nest_matrix_reassembly_uses_new_coefficient(mesh):
     for i in range(2):
         block = A.petscmat.getNestSubMatrix(i, i)
         assert np.allclose(block[:, :], expected.M.values, rtol=1e-14)
+
+
+@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parametrize("write", ["data", "vec_wo", "assign", "interpolate", "zero"])
+def test_facet_integral_reads_new_ghost_values(mesh, write):
+    V = FunctionSpace(mesh, "CG", 2)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x*y + 1)
+    # Interior facets at a partition boundary touch cells of two ranks, so
+    # this assembly reads the ghost values of f
+    assembler = get_assembler(avg(f) * avg(TestFunction(V)) * dS)
+    L = assembler.assemble()
+
+    # Each write changes the owned values of f to 2*f + 1 (or to 0)
+    expected = assemble(avg(2*(x*y + 1) + 1) * dS)
+    if write == "data":
+        f.dat.data[:] = 2 * f.dat.data_ro + 1
+    elif write == "vec_wo":
+        values = 2 * f.dat.data_ro + 1
+        with f.dat.vec_wo as vec:
+            vec.array[:] = values
+    elif write == "assign":
+        f.assign(2 * f + 1)
+    elif write == "interpolate":
+        f.interpolate(2*(x*y + 1) + 1)
+    else:
+        f.zero()
+        expected = 0
+    L = assembler.assemble(tensor=L)
+
+    # The CG2 basis functions sum to one, so the entries of L sum to the
+    # integral of avg(f) over the interior facets
+    with L.dat.vec_ro as vec:
+        assert np.isclose(vec.sum(), expected, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_cell_integral_reads_reduced_values_of_pending_increment(mesh):
+    V = FunctionSpace(mesh, "CG", 2)
+    # The assembled Cofunction has a pending reduction of the contributions
+    # from other ranks
+    c = assemble(conj(TestFunction(V)) * dx)
+    h = Function(V, val=c.dat)
+
+    value = assemble(h * dx)
+
+    # int h dx = sum_i c_i int phi_i dx = sum_i c_i**2
+    with c.dat.vec_ro as vec:
+        expected = vec.dot(vec)
+    assert np.isclose(value, expected, rtol=1e-12)
 
 
 @pytest.mark.skip(reason="pyop3 failing")
