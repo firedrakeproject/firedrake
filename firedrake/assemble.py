@@ -1146,18 +1146,14 @@ class ParloopFormAssembler(FormAssembler):
                     # FIXME: this doesn't work for matrices (yet)
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
-        for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
+        for (local_kernel, _), parloop_info, input_dats in zip(self.local_kernels, self.parloops(tensor), self._input_dats):
             parloop, lgmaps, setup_callables, tensor_name, arg_names = parloop_info
             for setup in setup_callables:
                 setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
-                # The loops can be built for another form with the same signature.
-                kinfo = local_kernel.kinfo
-                coefficients = itertools.chain(_FormHandler.iter_active_coefficients(self._form, kinfo),
-                                               _FormHandler.iter_constants(self._form, kinfo))
-                arg_replace_map = {name: c.dat for name, c in zip(arg_names, coefficients, strict=True) if name is not None}
+                arg_replace_map = {name: dat for name, dat in zip(arg_names, input_dats, strict=True) if name is not None}
                 arg_replace_map[tensor_name] = subtensor
                 parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
@@ -1191,6 +1187,17 @@ class ParloopFormAssembler(FormAssembler):
         pyop3.Scalar or pyop3.Dat or pyop3.Mat
             The PyOP3 object that represents ``tensor``.
         """
+
+    @cached_property
+    def _input_dats(self) -> tuple[tuple, ...]:
+        """Return the coefficient and constant dats for each local kernel."""
+        return tuple(
+            tuple(c.dat for c in itertools.chain(
+                _FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo),
+                _FormHandler.iter_constants(self._form, local_kernel.kinfo),
+            ))
+            for local_kernel, _ in self.local_kernels
+        )
 
     def parloops(self, tensor):
         if self._parloops is None:

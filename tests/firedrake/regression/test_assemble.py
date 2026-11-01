@@ -311,6 +311,35 @@ def test_loops_shared_between_coefficients(mesh, rank):
     assert len(loops) == 1
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("rank", [0, 1, 2])
+def test_repeated_assembly_with_updated_inputs(mesh, rank):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    w = Function(W)
+    c = Constant(1)
+    w0, w1 = split(w)
+    v = TestFunction(V) if rank > 0 else 1
+    u = TrialFunction(V) if rank > 1 else 1
+    form = c * inner((w0 + w1) * u, v) * dx(domain=mesh)
+    assembler = get_assembler(form)
+    tensors = (assembler.allocate(), assembler.allocate())
+
+    for k in range(4):
+        w.subfunctions[0].assign(k + 1)
+        w.subfunctions[1].assign(2 * k + 1)
+        c.assign(k + 2)
+        result = assembler.assemble(tensor=tensors[k % 2])
+        expected = assemble((k + 2) * (3 * k + 2) * inner(u, v) * dx(domain=mesh))
+        if rank == 0:
+            assert np.isclose(result, expected)
+        elif rank == 1:
+            assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
+        else:
+            result.petscmat.axpy(-1, expected.petscmat)
+            assert np.isclose(result.petscmat.norm(), 0)
+
+
 def test_loops_shared_between_tensor_layouts(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     Q = FunctionSpace(mesh, "DG", 0)
