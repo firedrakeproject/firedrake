@@ -2,6 +2,7 @@ import abc
 import functools
 import itertools
 import numbers
+import weakref
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import cached_property
@@ -1029,7 +1030,8 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
         self._parloops = None
-        self._data_args = None
+        self._last_tensor = None
+        self._last_args = None
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -1073,33 +1075,27 @@ class ParloopFormAssembler(FormAssembler):
                     # FIXME: this doesn't work for matrices (yet)
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
-        if self._data_args is None:
-            # The dats of the coefficients and constants of the form do not change, so find them
-            # once: iter_constants traverses the form, and solvers assemble the same form many times.
-            self._data_args = [
-                {
-                    name: c.dat
-                    for name, c in zip(
-                        parloop_info[-1],
-                        itertools.chain(_FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo),
-                                        _FormHandler.iter_constants(self._form, local_kernel.kinfo)),
-                        strict=True,
-                    )
-                    if name is not None
-                }
-                for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor))
+        parloops = self.parloops(tensor)
+        if self._last_tensor is None or self._last_tensor() is not tensor:
+            # Build the arguments for the last output tensor only. The weak
+            # reference does not keep the tensor alive, and the identity check
+            # rejects a new tensor that reuses the id of a freed one.
+            self._last_args = [
+                {**data_args, tensor_name: self._as_pyop3_type(tensor, local_kernel.indices)}
+                for (local_kernel, _), (_, _, _, tensor_name, data_args) in zip(self.local_kernels, parloops)
             ]
+            self._last_tensor = weakref.ref(tensor)
 
-        for (local_kernel, _), parloop_info, data_args in zip(self.local_kernels, self.parloops(tensor), self._data_args):
-            parloop, lgmaps, setup_callables, tensor_name, _ = parloop_info
+        for (parloop, lgmaps, setup_callables, tensor_name, _), args in zip(parloops, self._last_args):
             for setup in setup_callables:
                 setup(tensor)
 
-            subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-            with modified_lgmaps(subtensor, lgmaps):
-                # The loops can be built for another form with the same signature.
-                arg_replace_map = {**data_args, tensor_name: subtensor}
-                parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
+            # Only matrices have lgmaps to modify.
+            if lgmaps is None:
+                parloop(**args, compiler_parameters=pyop3_compiler_parameters)
+            else:
+                with modified_lgmaps(args[tensor_name], lgmaps):
+                    parloop(**args, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
             self._apply_bc(tensor, bc, u=current_state)
@@ -1120,8 +1116,21 @@ class ParloopFormAssembler(FormAssembler):
         """Cast a Firedrake tensor into a PyOP2 data structure, optionally indexing it."""
 
     def parloops(self, tensor):
+        """Return the loops of this assembler, each with the data arguments of this form.
+
+        The loops are shared between forms with the same signature, so the
+        data arguments (argument name to coefficient or constant dat) are
+        stored here, per assembler, and not in :meth:`_build_parloops`.
+        """
         if self._parloops is None:
-            self._parloops = self._build_parloops(tensor)
+            self._parloops = []
+            for (local_kernel, _), (parloop, lgmaps, setup_callables, tensor_name, arg_names) in zip(
+                self.local_kernels, self._build_parloops(tensor)
+            ):
+                coefficients = itertools.chain(_FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo),
+                                               _FormHandler.iter_constants(self._form, local_kernel.kinfo))
+                data_args = {name: c.dat for name, c in zip(arg_names, coefficients, strict=True) if name is not None}
+                self._parloops.append((parloop, lgmaps, setup_callables, tensor_name, data_args))
         return self._parloops
 
     @cached_on(
