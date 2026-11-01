@@ -358,6 +358,29 @@ class Assigner:
         return assign_op
 
 
+def subset_buffer_indices(dat: op3.Dat, subset: op3.Slice | op3.IndexTree) -> slice | np.ndarray:
+    """Return the indices into ``dat.buffer`` of the owned entries of ``dat[subset]``.
+
+    The result is cached on the axis tree, so this is cheap for a subset that
+    is used repeatedly, such as ``DirichletBC.node_set``.
+    """
+    return dat.axes.getitem(subset, strict=False).free.buffer_slice(include_ghosts=False)
+
+
+def zero_subset(dat: op3.Dat, subset: op3.Slice | op3.IndexTree) -> None:
+    """Equivalent to ``dat[subset].zero(eager=True)``."""
+    dat.buffer.data_wo[subset_buffer_indices(dat, subset)] = 0
+
+
+def copy_subset(target: op3.Dat, source: op3.Dat, subset: op3.Slice | op3.IndexTree) -> None:
+    """Equivalent to ``target[subset].assign(source[subset], eager=True)``.
+
+    ``target`` and ``source`` must have the same layout.
+    """
+    values = source.buffer.data_ro[subset_buffer_indices(source, subset)]
+    target.buffer.data_wo[subset_buffer_indices(target, subset)] = values
+
+
 @functools.singledispatch
 def parse_subset(obj: Any) -> op3.Slice | types.EllipsisType:
     raise TypeError
