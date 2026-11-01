@@ -201,6 +201,18 @@ def test_cell_integral_reads_reduced_values_of_pending_increment(mesh):
     assert np.isclose(value, expected, rtol=1e-12)
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_vec_of_assembled_cofunction_includes_all_contributions(mesh):
+    V = FunctionSpace(mesh, "CG", 2)
+    c = assemble(conj(TestFunction(V)) * dx)
+
+    # sum_i int phi_i dx = int 1 dx = 1. The first read does the pending
+    # reduction and the second read must not add the contributions again.
+    for _ in range(2):
+        with c.dat.vec_ro as vec:
+            assert np.isclose(vec.sum(), 1.0, rtol=1e-12)
+
+
 @pytest.mark.skip(reason="pyop3 failing")
 @pytest.mark.parallel
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"),
