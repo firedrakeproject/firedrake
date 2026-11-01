@@ -92,8 +92,11 @@ def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_
     CHKERR_c(cpetsc.PetscSFBcastBegin(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
     CHKERR_c(cpetsc.PetscSFBcastEnd(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
 
-    halo_exchange_sf = PETSc.SF().create(comm=point_sf.comm)
+    # PetscSFCreateSectionSF() creates the SF, so the wrapper must be empty
+    halo_exchange_sf = PETSc.SF()
     CHKERR_c(cpetsc.PetscSFCreateSectionSF(sf.sf, section.sec, remote_offsets, section.sec, &halo_exchange_sf.sf))
+    CHKERR_c(cpetsc.PetscFree(local_offsets))
+    CHKERR_c(cpetsc.PetscFree(remote_offsets))
     return halo_exchange_sf
 
 
