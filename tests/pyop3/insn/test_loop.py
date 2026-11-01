@@ -438,3 +438,44 @@ def test_nested_multi_component_loops(factory):
         eager=True,
     )
     assert np.allclose(dat1.data_ro, dat0.data_ro)
+
+
+def _copy_loop(factory):
+    """Return a copy loop ``dst[p] = src[p]`` and its arguments."""
+    axis = op3.Axis(10)
+    src = op3.Dat(axis, data=np.arange(axis.size, dtype=op3.ScalarType))
+    dst = op3.Dat.zeros_like(src)
+    loop = op3.loop(p := axis.iter(), factory.copy_kernel(1)(src[p], dst[p]))
+    return loop, src, dst
+
+
+def test_named_call_with_new_buffer(factory):
+    loop, src, dst = _copy_loop(factory)
+    loop()
+    dst.zero(eager=True)
+    other = op3.Dat.zeros_like(dst)
+
+    loop(**{dst.name: other})
+
+    assert (other.data_ro == src.data_ro).all()
+    assert (dst.data_ro == 0).all()
+
+
+def test_named_call_with_own_and_new_buffers(factory):
+    loop, src, dst = _copy_loop(factory)
+    other = op3.Dat.zeros_like(dst)
+
+    loop(**{src.name: src, dst.name: other})
+
+    assert (other.data_ro == src.data_ro).all()
+    assert (dst.data_ro == 0).all()
+
+
+def test_named_call_with_own_buffers(factory):
+    loop, src, dst = _copy_loop(factory)
+    other = op3.Dat.zeros_like(dst)
+    loop(**{dst.name: other})
+
+    loop(**{src.name: src, dst.name: dst})
+
+    assert (dst.data_ro == src.data_ro).all()

@@ -167,14 +167,20 @@ class InstructionExecutionContext:
     def __call__(self, **kwargs) -> None:
         executable = self.compile()
 
+        # Each access of a singledispatchmethod builds a new function, so bind it once
+        extract_buffers = self._extract_buffers
+
         # unpack instruction arguments into buffers, as these are what are
         # actually passed to the compiled code
         new_buffers = {}
         for arg_name, new_arg in kwargs.items():
             orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
-            new_arg_buffers = self._extract_buffers(new_arg)
+            new_arg_buffers = extract_buffers(new_arg)
             for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
-                new_buffers[orig_buffer] = new_buffer
+                # Only add replaced buffers, so that a call with the loop's own
+                # buffers uses the cached pointers of the executor
+                if new_buffer is not orig_buffer:
+                    new_buffers[orig_buffer] = new_buffer
 
         # We shouldn't be calling preprocess() if we are hitting cache, this is
         # an important performance check. Perform the check at the last second

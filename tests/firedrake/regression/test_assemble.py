@@ -115,6 +115,42 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
+def test_matrix_reassembly_uses_new_coefficient(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    c = Function(V).interpolate(1 + x)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    assembler = TwoFormAssembler(c * inner(u, v) * dx)
+    A = assembler.assemble()
+
+    # Reassemble into the same matrix after a change of the coefficient
+    c.interpolate(2 + y)
+    A = assembler.assemble(tensor=A)
+
+    expected = assemble(Function(V).interpolate(2 + y) * inner(u, v) * dx)
+    assert np.allclose(A.M.values, expected.M.values, rtol=1e-14)
+
+
+def test_nest_matrix_reassembly_uses_new_coefficient(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    c = Function(V).interpolate(1 + x)
+    u = TrialFunction(V * V)
+    v = TestFunction(V * V)
+    assembler = TwoFormAssembler(c * inner(u, v) * dx, mat_type="nest")
+    A = assembler.assemble()
+
+    c.interpolate(2 + y)
+    A = assembler.assemble(tensor=A)
+
+    # Both diagonal blocks are the weighted mass matrix on V
+    expected = assemble(Function(V).interpolate(2 + y) * inner(TrialFunction(V), TestFunction(V)) * dx)
+    for i in range(2):
+        block = A.petscmat.getNestSubMatrix(i, i)
+        assert np.allclose(block[:, :], expected.M.values, rtol=1e-14)
+
+
 @pytest.mark.skip(reason="pyop3 failing")
 @pytest.mark.parallel
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"),
