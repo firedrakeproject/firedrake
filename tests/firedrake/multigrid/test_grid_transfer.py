@@ -1,13 +1,21 @@
 import pytest
 import numpy
 from firedrake import *
-from firedrake.utils import complex_mode
 
 
-@pytest.fixture(params=["interval", "triangle",
-                        "triangle-nonnested",  # no parameterized fixtures, UGH!
-                        "quadrilateral", "tetrahedron",
-                        "prism", "hexahedron"], scope="module")
+@pytest.fixture(
+    params=[
+        "interval",
+        "triangle",
+        "triangle-nonnested",  # no parameterized fixtures, UGH!
+        "triangle-submesh",  # no parameterized fixtures, UGH!
+        "quadrilateral",
+        "tetrahedron",
+        "prism",
+        "hexahedron",
+    ],
+    scope="module",
+)
 def cell(request):
     return request.param
 
@@ -30,12 +38,19 @@ def hierarchy(cell, refinements_per_level):
     if cell == "interval":
         mesh = UnitIntervalMesh(3)
         return MeshHierarchy(mesh, 2)
-    elif cell in {"triangle", "triangle-nonnested", "prism"}:
+    elif cell in {"triangle", "triangle-nonnested", "triangle-submesh", "prism"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=False)
     elif cell in {"quadrilateral", "hexahedron"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=True)
     elif cell == "tetrahedron":
         mesh = UnitCubeMesh(2, 2, 2)
+
+    if cell == "triangle-submesh":
+        x, _ = SpatialCoordinate(mesh)
+        marker = Function(FunctionSpace(mesh, "DG", 0)).interpolate(
+            conditional(x > 0.5, 1, 0)
+        )
+        mesh = RelabeledMesh(mesh, [marker], [666])
 
     nref = {2: 1, 1: 2}[refinements_per_level]
     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
@@ -56,6 +71,8 @@ def hierarchy(cell, refinements_per_level):
         hierarchy = HierarchyBase(tuple(hierarchy), c2f, f2c,
                                   refinements_per_level=refinements_per_level,
                                   nested=False)
+    if cell == "triangle-submesh":
+        hierarchy = SubmeshHierarchy(hierarchy, subdomain_id=666)
     return hierarchy
 
 
@@ -170,11 +187,7 @@ def run_transfer(mh, shp, family, deg, transfer_op):
     if transfer_op == "injection":
         if not mh.nested:
             pytest.skip("Supermesh projections not implemented yet")
-        if family in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(mh, shp, family, deg)
-        else:
-            run_injection(mh, shp, family, deg)
+        run_injection(mh, shp, family, deg)
     elif transfer_op == "restriction":
         run_restriction(mh, shp, family, deg)
     elif transfer_op == "prolongation":
@@ -333,10 +346,6 @@ def exact_primal_periodic(mesh, shape, degree):
 def test_grid_transfer_periodic(periodic_hierarchy, periodic_space):
     degrees = [4]
     shape = "scalar"
-    if periodic_space in {"DG", "DQ"} and complex_mode:
-        with pytest.raises(NotImplementedError):
-            run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
-    else:
-        run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
+    run_injection(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
     run_prolongation(periodic_hierarchy, shape, periodic_space, degrees, exact=exact_primal_periodic)
     run_restriction(periodic_hierarchy, shape, periodic_space, degrees)

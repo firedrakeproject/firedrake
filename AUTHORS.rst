@@ -40,7 +40,7 @@ Nicolas Barral................<https://nicolasbarral.fr>
 
 Nicholas Barton
 
-Thomas M. Bendall
+Thomas Bendall
 
 Gheorghe-Teodor Bercea
 
@@ -57,6 +57,8 @@ Pablo D. Brubeck..............<https://www.maths.ox.ac.uk/people/pablo.brubeckma
 Ed Bueler
 
 Henrik Buesing
+
+Anastasia Chanbour
 
 Justin Chang
 

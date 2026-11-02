@@ -5,7 +5,7 @@ pgfplot
 
 pgfplots numbering by patch type:
 ---------------------------------
-.. code-block::
+.. code-block:: text
 
    2              2              3-------2        3---6---2
    | \            | \            |       |        |       |
@@ -19,7 +19,7 @@ FIAT/FInAT DoF orderings:
 -------------------------
 UFCTriangle:
 
-.. code-block::
+.. code-block:: text
 
   2              2
   | \            | \
@@ -32,7 +32,7 @@ UFCTriangle:
 
 UFCTetrahedron:
 
-.. code-block::
+.. code-block:: text
 
    3.             3.        3
    | \            | 4        \    edge 1-3
@@ -45,7 +45,7 @@ UFCTetrahedron:
 
 UFCQuadrilateral:
 
-.. code-block::
+.. code-block:: text
 
    1-------3    1---7---4
    |       |    |       |
@@ -58,7 +58,7 @@ UFCQuadrilateral:
 
 UFCHexahedron:
 
-.. code-block::
+.. code-block:: text
 
      3-------7    3-------7            4--22--13      4--22--13
     /.       |   /       /|          7 .       |    7  25  16 |
@@ -148,17 +148,19 @@ def _pgfplot_create_patches(f, coords, complex_component):
     fdata = f.dat.data_ro.real if complex_component == 'real' else f.dat.data_ro.imag
     map_facet_dofs, patch_type = _pgfplot_make_perms(fiat_cell, degree)
     if isinstance(fiat_cell, UFCTriangle):
-        cells = np.arange(mesh.cell_set.size)
+        cells = np.arange(mesh.cells.owned.local_size)
         perms = map_facet_dofs
     elif isinstance(fiat_cell, UFCTetrahedron):
+        raise NotImplementedError
         _facets = mesh.exterior_facets
         nfacets = _facets.classes[1]
         cells = _facets.facet_cell[:nfacets, 0]
         perms = map_facet_dofs[_facets.local_facet_dat.data_ro[:nfacets]]
     elif isinstance(fiat_cell, UFCQuadrilateral):
-        cells = np.arange(mesh.cell_set.size)
+        cells = np.arange(mesh.cells.owned.local_size)
         perms = map_facet_dofs
     elif isinstance(fiat_cell, UFCHexahedron):
+        raise NotImplementedError
         _facets = mesh.exterior_facets
         nfacets = _facets.classes[1]
         cells = _facets.facet_cell[:nfacets, 0]

@@ -30,8 +30,9 @@ Cartesian product over the original global communicator.
 .. figure:: images/ensemble.svg
   :align: center
 
-  Spatial and ensemble parallelism for an ensemble with 5 members,
-  each of which is executed in parallel over 5 processors.
+  Spatial and ensemble parallelism for an ensemble with 4 members, each of
+  which is executed in parallel over 5 processors. Black dots represent
+  individual processors (MPI ranks).
 
 The additional functionality required to support ensemble parallelism
 is the ability to send instances of :class:`~.Function` from one
@@ -204,10 +205,10 @@ on each ensemble member.
 Internally, the :class:`~.EnsembleFunction` creates a ``PETSc.Vec``
 on the ``Ensemble.global_comm`` which contains the data for all
 local components on all ensemble members. This ``Vec`` can be accessed
-with a context manager, similarly to the ``Function.dat.vec`` context
+with a context manager, similarly to the ``Function.vec`` context
 managers used to access :class:`~.Function` data. There are also
 analogous ``vec_ro`` and ``vec_wo`` context managers for read/write
-only accesses. However note that, unlike the ``Function.dat.vec``
+only accesses. However note that, unlike the ``Function.vec``
 context managers, the ``EnsembleFunction.vec`` context managers
 need braces i.e. ``vec()`` not ``vec``.
 

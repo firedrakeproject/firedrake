@@ -4,9 +4,9 @@ from ufl.duals import is_dual
 from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.algorithms.analysis import has_type
 from ufl.domain import as_domain
 import firedrake
-from firedrake import function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 from functools import cached_property
@@ -229,10 +229,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 
     See also :func:`ufl.derivative`.
     """
-    if isinstance(form, firedrake.slate.TensorBase):
-        raise TypeError(
-            f"Cannot take the derivative of a {type(form).__name__}"
-        )
+    if has_type(form, firedrake.slate.TensorBase):
+        raise NotImplementedError("Cannot take the derivative of a form containing Slate tensors")
     try:
         args = form.arguments()
     except AttributeError:
@@ -380,11 +378,12 @@ def extract_domains(f):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
+    from firedrake import Cofunction
     from firedrake.mesh import MeshSequenceGeometry
 
     if isinstance(f, firedrake.slate.TensorBase):
         return f.ufl_domains()
-    elif isinstance(f, (cofunction.Cofunction, Coargument)):
+    elif isinstance(f, (Cofunction, Coargument)):
         # ufl.domain.extract_domains does not work.
         mesh = f.function_space().mesh()
         if isinstance(mesh, MeshSequenceGeometry):
@@ -413,7 +412,9 @@ def extract_unique_domain(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
+    from firedrake import Function, Cofunction
+
+    if isinstance(func, (Function, Cofunction, Argument, Coargument)):
         return func.function_space().mesh().unique()
     else:
         return ufl.domain.extract_unique_domain(func)

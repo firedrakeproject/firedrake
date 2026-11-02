@@ -48,8 +48,9 @@ del petsc
 from ufl import *  # noqa: F401
 from finat.ufl import *  # noqa: F401
 
-from pyop2 import op2                        # noqa: F401
-from pyop2.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
+from pyop3.mpi import COMM_WORLD, COMM_SELF  # noqa: F401
+
+from pyop3 import READ, WRITE, RW, INC  # noqa: F401
 
 # Register possible citations
 import firedrake.citations  # noqa: F401
@@ -69,7 +70,7 @@ from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
 from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
-    SerialExecutionOnlyError, PointNotInDomainError,
+    CommMismatchError, SerialExecutionOnlyError, PointNotInDomainError,
 )
 from firedrake.function import (  # noqa: F401
     Function, CoordinatelessFunction, PointEvaluator
@@ -108,17 +109,18 @@ from firedrake.norms import errornorm, norm  # noqa: F401
 from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis  # noqa: F401
 from firedrake.output import VTKFile  # noqa: F401
 from firedrake.parameters import (  # noqa: F401
-    Parameters, parameters, disable_performance_optimisations
+    Parameters, parameters
 )
+from firedrake.pack import pack  # noqa: F401
 from firedrake.parloops import (  # noqa: F401
-    par_loop, direct, READ, WRITE, RW, INC, MIN, MAX
+    par_loop, direct, MIN, MAX
 )
 from firedrake.projection import (  # noqa: F401
     project, Projector
 )
 from firedrake.slate import (  # noqa: F401
     AssembledVector, Block, Factorization, Tensor, Inverse,
-    Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
+    Transpose, Add, Mul, Solve, BlockAssembledVector,
     DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder,
     SCPC, TensorOp
 )

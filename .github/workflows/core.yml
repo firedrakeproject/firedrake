@@ -84,11 +84,11 @@ env:
   OMP_NUM_THREADS: 1
   OPENBLAS_NUM_THREADS: 1
   PYTEST_MPI_MAX_NPROCS: 8
-  PYOP2_SPMD_STRICT: 1
+  PYOP3_SPMD_STRICT: 1
   FIREDRAKE_CI: 1
   # NOTE: One should occasionally update test_durations.json by running
   # 'make test_durations' inside a 'firedrake:latest' Docker image.
-  EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=600 --timeout-method=thread -o faulthandler_timeout=660 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
+  EXTRA_PYTEST_ARGS: --splitting-algorithm least_duration --timeout=1200 --timeout-method=thread -o faulthandler_timeout=1260 --durations-path=./firedrake-repo/tests/test_durations.json --durations=50
 
 jobs:
 
@@ -101,16 +101,34 @@ jobs:
       image: ubuntu:latest
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
-      PYOP2_CFLAGS: -O1 -fno-fast-math
+      PYOP3_EXTRA_CFLAGS: -O1 -fno-fast-math
     steps:
+      - name: Fix HOME
+        # GitHub actions overwrite HOME to /github/home which causes permissions
+        # issues for certain operations (observed at 'pip cache purge')
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
+
+      # Check that the Dockerfile is using the latest Ubuntu version.
+      # The version is hardcoded into the Dockerfile so that the OS
+      # for each release is fixed.
+      - name: Check Dockerfile Ubuntu version
+        run: |
+          latest_version=$(grep "VERSION_ID=" /etc/os-release | cut -d '"' -f 2)
+          docker_version=$(grep FROM firedrake-repo/docker/Dockerfile.vanilla | cut -d ':' -f 2)
+          if [ "$docker_version" != "$latest_version" ]; then
+            echo "Ubuntu version ${docker_version} in Dockerfile is out of date with latest version ${latest_version}"
+            exit 1
+          fi
 
       - name: Install Firedrake
         id: install
@@ -131,25 +149,20 @@ jobs:
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
         timeout-minutes: 10
 
-      - name: Run PyOP2 tests
+      - name: Run pyop3 tests
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
         timeout-minutes: 10
-
 
       - name: Run Firedrake tests (nprocs = 1)
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          : # Use pytest-xdist here so we can have a single collated output (not possible
-          : # for parallel tests)
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
         timeout-minutes: 90
 
@@ -242,7 +255,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
+          git clone --depth 1 https://github.com/connorjward/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
         timeout-minutes: 5
@@ -302,15 +315,20 @@ jobs:
         include: ${{ fromJSON(needs.gen_linux_extra_matrix.outputs.matrix) }}
     runs-on: [self-hosted, Linux, gpu]
     container:
-      # TODO: set to 'ubuntu:latest' for GPU case
-      image: ${{ case(matrix.gpu == 'cuda', 'ubuntu:noble', 'ubuntu:latest') }}
+      image: ubuntu:latest
       options: --gpus all
     env:
       # Disable some compiler optimisations as they cause runner-specific bugs
-      PYOP2_CFLAGS: -O1 -fno-fast-math
+      PYOP3_EXTRA_CFLAGS: -O1 -fno-fast-math
       # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
       PETSC_OPTIONS: -use_gpu_aware_mpi 0
     steps:
+      - name: Fix HOME
+        # GitHub actions overwrite HOME to /github/home which causes permissions
+        # issues for certain operations (observed at 'pip cache purge')
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Pre-run cleanup
         # Make sure the current directory is empty
         run: find . -delete
@@ -322,7 +340,7 @@ jobs:
         # if nvidia-smi is not present
         run: nvidia-smi
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -386,14 +404,14 @@ jobs:
           firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/tsfc
         timeout-minutes: 10
 
-      - name: Run PyOP2 tests
+      - name: Run pyop3 tests
         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
-          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
-          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop2
+          firedrake-run-split-tests 1 1 -n 8 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 2 4 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 3 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
+          firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" --timeout 30 firedrake-repo/tests/pyop3
         timeout-minutes: 10
 
       - name: Run Firedrake tests (nprocs = 1)
@@ -422,35 +440,35 @@ jobs:
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 4 2 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+        timeout-minutes: 60
 
       - name: Run Firedrake tests (nprocs = 5)
         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 5 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+        timeout-minutes: 60
 
       - name: Run Firedrake tests (nprocs = 6)
         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 6 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+        timeout-minutes: 60
 
       - name: Run Firedrake tests (nprocs = 7)
         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 7 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+        timeout-minutes: 60
 
       - name: Run Firedrake tests (nprocs = 8)
         if: inputs.trigger == 'pr' && (success() || steps.install.conclusion == 'success')
         run: |
           . venv/bin/activate
           firedrake-run-split-tests 8 1 "$EXTRA_PYTEST_ARGS" firedrake-repo/tests/firedrake
-        timeout-minutes: 20
+        timeout-minutes: 60
 
       - name: Post-run cleanup
         if: always()
@@ -470,7 +488,7 @@ jobs:
         # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#adding-a-system-path
         run: echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
@@ -501,13 +519,13 @@ jobs:
           apt-get update
           apt-get -y install python3
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}
 
       - name: Validate single source of truth
-        run: ./firedrake-repo/scripts/check-config
+        run: ./firedrake-repo/scripts/check-config ${{ inputs.base_ref }}
 
       # Check that the Dockerfile is using the latest Ubuntu version.
       # The version is hardcoded into the Dockerfile so that the OS
@@ -527,7 +545,7 @@ jobs:
     name: Lint codebase
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_ref }}
       - uses: actions/setup-python@v5
@@ -550,13 +568,19 @@ jobs:
     outputs:
       conclusion: ${{ steps.report_docs.outputs.conclusion }}
     steps:
+      - name: Fix HOME
+        # GitHub actions overwrite HOME to /github/home which causes permissions
+        # issues for certain operations (observed at 'pip cache purge')
+        # (https://github.com/actions/runner/issues/863)
+        run: echo "HOME=/root" >> "$GITHUB_ENV"
+
       - name: Install system dependencies
         run: |
           apt-get update
           # pandoc is required by nbsphinx to render the tutorial notebooks
           apt-get -y install inkscape texlive-full pandoc
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: firedrake-repo
           ref: ${{ inputs.source_ref }}

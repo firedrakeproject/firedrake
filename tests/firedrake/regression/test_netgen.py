@@ -50,6 +50,7 @@ def circle_geometry(h, R=1.0):
     return ngmesh
 
 
+@pytest.mark.skipnetgen
 @pytest.mark.parametrize("scale", (1E-5, 1E5))
 def test_high_order(scale):
     # Test scale independence of high-order geometry

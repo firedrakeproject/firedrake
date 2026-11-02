@@ -20,7 +20,9 @@ The fast diagonalisation method produces a basis of discrete eigenfunctions.
 These are polynomials, and can be efficiently computed on tensor
 product-elements by solving an eigenproblem on the interval. Therefore, we will
 require quadrilateral or hexahedral meshes.  Currently, the solver only supports
-extruded hexahedral meshes, so we must create an :func:`~.ExtrudedMesh`. ::
+extruded hexahedral meshes, so we must create an :func:`~.ExtrudedMesh`.
+
+.. code-block:: python
 
   from firedrake import *
 
@@ -40,8 +42,9 @@ we prescribe a random :class:`~.Cofunction` as right-hand side.
 
 We'll demonstrate a few different sets of solver parameters, so let's define a
 function that takes in set of parameters and uses them on a
-:class:`~.LinearVariationalSolver`. ::
+:class:`~.LinearVariationalSolver`.
 
+.. code-block:: python
 
   def run_solve(degree, parameters):
       V = FunctionSpace(mesh, "Q", degree, variant="fdm")
@@ -66,8 +69,9 @@ The solver avoids the assembly of a matrix with dense element submatrices, and
 instead applies a matrix-free conjugate gradient method with a preconditioner
 obtained by assembling a sparse matrix.  This is done through the python type
 preconditioner :class:`~.FDMPC`.  We define a function that enables us to
-compose :class:`~.FDMPC` with an inner relaxation. ::
+compose :class:`~.FDMPC` with an inner relaxation.
 
+.. code-block:: python
 
   def fdm_params(relax):
       return {
@@ -79,8 +83,9 @@ compose :class:`~.FDMPC` with an inner relaxation. ::
       }
 
 Let's start with our first test.  We'll confirm a working solve by
-using a sparse direct LU factorization. ::
+using a sparse direct LU factorization.
 
+.. code-block:: python
 
   lu_params = {
       "pc_type": "lu",
@@ -102,10 +107,12 @@ using a sparse direct LU factorization. ::
 Moving on to a more complicated solver, we'll employ a two-level solver with
 the lowest-order coarse space via :class:`~.P1PC`.  As the fine level
 relaxation we define an additive Schwarz method on vertex-star patches
-implemented via :class:`~.ASMExtrudedStarPC` as we have an extruded mesh.
+implemented via :class:`~.ASMStarPC`.
 In addition we specify `"use_coloring"` to group non-overlapping subsets of
 patches into sparse block-diagonal matrices via a mesh coloring, which reduces
-the overhead of calling many KSP solves for each patch.::
+the overhead of calling many KSP solves for each patch.
+
+.. code-block:: python
 
   asm_params = {
       "pc_type": "python",
@@ -116,7 +123,8 @@ the overhead of calling many KSP solves for each patch.::
           "ksp_max_it": 1,
           "ksp_type": "chebyshev",
           "pc_type": "python",
-          "pc_python_type": "firedrake.ASMExtrudedStarPC",
+          "pc_python_type": "firedrake.ASMStarPC",
+          "pc_star_column": 0,
           "pc_star_use_coloring": True,
           "pc_star_sub_sub_pc_type": "lu",
       },
@@ -155,8 +163,9 @@ applies a symmetrized multiplicative sweep on the interior and the facet
 degrees of freedom. In general, we are not able to fully eliminate the
 interior, as the sparse operator constructed by :class:`~.FDMPC` is only an
 approximation on non-Cartesian meshes.  We apply point-Jacobi on the interior
-block, and the two-level additive Schwarz method on the facets. ::
+block, and the two-level additive Schwarz method on the facets.
 
+.. code-block:: python
 
   def fdm_static_condensation_params(relax):
       return {

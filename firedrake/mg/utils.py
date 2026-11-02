@@ -1,17 +1,20 @@
+from __future__ import annotations
+
 import numpy
+from immutabledict import immutabledict as idict
 from fractions import Fraction
-from pyop2 import op2
+import pyop3 as op3
+from mpi4py import MPI
+
 from firedrake.utils import IntType
-from firedrake.functionspacedata import entity_dofs_key
+from firedrake.functionspaceimpl import entity_dofs_key
 import finat.ufl
 import firedrake
 from firedrake.cython import mgimpl as impl
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
-    if len(Vf) > 1:
-        assert len(Vf) == len(Vc)
-        return op2.MixedMap(map(fine_node_to_coarse_node_map, Vf, Vc))
+    assert len(Vf) == len(Vc) == 1
     mesh = Vf.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -31,22 +34,35 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         fine_to_coarse = hierarchy.fine_to_coarse_cells[levelf]
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
-        return cache.setdefault(key, op2.Map(Vf.node_set, Vc.node_set,
-                                             fine_to_coarse_nodes.shape[1],
-                                             values=fine_to_coarse_nodes))
+
+        # Detect fine nodes that only touch orphaned fine cells with no coarse parent
+        orphaned = (fine_to_coarse_nodes[:Vf.axes.owned.local_size//Vf.block_size] < 0).all(axis=1).any()
+        with op3.mpi.temp_internal_comm(Vf.comm) as icomm:
+            orphaned = icomm.allreduce(bool(orphaned), op=MPI.LOR)
+        if orphaned:
+            raise NotImplementedError("Transfer is not implemented for fine nodes that only touch "
+                                      "orphaned fine cells with no coarse parent, as in a "
+                                      "SubmeshHierarchy of interior facets")
+
+        src_axis = Vf.nodal_axes.root
+        target_axis = op3.Axis(fine_to_coarse_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=fine_to_coarse_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            },
+        )
+        return cache.setdefault(key, node_map)
 
 
 def coarse_node_to_fine_node_map(Vc, Vf):
-    if len(Vf) > 1:
-        assert len(Vf) == len(Vc)
-        return op2.MixedMap(map(coarse_node_to_fine_node_map, Vf, Vc))
+    assert len(Vf) == len(Vc) == 1
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -66,43 +82,40 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
         if Vc.extruded and not ((Vf.mesh().layers - 1)/(Vc.mesh().layers - 1)).is_integer():
             raise ValueError("Coarse and fine meshes must have an integer ratio of layers")
 
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         coarse_to_fine_nodes = impl.coarse_to_fine_nodes(Vc, Vf, coarse_to_fine)
-        # Under adaptive refinement, coarse cells have varying numbers of
-        # fine descendants, so coarse_to_fine (and hence coarse_to_fine_nodes)
-        # is right-padded with -1 up to the busiest coarse cell's count.
-        # op2.Map cannot hold negative indices, and every *owned* coarse
-        # node needs at least one real candidate to inject from; but padding
-        # slots on rows that do have candidates can safely be filled with a
-        # duplicate of one of that row's real entries; the injection kernel
-        # below only ever reads (op2.READ) through this map and picks the
-        # candidate matching the coarse node's physical location, so a
-        # repeated valid entry is just redundantly (harmlessly) considered.
+        # op2.Map cannot hold the -1 that pads a short row, so fill each
+        # padded slot with a real entry from its own row. The injection
+        # kernel picks the candidate that matches the coarse node's physical
+        # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
-        if not valid.all():
-            nonempty = valid.any(axis=1)
-            if not nonempty[:Vc.node_set.size].all():
-                raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
-            replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
-                                      dtype=coarse_to_fine_nodes.dtype)
-            rows = numpy.nonzero(nonempty)[0]
-            replacement[rows] = coarse_to_fine_nodes[rows, valid[rows].argmax(axis=1)]
-            coarse_to_fine_nodes = numpy.where(valid, coarse_to_fine_nodes,
-                                               replacement[:, None])
-        return cache.setdefault(key, op2.Map(Vc.node_set, Vf.node_set,
-                                             coarse_to_fine_nodes.shape[1],
-                                             values=coarse_to_fine_nodes))
+        nonempty = valid.any(axis=1)
+        if not Vc.comm.allreduce(bool(nonempty[:Vc.axes.owned.local_size//Vc.block_size].all()), op=MPI.LAND):
+            raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
+        replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
+                                  dtype=coarse_to_fine_nodes.dtype)
+        rows = numpy.nonzero(nonempty)[0]
+        replacement[rows] = coarse_to_fine_nodes[rows, valid[rows].argmax(axis=1)]
+        coarse_to_fine_nodes = numpy.where(valid, coarse_to_fine_nodes,
+                                           replacement[:, None])
+
+        src_axis = Vc.nodal_axes.root
+        target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=coarse_to_fine_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({"nodes": None}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            },
+        )
+        return cache.setdefault(key, node_map)
 
 
 def coarse_cell_to_fine_node_map(Vc, Vf):
-    if len(Vf) > 1:
-        assert len(Vf) == len(Vc)
-        return op2.MixedMap(coarse_cell_to_fine_node_map(f, c) for f, c in zip(Vf, Vc))
+    assert len(Vf) == len(Vc) == 1
     mesh = Vc.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     hierarchyf, levelf = get_level(Vf.mesh())
@@ -122,37 +135,84 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
         return cache[key]
     except KeyError:
         assert Vc.extruded == Vf.extruded
-        if Vc.mesh().variable_layers or Vf.mesh().variable_layers:
-            raise NotImplementedError("Not implemented for variable layers, sorry")
-        if Vc.extruded:
-            level_ratio = (Vf.mesh().layers - 1) // (Vc.mesh().layers - 1)
-        else:
-            level_ratio = 1
         coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
         _, ncell = coarse_to_fine.shape
-        iterset = Vc.mesh().cell_set
+        iterset = Vc.mesh().cells.owned
         fine_per_cell = Vf.finat_element.space_dimension()
         arity = fine_per_cell * ncell
-        coarse_to_fine_nodes = numpy.full((iterset.total_size, arity*level_ratio), -1, dtype=IntType)
-        values = numpy.full((iterset.size, ncell, fine_per_cell), -1, dtype=IntType)
-        owned_coarse_to_fine = coarse_to_fine[:iterset.size, :]
-        valid = owned_coarse_to_fine >= 0
-        values[valid, :] = Vf.cell_node_map().values[owned_coarse_to_fine[valid], :]
-        values = values.reshape(iterset.size, arity)
+        coarse_to_fine_nodes = numpy.full((Vc.mesh().cells.local_size, arity), -1, dtype=IntType)
+        # The DG injection kernel skips the padded slots of a row, but pyop3
+        # still reads through them. Fill each one with the row's first child.
+        children = coarse_to_fine[:iterset.local_size, :]
+        children = numpy.where(children >= 0, children, children[:, :1])
+        values = Vf.cell_node_list[children]
+        coarse_to_fine_nodes[:iterset.local_size, :] = values.reshape(iterset.local_size, -1)
 
-        if Vc.extruded:
-            off = numpy.tile(Vf.offset, ncell)
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = numpy.hstack([
-                numpy.where(values >= 0, values + off*i, -1) for i in range(level_ratio)
-            ])
-        else:
-            coarse_to_fine_nodes[:Vc.mesh().cell_set.size, :] = values
-        offset = Vf.offset
-        if offset is not None:
-            offset = numpy.tile(offset*level_ratio, ncell*level_ratio)
-        return cache.setdefault(key, op2.Map(iterset, Vf.node_set,
-                                             arity=arity*level_ratio, values=coarse_to_fine_nodes,
-                                             offset=offset))
+        src_axis = iterset.root
+        target_axis = op3.Axis(coarse_to_fine_nodes.shape[1])
+        node_map_axes = op3.AxisTree.from_iterable([src_axis, target_axis])
+        node_map_dat = op3.Dat(node_map_axes, data=coarse_to_fine_nodes.flatten())
+        node_map = op3.Map(
+            {
+                idict({src_axis.label: src_axis.component.label}): [[op3.TabulatedMapComponent("nodes", None, node_map_dat)]],
+            },
+        )
+        return cache.setdefault(key, node_map)
+
+
+# NOTE: doesn't need spaces, just meshes
+def coarse_cell_child_count(
+    Vc: firedrake.functionspaceimpl.WithGeometry,
+    Vf: firedrake.functionspaceimpl.WithGeometry,
+) -> op3.Dat:
+    """Count the fine cells that each coarse cell was refined into.
+
+    A row of `HierarchyBase.coarse_to_fine_cells` is as wide as the busiest
+    coarse cell's count, so its width overstates how many children most cells
+    have. The DG injection kernel reads this count to stop at a coarse cell's
+    own children, and so leaves the padding alone.
+
+    Parameters
+    ----------
+    Vc : firedrake.functionspaceimpl.WithGeometry
+        The coarse function space.
+    Vf : firedrake.functionspaceimpl.WithGeometry
+        The fine function space, on the next level of the same hierarchy.
+
+    Returns
+    -------
+    pyop3.Dat
+        One count per cell of ``Vc``'s mesh, over that mesh's cell set. Halo
+        cells are left at zero: a par_loop visits the core and owned parts
+        only, so the kernel never reads them.
+
+    """
+    mesh = Vc.mesh()
+    assert hasattr(mesh, "_shared_data_cache")
+    hierarchyf, levelf = get_level(Vf.mesh())
+    hierarchyc, levelc = get_level(Vc.mesh())
+
+    if hierarchyc != hierarchyf:
+        raise ValueError("Can't map across hierarchies")
+
+    hierarchy = hierarchyf
+    increment = Fraction(1, hierarchyf.refinements_per_level)
+    if levelc + increment != levelf:
+        raise ValueError(f"Can't map between level {levelc} and level {levelf}")
+
+    key = (levelc, Vc.extruded and (Vf.mesh().layers, Vc.mesh().layers))
+    cache = mesh._shared_data_cache["hierarchy_coarse_cell_child_count"]
+    try:
+        return cache[key]
+    except KeyError:
+        coarse_to_fine = hierarchy.coarse_to_fine_cells[levelc]
+        counts = numpy.zeros(mesh.cells.local_size, dtype=IntType)
+        # Each child of a coarse cell becomes level_ratio cells once extruded.
+        counts[:mesh.cells.owned.local_size] = (coarse_to_fine[:mesh.cells.owned.local_size] >= 0).sum(axis=1)
+        # A count belongs to a base cell, and every layer of that cell shares
+        # it. An ExtrudedSet holds no data of its own, so hang the counts off
+        # the base set that it was built on.
+        return cache.setdefault(key, op3.Dat(mesh.cells.materialize(), data=counts))
 
 
 def physical_node_locations(V):
@@ -171,7 +231,9 @@ def physical_node_locations(V):
         Vc = V.collapse().reconstruct(element=finat.ufl.VectorElement(element, dim=mesh.geometric_dimension))
 
         # FIXME: This is unsafe for DG coordinates and CG target spaces.
-        locations = firedrake.assemble(firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc))
+        locations = firedrake.assemble(
+            firedrake.interpolate(firedrake.SpatialCoordinate(mesh), Vc)
+        )
         return cache.setdefault(key, locations)
 
 

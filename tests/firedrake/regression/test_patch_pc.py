@@ -38,8 +38,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
         R = TensorFunctionSpace(mesh, "CG", 1)
         V = P*Q*R
 
-    shape = V.value_shape
-    rhs = numpy.full(shape, 1, dtype=float)
+    rhs = numpy.full(V.value_shape, 1, dtype=float)
 
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -69,9 +68,7 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                         "mat_type": "aij"})
 
     jacobi.snes.ksp.setConvergenceHistory()
-
     jacobi.solve()
-
     jacobi_history = jacobi.snes.ksp.getConvergenceHistory()
 
     patch = LinearVariationalSolver(problem,
@@ -88,12 +85,9 @@ def test_jacobi_sor_equivalence(mesh, problem_type, multiplicative):
                                                        "patch_sub_ksp_type": "preonly",
                                                        "patch_sub_pc_type": "lu",
                                                        "ksp_monitor": None})
-
     patch.snes.ksp.setConvergenceHistory()
-
     uh.assign(0)
     patch.solve()
-
     patch_history = patch.snes.ksp.getConvergenceHistory()
 
     assert numpy.allclose(jacobi_history, patch_history)
@@ -191,6 +185,41 @@ def test_patch_pc_real():
         + r * inner(u, v) * ds
     )
     L = inner(Constant(1.0), v) * dx
+
+    patch_solver_parameters = {
+        "ksp_type": "preonly",
+        "ksp_max_it": 1,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.PatchPC",
+        "patch_pc_patch_construct_type": "star",
+        "patch_pc_patch_construct_dim": 0,
+    }
+    patch_solution = Function(V)
+    solve(a == L, patch_solution, solver_parameters=patch_solver_parameters)
+
+    star_solver_parameters = {
+        "ksp_type": "preonly",
+        "ksp_max_it": 1,
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMStarPC",
+        "pc_star_construct_dim": 0,
+    }
+    star_solution = Function(V)
+    solve(a == L, star_solution, solver_parameters=star_solver_parameters)
+
+    assert errornorm(patch_solution, star_solution) < 1e-8
+
+
+def test_pcpatch_cell_orientation():
+    m = UnitCubedSphereMesh(2)
+    x = SpatialCoordinate(m)
+    m.init_cell_orientations(x)
+
+    V = FunctionSpace(m, 'RTCF', 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(u, v) * dx + inner(avg(u), avg(v)) * dS
+    L = inner(Constant([1., 1., 1.]), v) * dx
 
     patch_solver_parameters = {
         "ksp_type": "preonly",

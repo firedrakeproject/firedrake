@@ -14,6 +14,7 @@ from ufl.domain import extract_unique_domain, extract_domains
 
 import gem
 import gem.impero_utils as impero_utils
+from gem.unconcatenate import unconcatenate
 
 import finat
 from finat.element_factory import as_fiat_cell
@@ -353,10 +354,16 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
         gem_dual = builder.coefficient_map[dual_arg]
         if complex_mode:
             evaluation = gem.MathFunction('conj', evaluation)
-        # The dual argument contracts over the nodes, so the basis indices are
-        # reduction indices like the points, not indices of the return value.
-        evaluation = evaluation * gem_dual[basis_indices]
-        quadrature_multiindex += tuple(basis_indices)
+        # The dual argument contracts over the nodes.  Split the dual basis
+        # along its Concatenate nodes first, as assembly does for coefficient
+        # evaluation.  Each block then sums over its own basis indices, rather
+        # than over the concatenated index, which nothing can be split along.
+        var, = gem.optimise.remove_componenttensors([gem_dual[basis_indices]])
+        summands = []
+        for v, expr in unconcatenate([(var, evaluation)], kernel_cfg["index_cache"]):
+            quadrature_multiindex += v.index_ordering()
+            summands.append(gem.IndexSum(gem.Product(expr, v), v.index_ordering()))
+        evaluation = gem.optimise.make_sum(summands)
         basis_indices = ()
     else:
         argument_multiindices[dual_arg.number()] = basis_indices
@@ -380,7 +387,7 @@ def compile_expression_dual_evaluation(expression, ufl_element, *,
     finalise_options = dict(mode.finalise_options, replace_delta=True)
     expressions = impero_utils.preprocess_gem(expressions, **finalise_options)
     index_ordering = get_index_ordering(quadrature_multiindex, return_variables)
-    impero_c = impero_utils.compile_gem(list(zip(return_variables, expressions)), index_ordering)
+    impero_c = impero_utils.compile_gem(list(zip(return_variables, expressions)), index_ordering, emit_return_accumulate=False)
     index_names = {idx: f"p{i}" for (i, idx) in enumerate(basis_indices)}
     # Handle kernel interface requirements
     builder.register_requirements(expressions)

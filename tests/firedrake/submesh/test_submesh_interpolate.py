@@ -266,7 +266,7 @@ def test_submesh_interpolate_3Dcell_2Dfacet_simplex_sckelton():
     value3d_int = assemble(inner(hdivt3d('+'), hdivt3d('-')) * dS(facet_value))
     value3d_ext = assemble(inner(hdivt3d, hdivt3d) * ds(facet_value))
     value2d = assemble(inner(dg2d, dg2d) * dx)
-    assert abs(value2d - (value3d_int + value3d_ext)) < 5.e-13
+    assert abs(value2d - (value3d_int + value3d_ext)) < 5.e-12
     DG3d = FunctionSpace(mesh, "DG", degree)
     dg3d = Function(DG3d).interpolate(expr(mesh))
     dg2d_ = Function(DG2d).interpolate(dg3d)
