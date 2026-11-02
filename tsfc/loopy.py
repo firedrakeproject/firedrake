@@ -585,6 +585,16 @@ def _expression_flexiblyindexed(expr, ctx):
     return p.Subscript(var, tuple(rank))
 
 
+@_expression.register(gem.Index)
+def _expression_index(expr: gem.Index, ctx: LoopyContext):
+    return ctx.active_indices[expr]
+
+
+@_expression.register(gem.VariableIndex)
+def _expression_variableindex(expr: gem.VariableIndex, ctx: LoopyContext):
+    return expression(expr.expression, ctx)
+
+
 @_expression.register(Integral)
 def _expression_numbers_integral(expr, ctx):
     return expr
