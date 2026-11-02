@@ -735,6 +735,25 @@ def test_interpolate_form():
 
 
 @pytest.mark.parallel([1, 3])
+def test_interpolate_form_different_shapes():
+    mesh = UnitSquareMesh(3, 3)
+    V1 = VectorFunctionSpace(mesh, "CG", 1)
+    V2 = VectorFunctionSpace(mesh, "CG", 2)
+    V3 = FunctionSpace(mesh, "CG", 3)
+
+    q = TestFunction(V1)
+    u = TrialFunction(V3)
+    form = inner(as_vector([u, u]), TestFunction(V2)) * dx  # V3 x V2 -> R
+
+    interp = interpolate(q, form)  # V3 x V1 -> R
+    assert interp.arguments() == (q, u)
+    res1 = assemble(interp)
+
+    res2 = assemble(action(interpolate(q, TrialFunction(V2.dual())), form))
+    assert mat_equals(res1, res2)
+
+
+@pytest.mark.parallel([1, 3])
 def test_interpolate_form_mixed():
     mesh = UnitSquareMesh(3, 3)
     V1 = FunctionSpace(mesh, "CG", 1)
