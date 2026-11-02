@@ -50,7 +50,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_args = args
             self._ad_kwargs = kwargs
             self._ad_solvers = {"forward_nlvs": None, "adjoint_lvs": None,
-                                "recompute_count": 0}
+                                "adjoint_rhs": None, "recompute_count": 0}
             self._ad_adj_cache = {}
 
         return wrapper
@@ -164,6 +164,7 @@ class NonlinearVariationalSolverMixin:
         bcs = block._homogenize_bcs()
         adj_sol = Function(block.function_space)
         right_hand_side = Cofunction(block.function_space.dual())
+        self._ad_solvers["adjoint_rhs"] = right_hand_side
         tmp_problem = LinearVariationalProblem(
             adj_F, right_hand_side, adj_sol, bcs=bcs,
             constant_jacobian=self._ad_problem._constant_jacobian)
