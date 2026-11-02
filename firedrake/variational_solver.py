@@ -13,12 +13,13 @@ from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometry
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import as_ufl, replace, Form
+from ufl import as_ufl, replace, Form, BaseForm
 from functools import cached_property
 from collections.abc import Callable
 
@@ -53,6 +54,40 @@ def is_form_consistent(is_linear, bcs):
     if not (is_linear == all(bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))
             or not is_linear == all(not bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))):
         raise TypeError("Form style mismatch: some forms are given in 'F == 0' style, but others are given in 'A == b' style.")
+
+
+def _pull_back_baseform(form: BaseForm, u: Function, V: WithGeometry, u_restrict: Function, V_restrict: WithGeometry) -> BaseForm:
+    """Pull-back BaseForms to restricted space.
+    For 2-forms we have J_res(u_res) = P^* J(P u_res) P
+    For 1-forms we have F_res(u_res) = P^* F(P u_Res)
+    """
+    v_res, u_res = TestFunction(V_restrict), TrialFunction(V_restrict)
+    P = interpolate(u_res, V)  # V_restrict -> V
+    Pstar = ufl_expr.adjoint(P)  # V^* -> V_restrict^*
+    u_full = interpolate(u_restrict, V)  # P u_restrict
+
+    form_args = form.arguments()
+    if len(form_args) == 2:
+        if isinstance(form, Form):
+            v_arg, u_arg = form_args
+            return replace(form, {v_arg: v_res, u_arg: u_res, u: u_restrict})
+        else:
+            form_full = replace(form, {u: u_full})  # form(P u_restrict)
+            return ufl_expr.action(Pstar, ufl_expr.action(form_full, P))
+    elif len(form_args) == 1:
+        if isinstance(form, Form):
+            v_arg, = form_args
+            return replace(form, {v_arg: v_res, u: u_restrict})
+        else:
+            form_full = replace(form, {u: u_full})  # form(P u_restrict)
+            return ufl_expr.action(Pstar, form_full)
+    else:
+        # zero-form case
+        if isinstance(form, Form):
+            return replace(form, {u: u_restrict})
+        else:
+            # zero-form: there are no spaces to restrict
+            return replace(form, {u: u_full})
 
 
 class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
@@ -105,48 +140,18 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             restrict = False
         self.restrict = restrict and bcs
 
-        if restrict and bcs:
+        if self.restrict:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
 
-            v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
-
-            # Pull back the residual and Jacobian:
-            # F_res(u_res) = P^* F(P u_res)
-            # J_res(u_res) = P^* J(P u_res) P
-            P = interpolate(u_res, V)  # V_res -> V
-            Pstar = ufl_expr.adjoint(P)  # V^* -> V_res^*
-            u_full = interpolate(self.u_restrict, V)  # P u_res
-
-            if isinstance(F, Form):
-                F_arg, = F.arguments()
-                self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
-            else:
-                F_full = replace(F, {self.u: u_full})  # F(P u_res)
-                self.F = ufl_expr.action(Pstar, F_full)
-
-            if isinstance(self.J, Form):
-                v_arg, u_arg = self.J.arguments()
-                self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
-            else:
-                J_full = replace(self.J, {self.u: u_full})  # J(P u_res)
-                self.J = ufl_expr.action(Pstar, ufl_expr.action(J_full, P))
-
+            self.F = _pull_back_baseform(self.F, self.u, V, self.u_restrict, V_res)
+            self.J = _pull_back_baseform(self.J, self.u, V, self.u_restrict, V_res)            
             if self.Jp:
-                if isinstance(self.Jp, Form):
-                    v_arg, u_arg = self.Jp.arguments()
-                    self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
-                else:
-                    Jp_full = replace(self.Jp, {self.u: u_full})
-                    self.Jp = ufl_expr.action(Pstar, ufl_expr.action(Jp_full, P))
-
+                self.Jp = _pull_back_baseform(self.Jp, self.u, V, self.u_restrict, V_res)
             if self.E:
-                if isinstance(self.E, Form):
-                    self.E = replace(self.E, {self.u: self.u_restrict})
-                else:
-                    # `self.E` is a zero-form, so there are no spaces to restrict
-                    self.E = replace(self.E, {self.u: u_full})
+                self.E = _pull_back_baseform(self.E, self.u, V, self.u_restrict, V_res)
+
             self.restricted_space = V_res
         else:
             self.u_restrict = u
