@@ -105,11 +105,12 @@ MLIR_OPT_PASSES = {
         "--reconcile-unrealized-casts",
     ),
     "CudaGPU": (
-        "--scf-parallel-loop-tiling=parallel-loop-tile-sizes=128 no-min-max-bounds=true",
         "--canonicalize",
+        "--scf-parallel-loop-tiling=parallel-loop-tile-sizes=128 no-min-max-bounds=true",
         "--cse",
         "--gpu-map-parallel-loops",
         "--convert-parallel-loops-to-gpu",
+        "--gpu-launch-sink-index-computations",
         "--gpu-kernel-outlining",
         "--nvvm-attach-target=chip=sm_89 features=+ptx80 O=3", # NOTE: Hardware arch information. Need more information.
         "--convert-scf-to-cf",
@@ -126,6 +127,14 @@ MLIR_OPT_PASSES = {
         "--reconcile-unrealized-casts",
         "--gpu-module-to-binary",
     )
+}
+
+# The CPU pass list runs --buffer-deallocation-pipeline, which rejects
+# llvm.atomicrmw because that op does not declare its memory effects. So the CPU kernels keep
+# the standard lowering of their atomics.
+DEVICE_XDSL_PASSES = {
+    "CPU": (),
+    "CudaGPU": ("pyop3-relax-atomicrmw",),
 }
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
@@ -552,11 +561,36 @@ class MLIRCompiler(Compiler):
         )
 
     @property
+    def xdsl_pipeline(self):
+        """The xDSL pass pipeline that lowers the generated MLIR to the LLVM dialect.
+
+        The pyop3 passes in DEVICE_XDSL_PASSES for the current device run first. Then
+        `mlir-opt` runs the passes in mlir_opt_flags. It prints its output in the
+        generic form, so that xDSL can parse it again.
+
+        Returns
+        -------
+        xdsl.passes.PassPipeline
+            The pass pipeline.
+        """
+        from xdsl.passes import PassPipeline
+        from xdsl.transforms.mlir_opt import MLIROptPass
+
+        from pyop3.compile.passes import PYOP3_PASSES as PASSES
+
+        return PassPipeline((
+            *(PASSES[name]() for name in DEVICE_XDSL_PASSES[str(get_current_device())]),
+            MLIROptPass(
+                executable=self.mlir_opt,
+                arguments=(*self.mlir_opt_flags, "--mlir-print-op-generic"),
+            ),
+        ))
+
+    @property
     def cflags(self) -> tuple[str, ...]:
         return (
             *self._cflags,
-            # *(self._debugflags if self._debug else self._optflags),
-            *self._debugflags,
+            *(self._debugflags if self._debug else self._optflags),
         )
 
 
@@ -637,8 +671,9 @@ class CompilerDiskAccess(DictLikeDiskAccess):
 
 def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
     if extension == "mlir":
+        # The passes are frozen dataclasses, so their arguments are part of the key.
         return (
-            compiler, code, compiler.mlir_opt, compiler.mlir_opt_flags,
+            compiler, code, compiler.xdsl_pipeline.passes,
             compiler.mlir_translate, compiler.cc, compiler.cflags,
             compiler.ld, compiler.ldflags,
         )
@@ -729,17 +764,9 @@ def make_so(compiler, code, extension, comm):
                 os.close(descriptor)
 
                 if extension == "mlir":
-                    # TODO: This can be done in-process. It would be significant compilation-time save.
-                    # 1. mlir -> optimised mlir 
+                    # 1. mlir -> llvm dialect, with the xDSL pass pipeline
                     lowered_name = filename.with_suffix(".llvm.mlir")
-                    mlir_opt_cmd = (
-                        (compiler.mlir_opt, str(cname))
-                        + ("--mlir-timing",)
-                        + compiler.mlir_opt_flags
-                        + ('-o', str(lowered_name))
-                    )
-
-                    _run(mlir_opt_cmd, logfile, errfile, step="Lowering")
+                    _lower_mlir(compiler, code, lowered_name, logfile, errfile)
 
                     # mlir -> llvm
                     llname = filename.with_suffix(".ll")
@@ -799,6 +826,62 @@ def make_so(compiler, code, extension, comm):
             return soname
 
     return mpi.safe_noncollective(ccomm, compile_single_rank, root=0)
+
+
+def _lower_mlir(compiler, code: str, lowered_name: Path, logfile: Path, errfile: Path) -> None:
+    """Lower MLIR source to the LLVM dialect with the xDSL pass pipeline of a compiler.
+
+    Parameters
+    ----------
+    compiler : MLIRCompiler
+        The compiler, which provides the pass pipeline.
+    code : str
+        The MLIR source.
+    lowered_name : Path
+        The file that the lowered module is written to, in the generic form.
+    logfile : Path
+        The compilation log. The passes are written to it.
+    errfile : Path
+        The compilation error log. The error output of a failed pass is written to it.
+
+    Raises
+    ------
+    subprocess.CalledProcessError
+        If `mlir-opt` fails. Its error output is in `errfile`.
+    CompilationException
+        If xDSL cannot parse or rewrite the module. The error is in `errfile`.
+    """
+    from xdsl.parser import Parser
+    from xdsl.printer import Printer
+    from xdsl.utils.exceptions import DiagnosticException, ParseError
+
+    from pyop3.compile.passes import mlir_context
+
+    pipeline = compiler.xdsl_pipeline
+
+    ctx = mlir_context()
+    try:
+        module = Parser(ctx, code).parse_module()
+        pipeline.apply(ctx, module)
+
+    except (DiagnosticException, ParseError) as e:
+        if isinstance(e.__cause__, subprocess.CalledProcessError):
+            # mlir-opt failed. The error handler of make_so reports its exit status.
+            with open(errfile, "w") as err:
+                err.write(e.__cause__.stderr or "")
+            raise e.__cause__
+
+        with open(errfile, "w") as err:
+            err.write(str(e))
+
+        raise CompilationException(dedent(f"""
+            Unable to lower MLIR code with xDSL
+            Compile log in {logfile!s}
+            Compile errors in {errfile!s}
+        """)) from e
+
+    with open(lowered_name, "w") as fh:
+        Printer(print_generic_format=True, stream=fh).print_op(module)
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):

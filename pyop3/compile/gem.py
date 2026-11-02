@@ -14,6 +14,7 @@ from typing import Any
 import gem
 import gem.impero
 import numpy as np
+import cupy as cp
 from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
@@ -49,6 +50,8 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
+from pyop3.device import offloading
+
 from pyop3.compile.mlir import MLIRBuilder
 from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
 
@@ -65,25 +68,9 @@ class GemExecutable(Executable):
 
     @cached_property
     def _callable(self):
-        insns = []
-        for insn in self.instructions:
-            new_expr, = gem.impero_utils.preprocess_gem([insn.expression])
-            new_insn, = gem.impero_utils.preprocess_gem([insn.assignee])
-            assert "ComponentTensor" not in repr(new_expr)
-            assert "ComponentTensor" not in repr(new_insn)
-
-            new_insn = gem.impero.Assignment(
-                assignee=new_insn,
-                expression=new_expr,
-                mode=insn.mode,
-            )
-            insns.append(new_insn)
-        impero = gem.impero_utils.compile_gem_new(insns, ())
-
-        builder = MLIRBuilder(impero.tree, self.arguments) 
-        module_code, kernel_args, func_name = builder.build() 
-
         """Compile the code and return a function pointer."""
+        module_code, kernel_args, func_name, _ = self._mlir_build
+
         # ideally move this logic somewhere else
         cppargs = (
         )
@@ -108,15 +95,51 @@ class GemExecutable(Executable):
         func.restype = None
         return func
 
-    @functools.singledispatchmethod
-    @staticmethod
-    def as_callable_arg(handle: Any, /) -> int:
-        utils.raise_missing_dispatch_handler(handle)
 
-    @as_callable_arg.register
-    @staticmethod
-    def _(arr: np.ndarray, /) -> int:
-        return MemrefBuilder.from_array(arr)
+    @cached_property
+    def _mlir_build(self) -> tuple[str, list, str, idict]:
+        """Generate the MLIR module from the instructions.
+
+        The module is generated separately from its compilation, so that the
+        argument devices can be read before the kernel is called.
+
+        :returns tuple (The module code, the kernel arguments, ctype function name,
+            the device of each kernel argument)
+        """
+        insns = []
+        for insn in self.instructions:
+            new_expr, = gem.impero_utils.preprocess_gem([insn.expression])
+            new_insn, = gem.impero_utils.preprocess_gem([insn.assignee])
+            assert "ComponentTensor" not in repr(new_expr)
+            assert "ComponentTensor" not in repr(new_insn)
+
+            new_insn = gem.impero.Assignment(
+                assignee=new_insn,
+                expression=new_expr,
+                mode=insn.mode,
+            )
+            insns.append(new_insn)
+        impero = gem.impero_utils.compile_gem_new(insns, ())
+
+        builder = MLIRBuilder(impero.tree, self.arguments, temporary_indices=impero.indices)
+        module_code, kernel_args, func_name = builder.build()
+
+        # The argument devices are only complete after `build` has been called
+        return module_code, kernel_args, func_name, builder.argument_devices
+
+    @cached_property
+    def argument_devices(self) -> idict:
+        """The device that each kernel argument must be placed on, order should match exec arguments """
+        return self._mlir_build[3]
+
+    def as_callable_arg(self, buffer_view: Any, /, index: int | None = None) -> int:
+        if index is None:
+            return MemrefBuilder.from_array(buffer_view.handle)
+
+        # The handle must be extracted inside the offloading context. This makes
+        # sure that the array comes from the device that the argument is placed on.
+        with offloading(self.argument_devices[index]):
+            return MemrefBuilder.from_array(buffer_view.handle)
 
 # TODO: use overloadedexpressionevaluator
 @functools.singledispatch
@@ -525,7 +548,7 @@ class MemrefBuilder:
     @functools.singledispatchmethod
     @classmethod
     def from_array(cls, array: Any, *, rank: int | None = None):
-        raise NotImplementedError("No casting for array of this type.")
+        utils.raise_missing_dispatch_handler(array)
 
     @from_array.register(np.ndarray)
     @classmethod

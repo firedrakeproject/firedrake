@@ -124,22 +124,26 @@ class LoopyExecutable(Executable):
             for a in self.translation_unit.default_entrypoint.args
         )
 
-    @functools.singledispatchmethod
     @staticmethod
-    def as_callable_arg(handle: Any, /) -> int:
-        utils.raise_missing_dispatch_handler(handle)
+    def as_callable_arg(buffer_view: Any, /, **kwargs) -> int:
+        return _handle_as_callable_arg(buffer_view.handle)
 
-    @as_callable_arg.register
-    @staticmethod
-    def _(arr: np.ndarray, /) -> int:
-        return arr.ctypes.data
 
-    @as_callable_arg.register
-    @staticmethod
-    def _(mat: PETSc.Mat, /) -> int:
-        assert mat.type != PETSc.Mat.Type.PYTHON, \
-            "Python-type mats should be unpacked by now"
-        return mat.handle
+@functools.singledispatch
+def _handle_as_callable_arg(handle: Any, /) -> int:
+    utils.raise_missing_dispatch_handler(handle)
+
+
+@_handle_as_callable_arg.register
+def _(arr: np.ndarray, /) -> int:
+    return arr.ctypes.data
+
+
+@_handle_as_callable_arg.register
+def _(mat: PETSc.Mat, /) -> int:
+    assert mat.type != PETSc.Mat.Type.PYTHON, \
+        "Python-type mats should be unpacked by now"
+    return mat.handle
 
 
 # TODO: This should probably get folded into '_compile_static', otherwise we

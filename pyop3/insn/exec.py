@@ -487,9 +487,10 @@ class CompiledCodeExecutor:
                 self.executable.as_callable_arg(
                     buf_view.record_new(
                         buffer=new_buffers.get(buf_view.buffer, buf_view.buffer)
-                    ).handle
+                    ),
+                    index=i
                 )
-                for buf_view in self.kernel_name_to_buffer_info.values()
+                for i, buf_view in enumerate(self.kernel_name_to_buffer_info.values())
             ]
 
         utils.debug_assert(
@@ -612,8 +613,8 @@ class CompiledCodeExecutor:
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
         return tuple(
-            self.executable.as_callable_arg(buffer_view.handle)
-            for buffer_view in self.kernel_name_to_buffer_info.values()
+            self.executable.as_callable_arg(buffer_view, index=i)
+            for i, buffer_view in enumerate(self.kernel_name_to_buffer_info.values())
         )
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
