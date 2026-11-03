@@ -160,13 +160,9 @@ def get_assembler(form, *args, **kwargs):
     pyop3_compiler_parameters = kwargs.get('pyop3_compiler_parameters', None)
     if (isinstance(form, ufl.form.BaseForm) and not is_base_form_preprocessed
             and not BaseFormAssembler.needs_matfree_assembler(form, kwargs.get('mat_type'), kwargs.get('diagonal', False))):
-        # If not assembling a matrix, internal BaseForm nodes are matfree by default
-        # Otherwise, the default matrix type is firedrake.parameters["default_matrix_type"]
-        default_mat_type = "matfree" if len(form.arguments()) < 2 else None
-        mat_type = kwargs.get('mat_type', default_mat_type)
         # Preprocessing can change the root BaseForm before assembler dispatch.
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
-        form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
+        form = BaseFormAssembler.preprocess_base_form(form, form_compiler_parameters=fc_params)
     if isinstance(form, (ufl.Form, ufl.Interpolate)):
         numbers = {argument.number() for argument in form.arguments()}
         if numbers != set(range(len(numbers))):
@@ -426,7 +422,27 @@ class BaseFormAssembler(AbstractFormAssembler):
 
     @staticmethod
     def contract(a, lhs, rhs, tensor=None, bcs=(), options_prefix=None):
-        """Contract the last argument of ``lhs`` with the first argument of ``rhs``."""
+        """Contract the last argument of ``lhs`` with the first argument of ``rhs``.
+
+        Parameters
+        ----------
+        a : ufl.BaseForm or tuple[BaseArgument, BaseArgument]
+            Underlying form or its arguments, used to construct a new output matrix.
+        lhs, rhs : firedrake.Function or firedrake.Cofunction or MatrixBase
+            Assembled left and right operands.
+        tensor : firedrake.Function or firedrake.Cofunction or MatrixBase or None
+            Existing tensor in which to store the result. If None, allocate a
+            new tensor. This parameter is ignored for scalar results.
+        bcs : Sequence[DirichletBC or EquationBC or EquationBCSplit]
+            Boundary conditions associated with a newly allocated output matrix.
+        options_prefix : str or None
+            PETSc options prefix for a newly allocated output matrix.
+
+        Returns
+        -------
+        float or complex or firedrake.Function or firedrake.Cofunction or MatrixBase
+            Result of the contraction.
+        """
         if isinstance(lhs, MatrixBase):
             if isinstance(rhs, (firedrake.Cofunction, firedrake.Function)):
                 petsc_mat = lhs.petscmat
@@ -729,64 +745,36 @@ class BaseFormAssembler(AbstractFormAssembler):
         return []
 
     @staticmethod
-    def preprocess_base_form(expr, mat_type=None, form_compiler_parameters=None):
-        """Expand derivatives and restructure before BaseForm assembly."""
+    def preprocess_base_form(expr, form_compiler_parameters=None):
+        """Restructure an expression before BaseForm assembly.
+
+        Parameters
+        ----------
+        expr : ufl.BaseForm or slate.TensorBase
+            Expression to preprocess.
+        form_compiler_parameters : dict or None
+            Form compiler parameters that determine whether complex mode is used.
+            Values override the global form compiler parameters.
+
+        Returns
+        -------
+        ufl.BaseForm or ufl.core.expr.Expr or slate.TensorBase
+            Expression that can be dispatched to an assembler.
+        """
+        from tsfc.parameters import is_complex
+
         original_expr = expr
-        if BaseFormAssembler.needs_derivative_expansion(expr, mat_type):
-            expr = BaseFormAssembler.expand_derivatives_form(expr, form_compiler_parameters)
         if not isinstance(expr, slate.TensorBase):
-            expr = restructure_base_form(expr)
+            scalar_type = parameters.parameters["form_compiler"]["scalar_type"]
+            if form_compiler_parameters is not None:
+                scalar_type = form_compiler_parameters.get("scalar_type", scalar_type)
+            expr = restructure_base_form(expr, complex_mode=is_complex(scalar_type))
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
         if isinstance(original_expr, ufl.form.Form) and isinstance(expr, ufl.form.Form):
             expr._cache = original_expr._cache
         return expr
-
-    @staticmethod
-    def needs_derivative_expansion(expr, mat_type):
-        """Return whether the derivatives of ``expr`` must be expanded before assembly.
-
-        Expanding the derivatives of a Form with base form operators may turn it
-        into another BaseForm, which determines how it is assembled. TSFC expands
-        the derivatives of any other Form, and Slate tensors.
-        """
-        if isinstance(expr, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(expr):
-            return False
-        return mat_type != "matfree" or len(expr.arguments()) < 2
-
-    @staticmethod
-    def expand_derivatives_form(form, fc_params):
-        """Expand derivatives before dispatching a BaseForm to its assembler.
-
-        :arg form: a :class:`~ufl.classes.BaseForm`
-        :arg fc_params:: Dictionary of parameters to pass to the form compiler.
-
-        :returns: The resulting preprocessed :class:`~ufl.classes.BaseForm`.
-        Form preprocessing uses the form compiler parameters. Other BaseForm objects
-        use UFL's derivative expansion directly.
-        """
-        if isinstance(form, ufl.form.Form):
-            from firedrake.parameters import parameters as default_parameters
-            from tsfc.parameters import is_complex
-
-            if fc_params is None:
-                fc_params = default_parameters["form_compiler"].copy()
-            else:
-                # Override defaults with user-specified values
-                _ = fc_params
-                fc_params = default_parameters["form_compiler"].copy()
-                fc_params.update(_)
-
-            complex_mode = fc_params and is_complex(fc_params.get("scalar_type"))
-
-            return ufl.algorithms.preprocess_form(form, complex_mode)
-        # We also need to expand derivatives for `ufl.BaseForm` objects that are not `ufl.Form`
-        # Example: `Action(A, derivative(B, f))`, where `A` is a `ufl.BaseForm` and `B` can
-        # be `ufl.BaseForm`, or even an appropriate `ufl.Expr`, since assembly of expressions
-        # containing derivatives is not supported anymore but might be needed if the expression
-        # in question is within a `ufl.BaseForm` object.
-        return ufl.algorithms.ad.expand_derivatives(form)
 
 
 class FormAssembler(AbstractFormAssembler):
