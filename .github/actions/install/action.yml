@@ -164,7 +164,7 @@ runs:
 
         : # DROP BEFORE MERGE: install the matching UFL branch under test.
         pip install --verbose --ignore-installed --no-deps --no-build-isolation \
-          git+https://github.com/FEniCS/ufl.git@pbrubeck/bfo-dual-slot-derivative
+          git+https://github.com/firedrakeproject/ufl.git@pbrubeck/fix/replace-coefficient-derivative
 
         pip install --verbose $EXTRA_PIP_FLAGS \
           --no-binary h5py \
