@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from firedrake import inner, assemble
 from firedrake.external_operators import AbstractExternalOperator, assemble_method
 from firedrake.norms import errornorm
 from firedrake.matrix import AssembledMatrix
@@ -10,10 +11,13 @@ from pyadjoint.optimization.tao_solver import (
 
 
 def ReducedFunctionalOperator(Jhat, update_eps=None):
+    operands = tuple(c.control for c in Jhat.controls) + tuple(Jhat.parameters)
     return ReducedFunctionalOperatorImpl(
-        Jhat.controls[0].control,
+        operands[0],
         function_space=Jhat.functional.function_space(),
-        operator_data=SimpleNamespace(Jhat=Jhat, update_eps=update_eps),
+        operator_data=SimpleNamespace(Jhat=Jhat,
+                                      update_eps=update_eps,
+                                      parameters=tuple(Jhat.parameters)),
     )
 
 
@@ -26,16 +30,29 @@ class ReducedFunctionalOperatorImpl(AbstractExternalOperator):
     def update_eps(self):
         return self.operator_data.update_eps
 
+    @property
+    def num_controls(self):
+        return len(self.Jhat.controls)
+    
     def update(self):
+        controls = self.ufl_operands[:self.num_controls]
+        parameters = self.ufl_operands[self.num_controls:]
         if self.update_eps is None:
             to_update = True
         else:
-            xold = self.Jhat.control[0].data()
-            xnew = self.ufl_operands[0]
-            to_update = errornorm(xold, xnew) > self.update_eps
+            xold = (tuple(c.tape_value() for c in self.Jhat.controls) + tuple(self.Jhat.parameters))
+            xnew = self.ufl_operands
+            to_update = assemble(inner(xnew - xold, xnew - xold) * dx(domain=self.function_space().mesh()))**0.5 > self.update_eps
+            # xold = self.Jhat.control[0].data()
+            # xnew = controls[0]
+            # to_update = errornorm(xold, xnew) > self.update_eps
 
         if to_update:
-            self.Jhat(*self.ufl_operands)
+            if parameters:
+                self.Jhat.update_parameters(parameters)
+            self.Jhat(controls)
+            # self.Jhat(*self.ufl_operands)
+            # self.Jhat.update_parameters(parameters)
 
     @assemble_method(0, (0,))
     def assemble_J(self, *args, **kwargs):
