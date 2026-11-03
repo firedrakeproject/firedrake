@@ -64,3 +64,37 @@ def test_rf_external_operator():
     uadj = assemble(action(dNdu_adj, rdst.riesz_representation())).riesz_representation()
 
     assert errornorm(wadj, uadj) < 1e-14
+
+def test_rf_external_operator_w_parameter():
+
+    def interpolation_(u_, Vdst_, p_=Constant(3.0)):
+        return interpolate(p_ * u_ + u_ * u_, Vdst_)
+
+    mesh = UnitIntervalMesh(16)
+    (x,) = SpatialCoordinate(mesh)
+    Vsrc = FunctionSpace(mesh, "CG", 1)
+    Vdst = FunctionSpace(mesh, "DG", 2)
+
+    continue_annotation()
+    with set_working_tape() as tape:
+        m = Function(Vsrc)
+        p = Constant(3.0)
+        J = assemble(interpolation_(m, Vdst, p))
+        Jhat = ReducedFunctional(J, Control(m), tape=tape)
+    pause_annotation()
+
+    N = ReducedFunctionalOperator(Jhat)
+
+    rsrc = Function(Vsrc).interpolate(1 + sin(4 * pi * x))
+    rdst = Function(Vdst).interpolate(2 + sin(4 * pi * x))
+
+    usrc = Function(Vsrc)
+    M = interpolation_(usrc, Vdst)
+
+    usrc.interpolate(cos(2 * pi * x))
+    wdst = assemble(M)
+
+    m.assign(usrc)
+    udst = assemble(N)
+
+    assert errornorm(wdst, udst) < 1e-14
