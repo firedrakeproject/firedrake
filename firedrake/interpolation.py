@@ -12,6 +12,7 @@ from numbers import Number
 from ufl.algorithms import extract_arguments, replace
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
+from ufl.duals import is_dual
 from ufl.constantvalue import as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate

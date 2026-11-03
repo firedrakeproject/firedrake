@@ -246,13 +246,8 @@ class Assigner:
     def _cross_mesh(self) -> bool:
         """Return whether the expression and assignee are on different (sub)meshes."""
         expr_meshes = firedrake.ufl_expr.extract_domains(self.expression)
-        if (
-            not expr_meshes
-            or len(expr_meshes) == 1 and expr_meshes[0] == self.assignee.function_space().mesh().unique()
-        ):
-            return False
-        else:
-            return True
+        assignee_meshes = tuple(self.assignee.function_space().mesh())
+        return any(mesh not in assignee_meshes for mesh in expr_meshes)
 
     @cached_property
     def _assign_op(self) -> Callable[[], None]:

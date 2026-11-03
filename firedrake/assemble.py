@@ -459,10 +459,13 @@ class BaseFormAssembler(AbstractFormAssembler):
         if self._allocation_integral_types is None:
             # Use the most conservative integration types.
             test, _ = self._form.arguments()
-            if test.function_space().mesh().extruded:
-                return ("interior_facet_vert", "interior_facet_horiz")
-            else:
-                return ("interior_facet", )
+            integral_types = set()
+            for mesh in test.function_space().mesh():
+                if mesh.extruded:
+                    integral_types.update(("interior_facet_vert", "interior_facet_horiz"))
+                else:
+                    integral_types.add("interior_facet")
+            return tuple(sorted(integral_types))
         else:
             return self._allocation_integral_types
 
@@ -509,10 +512,11 @@ class BaseFormAssembler(AbstractFormAssembler):
                     petsc_mat.mult(v_vec, res_vec)
                 return res
             elif isinstance(rhs, MatrixBase):
-                result = tensor.petscmat if tensor else PETSc.Mat()
-                lhs.petscmat.matMult(rhs.petscmat, result=result)
+                result = lhs.petscmat.matMult(rhs.petscmat)
                 if tensor is None:
                     tensor = Matrix(a, result, bcs=bcs, options_prefix=options_prefix)
+                else:
+                    result.copy(tensor.petscmat, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
                 return tensor
             else:
                 raise TypeError("Incompatible RHS for contraction.")
@@ -1515,6 +1519,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if len(trial.function_space()) == 1:
                         j = None
 
+                    if Vcol.mesh().topology.submesh_youngest_common_ancestor(mesh.topology) is None:
+                        continue
                     loop_index = mesh.iter(integral_type)
                     loops.append((loop_index, (i, j)))
         return tuple(loops)
