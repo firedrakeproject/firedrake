@@ -12,7 +12,6 @@ from ufl import avg, dS, ds, dx, inner, replace
 from firedrake.assemble import assemble
 from firedrake.cython import dmcommon
 from firedrake.cython import mgimpl as impl
-from firedrake.exceptions import ConvergenceError
 from firedrake.utils import IntType
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, TensorFunctionSpace

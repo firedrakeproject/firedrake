@@ -328,7 +328,7 @@ class _SNESContext:
     @contextmanager
     def problem_hooks(self, solution_dm: PETSc.DM, *, include_coefficient_dms: bool):
         problem_dms = [solution_dm]
-        if include_problem_dms:
+        if include_coefficient_dms:
             problem = self._problem
             objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
             coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
