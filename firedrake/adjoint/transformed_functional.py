@@ -375,11 +375,11 @@ class L2TransformedFunctional(AbstractReducedFunctional):
 
         adj_input
             The adjoint value of the functional result, as in
-            ``pyadjoint.ReducedFunctional.derivative``: the seed of the
+            :meth:`pyadjoint.ReducedFunctional.derivative`: the seed of the
             adjoint calculation, by which the returned derivative is scaled.
             Only the default value 1, which gives the derivative of the
             functional itself, is supported. Other values raise
-            ``NotImplementedError``.
+            :exc:`NotImplementedError`.
         apply_riesz
             Whether to apply the Riesz map to the result.
 
