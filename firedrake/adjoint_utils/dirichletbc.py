@@ -33,6 +33,24 @@ class DirichletBCMixin(FloatingType):
             return ret
         return wrapper
 
+    @staticmethod
+    def _ad_annotate_function_arg(function_arg):
+        @wraps(function_arg)
+        def wrapper(self, g):
+            # The interpolation of g is taped in _ad_will_add_as_dependency.
+            with stop_annotating():
+                ret = function_arg(self, g)
+            # The DirichletBCBlock depends on the Function that holds the applied value.
+            self._ad_args = (self.function_space(), self._function_arg)
+            return ret
+        return wrapper
+
+    def _ad_will_add_as_dependency(self):
+        """Tape the interpolation of the boundary value before this BC is used."""
+        # The getter reassembles the boundary value.
+        self.function_arg
+        super()._ad_will_add_as_dependency()
+
     def _ad_create_checkpoint(self):
         deps = self.block.get_dependencies()
         if len(deps) <= 0:
