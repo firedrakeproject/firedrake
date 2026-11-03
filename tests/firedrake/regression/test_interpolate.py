@@ -726,9 +726,10 @@ def test_interpolate_form():
     V2_dual_trial = TrialFunction(V2.dual())
 
     two_form = inner(V3_trial, V2_test) * dx  # V3 x V2 -> R, equiv V3 -> V2^*
-    # A form dual slot contracts its highest-numbered argument, so the adjoint
-    # puts V2 last: V3 x V1 -> R, equiv V3 -> V1^*
-    interp = interpolate(V1_test, adjoint(two_form))
+    # Argument 0 of the expression replaces Argument 0 of the form, which is on V2,
+    # so the target is V2: V3 x V1 -> R, equiv V3 -> V1^*
+    interp = interpolate(V1_test, two_form)
+    assert interp.target_space == V2
     assert interp.arguments() == (V1_test, V3_trial)
     res1 = assemble(interp)
 
