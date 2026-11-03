@@ -588,6 +588,8 @@ jobs:
       - name: Install Firedrake
         id: install
         run: |
+          : # DROP BEFORE MERGE
+          pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/fix/dual-enriched-again
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
           : # DROP BEFORE MERGE: install the matching UFL branch under test.
           pip install --verbose --ignore-installed --no-deps --no-build-isolation \

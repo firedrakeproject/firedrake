@@ -3,8 +3,10 @@ geometric quantities into GEM expressions."""
 
 import collections
 import itertools
+from itertools import chain
 from functools import cached_property, singledispatch
 
+import finat
 import gem
 import numpy
 import ufl
@@ -13,12 +15,14 @@ from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, 
 from FIAT.reference_element import TensorProductCell
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
+from finat.finiteelementbase import FiniteElementBase
 from finat.point_set import PointSet, PointSingleton
+from finat.point_set import AbstractPointSet, UnknownPointSet
 from finat.quadrature import make_quadrature
 from finat.element_factory import as_fiat_cell, create_element
 from gem.node import traversal
 from gem.optimise import constant_fold_zero, ffc_rounding
-from gem.unconcatenate import unconcatenate
+from gem.unconcatenate import split_contraction
 from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation, CellOrigin,
                          CellVertices, CellVolume, Coefficient, FacetArea,
@@ -37,6 +41,7 @@ from tsfc import ufl2gem
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.kernel_interface.common import lower_integral_type
 from tsfc.modified_terminals import (analyse_modified_terminal,
+                                     ModifiedTerminal,
                                      construct_modified_terminal)
 from tsfc.parameters import is_complex
 from tsfc.ufl_utils import (ModifiedTerminalMixin, PickRestriction,
@@ -114,6 +119,21 @@ class ContextBase(ProxyKernelInterface):
     def index_cache(self):
         return {}
 
+    def dual_evaluation_config(self, domain, restriction):
+        """Kernel config for dual-evaluating a nested Interpolate at ``domain``.
+
+        :arg domain: the domain the nested Interpolate is evaluated on.
+        :arg restriction: restriction of the modified terminal wrapping it.
+        """
+        return dict(
+            interface=CellVolumeKernelInterface(self, domain, restriction),
+            ufl_cell=domain.ufl_cell(),
+            integration_dim=as_fiat_cell(domain.ufl_cell()).get_dimension(),
+            argument_multiindices=self.argument_multiindices,
+            index_cache=self.index_cache,
+            scalar_type=self.scalar_type,
+        )
+
     @cached_property
     def translator(self):
         # NOTE: reference cycle!
@@ -170,6 +190,10 @@ class CellVolumeKernelInterface(CellKernelInterface):
     def coefficient(self, ufl_coefficient, r):
         assert r is None
         return self._wrapee.coefficient(ufl_coefficient, self.restriction)
+
+    def coefficient_components(self, ufl_coefficient, r):
+        assert r is None
+        return self._wrapee.coefficient_components(ufl_coefficient, self.restriction)
 
 
 class CoordinateMapping(PhysicalGeometry):
@@ -336,6 +360,91 @@ def needs_coordinate_mapping(element):
         return isinstance(create_element(element), NeedsCoordinateMappingElement)
 
 
+def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Cofunction,
+                  to_element: FiniteElementBase,
+                  kernel_cfg: dict) -> list[tuple[gem.Node, tuple, tuple]]:
+    """Translate an interpolation operand and evaluate its target dual basis.
+
+    Parameters
+    ----------
+    operand
+        Expression to evaluate against the target dual basis.
+    dual_arg
+        Dual argument from the interpolation that owns ``operand``.
+    to_element
+        Target FInAT element.
+    kernel_cfg
+        Configuration for the point-evaluation translation context.
+
+    Returns
+    -------
+    list[tuple]
+        One triple for each summand of the dual basis: the GEM expression for
+        the local interpolated values, the quadrature indices to sum it over,
+        and the basis indices that remain uncontracted.
+
+    """
+    if isinstance(to_element, finat.QuadratureElement):
+        kernel_cfg = dict(kernel_cfg, quadrature_rule=to_element._rule)
+
+    fn = DualEvaluationCallable(operand, kernel_cfg)
+
+    if isinstance(to_element, NeedsCoordinateMappingElement):
+        ctx = PointSetContext(**kernel_cfg)
+        coefficient = ufl.Coefficient(dual_arg.ufl_function_space().dual())
+        coordinate_mapping = CoordinateMapping(analyse_modified_terminal(coefficient), ctx)
+    else:
+        coordinate_mapping = None
+    if isinstance(dual_arg, ufl.Cofunction):
+        gem_duals = kernel_cfg["interface"].coefficient_components(dual_arg, None)
+    else:
+        gem_duals = ()
+
+    if not gem_duals:
+        evaluation, quadrature_indices, basis_indices = to_element.dual_evaluation(fn, coordinate_mapping)
+        return [(evaluation, tuple(quadrature_indices), basis_indices)]
+
+    # A mixed dual argument has one component per sub-element.
+    elements = to_element.elements if len(gem_duals) > 1 else (to_element,)
+    evaluations = []
+    for element, gem_dual in zip(elements, gem_duals, strict=True):
+        evaluation, quadrature_indices, basis_indices = element.dual_evaluation(fn, coordinate_mapping)
+        if is_complex(kernel_cfg["scalar_type"]):
+            evaluation = gem.MathFunction("conj", evaluation)
+        # The dual argument contracts over the nodes, so the basis indices
+        # reduce here instead of indexing the return value.
+        contraction = gem.Product(evaluation, gem_dual[basis_indices])
+        for expr, indices in split_contraction(contraction, basis_indices, kernel_cfg["index_cache"]):
+            evaluations.append((expr, tuple(quadrature_indices) + indices, ()))
+    return evaluations
+
+
+class DualEvaluationCallable:
+    """Translate an expression at points requested by a FInAT dual basis."""
+
+    def __init__(self, operand: ufl.core.expr.Expr, kernel_cfg: dict) -> None:
+        self.operand = operand
+        self.kernel_cfg = kernel_cfg
+
+    def __call__(self, point_set: AbstractPointSet) -> gem.Node:
+        if not isinstance(point_set, AbstractPointSet):
+            raise ValueError("Callable argument not a point set!")
+
+        kernel_cfg = self.kernel_cfg.copy()
+        if isinstance(point_set, UnknownPointSet):
+            kernel_cfg.update(point_indices=point_set.indices,
+                              point_expr=point_set.expression)
+            kernel_cfg.pop("quadrature_rule", None)
+            translation_context = GemPointContext(**kernel_cfg)
+        else:
+            kernel_cfg.update(point_set=point_set)
+            translation_context = PointSetContext(**kernel_cfg)
+
+        gem_expr, = compile_ufl(self.operand, translation_context, point_sum=False)
+        assert set(gem_expr.free_indices) <= set(chain(point_set.indices, *kernel_cfg["argument_multiindices"]))
+        return gem_expr
+
+
 @serial_cache(hashkey=lambda *args: args)
 def get_quadrature_rule(fiat_cell, integration_dim, quadrature_degree, scheme):
     integration_cell = fiat_cell.construct_subcomplex(integration_dim)
@@ -375,7 +484,7 @@ class PointSetContext(ContextBase):
     @staticmethod
     def _make_basis_evaluation_key(finat_element, mt, entity_id):
         ufl_element = mt.terminal.ufl_element()
-        domain = extract_unique_domain(mt.terminal)
+        domain = extract_unique_domain(mt.terminal) or mt.terminal.ufl_function_space().ufl_domain()
         coordinate_element = domain.ufl_coordinate_element()
         # This way of caching is fragile.
         # Should implement _hash_key_() in ModifiedTerminal and include the entire mt in the key,
@@ -733,10 +842,11 @@ def translate_argument(terminal, mt, ctx):
         # A numerical hack that FFC used to apply on FIAT tables still
         # lives on after ditching FFC and switching to FInAT.
         return ffc_rounding(square, ctx.epsilon)
-    table = ctx.entity_selector(callback, extract_unique_domain(terminal), mt.restriction)
+    domain = extract_unique_domain(terminal)
+    table = ctx.entity_selector(callback, domain, mt.restriction)
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
-        quad_multiindex_permuted = _make_quad_multiindex_permuted(terminal, mt, ctx)
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(domain, mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         table = mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
@@ -748,11 +858,34 @@ def translate_constant_value(terminal, mt, ctx):
     return ctx.constant(terminal)
 
 
+@translate.register(ufl.Interpolate)
+def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: ContextBase) -> gem.Node:
+    dual_arg, operand = terminal.argument_slots()
+    domain = extract_unique_domain(operand) or dual_arg.ufl_function_space().ufl_domain()
+    ufl_element = dual_arg.ufl_function_space().ufl_element()
+    element = ctx.create_element(ufl_element, restriction=mt.restriction)
+    kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
+    vec = gem.Sum(*(
+        gem.ComponentTensor(evaluation, basis_indices)
+        for evaluation, _, basis_indices
+        in dual_evaluate(operand, dual_arg, element, kernel_cfg)
+    ))
+    return translate_ufl_element(ufl_element, domain, mt, ctx, vec)
+
+
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, ctx):
-    domain = extract_unique_domain(terminal)
     vec = ctx.coefficient(terminal, mt.restriction)
-    element = ctx.create_element(terminal.ufl_element(), restriction=mt.restriction)
+    return translate_ufl_element(terminal.ufl_element(), extract_unique_domain(terminal), mt, ctx, vec)
+
+
+def translate_ufl_element(ufl_element: finat.ufl.FiniteElementBase,
+                          domain: ufl.AbstractDomain,
+                          mt: ModifiedTerminal,
+                          ctx: ContextBase,
+                          vec: gem.Node) -> gem.Node:
+    """Tabulate the basis functions of ``ufl_element`` and contract them with ``vec``."""
+    element = ctx.create_element(ufl_element, restriction=mt.restriction)
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
@@ -780,24 +913,32 @@ def translate_coefficient(terminal, mt, ctx):
                           for alpha, tables in per_derivative.items()}
 
     # Coefficient evaluation
-    beta = ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
+    beta = ctx.index_cache.setdefault(ufl_element, element.get_indices())
     zeta = element.get_value_indices()
-    vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
+    vec_beta = gem.Indexed(vec, beta)
+    # The value indices, the form's own quadrature points and the argument
+    # indices are bound outside this contraction, so they stay free.  An
+    # interpolated value also carries its interpolation points, which are
+    # summed here.
+    unsummed_indices = set(chain(zeta, ctx.point_indices, *ctx.argument_multiindices))
+    unsummed_indices.update(ctx.unsummed_coefficient_indices)
     value_dict = {}
     for alpha, table in per_derivative.items():
         table_qi = gem.Indexed(table, beta + zeta)
         summands = []
-        for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
-            indices = tuple(i for i in var.index_ordering() if i not in ctx.unsummed_coefficient_indices)
-            value = gem.IndexSum(gem.Product(expr, var), indices)
-            summands.append(gem.optimise.contraction(value))
+        for expr, indices in split_contraction(gem.Product(table_qi, vec_beta), beta, ctx.index_cache):
+            indices += tuple(i for i in expr.free_indices
+                             if i not in unsummed_indices and i not in indices)
+            summands.append(gem.optimise.contraction(gem.IndexSum(expr, indices)))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
-    assert set(result.free_indices) - ctx.unsummed_coefficient_indices <= set(ctx.point_indices)
+    allowed_indices = set(chain(ctx.point_indices, *ctx.argument_multiindices))
+    unexpected_indices = set(result.free_indices) - ctx.unsummed_coefficient_indices - allowed_indices
+    assert not unexpected_indices, unexpected_indices
 
     # Detect Jacobian of affine cells
     if not result.free_indices and all(numpy.count_nonzero(node.array) <= 2
@@ -807,13 +948,13 @@ def translate_coefficient(terminal, mt, ctx):
 
     if ctx.use_canonical_quadrature_point_ordering:
         quad_multiindex = ctx.quadrature_rule.point_set.indices
-        quad_multiindex_permuted = _make_quad_multiindex_permuted(terminal, mt, ctx)
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(domain, mt, ctx)
         mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
         result = mapper(result, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     return result
 
 
-def _make_quad_multiindex_permuted(terminal, mt, ctx):
+def _make_quad_multiindex_permuted(domain, mt, ctx):
     quad_rule = ctx.quadrature_rule
     # Note that each quad index here represents quad points on a physical
     # cell axis, but the table is indexed by indices representing the points
@@ -826,7 +967,6 @@ def _make_quad_multiindex_permuted(terminal, mt, ctx):
             if len(extents) != 1:
                 raise ValueError("Must have the same number of quadrature points in each symmetric axis")
     quad_multiindex_permuted = []
-    domain = extract_unique_domain(terminal)
     o = ctx.entity_orientation(domain, mt.restriction)
     if not isinstance(o, FIATOrientation):
         raise ValueError(f"Expecting an instance of FIATOrientation : got {o}")

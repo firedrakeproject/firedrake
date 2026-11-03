@@ -1307,9 +1307,6 @@ class AbstractMeshTopology(abc.ABC):
         # If we are intersecting submeshes then we filter the plex indices
         if intersect_meshes:
             needs_subset = True
-            if subdomain_id != "everywhere":
-                raise NotImplementedError
-
             if len(intersect_meshes) != 1:
                 raise NotImplementedError
             else:

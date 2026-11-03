@@ -535,15 +535,10 @@ class WithGeometryBase:
             self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
             name=f"{self.name}_broken" if self.name else None)
 
+    @cached_property
     def quadrature_space(self):
-        """Return a :class:`.WithGeometryBase` with a ``Quadrature`` element
-        defined on the point set required for interpolating external data into this space.
-
-        Returns
-        -------
-        WithGeometryBase :
-            The new function space with a ``Quadrature`` FiniteElement.
-        """
+        """A :class:`.WithGeometryBase` with a ``Quadrature`` element
+        defined on the point set required for interpolating external data into this space."""
         ufl_element = self.ufl_element()
         if not self.finat_element.has_pointwise_dual_basis:
             # Grab the point set for interpolation
