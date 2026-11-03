@@ -2538,7 +2538,7 @@ class MeshTopology(AbstractMeshTopology):
 
         Returns
         -------
-        tuple[pyop2.types.dat.Dat, pyop2.types.dat.Dat]
+        tuple[pyop3.Dat, pyop3.Dat]
             (A_dat, b_dat) indexed are by Firedrake cell number (owend and halo) and local facet number and
             store respectively the matrix and translation vector of each cell-to-cell reference coordinate transforms.
         """
@@ -2550,24 +2550,20 @@ class MeshTopology(AbstractMeshTopology):
         A_transform = np.full((self.num_cells(), num_facets, cell_dim, cell_dim), np.nan)
         b_transform = np.full((self.num_cells(), num_facets, cell_dim), np.nan)
 
-        # Consider only the interior facets that this rank sees (owned + ghost)
-        facet_cells = self._support_dat("interior_facet", only_owned=False).data_ro_with_halos
-        local_facets = self._interior_facet_local_numbers_dat.data_ro_with_halos
-        local_facet_orientations = self._interior_facet_local_orientation_dat.data_ro_with_halos
+        neighbour_cells, neighbour_facets = self._cell_facet_adjacency
+        c, lf = np.nonzero(neighbour_cells >= 0)
+        n, lf_n = neighbour_cells[c, lf], neighbour_facets[c, lf]
 
-        # Exclude ghost facets whose other adjacent cell is not known to this rank
-        known_facets = (facet_cells != -1).all(axis=1)
-        c0, c1 = facet_cells[known_facets].T
-        lf0, lf1 = local_facets[known_facets].T
-        o0, o1 = local_facet_orientations[known_facets].T
+        # Get the orientation of each local facet relative to its cell
+        offset = self._cell_closure_facet_offset
+        facet_orientations = self.entity_orientations[:, offset: offset + num_facets]
+        o, o_n = facet_orientations[c, lf], facet_orientations[n, lf]
 
         ref_cell = FIAT.ufc_cell(self.ufl_cell())
         A_table, b_table = ref_cell.facet_neighbour_coord_maps
 
-        A_transform[c0, lf0] = A_table[lf0, lf1, o0, o1]
-        b_transform[c0, lf0] = b_table[lf0, lf1, o0, o1]
-        A_transform[c1, lf1] = A_table[lf1, lf0, o1, o0]
-        b_transform[c1, lf1] = b_table[lf1, lf0, o1, o0]
+        A_transform[c, lf] = A_table[lf, lf_n, o, o_n]
+        b_transform[c, lf] = b_table[lf, lf_n, o, o_n]
 
         A_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, cell_dim, cell_dim])
         b_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, cell_dim])
