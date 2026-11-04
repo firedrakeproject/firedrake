@@ -19,6 +19,12 @@ def parent_mesh(request):
         return UnitCubeMesh(3, 3, 3, hexahedral=False)
     elif mesh_type == "hex":
         return UnitCubeMesh(3, 3, 3, hexahedral=True)
+    elif mesh_type == "tri-empty-rank":
+        # A mesh with fewer cells than ranks will have at least one rank that owns no cells.
+        if COMM_WORLD.size == 1:
+            pytest.skip("an empty rank requires a parallel run")
+        mesh = UnitSquareMesh(1, 1, quadrilateral=False)
+        return mesh
 
 # Utility Functions
 
@@ -95,9 +101,9 @@ def test_topology_caches_recompute_after_version_increment():
 )
 @pytest.mark.parametrize(
     "parent_mesh",
-    ["tri", "quad", "tet", "hex"],
+    ["tri", "quad", "tet", "hex", "tri-empty-rank"],
     indirect=True,
-    ids=["tri", "quad", "tet", "hex"]
+    ids=["tri", "quad", "tet", "hex", "tri-empty-rank"]
 )
 def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_halos):
     """Verify that the VOM's state gets mutated."""
@@ -316,13 +322,13 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     )
 
 
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize(
     "parent_mesh",
-    ["tri", "quad", "tet", "hex"],
+    ["tri", "quad", "tet", "hex", "tri-empty-rank"],
     indirect=True,
-    ids=["tri", "quad", "tet", "hex"]
+    ids=["tri", "quad", "tet", "hex", "tri-empty-rank"]
 )
-@pytest.mark.parallel([1, 3])
 def test_rebuild_vom_with_absorption(parent_mesh):
     """Verify that absorbed VOM indices disappear and that the VOM is correctly resized."""
     points = cell_midpoints(parent_mesh, with_halos=False)
@@ -336,8 +342,10 @@ def test_rebuild_vom_with_absorption(parent_mesh):
     local_count_pre_rebuild = vom.topology.cells.owned.local_size
     global_count_pre_rebuild = parent_mesh.comm.allreduce(local_count_pre_rebuild, op=MPI.SUM)
 
-    # Remove every other particle on each rank (by construction, no cross-rank exchange occurs here)
-    absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=int)
+    # Remove every particle that has an even ID.
+    # On a VOM with one particle per rank, this removes the particle on some ranks and keeps it on others
+    # so we don't end up with an empty VOM.
+    absorbed_local_indices = np.flatnonzero(pids_pre_rebuild % 2 == 0)
     absorbed_pids = {pids_pre_rebuild[idx] for idx in absorbed_local_indices}
 
     expected_state = {
@@ -453,6 +461,11 @@ def test_rebuild_vom_invalid_absorbed_index_raises_value_error(parent_mesh):
 
 
 @pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize(
+    "parent_mesh",
+    ["tri", "quad", "tri-empty-rank"],
+    indirect=True,
+    ids=["tri", "quad", "tri-empty-rank"])
 def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
     """Validate the step SF created during a rank-local VOM rebuild.
 
@@ -477,7 +490,8 @@ def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
     new_parent_cells, new_refcoords = locate_points(parent_mesh, new_coords)
 
     # Absorb points: the step SF should have fewer leaves than roots
-    absorbed_local_indices = np.arange(0, old_local_count, 3, dtype=int)
+    pids = vom._particle_ids.dat.data_ro.copy()
+    absorbed_local_indices = np.flatnonzero(pids % 2 == 0)
 
     survivors = np.ones(old_local_count, dtype=bool)
     survivors[absorbed_local_indices] = False
@@ -721,6 +735,11 @@ def test_successive_vom_rebuilds(parent_mesh):
 
 
 @pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize(
+    "parent_mesh",
+    ["tri", "quad", "tri-empty-rank"],
+    indirect=True,
+    ids=["tri", "quad", "tri-empty-rank"])
 def test_rebuild_vom_keeps_input_ordering(parent_mesh):
     """Verify that the input ordering VOM stays linked to the VOM through successive rebuilds. """
     points = cell_midpoints(parent_mesh, with_halos=False)

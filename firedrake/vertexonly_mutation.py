@@ -180,9 +180,8 @@ class VertexOnlyMeshMutator:
         if not in_range_global:
             raise ValueError("`absorbed_vom_indices` contains an invalid local particle index on at least one rank.")
 
-        is_absorbed = np.zeros(n_owned, dtype=bool)
-        is_absorbed[absorbed] = True
-        survivors = ~is_absorbed
+        survivors = np.ones(n_owned, dtype=bool)
+        survivors[absorbed] = False
         n_survivors_local = int(survivors.sum())  # total number of survivors on this rank
 
         # Mutate the DMSwarm in-place
@@ -199,6 +198,14 @@ class VertexOnlyMeshMutator:
         swarm.set_field("DMSwarm_rank", owner_ranks_local[survivors])
         swarm.set_field("inputrank", input_ranks_local[survivors])
         swarm.set_field("inputindex", input_indices_local[survivors])
+
+        # A particle's old local index is its position in the current VOM's order
+        # This is valid since the swarm's been rewritten with data listed in the current VOM's order
+        origin = np.column_stack([
+            np.full(n_owned, comm.rank, dtype=IntType),
+            np.arange(n_owned, dtype=IntType)
+        ])
+        swarm.set_field("migration_origin", origin[survivors])
 
         # Redistribute particles accross ranks
         swarm.migrate(remove_sent_points=True)
@@ -250,18 +257,15 @@ class VertexOnlyMeshMutator:
         # in the `globalindex` field. The owned cells of each rank are numbered contiguously,
         # so the first global index on each rank gives the rank and the local index of each particle.
         old_offsets = np.cumsum([0, *comm.allgather(old_local_size)[:-1]], dtype=IntType)  # every rank knows every rank's offset
-        with swarm.field("globalindex") as global_indices:
-            old_global_idxs = global_indices.ravel()
-            old_ranks = np.searchsorted(old_offsets, old_global_idxs, side="right") - 1
-            remote = np.empty(2 * len(old_global_idxs), dtype=IntType)
-            remote[0::2] = old_ranks  # old rank
-            remote[1::2] = old_global_idxs - old_offsets[old_ranks]  # old local index = global index - rank offset
-
+        with swarm.field("migration_origin") as origin:
+            remote = origin.ravel().copy() # (origin rank, origin index) pairs in swarm order (which is the previous VOM's order)
             step_sf = PETSc.SF().create(comm=comm)
+            # SF: iremote[j] -> ilocal[j] 
+            # - iremote = (origin rank, origin index) -> old VOM cell on the old rank
+            # - ilocal -> new VOM cell
             step_sf.setGraph(old_local_size, topology._old_to_new_point_renumbering, remote)
 
-            # The SF stored under key k maps VOM version k-1 (roots) to VOM version k (leaves).
-
+        #  The SF stored under key k maps VOM version k-1 (roots) to VOM version k (leaves).
         topology._topology_step_sfs[topology._topology_version] = step_sf
         return step_sf
 

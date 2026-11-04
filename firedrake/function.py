@@ -977,9 +977,9 @@ def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf:
 
     # Accessing dat would trigger the migration again, so we access _dat instead
     old_vals = cfunc._dat.data_ro
-    old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], -1)))  # (n_cells, block_size)
-    block_size = old_vals.shape[1]
     space = cfunc.function_space().topological
+    block_size = space.block_size
+    old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], block_size)))
     new_vals = np.empty((space.mesh().num_cells(), block_size), dtype=old_vals.dtype)
     unit, _ = get_mpi_dtype(old_vals.dtype, block_size)
     migration_sf.bcastBegin(unit, old_vals, new_vals, MPI.REPLACE)

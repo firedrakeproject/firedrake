@@ -8,8 +8,14 @@ import pytest
 
 
 @pytest.fixture
-def parent_mesh():
-    return UnitSquareMesh(5, 5, quadrilateral=False)
+def parent_mesh(request):
+    mesh_type = getattr(request, "param", "tri")
+    if mesh_type == "tri":
+        return UnitSquareMesh(5, 5, quadrilateral=False)
+    elif mesh_type == "tri-empty-rank":
+        if COMM_WORLD.size == 1:
+            pytest.skip("an empty rank requires a parallel run")
+        return UnitSquareMesh(1, 1, quadrilateral=False)
 
 
 @pytest.fixture
@@ -118,7 +124,6 @@ def test_vom_functions_migrate_lazily(vom, vom_fs, make_coefficient):
     parallel_assert(g._mesh_topology_version == new_vom_topo_version, "Accessing the Function's data did not migrate it to the current VOM topology")
 
 
-@pytest.mark.skip(reason="eager migration of functions is wip")
 @pytest.mark.parallel([1, 3])
 def test_vom_functions_migrate_eagerly(vom, vom_fs, make_coefficient):
     f = make_coefficient(vom_fs)
@@ -205,6 +210,7 @@ def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs, make_coefficien
 
 
 @pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("parent_mesh", ["tri", "tri-empty-rank"], indirect=True, ids=["tri", "tri-empty-rank"])
 def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs, make_coefficient):
     f = make_coefficient(vom_fs)
     value_size = vom_fs.value_size
@@ -222,7 +228,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs, make
     # Remove every other particle on each rank (by construction, no cross-rank exchange occurs here)
     mutator = VertexOnlyMeshMutator(vom)
 
-    absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
+    absorbed_local_indices = np.flatnonzero(pids_before_migration % 2 == 0)
     absorbed_pids = {int(pids_before_migration[i]) for i in absorbed_local_indices}
 
     expected_surviving_pids = {int(pid) for pid in pids_before_migration if pid not in absorbed_pids}

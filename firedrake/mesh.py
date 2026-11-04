@@ -3661,7 +3661,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             # Compose backwards all the down to ``source_version``.
             for v in range(version-1, source_version-1, -1):
                 try:
-                    step_sf = self._topology_step_sfs[v+1]  # v-1 -> v
+                    step_sf = self._topology_step_sfs[v+1]  # v -> v+1
                 except KeyError as err:
                     raise FunctionMigrationError(f"The step SF to topology version {v+1} could not be found.") from err
                 migration_sf = step_sf if migration_sf is None else step_sf.compose(migration_sf)
@@ -5555,6 +5555,10 @@ def _pic_swarm_in_mesh(
         "DMSwarm_rank": np.full(n_owned, parent_mesh.comm.rank, dtype=IntType),
         "inputrank": winner_sf.input_ranks.astype(IntType),
         "inputindex": winner_sf.input_indices.astype(IntType),
+        "migration_origin": np.column_stack([
+            np.full(n_owned, parent_mesh.comm.rank, dtype=IntType),
+            np.arange(n_owned, dtype=IntType)      
+        ]) # Stores the pair (origin rank, origin local index) of each particle in the previous topology
     }
     for name, size, dtype in fields:
         swarm_fields[name] = np.empty((n_owned, size), dtype=dtype)
