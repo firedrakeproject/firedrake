@@ -5,3 +5,4 @@ from firedrake.external_operators.point_expr_operator import (  # noqa F401
     PointexprOperator, point_expr
 )
 from firedrake.external_operators.ml_operator import MLOperator  # noqa F401
+from firedrake.external_operators.rf_operator import ReducedFunctionalOperator  # noqa F401
