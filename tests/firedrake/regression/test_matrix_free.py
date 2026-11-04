@@ -404,3 +404,39 @@ def test_sub_matrix_not_subfield(shape):
     Amat = A.petscmat
     Asub_aij = Amat.createSubMatrix(rows, cols)
     assert np.allclose(Asub_aij[:, :], Asub_dense)
+
+
+@pytest.mark.parametrize("shape", ["scalar", "vector", "component"])
+def test_sub_matrix_whole_field_keeps_bcs(shape):
+    # A general (non-stride) IS that spans the whole space selects field 0.
+    # The resulting submatrix must keep the Dirichlet rows of the original matrix.
+    mesh = UnitSquareMesh(2, 2)
+    if shape == "scalar":
+        V = FunctionSpace(mesh, "CG", 1)
+        bcs = DirichletBC(V, 0, (1, 3))
+    else:
+        V = VectorFunctionSpace(mesh, "CG", 1)
+        bcs = DirichletBC(V if shape == "vector" else V.sub(0), 0, (1, 3))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+
+    n = V.dof_dset.layout_vec.getSize()
+    rows = PETSc.IS().createGeneral(range(n))
+
+    A = assemble(a, bcs=bcs, mat_type="matfree")
+    Amat = A.petscmat
+    Asub = Amat.createSubMatrix(rows, rows)
+    x, y = Asub.createVecs()
+
+    Asub_dense = np.zeros((n, n))
+    for i in range(n):
+        x.set(0.0)
+        x[i] = 1.0
+        Asub.mult(x, y)
+        Asub_dense[:, i] = y[:]
+
+    A = assemble(a, bcs=bcs, mat_type="aij")
+    Amat = A.petscmat
+    Asub_aij = Amat.createSubMatrix(rows, rows)
+    assert np.allclose(Asub_aij[:, :], Asub_dense)

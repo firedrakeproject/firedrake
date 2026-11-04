@@ -133,6 +133,12 @@ class ImplicitMatrixContext:
         if len(self.col_bcs) > 0:
             self._ybc = Function(test_space.dual())
 
+        self._x_equationbc = None
+        if any(isinstance(bc, EquationBCSplit) for bc in itertools.chain(*self.bcs)):
+            # Preserve the original input for EquationBC actions while the
+            # ordinary form action uses zeroed columns.
+            self._x_equationbc = Function(trial_space)
+
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
         test_vec = test_space.dof_dset.layout_vec
@@ -155,7 +161,7 @@ class ImplicitMatrixContext:
             if isinstance(bc, DirichletBC):
                 self.bcs_action.append(bc)
             elif isinstance(bc, EquationBCSplit):
-                self.bcs_action.append(bc.reconstruct(action_x=self._x))
+                self.bcs_action.append(bc.reconstruct(action_x=self._x_equationbc))
 
         self._assemble_action = get_assembler(self.action,
                                               bcs=self.bcs_action,
@@ -164,18 +170,20 @@ class ImplicitMatrixContext:
 
         # For assembling action(adjoint(f), self._y)
         # Sorted list of equation bcs
-        self.objs_actionT = []
+        equation_bcs = []
         for bc in self.bcs:
-            self.objs_actionT += bc.sorted_equation_bcs()
-        self.objs_actionT.append(self)
+            if isinstance(bc, EquationBCSplit):
+                equation_bcs.append(bc)
+            equation_bcs += bc.sorted_equation_bcs()
+        equation_bcs.sort(key=lambda bc: bc._bc_depth, reverse=True)
+        self.objs_actionT = equation_bcs + [self]
         # Each par_loop is to run with appropriate masks on self._y
         self._assemble_actionT = []
         # Deepest EquationBCs first
-        for bc in self.bcs:
-            for ebc in bc.sorted_equation_bcs():
-                self._assemble_actionT.append(
-                    get_assembler(action(adjoint(ebc.f), self._y),
-                                  form_compiler_parameters=self.fc_params).assemble)
+        for ebc in equation_bcs:
+            self._assemble_actionT.append(
+                get_assembler(action(adjoint(ebc.f), self._y),
+                              form_compiler_parameters=self.fc_params).assemble)
         # Domain last
         self._assemble_actionT.append(
             get_assembler(self.actionT,
@@ -208,6 +216,9 @@ class ImplicitMatrixContext:
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
             X.copy(v)
+        if self._x_equationbc is not None:
+            with self._x_equationbc.dat.vec_wo as v:
+                X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
         # identity block corresponding to the Dirichlet boundary conditions.
@@ -327,11 +338,12 @@ class ImplicitMatrixContext:
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
-                # TODO, can we avoid the copy?
+                # Preserve contributions from EquationBCs that overlap
+                # with the identity rows from DirichletBCs.
                 with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
                 for bc in self.col_bcs:
-                    bc.set(self._xstar, self._ybc)
+                    bc.set(self._xstar, self._xstar + self._ybc)
         else:
             for bc in self.col_bcs:
                 bc.zero(self._xstar)

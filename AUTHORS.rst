@@ -21,6 +21,8 @@ Imperial College London.......<https://www.imperial.ac.uk>
 
 University of Bath............<https://www.bath.ac.uk>
 
+University of Exeter..........<https://www.exeter.ac.uk>
+
 University of Leeds...........<https://www.leeds.ac.uk>
 
 University of Oxford..........<https://www.ox.ac.uk>
@@ -40,7 +42,7 @@ Nicolas Barral................<https://nicolasbarral.fr>
 
 Nicholas Barton
 
-Thomas M. Bendall
+Thomas Bendall
 
 Gheorghe-Teodor Bercea
 
@@ -160,7 +162,7 @@ Ben Sepanski..................<https://bensepanski.github.io>
 
 Daniel R. Shapero.............<https://psc.apl.uw.edu/people/investigators/daniel-shapero/>
 
-Jemma Shipton
+Jemma Shipton.................<https://experts.exeter.ac.uk/33035-jemma-shipton>
 
 Tianjiao Sun
 
