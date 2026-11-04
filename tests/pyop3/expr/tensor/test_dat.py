@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import pyop3 as op3
+from pyop3.buffer import DataTransferInFlightException
 
 
 @pytest.fixture
@@ -139,6 +140,55 @@ def test_accessing_data_with_halos_increments_dat_version(dat):
     assert dat.dat_version == 0
     dat.data_rw_with_halos
     assert dat.dat_version == 1
+
+
+def test_vec_after_pending_increment(factory, dat):
+    ones = op3.Dat(dat.axes, data=np.ones(dat.axes.size, dtype=dat.dtype))
+    op3.loop(p := dat.axes.root.iter(), factory.inc_kernel(3)(ones[p, :], dat[p, :]), eager=True)
+
+    with dat.vec_ro as vec:
+        assert (vec.array_r == 1).all()
+
+
+def test_vec_with_transfer_in_flight_raises(dat):
+    dat.buffer.sync_leaves_begin()
+    with pytest.raises(DataTransferInFlightException):
+        with dat.vec_ro:
+            pass
+    dat.buffer.sync_leaves_end()
+
+
+def test_vec_block_size(dat):
+    with dat.vec_ro as vec:
+        assert vec.block_size == 3
+
+    with dat.as_vec("ro", block_shape=(1,)) as vec:
+        assert vec.block_size == 1
+
+    with dat.vec_ro as vec:
+        assert vec.block_size == 3
+
+
+@pytest.mark.parametrize(
+    "derive",
+    [
+        lambda dat, axes: dat.reshape(axes),
+        lambda dat, axes: dat.with_axes(axes),
+        lambda dat, axes: op3.Dat(axes, buffer=dat.buffer),
+    ],
+    ids=["reshape", "with_axes", "buffer"],
+)
+def test_vec_block_size_of_dat_on_same_buffer(dat, derive):
+    flat = derive(dat, op3.AxisTree(op3.Axis(dat.axes.size)))
+    assert flat.buffer is dat.buffer
+
+    # The block size belongs to the axes of each Dat, not to the buffer
+    with dat.vec_ro as vec:
+        assert vec.block_size == 3
+    with flat.vec_ro as vec:
+        assert vec.block_size == 1
+    with dat.vec_ro as vec:
+        assert vec.block_size == 3
 
 
 class TestDatLinalg:

@@ -438,3 +438,71 @@ def test_nested_multi_component_loops(factory):
         eager=True,
     )
     assert np.allclose(dat1.data_ro, dat0.data_ro)
+
+
+def _copy_loop(factory):
+    """Return a copy loop ``dst[p] = src[p]`` and its arguments."""
+    axis = op3.Axis(10)
+    src = op3.Dat(axis, data=np.arange(axis.size, dtype=op3.ScalarType))
+    dst = op3.Dat.zeros_like(src)
+    loop = op3.loop(p := axis.iter(), factory.copy_kernel(1)(src[p], dst[p]))
+    return loop, src, dst
+
+
+def test_named_call_with_new_buffer(factory):
+    loop, src, dst = _copy_loop(factory)
+    loop()
+    dst.zero(eager=True)
+    other = op3.Dat.zeros_like(dst)
+
+    loop(**{dst.name: other})
+
+    assert (other.data_ro == src.data_ro).all()
+    assert (dst.data_ro == 0).all()
+
+
+def test_named_call_with_own_and_new_buffers(factory):
+    loop, src, dst = _copy_loop(factory)
+    other = op3.Dat.zeros_like(dst)
+
+    loop(**{src.name: src, dst.name: other})
+
+    assert (other.data_ro == src.data_ro).all()
+    assert (dst.data_ro == 0).all()
+
+
+def test_named_call_with_own_buffers(factory):
+    loop, src, dst = _copy_loop(factory)
+    other = op3.Dat.zeros_like(dst)
+    loop(**{dst.name: other})
+
+    loop(**{src.name: src, dst.name: dst})
+
+    assert (dst.data_ro == src.data_ro).all()
+
+
+def test_read_after_write_in_other_loop(factory):
+    loop, src, dst = _copy_loop(factory)
+    loop()
+
+    set_five = factory.set_kernel(5)
+    op3.loop(p := src.axes.root.iter(), set_five(src[p]), eager=True)
+    loop()
+
+    assert (dst.data_ro == 5).all()
+
+
+def test_changed_indirection_is_used_by_repeat_call(factory):
+    # The subset is a writable Dat, like the maps of a Firedrake loop
+    subset = op3.Dat(op3.Axis(3), data=np.asarray([1, 3, 5], dtype=op3.IntType))
+    axis = op3.Axis(6)
+    src = op3.Dat(axis, data=np.arange(axis.size, dtype=op3.ScalarType) + 10)
+    dst = op3.Dat.zeros_like(src)
+    loop = op3.loop(p := axis[subset].iter(), factory.copy_kernel(1)(src[p], dst[p]))
+    loop()
+
+    subset.data_wo[...] = [0, 2, 4]
+    dst.zero(eager=True)
+    loop()
+
+    assert (dst.data_ro == [10, 0, 12, 0, 14, 0]).all()
