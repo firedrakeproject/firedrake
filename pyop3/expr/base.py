@@ -694,6 +694,9 @@ class NaN(TerminalExpression):
 
     # {{{ pyop3.obj.Object interface impls
 
+    def collect_buffers(self, visitor):
+        return pyop3.collections.OrderedFrozenSet()
+
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (type(self),)
 
