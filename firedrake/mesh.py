@@ -2557,10 +2557,10 @@ class MeshTopology(AbstractMeshTopology):
         # Get the orientation of each local facet relative to its cell
         offset = self._cell_closure_facet_offset
         facet_orientations = self.entity_orientations[:, offset: offset + num_facets]
-        o, o_n = facet_orientations[c, lf], facet_orientations[n, lf]
+        o, o_n = facet_orientations[c, lf], facet_orientations[n, lf_n]
 
         ref_cell = FIAT.ufc_cell(self.ufl_cell())
-        A_table, b_table = ref_cell.facet_neighbour_coord_maps
+        A_table, b_table = ref_cell.facet_neighbour_coord_maps()
 
         A_transform[c, lf] = A_table[lf, lf_n, o, o_n]
         b_transform[c, lf] = b_table[lf, lf_n, o, o_n]
