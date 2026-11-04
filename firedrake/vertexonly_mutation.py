@@ -253,14 +253,10 @@ class VertexOnlyMeshMutator:
         swarm = self.vom.topology_dm
         topology = self.vom.topology
 
-        # `_migrate_swarm` stores the global index of each particle in the previous version
-        # in the `globalindex` field. The owned cells of each rank are numbered contiguously,
-        # so the first global index on each rank gives the rank and the local index of each particle.
-        old_offsets = np.cumsum([0, *comm.allgather(old_local_size)[:-1]], dtype=IntType)  # every rank knows every rank's offset
         with swarm.field("migration_origin") as origin:
-            remote = origin.ravel().copy() # (origin rank, origin index) pairs in swarm order (which is the previous VOM's order)
+            remote = origin.ravel().copy()  # (origin rank, origin index) pairs in swarm order (which is the previous VOM's order)
             step_sf = PETSc.SF().create(comm=comm)
-            # SF: iremote[j] -> ilocal[j] 
+            # SF: iremote[j] -> ilocal[j]
             # - iremote = (origin rank, origin index) -> old VOM cell on the old rank
             # - ilocal -> new VOM cell
             step_sf.setGraph(old_local_size, topology._old_to_new_point_renumbering, remote)

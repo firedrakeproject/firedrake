@@ -5557,8 +5557,8 @@ def _pic_swarm_in_mesh(
         "inputindex": winner_sf.input_indices.astype(IntType),
         "migration_origin": np.column_stack([
             np.full(n_owned, parent_mesh.comm.rank, dtype=IntType),
-            np.arange(n_owned, dtype=IntType)      
-        ]) # Stores the pair (origin rank, origin local index) of each particle in the previous topology
+            np.arange(n_owned, dtype=IntType)
+        ])  # Stores the pair (origin rank, origin local index) of each particle in the previous topology
     }
     for name, size, dtype in fields:
         swarm_fields[name] = np.empty((n_owned, size), dtype=dtype)
