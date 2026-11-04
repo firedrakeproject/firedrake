@@ -407,8 +407,12 @@ class LoopyCodegenContext(CodegenContext):
     def finalize_kernel(self, function_name, compiler_parameters):
         preambles = [
             ("20_debug", "#include <stdio.h>"),  # dont always inject
-            ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
         ]
+        # The PETSc header takes most of the time needed to compile a small
+        # kernel, so we only include it if we have matrix arguments or local
+        # kernels (which may use PETSc types such as 'PetscScalar').
+        if self.subkernels or any(isinstance(arg.dtype, lp.types.OpaqueType) for arg in self.arguments):
+            preambles.append(("30_petsc", "#include <petsc.h>"))
 
         # add a no-op instruction touching all of the kernel arguments so they are
         # not silently dropped
