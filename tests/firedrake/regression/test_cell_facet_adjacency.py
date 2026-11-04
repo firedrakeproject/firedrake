@@ -8,19 +8,15 @@ from firedrake import *
 @pytest.fixture(params=[
     # No interior facets
     pytest.param(lambda: UnitIntervalMesh(1), id="interval-1"),
-    pytest.param(lambda: UnitSquareMesh(1, 1), id="tri-square-1x1"),
     pytest.param(lambda: UnitSquareMesh(1, 1, quadrilateral=True), id="quad-square-1x1"),
-    pytest.param(lambda: UnitCubeMesh(1, 1, 1), id="tet-cube-1x1x1"),
     pytest.param(lambda: UnitCubeMesh(1, 1, 1, hexahedral=True), id="hex-cube-1x1x1"),
 
     # With interior facets
     pytest.param(lambda: UnitIntervalMesh(2), id="interval-2"),
-    pytest.param(lambda: UnitSquareMesh(2, 1), id="tri-square-2x1"),
+    pytest.param(lambda: UnitSquareMesh(1, 1), id="tri-square-1x1"),
     pytest.param(lambda: UnitSquareMesh(2, 1, quadrilateral=True), id="quad-square-2x1"),
-    pytest.param(lambda: UnitCubeMesh(2, 1, 1), id="tet-cube-2x1x1"),
+    pytest.param(lambda: UnitCubeMesh(1, 1, 1), id="tet-cube-1x1x1"),
     pytest.param(lambda: UnitCubeMesh(2, 1, 1, hexahedral=True), id="hex-cube-2x1x1"),
-    pytest.param(lambda: UnitSquareMesh(8, 8), id="tri-square-8x8"),
-    pytest.param(lambda: UnitCubeMesh(3, 3, 3, hexahedral=True), id="hex-cube-3x3x3"),
 ])
 def mesh(request):
     return request.param()

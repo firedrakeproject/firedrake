@@ -165,8 +165,6 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
-        pip install --no-deps --force-reinstall git+https://github.com/firedrakeproject/fiat.git@achanbour/facet-coordinate-maps
-
         firedrake-clean
         pip list
 
