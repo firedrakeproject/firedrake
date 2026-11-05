@@ -3,6 +3,7 @@ from firedrake.adjoint import *
 from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
 import pytest
 from numpy.testing import assert_allclose
+from numpy import mean
 
 
 @pytest.fixture(autouse=True)
@@ -139,3 +140,29 @@ def test_minimise():
     rf_np = ReducedFunctionalNumPy(rf)
     result = minimize(rf_np)
     assert_allclose([float(xi) for xi in result], 1., rtol=1e-8)
+
+@pytest.mark.parallel(nprocs=3)
+@pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.parametrize("p_list, p_list_new", [
+    ([2.0, 3.0, 4.0], [5.0, 1.0, 2.0]),
+    ([1.5, 3.0, -1.0], [2.0, 4.0, 0.0]),
+    ([4.0, 2.5, 6.9], [0.5, 3.5, 6.7]),
+])
+def test_minimise_with_parameters(p_list, p_list_new):
+    ensemble = Ensemble(COMM_WORLD, 1)
+    size = ensemble.ensemble_comm.size
+    rank = ensemble.ensemble_comm.rank
+    mesh = UnitIntervalMesh(1, comm=ensemble.comm)
+    R = FunctionSpace(mesh, "R", 0)
+    p_i = Function(R).assign(Constant(p_list[rank]))
+    c = Function(R).assign(Constant(1.0))
+    with set_working_tape():
+        f = (1/2*size) * (c - p_i)**2
+        J = assemble(f * dx(domain=mesh))
+        rf = EnsembleReducedFunctional(J, Control(c), parameters=p_i, ensemble=ensemble)
+    rf_np = ReducedFunctionalNumPy(rf)
+    result = minimize(rf_np)
+    assert_allclose([float(xi) for xi in result.dat.data_ro], mean(p_list), rtol=1e-8)
+    rf.update_parameters([Function(R).assign(Constant(p_list_new[rank]))])
+    result = minimize(rf_np)
+    assert_allclose([float(xi) for xi in result.dat.data_ro], mean(p_list_new), rtol=1e-8)
