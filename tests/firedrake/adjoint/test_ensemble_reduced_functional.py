@@ -141,6 +141,7 @@ def test_minimise():
     result = minimize(rf_np)
     assert_allclose([float(xi) for xi in result], 1., rtol=1e-8)
 
+
 @pytest.mark.parallel(nprocs=3)
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 @pytest.mark.parametrize("p_list, p_list_new", [
