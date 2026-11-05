@@ -121,7 +121,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
     def parameters(self):
         """Return the list of parameters for the ReducedFunctional."""
         return self.local_reduced_functional.parameters
-    
+
     def update_parameters(self, new_parameters):
         """Update the parameters for the ReducedFunctional."""
         self.local_reduced_functional.update_parameters(new_parameters)
