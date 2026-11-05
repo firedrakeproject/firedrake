@@ -3927,29 +3927,29 @@ def extrude_point_renumbering(dm, base_dm, base_renumbering, nlayers, periodic, 
 
     .. code-block:: text
 
-          x-----x-----x
-          2  0  3  1  4
-         (1  0  2  3  4)   going to
+        x-----x-----x
+        2  0  3  1  4
+       (1  0  2  3  4)   going to
 
     When we extrude it will have the following numbering:
 
     .. code-block:: text
 
-          5--2--8-11-14
-          |     |     |
-          4  1  7 10 13
-          |     |     |
-          3--0--6--9-12
+       5--2--8-11-14
+       |     |     |
+       4  1  7 10 13
+       |     |     |
+       3--0--6--9-12
 
     whilst the DMPlex will think it is:
 
     .. code-block:: text
 
-          3--9--5-11--7
-          |     |     |
-         12  0 13  1 14
-          |     |     |
-          2--8--4-10--6
+       3--9--5-11--7
+       |     |     |
+       12  0 13  1 14
+       |     |     |
+       2--8--4-10--6
 
     (To see this recall that points are numbered cells then vertices then edges.)
 

@@ -48,7 +48,6 @@ from .base import (
 
 if typing.TYPE_CHECKING:
     import pyop3.insn
-    from pyop3.types import *
 
 
 # is this used?
@@ -701,7 +700,7 @@ class CompositeDat(Terminal):
     # {{{ instance attrs
 
     axis_tree: AxisTree
-    exprs: idict[ConcretePathT, ExpressionT]
+    exprs: idict[pyop3.types.ConcretePathT, ExpressionT]
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (

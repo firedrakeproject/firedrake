@@ -1204,7 +1204,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     def cell_to_facets(self):
-        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop3.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -1232,23 +1232,37 @@ class AbstractMeshTopology(abc.ABC):
         intersect_meshes=None,
         include_ghosts: bool = False,
     ) -> MeshLoopIndex:
-        """Return an iteration set appropriate for the requested integral type.
+        """Iterate over the mesh.
 
-        :arg integral_type: The type of the integral (should be a valid UFL measure).
-        :arg subdomain_id: The subdomain of the mesh to iterate over.
-             Either an integer, an iterable of integers or the special
-             subdomains ``"everywhere"`` or ``"otherwise"``.
-        :arg all_integer_subdomain_ids: Information to interpret the
-             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
-             entities not explicitly enumerated by the integer
-             subdomains provided here.  For example, if
-             all_integer_subdomain_ids is empty, then ``"otherwise" ==
-             "everywhere"``.  If it contains ``(1, 2)``, then
-             ``"otherwise"`` is all entities except those marked by
-             subdomains 1 and 2.  This should be a dict mapping
-             ``integral_type`` to the explicitly enumerated subdomain ids.
+        Parameters
+        ----------
+        integral_type
+            The type of the integral (should be a valid UFL measure).
+        subdomain_id
+            The subdomain of the mesh to iterate over.
+            Either an integer, an iterable of integers or the special
+            subdomains ``"everywhere"`` or ``"otherwise"``.
+        all_integer_subdomain_ids
+            Information to interpret the
+            ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+            entities not explicitly enumerated by the integer
+            subdomains provided here.  For example, if
+            all_integer_subdomain_ids is empty, then ``"otherwise" ==
+            "everywhere"``.  If it contains ``(1, 2)``, then
+            ``"otherwise"`` is all entities except those marked by
+            subdomains 1 and 2.  This should be a dict mapping
+            ``integral_type`` to the explicitly enumerated subdomain ids.
+        intersect_meshes
+            Other meshes to intersect the iteration set with.
+        include_ghosts
+            Should the iteration include ghost points?
 
-         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+        Returns
+        -------
+        MeshLoopIndex
+            A loop index object representing the iteration that can be used
+            inside a `pyop3.Loop`.
+
         """
         if all_integer_subdomain_ids is None:
             all_integer_subdomain_ids = {}
@@ -1558,25 +1572,6 @@ class AbstractMeshTopology(abc.ABC):
                     to_pt_renum = to_numbering_sec.getOffset(to_pt)
                 map_data_renum[from_pt_renum, j] = to_pt_renum
         return readonly(map_data_renum)
-
-    def _renumber_map_ragged(self, *args, **kwargs):
-        raise NotImplementedError
-        # sizes_renum = np.empty_like(sizes)
-        # offsets = utils.steps(sizes)
-        # for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
-        #     src_stratum_pt_renum = src_renumbering.getOffset(src_plex_pt)
-        #     sizes_renum[src_stratum_pt_renum] = sizes[src_stratum_pt]
-        #
-        # offsets_renum = utils.steps(sizes_renum)
-        # map_pts_renum = np.empty_like(map_pts)
-        # for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
-        #     src_stratum_pt_renum = src_renumbering.getOffset(src_plex_pt)
-        #     for i in range(sizes[src_stratum_pt]):
-        #         dest_pt = map_pts[offsets[src_stratum_pt]+i]
-        #         dest_stratum_pt_renum = dest_renumbering.getOffset(dest_pt)
-        #         map_pts_renum[offsets_renum[src_stratum_pt_renum]+i] = dest_stratum_pt_renum
-        #
-        # return readonly(map_pts_renum), readonly(sizes_renum)
 
     def support(self, index: MeshLoopIndex) -> op3.CalledMap:
         return self._support(index, label="support")
@@ -2486,7 +2481,7 @@ class MeshTopology(AbstractMeshTopology):
              ``"otherwise"`` is all entities except those marked by
              subdomains 1 and 2.
 
-         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+         :returns: The subdomain ID.
         """
         # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
         return subdomain_id
@@ -4238,7 +4233,7 @@ values from f.)"""
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
 
-        :arg f: The :class:`.Function` object that marks
+        :arg f: The :class:`firedrake.Function` object that marks
             selected entities as 1. f.function_space().ufl_element()
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D

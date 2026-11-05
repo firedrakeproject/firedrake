@@ -9,6 +9,7 @@ import loopy as lp
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.constants
 import pyop3.obj
 import pyop3.sf
 from pyop3 import utils

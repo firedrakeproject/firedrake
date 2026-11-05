@@ -30,8 +30,6 @@ from pyop3.utils import (
 
 from ._buffer_cy import set_petsc_mat_diagonal
 
-if TYPE_CHECKING:
-    from pyop3.types import *
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -1493,7 +1491,7 @@ class DenseRowPythonMatContext(DensePythonMatContext):
         return cls(buffer)
 
     @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+    def sizes(self) -> tuple[pyop3.types.PetscSizeT, pyop3.types.PetscSizeT]:
         return ((None, 1), (self.buffer.sf.num_owned, None))
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
@@ -1526,7 +1524,7 @@ class DenseColumnPythonMatContext(DensePythonMatContext):
         return cls(buffer)
 
     @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+    def sizes(self) -> tuple[pyop3.types.PetscSizeT, pyop3.types.PetscSizeT]:
         return ((self.buffer.sf.num_owned, None), (None, 1))
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
@@ -1562,7 +1560,7 @@ class DenseBlockPythonMatContext(DensePythonMatContext):
         return cls(buffer)
 
     @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+    def sizes(self) -> tuple[pyop3.types.PetscSizeT, pyop3.types.PetscSizeT]:
         return ((None, 1), (None, 1))
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:

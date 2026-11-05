@@ -673,7 +673,7 @@ class AxisTarget(pyop3.obj.Object):
     # }}}
 
     @property
-    def path(self) -> ConcretePathT:
+    def path(self) -> pyop3.types.ConcretePathT:
         return idict({self.axis: self.component})
 
     @property
@@ -969,12 +969,11 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def index(self) -> LoopIndex:
         return self.iter()
 
-    def iter(self, *, eager=False) -> LoopIndex | GeneratorType[IteratorIndexT]:
+    def iter(self, *, eager=False) -> LoopIndex:
         import pyop3
 
         if eager:
             raise NotImplementedError
-            return _iter_axis_tree(self)
         elif self.is_linear:
             return pyop3.LoopContextFreeLoopIndex(self)
         else:
@@ -983,7 +982,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def as_tree(self) -> Self:
         return self
 
-    def component_size(self, path: PathT, component_label: ComponentLabelT) -> ExpressionT:
+    def component_size(self, path: pyop3.types.PathT, component_label: ComponentLabelT) -> ExpressionT:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
 
@@ -1049,7 +1048,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         return self.comm.allreduce(self.owned.local_size)
 
     @abc.abstractmethod
-    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
+    def section(self, path: pyop3.types.PathT, component: pyop3.types.ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         pass
 
     @cached_property
@@ -1070,7 +1069,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         """TODO"""
         return self.with_region_labels({region_label}, allow_missing=allow_missing)
 
-    def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
+    def with_region_labels(self, region_labels: Sequence[pyop3.types.ComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
         """TODO"""
         if not region_labels or not self._all_region_labels and allow_missing:
             return self
@@ -1081,7 +1080,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
         return self[self._region_slice(region_labels)]
 
-    def _region_slice(self, region_labels: set, *, path: PathT = idict()) -> IndexTree:
+    def _region_slice(self, region_labels: set, *, path: pyop3.types.PathT = idict()) -> IndexTree:
         from pyop3.index_tree import (
             AffineSliceComponent,
             IndexTree,
@@ -1153,7 +1152,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     # TODO: rename to just _region_labels or similar
     @cached_property
-    def _all_region_labels(self) -> tuple[ComponentRegionLabelT]:
+    def _all_region_labels(self) -> tuple[pyop3.types.ComponentRegionLabelT]:
         region_labels = OrderedSet()
         for axis in self.axes:
             for component in axis.components:
@@ -1218,7 +1217,7 @@ class AbstractIndexedAxisTree(LoopContextFreeAxisTreeLike):
 
     __abstract_record_attrs = ("_unindexed", "_targets")
 
-    def restrict_nest(self, nest_label: ComponentLabelT) -> AbstractNonUnitAxisTree:
+    def restrict_nest(self, nest_label: pyop3.types.ComponentLabelT) -> AbstractNonUnitAxisTree:
         """Restrict an axis tree to a nested piece of it.
 
         The idea here is to trim ``orig_axes`` with index such that we can pretend
@@ -1282,7 +1281,7 @@ class _UnitAxisTree(AbstractUnindexedAxisTree, AbstractUnitAxisTree):
 
     nest_indices = ()
 
-    def _subtree_node_map(self, path: ConcretePathT) -> idict:
+    def _subtree_node_map(self, path: pyop3.types.ConcretePathT) -> idict:
         assert not path
         return idict()
 
@@ -1295,7 +1294,7 @@ class _UnitAxisTree(AbstractUnindexedAxisTree, AbstractUnitAxisTree):
     def prune(self) -> Self:
         return self
 
-    def add_subtree(self, path: PathT, subtree):
+    def add_subtree(self, path: pyop3.types.PathT, subtree):
         assert not path
         return subtree
 
@@ -1364,7 +1363,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
 
     def __init__(
         self,
-        node_map: Mapping[PathT, Node] | None = None,
+        node_map: Mapping[pyop3.types.PathT, Node] | None = None,
         *,
         comm: MPI.Comm | None = None,
         _validate: bool = True,
@@ -1420,7 +1419,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
     # {{{ interface impls
 
     @cached_property
-    def targets(self) -> idict[ConcretePathT, tuple[tuple[AxisTarget, ...], ...]]:
+    def targets(self) -> idict[pyop3.types.ConcretePathT, tuple[tuple[AxisTarget, ...], ...]]:
         from pyop3 import AxisVar
 
         targets_ = StrictlyUniqueDict({idict(): ((),)})
@@ -1446,7 +1445,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
             return self[self._block_indices(block_shape)].materialize()
 
     # TODO: rename to local_section
-    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
+    def section(self, path: pyop3.types.PathT, component: pyop3.types.ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
         from pyop3 import Dat
         from pyop3.expr.visitors import replace_terminals
@@ -1542,7 +1541,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
         }
         return type(self)(node_map)
 
-    def linearize(self, path: PathT, *, partial: bool = False) -> AxisTree:
+    def linearize(self, path: pyop3.types.PathT, *, partial: bool = False) -> AxisTree:
         """Return the axis tree dropping all components not specified in the path.
 
         partial :
@@ -1572,7 +1571,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
         return axis_tree
 
     # NOTE: should default to appending (assuming linear)
-    def add_axis(self, path: PathT, axis: Axis) -> AxisTree:
+    def add_axis(self, path: pyop3.types.PathT, axis: Axis) -> AxisTree:
         return super().add_node(path, axis)
 
     def append_axis(self, axis: Axis) -> AxisTree:
@@ -1621,10 +1620,10 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
 
     # {{{ instance attrs
 
-    node_map: idict[ConcretePathT, Axis]
+    node_map: idict[pyop3.types.ConcretePathT, Axis]
     # NOTE: It is OK for unindexed to be None, then we just have a map-like thing
     _unindexed: AxisTree | None
-    _targets: tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]
+    _targets: tuple[idict[pyop3.types.ConcretePathT, tuple[AxisTarget, ...]], ...]
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet:
         buffers = OrderedFrozenSet()
@@ -1696,7 +1695,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         return self.unindexed.comm
 
     @cached_property
-    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+    def targets(self) -> tuple[idict[pyop3.types.ConcretePathT, tuple[AxisTarget, ...]], ...]:
         targets_ = StrictlyUniqueDict()
         for path, axis in self.node_map.items():
             targets_[path] = self._targets[path] + self._materialized.targets[path]
@@ -1774,7 +1773,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             _validate=False,
         )
 
-    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
+    def section(self, path: pyop3.types.PathT, component: pyop3.types.ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as axistree but offsets are known not to increase linearly
         # clean this up once we know if works
         from pyop3 import Dat
@@ -1852,7 +1851,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         assert False, "don't do this, plan is to replace this API"
         return self.unindexed.layouts
 
-    def linearize(self, path: PathT, *, partial: bool = False) -> IndexedAxisTree:
+    def linearize(self, path: pyop3.types.PathT, *, partial: bool = False) -> IndexedAxisTree:
         """Return the axis tree dropping all components not specified in the path."""
         path = as_path(path)
 
@@ -1995,7 +1994,7 @@ class UnitIndexedAxisTree(AbstractUnitAxisTree, AbstractIndexedAxisTree):
             raise pyop3.exceptions.InvalidIndexTargetException
 
     @cached_property
-    def targets(self) -> tuple[idict[ConcretePathT, tuple[AxisTarget, ...]], ...]:
+    def targets(self) -> tuple[idict[pyop3.types.ConcretePathT, tuple[AxisTarget, ...]], ...]:
         return complete_axis_targets({
             idict(): self._targets[idict()] + self.materialize().targets[idict()]
         })
@@ -2675,29 +2674,6 @@ def full_shape(axes):
         return axes, replace_map
 
 
-def _iter_axis_tree(axis_tree: AbstractNonUnitAxisTree) -> GeneratorType[IteratorIndexT]:
-    if isinstance(axis_tree, IndexedAxisTree):
-        raise NotImplementedError("Need to consider targets")
-
-    return _iter_axis_tree_rec(axis_tree, idict(), idict())
-
-
-def _iter_axis_tree_rec(axis_tree: AbstractNonUnitAxisTree, path: ConcretePathT, indices: idict[AxisLabelT, int]) -> GeneratorType[IteratorIndexT]:
-    from pyop3 import evaluate
-
-    axis = axis_tree.node_map[path]
-    for component in axis.components:
-        path_ = path | {axis.label: component.label}
-
-        component_size = evaluate(component.size, indices)
-        for i in range(component_size):
-            indices_ = indices | {axis.label: i}
-            if axis_tree.node_map[path_]:
-                yield from _iter_axis_tree_rec(axis_tree, path_, indices_)
-            else:
-                yield (path_, indices_)
-
-
 @functools.singledispatch
 def replace_exprs(treelike, replace_map):
     raise NotImplementedError
@@ -2793,7 +2769,7 @@ def axis_tree_is_valid_subset(
     return True
 
 
-def complete_axis_targets(targets: idict[ConcretePathT, tuple[tuple]]) -> idict:
+def complete_axis_targets(targets: idict[pyop3.types.ConcretePathT, tuple[tuple]]) -> idict:
     new_targets = dict(targets)
     if idict() not in targets:
         new_targets[idict()] = ((),)

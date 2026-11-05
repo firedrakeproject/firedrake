@@ -30,7 +30,6 @@ ConcretePathT = idict[NodeLabelT, NodeComponentLabelT]
 
 AxisComponentRegionSizeT = IntType | pyop3.expr.LinearDatBufferExpression
 AxisLabelT = NodeLabelT
-IteratorIndexT = tuple[ConcretePathT, idict[AxisLabelT, int]]
 
 # }}}
 
