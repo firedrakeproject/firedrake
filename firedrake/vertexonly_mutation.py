@@ -58,9 +58,12 @@ class VertexOnlyMeshMutator:
             swarm_parentcellnum_field[vom_to_swarm, 0] = plex_ids
             refcoord_field[vom_to_swarm, :] = new_refcoords
 
-        topology._parent_cell_assignment_version += 1
+        # Write the updated parent cells into the cached list and map
+        # anything that's already built on the map (e.g., interpolation parloops etc.) sees the updated data
+        self.vom.topology.cell_parent_cell_list[:n_owned] = new_parent_cells
+        self.vom.topology.cell_parent_cell_dat.data_wo[:n_owned] = new_parent_cells
 
-        # Write the update reference coordinates
+        # Write the updated reference coordinates
         # NOTE: Since new_ref_coords is already in VOM ordering and assuming the VOM has not been reodered when this function is called,
         # we can safely write into the reference coordinates array.
         self.vom.reference_coordinates.dat.data_wo[:] = new_refcoords

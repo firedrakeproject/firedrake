@@ -111,9 +111,7 @@ DISTRIBUTION_PARAMETERS_NOOP = {
 cached_property_until_topology_changes = cached_property_until(
     lambda self: self._topology_version
 )
-cached_property_until_parent_cell_or_topology_changes = cached_property_until(
-    lambda self: (self._topology_version, self._parent_cell_assignment_version)
-)
+
 cached_method_until_topology_changes = cached_method_until(
     lambda self: self._topology_version
 )
@@ -3424,8 +3422,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self.input_ordering_swarm = input_ordering_swarm
         self._parent_mesh = parentmesh
 
-        self._parent_cell_assignment_version = 0
-
         # Define a dictionary for storing SFs that map each topology version to the version before it,
         # keyed by the newer version.
         # NOTE: SF-based migration is currently used for fields defined on VOMs only.
@@ -3609,7 +3605,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         "Stores a SF to current topology version, keyed by their source version"
         return {}
 
-    @cached_property_until_parent_cell_or_topology_changes
+    @cached_property_until_topology_changes
     def cell_parent_cell_list(self):
         """Return a list of parent mesh cells numbers in vertex only
         mesh cell order.
@@ -3618,15 +3614,20 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             cell_parent_cell_list = parentcellnum_field.ravel().copy()
         return cell_parent_cell_list[self._old_to_new_cell_numbering_is.invertPermutation().indices]
 
-    @cached_property_until_parent_cell_or_topology_changes
+    @cached_property_until_topology_changes
+    def cell_parent_cell_dat(self):
+        """The Dat storing the parent cell numbers behind the pyop3 map ``cell_parent_cell_map``."""
+        return op3.Dat(self.points, data=self.cell_parent_cell_list)
+
+    @cached_property_until_topology_changes
     def cell_parent_cell_map(self):
-        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
+        """Return the :class:`pyop3.types.map.Map` from vertex only mesh cells to
         parent mesh cells.
         """
         dest_axis = self._parent_mesh._uid
         dest_stratum = self._parent_mesh.cell_label
 
-        dat = op3.Dat(self.points, data=self.cell_parent_cell_list)
+        dat = self.cell_parent_cell_dat
         return op3.ScalarMap(
             {
                 idict({self._uid: self.cell_label}): [
