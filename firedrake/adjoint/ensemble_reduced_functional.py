@@ -87,7 +87,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
     """
-    def __init__(self, functional, control, ensemble, scatter_control=True,
+    def __init__(self, functional, control, ensemble, parameters=None, scatter_control=True,
                  gather_functional=None,
                  derivative_components=None,
                  scale=1.0, tape=None,
@@ -98,7 +98,7 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
                  hessian_cb_pre=lambda *args: None,
                  hessian_cb_post=lambda *args: None):
         self.local_reduced_functional = ReducedFunctional(
-            functional, control,
+            functional, control, parameters=parameters,
             derivative_components=derivative_components,
             scale=scale, tape=tape,
             eval_cb_pre=eval_cb_pre,
