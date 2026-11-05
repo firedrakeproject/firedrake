@@ -205,29 +205,6 @@ The mesh generated in this example is shown below:
 .. image:: images/morphed_bathymetry.png
   :width: 100%
 
-Custom Extrusion
-~~~~~~~~~~~~~~~~
-
-For a more complicated extruded mesh, a custom *kernel* can be given by the
-user. Since this is a mesh-wide operation, a PyOP2 parallel loop is
-constructed by Firedrake.
-
-.. code-block:: python
-
-    m = UnitSquareMesh(5, 5)
-    kernel = op2.Kernel("""
-        void extrusion_kernel(double **base_coords, double **ext_coords,
-                              double *layer_height, int layer) {
-            for (int i=0; i<6; i++) {
-                ext_coords[i][0] = base_coords[i / 2][0]; // X
-                ext_coords[i][1] = base_coords[i / 2][1]; // Y
-                ext_coords[i][2] = 0.1 * (layer + (i % 2)) + 0.5 * base_coords[i / 2][1]; // Z
-            }
-        }
-    """, "extrusion_kernel")
-    mesh = ExtrudedMesh(m, 5, extrusion_type='custom', kernel=kernel, gdim=3)
-
-
 Function Spaces on Extruded Meshes
 ----------------------------------
 

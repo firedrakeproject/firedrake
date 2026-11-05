@@ -12,7 +12,7 @@ differential equation)` on: Firedrake uses a
 :py:func:`~.Mesh` for this.  On top of this mesh,
 we build :py:class:`~.FunctionSpace`\s which
 define the space in which the solutions to our equation live.  Finally
-we define :py:class:`firedrake.function.Function`\s in those
+we define :py:class:`Function <firedrake.function.Function>`\s in those
 function spaces to actually hold the solutions.
 
 Constructing meshes
@@ -364,7 +364,7 @@ A nonlinear variational problem is defined in terms of a linear form
 :math:`F[u;v]` which is linear in the test function :math:`v` but may
 be nonlinear in the coefficient :math:`u`. The nonlinear variational
 problem seeks :math:`u\in V` such that :math:`F[u;v]=0\, \forall v\in
-V`. In UFL, the solution variable should be of type :py:class:`~.Function`
+V`. In UFL, the solution variable should be of type :py:class:`Function <firedrake.function.Function>`
 instead of :py:class:`~firedrake.ufl_expr.TrialFunction`.
 
 .. code-block:: python
@@ -395,7 +395,7 @@ an appropriate space along with a function to hold the solution and
 perhaps a trial function.  Test functions are obtained via a call to
 :py:class:`~firedrake.ufl_expr.TestFunction`, trial functions via
 :py:class:`~firedrake.ufl_expr.TrialFunction` and functions with
-:py:class:`firedrake.function.Function`.  The former two are purely
+:py:class:`Function <firedrake.function.Function>`.  The former two are purely
 symbolic objects, the latter contains storage for the coefficients of
 the basis functions in the function space.  We use them as follows:
 

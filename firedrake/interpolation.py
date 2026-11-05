@@ -360,7 +360,7 @@ class Interpolator(abc.ABC):
             are supported.
         Returns
         -------
-        Function | Cofunction | MatrixBase | numbers.Number
+        firedrake.function.Function | Cofunction | MatrixBase | numbers.Number
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """

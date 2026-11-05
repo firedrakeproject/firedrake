@@ -629,7 +629,7 @@ class Dat(Tensor):
 
         Returns
         -------
-        np.number :
+        numpy.number :
             The l2 inner product.
 
         """

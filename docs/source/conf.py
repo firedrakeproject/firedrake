@@ -19,12 +19,12 @@
 # -- General configuration -----------------------------------------------
 
 # Disable warnings for missing options when running sphinx as PETSc does
-# not know what to do with the sphinx arguments.
+# not know what to do with the Sphinx arguments.
 import os
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
-# If your documentation needs a minimal Sphinx version, state it here.
-#needs_sphinx = '1.0'
+# Import Firedrake to initialise PETSc etc
+import firedrake
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
@@ -73,11 +73,27 @@ mathjax3_config = {
     'tex': {'packages': {'[+]': ['mathtools']}}
 }
 
-# Both the class’ and the __init__ method’s docstring are concatenated and
-# inserted into the class definition
-# autoclass_content = 'both'
-
+# autodoc will try to infer the function signature of C modules from the first
+# line of the docstring. This is an issue for things like dicts, which we
+# inherit from in some places, where the docstring of dict.pop is:
+#
+#     """D.pop(k[,d]) -> v, remove specified key and return the corresponding value.
+#     ...
+#     """
+#
+# autodoc gets confused by this and tries to parse it as a function signature.
+# We don't want that.
 autodoc_docstring_signature = False
+
+# We cannot safely inherit docstrings from upstream libraries (e.g. loopy)
+# as Sphinx may struggle to resolve them.
+autodoc_inherit_docstrings = False
+
+# Sphinx struggles to parse even slightly complex type hints
+# (e.g. Callable[[], Any]) so do not try to put them in the API documentation.
+# This means that we have to duplicate type information in both the signature
+# and docstring.
+autodoc_typehints = "none"
 
 # Document __call__ methods
 autodoc_default_options = {
@@ -179,8 +195,6 @@ nitpick_ignore_regex = [
     # Cofunction.ufl_domains references FormArgument but it isn't picked
     # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
     ('py:class', 'FormArgument'),
-    # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
-    ("py:obj", r"typing\.Literal\[.*"),
 ]
 
 # sphinxcontrib-bibtex reports duplicate citations as bibtex warnings,

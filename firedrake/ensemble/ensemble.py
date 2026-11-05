@@ -105,7 +105,7 @@ class Ensemble:
                         g: Function | Cofunction | None = None):
         """
         Check if :class:`firedrake.function.Function` ``f`` (and possibly a second
-        :class:`.Function` ``g``) is a valid argument for ensemble MPI routines
+        :class:`firedrake.function.Function` ``g``) is a valid argument for ensemble MPI routines
 
         Parameters
         ----------

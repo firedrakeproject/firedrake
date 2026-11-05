@@ -36,6 +36,7 @@ from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW,
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
+    """Parameters processed by the pyop3 compiler."""
 
     # {{{ optimisation options
 

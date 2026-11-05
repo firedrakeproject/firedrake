@@ -572,12 +572,12 @@ def closure_ordering(mesh, closure_data_plex):
     ----------
     mesh : MeshTopology
         The mesh providing the closures.
-    closure_data_plex : np.ndarray
+    closure_data_plex : numpy.ndarray
         Array storing cell closure information.
 
     Returns
     -------
-    np.ndarray :
+    numpy.ndarray
         Array storing the reordered cell closures.
 
     Notes

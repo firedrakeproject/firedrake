@@ -83,6 +83,7 @@ from pyop3.constants import (
     READ,
     RW,
     WRITE,
+    Intent,
 )
 __all__ += [
     "DECIDE",
@@ -96,6 +97,7 @@ __all__ += [
     "READ",
     "RW",
     "WRITE",
+    "Intent",
 ]
 from pyop3.device import CUDAGPU, HOST_DEVICE, offloading
 __all__ += ["CUDAGPU", "HOST_DEVICE", "offloading"]
@@ -195,3 +197,9 @@ from pyop3.utils import atom
 __all__ += ["atom"]
 from pyop3.visitors import replace
 __all__ += ["replace"]
+
+
+
+
+
+import pyop3.types

@@ -166,7 +166,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         Parameters
         ----------
 
-        subsets : Collection[Optional[:class:`pyop3.index_tree.index.Index`]]
+        subsets : Collection[:class:`pyop3.Index` | None]
             One subset for each local :class:`firedrake.function.Function`.
             None elements will be ignored.  The values of each local function
             will only be zeroed on the nodes on the corresponding subset.

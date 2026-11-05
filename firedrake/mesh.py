@@ -1573,6 +1573,25 @@ class AbstractMeshTopology(abc.ABC):
                 map_data_renum[from_pt_renum, j] = to_pt_renum
         return readonly(map_data_renum)
 
+    def _renumber_map_ragged(self, *args, **kwargs):
+        raise NotImplementedError
+        # sizes_renum = np.empty_like(sizes)
+        # offsets = utils.steps(sizes)
+        # for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
+        #     src_stratum_pt_renum = src_renumbering.getOffset(src_plex_pt)
+        #     sizes_renum[src_stratum_pt_renum] = sizes[src_stratum_pt]
+        #
+        # offsets_renum = utils.steps(sizes_renum)
+        # map_pts_renum = np.empty_like(map_pts)
+        # for src_stratum_pt, src_plex_pt in enumerate(range(src_start, src_end)):
+        #     src_stratum_pt_renum = src_renumbering.getOffset(src_plex_pt)
+        #     for i in range(sizes[src_stratum_pt]):
+        #         dest_pt = map_pts[offsets[src_stratum_pt]+i]
+        #         dest_stratum_pt_renum = dest_renumbering.getOffset(dest_pt)
+        #         map_pts_renum[offsets_renum[src_stratum_pt_renum]+i] = dest_stratum_pt_renum
+        #
+        # return readonly(map_pts_renum), readonly(sizes_renum)
+
     def support(self, index: MeshLoopIndex) -> op3.CalledMap:
         return self._support(index, label="support")
 
@@ -2377,7 +2396,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def cell_to_facets(self):
-        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop3.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data

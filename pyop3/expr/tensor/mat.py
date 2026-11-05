@@ -32,6 +32,7 @@ from .base import ReshapeTensorTransform, Tensor, TensorTransform
 
 @pyop3.record.record()
 class Mat(Tensor):
+    """A matrix."""
 
     # {{{ instance attributes
 

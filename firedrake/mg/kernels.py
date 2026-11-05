@@ -782,9 +782,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints(kernel_name)
 
-    # return op2.Kernel(
-    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-    #     headers=Ainv.headers, events=Ainv.events)
     kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
     return op3.Function(kernel, kernel_intents)
 

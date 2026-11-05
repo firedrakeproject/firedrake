@@ -86,7 +86,7 @@ def common_comm(objects: Iterable[Any], **kwargs) -> MPI.Comm:
 
     Returns
     -------
-    MPI.Comm
+    mpi4py.MPI.Comm
         A communicator that the provided objects are safely collective over.
 
     """

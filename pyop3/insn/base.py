@@ -175,6 +175,7 @@ _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 @pyop3.record.frozenrecord()
 class Loop(NonTerminalInstruction):
+    """A loop."""
 
     # {{{ instance attrs
 

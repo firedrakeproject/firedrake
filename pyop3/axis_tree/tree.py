@@ -1343,6 +1343,19 @@ labels.
 
 @pyop3.record.frozenrecord(repr=False)
 class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUnitAxisTree):
+    """Data layout descriptor.
+
+    Parameters
+    ----------
+    node_map : collections.abc.Mapping[pyop3.types.PathT, Axis] | types.NoneType
+        Mapping representing the tree of axes. Each key is a path of :class:`Axis`,
+        :class:`AxisComponent` label pairs (also a mapping), and each value is the
+        :class:`Axis` at this point in the tree. If ``node_map`` is :data:`None` then the
+        tree is considered empty (zero-sized).
+    comm : mpi4py.MPI.Comm | types.NoneType
+        MPI communicator for the object.
+
+    """
 
     # {{{ instance attrs
 
