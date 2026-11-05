@@ -2325,7 +2325,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop3Dat`.
+        r"""Create a :class:`pyop3.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """

@@ -71,8 +71,9 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
 
     Returns
     -------
-    layouts :
-        Mapping from path through the axis tree to the layout function.
+    tuple[immutabledict.immutabledict, pyop3.StarForest]
+        Mapping from path through the axis tree to the layout function, plus
+        the star forest.
 
     Examples
     --------

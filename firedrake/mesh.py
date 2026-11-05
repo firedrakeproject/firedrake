@@ -545,7 +545,7 @@ class AbstractMeshTopology(abc.ABC):
 
         This number is shared between all function spaces with the same
         :meth:`~.FunctionSpace.ufl_element` and
-        :meth:`~FunctionSpace.mesh`.
+        :meth:`firedrake.functionspaceimpl.FunctionSpace.mesh`.
 
         The default is 25 work functions per function space.  This can be
         set using :func:`set_max_work_functions`.
@@ -561,7 +561,7 @@ class AbstractMeshTopology(abc.ABC):
 
         This number is shared between all function spaces with the same
         :meth:`~.FunctionSpace.ufl_element` and
-        :meth:`~FunctionSpace.mesh`.
+        :meth:`firedrake.functionspaceimpl.FunctionSpace.mesh`.
         """
         self._max_work_functions[V.ufl_element()] = val
 
@@ -3683,7 +3683,7 @@ values from f.)"""
 
     @cached_property
     def cell_sizes(self):
-        """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
+        """A :class:`firedrake.function.Function` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
         from firedrake.ufl_expr import CellSize
@@ -4252,7 +4252,7 @@ values from f.)"""
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
 
-        :arg f: The :class:`firedrake.Function` object that marks
+        :arg f: The :class:`firedrake.function.Function` object that marks
             selected entities as 1. f.function_space().ufl_element()
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
@@ -4842,7 +4842,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     ``"custom"``
         use a custom kernel to generate the extruded coordinates
 
-    For more details see the :doc:`manual section on extruded meshes <extruded-meshes>`.
+    For more details see the :doc:`manual section on extruded meshes </extruded-meshes>`.
     """
     import firedrake.functionspace as functionspace
     import firedrake.function as function

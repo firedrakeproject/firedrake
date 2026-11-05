@@ -181,7 +181,9 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
-    # Ignore mission docs from Firedrake internal "private" code
+    (r'py:.*', r'loopy.symbolic\..*'),
+    (r'py:.*', r'loopy.types\..*'),
+    # Ignore missing docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
     #   firedrake.slate.slate.TensorBase
@@ -489,6 +491,7 @@ intersphinx_mapping = {
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
+    'pytools': ('https://documen.tician.de/pytools/', None),
     'immutabledict': ('https://immutabledict.corenting.fr/', None),
     'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
