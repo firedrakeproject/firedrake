@@ -1,7 +1,6 @@
 from firedrake import *
 import FIAT
 from firedrake.utils import IntType
-from firedrake.vertexonly_mutation import VertexOnlyMeshMutator
 from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
 import pytest
@@ -99,10 +98,8 @@ def test_vom_functions_migrate_lazily(vom, vom_fs, make_coefficient):
     parallel_assert(old_f_topo_version == old_vom_topo_version and old_g_topo_version == old_vom_topo_version,
                     "Functions did not start on the current VOM topology")
 
-    mutator = VertexOnlyMeshMutator(vom)
-
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
 
     new_vom_topo_version = vom.topology._topology_version
 
@@ -146,10 +143,8 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs, make_coefficient):
                     and h._mesh_topology_version == old_vom_topo_version,
                     "Functions did not start on the current VOM topology")
 
-    mutator = VertexOnlyMeshMutator(vom)
-
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
 
     new_vom_topo_version = vom.topology._topology_version
 
@@ -190,11 +185,9 @@ def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs, make_coefficien
     parallel_assert(old_f_topo_version == old_vom_topo_version,
                     "The Function did not start on the current VOM topology")
 
-    mutator = VertexOnlyMeshMutator(vom)
-
     # Do one VOM rebuild: absorb one particle on each rank
     absorbed_local_indices = np.asarray([0])
-    mutator.rebuild_vom(absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_local_indices)
 
     new_vom_topo_version = vom.topology._topology_version
 
@@ -226,15 +219,13 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs, make
     old_local_count = vom.topology.cells.owned.local_size
 
     # Remove every other particle on each rank (by construction, no cross-rank exchange occurs here)
-    mutator = VertexOnlyMeshMutator(vom)
-
     absorbed_local_indices = np.flatnonzero(pids_before_migration % 2 == 0)
     absorbed_pids = {int(pids_before_migration[i]) for i in absorbed_local_indices}
 
     expected_surviving_pids = {int(pid) for pid in pids_before_migration if pid not in absorbed_pids}
     expected_local_count = old_local_count - len(absorbed_local_indices)
 
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
 
     # Trigger Function migration through dat access
     new_dat = f.dat
@@ -276,9 +267,8 @@ def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs, make_coefficient
     f = make_coefficient(vom_fs)
 
     # Remove every point on every rank
-    mutator = VertexOnlyMeshMutator(vom)
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, dtype=IntType)
-    mutator.rebuild_vom(absorbed_vom_indices=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
 
     # Trigger Function migration through dat access
     new_dat = f.dat
@@ -297,7 +287,6 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
     parent_mesh = vom._parent_mesh
     comm = parent_mesh.comm
     f = make_coefficient(vom_fs)
-    mutator = VertexOnlyMeshMutator(vom)
 
     # Give every point a value that is computed from its particle ID
     pids_before = vom.topology._particle_ids.dat.data_ro.copy()
@@ -338,8 +327,8 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
         new_refcoords[0] = np.mean(ref_cell.get_vertices(), axis=0)
 
     vom.coordinates.dat.data_wo[:] = new_coords
-    mutator.commit_reference_state(new_parent_cells, new_refcoords)
-    mutator.rebuild_vom()
+    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
+    vom.rebuild(vom.coordinates.dat.data_ro)
 
     new_dat = f.dat  # trigger migration
     pids_after = vom._particle_ids.dat.data_ro.copy()
@@ -363,7 +352,6 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
 def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_coefficient):
     f = make_coefficient(vom_fs)
     value_size = vom_fs.value_size
-    mutator = VertexOnlyMeshMutator(vom)
     v0 = vom.topology._topology_version
     n_owned_v0 = vom.topology.cells.owned.local_size
     f_version_v0 = f._mesh_topology_version
@@ -384,7 +372,7 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_c
     # First VOM rebuild: absorb the first particle on each rank
     absorbed_indices_v1 = np.asarray([0], dtype=IntType)
     absorbed_pids_v1 = pids_v0[0]
-    mutator.rebuild_vom(absorbed_indices_v1)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_indices_v1)
 
     v1 = vom.topology._topology_version
     pids_v1 = vom._particle_ids.dat.data_ro.copy()
@@ -406,7 +394,7 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_c
     # is the ID of the last particle in the new numbering.
     absorbed_pids_v2 = pids_v1[-1]
 
-    mutator.rebuild_vom(absorbed_indices_v2)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_indices_v2)
 
     v2 = vom.topology._topology_version
     pids_v2 = vom._particle_ids.dat.data_ro.copy()
@@ -460,8 +448,7 @@ def test_cofunction_inplace_operators_before_and_after_migration(vom, vom_fs, op
     # Remove every other point on each rank (no point changes rank)
     n_owned = vom.topology.cells.owned.local_size
     absorbed = np.arange(0, n_owned, 2, dtype=IntType)
-    mutator = VertexOnlyMeshMutator(vom)
-    mutator.rebuild_vom(absorbed)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed)
 
     parallel_assert(c._mesh_topology_version < vom.topology._topology_version, "cofunction c migrated before it was accessed")
 

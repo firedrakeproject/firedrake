@@ -26,7 +26,7 @@ import pyop3 as op3
 import ufl
 from pyop3 import mpi
 from pyop3.utils import single_valued
-from pyop3.cache import cached_on, with_heavy_caches, cached_method
+from pyop3.cache import cached_on, with_heavy_caches, cached_method, cached_property_until, cached_method_until
 from pyop3.device import on_host
 from finat.quadrature import QuadratureRule
 
@@ -39,7 +39,7 @@ from firedrake.cython import dmcommon
 from firedrake.mesh import MeshTopology, ExtrudedMeshTopology, VertexOnlyMeshTopology, extract_mesh_topologies
 from firedrake.mesh import MeshGeometry, MeshSequenceTopology, MeshSequenceGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, cached_property_until, cached_method_until
+from firedrake.utils import IntType
 
 from firedrake._functionspaceimpl_cy import _get_ndofs_extruded, _partition_constrained_points
 

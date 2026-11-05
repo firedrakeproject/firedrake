@@ -1,8 +1,6 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
-import functools
 import warnings
-from typing import Callable, Self, Hashable
 
 from petsc4py import PETSc
 
@@ -28,7 +26,6 @@ from pyop3.utils import (  # noqa: F401
     is_sorted,
     unique_name as op3_unique_name,
 )
-from pyop3.cache import default_hashkey
 
 from functools import cache
 from firedrake.exceptions import UnrecognisedDeviceError
@@ -241,63 +238,3 @@ def check_netgen_installed() -> None:
             "are installed and available to Firedrake (see "
             "https://www.firedrakeproject.org/install.html#netgen)."
         )
-
-
-def cached_property_until(key: Callable[[Self], Hashable]):
-    """Decorator for a property that is cached until some value changes.
-
-    For example, the ``expensive_property`` below will be cached until
-    ``self.value`` changes, and will be recomputed with the new ``self.value``
-    and cached when accessed again.
-
-    .. code-block:: python
-
-        class MyClass:
-
-            def __init__(self, value):
-                self.value = value
-
-            @cached_property_until(lambda self: self.value)
-            def expensive_property(self):
-                # Some expensive computation that depends on self.value
-                ...
-    """
-    def decorator(func):
-        @property
-        @functools.wraps(func)
-        def wrapper(self):
-            cache_attribute = f"_{func.__name__}_cache"
-            current_value = key(self)
-            cached_value = getattr(self, cache_attribute, None)
-            if cached_value is None or cached_value[0] != current_value:
-                result = func(self)
-                setattr(self, cache_attribute, (current_value, result))
-                return result
-            return cached_value[1]
-        return wrapper
-    return decorator
-
-
-def cached_method_until(key: Callable[[Self], Hashable]):
-    """Decorator for a method whose results are cached until some value changes.
-
-    This is the counterpart of `cached_property_until` but for methods.
-    When a decorated method is called, its results are cached against the set of arguments
-    it was called with. All cached results are discarded when ``self.value`` changes.
-    """
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(self, *args, **kwargs):
-            cache_attribute = f"_{func.__qualname__}_cache"
-            current_value = key(self)
-            cached_value = getattr(self, cache_attribute, None)
-            if cached_value is None or cached_value[0] != current_value:
-                cached_value = (current_value, {})
-                setattr(self, cache_attribute, cached_value)
-            results = cached_value[1]
-            args_key = default_hashkey(*args, **kwargs)
-            if args_key not in results:
-                results[args_key] = func(self, *args, **kwargs)
-            return results[args_key]
-        return wrapper
-    return decorator

@@ -1,6 +1,5 @@
 from firedrake import *
 from firedrake.utils import IntType
-from firedrake.vertexonly_mutation import VertexOnlyMeshMutator
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
@@ -97,9 +96,7 @@ def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
     pids = vom._particle_ids.dat.data_ro.copy()
     absorbed = np.flatnonzero(pids % 2 == 0)
     # rebuild VOM
-    mutator = VertexOnlyMeshMutator(vom)
-    mutator._migrate_swarm(absorbed)
-    mutator._rebuild_topology()
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed)
 
     n_expected = n_owned - len(absorbed)
     n_global_absorbed = vom.comm.allreduce(len(absorbed), op=MPI.SUM)
@@ -112,7 +109,6 @@ def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
 def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
     """Check the FunctionSpace layout after two successive VOM rebuilds."""
     T = vom_fs.topological
-    mutator = VertexOnlyMeshMutator(vom)
     bs = T.block_size
 
     n_expected = vom.topology.cells.owned.local_size
@@ -123,7 +119,7 @@ def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
 
         # Remove every other point on each rank
         absorbed = np.arange(1, n_expected, 2, dtype=IntType)
-        mutator.rebuild_vom(absorbed_vom_indices=absorbed)
+        vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed)
         n_expected -= len(absorbed)
         n_expected_global_dofs -= vom.comm.allreduce(len(absorbed), op=MPI.SUM) * bs
 
@@ -145,10 +141,7 @@ def test_vom_fs_rebuilds_to_match_empty_vom(vom, vom_fs):
 
     # Remove every point on every rank
     n_owned = vom.topology.cells.owned.local_size
-    # rebuild VOM
-    mutator = VertexOnlyMeshMutator(vom)
-    mutator._migrate_swarm(np.arange(n_owned, dtype=IntType))
-    mutator._rebuild_topology()
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=np.arange(n_owned, dtype=IntType))
 
     assert_fs_layout(vom, T, 0)
     parallel_assert(T.template_vec.getSize() == 0, "the global template vector is not empty")
@@ -159,7 +152,6 @@ def test_vom_fs_rebuilds_to_match_empty_vom(vom, vom_fs):
 def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
     """Check the FunctionSpace layout after one point moves from rank 0 to another rank."""
     T = vom_fs.topological
-    mutator = VertexOnlyMeshMutator(vom)
     parent_topology = parent_mesh.topology
 
     old_global_dim = T.dim()
@@ -184,10 +176,9 @@ def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
 
     new_parent_cells, new_ref_coords = locate_points(parent_mesh, new_coords)
     vom.coordinates.dat.data_wo[:] = new_coords
-    mutator.commit_reference_state(new_parent_cells, new_ref_coords)
+    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_ref_coords)
     # rebuild VOM
-    mutator._migrate_swarm()
-    mutator._rebuild_topology()
+    vom.rebuild(vom.coordinates.dat.data_ro)
 
     n_expected = old_local_nodes
     if parent_mesh.comm.rank == 0:

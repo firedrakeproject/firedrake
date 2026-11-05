@@ -47,17 +47,35 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @CofunctionMixin._ad_annotate_init
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
                  count=None, parent: "Cofunction | None" = None, parent_index=None):
-        r"""
-        :param function_space: the :class:`.FunctionSpace`,
-            or :class:`.MixedFunctionSpace` on which to build this :class:`Cofunction`.
-            Alternatively, another :class:`Cofunction` may be passed here and its function space
-            will be used to build this :class:`Cofunction`.  In this
-            case, the function values are copied.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`) providing initial values (optional).
-            If val is an existing :class:`Cofunction`, then the data will be shared.
-        :param name: user-defined name for this :class:`Cofunction` (optional).
-        :param dtype: optional data type for this :class:`Cofunction`
-               (defaults to ``ScalarType``).
+        r"""Initialise a cofunction.
+
+            Parameters
+            ----------
+            function_space : FiredrakeDualSpace or Cofunction
+                The dual space on which to build this :class:`Cofunction`.
+                If a :class:`Cofunction` is passed, its function space
+                will be used to build this cofunction.  In this
+                case, the function values are copied.
+            val : array_like or pyop3.Dat or Cofunction, optional
+                The initial values of this cofunction.
+                If ``val`` is a :class:`pyop3.Dat` or a :class:`Cofunction`, then the data will be shared.
+            name : str, optional
+                A user-defined name for this :class:`Cofunction`.
+            dtype : numpy.dtype, optional
+                The data type of the values. The default is ``ScalarType``.
+            count : int, optional
+                The :class:`ufl.Cofunction` count that gives the symbolic identity
+                of this :class:`Cofunction`.
+            parent : Cofunction, optional
+                The :class:`Cofunction` whose data this cofunction views. If ``parent`` is
+                given, the data comes from ``parent.dat[parent_index]`` and
+                ``val`` is ignored. This argument is used to make subfunctions
+                and components of a :class:`Cofunction`.
+            parent_index : optional
+                The index into the data of ``parent`` that selects the data of
+                this cofunction. This is a component label for a subfunction, or a
+                :class:`pyop3.IndexTree` for a component of a vector-valued or
+                tensor-valued :class:`Cofunction`.
         """
 
         V = function_space
