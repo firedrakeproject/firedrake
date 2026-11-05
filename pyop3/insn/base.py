@@ -178,7 +178,7 @@ class Loop(NonTerminalInstruction):
 
     # {{{ instance attrs
 
-    index: LoopIndex
+    index: pyop3.LoopIndex
     statements: tuple[Instruction, ...]
 
     def collect_buffers(self, visitor):
@@ -363,7 +363,6 @@ class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
 class ArgumentSpec:
     intent: Intent
     dtype: np.dtype
-    space: tuple[int]  # TODO: definitely am not using this...
 
 
 class FunctionArgument(abc.ABC):
@@ -509,8 +508,7 @@ class Function(pyop3.obj.Object):
         for access, arg in zip(
             self._access_descrs, self.code.default_entrypoint.args, strict=True
         ):
-            shape = arg.shape if not isinstance(arg, lp.ValueArg) else ()
-            spec.append(ArgumentSpec(access, arg.dtype, shape))
+            spec.append(ArgumentSpec(access, arg.dtype))
         return tuple(spec)
 
     @property

@@ -75,7 +75,9 @@ mathjax3_config = {
 
 # Both the class’ and the __init__ method’s docstring are concatenated and
 # inserted into the class definition
-autoclass_content = 'both'
+# autoclass_content = 'both'
+
+autodoc_docstring_signature = False
 
 # Document __call__ methods
 autodoc_default_options = {

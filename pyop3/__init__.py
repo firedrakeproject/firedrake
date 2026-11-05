@@ -61,6 +61,9 @@ from pyop3.buffer import (
 __all__ += [
     "ArrayBuffer",
     "DensePythonMatContext",
+    "DenseRowPythonMatContext",
+    "DenseColumnPythonMatContext",
+    "DenseBlockPythonMatContext",
     "MonolithicPetscMatBufferSpec",
     "MonolithicPetscMatInitBufferSpec",
     "NestedPetscMatBufferSpec",
@@ -192,6 +195,3 @@ from pyop3.utils import atom
 __all__ += ["atom"]
 from pyop3.visitors import replace
 __all__ += ["replace"]
-
-# for type resolution with Sphinx
-import pyop3.types

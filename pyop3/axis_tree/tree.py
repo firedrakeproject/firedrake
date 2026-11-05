@@ -91,7 +91,7 @@ class LoopContextFreeAxisTreeLike(LoopContextAwareAxisTreeLike, pyop3.labeled_tr
 
     @property
     @abc.abstractmethod
-    def unindexed(self) -> LoopContextFreeAxisTreeLike | None:
+    def unindexed(self):
         pass
 
     @property
@@ -1599,7 +1599,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
 
     # This is a PETSc-specific attribute
     @cached_property
-    def global_numbering(self) -> Dat[IntType]:
+    def global_numbering(self) -> Dat:
         from pyop3 import Dat
 
         num_free_pts = self.buffer_size(include_ghosts=False)
@@ -1888,7 +1888,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         make_cache=lambda: pyop3.cache.LRUCache(10),
         get_comm=lambda s, **kw: s.comm,
     )
-    def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
+    def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray:
         mask_dat = pyop3.Dat(self, data=np.zeros(self.unindexed.local_size, dtype=np.uint8))
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
@@ -1903,7 +1903,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         return indices
 
     @cached_method()
-    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray[int]:
+    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray:
         # Attempt to convert the indices into a slice if possible
         indices = self._buffer_indices(include_ghosts=include_ghosts)
         maybe_slice = utils.try_cast_slice(indices)
@@ -2734,10 +2734,7 @@ def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _Unit
         return candidate
 
 
-def axis_tree_is_valid_subset(
-    candidate: ContextFreeSingleAxisTreeT,
-    target: ContextFreeSingleAxisTreeT,
-) -> bool:
+def axis_tree_is_valid_subset(candidate, target) -> bool:
     """Return if one axis tree may be 'overlaid' on top of another.
 
     We consider an axis tree to be a valid subset if all of its leaf paths

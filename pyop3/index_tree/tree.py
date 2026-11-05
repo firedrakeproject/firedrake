@@ -109,6 +109,7 @@ class SliceComponent(LabeledNodeComponent, abc.ABC):
 
 @pyop3.record.frozenrecord()
 class AffineSliceComponent(SliceComponent):
+    """Slice component selecting indices of the form ``a*i + b``."""
 
     # {{{ instance attrs
 
@@ -462,15 +463,6 @@ class ScalarIndex(UnitIndex):
         return ("0",)
 
 
-if typing.TYPE_CHECKING:
-    SliceComponentsT = (
-        Sequence[SliceComponent]
-        | SliceComponent
-        | Mapping[ComponentLabelT, Any]
-        | ComponentLabelT
-    )
-
-
 @pyop3.record.frozenrecord()
 class Slice(Index):
     """
@@ -484,14 +476,16 @@ class Slice(Index):
 
     # {{{ instance attrs
 
-    axis: AxisLabelT
-    components: SliceComponentsT
-    label: AxisLabelT
+    axis: "AxisLabelT"
+    components: "SliceComponentsT"
+    label: "AxisLabelT"
 
     def __init__(
         self,
-        axis: AxisLabelT,
-        components: SliceComponentsT,
+        # axis: "pyop3.types.AxisLabelT",
+        # components: "pyop3.types.SliceComponentsT",
+        axis,
+        components,
         *,
         label=DECIDE,
     ):

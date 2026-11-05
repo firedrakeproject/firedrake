@@ -641,6 +641,19 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
 @dataclass(frozen=True)
 class AxisConstraint:
+    """An axis constraint.
+
+    Parameters
+    ----------
+    axis: pyop3.Axis
+        The axis.
+    within_axes: Mapping[str, str]
+        Axis, component label pairs that this axis must be beneath. For instance
+        the cell DoF axis must be beneath the cell component of the mesh axis to
+        be valid.
+
+    """
+
     axis: op3.Axis
     within_axes: Mapping[str, str] = dataclasses.field(default_factory=idict)
 
@@ -2188,8 +2201,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     # NOTE: This function is exactly the same as make_dat for a non-mixed space
     @_with_mesh_heavy_cache
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
-        :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
+        """Return a newly allocated :class:`pyop3.Dat` for this space."""
         if val is not None and val.size != self.axes.local_size:
             raise ValueError("Provided array has the wrong number of entries")
 
@@ -2294,7 +2306,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+    r"""Can this proxy make :class:`pyop3.Dat` objects"""
 
     def collapse(self) -> "RestrictedFunctionSpace":
         """Drop the proxy metadata, returning a plain restricted space.
@@ -2313,7 +2325,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.types.dat.Dat`.
+        r"""Create a :class:`pyop3Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """

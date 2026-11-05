@@ -71,12 +71,12 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : pyop2.types.set.Subset or None
+    subset : pyop3.Index or None
         An optional subset to apply the interpolation over.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
-    access : pyop2.types.access.Access or None
-        The pyop2 access descriptor for combining updates to shared
+    access : pyop3.Intent or None
+        The pyop3 access descriptor for combining updates to shared
         DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``.
         Only ``WRITE`` is supported at present when interpolating across meshes
         unless the target mesh is a :func:`.VertexOnlyMesh`. Only ``INC`` is

@@ -1,6 +1,6 @@
 # Note that this file contains imports from all of pyop3. This module should
-# therefore only be imported inside a 'typing.TYPE_CHECKING' block.
-from collections.abc import Hashable, Mapping
+# therefore only be imported after all other modules.
+from collections.abc import Hashable, Mapping, Sequence
 from typing import Any, Literal
 
 import numpy as np
@@ -30,6 +30,18 @@ ConcretePathT = idict[NodeLabelT, NodeComponentLabelT]
 
 AxisComponentRegionSizeT = IntType | pyop3.expr.LinearDatBufferExpression
 AxisLabelT = NodeLabelT
+
+# }}}
+
+
+# {{{ index tree types
+
+SliceComponentsT = (
+    Sequence[pyop3.SliceComponent]
+    | pyop3.SliceComponent
+    | Mapping[NodeComponentLabelT, Any]
+    | NodeComponentLabelT
+)
 
 # }}}
 
