@@ -562,6 +562,9 @@ class BaseFormAssembler(AbstractFormAssembler):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
             mat, = args
+            if isinstance(mat, (firedrake.Cofunction, firedrake.Function)):
+                # The operand is the row Action(x, A), which contract assembles as the column A^H x.
+                return tensor.assign(mat) if tensor else mat
             result = tensor.petscmat if tensor else PETSc.Mat()
             # Out-of-place Hermitian transpose
             mat.petscmat.hermitianTranspose(out=result)
