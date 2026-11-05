@@ -91,12 +91,12 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
                  gather_functional=None,
                  derivative_components=None,
                  scale=1.0, tape=None,
-                 eval_cb_pre=lambda *args: None,
-                 eval_cb_post=lambda *args: None,
-                 derivative_cb_pre=lambda controls: controls,
-                 derivative_cb_post=lambda checkpoint, derivative_components, controls: derivative_components,
-                 hessian_cb_pre=lambda *args: None,
-                 hessian_cb_post=lambda *args: None):
+                 eval_cb_pre=lambda controls, parameters=None: None,
+                 eval_cb_post=lambda value, controls, parameters=None: None,
+                 derivative_cb_pre=lambda controls, parameters=None: controls,
+                 derivative_cb_post=lambda checkpoint, derivative_components, controls, parameters=None: (derivative_components),
+                 hessian_cb_pre=lambda controls, parameters=None: None,
+                 hessian_cb_post=lambda checkpoint, hessians, controls, parameters=None: None):
         self.local_reduced_functional = ReducedFunctional(
             functional, control, parameters=parameters,
             derivative_components=derivative_components,
