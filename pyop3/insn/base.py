@@ -813,6 +813,7 @@ class Assignment(AbstractAssignment):
 # TODO: rename NonEmptyAssignment, is this even needed?
 @pyop3.record.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
+    """Assignment type."""
 
     _assignee: Any
     expression: Any
@@ -830,7 +831,7 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
             self.assignment_type,
         )
 
-    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
+    def collect_buffers(self, visitor) -> OrderedFrozenSet[pyop3.buffer.ConcreteBuffer]:
         return OrderedFrozenSet().union(
             visitor(self.assignee),
             visitor(self.expression),

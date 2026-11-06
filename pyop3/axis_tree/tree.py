@@ -516,7 +516,7 @@ class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
         # instead of an IndexedAxisTree.
         return self.as_tree()[indices]
 
-    def iter(self, **kwargs):
+    def iter(self, **kwargs) -> pyop3.Index:
         return self.as_tree().iter(**kwargs)
 
     @property
@@ -859,7 +859,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         indices,
         *,
         strict=False,
-    ) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
+    ) -> LoopContextAwareAxisTreeLike:
         import pyop3.index_tree.tree
 
         if utils.is_ellipsis_type(indices):
@@ -975,7 +975,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def index(self) -> LoopIndex:
         return self.iter()
 
-    def iter(self, *, eager=False) -> LoopIndex:
+    def iter(self, *, eager=False) -> pyop3.LoopIndex:
         import pyop3
 
         if eager:
@@ -1054,7 +1054,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         return self.comm.allreduce(self.owned.local_size)
 
     @abc.abstractmethod
-    def section(self, path: pyop3.types.PathT, component: pyop3.types.ComponentT = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: AxisComponentLike = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
         pass
 
     @cached_property
@@ -1471,7 +1471,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
             return self[self._block_indices(block_shape)].materialize()
 
     # TODO: rename to local_section
-    def section(self, path: pyop3.types.PathT, component: pyop3.types.ComponentT = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: AxisComponentLike = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
         from pyop3 import Dat
         from pyop3.expr.visitors import replace_terminals
@@ -1643,6 +1643,13 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
 
 @pyop3.record.frozenrecord(repr=False)
 class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
+    """An axis tree that has been indexed.
+
+    Indexed axis trees preserve the original axis tree and the expressions
+    that are needed to address the original tree using indices in the
+    current tree.
+
+    """
 
     # {{{ instance attrs
 
@@ -1799,7 +1806,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             _validate=False,
         )
 
-    def section(self, path: pyop3.types.PathT, component: pyop3.types.ComponentT = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: AxisComponentLike = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as axistree but offsets are known not to increase linearly
         # clean this up once we know if works
         from pyop3 import Dat
@@ -2749,7 +2756,10 @@ def trim_axis_targets(targets, to_trim):
     })
 
 
-def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _UnitAxisTree) -> ContextFreeAxisTreeT:
+def matching_axis_tree(
+    candidate: LoopContextFreeAxisTreeLike,
+    target: AxisTree | _UnitAxisTree,
+) -> LoopContextFreeAxisTreeLike:
     if isinstance(candidate, AxisForest):
         for candidate_ in candidate.trees:
             if axis_tree_is_valid_subset(candidate_, target):

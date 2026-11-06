@@ -5,9 +5,9 @@ import dataclasses
 import functools
 import numbers
 import typing
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Set, Sequence
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -45,6 +45,13 @@ class Index(MultiComponentLabeledNode):
 # to matching index (instead of label).
 @pyop3.record.frozenrecord()
 class IndexTree(MutableLabeledTreeMixin, LabeledTree):
+    """A tree of indices.
+
+    Index trees describe the mapping between axis trees. They are necessary for
+    complex indexing operations like packing multi-field dats (for which simple
+    maps and slices are insufficient).
+
+    """
 
     # {{{ instance attrs
 
@@ -53,7 +60,7 @@ class IndexTree(MutableLabeledTreeMixin, LabeledTree):
 
     def __init__(
         self,
-        node_map: Mapping[PathT, Node] | None = None,
+        node_map: Mapping[PathT, Index] | None = None,
         *,
         comm: MPI.Comm | None = None,
     ) -> None:
@@ -113,19 +120,19 @@ class AffineSliceComponent(SliceComponent):
 
     # {{{ instance attrs
 
-    _component: ComponentLabelT
+    _component: NodeComponentLabelT
     start: numbers.Integral
     stop: numbers.Integral | None
     step: numbers.Integral
-    label: ComponentLabelT
+    label: NodeComponentLabelT
 
     def __init__(
         self,
-        component: ComponentLabelT,
+        component: AxisComponentLabelT,
         start: numbers.Integral = 0,
         stop: numbers.Integral | None = None,
         step: numbers.Integral = 1,
-        label: ComponentLabelT = DECIDE,
+        label: NodeComponentLabelT = DECIDE,
     ) -> None:
         object.__setattr__(self, "_component", component)
         object.__setattr__(self, "start", start)
@@ -138,7 +145,7 @@ class AffineSliceComponent(SliceComponent):
     # {{{ factory methods
 
     @classmethod
-    def from_slice(cls, component: ComponentLabelT, slice_: slice) -> Self:
+    def from_slice(cls, component: AxisComponentLabelT, slice_: slice) -> Self:
         start = slice_.start if slice_.start is not None else 0
         stop = slice_.stop
         step = slice_.step if slice_.step is not None else 1
@@ -161,7 +168,7 @@ class AffineSliceComponent(SliceComponent):
     # as_range?
     # to_range?
     # should imply the returned type is different!
-    def with_size(self, size: numbers.Integral | Dat | None = None) -> tuple:
+    def with_size(self, size: numbers.Integral | pyop3.Dat | None = None) -> tuple:
         if size is None and self.stop is None:
             raise ValueError()
 
@@ -173,6 +180,7 @@ class AffineSliceComponent(SliceComponent):
 
 @pyop3.record.frozenrecord()
 class SubsetSliceComponent(SliceComponent):
+    """A slice component that maps indices using an array."""
 
     _component: Any
     label: Any
@@ -250,6 +258,7 @@ class MapComponent(pyop3.obj.Object):
 # TODO: Implement AffineMapComponent
 @pyop3.record.frozenrecord()
 class TabulatedMapComponent(MapComponent):
+    """A map component that maps indices using an array."""
 
     target_axis: Any
     target_component: Any
@@ -719,6 +728,11 @@ class AbstractCalledMap(AxisIndependentIndex):
 
 @pyop3.record.frozenrecord()
 class CalledMap(AbstractCalledMap):
+    """A map that has been called against some index.
+
+    It represents the object f(i), where f is a `Map` and i some other `Index`.
+
+    """
 
     # {{{ instance attrs
 
@@ -831,6 +845,12 @@ class CalledMap(AbstractCalledMap):
 
 @pyop3.record.frozenrecord()
 class UnitCalledMap(UnitIndex, AbstractCalledMap):
+    """A called map with a single output.
+
+    Compared to a typical `CalledMap`, unit maps do not produce an axis in
+    the resulting tree.
+
+    """
 
     map: ScalarMap
     index: ScalarMap | LoopIndex

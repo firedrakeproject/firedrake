@@ -31,9 +31,12 @@ ConcretePathT: TypeAlias = idict[NodeLabelT, NodeComponentLabelT]
 
 # {{{ axis tree types
 
-AxisComponentRegionLabelT: TypeAlias = LabelT
-AxisComponentRegionSizeT: TypeAlias = numbers.Integral | pyop3.expr.LinearDatBufferExpression
 AxisLabelT: TypeAlias = NodeLabelT
+AxisComponentLabelT: TypeAlias = NodeComponentLabelT
+AxisComponentRegionLabelT: TypeAlias = LabelT
+
+AxisComponentLike: TypeAlias = pyop3.AxisComponent | AxisComponentLabelT
+AxisComponentRegionSizeT: TypeAlias = numbers.Integral | pyop3.expr.LinearDatBufferExpression
 
 # }}}
 

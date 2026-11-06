@@ -1582,7 +1582,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return self.shape
 
     @property
-    def block_size(self) -> IntType:
+    def block_size(self) -> numpy.dtype[IntType]:
         """The total number of degrees of freedom at each function space node."""
         return numpy.prod(self.shape, dtype=IntType)
 
@@ -2129,7 +2129,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return ()
 
     @property
-    def block_size(self) -> IntType:
+    def block_size(self) -> numpy.dtype[IntType]:
         return IntType.type(1)
 
     @cached_property

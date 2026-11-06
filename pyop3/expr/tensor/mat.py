@@ -5,8 +5,9 @@ import numbers
 import operator
 import typing
 import weakref
+from collections.abc import Hashable
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
 import numpy as np
 from immutabledict import immutabledict as idict

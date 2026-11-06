@@ -84,10 +84,14 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     ~~~~~~~~~~~~~~~~~~~
     For the simple axis tree (equivalent to a 2D numpy array):
 
+    .. code-block:: text
+
         {"A": 5}
         └──➤ {"B": 3}
 
     the layout functions are:
+
+    .. code-block:: text
 
         {
             {}: 0,
@@ -99,11 +103,15 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     For the axis tree:
 
+    .. code-block:: text
+
         {A: [{0: 3}, {1: 4}]}}
         ├──➤ {B: 2}
         └──➤ {C: 1}
 
     the layout functions are:
+
+    .. code-block:: text
 
         {
             {}: 0,
@@ -122,6 +130,8 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     ~~~~~~~~~~~~~~~~~~~~~~~~~
     For the axis tree:
 
+    .. code-block:: text
+
         {A: [{a: 1}, {b: 1}]}
         ├──➤ {B: [{x: 2}, {y: 1}]}
         └──➤ {C: [{x: 2}, {y: 1}]}
@@ -129,11 +139,15 @@ def compute_layouts(axis_tree: AxisTree) -> idict[ConcretePathT, ExpressionT]:
     where 'a' and 'b' are axis components with size 1 and 'x' and 'y' are
     component *regions*, we expect to have the following data layout:
 
+    .. code-block:: text
+
         [ a0, a1, b0, b1 || a2, b2 ]
                "x"           "y"
 
     In other words all entities in the 'x' region are partitioned to occur
     before those in 'y'. This means that the layout functions are as follows:
+
+    .. code-block:: text
 
         {
             {}: 0,

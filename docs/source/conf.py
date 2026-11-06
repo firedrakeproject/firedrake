@@ -502,6 +502,7 @@ intersphinx_mapping = {
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
     'pytools': ('https://documen.tician.de/pytools/', None),
+    'pymbolic': ('https://documen.tician.de/pymbolic/', None),
     'immutabledict': ('https://immutabledict.corenting.fr/', None),
     'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)

@@ -5,7 +5,7 @@ import contextlib
 import math
 import numbers
 import typing
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from functools import cached_property
 from types import GeneratorType
 from typing import ClassVar, Literal
@@ -251,7 +251,7 @@ class Dat(Tensor):
         cls,
         array: np.ndarray,
         *,
-        sf: StarForest | None = None,
+        sf: pyop3.sf.StarForest | None = None,
         comm: MPI.Comm = MPI.COMM_SELF,
         buffer_kwargs=None,
         constant: bool = False,
