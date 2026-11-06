@@ -22,7 +22,10 @@ from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.exceptions import MismatchingFunctionSpaceError
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
 from firedrake.functionspaceimpl import is_mixed
-from firedrake.interpolation import get_interpolator, get_runtime_tabulation_coordinates, SameMeshInterpolator
+from firedrake.interpolation import (
+    get_interpolator, get_runtime_tabulation_coordinates, SameMeshInterpolator,
+    lower_argument_interpolations,
+)
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
 from firedrake.mesh import get_mesh_topologies, MeshGeometry, MeshLoopIndex
@@ -846,6 +849,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if form_compiler_parameters is not None:
                 scalar_type = form_compiler_parameters.get("scalar_type", scalar_type)
             expr = restructure_base_form(expr, complex_mode=is_complex(scalar_type))
+            expr = lower_argument_interpolations(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. Both objects must support the assembler cache.

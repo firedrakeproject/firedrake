@@ -4,17 +4,23 @@ import numpy
 import abc
 
 import dataclasses
-from functools import cached_property, partial
+from functools import cached_property, partial, singledispatchmethod
 from typing import Literal, Callable, Iterable
 from dataclasses import dataclass
 from numbers import Number
 
-from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms import extract_arguments, extract_coefficients, replace
+from ufl.algorithms.analysis import extract_base_form_operators
+from ufl.algorithms.apply_derivatives import dual_slot_action
+from ufl.algorithms.map_integrands import map_integrands
+from ufl.algorithms.restructure_base_form import BaseFormTraversal
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.duals import is_dual
-from ufl.constantvalue import as_ufl
-from ufl.form import ZeroBaseForm, BaseForm
+from ufl.constantvalue import as_ufl, zero
+from ufl.corealg.dag_traverser import DAGTraverser
+from ufl.tensors import as_vector
+from ufl.form import ZeroBaseForm, BaseForm, Form
 from ufl.core.interpolate import Interpolate as UFLInterpolate
 
 import pyop3 as op3
@@ -183,6 +189,14 @@ class Interpolate(UFLInterpolate):
         try:
             source_mesh = extract_unique_domain(operand) or target_mesh
         except ValueError:
+            coefficient_split = {
+                c: as_vector([f[index] for f in c.subfunctions for index in numpy.ndindex(f.ufl_shape)])
+                for c in extract_coefficients(operand)
+                if isinstance(c, Function) and len(c.function_space()) > 1
+            }
+            split_operand = replace(operand, coefficient_split)
+            if split_operand != operand:
+                return get_interpolator(self._ufl_expr_reconstruct_(split_operand))
             if has_mixed_arguments or len(self.target_space) > 1:
                 return MixedInterpolator(self)
             raise NotImplementedError(
@@ -238,6 +252,58 @@ def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate
         A symbolic :class:`Interpolate` object representing the interpolation operation.
     """
     return Interpolate(expr, V, **kwargs)
+
+
+class _ArgumentInterpolationLowerer(BaseFormTraversal):
+    """Extract non-fusible argument interpolations from form integrands."""
+
+    @singledispatchmethod
+    def process(self, o: Expr | BaseForm) -> Expr | BaseForm:
+        return super().process(o)
+
+    @process.register(Form)
+    def _(self, form: Form) -> BaseForm:
+        from firedrake.assemble import _can_fuse_operator
+
+        for operator in form.base_form_operators():
+            if not isinstance(operator, UFLInterpolate) or len(operator.arguments()) != 2:
+                continue
+            dual, *_ = operator.argument_slots()
+            if not isinstance(dual, Coargument):
+                continue
+            affected, untouched = [], []
+            for integral in form.integrals():
+                domains = {integral.ufl_domain(), *integral.extra_domain_integral_type_map()}
+                if (operator in extract_base_form_operators(integral.integrand())
+                        and not _can_fuse_operator(operator, domains)):
+                    affected.append(integral)
+                else:
+                    untouched.append(integral)
+            if not affected:
+                continue
+
+            argument, = (a for a in operator.arguments() if a != dual)
+            local_argument = Argument(dual.function_space().dual(), argument.number(), argument.part())
+            affected = Form(affected)
+            # zero every other occurence of the interpolate's source argument
+            mapping = {argument: zero(argument.ufl_shape)}
+            mapping.update({op: zero(op.ufl_shape) for op in affected.base_form_operators()
+                            if argument in op.arguments()})
+            mapping[operator] = local_argument
+            local_form = replace(affected, mapping)
+            if local_form.empty():
+                continue
+            remainder = Form(untouched) + replace(affected, {operator: zero(operator.ufl_shape)})
+            contracted = dual_slot_action(operator._ufl_expr_reconstruct_(
+                *operator.ufl_operands, argument_slots=(local_form, *operator.argument_slots()[1:])
+            ), local_form)
+            return self(contracted) if remainder.empty() else self(remainder) + self(contracted)
+        return form
+
+
+def lower_argument_interpolations(form: Expr | BaseForm) -> Expr | BaseForm:
+    """Lower non-fusible interpolations of form arguments into actions. """
+    return _ArgumentInterpolationLowerer()(form)
 
 
 class Interpolator(abc.ABC):

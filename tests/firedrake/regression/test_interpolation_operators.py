@@ -6,6 +6,8 @@ from firedrake.interpolation import (
 from firedrake.matrix import ImplicitMatrix, Matrix
 import pytest
 import numpy as np
+import ufl
+from firedrake.assemble import BaseFormAssembler
 
 
 def params():
@@ -108,6 +110,84 @@ def test_cross_mesh_mattype(value_shape, mat_type):
     res = assemble(action(I_mat, f))
     exact = Function(V2).interpolate(expr2)
     assert np.allclose(res.dat.data, exact.dat.data)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("mode", ["test", "trial", "both"])
+def test_cross_mesh_arguments_in_integrals(mode):
+    source = UnitSquareMesh(3, 3)
+    target = UnitSquareMesh(2, 2)
+    V = FunctionSpace(source, "CG", 1)
+    Q = FunctionSpace(target, "CG", 1)
+    v = TestFunction(V if mode in ("test", "both") else Q)
+    u = TrialFunction(V if mode in ("trial", "both") else Q)
+    Iv = interpolate(v, Q) if mode in ("test", "both") else v
+    Iu = interpolate(u, Q) if mode in ("trial", "both") else u
+    a = inner(Iu, Iv) * dx(domain=target)
+    A = assemble(a, mat_type="aij")
+
+    # Compare the assembled operator against independent forward and adjoint
+    # interpolation of a coefficient and the resulting linear functional.
+    x, y = SpatialCoordinate(u.function_space().mesh())
+    f = Function(u.function_space()).interpolate(x + 2*y)
+    fq = assemble(interpolate(f, Q)) if mode in ("trial", "both") else f
+    load = inner(fq, TestFunction(Q)) * dx
+    expected = assemble(interpolate(v, load)) if mode in ("test", "both") else assemble(load)
+    result = assemble(action(A, f))
+    assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
+
+    lowered = BaseFormAssembler.preprocess_base_form(a)
+    assert isinstance(lowered, ufl.Action)
+    assert BaseFormAssembler.preprocess_base_form(lowered) == lowered
+
+
+@pytest.mark.parallel([1, 2])
+def test_cross_mesh_sum_of_interpolated_arguments():
+    source = UnitSquareMesh(3, 3)
+    target = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(source, "CG", 1)
+    Q = VectorFunctionSpace(target, "CG", 1)
+    P = VectorFunctionSpace(target, "CG", 2)
+    v = TestFunction(V)
+    x, y = SpatialCoordinate(target)
+    f = Function(P).interpolate(as_vector((x**2, y**2)))
+    F = (inner(f, interpolate(v, Q)) + inner(f, interpolate(2*v, P))) * dx(domain=target)
+    expected = assemble(interpolate(v, inner(f, TestFunction(Q)) * dx))
+    expected += assemble(interpolate(2*v, inner(f, TestFunction(P)) * dx))
+    result = assemble(F)
+    assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 2])
+def test_cross_mesh_mixed_jump_derivative():
+    mesh = UnitSquareMesh(3, 3)
+    other = UnitSquareMesh(2, 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(other, "CG", 1)
+    Z = Q * R
+    z = Function(Z)
+    z.sub(0).interpolate(SpatialCoordinate(mesh)[0])
+    z.sub(1).interpolate(2*SpatialCoordinate(other)[1])
+    t, s = split(z)
+    v, w = TestFunctions(Z)
+    F = inner(t - interpolate(s, Q), v - interpolate(w, Q)) * ds(domain=mesh)
+    F += inner(s, w) * dx(domain=other)
+    J = assemble(derivative(F, z), mat_type="aij")
+    # This residual is linear, so applying its Jacobian to its coefficient
+    # must recover the residual, including the un-interpolated contribution.
+    result = assemble(action(J, z))
+    expected = assemble(F)
+    assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
+
+
+def test_same_mesh_argument_interpolation_stays_fused():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    a = inner(interpolate(TrialFunction(V), Q), TestFunction(Q)) * dx
+    lowered = BaseFormAssembler.preprocess_base_form(a)
+    assert isinstance(lowered, ufl.Form)
+    assert lowered.base_form_operators()
 
 
 @pytest.mark.parametrize("value_shape", ["scalar", "vector"], ids=lambda v: f"fs_type={v}")
