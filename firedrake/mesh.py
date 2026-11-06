@@ -3872,16 +3872,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         swarm.set_field("migration_origin", origin[survivors])
 
         # Redistribute particles across ranks
-        ##
-        # NOTE : A VOM swarm is a PIC swarm for which the migration type is `DMCELLNSCATTER` i.e.,
-        # `DMSwarmMigrate``first locates each point in this rank's cells using ``DMSwarmPIC_coor`` value (`owner_plex_parent_cells_local` acts as a guess for the search)
-        # PETSc replaces each particle’s cell ID with the located cell, or “not found”. Each particle that wasn't found
-        # is sent to every neighbour rank. Each receiving rank repeats the locate and send process.
-        # In this context, this seems wasteful since we already worked out each particle's owner rank and owner-local cell from the parent pointSF.
-        ##
-        # There's another migration type ``DMSWARM_MIGRATE_BASIC`` that sends each point to the rank specified in the `DMSwarm_rank` field.
-        # TODO: Should we switch to ``DMSWARM_MIGRATE_BASIC``?
-        # petsc4py doesn't expose a setter for migration type so would need a wrapper for this.
+        # TODO: change the swarm's migration type to ``DMSWARM_MIGRATE_BASIC``
+        # so that particles are sent to the destination ranks set in ``DMSwarm_rank``.
         swarm.migrate(remove_sent_points=True)
 
         # Convert the received plex cell numbers to Firedrake cell numbers
