@@ -89,7 +89,7 @@ runs:
           EXTRA_CONFIGURE_OPTIONS=""
         elif [ ${{ inputs.base_ref }} = 'release' ]; then
           git clone --depth 1 \
-            --branch $(python3 ./firedrake-repo/scripts/firedrake-configure --show-petsc-version) \
+            --branch connorjward/gc-fix2 \
             https://gitlab.com/petsc/petsc.git
           : # The SLEPc packaged with PETSc v3.26.0 doesn't actually build against
           : # slepc4py==3.26.0
