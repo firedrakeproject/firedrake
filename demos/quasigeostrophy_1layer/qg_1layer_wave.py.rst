@@ -136,7 +136,7 @@ Firedrake's ability to :doc:`interpolate UFL expressions <../interpolation>`.
   x = SpatialCoordinate(mesh)
   q0 = Function(Vdg).interpolate(0.1 * sin(x[0]) * sin(x[1]))
 
-We define some :class:`~.Function`\s to store the fields:
+We define some :class:`firedrake.function.Function`\s to store the fields:
 
 .. code-block:: python
 
@@ -220,7 +220,7 @@ fill.
 
 To visualise the output of the simulation, we create a
 :class:`~.vtk_output.VTKFile` object.  To which we can store multiple
-:class:`~.Function`\s.  So that we can distinguish between them we will
+:class:`firedrake.function.Function`\s.  So that we can distinguish between them we will
 give them descriptive names.
 
 .. code-block:: python

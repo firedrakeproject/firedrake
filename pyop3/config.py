@@ -11,7 +11,7 @@ from typing import Any
 import pytools
 from immutabledict import immutabledict as idict
 
-from pyop3.constants import _nothing
+import pyop3.constants
 
 _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.getuid()}"
 
@@ -23,7 +23,7 @@ class ConfigOption:
     description: str
     # kw only below
     from_str: Callable = lambda x: x
-    default_debug_value: Any = _nothing
+    default_debug_value: Any = pyop3.constants.NOTHING
     value_getter: Callable | None = None
     value_setter: Callable | None = None
 
@@ -278,7 +278,7 @@ def _prepare_configuration() -> Pyop3Configuration:
         if option_name in env_options:
             option = option_spec.from_str(env_options.pop(option_name))
         elif debug_mode:
-            if option_spec.default_debug_value is not _nothing:
+            if option_spec.default_debug_value is not pyop3.constants.NOTHING:
                 option = option_spec.default_debug_value
             else:
                 option = option_spec.default_value

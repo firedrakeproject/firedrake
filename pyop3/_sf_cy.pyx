@@ -21,11 +21,11 @@ from petsctools.cpetsc cimport CHKERR as CHKERR_c
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def filter_petsc_sf(
-    sf: cpetsc.PetscSF_py,
+    cpetsc.PetscSF_py sf,
     const cpetsc.PetscInt[::1] selected_points,
-    p_start: cpetsc.PetscInt,
-    p_end: cpetsc.PetscInt,
-) -> cpetsc.PetscSF_py:
+    cpetsc.PetscInt p_start,
+    cpetsc.PetscInt p_end,
+):
     """
     neednt be ordered
 
@@ -49,7 +49,7 @@ def filter_petsc_sf(
     return create_petsc_section_sf(sf, section)
 
 
-def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_py) -> PETSc.SF:
+def create_petsc_section_sf(cpetsc.PetscSF_py sf, cpetsc.PetscSection_py section) -> PETSc.SF:
     """Create the halo exchange sf.
 
     Parameters
@@ -97,7 +97,7 @@ def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_
     return halo_exchange_sf
 
 
-def renumber_petsc_sf(sf: cpetsc.PetscSF_py, renumbering: cpetsc.PetscInt[::1]) -> cpetsc.PetscSF_py:
+def renumber_petsc_sf(cpetsc.PetscSF_py sf, cpetsc.PetscInt[::1] renumbering):
     """Renumber an SF.
 
     Parameters

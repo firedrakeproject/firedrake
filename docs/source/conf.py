@@ -19,17 +19,18 @@
 # -- General configuration -----------------------------------------------
 
 # Disable warnings for missing options when running sphinx as PETSc does
-# not know what to do with the sphinx arguments.
+# not know what to do with the Sphinx arguments.
 import os
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
-# If your documentation needs a minimal Sphinx version, state it here.
-#needs_sphinx = '1.0'
+# Import Firedrake to initialise PETSc etc
+import firedrake
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx_autodoc_typehints',
     'sphinx.ext.extlinks',
     'sphinx.ext.mathjax',
     'sphinx.ext.intersphinx',
@@ -73,14 +74,40 @@ mathjax3_config = {
     'tex': {'packages': {'[+]': ['mathtools']}}
 }
 
-# Both the class’ and the __init__ method’s docstring are concatenated and
-# inserted into the class definition
+# Concatenate the class’ and the __init__ method’s docstrings
 autoclass_content = 'both'
+
+# autodoc will try to infer the function signature of C modules from the first
+# line of the docstring. This is an issue for things like dicts, which we
+# inherit from in some places, where the docstring of dict.pop is:
+#
+#     """D.pop(k[,d]) -> v, remove specified key and return the corresponding value.
+#     ...
+#     """
+#
+# autodoc gets confused by this and tries to parse it as a function signature.
+# We don't want that.
+autodoc_docstring_signature = False
+
+# We cannot safely inherit docstrings from upstream libraries (e.g. loopy)
+# as Sphinx may struggle to resolve them.
+autodoc_inherit_docstrings = False
 
 # Document __call__ methods
 autodoc_default_options = {
-    'special-members': '__call__'
+    'special-members': '__call__,__getitem__',
+    # skip some entries that throw some erroneous warnings - these are just
+    # attributes that we import into our namespace and it is a Sphinx bug that
+    # they are even being parsed.
+    'exclude-members': """
+        CallInstruction,
+        MultiAssignmentBase,
+        simplify_via_aff,
+    """,
 }
+
+# UNDO ME:
+autodoc_mock_imports = ["jax", "torch"]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -163,7 +190,10 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
-    # Ignore mission docs from Firedrake internal "private" code
+    (r'py:.*', r'loopy.kernel\..*'),
+    (r'py:.*', r'loopy.symbolic\..*'),
+    (r'py:.*', r'loopy.types\..*'),
+    # Ignore missing docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
     #   firedrake.slate.slate.TensorBase
@@ -177,8 +207,6 @@ nitpick_ignore_regex = [
     # Cofunction.ufl_domains references FormArgument but it isn't picked
     # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
     ('py:class', 'FormArgument'),
-    # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
-    ("py:obj", r"typing\.Literal\[.*"),
 ]
 
 # sphinxcontrib-bibtex reports duplicate citations as bibtex warnings,
@@ -461,18 +489,21 @@ texinfo_documents = [(
 
 intersphinx_mapping = {
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
-    'FIAT': ('https://firedrakeproject.org/fiat', None),
-    'petsctools': ('https://firedrakeproject.org/petsctools/', None),
+    'FIAT': ('https://www.firedrakeproject.org/fiat', None),
+    'petsctools': ('https://www.firedrakeproject.org/petsctools/', None),
     'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
-    'matplotlib': ('https://matplotlib.org/', None),
+    'matplotlib': ('https://matplotlib.org/stable/', None),
     'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
+    'pytools': ('https://documen.tician.de/pytools/', None),
+    'pymbolic': ('https://documen.tician.de/pymbolic/', None),
+    'immutabledict': ('https://immutabledict.corenting.fr/', None),
     'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }

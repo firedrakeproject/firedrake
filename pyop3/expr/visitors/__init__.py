@@ -756,7 +756,7 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
         return pyop3.expr.LinearDatBufferExpression(dat_expr.buffer, layout)
 
 
-def linearize_expr(expr: ExpressionT, path: PathT | None = None) -> ExpressionT:
+def linearize_expr(expr: ExpressionT, path: pyop3.types.PathT | None = None) -> ExpressionT:
     return ExpressionLinearizer()(expr, path=path)
 
 

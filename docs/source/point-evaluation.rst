@@ -5,7 +5,7 @@
 Point evaluation
 ================
 
-Firedrake can evaluate :py:class:`~.Function`\s at arbitrary physical
+Firedrake can evaluate :py:class:`firedrake.function.Function`\s at arbitrary physical
 points.  This feature can be useful for the evaluation of the result
 of a simulation, or for creating expressions which contain point evaluations.
 Two APIs for this are offered: a Firedrake-specific one, and one from UFL.
@@ -18,9 +18,9 @@ Primary API: Interpolation onto a vertex-only mesh
 Firedrake's principal API for evaluating functions at arbitrary points,
 interpolation onto a :func:`~.VertexOnlyMesh`, is designed for evaluating a
 function at many points, or repeatedly, and for creating expressions which
-contain point evaluations. It is parallel-safe. Whilst :meth:`~.Function.at`
+contain point evaluations. It is parallel-safe. Whilst :meth:`firedrake.function.Function.at`
 produces a list of values, cross-mesh interpolation onto
-:func:`~.VertexOnlyMesh` gives Firedrake :py:class:`~.Function`\s.
+:func:`~.VertexOnlyMesh` gives Firedrake :py:class:`firedrake.function.Function`\s.
 
 This is discussed in detail in :cite:`nixonhill2023consistent` but, briefly,
 the idea is that the :func:`~.VertexOnlyMesh` is a mesh that represents a
@@ -46,7 +46,7 @@ will print ``[0.02, 0.08, 0.18]`` when running in serial, the values of
 :math:`(0.3, 0.3)`. For details on viewing the outputs in parallel, see the
 :ref:`section on the input ordering property. <input_ordering>`
 
-Note that ``f_at_points`` is a :py:class:`~.Function` which takes
+Note that ``f_at_points`` is a :py:class:`firedrake.function.Function` which takes
 on *all* the values of ``f`` evaluated at ``points``. The cell ordering of a
 :func:`~.VertexOnlyMesh` follows the ordering of the list of points it is given
 at construction. In general :func:`~.VertexOnlyMesh` accepts any numpy array of
@@ -154,7 +154,7 @@ parent mesh and the points to evaluate at:
    point_evaluator = PointEvaluator(mesh, points)
 
 Internally, this creates a vertex-only mesh at the given points, immersed in the given mesh.
-To evaluate a :py:class:`~.Function` defined on the parent mesh at the given points,
+To evaluate a :py:class:`firedrake.function.Function` defined on the parent mesh at the given points,
 we use :meth:`~.PointEvaluator.evaluate`:
 
 .. code-block:: python
