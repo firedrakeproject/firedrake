@@ -107,7 +107,6 @@ class VectorSpaceBasis:
         ----------
         function_space
             the new :class:`~.FunctionSpace`.
-
         Returns
         -------
         VectorSpaceBasis

@@ -148,6 +148,7 @@ __all__ += [
 from pyop3.index_tree import (
     AbstractLoopIndex,
     AffineSliceComponent,
+    CalledMap,
     Index,
     IndexTree,
     LoopIndex,
@@ -163,6 +164,7 @@ from pyop3.index_tree import (
 __all__ += [
     "AbstractLoopIndex",
     "AffineSliceComponent",
+    "CalledMap",
     "Index",
     "IndexTree",
     "LoopContextFreeLoopIndex",

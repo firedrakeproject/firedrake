@@ -150,7 +150,7 @@ class Ensemble:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The result of the reduction.
 
         Raises

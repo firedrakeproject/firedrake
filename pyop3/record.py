@@ -61,12 +61,19 @@ def _make_record_class(**kwargs):
                 f"class '{cls.__qualname__}' does not have attribute '{abstract_attr}'"
 
         # Make sure that we call all the finalisers after initialisation
-        orig_init = cls.__init__
+        if cls.__init__ is object.__init__:
 
-        @functools.wraps(orig_init)
-        def init_with_finalizers(self, *args, **kwargs):
-            orig_init(self, *args, **kwargs)
-            _finalize_obj(self)
+            @functools.wraps(cls.__init__)
+            def init_with_finalizers(self, *args, **kwargs):
+                object.__init__(self)
+                _finalize_obj(self)
+        else:
+            orig_init = cls.__init__
+
+            @functools.wraps(cls.__init__)
+            def init_with_finalizers(self, *args, **kwargs):
+                orig_init(self, *args, **kwargs)
+                _finalize_obj(self)
         cls.__init__ = init_with_finalizers
 
         # Attach the other init method

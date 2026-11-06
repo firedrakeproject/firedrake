@@ -141,7 +141,7 @@ class LabeledTree(AbstractLabeledTreeLike):
     # {{{ factory methods
 
     @classmethod
-    def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> LabeledTree:
+    def from_iterable(cls, iterable: Iterable, *args, **kwargs) -> LabeledTree:
         raise NotImplementedError
 
     @classmethod
@@ -299,7 +299,7 @@ class LabeledTree(AbstractLabeledTreeLike):
     def is_linear(self) -> bool:
         return len(self.leaf_paths) == 1
 
-    def visited_nodes(self, path: PathT) -> tuple[tuple[Node, ComponentLabelT], ...]:
+    def visited_nodes(self, path: PathT) -> tuple[tuple[Node, NodeComponentLabelT], ...]:
         path = as_path(path)
 
         ordered_path = utils.just_one(

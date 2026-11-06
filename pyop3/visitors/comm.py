@@ -51,7 +51,7 @@ def _(obj: pyop3.obj.Object, /) -> MPI.Comm:
 @get_comm.register(types.NoneType)
 @get_comm.register(lp.TranslationUnit)
 @get_comm.register(pyop3.constants.Intent)
-@get_comm.register(pyop3.constants._Decide)  # pyop3.DECIDE
+@get_comm.register(pyop3.constants.DecideType)  # pyop3.DECIDE
 def _(_, /) -> MPI.Comm:
     return MPI.COMM_SELF
 

@@ -3,7 +3,8 @@
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
-SPHINXBUILD   = FIREDRAKE_BUILDING_DOCS=1 sphinx-build
+# SPHINXBUILD   = FIREDRAKE_BUILDING_DOCS=1 sphinx-build
+SPHINXBUILD   = FIREDRAKE_BUILDING_DOCS=1 sphinx-build --pdb --exception-on-warning
 PAPER         =
 BUILDDIR      = build
 

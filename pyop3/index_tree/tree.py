@@ -832,8 +832,8 @@ class CalledMap(AbstractCalledMap):
 @pyop3.record.frozenrecord()
 class UnitCalledMap(UnitIndex, AbstractCalledMap):
 
-    map: UnitMap
-    index: UnitMap | LoopIndex
+    map: ScalarMap
+    index: ScalarMap | LoopIndex
     label: Any
 
     def __init__(self, map, index, *, label=DECIDE):

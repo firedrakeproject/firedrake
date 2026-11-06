@@ -269,8 +269,8 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     return readonly(strides_[::-1])
 
 
-def pairwise(iterable, *, final=pyop3.constants._nothing):
-    if final is not pyop3.constants._nothing:
+def pairwise(iterable, *, final=pyop3.constants.NOTHING):
+    if final is not pyop3.constants.NOTHING:
         return itertools.zip_longest(iterable, iterable[1:], fillvalue=final)
     else:
         return zip(iterable, iterable[1:])
@@ -299,7 +299,7 @@ def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
         return obj.astype(dtype, casting="same_kind")
 
 
-def strict_int(num: numbers.Number) -> IntType:
+def strict_int(num: numbers.Number) -> np.dtype[IntType]:
     return strict_cast(num, IntType)
 
 
@@ -333,7 +333,7 @@ def map_when(func, when_func, iterable):
             yield item
 
 
-def readonly(array: np.ndarray | cp.ndarray) -> np.ndarray | cp.ndarray:
+def readonly(array):
     """Return a readonly view of a numpy/cupy array."""
     view = array.view()
     if isinstance(array, np.ndarray):

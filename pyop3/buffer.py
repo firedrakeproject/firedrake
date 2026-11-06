@@ -30,6 +30,10 @@ from pyop3.utils import (
 
 from ._buffer_cy import set_petsc_mat_diagonal
 
+if TYPE_CHECKING:
+    import pyop3.axis_tree
+    from pyop3.types import *
+
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -247,7 +251,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ instance attrs
 
-    _device_arrays_private: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
+    _device_arrays_private: dict[Device, np.ndarray] = dataclasses.field(repr=False)
     """
 
     Note that this attribute is mega private to reduce the risk of correctness
@@ -306,7 +310,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(
         self,
-        data: Mapping[pyop3.device.Device, Any] | np.ndarray | cp.ndarray,
+        data: Mapping[pyop3.device.Device, Any] | np.ndarray,
         sf: StarForest | None = None,
         *,
         name: str | None = None,
@@ -960,8 +964,8 @@ class PetscMatBufferSpec(pyop3.obj.Object):
 @pyop3.record.frozenrecord()
 class MonolithicPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
-    row_spec: PetscMatAxisSpec | AbstractAxisTree  # TODO: drop axis tree as valid type here
-    column_spec: PetscMatAxisSpec | AbstractAxisTree  # TODO: drop axis tree as valid type here
+    row_spec: PetscMatAxisSpec | pyop3.axis_tree.AbstractAxisTree  # TODO: drop axis tree as valid type here
+    column_spec: PetscMatAxisSpec | pyop3.axis_tree.AbstractAxisTree  # TODO: drop axis tree as valid type here
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (type(self), self.mat_type, visitor(self.row_spec), visitor(self.column_spec))

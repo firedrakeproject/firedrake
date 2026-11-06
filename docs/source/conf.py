@@ -30,6 +30,7 @@ import firedrake
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx_autodoc_typehints',
     'sphinx.ext.extlinks',
     'sphinx.ext.mathjax',
     'sphinx.ext.intersphinx',
@@ -92,16 +93,21 @@ autodoc_docstring_signature = False
 # as Sphinx may struggle to resolve them.
 autodoc_inherit_docstrings = False
 
-# Sphinx struggles to parse even slightly complex type hints
-# (e.g. Callable[[], Any]) so do not try to put them in the API documentation.
-# This means that we have to duplicate type information in both the signature
-# and docstring.
-autodoc_typehints = "none"
-
 # Document __call__ methods
 autodoc_default_options = {
-    'special-members': '__call__'
+    'special-members': '__call__,__getitem__',
+    # skip some entries that throw some erroneous warnings - these are just
+    # attributes that we import into our namespace and it is a Sphinx bug that
+    # they are even being parsed.
+    'exclude-members': """
+        CallInstruction,
+        MultiAssignmentBase,
+        simplify_via_aff,
+    """,
 }
+
+# UNDO ME:
+autodoc_mock_imports = ["jax", "torch"]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -184,6 +190,7 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
+    (r'py:.*', r'loopy.kernel\..*'),
     (r'py:.*', r'loopy.symbolic\..*'),
     (r'py:.*', r'loopy.types\..*'),
     # Ignore missing docs from Firedrake internal "private" code
@@ -482,13 +489,13 @@ texinfo_documents = [(
 
 intersphinx_mapping = {
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
-    'FIAT': ('https://firedrakeproject.org/fiat', None),
-    'petsctools': ('https://firedrakeproject.org/petsctools/', None),
+    'FIAT': ('https://www.firedrakeproject.org/fiat', None),
+    'petsctools': ('https://www.firedrakeproject.org/petsctools/', None),
     'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
-    'matplotlib': ('https://matplotlib.org/', None),
+    'matplotlib': ('https://matplotlib.org/stable/', None),
     'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://pyadjoint.org/', None),

@@ -408,3 +408,5 @@ def __getattr__(module_attr):
         def _wrapper(*args, **kwargs):
             raise NotImplementedError("Firedrake has not yet wrapped numpy.random.%s." % module_attr)
         return _wrapper
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {module_attr!r}")

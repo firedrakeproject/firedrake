@@ -877,9 +877,9 @@ class Exscan(AbstractAssignmentLike):
     # {{{ instance attrs
 
     _assignee: Any
-    expression: Any
+    expression: ExpressionT
     scan_type: Any
-    scan_axis: Axis
+    scan_axis: pyop3.Axis
     _comm: MPI.Comm = dataclasses.field(hash=False)
 
     def collect_buffers(self, visitor):

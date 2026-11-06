@@ -47,7 +47,7 @@ from .base import (
 )
 
 if typing.TYPE_CHECKING:
-    import pyop3.insn
+    from pyop3.types import *
 
 
 # is this used?
@@ -70,7 +70,7 @@ class Dat(Tensor):
 
     # {{{ instance attrs
 
-    axes: AxisTreeT
+    axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike
     buffer: AbstractBuffer
     name: str
     _transform: TensorTransform | None = None
@@ -88,12 +88,12 @@ class Dat(Tensor):
 
     def __init__(
         self,
-        axes: AxisTreeT,
+        axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike,
         buffer: AbstractBuffer | None = None,
         *,
         data: np.ndarray | None = None,
-        name=None,
-        prefix=None,
+        name: str | None = None,
+        prefix: str | None = None,
         buffer_kwargs=None,
         constant: bool = False,
         transform=None,

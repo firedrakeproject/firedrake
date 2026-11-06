@@ -36,8 +36,8 @@ class Mat(Tensor):
 
     # {{{ instance attributes
 
-    row_axes: pyop3.types.AxisTreeT
-    column_axes: pyop3.types.AxisTreeT
+    row_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike
+    column_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike
     buffer: pyop3.buffer.AbstractBuffer
     name: str
     _transform: TensorTransform | None
@@ -57,12 +57,12 @@ class Mat(Tensor):
 
     def __init__(
         self,
-        row_axes,
-        column_axes,
+        row_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike,
+        column_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike,
         buffer: pyop3.buffer.AbstractBuffer,
         *,
-        name=None,
-        prefix=None,
+        name: str | None = None,
+        prefix: str | None = None,
         transform=None,
     ) -> None:
         if not isinstance(buffer, pyop3.buffer.AbstractBuffer):
