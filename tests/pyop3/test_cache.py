@@ -64,7 +64,7 @@ default_cache_name = DEFAULT_CACHE().__class__.__name__
 
 def get_cache(comm, func_name):
     cache_id = None
-    for cache_info in _KNOWN_CACHES:
+    for cache_info in _KNOWN_CACHES.values():
         if cache_info.func_name == func_name:
             assert cache_id is None
             cache_id = cache_info.cidx
@@ -79,7 +79,7 @@ def get_cache(comm, func_name):
 
 def get_caches(comm, func_name):
     cache_ids = []
-    for cache_info in _KNOWN_CACHES:
+    for cache_info in _KNOWN_CACHES.values():
         if cache_info.func_name == func_name and cache_info.comm_name == comm.name:
             cache_ids.append(cache_info.cidx)
 
