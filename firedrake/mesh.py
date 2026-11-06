@@ -3954,7 +3954,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._migrate_swarm_and_recompute_point_numbering(coordinates, absorbed)
         self._build_topology_step_sf(old_local_size)
 
-        # Migrate the coordinate and particle ID fields
+        # Migrate the coordinate fields
         coord_fields = [self._coordinates]
         if self._reference_coordinates is not None:
             coord_fields.append(self._reference_coordinates)
