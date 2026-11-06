@@ -146,8 +146,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return
         # If outdated, migrate the cofunction values
         # First, check if the cofunction has shared data
-        # if self._val_used:
-        #     raise NotImplementedError("Cannot migrate a function with shared data.")
+        if self._val_used:
+            raise NotImplementedError("Migrating a cofunction with shared data is not yet supported.")
         if self._parent is None:
             from firedrake.function import _migrate_dg0_coef
             _migrate_dg0_coef(self)

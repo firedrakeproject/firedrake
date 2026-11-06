@@ -154,8 +154,8 @@ class CoordinatelessFunction(ufl.Coefficient):
             return
         # If outdated, migrate the function values
         # First, check if the function has shared data
-        # if self._val_used:
-        #     raise NotImplementedError("Cannot migrate a function with shared data.")
+        if self._val_used:
+            raise NotImplementedError("Migrating a function with shared data is not yet supported.")
         if self._parent is None:
             # Migrate the data owned by the function
             _migrate_dg0_coef(self)
@@ -1023,7 +1023,6 @@ def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
 
     # To be removed, if we ever extend SF-based migration to other meshes.
     if not isinstance(topology, VertexOnlyMeshTopology):
-        breakpoint()
         raise NotImplementedError("Function migration is currently only supported for functions defined on vertex-only meshes.")
 
     # For a Real space, there's one global value which doesn't depend on the mesh topology so no migration is needed.

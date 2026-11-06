@@ -99,7 +99,7 @@ def test_vom_functions_migrate_lazily(vom, vom_fs, make_coefficient):
                     "Functions did not start on the current VOM topology")
 
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
+    vom.rebuild(absorbed=absorbed_local_indices)
 
     new_vom_topo_version = vom._topology_version
 
@@ -144,7 +144,7 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs, make_coefficient):
                     "Functions did not start on the current VOM topology")
 
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
+    vom.rebuild(absorbed=absorbed_local_indices)
 
     new_vom_topo_version = vom._topology_version
 
@@ -187,7 +187,7 @@ def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs, make_coefficien
 
     # Do one VOM rebuild: absorb one particle on each rank
     absorbed_local_indices = np.asarray([0])
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_local_indices)
+    vom.rebuild(absorbed_local_indices)
 
     new_vom_topo_version = vom._topology_version
 
@@ -225,7 +225,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs, make
     expected_surviving_pids = {int(pid) for pid in pids_before_migration if pid not in absorbed_pids}
     expected_local_count = old_local_count - len(absorbed_local_indices)
 
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
+    vom.rebuild(absorbed=absorbed_local_indices)
 
     # Trigger Function migration through dat access
     new_dat = f.dat
@@ -268,7 +268,7 @@ def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs, make_coefficient
 
     # Remove every point on every rank
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
+    vom.rebuild(absorbed=absorbed_local_indices)
 
     # Trigger Function migration through dat access
     new_dat = f.dat
@@ -328,7 +328,7 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
 
     vom.coordinates.dat.data_wo[:] = new_coords
     vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
-    vom.rebuild(vom.coordinates.dat.data_ro)
+    vom.rebuild()
 
     new_dat = f.dat  # trigger migration
     pids_after = vom._particle_ids.dat.data_ro.copy()
@@ -372,7 +372,7 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_c
     # First VOM rebuild: absorb the first particle on each rank
     absorbed_indices_v1 = np.asarray([0], dtype=IntType)
     absorbed_pids_v1 = pids_v0[0]
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_indices_v1)
+    vom.rebuild(absorbed=absorbed_indices_v1)
 
     v1 = vom._topology_version
     pids_v1 = vom._particle_ids.dat.data_ro.copy()
@@ -390,11 +390,10 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_c
     # Second VOM rebuild: absorb the last particle on each rank
     absorbed_indices_v2 = np.asarray([vom.topology.cells.owned.local_size - 1], dtype=IntType)
 
-    # NOTE: particle ids migrate eagerly during the rebuild hence the last integer in the PID array
-    # is the ID of the last particle in the new numbering.
+    # The last integer in the PID array is the ID of the last particle in the new numbering.
     absorbed_pids_v2 = pids_v1[-1]
 
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_indices_v2)
+    vom.rebuild(absorbed=absorbed_indices_v2)
 
     v2 = vom._topology_version
     pids_v2 = vom._particle_ids.dat.data_ro.copy()
@@ -448,7 +447,7 @@ def test_cofunction_inplace_operators_before_and_after_migration(vom, vom_fs, op
     # Remove every other point on each rank (no point changes rank)
     n_owned = vom.topology.cells.owned.local_size
     absorbed = np.arange(0, n_owned, 2, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed)
+    vom.rebuild(absorbed=absorbed)
 
     parallel_assert(c._mesh_topology_version < vom._topology_version, "cofunction c migrated before it was accessed")
 
@@ -479,7 +478,7 @@ def test_vom_function_components_migrate_with_their_parent_function(vom, vom_fs,
 
     # Remove points with an even particle ID
     absorbed = np.flatnonzero(pids_before % 2 == 0)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed)
+    vom.rebuild(absorbed=absorbed)
     new_version = vom._topology_version
 
     first, *_, last = components.values()
@@ -509,7 +508,7 @@ def test_vom_subfunction_migration_raises(vom):
     V = FunctionSpace(vom, "DG", 0)
     w = Function(V * V)
     w0, _ = w.subfunctions
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=np.array([0], dtype=IntType))
+    vom.rebuild(absorbed=np.array([0], dtype=IntType))
 
     # The migration of w0 fails because its parent is a mixed function that is defined on a MeshSequenceTopology
     # for which mutation and function migration haven't been implemented yet.
