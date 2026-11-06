@@ -68,7 +68,7 @@ def prolong(coarse, fine):
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature target space
-        Vf = Vf.quadrature_space()
+        Vf = Vf.quadrature_space
 
     finest = fine
     Vfinest = finest.function_space()
@@ -145,7 +145,7 @@ def restrict(fine_dual, coarse_dual):
 
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature source space
-        Vq = Vf.quadrature_space()
+        Vq = Vf.quadrature_space
 
     coarsest = coarse_dual.zero()
     meshes = hierarchy._meshes
@@ -234,7 +234,7 @@ def inject(fine, coarse):
 
     if needs_quadrature := not Vc.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature target space
-        Vc = Vc.quadrature_space()
+        Vc = Vc.quadrature_space
 
     coarsest = coarse.zero()
     Vcoarsest = coarsest.function_space()
@@ -299,14 +299,6 @@ def inject(fine, coarse):
     return coarse
 
 
-def _bc_matches_space(bc, V):
-    """Return whether a boundary condition is defined on (a subspace of) V."""
-    fs = bc.function_space()
-    while fs.component is not None and fs.parent is not None:
-        fs = fs.parent
-    return fs == V
-
-
 @PETSc.Log.EventDecorator()
 def assemble_prolongation_aij(Vc, Vf, bcs=None):
     """Assemble the explicit AIJ matrix prolonging Vc to Vf.
@@ -336,7 +328,7 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
     Vtarget = Vf
     if needs_quadrature := not Vf.finat_element.has_pointwise_dual_basis:
         # Introduce an intermediate quadrature target space
-        Vf = Vf.quadrature_space()
+        Vf = Vf.quadrature_space
     Vrow, Vcol = Vf, Vc
 
     hierarchy, levelc = utils.get_level(Vcol.mesh())
@@ -350,8 +342,8 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
 
     lgmaps = None
     if bcs:
-        row_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vrow)]
-        col_bcs = [bc for bc in bcs if _bc_matches_space(bc, Vcol)]
+        row_bcs = [bc for bc in bcs if bc.parent_function_space.topological == Vrow.topological]
+        col_bcs = [bc for bc in bcs if bc.parent_function_space.topological == Vcol.topological]
         if row_bcs or col_bcs:
             lgmaps = (Vrow.lgmap(row_bcs), Vcol.lgmap(col_bcs))
 
@@ -382,7 +374,8 @@ def assemble_prolongation_aij(Vc, Vf, bcs=None):
 
     if needs_quadrature:
         interp = interpolate(ufl_expr.TrialFunction(Vf), Vtarget)
-        Q = assemble(interp, bcs=bcs, mat_type="aij").petscmat
+        target_bcs = [bc for bc in bcs or () if bc.parent_function_space.topological == Vtarget.topological]
+        Q = assemble(interp, bcs=target_bcs, mat_type="aij").petscmat
         result = Q.matMult(result)
 
     return AssembledMatrix(arguments, result, bcs=bcs)
