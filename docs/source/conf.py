@@ -73,6 +73,9 @@ mathjax3_config = {
     'tex': {'packages': {'[+]': ['mathtools']}}
 }
 
+# Concatenate the class’ and the __init__ method’s docstrings
+autoclass_content = 'both'
+
 # autodoc will try to infer the function signature of C modules from the first
 # line of the docstring. This is an issue for things like dicts, which we
 # inherit from in some places, where the docstring of dict.pop is:
