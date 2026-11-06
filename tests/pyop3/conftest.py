@@ -8,6 +8,25 @@ from petsc4py import PETSc
 import pyop3 as op3
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register markers that apply to the PyOP3 test suite."""
+    config.addinivalue_line(
+        "markers",
+        "skipcomplex: mark as skipped in complex mode",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip tests that do not support complex scalars."""
+    if op3.ScalarType.kind == "c":
+        skipcomplex = pytest.mark.skip(reason="Test does not support complex scalars")
+        for item in items:
+            if item.get_closest_marker("skipcomplex") is not None:
+                item.add_marker(skipcomplex)
+
+
 @pytest.fixture
 def comm():
     return MPI.COMM_WORLD

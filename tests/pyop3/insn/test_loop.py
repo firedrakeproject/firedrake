@@ -97,6 +97,7 @@ def test_multi_component_scalar_copy_with_two_outer_loops(factory):
 
 
 @pytest.mark.parametrize("mode", ["max", "min"])
+@pytest.mark.skipcomplex
 def test_reduction_assignment(mode):
     m = 10
     initial = 0.5
