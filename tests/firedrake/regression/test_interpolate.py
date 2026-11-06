@@ -1,6 +1,7 @@
 from os.path import abspath, dirname, join
 import numpy as np
 import pytest
+import pyop3 as op3
 from firedrake import *
 
 cwd = abspath(dirname(__file__))
@@ -441,15 +442,20 @@ def test_zeroform(degree, cofunc):
 
 
 @pytest.mark.skipcomplex  # complex numbers are not orderable
-def test_interpolate_periodic_coords_max():
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("access,seam", [(MAX, 1), (MIN, 0), (op3.MAX_WRITE, 1), (op3.MIN_WRITE, 0)])
+def test_interpolate_periodic_coords_reduction(access, seam):
     mesh = PeriodicUnitSquareMesh(4, 4)
     V = VectorFunctionSpace(mesh, "P", 1)
 
-    continuous = assemble(interpolate(SpatialCoordinate(mesh), V, access=MAX))
+    continuous = assemble(interpolate(SpatialCoordinate(mesh), V, access=access))
 
-    # All nodes on the "seam" end up being 1, not 0.
-    assert np.allclose(np.unique(continuous.dat.data_ro.round(decimals=16)),
-                       [0.25, 0.5, 0.75, 1])
+    # Each rank holds only part of the nodes, so the values are collected from all ranks.
+    local_values = np.unique(continuous.dat.data_ro.round(decimals=16))
+    values = np.unique(np.concatenate(mesh.comm.allgather(local_values)))
+
+    # The nodes on the "seam" take the value that the reduction selects from 0 and 1.
+    assert np.allclose(values, sorted({0.25, 0.5, 0.75, seam}))
 
 
 def test_basic_dual_eval_cg3():

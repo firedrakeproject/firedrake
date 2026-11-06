@@ -728,9 +728,9 @@ class SameMeshInterpolator(Interpolator):
             f = Function(R, dtype=ScalarType)
         elif self.rank == 1:
             f = Function(self.ufl_interpolate.function_space())
-            if self.access in {op3.MIN_WRITE, op3.MAX_WRITE}:
+            if self.access in {op3.MIN_RW, op3.MIN_WRITE, op3.MAX_RW, op3.MAX_WRITE}:
                 finfo = numpy.finfo(f.dat.dtype)
-                if self.access == op3.MIN_WRITE:
+                if self.access in {op3.MIN_RW, op3.MIN_WRITE}:
                     val = Constant(finfo.max)
                 else:
                     val = Constant(finfo.min)
