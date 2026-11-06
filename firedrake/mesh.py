@@ -2491,6 +2491,102 @@ class MeshTopology(AbstractMeshTopology):
         # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
         return subdomain_id
 
+    @cached_property
+    def _interior_facet_cell_pairs(self):
+        """Return the data on both sides of each interior facet whose two cells are known on this rank.
+
+        Returns
+        -------
+        tuple
+            ``((c0, c1), (lf0, lf1), (o0, o1))`` storing for each facet, the two adjacent cells,
+            the local number of the facet in each cell, and the orientation of the facet relative to each cell.
+        """
+        facet_cells = self._support_dat("interior_facet", only_owned=False).data_ro_with_halos
+        facet_numbers = self._interior_facet_local_numbers_dat.data_ro_with_halos
+        facet_orientations = self._interior_facet_local_orientation_dat.data_ro_with_halos
+
+        # Exclude ghost facets whose other cell is not on this rank
+        known_facets = (facet_cells != -1).all(axis=1)
+
+        return (facet_cells[known_facets].T, facet_numbers[known_facets].T,
+                facet_orientations[known_facets].T)
+
+    @cached_property
+    def _cell_facet_adjacency(self):
+        (c0, c1), (lf0, lf1), _ = self._interior_facet_cell_pairs
+        shape = (self.num_cells(), self.ufl_cell().num_facets)
+        neighbour_cell = np.full(shape, -1, dtype=IntType)
+        neighbour_facet = np.full(shape, -1, dtype=IntType)
+        neighbour_cell[c0, lf0], neighbour_cell[c1, lf1] = c1, c0
+        neighbour_facet[c0, lf0], neighbour_facet[c1, lf1] = lf1, lf0
+        return neighbour_cell, neighbour_facet
+
+    @cached_property
+    def cell_facet_neighbours_dat(self):
+        """Return the neighbouring cell across each local facet of every cell.
+
+        Returns
+        -------
+        pyop3.Dat
+            A Dat over all cells on this rank (owned and ghost) with one entry for
+            each local facet. Entry ``[c, i]`` is the Firedrake number of the cell
+            that shares local facet ``i`` of cell ``c``, or ``-1`` where no
+            neighbouring cell is present on this rank.
+        """
+        axes = op3.AxisTree.from_iterable([self.cells.as_axis(), self.ufl_cell().num_facets])
+
+        cell_facet_neighbours = op3.Dat(
+            axes,
+            data=self._cell_facet_adjacency[0],
+            name="cell-facet-neighbours-dat"
+        )
+
+        return cell_facet_neighbours
+
+    @cached_property
+    def cell_facet_coord_transforms_dat(self):
+        """Computes affine reference coordinate transforms between neighbouring cells across a given facet.
+
+        For each cell `c` and local facet `i`, this method constructs the affine map
+
+            X' = A[c,i] @ X + b[c,i],
+
+        where `X` are reference coordinates of a point lying on facet `i` in cell `c`
+        and `X'` are the coordinates of the same point expressed in neighbouring cell's
+        reference frame.
+
+        Returns
+        -------
+        tuple[pyop3.Dat, pyop3.Dat]
+            (A_dat, b_dat) indexed are by Firedrake cell number (owend and halo) and local facet number and
+            store respectively the matrix and translation vector of each cell-to-cell reference coordinate transforms.
+        """
+        ref_cell = self.ufl_cell()
+        num_facets = ref_cell.num_facets
+        cell_dim = ref_cell.topological_dimension
+
+        # Create local numpy buffers
+        A_transform = np.full((self.num_cells(), num_facets, cell_dim, cell_dim), np.nan)
+        b_transform = np.full((self.num_cells(), num_facets, cell_dim), np.nan)
+
+        (c0, c1), (lf0, lf1), (o0, o1) = self._interior_facet_cell_pairs
+
+        ref_cell = FIAT.ufc_cell(self.ufl_cell())
+        A_table, b_table = ref_cell.facet_neighbour_coord_maps()
+
+        A_transform[c0, lf0] = A_table[lf0, lf1, o0, o1]
+        b_transform[c0, lf0] = b_table[lf0, lf1, o0, o1]
+        A_transform[c1, lf1] = A_table[lf1, lf0, o1, o0]
+        b_transform[c1, lf1] = b_table[lf1, lf0, o1, o0]
+
+        A_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, cell_dim, cell_dim])
+        b_axes = op3.AxisTree.from_iterable([self.cells.as_axis(), num_facets, cell_dim])
+
+        cell_facet_A = op3.Dat(A_axes, data=A_transform, name="cell-facet-coord-transforms-A-dat")
+        cell_facet_b = op3.Dat(b_axes, data=b_transform, name="cell-facet-coord-transforms-b-dat")
+
+        return cell_facet_A, cell_facet_b
+
     @staticmethod
     @PETSc.Log.EventDecorator()
     def _set_partitioner(plex, distribute, partitioner_type=None):
@@ -3369,7 +3465,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         assert tdim == cell.topological_dimension
         assert cell.is_simplex
 
-        import FIAT
         topology = FIAT.ufc_cell(cell).get_topology()
         entity_per_cell = np.zeros(len(topology), dtype=IntType)
         for d, ents in topology.items():
