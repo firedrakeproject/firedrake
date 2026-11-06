@@ -30,10 +30,10 @@ def test_multiple_mesh_self_assign():
     W = V1 * V2
 
     u = Function(W)
-    u.sub(0).assign(1.0)
-    u.sub(1).assign(2.0)
+    u.subfunctions[0].assign(1.0)
+    u.subfunctions[1].assign(2.0)
 
     u.assign(2 * u)
 
-    assert np.allclose(u.sub(0).dat.data_ro, 2.0)
-    assert np.allclose(u.sub(1).dat.data_ro, 4.0)
+    assert np.allclose(u.subfunctions[0].dat.data_ro, 2.0)
+    assert np.allclose(u.subfunctions[1].dat.data_ro, 4.0)
