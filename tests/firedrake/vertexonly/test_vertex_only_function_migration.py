@@ -94,14 +94,14 @@ def test_vom_functions_migrate_lazily(vom, vom_fs, make_coefficient):
     old_f_topo_version = f._mesh_topology_version
     old_g_topo_version = g._mesh_topology_version
 
-    old_vom_topo_version = vom.topology._topology_version
+    old_vom_topo_version = vom._topology_version
     parallel_assert(old_f_topo_version == old_vom_topo_version and old_g_topo_version == old_vom_topo_version,
                     "Functions did not start on the current VOM topology")
 
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
 
-    new_vom_topo_version = vom.topology._topology_version
+    new_vom_topo_version = vom._topology_version
 
     # Verify that rebuilding the VOM does not eagerly migrate the Functions
     parallel_assert(
@@ -136,7 +136,7 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs, make_coefficient):
     old_g_topo_version = g._mesh_topology_version
     old_h_topo_version = h._mesh_topology_version
 
-    old_vom_topo_version = vom.topology._topology_version
+    old_vom_topo_version = vom._topology_version
 
     parallel_assert(old_f_topo_version == old_vom_topo_version
                     and old_g_topo_version == old_vom_topo_version
@@ -144,9 +144,9 @@ def test_vom_functions_migrate_eagerly(vom, vom_fs, make_coefficient):
                     "Functions did not start on the current VOM topology")
 
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, 2, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
 
-    new_vom_topo_version = vom.topology._topology_version
+    new_vom_topo_version = vom._topology_version
 
     # Neither Function should have migrated yet
     parallel_assert(
@@ -180,7 +180,7 @@ def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs, make_coefficien
     f = make_coefficient(vom_fs)
 
     old_f_topo_version = f._mesh_topology_version
-    old_vom_topo_version = vom.topology._topology_version
+    old_vom_topo_version = vom._topology_version
 
     parallel_assert(old_f_topo_version == old_vom_topo_version,
                     "The Function did not start on the current VOM topology")
@@ -189,7 +189,7 @@ def test_vom_function_migrates_once_per_vom_rebuild(vom, vom_fs, make_coefficien
     absorbed_local_indices = np.asarray([0])
     vom.rebuild(vom.coordinates.dat.data_ro, absorbed_local_indices)
 
-    new_vom_topo_version = vom.topology._topology_version
+    new_vom_topo_version = vom._topology_version
 
     # Access the Function's data
     _ = f.dat
@@ -225,7 +225,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs, make
     expected_surviving_pids = {int(pid) for pid in pids_before_migration if pid not in absorbed_pids}
     expected_local_count = old_local_count - len(absorbed_local_indices)
 
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
 
     # Trigger Function migration through dat access
     new_dat = f.dat
@@ -246,7 +246,7 @@ def test_vom_function_correctly_migrates_under_absorbed_points(vom, vom_fs, make
         and new_dat.data_ro.shape[0] == vom.topology.cells.owned.local_size  # owned nodes match VOM
         and new_dat.data_ro.shape[1:] == vom_fs.shape
         and f.function_space().topological is vom_fs.topological
-        and f._mesh_topology_version == vom.topology._topology_version
+        and f._mesh_topology_version == vom._topology_version
         and f._mesh_topology_version == old_function_topo_version + 1
     )
 
@@ -268,14 +268,14 @@ def test_vom_function_migrates_to_empty_vom_layout(vom, vom_fs, make_coefficient
 
     # Remove every point on every rank
     absorbed_local_indices = np.arange(0, vom.topology.cells.owned.local_size, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
 
     # Trigger Function migration through dat access
     new_dat = f.dat
     with new_dat.vec_ro as vec:
         n_local, n_global = vec.getLocalSize(), vec.getSize()
 
-    parallel_assert(f._mesh_topology_version == vom.topology._topology_version, "the Function has not been migrated to the current topology")
+    parallel_assert(f._mesh_topology_version == vom._topology_version, "the Function has not been migrated to the current topology")
     parallel_assert(new_dat.data_ro.shape == (0, *vom_fs.shape), "the owned data is not empty")
     parallel_assert(new_dat.data_ro_with_halos.shape == (0, *vom_fs.shape), "the halo data is not empty")
     parallel_assert(n_local == 0, "this rank still owns DoFs")
@@ -345,14 +345,14 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
         (moved_pid in pids_after) == (comm.rank == destination_rank),
         "the moved point is not on the destination rank",
     )
-    parallel_assert(f._mesh_topology_version == vom.topology._topology_version, "the Function is not on the current version")
+    parallel_assert(f._mesh_topology_version == vom._topology_version, "the Function is not on the current version")
 
 
 @pytest.mark.parallel([1, 3])
 def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_coefficient):
     f = make_coefficient(vom_fs)
     value_size = vom_fs.value_size
-    v0 = vom.topology._topology_version
+    v0 = vom._topology_version
     n_owned_v0 = vom.topology.cells.owned.local_size
     f_version_v0 = f._mesh_topology_version
     f_dat_0 = f.dat
@@ -372,9 +372,9 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_c
     # First VOM rebuild: absorb the first particle on each rank
     absorbed_indices_v1 = np.asarray([0], dtype=IntType)
     absorbed_pids_v1 = pids_v0[0]
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_indices_v1)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_indices_v1)
 
-    v1 = vom.topology._topology_version
+    v1 = vom._topology_version
     pids_v1 = vom._particle_ids.dat.data_ro.copy()
 
     parallel_assert(
@@ -394,9 +394,9 @@ def test_vom_function_migrates_under_successive_vom_rebuilds(vom, vom_fs, make_c
     # is the ID of the last particle in the new numbering.
     absorbed_pids_v2 = pids_v1[-1]
 
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_indices_v2)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_indices_v2)
 
-    v2 = vom.topology._topology_version
+    v2 = vom._topology_version
     pids_v2 = vom._particle_ids.dat.data_ro.copy()
 
     # Subtracting two from the original local count is correct here since all particles stay in their original ranks
@@ -448,15 +448,70 @@ def test_cofunction_inplace_operators_before_and_after_migration(vom, vom_fs, op
     # Remove every other point on each rank (no point changes rank)
     n_owned = vom.topology.cells.owned.local_size
     absorbed = np.arange(0, n_owned, 2, dtype=IntType)
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed)
 
-    parallel_assert(c._mesh_topology_version < vom.topology._topology_version, "cofunction c migrated before it was accessed")
+    parallel_assert(c._mesh_topology_version < vom._topology_version, "cofunction c migrated before it was accessed")
 
     # The operator reads c.dat and d.dat so it should migrate both cofunction values before changing c
     result = op(c, d)
 
     n_expected = n_owned - len(absorbed)
     parallel_assert(result is c, "the operator did not return the same cofunction")
-    parallel_assert(c._mesh_topology_version == vom.topology._topology_version, "cofunction c is not on the current topology version")
+    parallel_assert(c._mesh_topology_version == vom._topology_version, "cofunction c is not on the current topology version")
     parallel_assert(c.dat.data_ro.shape == (n_expected, *vom_fs.shape), "the Dat of c does not match the new points")
     parallel_assert(np.allclose(c.dat.data_ro, expected), "the operator gave the wrong values")
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("vom_fs", ["vector-DG0", "tensor-DG0"], indirect=True)
+def test_vom_function_components_migrate_with_their_parent_function(vom, vom_fs, make_coefficient):
+    f = make_coefficient(vom_fs)
+    shape = vom_fs.shape
+
+    pids_before = vom._particle_ids.dat.data_ro.copy()
+    values = assign_function_values_using_pids(pids_before, vom_fs.value_size, f.dat.dtype)
+    f.dat.data_wo[:] = values.reshape((-1, *shape))
+
+    components = {ix: f.sub(ix) for ix in np.ndindex(shape)}
+    for c in components.values():
+        _ = c.dat
+    old_version = vom._topology_version
+
+    # Remove points with an even particle ID
+    absorbed = np.flatnonzero(pids_before % 2 == 0)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed)
+    new_version = vom._topology_version
+
+    first, *_, last = components.values()
+
+    _ = first.dat
+    # Reading the dat of a component must migrate the parent dat first
+    parallel_assert(f._mesh_topology_version == new_version, "reading a function component did not migrate its parent")
+    # Read the dat of a component does not migrate the other component(s)
+    parallel_assert(last._mesh_topology_version == old_version, "reading a function component caused the other function component to migrate")
+
+    pids_after = vom._particle_ids.dat.data_ro.copy()
+    n_owned = vom.topology.cells.owned.local_size
+    expected = assign_function_values_using_pids(pids_after, vom_fs.value_size, f.dat.dtype)
+    expected = expected.reshape((-1, *shape))
+
+    for ix, c in components.items():
+        values = c.dat.data_ro
+        parallel_assert(c._mesh_topology_version == new_version,
+                        f"component {ix} is not on the current topology version")
+        parallel_assert(values.shape == (n_owned,) and np.allclose(values, expected[(slice(None), *ix)]),
+                        f"component {ix} does not hold the migrated values of its parent")
+
+
+@pytest.mark.parallel([1, 3])
+def test_vom_subfunction_migration_raises(vom):
+    """Check that a subfunction of a mixed function on a VOM raises when its parent migrates."""
+    V = FunctionSpace(vom, "DG", 0)
+    w = Function(V * V)
+    w0, _ = w.subfunctions
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=np.array([0], dtype=IntType))
+
+    # The migration of w0 fails because its parent is a mixed function that is defined on a MeshSequenceTopology
+    # for which mutation and function migration haven't been implemented yet.
+    with pytest.raises(NotImplementedError):
+        w0.dat

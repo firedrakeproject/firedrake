@@ -78,7 +78,7 @@ def test_vom_fs_caches_recompute_after_vom_mutation(vom, vom_fs):
     ]
     old_vals = {name: getattr(T, name) for name in names}
 
-    vom.topology._topology_version += 1
+    vom._topology_version += 1
 
     for name in names:
         parallel_assert(getattr(T, name) is not old_vals[name], f"{name} was not recomputed")
@@ -96,7 +96,7 @@ def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
     pids = vom._particle_ids.dat.data_ro.copy()
     absorbed = np.flatnonzero(pids % 2 == 0)
     # rebuild VOM
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed)
 
     n_expected = n_owned - len(absorbed)
     n_global_absorbed = vom.comm.allreduce(len(absorbed), op=MPI.SUM)
@@ -114,16 +114,16 @@ def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
     n_expected = vom.topology.cells.owned.local_size
     n_expected_global_dofs = T.dim()
     for rebuild in (1, 2):
-        version = vom.topology._topology_version
+        version = vom._topology_version
         old = {name: getattr(T, name) for name in ("axes", "section", "dm")}
 
         # Remove every other point on each rank
         absorbed = np.arange(1, n_expected, 2, dtype=IntType)
-        vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed)
+        vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed)
         n_expected -= len(absorbed)
         n_expected_global_dofs -= vom.comm.allreduce(len(absorbed), op=MPI.SUM) * bs
 
-        parallel_assert(vom.topology._topology_version == version + 1)
+        parallel_assert(vom._topology_version == version + 1)
         for name, value in old.items():
             parallel_assert(getattr(T, name) is not value, f"rebuild {rebuild}: {name} was not recomputed")
         assert_fs_layout(vom, T, n_expected)
@@ -141,7 +141,7 @@ def test_vom_fs_rebuilds_to_match_empty_vom(vom, vom_fs):
 
     # Remove every point on every rank
     n_owned = vom.topology.cells.owned.local_size
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=np.arange(n_owned, dtype=IntType))
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=np.arange(n_owned, dtype=IntType))
 
     assert_fs_layout(vom, T, 0)
     parallel_assert(T.template_vec.getSize() == 0, "the global template vector is not empty")

@@ -54,7 +54,7 @@ class CoordinatelessFunction(ufl.Coefficient):
     r"""A function on a mesh topology."""
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 parent: "CoordinatelessFunction | None" = None, parent_index=None):
+                 parent: "CoordinatelessFunction | None" = None):
         r"""Initialise a coordinateless function.
 
         Parameters
@@ -75,11 +75,6 @@ class CoordinatelessFunction(ufl.Coefficient):
             given, the data comes from ``parent.dat[parent_index]`` and
             ``val`` is ignored. This argument is used to make subfunctions
             and components of a :class:`CoordinatelessFunction`.
-        parent_index : optional
-            The index into the data of ``parent`` that selects the data of
-            this coordinateless function. This is a component label for a subfunction, or a
-            :class:`pyop3.IndexTree` for a component of a vector-valued or
-            tensor-valued :class:`CoordinatelessFunction`.
         """
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
                                            functionspaceimpl.MixedFunctionSpace)), \
@@ -96,16 +91,34 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         self._parent = parent
         r"""The function whose data this function views or ``None`` if this function owns its data."""
-        self._parent_index = parent_index
-        r"""The index into the Dat of` `_parent`` that selects the data of this function."""
+        self._parent_index = None
+        r"""The index into the Dat of ``_parent`` that selects the data of this cofunction."""
+
+        # If parent is not None, set the index into the parent function's data that this function views.
         if parent is not None:
-            val = parent.dat[parent_index]
+            if val is not None:
+                raise ValueError(
+                    "Cannot give both a 'val' and a 'parent': "
+                    "a function with a parent views the data of its parent, so it cannot be given initial values."
+                )
+            if self._function_space.index is not None:
+                # This is a subfunction where the field label is fetched from the parent's mixed space
+                self._parent_index = parent.function_space().field_axis.component_labels[self._function_space.index]
+            elif self._function_space.component is not None:
+                # This is a component of a vector- or tensor-valued function
+                # This has one ScalarIndex per dimension
+                self._parent_index = op3.IndexTree.from_iterable(
+                    op3.ScalarIndex(f"dim{i}", None, j) for i, j in enumerate(self._function_space.component)
+                )
+            val = parent.dat[self._parent_index]
 
         if isinstance(val, op3.Dat):
             assert val.comm == self.comm
             self._dat = val
         else:
             self._dat = function_space.make_dat(val, dtype, self.name())
+
+        self._val_used = val is not None
 
         self._mesh_topology_version = self._mesh_topology._topology_version
         r"""The topology version on which the values of this function are stored."""
@@ -139,7 +152,10 @@ class CoordinatelessFunction(ufl.Coefficient):
         # Check if the version of the mesh topology stored on this function is outdated
         if self._mesh_topology_version == self._mesh_topology._topology_version:
             return
-        # If outdated, then migrate the function values
+        # If outdated, migrate the function values
+        # First, check if the function has shared data
+        # if self._val_used:
+        #     raise NotImplementedError("Cannot migrate a function with shared data.")
         if self._parent is None:
             # Migrate the data owned by the function
             _migrate_dg0_coef(self)
@@ -174,10 +190,9 @@ class CoordinatelessFunction(ufl.Coefficient):
             # be renumbered when split, but now we retain the labels in the dat but
             # not the function space.
             subfuncs = []
-            for i, component in enumerate(self.function_space().field_axis.components):
-                subspace = self.function_space().sub(i)
+            for subspace in self.function_space():
                 subfunc = CoordinatelessFunction(
-                    subspace, parent=self, parent_index=component.label, name=f"{self.name()}[{subspace.index}]"
+                    subspace, parent=self, name=f"{self.name()}[{subspace.index}]"
                 )
                 subfuncs.append(subfunc)
             return tuple(subfuncs)
@@ -190,14 +205,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         assert len(shape) > 0
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
-            indices = op3.IndexTree.from_iterable((
-                op3.ScalarIndex(f"dim{i_}", None, j_)
-                for i_, j_ in enumerate(ix)
-            ))
             component = type(self)(
                 self.function_space().sub(ix),
                 parent=self,
-                parent_index=indices,
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component
@@ -333,10 +343,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
-    # NOTE: When migrating functions, a function that's a copy of another function
-    # migrates separately to it. That is, if f = g.copy(), then migrating f doesn't
-    # automatically migrate g. This is because migration creates a new Dat (due to changes in the
-    # data array sizes and layouts)
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
@@ -1017,6 +1023,7 @@ def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
 
     # To be removed, if we ever extend SF-based migration to other meshes.
     if not isinstance(topology, VertexOnlyMeshTopology):
+        breakpoint()
         raise NotImplementedError("Function migration is currently only supported for functions defined on vertex-only meshes.")
 
     # For a Real space, there's one global value which doesn't depend on the mesh topology so no migration is needed.

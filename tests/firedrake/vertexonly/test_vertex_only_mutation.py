@@ -112,7 +112,7 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
     # Calling `commit_reference_state` should update this property's data in place.
     _ = vom.topology.cell_parent_cell_list
 
-    old_topology_version = vom.topology._topology_version
+    old_topology_version = vom._topology_version
     old_num_cells = vom.num_cells()
 
     # Use current VOM coordinates in reverse order
@@ -152,9 +152,37 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
     assert np.allclose(refcoord[vom_to_swarm, :], new_refcoords)
 
     # Committing reference state should not rebuild or resize the VOM
-    assert vom.topology._topology_version == old_topology_version
+    assert vom._topology_version == old_topology_version
     assert vom.topology.num_cells() == old_num_cells
     assert vom.cells.owned.local_size == n_owned
+
+
+@pytest.mark.parallel([1, 3])
+def test_rebuild_vom_rebuilds_pids_lazily(parent_mesh):
+    points = cell_midpoints(parent_mesh, with_halos=False)
+    vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
+    old_topology_version = vom._topology_version
+    pids_before = vom._particle_ids
+
+    # Give each particle a new state.
+    new_coordinates = vom.coordinates.dat.data_ro[:].copy() + 3
+    new_parent_cells, new_reference_coordinates = locate_points(parent_mesh, new_coordinates)
+
+    vom.coordinates.dat.data[:] = new_coordinates
+    vom.update_parent_cells_and_ref_coords(
+        new_parent_cells,
+        new_reference_coordinates,
+    )
+    parallel_assert(pids_before._mesh_topology_version == old_topology_version)
+
+    # Rebuild the VOM topologically
+    vom.rebuild(vom.coordinates.dat.data_ro)
+    new_topology_version = vom._topology_version
+    parallel_assert(new_topology_version == old_topology_version + 1)
+
+    parallel_assert(pids_before._mesh_topology_version == old_topology_version)
+    _ = pids_before.dat
+    parallel_assert(pids_before._mesh_topology_version == new_topology_version)
 
 
 # NOTE: This test like the ones validating the Function migration mechanism assumes that particle IDs
@@ -171,7 +199,7 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     points = cell_midpoints(parent_mesh, with_halos=False)
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
 
-    # Give each particle a changed but valid state.
+    # Give each particle a new state.
     # Reversing locally owned midpoints keeps the particles on cells owned by the same rank.
     new_coordinates = vom.coordinates.dat.data_ro[::-1].copy()
     new_parent_cells, new_reference_coordinates = locate_points(parent_mesh, new_coordinates)
@@ -186,7 +214,7 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     expected_state = vom_state_by_particle_id(vom)
     old_local_count = vom.topology.cells.owned.local_size
     old_global_count = parent_mesh.comm.allreduce(old_local_count, op=MPI.SUM)
-    old_version = vom.topology._topology_version
+    old_version = vom._topology_version
 
     vom.rebuild(vom.coordinates.dat.data_ro)
 
@@ -214,7 +242,7 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     assert new_global_count == old_global_count
     assert vom.topology.cells.owned.local_size == vom.num_vertices()  # no halos in the new VOM
 
-    new_version = vom.topology._topology_version
+    new_version = vom._topology_version
     assert new_version == old_version + 1
     assert new_version in vom.topology._topology_step_sfs
 
@@ -343,7 +371,7 @@ def test_rebuild_vom_with_absorption(parent_mesh):
 
     global_absorbed_count = parent_mesh.comm.allreduce(len(absorbed_pids), op=MPI.SUM)
 
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
 
     # State + counts post rebuild
     state_post_rebuild = vom_state_by_particle_id(vom)
@@ -386,12 +414,12 @@ def test_rebuild_vom_can_produce_empty_vom(parent_mesh):
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
 
     old_local_count = vom.topology.cells.owned.local_size
-    old_topology_version = vom.topology._topology_version
+    old_topology_version = vom._topology_version
 
     # Remove all points on all ranks
     absorbed_local_indices = np.arange(old_local_count, dtype=int)
 
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
 
     # Check that the rebuild completes
     parallel_assert(
@@ -400,7 +428,7 @@ def test_rebuild_vom_can_produce_empty_vom(parent_mesh):
     )
 
     parallel_assert(
-        vom.topology._topology_version == old_topology_version + 1,
+        vom._topology_version == old_topology_version + 1,
         "The VOM topology version was not incremented"
     )
 
@@ -466,12 +494,12 @@ def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
     vom.coordinates.dat.data_wo[:] = new_coords
     vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
 
-    old_version = vom.topology._topology_version
+    old_version = vom._topology_version
 
     # Rebuild the VOM around the new state
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_local_indices)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_local_indices)
 
-    new_version = vom.topology._topology_version
+    new_version = vom._topology_version
     parallel_assert(new_version == old_version + 1)
     parallel_assert(new_version in vom.topology._topology_step_sfs, "No step SF was stored for this rebuild")
 
@@ -569,9 +597,9 @@ def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
     vom.coordinates.dat.data_wo[:] = new_coords
     vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
 
-    old_version = vom.topology._topology_version
+    old_version = vom._topology_version
     vom.rebuild(vom.coordinates.dat.data_ro)
-    new_version = vom.topology._topology_version
+    new_version = vom._topology_version
 
     parallel_assert(new_version == old_version + 1)
     parallel_assert(new_version in vom.topology._topology_step_sfs)
@@ -627,7 +655,7 @@ def test_successive_vom_rebuilds(parent_mesh):
     vom = VertexOnlyMesh(parent_mesh, points, redundant=False)
 
     # Version 0
-    v0 = vom.topology._topology_version
+    v0 = vom._topology_version
     local_count_v0 = vom.topology.cells.owned.local_size
     global_count_v0 = parent_mesh.comm.allreduce(local_count_v0, op=MPI.SUM)
 
@@ -640,9 +668,9 @@ def test_successive_vom_rebuilds(parent_mesh):
     absorbed_pid_1 = pids_0[absorbed_indices_1[0]]  # get pid of absorbed particle
 
     # First rebuild
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_indices_1)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_indices_1)
 
-    v1 = vom.topology._topology_version
+    v1 = vom._topology_version
     local_count_v1 = vom.topology.cells.owned.local_size
 
     parallel_assert(v1 == v0 + 1)
@@ -661,9 +689,9 @@ def test_successive_vom_rebuilds(parent_mesh):
     absorbed_pid_2 = pids_1[absorbed_indices_2[0]]  # get pid of absorbed particle
 
     # Second rebuild
-    vom.rebuild(vom.coordinates.dat.data_ro, absorbed_cells=absorbed_indices_2)
+    vom.rebuild(vom.coordinates.dat.data_ro, absorbed=absorbed_indices_2)
 
-    v2 = vom.topology._topology_version
+    v2 = vom._topology_version
     local_count_v2 = vom.topology.cells.owned.local_size
 
     parallel_assert(v2 == v1 + 1)

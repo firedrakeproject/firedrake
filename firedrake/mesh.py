@@ -41,6 +41,7 @@ from finat.element_factory import as_fiat_cell
 import petsctools
 from petsctools import OptionsManager, get_external_packages
 
+import firedrake.functionspace as functionspace
 import firedrake.cython.dmcommon as dmcommon
 from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.extrusion_utils as eutils
@@ -3352,15 +3353,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     def _init_coordinates(self):
         """Initialise the physical and reference coordinates of the vertex-only mesh points."""
+        from firedrake.function import CoordinatelessFunction
         # Initialise physical coords
         gdim = self.topology_dm.getCoordinateDim()
         cell = self.ufl_cell()
         element = finat.ufl.VectorElement("DG", cell, 0, dim=gdim)
         self._coordinates = coordinates_from_topology(self, element)
-
-        # Initialise reference coords
-        import firedrake.functionspace as functionspace
-        from firedrake.function import CoordinatelessFunction
 
         parent_tdim = self._parent_mesh.ufl_cell().topological_dimension
         if parent_tdim > 0:
@@ -3412,9 +3410,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         new_to_old_point_numbering = self._compute_new_to_old_point_renumbering(self._did_reordering)
         self._new_to_old_point_renumbering = new_to_old_point_numbering
         self._old_to_new_point_renumbering = utils.invert(new_to_old_point_numbering)
-
-        # Changing the point numbering implies the topology of the VOM has changed
-        self._topology_version += 1
 
     @cached_property
     def _ufl_cell(self):
@@ -3730,7 +3725,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         live_topo_versions = [live_functions[uid]._mesh_topology_version for uid in common_uids]
         if self.comm.allreduce(live_topo_versions != self.comm.bcast(live_topo_versions, root=0), op=MPI.LOR):
             raise FunctionMigrationError(
-                "A function is on different topology versions on different ranks. "
+                "A function defined on this vertex-only mesh has been found to have different topology versions on different ranks. "
+                "This may be caused by accessing the function's Dat non-collectively."
             )
 
         # Migrate the functions
@@ -3786,13 +3782,14 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # we can safely write into the reference coordinates array.
         self._reference_coordinates.dat.data_wo[:] = new_ref_coords
 
-    def _migrate_swarm_and_recompute_point_numbering(self, coordinates: np.ndarray, absorbed_cells: ArrayLike | None = None) -> None:
-        """Remove vertex-only mesh points (if ``absorbed_cells`` is specified) and migrate the swarm.
+    def _migrate_swarm_and_recompute_point_numbering(self, coordinates: np.ndarray, absorbed: ArrayLike | None = None) -> None:
+        """Migrate the DMSwarm and recompute the vertex-only mesh point numbering given updated point coordinates and,
+        optionally, a set of particles to be removed.
 
         Parameters
         ----------
         coordinates
-            Physical coordinates of the locally owned points, in the current VOM ordering.
+            The new physical coordinates of the locally owned points, provided in the current VOM ordering.
 
         absorbed_vom_indices : array_like of int, optional
             Local VOM indices of the particles to remove. By default, no particles are removed.
@@ -3843,8 +3840,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # Remove cells from the VOM
         absorbed = (
             np.empty(0, dtype=IntType)
-            if absorbed_cells is None
-            else np.asarray(absorbed_cells, dtype=IntType)
+            if absorbed is None
+            else np.asarray(absorbed, dtype=IntType)
         )
 
         survivors = np.ones(n_owned, dtype=bool)
@@ -3874,7 +3871,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         ])
         swarm.set_field("migration_origin", origin[survivors])
 
-        # Redistribute particles accross ranks
+        # Redistribute particles across ranks
         ##
         # NOTE : A VOM swarm is a PIC swarm for which the migration type is `DMCELLNSCATTER` i.e.,
         # `DMSwarmMigrate``first locates each point in this rank's cells using ``DMSwarmPIC_coor`` value (`owner_plex_parent_cells_local` acts as a guess for the search)
@@ -3901,7 +3898,9 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # Rebuild the point numbering after swarm migration.
         self._recompute_point_numbering()
 
-    def _build_topology_step_sf(self, old_local_size: int,) -> PETSc.SF:
+        self._topology_version += 1
+
+    def _build_topology_step_sf(self, old_local_size: int) -> PETSc.SF:
         """Create and record the SF for the latest topology change.
 
         Parameters
@@ -3929,16 +3928,16 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._topology_step_sfs[self._topology_version] = step_sf
         return step_sf
 
-    def rebuild(self, coordinates: np.ndarray, absorbed_cells: ArrayLike | None = None) -> None:
+    def rebuild(self, coordinates: np.ndarray, absorbed: ArrayLike | None = None) -> None:
         """Rebuild the vertex-only mesh in-place following a topological change (e.g., a change in the number of particles
         or a redistribution of particles across ranks).
 
         Parameters
         ----------
         coordinates
-            Physical coordinates of the locally owned points, in the current VOM ordering.
+            The new physical coordinates of the locally owned points, provided in the current VOM ordering.
 
-        absorbed_cells : array_like, optional
+        absorbed : array_like, optional
             1D array containing the local indices of VOM cells to remove.
             Indices are assumed to be in the current (pre-rebuild) VOM ordering.
             By default, no particles are removed.
@@ -3952,14 +3951,14 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._check_mutation_support()
 
         old_local_size = self.cells.owned.local_size
-        self._migrate_swarm_and_recompute_point_numbering(coordinates, absorbed_cells)
+        self._migrate_swarm_and_recompute_point_numbering(coordinates, absorbed)
         self._build_topology_step_sf(old_local_size)
 
         # Migrate the coordinate and particle ID fields
-        topo_fields = [self._coordinates, self._particle_ids]
+        coord_fields = [self._coordinates]
         if self._reference_coordinates is not None:
-            topo_fields.append(self._reference_coordinates)
-        for field in topo_fields:
+            coord_fields.append(self._reference_coordinates)
+        for field in coord_fields:
             field._migrate_to_current_topology()
 
 

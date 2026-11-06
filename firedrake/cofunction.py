@@ -71,11 +71,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 given, the data comes from ``parent.dat[parent_index]`` and
                 ``val`` is ignored. This argument is used to make subfunctions
                 and components of a :class:`Cofunction`.
-            parent_index : optional
-                The index into the data of ``parent`` that selects the data of
-                this cofunction. This is a component label for a subfunction, or a
-                :class:`pyop3.IndexTree` for a component of a vector-valued or
-                tensor-valued :class:`Cofunction`.
         """
 
         V = function_space
@@ -99,10 +94,23 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         self._parent = parent
         r"""The cofunction whose data this cofunction views or ``None`` if this cofunction owns its data."""
-        self._parent_index = parent_index
+        self._parent_index = None
         r"""The index into the Dat of ``_parent`` that selects the data of this cofunction."""
+
         if parent is not None:
-            val = parent.dat[parent_index]
+            if val is not None:
+                raise ValueError(
+                    "Cannot give both a 'val' and a 'parent': "
+                    "a cofunction with a parent views the data of its parent, so it cannot be given initial values."
+                )
+            if self._function_space.index is not None:
+                self._parent_index = parent.function_space().field_axis.component_labels[self._function_space.index]
+            elif self._function_space.component is not None:
+                self._parent_index = op3.IndexTree.from_iterable((
+                    op3.ScalarIndex(f"dim{i}", None, j)
+                    for i, j in enumerate(self._function_space.component)
+                ))
+            val = parent.dat[self._parent_index]
 
         if isinstance(val, Cofunction):
             val = val.dat
@@ -111,6 +119,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             self._dat = val
         else:
             self._dat = function_space.make_dat(val, dtype, self.name())
+
+        self._val_used = val is not None
 
         self._mesh_topology_version = self._mesh_topology._topology_version
         r"""The topology version on which the values of this cofunction are stored."""
@@ -134,6 +144,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         # Check if the version of the mesh topology stored on this cofunction is outdated
         if self._mesh_topology_version == self._mesh_topology._topology_version:
             return
+        # If outdated, migrate the cofunction values
+        # First, check if the cofunction has shared data
+        # if self._val_used:
+        #     raise NotImplementedError("Cannot migrate a function with shared data.")
         if self._parent is None:
             from firedrake.function import _migrate_dg0_coef
             _migrate_dg0_coef(self)
@@ -141,10 +155,6 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             self._dat = self._parent.dat[self._parent_index]
             self._mesh_topology_version = self._parent._mesh_topology_version
 
-    # NOTE: When migrating cofunctions, a cofunction that's a copy of another cofunction
-    # migrates separately to it. That is, if f = g.copy(), then migrating f doesn't
-    # automatically migrate g. This is because migration creates a new Dat (due to changes in the
-    # data array sizes and layouts)
     @PETSc.Log.EventDecorator()
     def copy(self, deepcopy=True):
         r"""Return a copy of this :class:`firedrake.function.CoordinatelessFunction`.
@@ -171,11 +181,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
         if functionspaceimpl.is_mixed(self.function_space()):
             subfuncs = []
-            for i, component in enumerate(self.dat.axes.trees[0].root.components):
-                subspace = self.function_space().sub(i)
+            for subspace in self._function_space:
                 subfunc = type(self)(
                     subspace, name=f"{self.name()}[{subspace.index}]",
-                    parent=self, parent_index=component.label
+                    parent=self,
                 )
                 subfuncs.append(subfunc)
             return tuple(subfuncs)
@@ -188,14 +197,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         assert len(shape) > 0
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
-            indices = op3.IndexTree.from_iterable((
-                op3.ScalarIndex(f"dim{i_}", None, j_)
-                for i_, j_ in enumerate(ix)
-            ))
             component = type(self)(
                 self.function_space().sub(ix),
                 parent=self,
-                parent_index=indices,
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component
