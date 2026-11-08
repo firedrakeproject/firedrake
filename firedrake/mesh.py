@@ -3,11 +3,12 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import numpy as np
+from numpy.typing import ArrayLike
 import ctypes
 from contextlib import contextmanager
 import os
 import sys
-from pyop3.cache import cached_on, gc_disabled
+from pyop3.cache import cached_on
 import ufl
 import finat.ufl
 import FIAT
@@ -33,7 +34,7 @@ from typing import Literal, Tuple
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
 )
-from pyop3.cache import with_self_heavy_cache, cached_method
+from pyop3.cache import with_self_heavy_cache, cached_method, cached_property_until, cached_method_until
 import pyop3 as op3
 from pyop3.utils import readonly
 from finat.element_factory import as_fiat_cell
@@ -45,7 +46,7 @@ from firedrake.cython.dmcommon import DistributedMeshOverlapType
 import firedrake.extrusion_utils as eutils
 import firedrake.cython.rtree as rtree
 import firedrake.utils as utils
-from firedrake.utils import IntType, IntType_c, RealType, RealType_c, as_ctypes, cached_property_until, cached_method_until
+from firedrake.utils import IntType, IntType_c, RealType, RealType_c, as_ctypes
 from firedrake.logging import logger
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc, DEFAULT_PARTITIONER
@@ -398,7 +399,7 @@ class AbstractMeshTopology(abc.ABC):
 
         """
         self._topology_version = 0
-        r"The current topology version which corresponds to the number of times this topology has been rebuilt in place"
+        r"The current topology version which corresponds to the number of times this topology has been rebuilt in-place"
         dmcommon.validate_mesh(topology_dm)
         topology_dm.setFromOptions()
         self.topology_dm = topology_dm
@@ -2188,6 +2189,17 @@ class AbstractMeshTopology(abc.ABC):
         """
         raise NotImplementedError(f"Not implemented for {type(self)}")
 
+    def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
+        """Method for registering a function defined on a mesh topology.
+
+        Unless the topology is bound to change, the function does not need to be registered at the topology-level.
+
+        Parameters
+        ----------
+        function
+            The function to register.
+        """
+
 
 class MeshTopology(AbstractMeshTopology):
     """A representation of mesh topology implemented on a PETSc DMPlex."""
@@ -2297,17 +2309,6 @@ class MeshTopology(AbstractMeshTopology):
             self._grown_halos = True
         else:
             raise ValueError("Unknown overlap type %r" % overlap_type)
-
-    def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
-        """Method for recording a function defined on this topology.
-
-        Unless the topology is bound to change, the function does not need to be recorded.
-
-        Parameters
-        ----------
-        function
-            The function to record.
-        """
 
     @cached_property
     def _ufl_cell(self):
@@ -3478,9 +3479,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._new_to_old_point_renumbering = new_to_old_point_numbering
         self._old_to_new_point_renumbering = utils.invert(new_to_old_point_numbering)
 
-        # Changing the point numbering implies the topology of the VOM has changed
-        self._topology_version += 1
-
     @cached_property
     def _ufl_cell(self):
         return ufl.Cell(_cells[0][0])
@@ -3606,18 +3604,17 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return {}
 
     @cached_property_until_topology_changes
-    def cell_parent_cell_list(self):
-        """Return a list of parent mesh cells numbers in vertex only
-        mesh cell order.
-        """
+    def cell_parent_cell_dat(self):
+        """The Dat that stores the parent cell numbers behind ``cell_parent_cell_map``."""
         with self.topology_dm.field("parentcellnum") as parentcellnum_field:
-            cell_parent_cell_list = parentcellnum_field.ravel().copy()
-        return cell_parent_cell_list[self._old_to_new_cell_numbering_is.invertPermutation().indices]
+            swarm_parent_cells = parentcellnum_field.ravel().copy()
+        parent_cells = swarm_parent_cells[self._old_to_new_cell_numbering_is.invertPermutation().indices]
+        return op3.Dat(self.points, data=parent_cells)
 
     @cached_property_until_topology_changes
-    def cell_parent_cell_dat(self):
-        """The Dat storing the parent cell numbers behind the pyop3 map ``cell_parent_cell_map``."""
-        return op3.Dat(self.points, data=self.cell_parent_cell_list)
+    def cell_parent_cell_list(self):
+        """The parent-mesh cell number of each point, in the point ordering of this mesh."""
+        return self.cell_parent_cell_dat.data_ro
 
     @cached_property_until_topology_changes
     def cell_parent_cell_map(self):
@@ -3724,7 +3721,21 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def _register_function(self, function):
         self._live_functions[function.uid] = function
 
-    def _get_migration_sf(self, source_version: int) -> PETSc.SF:
+    def _check_mutation_support(self) -> None:
+        """Raises an error if the vertex-only mesh cannot be mutated in-place.
+
+        Raises
+        ------
+        NotImplementedError
+            If the parent mesh is extruded.
+        """
+        if isinstance(self._parent_mesh, ExtrudedMeshTopology):
+            raise NotImplementedError(
+                "The mutation of vertex-only meshes is not yet supported "
+                "for extruded parent-mesh topologies."
+            )
+
+    def _migration_sf_from(self, source_version: int) -> PETSc.SF:
         """Return the SF that moves cell data from an older topology version to the current one.
 
         Parameters
@@ -3732,16 +3743,10 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         source_version
             The topology version on which the data is stored.
 
-        Returns
-        -------
-        PETSc.SF
-            SF with the cells of ``source_version`` as roots and the cells of
-            the current version as leaves.
-
         Raises
         ------
         FunctionMigrationError
-            If the step SF for one of the versions in between is not available.
+            If the step SF for one of the intermediate versions is not available.
         """
         target_version = self._topology_version
         if not source_version < target_version:
@@ -3758,14 +3763,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             # Compose backwards all the down to ``source_version``.
             for v in range(version-1, source_version-1, -1):
                 try:
-                    step_sf = self._topology_step_sfs[v+1]  # v-1 -> v
+                    step_sf = self._topology_step_sfs[v+1]  # v -> v+1
                 except KeyError as err:
                     raise FunctionMigrationError(f"The step SF to topology version {v+1} could not be found.") from err
                 migration_sf = step_sf if migration_sf is None else step_sf.compose(migration_sf)
                 composed[v] = migration_sf
         return composed[source_version]
 
-    @gc_disabled()
     def _migrate_all_functions(self) -> None:
         """Move the data of every live function on this topology to the current version.
 
@@ -3781,27 +3785,201 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # ``dict`` copies weak references into ordinary ones:
         # no function can be freed from this point until the method returns.
         # This keeps every function alive until migration is complete
-        live_functions = dict(self._live_functions)
-        # TODO: build a dict {key: is_alive}
+        live_functions = dict(self._live_functions.items())
         common_uids = sorted(self.comm.allreduce(frozenset(live_functions), op=MPI.BAND))
-        live_topo_versions = [live_functions[uid]._mesh_topology_version for uid in common_uids]
 
         # Do a safeguard check: make sure every rank agrees on the topology version of every function
+        live_topo_versions = [live_functions[uid]._mesh_topology_version for uid in common_uids]
         if self.comm.allreduce(live_topo_versions != self.comm.bcast(live_topo_versions, root=0), op=MPI.LOR):
             raise FunctionMigrationError(
-                "A function is on different topology versions on different ranks. "
+                "A function defined on this vertex-only mesh has been found to have different topology versions on different ranks. "
+                "This may be caused by accessing the function's Dat non-collectively."
             )
-        # Compose the SFs newest first, so that each older SF reuses the next newer one.
-        for version in sorted(set(live_topo_versions) - {self._topology_version}, reverse=True):
-            self._get_migration_sf(version)
 
         # Migrate the functions
+        # This composes and caches the SFs needed for the migration
         for uid in common_uids:
             live_functions[uid]._migrate_to_current_topology()
 
         # Every live function is now on the current version, so no step SF is needed any more.
         self._topology_step_sfs.clear()
         self._composed_topology_migration_sfs.clear()
+
+    def _update_parent_cells(self, parent_cells: np.ndarray) -> None:
+        """Update the parent cell of each locally owned point.
+
+        Parameters
+        ----------
+        parent_cells
+            The parent-mesh cell number of each locally owned point, in the
+            current VOM ordering. The shape is expected to be ``(n_owned,)``.
+        """
+        self._check_mutation_support()
+        parent_cells = np.asarray(parent_cells, dtype=IntType)
+        n_owned = self.cells.owned.local_size
+        self.cell_parent_cell_dat.data_wo[:n_owned] = parent_cells
+
+    def _migrate_swarm_and_recompute_point_numbering(self, coordinates: np.ndarray, reference_coordinates: np.ndarray, absorbed: ArrayLike | None = None) -> None:
+        """Migrate the DMSwarm and recompute the vertex-only mesh point numbering given updated point coordinates and,
+        optionally, a set of particles to be removed.
+
+        Parameters
+        ----------
+        coordinates
+            The new physical coordinates of the locally owned points, provided in the current VOM ordering.
+
+        reference_coordinates
+            The new reference coordinates of the locally owned points, provided in the current VOM ordering.
+
+        absorbed_vom_indices : array_like of int, optional
+            Local VOM indices of the particles to remove. By default, no particles are removed.
+        """
+        swarm = self._topology_dm
+        n_owned = self.cells.owned.local_size
+
+        # Read data from the current topology
+        parent_cell_nums_local = self.cell_parent_cell_list[:n_owned].copy()
+
+        # Read data from the parent DMPlex
+        parent_plex = self._parent_mesh.topology_dm
+        plex_parent_cells_local = self._parent_mesh._new_to_old_cell_numbering[parent_cell_nums_local]
+
+        # Figure out where each VOM point needs to go.
+        owner_ranks_local = np.full(n_owned, self.comm.rank, dtype=IntType)
+        owner_plex_parent_cells_local = plex_parent_cells_local.copy()
+        # The pointSF of the parent DMPlex is not set up in serial so use it only in parallel
+        if self.comm.size > 1:
+            # PointSF example:
+            # ----------------
+            # On rank 0:
+            # leaf 37  <-  (1, 12) -> plex point 37 on rank 0 is a copy of rank 1's plex point 12
+            # leaf 41  <-  (1, 15) -> plex point 41 on rank 0 is a copy of rank 1's plex point 15
+            # ...
+            nroots, ilocal, iremote = parent_plex.getPointSF().getGraph()
+            vom_cell_owner_ranks = np.full(self._parent_mesh.num_points, self.comm.rank, dtype=IntType)
+            vom_cell_owner_indices = np.arange(self._parent_mesh.num_points, dtype=IntType)
+
+            vom_cell_owner_ranks[ilocal] = iremote[:, 0]
+            vom_cell_owner_indices[ilocal] = iremote[:, 1]
+
+            owner_ranks_local = vom_cell_owner_ranks[plex_parent_cells_local]
+            owner_plex_parent_cells_local = vom_cell_owner_indices[plex_parent_cells_local]
+
+        # Get the global index of each particle in the current version.
+        offset = self.comm.exscan(n_owned) or 0  # offset for this rank in global arrays
+        global_idxs_local = np.arange(offset, offset + n_owned, dtype=IntType)  # indices for this rank's owned particles in global arrays
+
+        # Keep the position (rank, index) of each VOM cell in the (original) input-ordering VOM
+        # Read from the swarm then reorder the values to match the current VOM order
+        vom_to_swarm = self._new_to_old_point_renumbering[:n_owned]
+        with swarm.field("inputrank") as input_ranks, swarm.field("inputindex") as input_indices:
+            input_ranks_local = input_ranks.ravel()[vom_to_swarm].copy()
+            input_indices_local = input_indices.ravel()[vom_to_swarm].copy()
+
+        # Remove cells from the VOM
+        absorbed = (
+            np.empty(0, dtype=IntType)
+            if absorbed is None
+            else np.asarray(absorbed, dtype=IntType)
+        )
+
+        survivors = np.ones(n_owned, dtype=bool)
+        survivors[absorbed] = False
+        n_survivors_local = int(survivors.sum())  # total number of survivors on this rank
+
+        # Mutate the DMSwarm in-place
+        # First compact the swarm to the new particles count
+        swarm.setLocalSizes(n_survivors_local, 0)
+
+        # Rewrite the swarm's fields using data read from the current VOM topology
+        # NOTE: The result is that the mutated swarm's point order now becomes the current VOM order
+        cell_id_name = swarm.getCellDMActive().getCellID()  # returns the name of the swarm field that stores each particle's parent cell number (in the old ordering)
+        swarm.set_field("DMSwarmPIC_coor", coordinates[survivors])
+        swarm.set_field(cell_id_name, owner_plex_parent_cells_local[survivors])
+        swarm.set_field("globalindex", global_idxs_local[survivors])
+        swarm.set_field("refcoord", reference_coordinates[survivors])
+        swarm.set_field("DMSwarm_rank", owner_ranks_local[survivors])
+        swarm.set_field("inputrank", input_ranks_local[survivors])
+        swarm.set_field("inputindex", input_indices_local[survivors])
+
+        # A particle's old local index is its position in the current VOM's order
+        # This is valid since the swarm's been rewritten with data listed in the current VOM's order
+        origin = np.column_stack([
+            np.full(n_owned, self.comm.rank, dtype=IntType),
+            np.arange(n_owned, dtype=IntType)
+        ])
+        swarm.set_field("migration_origin", origin[survivors])
+
+        # Redistribute particles across ranks
+        # TODO: change the swarm's migration type to ``DMSWARM_MIGRATE_BASIC``
+        # so that particles are sent to the destination ranks set in ``DMSwarm_rank``.
+        swarm.migrate(remove_sent_points=True)
+
+        # Convert the received plex cell numbers to Firedrake cell numbers
+        with swarm.field(cell_id_name) as swarm_plex_parent_cells:
+            plex_parent_cells = swarm_plex_parent_cells.ravel().copy()
+            swarm.set_field("parentcellnum", self._parent_mesh._old_to_new_cell_numbering_is.indices[plex_parent_cells])
+
+        # NOTE: with `remove_sent_points=True`, the previous owning rank deletes its local copy of the particle
+        # so each point ends up exactly on one rank.
+        # The pointSF of the DMSwarm is therefore empty.
+        empty = np.empty(0, dtype=IntType)
+        swarm.set_halo_sf(swarm.getLocalSize(), empty, empty)
+
+        # Rebuild the point numbering after swarm migration.
+        self._recompute_point_numbering()
+
+        self._topology_version += 1
+
+    def _build_topology_step_sf(self, old_local_size: int) -> PETSc.SF:
+        """Create and record the SF for the latest topology change.
+
+        Parameters
+        ----------
+        old_local_size
+            Number of VOM cells on this rank before swarm migration.
+
+        Returns
+        -------
+        PETSc.SF
+            SF with the cells of the rebuilt topology as leaves and the cells
+            of the previous topology as roots.
+        """
+        swarm = self.topology_dm
+
+        with swarm.field("migration_origin") as origin:
+            remote = origin.ravel().copy()  # (origin rank, origin index) pairs in swarm order (which is the previous VOM's order)
+            step_sf = PETSc.SF().create(comm=self.comm)
+            # SF: iremote[j] -> ilocal[j]
+            # - iremote = (origin rank, origin index) -> old VOM cell on the old rank
+            # - ilocal -> new VOM cell
+            step_sf.setGraph(old_local_size, self._old_to_new_point_renumbering, remote)
+
+        #  The SF stored under key k maps VOM version k-1 (roots) to VOM version k (leaves).
+        self._topology_step_sfs[self._topology_version] = step_sf
+        return step_sf
+
+    def _rebuild(self, coordinates: np.ndarray, reference_coordinates: np.ndarray, absorbed: ArrayLike | None = None) -> None:
+        """Rebuild the vertex-only mesh in-place following a topological change (e.g., a change in the number of particles
+        or a redistribution of particles across ranks).
+
+        Parameters
+        ----------
+        coordinates
+            The new physical coordinates of the locally owned points, provided in the current VOM ordering.
+
+        reference_coordinates
+            The new reference coordinates of the locally owned points, provided in the current VOM ordering.
+
+        absorbed : array_like, optional
+            1D array containing the local indices of VOM points to remove.
+            Indices are assumed to be in the current (pre-rebuild) VOM ordering.
+            By default, no particles are removed.
+        """
+        self._check_mutation_support()
+        old_local_size = self.cells.owned.local_size
+        self._migrate_swarm_and_recompute_point_numbering(coordinates, reference_coordinates, absorbed)
+        self._build_topology_step_sf(old_local_size)
 
 
 class CellOrientationsRuntimeError(RuntimeError):
@@ -4630,6 +4808,58 @@ values from f.)"""
         new_coordinates.dat.data_wo_with_halos[broken_indices] = own_curved_points
         return new_coordinates
 
+    def update_parent_cells_and_ref_coords(self, parent_cells: np.ndarray, reference_coordinates: np.ndarray | None) -> None:
+        """Update the parent cell and the reference coordinates of each locally owned point.
+
+        Parameters
+        ----------
+        parent_cells
+            The parent-mesh cell number of each locally owned point, in the current point ordering.
+        reference_coordinates
+            The reference coordinates of each point in its parent cell, in the current point ordering.
+
+        Raises
+        ------
+        NotImplementedError
+            If this mesh is not a vertex-only mesh.
+
+        Notes
+        -----
+        This operation is local. It does not change the topology, so the points stay
+        on the same rank until :meth:`rebuild` is called.
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise NotImplementedError("In-place mutation is currently supported only for vertex-only meshes.")
+
+        self.topology._update_parent_cells(parent_cells)
+        self.reference_coordinates.dat.data_wo[:] = reference_coordinates
+
+    def rebuild(self, absorbed: ArrayLike | None = None) -> None:
+        """Rebuild the vertex-only mesh in place.
+
+        Parameters
+        ----------
+        absorbed
+            The local indices of the points to remove, in the current VOM ordering.
+
+        Raises
+        ------
+        NotImplementedError
+            If this mesh is not a vertex-only mesh.
+
+        Notes
+        -----
+        This is a collective operation.
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise NotImplementedError("In-place mutation is currently supported only for vertex-only meshes.")
+
+        self.topology._rebuild(self.coordinates.dat.data_ro, self.reference_coordinates.dat.data_ro, absorbed)
+
+        # Migrate coordinate fields
+        self.coordinates._migrate_to_current_topology()
+        self.reference_coordinates._migrate_to_current_topology()
+
 
 @PETSc.Log.EventDecorator()
 def make_mesh_from_coordinates(coordinates, name, tolerance=0.5):
@@ -4810,13 +5040,13 @@ def make_vom_from_vom_topology(topology, name, tolerance=0.5):
         reference_coordinates_data = dmcommon.reordered_coords(topology.topology_dm, reference_coordinates_fs.dm.getLocalSection(),
                                                                (topology.num_vertices(), parent_tdim),
                                                                reference_coord=True)
-        reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs,
-                                                                val=reference_coordinates_data,
-                                                                name=_generate_default_mesh_reference_coordinates_name(name))
+        reference_coordinates = function.CoordinatelessFunction(reference_coordinates_fs, name=_generate_default_mesh_reference_coordinates_name(name))
+        reference_coordinates.dat.data_wo_with_halos[...] = reference_coordinates_data
         refCoordV = functionspaceimpl.WithGeometry(reference_coordinates_fs, vmesh)
         vmesh.reference_coordinates = function.Function(refCoordV, val=reference_coordinates)
     else:
         # We can't do this in 0D so leave it undefined.
+        # NOTE: We only hit this case when creating the input-ordering VOM.
         vmesh.reference_coordinates = None
     return vmesh
 
@@ -5205,6 +5435,11 @@ def VertexOnlyMesh(mesh, vertexcoords, reorder=None, missing_points_behaviour='e
 
     """
     petsctools.cite("nixonhill2023consistent")
+
+    if mesh.topological_dimension == 0:
+        raise NotImplementedError(
+            "A vertex-only mesh cannot be immersed in a mesh of topological dimension 0."
+        )
 
     if tolerance is None:
         tolerance = mesh.tolerance
@@ -5652,6 +5887,10 @@ def _pic_swarm_in_mesh(
         "DMSwarm_rank": np.full(n_owned, parent_mesh.comm.rank, dtype=IntType),
         "inputrank": winner_sf.input_ranks.astype(IntType),
         "inputindex": winner_sf.input_indices.astype(IntType),
+        "migration_origin": np.column_stack([
+            np.full(n_owned, parent_mesh.comm.rank, dtype=IntType),
+            np.arange(n_owned, dtype=IntType)
+        ])  # Stores the pair (origin rank, origin local index) of each particle in the previous topology
     }
     for name, size, dtype in fields:
         swarm_fields[name] = np.empty((n_owned, size), dtype=dtype)
@@ -5732,10 +5971,6 @@ def _parent_mesh_embedding(
     physical_coords : np.ndarray
         Physical coordinates for the winning leaves.
     """
-    if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
-        raise NotImplementedError(
-            "VertexOnlyMeshes don't have a working locate_cells_ref_coords_and_dists method"
-        )
     # `candidate_sf` is a star forest where each root is an input point,
     # and its leaves are candidate points on ranks which may own the point
     candidate_sf = VertexOnlyMeshSF.candidate_sf(parent_mesh, coords)
@@ -6080,9 +6315,9 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
     coordinates_fs = functionspace.FunctionSpace(topology, element)
     coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
                                                  (topology.num_vertices(), gdim))
-    return function.CoordinatelessFunction(coordinates_fs,
-                                           val=coordinates_data,
-                                           name=_generate_default_mesh_coordinates_name(topology.name))
+    coords = function.CoordinatelessFunction(coordinates_fs, name=_generate_default_mesh_coordinates_name(topology.name))
+    coords.dat.data_wo_with_halos[...] = coordinates_data
+    return coords
 
 
 class MeshSequenceGeometry(ufl.MeshSequence):
@@ -6210,8 +6445,8 @@ class MeshSequenceTopology:
 
     @property
     def _topology_version(self):
-        """The topology versions of the component meshes."""
-        return tuple(mesh._topology_version for mesh in self._meshes)
+        """The sum of the topology versions of the component meshes."""
+        return sum(mesh._topology_version for mesh in self._meshes)
 
     @property
     def topological(self):
@@ -6268,10 +6503,9 @@ class MeshSequenceTopology:
         return m
 
     def _register_function(self, function: "CoordinatelessFunction | Cofunction") -> None:
-        """Method for recording a function defined on this topology.
+        """Record a function that is defined on this topology.
 
-        Functions on mixed topologies cannot be migrated, so the function
-        is not recorded.
+        Functions on a mesh sequence cannot be migrated, so this method does not record the function.
 
         Parameters
         ----------

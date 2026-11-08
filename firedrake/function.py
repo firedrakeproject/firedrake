@@ -19,11 +19,11 @@ from mpi4py import MPI
 
 import pyop3 as op3
 from pyop3.dtypes import get_mpi_dtype
-from pyop3.cache import with_heavy_caches
+from pyop3.cache import with_heavy_caches, cached_property_until
 import petsctools
 
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes, cached_property_until, _new_uid, complex_mode, ScalarType_c, IntType_c, readonly
+from firedrake.utils import ScalarType, IntType, as_ctypes, _new_uid, complex_mode, ScalarType_c, IntType_c, readonly
 
 from firedrake import functionspaceimpl, utils
 from firedrake.cofunction import Cofunction, RieszMap
@@ -54,21 +54,27 @@ class CoordinatelessFunction(ufl.Coefficient):
     r"""A function on a mesh topology."""
 
     def __init__(self, function_space, val=None, name=None, dtype=ScalarType,
-                 parent: "CoordinatelessFunction | None" = None, parent_index=None):
-        r"""
-        :param function_space: the :class:`.FunctionSpace`, or
-            :class:`.MixedFunctionSpace` on which to build this
-            :class:`Function`.
+                 parent: "CoordinatelessFunction | None" = None):
+        r"""Initialise a coordinateless function.
 
-            Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`)
-            providing initial values (optional).
-            This :class:`Function` will share data with the provided
-            value.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
-               (defaults to ``ScalarType``).
+        Parameters
+        ----------
+        function_space: FunctionSpace, MixedFunctionSpace or Function.
+            The primal space on which to build this :class:`CoordinatelessFunction`.
+            If another :class:`Function` is passed here, its function space
+            will be used to build this :class:`CoordinatelessFunction`.
+        val : array_like or pyop3.Dat or CoordinatelessFunction, optional
+            The initial values of this coordinateless function.
+            If ``val`` is a :class:`pyop3.Dat` or a :class:`CoordinatelessFunction`, then the data will be shared.
+        name : str, optional
+            A user-defined name for this :class:`CoordinatelessFunction`.
+        dtype : numpy.dtype, optional
+            The data type of the values. The default is ``ScalarType``.
+        parent : CoordinatelessFunction, optional
+            The :class:`CoordinatelessFunction` whose data this coordinateless function views. If ``parent`` is
+            given, the data comes from ``parent.dat[parent_index]`` and
+            ``val`` is ignored. This argument is used to make subfunctions
+            and components of a :class:`CoordinatelessFunction`.
         """
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
                                            functionspaceimpl.MixedFunctionSpace)), \
@@ -85,16 +91,34 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         self._parent = parent
         r"""The function whose data this function views or ``None`` if this function owns its data."""
-        self._parent_index = parent_index
-        r"""The index into the Dat of` `_parent`` that selects the data of this function."""
+        self._parent_index = None
+        r"""The index into the Dat of ``_parent`` that selects the data of this cofunction."""
+
+        # If parent is not None, set the index into the parent function's data that this function views.
         if parent is not None:
-            val = parent.dat[parent_index]
+            if val is not None:
+                raise ValueError(
+                    "Cannot give both a 'val' and a 'parent': "
+                    "a function with a parent views the data of its parent, so it cannot be given initial values."
+                )
+            if self._function_space.index is not None:
+                # This is a subfunction where the field label is fetched from the parent's mixed space
+                self._parent_index = parent.function_space().field_axis.component_labels[self._function_space.index]
+            elif self._function_space.component is not None:
+                # This is a component of a vector- or tensor-valued function
+                # This has one ScalarIndex per dimension
+                self._parent_index = op3.IndexTree.from_iterable(
+                    op3.ScalarIndex(f"dim{i}", None, j) for i, j in enumerate(self._function_space.component)
+                )
+            val = parent.dat[self._parent_index]
 
         if isinstance(val, op3.Dat):
             assert val.comm == self.comm
             self._dat = val
         else:
             self._dat = function_space.make_dat(val, dtype, self.name())
+
+        self._val_used = val is not None
 
         self._mesh_topology_version = self._mesh_topology._topology_version
         r"""The topology version on which the values of this function are stored."""
@@ -128,7 +152,10 @@ class CoordinatelessFunction(ufl.Coefficient):
         # Check if the version of the mesh topology stored on this function is outdated
         if self._mesh_topology_version == self._mesh_topology._topology_version:
             return
-        # If outdated, then migrate the function values
+        # If outdated, migrate the function values
+        # First, check if the function has shared data
+        if self._val_used:
+            raise NotImplementedError("Migrating a function with shared data is not yet supported.")
         if self._parent is None:
             # Migrate the data owned by the function
             _migrate_dg0_coef(self)
@@ -163,10 +190,9 @@ class CoordinatelessFunction(ufl.Coefficient):
             # be renumbered when split, but now we retain the labels in the dat but
             # not the function space.
             subfuncs = []
-            for i, component in enumerate(self.function_space().field_axis.components):
-                subspace = self.function_space().sub(i)
+            for subspace in self.function_space():
                 subfunc = CoordinatelessFunction(
-                    subspace, parent=self, parent_index=component.label, name=f"{self.name()}[{subspace.index}]"
+                    subspace, parent=self, name=f"{self.name()}[{subspace.index}]"
                 )
                 subfuncs.append(subfunc)
             return tuple(subfuncs)
@@ -179,14 +205,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         assert len(shape) > 0
         components = np.empty(shape, dtype=object)
         for ix in np.ndindex(shape):
-            indices = op3.IndexTree.from_iterable((
-                op3.ScalarIndex(f"dim{i_}", None, j_)
-                for i_, j_ in enumerate(ix)
-            ))
             component = type(self)(
                 self.function_space().sub(ix),
                 parent=self,
-                parent_index=indices,
                 name=f"view[{','.join(map(str, ix))}]({self.name()})"
             )
             components[ix] = component
@@ -322,10 +343,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         r"""The underlying coordinateless function."""
         return self._data
 
-    # NOTE: When migrating functions, a function that's a copy of another function
-    # migrates separately to it. That is, if f = g.copy(), then migrating f doesn't
-    # automatically migrate g. This is because migration creates a new Dat (due to changes in the
-    # data array sizes and layouts)
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_copy
     def copy(self, deepcopy=False):
@@ -977,9 +994,9 @@ def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf:
 
     # Accessing dat would trigger the migration again, so we access _dat instead
     old_vals = cfunc._dat.data_ro
-    old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], -1)))  # (n_cells, block_size)
-    block_size = old_vals.shape[1]
     space = cfunc.function_space().topological
+    block_size = space.block_size
+    old_vals = np.ascontiguousarray(old_vals.reshape((old_vals.shape[0], block_size)))
     new_vals = np.empty((space.mesh().num_cells(), block_size), dtype=old_vals.dtype)
     unit, _ = get_mpi_dtype(old_vals.dtype, block_size)
     migration_sf.bcastBegin(unit, old_vals, new_vals, MPI.REPLACE)
@@ -989,6 +1006,8 @@ def _migrate_dg0_dat(cfunc: "CoordinatelessFunction | Cofunction", migration_sf:
 
 def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
     """Move the data of a coefficient to the current topology of its mesh.
+
+    This function mutates the coefficient in-place.
 
     Parameters
     ----------
@@ -1008,6 +1027,6 @@ def _migrate_dg0_coef(coef: "CoordinatelessFunction | Cofunction") -> None:
 
     # For a Real space, there's one global value which doesn't depend on the mesh topology so no migration is needed.
     if not isinstance(coef.function_space().topological, functionspaceimpl.RealFunctionSpace):
-        migration_sf = topology._get_migration_sf(coef._mesh_topology_version)
+        migration_sf = topology._migration_sf_from(coef._mesh_topology_version)
         coef._dat = _migrate_dg0_dat(coef, migration_sf)
     coef._mesh_topology_version = topology._topology_version
