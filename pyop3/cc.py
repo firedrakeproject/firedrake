@@ -70,7 +70,7 @@ from pyop3.log import INFO, debug, progress, warning
 
 import time
 
-from pyop3.device import get_current_device
+from pyop3.device import AMDGPU, CPU, CUDAGPU, GPU, get_current_device
 
 def _check_hashes(x, y, datatype):
     """MPI reduction op to check if code hashes differ across ranks."""
@@ -87,37 +87,25 @@ _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
-# NOTE: Basic mlir-opt passes. Further optimisations can be made in future.
-MLIR_OPT_PASSES = {
-    "CPU": (
+def _gpu_mlir_opt_passes(attach_target: str, *convert_gpu: str) -> tuple[str, ...]:
+    """Return the mlir-opt passes of a GPU, given the passes of its vendor.
+
+    :arg attach_target
+        The pass that attaches the target (the chip) to the GPU modules.
+    :arg convert_gpu
+        The passes that lower the `gpu` dialect to the vendor's LLVM dialect.
+
+    """
+    return (
         "--canonicalize",
         "--cse",
-        "--symbol-dce",
-        "--buffer-deallocation-pipeline",
-        "--convert-scf-to-cf",
-        "--canonicalize",
-        "--convert-math-to-llvm",
-        "--convert-cf-to-llvm",
-        "--convert-func-to-llvm",
-        "--finalize-memref-to-llvm",
-        "--convert-arith-to-llvm",
-        "--convert-index-to-llvm",
-        "--reconcile-unrealized-casts",
-    ),
-    "CudaGPU": (
-        "--canonicalize",
-        "--scf-parallel-loop-tiling=parallel-loop-tile-sizes=128 no-min-max-bounds=true",
-        "--cse",
-        "--gpu-map-parallel-loops",
-        "--convert-parallel-loops-to-gpu",
         "--gpu-launch-sink-index-computations",
         "--gpu-kernel-outlining",
-        "--nvvm-attach-target=chip=sm_89 features=+ptx80 O=3", # NOTE: Hardware arch information. Need more information.
+        attach_target,
         "--convert-scf-to-cf",
         "--expand-strided-metadata",
         "--lower-affine",
-        "--convert-gpu-to-nvvm",
-        "--convert-nvvm-to-llvm",
+        *convert_gpu,
         "--convert-index-to-llvm",
         "--convert-arith-to-llvm",
         "--convert-cf-to-llvm",
@@ -127,15 +115,51 @@ MLIR_OPT_PASSES = {
         "--reconcile-unrealized-casts",
         "--gpu-module-to-binary",
     )
+
+
+# NOTE: Basic mlir-opt passes. Further optimisations can be made in future.
+# MLIRCompiler.mlir_opt_flags replaces {arch} with the architecture of the current device.
+MLIR_OPT_PASSES = {
+    CPU: (
+        "--canonicalize",
+        "--cse",
+        "--symbol-dce",
+        "--buffer-deallocation-pipeline",
+        "--scf-parallel-for-to-nested-fors",
+        "--buffer-loop-hoisting",
+        "--convert-scf-to-cf",
+        "--canonicalize",
+        "--convert-math-to-llvm",
+        "--convert-math-to-libm",
+        "--convert-cf-to-llvm",
+        "--convert-func-to-llvm",
+        "--finalize-memref-to-llvm",
+        "--convert-arith-to-llvm",
+        "--convert-index-to-llvm",
+        "--reconcile-unrealized-casts",
+    ),
+    CUDAGPU: _gpu_mlir_opt_passes(
+        "--nvvm-attach-target=chip={arch} features=+ptx80 O=3", "--convert-gpu-to-nvvm", "--convert-nvvm-to-llvm",
+    ),
+    AMDGPU: _gpu_mlir_opt_passes(
+        "--rocdl-attach-target=chip={arch} O=3", "--convert-gpu-to-rocdl=chipset={arch} runtime=HIP",
+    ),
 }
 
 # The CPU pass list runs --buffer-deallocation-pipeline, which rejects
 # llvm.atomicrmw because that op does not declare its memory effects. So the CPU kernels keep
 # the standard lowering of their atomics.
+# The barriers are inserted before the thread loops are distributed, because the barrier
+# pass finds the thread loops by their marks.
 DEVICE_XDSL_PASSES = {
-    "CPU": (),
-    "CudaGPU": ("pyop3-relax-atomicrmw",),
+    CPU: "",
+    CUDAGPU: "pyop3-insert-barriers,pyop3-distribute-thread-loops,pyop3-relax-atomicrmw",
+    AMDGPU: (
+        "pyop3-insert-barriers,pyop3-distribute-thread-loops,"
+        "pyop3-relax-atomicrmw{syncscope=agent no_fine_grained_memory=true}"
+    ),
 }
+"""The pyop3 xDSL passes of each device, as an xDSL pass pipeline."""
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -532,8 +556,6 @@ class MLIRCompiler(Compiler):
     _mlir_translate = None
     _cc = None
 
-    # TODO: Better way to do this - depends on these strings matching. Very silly 
-    _mlir_opt_flags = MLIR_OPT_PASSES[str(get_current_device())]
     _cflags = ("-fPIC",)
     # TODO: Add the MLIR/LLVM binary wheel. Requires linking for CUDA/AMD runtime binary
     _ldflags = ("-shared", "-L/home/sam/Documents/llvm-project/build/lib")
@@ -555,8 +577,9 @@ class MLIRCompiler(Compiler):
 
     @property
     def mlir_opt_flags(self) -> tuple[str, ...]:
+        device = get_current_device()
         return (
-            *MLIR_OPT_PASSES[str(get_current_device())],
+            *(flag.format(arch=device.arch) for flag in MLIR_OPT_PASSES[type(device)]),
             *getattr(pyop3.config, "extra_mlir_opt_flags", ()),
         )
 
@@ -568,18 +591,17 @@ class MLIRCompiler(Compiler):
         `mlir-opt` runs the passes in mlir_opt_flags. It prints its output in the
         generic form, so that xDSL can parse it again.
 
-        Returns
-        -------
-        xdsl.passes.PassPipeline
-            The pass pipeline.
+        xDSL pipeline is good because we can develop custom compiler passes and ship without compiling 
         """
         from xdsl.passes import PassPipeline
         from xdsl.transforms.mlir_opt import MLIROptPass
+        from xdsl.utils.arg_spec import parse_pipeline
 
-        from pyop3.compile.passes import PYOP3_PASSES as PASSES
+        from pyop3.compile.passes.mlir import PYOP3_PASSES as PASSES
 
+        specs = parse_pipeline(DEVICE_XDSL_PASSES[type(get_current_device())])
         return PassPipeline((
-            *(PASSES[name]() for name in DEVICE_XDSL_PASSES[str(get_current_device())]),
+            *(PASSES[spec.name].from_pass_spec(spec) for spec in specs),
             MLIROptPass(
                 executable=self.mlir_opt,
                 arguments=(*self.mlir_opt_flags, "--mlir-print-op-generic"),
@@ -592,6 +614,12 @@ class MLIRCompiler(Compiler):
             *self._cflags,
             *(self._debugflags if self._debug else self._optflags),
         )
+
+    @property
+    def ldflags(self) -> tuple[str, ...]:
+        device = get_current_device()
+        runtime = (f"-l{device.runtime_library}",) if isinstance(device, GPU) else ()
+        return (*super().ldflags, *runtime)
 
 
 def load_hashkey(code, extension, cppargs=(), ldargs=(), comm=None):
@@ -784,7 +812,7 @@ def make_so(compiler, code, extension, comm):
                     # NOTE: How can I guarantee this is clang??
                     cc = (
                         (compiler.cc,) + compiler.cflags + ("-march=native",)
-                        + (str(llname),) + compiler.ldflags + ("-lmlir_cuda_runtime",)
+                        + (str(llname),) + compiler.ldflags
                         + ('-o', str(soname))
                     )
 
@@ -831,21 +859,6 @@ def make_so(compiler, code, extension, comm):
 def _lower_mlir(compiler, code: str, lowered_name: Path, logfile: Path, errfile: Path) -> None:
     """Lower MLIR source to the LLVM dialect with the xDSL pass pipeline of a compiler.
 
-    Parameters
-    ----------
-    compiler : MLIRCompiler
-        The compiler, which provides the pass pipeline.
-    code : str
-        The MLIR source.
-    lowered_name : Path
-        The file that the lowered module is written to, in the generic form.
-    logfile : Path
-        The compilation log. The passes are written to it.
-    errfile : Path
-        The compilation error log. The error output of a failed pass is written to it.
-
-    Raises
-    ------
     subprocess.CalledProcessError
         If `mlir-opt` fails. Its error output is in `errfile`.
     CompilationException
@@ -855,7 +868,7 @@ def _lower_mlir(compiler, code: str, lowered_name: Path, logfile: Path, errfile:
     from xdsl.printer import Printer
     from xdsl.utils.exceptions import DiagnosticException, ParseError
 
-    from pyop3.compile.passes import mlir_context
+    from pyop3.compile.passes.mlir import mlir_context
 
     pipeline = compiler.xdsl_pipeline
 

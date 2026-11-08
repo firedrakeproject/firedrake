@@ -31,6 +31,7 @@ from pyop3.buffer import (
     PetscMatBuffer,
 )
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+from pyop3.device import get_current_device
 from pyop3.dtypes import IntType
 from pyop3.insn.base import (
     AbstractAssignment,
@@ -46,7 +47,8 @@ from pyop3.insn.base import (
 
 
 def _compile_static_hashkey(op: PreprocessedOperation, compiler_parameters: ParsedCompilerParameters, cc_options) -> Hashable:
-    return (op.disk_cache_key, compiler_parameters, cc_options, pyop3.config)
+    # The kernel is generated for the current device
+    return (op.disk_cache_key, compiler_parameters, cc_options, pyop3.config, get_current_device())
 
 # FIXME: can't currently pickle things
 # @pyop3.cache.memory_and_disk_cache(

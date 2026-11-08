@@ -50,20 +50,36 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.device import offloading
+from pyop3.device import HOST_DEVICE, get_current_device, offloading
 
-from pyop3.compile.mlir import MLIRBuilder
 from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
+from pyop3.compile.mlir import MLIRBuilder
+from pyop3.compile.passes.impero.item_loop import assign_crossing_values, batch_items, mark_atomics
+from pyop3.compile.passes.impero.utils import temporary
+from pyop3.compile.passes.impero.thread_transposition import thread_transpose
+from pyop3.insn.exec import ParsedCompilerParameters
+
 
 @dataclasses.dataclass
 class GemExecutable(Executable):
 
     instructions: tuple
     arguments: dict
+    compiler_parameters: ParsedCompilerParameters
+    parallel_indices: frozenset
 
-    def __init__(self, instructions, arguments, **kwargs):
+    def __init__(
+        self,
+        instructions,
+        arguments,
+        compiler_parameters: ParsedCompilerParameters,
+        parallel_indices: frozenset,
+        **kwargs,
+    ):
         self.instructions = instructions
         self.arguments = arguments
+        self.compiler_parameters = compiler_parameters
+        self.parallel_indices = parallel_indices
         super().__init__(**kwargs)
 
     @cached_property
@@ -89,25 +105,19 @@ class GemExecutable(Executable):
         dll = pyop3.cc.load(module_code, "mlir", cppargs, ldargs, comm=self.comm)
 
         func = getattr(dll, func_name)
-        func.argtypes = [
-            cast_memref_arg_to_ctype_type(arg) for arg in kernel_args
-        ]
+        func.argtypes = [ctypes.POINTER(_MemRef)] * len(kernel_args)
         func.restype = None
         return func
 
 
     @cached_property
-    def _mlir_build(self) -> tuple[str, list, str, idict]:
-        """Generate the MLIR module from the instructions.
+    def _impero(self) -> gem.impero_utils.ImperoC:
+        """The Impero code of the instructions, with one copy of each temporary per item."""
+        from pyop3.compile.passes.impero.item_loop import flatten_item_temporaries
 
-        The module is generated separately from its compilation, so that the
-        argument devices can be read before the kernel is called.
-
-        :returns tuple (The module code, the kernel arguments, ctype function name,
-            the device of each kernel argument)
-        """
         insns = []
         for insn in self.instructions:
+            # TODO: Can't put these together atm as it causes bug. Should investigate 
             new_expr, = gem.impero_utils.preprocess_gem([insn.expression])
             new_insn, = gem.impero_utils.preprocess_gem([insn.assignee])
             assert "ComponentTensor" not in repr(new_expr)
@@ -119,9 +129,36 @@ class GemExecutable(Executable):
                 mode=insn.mode,
             )
             insns.append(new_insn)
-        impero = gem.impero_utils.compile_gem_new(insns, ())
+        impero = gem.impero_utils.compile_gem_new(insns, (), parallel_indices=self.parallel_indices)
 
-        builder = MLIRBuilder(impero.tree, self.arguments, temporary_indices=impero.indices)
+        # NOTE: Temporary compiler pass for removing the cell-level index on temporaries 
+        # Indices are required for constructing the impero tree but
+        # causing bugs when lowering 
+        flattened_items_impero = flatten_item_temporaries(impero)
+        return flattened_items_impero 
+
+    @cached_property
+    def _mlir_build(self) -> tuple[str, list, str, idict]:
+        """Generate the MLIR module from the instructions.
+        
+        Compiler passes are also applied over the Impero tree before lowering to MLIR.
+
+        - Thread transposition is an optimisation for high-order assembly on GPU
+            - Without it, a GPU kernel runs one thread per item, see `batch_items`
+
+        - assign_crossing_values marks all GEM values that silently require access in sibling loops
+            - This means that they need to be initialised before the loop. 
+            - As such, "crossing values" are marked to be temporary buffers  
+
+        """
+        on_device = get_current_device() != HOST_DEVICE
+        if on_device and self.compiler_parameters.thread_transposition:
+            tree = thread_transpose(self._impero.tree, target=get_current_device().target)
+        else:
+            tree = assign_crossing_values(self._impero)
+            if on_device:
+                tree = batch_items(mark_atomics(tree))
+        builder = MLIRBuilder(tree, self.arguments)
         module_code, kernel_args, func_name = builder.build()
 
         # The argument devices are only complete after `build` has been called
@@ -134,12 +171,12 @@ class GemExecutable(Executable):
 
     def as_callable_arg(self, buffer_view: Any, /, index: int | None = None) -> int:
         if index is None:
-            return MemrefBuilder.from_array(buffer_view.handle)
+            return _as_memref(buffer_view.handle)
 
         # The handle must be extracted inside the offloading context. This makes
         # sure that the array comes from the device that the argument is placed on.
         with offloading(self.argument_devices[index]):
-            return MemrefBuilder.from_array(buffer_view.handle)
+            return _as_memref(buffer_view.handle)
 
 # TODO: use overloadedexpressionevaluator
 @functools.singledispatch
@@ -263,6 +300,17 @@ class GemCompiler(Pyop3Compiler):
     def __init__(self, /, **kwargs):
         super().__init__(**kwargs)
 
+        # The indices of the loops over the iteration set of a pyop3 loop
+        # Added to identify if an impero.For object is parallel
+        self._parallel_indices: set[gem.Index] = set()
+
+    @contextlib.contextmanager
+    def active_loop_indices(self, extra):
+        # pyop3 loops are independent so indices are also parallel 
+        self._parallel_indices.update(index for index in extra.values() if index is not None)
+        with super().active_loop_indices(extra):
+            yield
+
     @functools.singledispatchmethod
     def process(self, obj: Any, /, *args, **kwargs):
         super().process(obj, *args, **kwargs)
@@ -383,7 +431,7 @@ class GemCompiler(Pyop3Compiler):
             extra_shape = tuple(i.extent for i in self.loop_indices.values())
             # for loop_idx in self.loop_indices.values():
             # shape = 
-            var = gem.Variable(name_in_kernel, extra_shape+buffer.shape, dtype=buffer.dtype, data="null")
+            var = temporary(name_in_kernel, extra_shape+buffer.shape, buffer.dtype)
 
             extra_idxs = []
             for loop_idx in self.loop_indices.values():
@@ -498,6 +546,8 @@ class GemCompiler(Pyop3Compiler):
         executable = GemExecutable(
             self.instructions,
             buffer_arguments,
+            compiler_parameters,
+            frozenset(self._parallel_indices),
             **cc_options
         )
 
@@ -508,84 +558,31 @@ class GemCompiler(Pyop3Compiler):
         )
 
 
-# TODO: Everything memref-related needs to be cleaned up. This is ugly 
-def cast_memref_arg_to_ctype_type(arg: Any) -> type:
-    """ 
-    Receive a pyop3 buffer object and translate to Memref ctype object
+class _MemRef(ctypes.Structure):
+    """The descriptor of a ``memref<?xT>``, which is the type of every kernel argument.
+
+    The layout is given in https://mlir.llvm.org/docs/TargetLLVMIR/#ranked-memref-types.
     """
-    rank = 1 if arg.shape is None else len(arg.shape)
-    return ctypes.POINTER(MemrefBuilder.ctype(rank, arg.dtype))
+    _fields_ = [
+        ("allocated", ctypes.c_void_p),
+        ("aligned", ctypes.c_void_p),
+        ("offset", ctypes.c_int64),
+        ("size", ctypes.c_int64),
+        ("stride", ctypes.c_int64),
+    ]
 
-class MemrefBuilder:
-    """
-    Builds ctypes descriptors conforming to MLIR's memref ABI.
-    
-    Source for descriptor is here: https://mlir.llvm.org/doxygen/structStridedMemRefType.html
-    (Hopefully it does not change)
 
-    The descriptor layout must match the struct produced by
-    cast_memref_arg_to_ctype_type for the same (rank, dtype).
-    Although all memrefs are rank-1 through PyOP3, with dynamic extents
-    """
+@functools.singledispatch
+def _as_memref(array: Any, /) -> _MemRef:
+    """Return the descriptor of a flat, contiguous view of ``array``."""
+    utils.raise_missing_dispatch_handler(array)
 
-    @staticmethod
-    @functools.lru_cache # Using cache so that it reuses ctype byrefs - no need to making new instances
-    def ctype(rank: int, dtype: np.dtype) -> type:
-        elem_ctype = np.ctypeslib.as_ctypes_type(np.dtype(dtype))
 
-        class MemRefCType(ctypes.Structure):
-            _fields_ = [
-                ("allocated", ctypes.POINTER(elem_ctype)),
-                ("aligned", ctypes.POINTER(elem_ctype)),
-                ("offset", ctypes.c_int64),
-                ("shape", ctypes.c_int64 * rank),
-                ("strides", ctypes.c_int64 * rank),
-            ]
+@_as_memref.register
+def _(array: np.ndarray, /) -> _MemRef:
+    return _MemRef(array.ctypes.data, array.ctypes.data, 0, array.size, 1)
 
-        MemRefCType.__name__ = f"MemRefCType_{np.dtype(dtype).name}_{rank}d"
-        return MemRefCType
 
-    @functools.singledispatchmethod
-    @classmethod
-    def from_array(cls, array: Any, *, rank: int | None = None):
-        utils.raise_missing_dispatch_handler(array)
-
-    @from_array.register(np.ndarray)
-    @classmethod
-    def _(cls, array: np.ndarray, *, rank: int | None = None):
-        """Wrap a numpy array, taking shape/strides from the array itself"""
-        shape = array.shape if rank is None or rank == array.ndim else (array.size,)
-        return cls._build(array.ctypes.data, shape, np.dtype(array.dtype))
-    
-    try:
-        import cupy as cp
-        @from_array.register(cp.ndarray)
-        @classmethod
-        def _(cls, array: cp.ndarray, *, rank: int | None = None):
-            """Wrap a CuPy array, taking shape/strides from the array itself"""
-            shape = array.shape if rank is None or rank == array.ndim else (array.size,)
-            return cls._build(array.data.ptr, shape, np.dtype(array.dtype))
-
-    except ImportError:
-        pass 
-
-    @classmethod
-    def _build(cls, address: int, shape: tuple[int, ...], dtype: np.dtype):
-        rank = len(shape)
-        struct_type = cls.ctype(rank, dtype)
-        elem_ctype = np.ctypeslib.as_ctypes_type(dtype)
-        ptr = ctypes.cast(ctypes.c_void_p(address), ctypes.POINTER(elem_ctype))
-
-        strides, acc = [], 1
-        for extent in reversed(shape):
-            strides.append(acc)
-            acc *= extent
-        strides.reverse()
-
-        return struct_type(
-            allocated=ptr,
-            aligned=ptr,
-            offset=0,
-            shape=(ctypes.c_int64 * rank)(*shape),
-            strides=(ctypes.c_int64 * rank)(*strides),
-        ) 
+@_as_memref.register
+def _(array: cp.ndarray, /) -> _MemRef:
+    return _MemRef(array.data.ptr, array.data.ptr, 0, array.size, 1)

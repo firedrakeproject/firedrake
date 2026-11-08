@@ -27,6 +27,7 @@ import pyop3.expr
 import pyop3.insn.base
 from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
+from pyop3.device import Device, get_current_device
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
 
@@ -37,6 +38,9 @@ class CompilerParameters:
 
     compress_indirection_maps: bool = False
     interleave_comp_comm: bool = False
+
+    thread_transposition: bool = False
+    """ Option to apply thread-transposition as GPU optimisation """ 
 
     # }}}
 
@@ -142,9 +146,8 @@ class InstructionExecutionContext:
         self._root_insn = root_insn
         self.compiler_parameters = compiler_parameters
 
-        # Flag for detecting whether or not we hit cache
-        # TODO: rename to 'preprocess_called'?
-        self._has_called_compile = False
+        # Devices for which executable has been compiled
+        self._compiled_devices: set[Device] = set()
         self._preprocessed = None
 
     @property
@@ -170,16 +173,17 @@ class InstructionExecutionContext:
         # We shouldn't be calling preprocess() if we are hitting cache, this is
         # an important performance check. Perform the check at the last second
         # to make sure we're not calling it anywhere.
-        if not self._has_called_compile:
+        if not self._compiled_devices:
             assert self._preprocessed is None
 
         executable(new_buffers)
 
-    @cached_method()
+    # The kernel is generated for the current device
+    @cached_method(key=get_current_device)
     def compile(self) -> Callable[[int, ...], None]:
         executor, orig_arg_index_to_buffer_map = self._compile()
 
-        if not self._has_called_compile:
+        if get_current_device() not in self._compiled_devices:
             # If the returned executor is cached from a previous invocation then we
             # have to duplicate it with new buffers. For example consider the expressions:
             #
@@ -226,7 +230,8 @@ class InstructionExecutionContext:
     # timestepping loop can easily miss cache (if assembling into a
     # different tensor each time).
     @memory_cache(
-        hashkey=lambda self: self._executor_cache_key,
+        # The kernel is generated for the current device
+        hashkey=lambda self: (self._executor_cache_key, get_current_device()),
         get_comm=lambda self: self.comm,
         heavy=True,
         make_cache=lambda: cachetools.LRUCache(100),
@@ -238,8 +243,8 @@ class InstructionExecutionContext:
         # Preprocess the instruction. This is an expensive operation so we
         # want to avoid doing it if at all possible.
         self.preprocess()
-        assert not self._has_called_compile
-        self._has_called_compile = True
+        assert get_current_device() not in self._compiled_devices
+        self._compiled_devices.add(get_current_device())
 
         # A very common and insidious caching bug happens when we incorrectly hit
         # the compile_static cache and then try to load buffers using their index

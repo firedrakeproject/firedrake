@@ -91,8 +91,8 @@ __all__ += [
     "RW",
     "WRITE",
 ]
-from pyop3.device import CUDAGPU, HOST_DEVICE, offloading
-__all__ += ["CUDAGPU", "HOST_DEVICE", "offloading"]
+from pyop3.device import AMDGPU, CUDAGPU, HOST_DEVICE, offloading
+__all__ += ["AMDGPU", "CUDAGPU", "HOST_DEVICE", "offloading"]
 from pyop3.dtypes import IntType, ScalarType
 __all__ += ["IntType", "ScalarType"]
 from pyop3.expr import (

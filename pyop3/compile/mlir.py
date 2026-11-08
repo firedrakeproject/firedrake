@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import functools
 import contextlib
+import functools
 import numbers
 import types
 import numpy as np
@@ -12,11 +12,14 @@ import pyop3.config
 from pyop3 import utils
 from pyop3.buffer import NullBuffer, ArrayBuffer, IndexedBuffer
 from pyop3.device import Device, HOST_DEVICE, get_current_device
+from pyop3.compile.passes.mlir.atomics import ATOMIC_RMW_KIND_ADDF, ATOMIC_RMW_KIND_ADDI
+from pyop3.compile.passes.impero.utils import is_shared, is_temporary, static_extent
+from pyop3.compile.passes.mlir.thread_loops import THREAD_LOOP, WORKGROUP_ADDRESS_SPACE
 
 from gem import gem, impero as imp
 from gem.node import pre_traversal
 
-from xdsl.dialects import arith, func, memref, scf
+from xdsl.dialects import arith, func, gpu, memref, scf
 from xdsl.dialects import math as xmath
 from xdsl.builder import Builder, InsertPoint
 from xdsl.ir import SSAValue, Block, Region, Operation
@@ -31,6 +34,7 @@ from xdsl.dialects.builtin import (
     i1, i64, f32, f64,
     MemRefType,
     ModuleOp,
+    NoneAttr,
     StringAttr,
     TensorType,
     UnitAttr,
@@ -39,9 +43,12 @@ from xdsl.dialects.builtin import (
 INDEX_TYPE = IndexType()
 FLOAT_TYPES = (f32, f64)
 
-# Allow LLVM to fuse floating-point multiply-add. Only rounds once instead of twice though.
-# Does not get other changes that -ffast-math normally applies for a GCC/clang compiler 
-FP_CONTRACT = arith.FastMathFlagsAttr([arith.FastMathFlag.ALLOW_CONTRACT])
+# ffast-math flag. No MLIR pass can apply this so has to be done at codegen.
+FP_FAST = arith.FastMathFlagsAttr("fast")
+
+# LLVM combines adjacent shared-memory loads into 16-byte vector loads, so each
+# shared temporary must start on a 16-byte boundary.
+SHARED_ALIGNMENT = 16
 
 def get_mlir_type(dtype):
     dt = np.dtype(dtype)
@@ -56,12 +63,6 @@ def get_mlir_type(dtype):
 
 def is_float(t) -> bool:
     return t in FLOAT_TYPES
-
-# TODO: Should this be somewhere else? This is only for GPU-case
-def atomic_add_kind(t) -> int:
-    """Return the `arith.AtomicRMWKind` value that adds two values of type `t`."""
-    ATOMIC_ADDF, ATOMIC_ADDI = 0, 1
-    return ATOMIC_ADDF if is_float(t) else ATOMIC_ADDI
 
 # NOTE: Do I want this function? It feels wrong grouping these types
 def is_intlike(t) -> bool:
@@ -119,31 +120,18 @@ class MLIRBuilder:
         root,
         arguments: Mapping[str, IndexedBuffer],
         name: str = "imp_kernel",
-        *,
-        temporary_indices: Mapping[gem.Node, tuple[gem.Index, ...]] | None = None,
     ) -> None:
         """Create the kernel FuncOp, with one memref argument for each buffer in `arguments`.
 
-        :arg root: Impero tree that `build` translates.
+        :arg root: Impero tree that `build` translates. A value that one loop computes
+            and another loop reads must already be stored in a temporary, see
+            `pyop3.compile.passes.impero.item_loop.assign_crossing_values`.
         :arg arguments: Map from the kernel name of each buffer to its buffer view.
             Temporaries (views of a `NullBuffer`) are not function arguments and are dropped.
         :arg name: The name of the generated MLIR kernel
-        :arg temporary_indices: `ImperoC.indices`. This maps each GEM temporary (the
-            expression of an `imp.Evaluate`, or a `gem.IndexSum`) to the free indices
-            that the loops around its declaration do not bind. A temporary that has
-            such indices is read in a different loop from the one that computes it,
-            so its values are stored in an array.
 
         """
         self._root = root
-
-        # GEM temporary -> free indices that the loops around its declaration do not bind
-        self._temporary_indices: Mapping[gem.Node, tuple[gem.Index, ...]] = (
-            temporary_indices if temporary_indices is not None else {}
-        )
-
-        # GEM temporary -> SSA value of the array that stores its values
-        self._temporaries: dict[gem.Node, SSAValue] = dict()
 
         # Kernel name -> buffer view, for the buffers that are function arguments
         # Excluding NullBuffers that are not function arguments 
@@ -168,17 +156,20 @@ class MLIRBuilder:
             Builder(InsertPoint.at_end(entry_block))
         ]
 
-        # Index into the builder stack of the region that `insert_at_entry` targets
-        self._entry_depth: int = 0
+        # Kernel name -> SSAValue of the function argument
+        self._argument_values: dict[str, SSAValue] = dict(zip(self._arguments, entry_block.args))
 
-        # Symbol table (inames/loop-idx and evaluated expressions)
+        # The block that values are hoisted to: the function body, or the body of the item loop
+        # while it is generated, so that each item (each GPU thread) gets its own temporaries
+        self._entry: Block = entry_block
+
+        # (Hoisting block, variable name or gem.Literal) -> SSAValue of the buffer declared in the block
+        self._buffers: dict[tuple[Block, Any], SSAValue] = {}
+
+        # Constant attribute -> SSAValue of its arith.constant in the function body
+        self._constants: dict[FloatAttr | IntegerAttr, SSAValue] = {}
+
         self.symbol_table = SymbolTable()
-
-        # Variable name (or gem.Literal) -> SSAValue of its buffer
-        self._buffers: dict[Any, SSAValue] = dict()
-
-        # Constant attribute -> SSAValue of its arith.constant in the entry block
-        self._constants: dict[FloatAttr | IntegerAttr, SSAValue] = dict()
 
         # Globally defined arrays - like quadrature weights
         self.global_ops: list[Operation] = list()
@@ -188,27 +179,15 @@ class MLIRBuilder:
         # Argument name -> Device that the argument must be placed on
         self._argument_devices: dict[str, Device] = dict.fromkeys(self._arguments, get_current_device())
 
-        # Buffer mapping from buffer-name to SSA argument 
-        self._buffers = dict(zip(self._arguments, entry_block.args))
-
-
-    def to_string(self, operation: ModuleOp) -> str: 
-        """ Returns Module operation as a string """ 
-        from xdsl.printer import Printer 
-        from io import StringIO
-        output = StringIO()
-        printer = Printer(stream=output)
-        printer.print_op(operation)
-        return output.getvalue()
 
     @property
     def builder(self) -> Builder:
         return self._builder_stack[-1]
 
     @property
-    def _in_parallel_loop(self) -> bool:
-        """Whether code is currently generated inside the body of the parallel loop."""
-        return self._entry_depth > 0
+    def _in_item_loop(self) -> bool:
+        """Whether code is currently generated inside the loop over the items."""
+        return self._entry is not self._func_op.body.block
 
     @property
     def arguments(self) -> dict[str, IndexedBuffer]:
@@ -240,9 +219,7 @@ class MLIRBuilder:
         if pyop3.config.debug_checks:
             modop.verify()
 
-        module_code = self.to_string(modop)
-
-        return module_code, self.arguments, f"_mlir_ciface_{self._func_op.sym_name.data}"
+        return str(modop), self.arguments, f"_mlir_ciface_{self._func_op.sym_name.data}"
 
     # {{{ helpers
 
@@ -256,33 +233,25 @@ class MLIRBuilder:
         return results[0] if results else None
 
     def insert_at_entry(self, op: Operation) -> SSAValue:
-        """Insert an MLIR operation at the start of the entry block.
-
-        Values that are defined here dominate every loop nest.
-        """
-        
-        top_builder = self._builder_stack[self._entry_depth]
-        block = top_builder.insertion_point.block
-
-        top_builder.insert(op, InsertPoint.at_start(block))
+        """Insert an MLIR operation at the start of the hoisting block, so that it dominates every use."""
+        Builder(InsertPoint.at_start(self._entry)).insert(op)
         return op.results[0]
 
     def _const(self, value, mlir_type) -> SSAValue:
         """Return the SSA value of a scalar constant, reusing it if it already exists.
 
-        Constants are defined in the entry block, so that they dominate every use.
+        Constants are defined at the start of the function body, so that they dominate
+        every use. `gpu-kernel-outlining` copies the constants that a GPU kernel uses into it.
         """
         if is_float(mlir_type):
             attr = FloatAttr(float(value), mlir_type)
         else:
             attr = IntegerAttr(int(value), mlir_type)
         if attr not in self._constants:
-            self._constants[attr] = self.insert_at_entry(arith.ConstantOp(attr))
+            op = Builder(InsertPoint.at_start(self._func_op.body.block)).insert(arith.ConstantOp(attr))
+            self._constants[attr] = op.result
         return self._constants[attr]
 
-    # NOTE: Switch this into dispatch function? It is super ugly but it is merely comparison
-    # FIXME: Improve this later on. It forms the type conversion basis which is important.
-    # I think it could look cleaenr for debugging
     def _convert_type(self, v: SSAValue, to) -> SSAValue:
         """ Function converts an SSA to the desired type `to`, if necessary
 
@@ -323,6 +292,10 @@ class MLIRBuilder:
     def _to_index(self, ssa: SSAValue) -> SSAValue:
         return self._convert_type(ssa, INDEX_TYPE)
 
+    def _to_float(self, ssa: SSAValue) -> SSAValue:
+        """Convert an integer scalar to f64, because the MLIR math functions take floating-point operands."""
+        return ssa if is_float(ssa.type) else self._convert_type(ssa, f64)
+
     def _align_scalars(self, a: SSAValue, b: SSAValue):
         """ Bring two scalars to common type
 
@@ -354,14 +327,14 @@ class MLIRBuilder:
         """Apply float_op or int_op to a and b after promoting them to a common type.
 
         float_op can be None for operations that are only defined for integers.
-        Floating-point operations carry the `contract` fast-math flag, so that LLVM can
+        Floating-point operations carry the `fast` fast-math flags, so that LLVM can, for example,
         fuse a multiply and the add that uses its result into one FMA instruction.
         """
         a, b = self._align_scalars(a, b)
         if is_float(a.type):
             if float_op is None:
                 raise TypeError(f"{int_op.__name__} is not defined for floating point operands")
-            return self.insert(float_op(a, b, flags=FP_CONTRACT))
+            return self.insert(float_op(a, b, flags=FP_FAST))
         return self.insert(int_op(a, b))
 
     # }}}
@@ -374,10 +347,11 @@ class MLIRBuilder:
         A `gem.Variable` becomes either a temporary allocation or a function
         argument, and a `gem.Literal` becomes a read-only global constant.
         """
-        key = node.name if isinstance(node, gem.Variable) else node
+        if isinstance(node, gem.Variable) and node.name in self._argument_values:
+            return self._argument_values[node.name]
+        key = (self._entry, node.name if isinstance(node, gem.Variable) else node)
         if key not in self._buffers:
-            buffer_ssa = self._declare_buffer(node)
-            self._buffers[key] = buffer_ssa
+            self._buffers[key] = self._declare_buffer(node)
         return self._buffers[key]
 
     @functools.singledispatchmethod
@@ -392,16 +366,31 @@ class MLIRBuilder:
         temporaries reach this point.
 
         Inside the parallel loop the entry block is the loop body, so each
-        iteration (each GPU thread) gets its own copy of the temporary. The
-        allocation is not initialised, so each entry must be written before it is read.
+        iteration (each GPU thread) gets its own copy of the temporary, in the
+        private address space of the device. The allocation is not initialised,
+        so each entry must be written before it is read.
 
+        A shared temporary is a `memref.global` in the workgroup address space,
+        which `gpu-kernel-outlining` copies into the GPU module.
         """
-        if node.data != "null":
+        # Place node in shared memory if possible 
+        if is_shared(node):
+            # Memory space assigns location on the GPU (i.e. L1 shared memory vs global memory (per-batch vs per-kernel))
+            memref_type = MemRefType(get_mlir_type(node.dtype), node.shape, memory_space=WORKGROUP_ADDRESS_SPACE)
+            name = self.unique_name(f"shared_{node.name}")
+            self.global_ops.append(memref.GlobalOp.get(
+                StringAttr(name), memref_type, UnitAttr(), sym_visibility=StringAttr("private"), alignment=SHARED_ALIGNMENT,
+            ))
+
+            return self.insert_at_entry(memref.GetGlobalOp(name, memref_type))
+
+        if not is_temporary(node):
             raise ValueError(f"{node.name!r} is neither a temporary nor a kernel argument")
 
-        # FIXME: Avoiding attached cell loop
-        shape = node.shape[-1:]
-        return self.insert_at_entry(memref.AllocaOp.get(get_mlir_type(node.dtype), shape=shape))
+        # Non-shared threads should be private/per-thread temporaries on GPU 
+        space = get_current_device().private_address_space if self._in_item_loop else None
+        memory_space = NoneAttr() if space is None else IntegerAttr(space, i64)
+        return self.insert_at_entry(memref.AllocaOp.get(get_mlir_type(node.dtype), shape=node.shape, memory_space=memory_space))
 
 
     @_declare_buffer.register(gem.Literal)
@@ -451,43 +440,6 @@ class MLIRBuilder:
 
         return self.insert_at_entry(memref.GetGlobalOp(name, memref_type))
 
-    # TODO: I think {_temporary_offset, _store_temporary, _load_temporary} 
-    # can be folded into existing functions
-    def _temporary_offset(self, expr) -> SSAValue:
-        """Return the flat position of the current entry of the array temporary of `expr`.
-
-        The entry is given by the current values of the loop indices in
-        `self._temporary_indices[expr]`, in row-major order.
-        """
-        indices = self._temporary_indices[expr]
-        extents = [index.extent for index in indices]
-        if not all(isinstance(extent, numbers.Integral) for extent in extents):
-            raise NotImplementedError(f"Temporary arrays must have a compile-time size, not {extents}")
-        return self.linearise_index(indices, row_major_strides(extents))
-
-    def _store_temporary(self, expr, value: SSAValue) -> None:
-        """Store `value` into the current entry of the array temporary of `expr`.
-
-        The array is allocated on first use at the start of the entry block. Inside the
-        parallel loop the entry block is the loop body, so each iteration (each GPU
-        thread) gets its own copy.
-        """
-        if expr not in self._temporaries:
-            size = int(np.prod([index.extent for index in self._temporary_indices[expr]]))
-            self._temporaries[expr] = self.insert_at_entry(
-                memref.AllocaOp.get(value.type, shape=[size])
-            )
-        offset = self._temporary_offset(expr)
-        self.insert(memref.StoreOp.get(value, self._temporaries[expr], [offset]))
-
-    def _load_temporary(self, expr) -> SSAValue:
-        """Load the current entry of the array temporary of `expr`."""
-        offset = self._temporary_offset(expr)
-        return self.insert(memref.LoadOp.get(self._temporaries[expr], [offset]))
-
-    def _needs_array(self, expr) -> bool:
-        """Return whether expr is read in a different loop from the one that computes it."""
-        return bool(self._temporary_indices.get(expr))
 
     # }}}
 
@@ -505,8 +457,6 @@ class MLIRBuilder:
     def _(self, idx: gem.Constant):
         return self._const(idx.value, INDEX_TYPE)
 
-    @get_index_ssa.register(gem.VariableIndex)
-    @get_index_ssa.register(gem.Index)
     @get_index_ssa.register(gem.Node)
     def _(self, idx):
         return self._to_index(self.process(idx))
@@ -534,10 +484,8 @@ class MLIRBuilder:
         variable = node.children[0]
         assert isinstance(variable, gem.Variable)
 
-        # FIXME: Avoiding attached cell loop
-        multiindex = node.multiindex[-1]
-
-        index_ssa = self.get_index_ssa(multiindex) 
+        index, = node.multiindex
+        index_ssa = self.get_index_ssa(index)
         return self.buffer_for(variable), [index_ssa]
 
     def _load(self, aggregate, multiindex, strides=(1,)) -> SSAValue:
@@ -564,16 +512,11 @@ class MLIRBuilder:
 
     @index_into.register(gem.Literal)
     def _(self, aggregate, multiindex) -> SSAValue:
-        strides = row_major_strides([mi.extent for mi in multiindex])
+        strides = utils.row_major_strides([mi.extent for mi in multiindex])
         return self._load(aggregate, multiindex, strides)
 
     @index_into.register(gem.Variable)
     def _(self, aggregate, multiindex) -> SSAValue:
-
-        # FIXME: Buffers are flat (single-indexing dim).
-        # Avoiding attached cell loop 
-        multiindex = multiindex[-1:]
-
         return self._load(aggregate, multiindex)
 
     # }}}
@@ -585,13 +528,8 @@ class MLIRBuilder:
         defined inside a loop is visible only within that loop, so a later
         use outside the loop computes the value again.
         """
-        if isinstance(obj, gem.Node):
-            if obj in self.symbol_table:
-                return self.symbol_table[obj]
-            # A value that was computed in another loop is read back from its array
-            if obj in self._temporaries:
-                return self._load_temporary(obj)
-
+        if isinstance(obj, gem.Node) and obj in self.symbol_table:
+            return self.symbol_table[obj]
         return self._process(obj, **kwargs)
 
     @functools.singledispatchmethod
@@ -605,25 +543,16 @@ class MLIRBuilder:
         for child in tree.children:
             self.process(child)
 
-        # An IndexSum is complete at the end of the block that initialises it. If it is
-        # read in another loop, its value must be stored before the scope is left.
-        if self._in_parallel_loop:
-            for child in tree.children:
-                if isinstance(child, imp.Initialise) and self._needs_array(child.indexsum):
-                    self._store_temporary(child.indexsum, self.symbol_table[child.indexsum])
-
     @_process.register(imp.For)
     def process_for(self, tree):
         assert tree.index.extent
 
-        # NOTE: Index hopefully tagged with parallel at this stage
-        # if tree.index.is_parallel...
-        compile_time_index_cls = (gem.Constant, numbers.Integral)
-
-        if not isinstance(tree.index.extent, compile_time_index_cls): 
+        # Only the outermost parallel loop is mapped to `scf.parallel`. A parallel loop
+        # inside it, for example the loop over the layers of an extruded mesh, runs
+        # sequentially in each iteration.
+        if tree.is_parallel and not self._in_item_loop:
             with self.enter_parallel(tree.index):
-                with self.outermost():
-                    self.process(tree.children[0])
+                self.process(tree.children[0])
 
         else:
             accumulators = self.find_accumulators(tree.children[0])
@@ -631,40 +560,64 @@ class MLIRBuilder:
             with self.enter_for(tree.index, accumulators=accumulators):
                 self.process(tree.children[0])
 
-    # NOTE: I think I can clean this up. Can I use pre_traversal instead of walk?  
-    # Only got walk because of the Impero nodes. 
+    @_process.register(imp.ItemBatch)
+    def process_item_batch(self, batch):
+        """Launch one block of `batch.block_size` threads per batch of items.
+
+        At least one block is launched, so that the grid is valid when there are no items.
+        Each ThreadLoop of the batch runs over the items of the
+        batch and its domain, and skips the items past the end.
+        """
+
+        extent = batch.index.extent
+        self.declare_runtime_expr_on_host(extent)
+        num_items = self.get_index_ssa(extent)
+        one = self._const(1, INDEX_TYPE)
+
+        num_blocks = self.insert(arith.CeilDivUIOp(num_items, self._const(batch.batch_size, INDEX_TYPE)))
+        num_blocks = self.insert(arith.MaxUIOp(num_blocks, one))
+        block_size = self._const(batch.block_size, INDEX_TYPE)
+
+        # The arguments are the block ids, thread ids, grid sizes and block sizes, each (x, y, z)
+        body = Block(arg_types=[INDEX_TYPE] * 12)
+        self.insert(gpu.LaunchOp(Region(body), [num_blocks, one, one], [block_size, one, one]))
+
+        block_id = body.args[0]
+        with self._item_loop(body):
+            # Each child of ItemBatch is a ThreadLoop. Each loop does not iterate but assigns steps to threads
+            for loop in batch.statement.children:
+                with self.thread_loop([batch.batch_size, *map(static_extent, loop.domain)]) as (local, *indices):
+
+                    first = self.insert(arith.MuliOp(block_id, self._const(batch.batch_size, INDEX_TYPE)))
+                    item = self.insert(arith.AddiOp(first, local))
+
+                    # Making sure that only threads less than extent do compute 
+                    with self._if(self.insert(arith.CmpiOp(item, num_items, "ult"))):
+                        # Defining cell and local thread index 
+                        self.symbol_table.define(batch.index, item)
+                        self.symbol_table.define(batch.local_index, local)
+
+                        for index, value in zip(loop.domain, indices, strict=True):
+                            self.symbol_table.define(index, value)
+                        
+                        self.process(loop.statement)
+
+            self.insert(gpu.TerminatorOp())
+
     def find_accumulators(self, tree) -> list[gem.IndexSum]:
         """Return the IndexSums that are accumulated within `tree` and carried as iter_args.
 
         MLIR is an SSA compiler, so a scalar sum that is initialised in an enclosing scope
         must be passed through the loop as an iterator argument. The arguments must be
         found before the loop is entered.
-
-        A sum can also be initialised in a sibling loop nest. This happens when the
-        summation loop is outside the loop over one of the free indices of the sum. Such a
-        sum is not in scope here, and its values are stored in an array temporary. It is
-        accumulated in memory by `process_accumulate`, so it is not an iter_arg.
         """
-        accumulated = dict()
-        initialised = set()
-
-        def walk(node):
-            if isinstance(node, imp.Accumulate):
-                accumulated.setdefault(node.indexsum, None)
-            elif isinstance(node, imp.Initialise):
-                initialised.add(node.indexsum)
-            elif isinstance(node, (imp.Block, imp.For)):
-                for child in node.children:
-                    walk(child)
-
-        walk(tree)
+        nodes = list(pre_traversal([tree]))
+        accumulated = dict.fromkeys(n.indexsum for n in nodes if isinstance(n, imp.Accumulate))
+        initialised = {n.indexsum for n in nodes if isinstance(n, imp.Initialise)}
         outside = [s for s in accumulated if s not in initialised]
-        for s in outside:
-            if s not in self.symbol_table and s not in self._temporaries:
-                raise ValueError(
-                    f"IndexSum {s!r} is neither bound in scope nor stored in an array"
-                )
-        return [s for s in outside if s in self.symbol_table]
+        if missing := [s for s in outside if s not in self.symbol_table]:
+            raise ValueError(f"IndexSums {missing!r} are accumulated outside the loop that initialises them")
+        return outside
 
     @_process.register(imp.Evaluate)
     def process_evaluate(self, leaf):
@@ -672,8 +625,7 @@ class MLIRBuilder:
 
         The value is computed here because its operands are in scope here. For example,
         an IndexSum operand is only bound in the loop that accumulates it. The value is
-        bound in the symbol table for uses in the same loop. If the temporary is also
-        read in another loop, the value is stored in an array as well.
+        bound in the symbol table for uses in the same loop.
 
         Outside the parallel loop the computation is skipped. These temporaries do not
         depend on the parallel loop index, and each use inside the parallel loop computes
@@ -681,70 +633,41 @@ class MLIRBuilder:
         """
         expr = leaf.expression
         # Tensor-valued constants are read through their global buffer
-        if not self._in_parallel_loop or expr.shape or expr in self.symbol_table:
+        if not self._in_item_loop or expr.shape or expr in self.symbol_table:
             return
-
-        value = self.process(expr)
-        self.symbol_table.define(expr, value)
-        if self._needs_array(expr):
-            self._store_temporary(expr, value)
+        self.symbol_table.define(expr, self.process(expr))
 
     @_process.register(imp.Initialise)
     def process_initialise(self, leaf):
-        """ Bind scalar IndexSum values to 0.
-
-        Array-based IndexSums are already initialised. 
-        """
+        """Bind a scalar IndexSum to 0."""
         indexsum = leaf.indexsum
         assert not indexsum.shape
 
         zero = self._const(0, get_mlir_type(indexsum.dtype))
         self.symbol_table.define(indexsum, zero)
 
-    # NOTE: I actually really hate this function. The load or scalar is so bad.
-    # I think I will wait for imp.Assignment change but the design is wrong somewhere.
     @_process.register(imp.Accumulate)
     def process_accumulate(self, leaf):
-        """Add a term to a scalar gem.IndexSum.
+        """Add a term to a scalar gem.IndexSum, and rebind the sum to the result
 
-        If the sum is bound in scope, it is carried by the enclosing loops as an iter_arg.
-        The sum is then rebound to the result.
-
-        In the case of sum-factorisation, the sum may be initialised in a sibling loop.
-        The result must be stored back into a temporary array. Reads are, then, also from a temp array 
+        Inside the summation loops the sum is the iter_arg of the innermost scf.for
         """
         indexsum = leaf.indexsum
-
-        in_scope = indexsum in self.symbol_table
-        if in_scope:
-            # Inside the summation loop(s) this is the iter_arg of the innermost scf.for
-            acc = self.symbol_table[indexsum]
-        else:
-            assert indexsum in self._temporaries, "IndexSum has not been instantiated"
-            acc = self._load_temporary(indexsum)
-
+        acc = self.symbol_table[indexsum]
         # The summed indices are bound by the enclosing For loops.
         term = self.process(indexsum.children[0])
-
         if not acc.type == term.type:
             raise TypeError(f"Accumulator and Summee should match type ({acc.type}, {term.type})")
         summed = self._binary(acc, term, arith.AddfOp, arith.AddiOp)
-
-        if in_scope:
-            self.symbol_table.update(indexsum, summed)
-        else:
-            self._store_temporary(indexsum, summed)
-
+        self.symbol_table.update(indexsum, summed)
         return summed
 
     @_process.register(imp.Assignment)
     def process_assignment(self, leaf):
-        """Store the value of leaf.expression into the buffer of leaf.assignee.
+        """Store the value of leaf.expression into the buffer of leaf.assignee
 
-        For mode 'inc' the current value is loaded and the expression is added to it.
-        If the buffer is a kernel argument and the assignment is inside the parallel
-        loop, other iterations can increment the same entry concurrently. In this
-        case the increment is done with a single atomic operation.
+        An `inc` loads, adds and stores. An `atomic` is an increment that other
+        threads may do at the same time, see `mark_atomics` to see how atomics flag attached
         """
         assignee = leaf.assignee
         if not isinstance(assignee, gem.Indexed):
@@ -758,18 +681,17 @@ class MLIRBuilder:
         if not buf.type.element_type == value.type:
             raise TypeError(f"Buffer and expression types do not match: {buf.type.element_type}, {value.type}")
 
-        # Atomic expression if we are adding to function argument and in parallel loop
-        is_atomic = assignee.children[0].name in self._arguments
-
         match leaf.mode:
             case "write":
                 pass
-            case "inc" if is_atomic:
+            case "atomic":
                 self.insert(
                     memref.AtomicRMWOp(
                         operands=[value, buf, idx],
                         result_types=[value.type],
-                        properties={"kind": IntegerAttr(atomic_add_kind(value.type), i64)},
+                        properties={"kind": IntegerAttr(
+                            ATOMIC_RMW_KIND_ADDF if is_float(value.type) else ATOMIC_RMW_KIND_ADDI, i64
+                        )},
                     )
                 )
                 return
@@ -815,12 +737,11 @@ class MLIRBuilder:
     def process_indexsum(self, leaf):
         """Raise an error, because the value of an IndexSum cannot be computed from its expression.
 
-        The value is computed by `imp.Initialise` and `imp.Accumulate`. It is then read
-        from the symbol table in the same loop, or from its array in another loop.
+        The value is computed by `imp.Initialise` and `imp.Accumulate`, and read from the
+        symbol table in the same loop. A sum that another loop reads is stored in a
+        temporary by the "assign_crossing_values" compiler pass
         """
-        raise ValueError(
-            f"IndexSum {leaf!r} is read outside the loop that computes it, and it has no array"
-        )
+        raise ValueError(f"IndexSum {leaf!r} is read outside the loop that computes it")
 
     # }}}
 
@@ -866,20 +787,49 @@ class MLIRBuilder:
 
     @_process.register(gem.Conditional)
     def _(self, expr):
-        # NOTE: Worth noting that arith.select is eager
-        # scf.if may be better if branch leads to div-by-zero
         cond, then, else_ = (self.process(c) for c in expr.children)
         then, else_ = self._align_scalars(then, else_)
         return self.insert(arith.SelectOp(cond, then, else_))
 
-    # TODO: Need to deal with more possible functions
+    # Maps each GEM math function name to the MLIR op that computes it on floats.
+    _math_ops = {
+        "abs": xmath.AbsFOp,
+        "sqrt": xmath.SqrtOp,
+        "exp": xmath.ExpOp,
+        "ln": xmath.LogOp,
+        "sin": xmath.SinOp,
+        "cos": xmath.CosOp,
+        "tan": xmath.TanOp,
+        "sinh": xmath.SinhOp,
+        "cosh": xmath.CoshOp,
+        "tanh": xmath.TanhOp,
+        "asin": xmath.AsinOp,
+        "acos": xmath.AcosOp,
+        "atan": xmath.AtanOp,
+        "atan2": xmath.Atan2Op,
+        "erf": xmath.ErfOp,
+    }
+
     @_process.register(gem.MathFunction)
     def _(self, expr):
-        name = expr.name
         args = [self.process(c) for c in expr.children]
-        if name == "abs":
-            return self.insert((xmath.AbsFOp if is_float(args[0].type) else xmath.AbsIOp)(args[0]))
-        raise NotImplementedError(f"Math function {name!r} is not implemented")
+        if expr.name == "abs" and not is_float(args[0].type):
+            return self.insert(xmath.AbsIOp(args[0]))
+        if expr.name not in self._math_ops:
+            raise NotImplementedError(f"Math function {expr.name!r} is not implemented")
+        args = [self._to_float(a) for a in args]
+        if len(args) == 2:
+            args = self._align_scalars(*args)
+        return self.insert(self._math_ops[expr.name](*args))
+
+    @_process.register(gem.Power)
+    def _(self, expr):
+        """Compute a power in floating point, as the C `pow` of the loopy backend does.
+
+        The MLIR lowering has no pass for `math.ipowi`, so integer powers are also computed in floating point.
+        """
+        base, exponent = (self._to_float(self.process(c)) for c in expr.children)
+        return self.insert(xmath.PowFOp(*self._align_scalars(base, exponent)))
 
     # }}}
 
@@ -943,119 +893,78 @@ class MLIRBuilder:
         self.insert(loop_op)
 
         body = loop_op.body.block
-        self.symbol_table.push()
-        self.symbol_table.define(index, body.args[0])
+        with self._scope(body):
+            self.symbol_table.define(index, body.args[0])
 
-        for key, arg in zip(accumulators, body.args[1:]):
-            self.symbol_table.define(key, arg)
-
-        self._builder_stack.append(Builder(InsertPoint.at_end(body)))
-
-        yield
-
-        self.insert(scf.YieldOp(*(self.symbol_table[key] for key in accumulators)))
-        self._builder_stack.pop()
-        self.symbol_table.pop()
+            for key, arg in zip(accumulators, body.args[1:]):
+                self.symbol_table.define(key, arg)
+            
+            yield
+            self.insert(scf.YieldOp(*(self.symbol_table[key] for key in accumulators)))
 
         # Include the summed arguments into the scope upon exit  
         for key, result in zip(accumulators, loop_op.results):
             self.symbol_table.update(key, result)
 
     @contextlib.contextmanager
-    def enter_parallel(self, index, is_outermost=False, accumulators=()):
-        """Open an `scf.parallel` loop over index
-
-        :arg index: numbers.Integral or gem.Index, denoting extent of domain
-        :arg is_outermost: boolean flag which defines if this loop should be considered outermost loop for GPU
-        :arg accumulators: keys in the symbol table (e.g. gem.IndexSum) whose values are summed over
-                    
-        Partial sums are completed in parallel. Need to be combined before returning
-
-        """
-        # TODO: Add GPU mapping dimensions
-        assert isinstance(index, (numbers.Integral, gem.Index))
-
-        extent = index if isinstance(index, numbers.Integral) else index.extent
-
-        # Loop bounds must be read on host and used for setting GPU grid bounds
-        self.declare_runtime_expr_on_host(extent)
+    def enter_parallel(self, index: gem.Index):
+        """Open an `scf.parallel` loop over `index`, whose extent is read on the host to size the GPU grid."""
+        self.declare_runtime_expr_on_host(index.extent)
 
         lb = self._const(0, INDEX_TYPE)
-        ub = self.get_index_ssa(extent)
+        ub = self.get_index_ssa(index.extent)
         step = self._const(1, INDEX_TYPE)
+        body = Block(arg_types=[INDEX_TYPE])
 
-        init = [self.symbol_table[key] for key in accumulators]
+        self.insert(scf.ParallelOp([lb], [ub], [step], Region(body)))
+
+        with self._item_loop(body):
+            self.symbol_table.define(index, body.args[0])
+            yield
+            self.insert(scf.ReduceOp())
+
+    @contextlib.contextmanager
+    def thread_loop(self, extents: list[int]):
+        """Open an `scf.parallel` over `extents`, marked for the passes in
+        `pyop3.compile.passes.mlir.thread_loops`, and yield its indices."""
+        zero, one = self._const(0, INDEX_TYPE), self._const(1, INDEX_TYPE)
+        body = Block(arg_types=[INDEX_TYPE] * len(extents))
 
         loop_op = scf.ParallelOp(
-            [lb], [ub], [step], Region(Block(arg_types=[INDEX_TYPE])), init_vals=init
+            [zero] * len(extents), [self._const(e, INDEX_TYPE) for e in extents], [one] * len(extents), Region(body)
         )
+        loop_op.attributes[THREAD_LOOP] = UnitAttr()
         self.insert(loop_op)
 
-        body = loop_op.body.block
+        with self._scope(body):
+            yield body.args
+            self.insert(scf.ReduceOp())
+
+    @contextlib.contextmanager
+    def _if(self, condition: SSAValue):
+        """Open an `scf.if` without results or else branch."""
+        then = Block()
+        self.insert(scf.IfOp(condition, [], Region(then)))
+        with self._scope(then):
+            yield
+            self.insert(scf.YieldOp())
+
+    @contextlib.contextmanager
+    def _scope(self, block: Block):
+        """Generate code at the end of `block`, in a new symbol-table scope."""
         self.symbol_table.push()
-        self.symbol_table.define(index, body.args[0])
-
-        # Each iteration starts from the additive identity. The init values are added
-        # only once, by the reduction.
-        for key, value in zip(accumulators, init):
-            self.symbol_table.define(key, self._const(0, value.type))
-
-        self._builder_stack.append(Builder(InsertPoint.at_end(body)))
+        self._builder_stack.append(Builder(InsertPoint.at_end(block)))
 
         yield
-
-        partials = [self.symbol_table[key] for key in accumulators]
-
-        # Need to sum each partial sum together before returning value
-        regions = []
-        for partial in partials:
-            block = Block(arg_types=[partial.type, partial.type])
-            self._builder_stack.append(Builder(InsertPoint.at_end(block)))
-            summed = self._binary(*block.args, arith.AddfOp, arith.AddiOp)
-            self.insert(scf.ReduceReturnOp(summed))
-            self._builder_stack.pop()
-            regions.append(Region(block))
-
-        self.insert(scf.ReduceOp(partials, regions))
+        
         self._builder_stack.pop()
         self.symbol_table.pop()
 
-        # Include the reduced values into the scope upon exit
-        for key, result in zip(accumulators, loop_op.results):
-            self.symbol_table.update(key, result)
-
     @contextlib.contextmanager
-    def outermost(self):
-        """ Moves entry_depth pointer by one so that all hoisted operations go one-level deeper.
-
-        On GPU, this is to avoid hoisted operations being moved from GPU to CPU context.
-        """
-        original_scopes = self.symbol_table._scopes
-        original_constants = self._constants
-        original_buffers = self._buffers
-        original_temporaries = self._temporaries
-
-        self.symbol_table._scopes = original_scopes[1:]
-        self._constants = dict()
-        self._buffers = {
-            key: ssa for key, ssa in original_buffers.items() if key in self._arguments
-        }
-        self._temporaries = dict()
-        self._entry_depth += 1
-
-        yield
-
-        self._entry_depth -= 1
-        self.symbol_table._scopes = [original_scopes[0]] + self.symbol_table._scopes
-        self._constants = original_constants
-        self._buffers = original_buffers
-        self._temporaries = original_temporaries
-
-
-def row_major_strides(shape):
-    strides = []
-    acc = 1
-    for extent in reversed(shape):
-        strides.append(acc)
-        acc *= extent
-    return strides[::-1]
+    def _item_loop(self, block: Block):
+        """Generate the loop over the items at the end of `block`, hoisting values to its start."""
+        assert not self._in_item_loop, "Item loops do not nest"
+        self._entry = block
+        with self._scope(block):
+            yield
+        self._entry = self._func_op.body.block

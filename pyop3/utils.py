@@ -268,6 +268,16 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     return readonly(strides_[::-1])
 
 
+def row_major_strides(shape) -> list[int]:
+    """Return the strides of a row-major array of the given shape.
+    """
+    strides = []
+    acc = 1
+    for extent in reversed(shape):
+        strides.append(acc)
+        acc *= extent
+    return strides[::-1]
+
 
 def pairwise(iterable, *, final=pyop3.constants._nothing):
     if final is not pyop3.constants._nothing:

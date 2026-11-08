@@ -1,11 +1,14 @@
 import abc
 import contextlib
 import contextvars
+import ctypes
+import dataclasses
 import functools
 import numbers
 from typing import Any
 
 import numpy as np
+from mpi4py import MPI
 
 from pyop3 import utils
 from pyop3.dtypes import DTypeT
@@ -26,6 +29,12 @@ class Device(abc.ABC):
     - All device-specific logic should be kept in here
     """
     name: str
+
+    arch: str | None = None
+    """The architecture that code is compiled for, or `None` if the compiler selects it."""
+
+    private_address_space: int | None = None
+    """The address space of the temporaries of one thread, or `None` for the default address space."""
 
     @abc.abstractmethod
     def asarray(self, arr, *, constant=False):
@@ -106,27 +115,93 @@ class CPU(Device):
         return np.array(obj, dtype=dtype)
 
 
-class CUDAGPU(Device):
-    """ 
-    GPU class for Nvidia GPUs. inheriting Device.
-    - All offloading will be done through CuPy
-    - Multiple instantiations will be independent of each other 
-    """
-    name = "CudaGPU"
+@dataclasses.dataclass(frozen=True)
+class GPUTarget:
+    """GPU limits
     
-    def __init__(self):
+    i.e. blocks per thread and available static shared memory
+    """
+
+    shared_memory_per_block: int
+    shared_memory_per_sm: int
+    max_threads_per_block: int
+    max_threads_per_sm: int
+    max_blocks_per_sm: int
+    warp_size: int
+
+
+class GPU(Device):
+    """A GPU that is driven through CuPy and an MLIR GPU runtime
+
+    Instances that have the same `device_id` compare equal, so they share
+    the device arrays of a buffer.
+
+    The MLIR GPU runtime keeps the context of the first device that it uses
+    for the lifetime of the process. Each process can therefore use only one
+    GPU, and the constructor selects it before any kernel is launched.
+
+    """
+
+    runtime_library: str
+    """The MLIR GPU runtime that the kernels link against, as a name for `-l`"""
+
+    is_hip: bool
+    """Whether CuPy must be built for ROCm (HIP) rather than CUDA"""
+
+    _selected_device_id: int | None = None
+    """The ordinal that this process uses, or None if no GPU is selected yet"""
+
+    def __init__(self, device_id: int | None = None) -> None:
         try:
-            assert self.cp.is_available() 
+            assert self.cp.is_available()
         except:
             # TODO: Raise No GPU exception
-            raise NotImplementedError 
+            raise NotImplementedError
+        if self.cp.cuda.runtime.is_hip != self.is_hip:
+            platform = "ROCm" if self.is_hip else "CUDA"
+            raise RuntimeError(f"{type(self).__name__} needs a CuPy that is built for {platform}")
+
+        if device_id is None:
+            device_id = _node_local_rank() % self.cp.cuda.runtime.getDeviceCount()
+
+        if GPU._selected_device_id is None:
+            self.cp.cuda.Device(device_id).use()
+            # The generated kernels link against this library by its soname, so
+            # the dynamic loader gives them the same instance as this one.
+            ctypes.CDLL(f"lib{self.runtime_library}.so").mgpuSetDefaultDevice(ctypes.c_int32(device_id))
+            GPU._selected_device_id = device_id
+        elif device_id != GPU._selected_device_id:
+            raise ValueError(
+                f"This process already uses GPU {GPU._selected_device_id}, "
+                f"it cannot also use GPU {device_id}"
+            )
+        self.device_id = device_id
 
         DEVICE_TO_ARRAY_TYPE[self] = cp.ndarray
+
+    def __eq__(self, other: Any, /) -> bool:
+        return type(other) is type(self) and other.device_id == self.device_id
+
+    def __hash__(self) -> int:
+        return hash((type(self), self.device_id))
 
     @property
     def cp(self):
         import cupy as cp
         return cp
+
+    @functools.cached_property
+    def target(self) -> GPUTarget:
+        """The limits of the GPU."""
+        attributes = self.cp.cuda.Device(self.device_id).attributes
+        return GPUTarget(
+            shared_memory_per_block=attributes["MaxSharedMemoryPerBlock"],
+            shared_memory_per_sm=attributes["MaxSharedMemoryPerMultiprocessor"],
+            max_threads_per_block=attributes["MaxThreadsPerBlock"],
+            max_threads_per_sm=attributes["MaxThreadsPerMultiProcessor"],
+            max_blocks_per_sm=attributes["MaxBlocksPerMultiprocessor"],
+            warp_size=attributes["WarpSize"],
+        )
 
     def asarray(self, arr, *, constant=False):
         return self.cp.asarray(arr)
@@ -146,11 +221,49 @@ class CUDAGPU(Device):
     def array(self, obj, *, dtype=None):
         return self.cp.array(obj, dtype=dtype)
 
-HOST_DEVICE = CPU()
 
-DEVICE_TO_ARRAY_TYPE = {
-    HOST_DEVICE: np.ndarray,
-}
+class CUDAGPU(GPU):
+    """An NVIDIA GPU that is driven through CuPy and the MLIR CUDA runtime"""
+
+    name = "CudaGPU"
+    runtime_library = "mlir_cuda_runtime"
+    is_hip = False
+
+    @property
+    def arch(self) -> str:
+        """The name of the GPU architecture, for example ``sm_89``."""
+        return f"sm_{self.cp.cuda.Device(self.device_id).compute_capability}"
+
+
+class AMDGPU(GPU):
+    """An AMD GPU that is driven through a ROCm build of CuPy and the MLIR ROCm runtime"""
+
+    name = "AMDGPU"
+    runtime_library = "mlir_rocm_runtime"
+    is_hip = True
+    # AMDGPU requires each alloca to be in the private address space. NVPTX
+    # miscompiles allocas in its local address space, so CUDAGPU keeps the default.
+    private_address_space = 5
+
+    @property
+    def arch(self) -> str:
+        """The name of the GPU architecture without its target features"""
+        name = self.cp.cuda.runtime.getDeviceProperties(self.device_id)["gcnArchName"]
+        return name.decode().split(":")[0]
+
+
+def _node_local_rank() -> int:
+    """Return the rank of this process among the processes on its node.
+
+    The first call is collective over `MPI.COMM_WORLD`.
+
+    """
+    node_comm = MPI.COMM_WORLD.Split_type(MPI.COMM_TYPE_SHARED)
+    rank = node_comm.rank
+    node_comm.Free()
+    return rank
+
+
 """Mapping between device and array type.
 
 When new devices are created they should register themselves here.
@@ -159,6 +272,10 @@ Note that this mapping is not invertible. A single array type could map to
 multiple devices.
 
 """
+HOST_DEVICE = CPU()
+DEVICE_TO_ARRAY_TYPE = {
+    HOST_DEVICE: np.ndarray,
+}
 
 
 
