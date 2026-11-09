@@ -69,13 +69,15 @@ def test_eager_reduction_assign(mode, eager_strategy):
     assert np.allclose(dat.data_ro, reduction(other.data_ro, initial))
 
 
-@pytest.mark.parametrize("mode", ["max", "min"])
-def test_eager_reduction_assign_scalar(mode):
+@pytest.mark.parametrize("mode, expected", [("write", 2.0), ("inc", 6.5), ("max", 4.5), ("min", 2.0)])
+@pytest.mark.parametrize("eager_strategy", ["array", "compile"])
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_eager_assign_scalar(mode, expected, eager_strategy):
     scalar = op3.Scalar(np.float64(4.5))
 
-    scalar.assign(2.0, mode, eager=True, eager_strategy="array")
+    scalar.assign(2.0, mode, eager=True, eager_strategy=eager_strategy)
 
-    assert scalar.value == {"max": 4.5, "min": 2.0}[mode]
+    assert scalar.value == expected
 
 
 def test_assign_subset(dat):

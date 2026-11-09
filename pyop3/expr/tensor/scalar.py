@@ -15,7 +15,7 @@ from pyop3.axis_tree.tree import UNIT_AXIS_TREE
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
-from .base import Tensor, array_assign
+from .base import Tensor
 
 if TYPE_CHECKING:
     from pyop3.types import *
@@ -111,8 +111,29 @@ class Scalar(Tensor):
     def local_min(self) -> numbers.Number:
         return self.local_max
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc", "max", "min"]) -> None:
-        array_assign(self.buffer, other, mode)
+    def as_array(self, mode: Literal["ro", "wo", "rw"]) -> np.ndarray:
+        """Return a view of the scalar's buffer.
+
+        Parameters
+        ----------
+        mode
+            The access mode: read-only, write-only, or read-write.
+
+        Returns
+        -------
+        numpy.ndarray
+            A view of the buffer with the requested access mode.
+
+        """
+        match mode:
+            case "ro":
+                return self.buffer.data_ro
+            case "wo":
+                return self.buffer.data_wo
+            case "rw":
+                return self.buffer.data_rw
+            case _:
+                raise ValueError(f"Unknown array access mode '{mode}'")
 
     # }}}
 
