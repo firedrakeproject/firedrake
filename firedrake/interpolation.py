@@ -1386,6 +1386,7 @@ class MixedInterpolator(Interpolator):
         jacobian = self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, self.target_space)
         target = jacobian.argument_slots()[0].number()
         splitter = ExtractSubBlock()
+        restructurer = BaseFormRestructurer()
 
         # Get sub-interpolators and sub-bcs for each block
         Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]] = {}
@@ -1393,7 +1394,7 @@ class MixedInterpolator(Interpolator):
             block = splitter.split(jacobian, indices)
             if not isinstance(self.dual_arg, Coargument):
                 # Contract the block with the dual argument on the same target subspace
-                block = action(block, splitter.split(self.dual_arg, indices[target:target + 1]))
+                block = restructurer(action(block, splitter.split(self.dual_arg, indices[target:target + 1])))
             if isinstance(block, ZeroBaseForm):
                 # Ensure block sparsity
                 continue

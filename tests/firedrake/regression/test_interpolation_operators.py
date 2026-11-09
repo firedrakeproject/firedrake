@@ -161,6 +161,30 @@ def test_cross_mesh_sum_of_interpolated_arguments():
 
 
 @pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("assemble_dual", [False, True], ids=["form", "cofunction"])
+def test_cross_mesh_mixed_adjoint_interpolation(assemble_dual):
+    target = UnitSquareMesh(2, 2)
+    source = UnitSquareMesh(3, 3)
+    Q = FunctionSpace(target, "CG", 1)
+    R = FunctionSpace(source, "CG", 1)
+    Z = Q * R
+    _, w = TestFunctions(Z)
+    x, y = SpatialCoordinate(target)
+    load = inner(1 + x + 2*y, TestFunction(Q)) * dx
+    dual = assemble(load) if assemble_dual else load
+    interpolation = interpolate(w, dual)
+    expected = assemble(interpolate(TestFunction(R), dual))
+
+    for tensor in (None, Cofunction(Z.dual()).assign(99)):
+        result = assemble(interpolation, tensor=tensor)
+        assert result.function_space() == Z.dual()
+        if tensor is not None:
+            assert result is tensor
+        assert np.allclose(result.subfunctions[0].dat.data_ro, 0)
+        assert np.allclose(result.subfunctions[1].dat.data_ro, expected.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 2])
 def test_cross_mesh_mixed_jump_derivative():
     mesh = UnitSquareMesh(3, 3)
     other = UnitSquareMesh(2, 2)

@@ -154,7 +154,27 @@ def assemble(expr, *args, **kwargs):
 
 def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
                        *args, **kwargs) -> "FormAssembler":
-    """Construct the assembler for the rank of ``form``, forwarding the options it takes."""
+    """Construct an assembler for the rank of a form.
+
+    Parameters
+    ----------
+    form : ufl.Form or ufl.Interpolate or slate.TensorBase
+        Form to assemble. Arguments of a UFL Form are numbered locally from zero.
+    *args
+        Positional arguments for the assembler.
+    **kwargs
+        Assembly options. Only options for the selected assembler are forwarded.
+
+    Returns
+    -------
+    FormAssembler
+        Assembler for the form.
+    """
+    if isinstance(form, ufl.Form):
+        # An enclosing action can contract an argument whose number leaves a gap.
+        mapping = {a: a.reconstruct(number=i) for i, a in enumerate(form.arguments()) if a.number() != i}
+        if mapping:
+            form = ufl.replace(form, mapping)
     diagonal = kwargs.pop("diagonal", False)
     nargs = len(form.arguments())
     if nargs == 0:
@@ -171,6 +191,7 @@ def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
                                 diagonal=diagonal,
                                 weight=kwargs.get("weight", 1.0))
     elif nargs == 2:
+        kwargs.pop("zero_bc_nodes", None)
         return TwoFormAssembler(form, *args, **kwargs)
     else:
         raise ValueError(f'Expecting a 0-, 1-, or 2-form: got {form}')

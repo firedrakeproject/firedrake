@@ -79,6 +79,18 @@ def test_assemble_matrix(M):
     assert isinstance(res, ufl.Matrix)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("zero_bc_nodes", [False, True])
+def test_matrix_formsum_with_vector_bc_option(mesh, zero_bc_nodes):
+    V = FunctionSpace(mesh, "CG", 1)
+    form = inner(TrialFunction(V), TestFunction(V)) * dx
+    matrix = assemble(form)
+    result = assemble(form + matrix, zero_bc_nodes=zero_bc_nodes)
+    actual = assemble(action(result, Function(V).assign(1)))
+    expected = assemble(2 * TestFunction(V) * dx)
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
 def test_assemble_adjoint(M):
     res = assemble(adjoint(M))
     assembledM = assemble(M)
