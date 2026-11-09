@@ -50,7 +50,6 @@ from pyop3.expr.visitors.evaluate_arraywise import evaluate_arraywise  # noqa: F
 
 if typing.TYPE_CHECKING:
     from pyop3.types import *
-    from pyop3.axis_tree import AxisLabelT
 
     AxisVarMapT = Mapping[AxisLabelT, int]
 
@@ -756,7 +755,7 @@ class ExpressionLinearizer(NodeTransformer, ExpressionVisitor):
         return pyop3.expr.LinearDatBufferExpression(dat_expr.buffer, layout)
 
 
-def linearize_expr(expr: ExpressionT, path: pyop3.types.PathT | None = None) -> ExpressionT:
+def linearize_expr(expr: ExpressionT, path: PathT | None = None) -> ExpressionT:
     return ExpressionLinearizer()(expr, path=path)
 
 

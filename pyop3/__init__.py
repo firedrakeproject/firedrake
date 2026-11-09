@@ -199,9 +199,3 @@ from pyop3.utils import atom
 __all__ += ["atom"]
 from pyop3.visitors import replace
 __all__ += ["replace"]
-
-
-
-
-
-import pyop3.types

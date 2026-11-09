@@ -4,7 +4,6 @@ import functools
 
 import loopy as lp
 import numpy
-import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 

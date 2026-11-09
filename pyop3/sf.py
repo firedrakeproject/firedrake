@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import numbers
-import typing
 from functools import cached_property
 from typing import Any, Self
 

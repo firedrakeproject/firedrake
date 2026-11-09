@@ -7,7 +7,7 @@ import functools
 import numbers
 from collections.abc import Callable, Hashable, Iterable, Mapping
 from types import GeneratorType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 import numpy as np
 from mpi4py import MPI
@@ -29,10 +29,6 @@ from pyop3.utils import (
 )
 
 from ._buffer_cy import set_petsc_mat_diagonal
-
-if TYPE_CHECKING:
-    import pyop3.axis_tree
-    from pyop3.types import *
 
 
 MatTypeT = str | np.ndarray["MatTypeT"]

@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from functools import cached_property
 from immutabledict import immutabledict as idict
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import Any, Literal, Self
 from mpi4py import MPI
 
 import finat.ufl
@@ -2252,7 +2252,7 @@ class ProxyFunctionSpace(FunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop3.expr.tensor.dat.Dat` objects"""
+    r"""Can this proxy make :class:`pyop3.Dat` objects"""
 
     def collapse(self) -> "FunctionSpace":
         """Drop the proxy metadata, returning a plain function space.
@@ -2266,7 +2266,7 @@ class ProxyFunctionSpace(FunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop3.expr.tensor.dat.Dat`.
+        r"""Create a :class:`pyop3.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """

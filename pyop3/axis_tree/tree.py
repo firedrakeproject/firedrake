@@ -11,7 +11,7 @@ import typing
 import weakref
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from functools import cached_property
-from types import GeneratorType, NoneType
+from types import NoneType
 from typing import (
     Any,
     Self,

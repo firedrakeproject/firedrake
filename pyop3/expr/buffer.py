@@ -303,8 +303,8 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     # {{{ instance attrs
 
     buffer_view: pyop3.buffer.IndexedBuffer
-    row_layout: Any
-    column_layout: Any
+    row_layout: ExpressionT
+    column_layout: ExpressionT
 
     def collect_buffers(self, visitor):
         return visitor(self.buffer_view).union(visitor(self.row_layout), visitor(self.column_layout))

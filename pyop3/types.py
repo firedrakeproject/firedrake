@@ -5,6 +5,7 @@ import numbers
 from collections.abc import Hashable, Mapping, Sequence
 from typing import Any, Literal, TypeAlias
 
+import immutabledict
 import numpy as np
 from petsc4py import PETSc
 

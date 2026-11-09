@@ -3,11 +3,10 @@ from __future__ import annotations
 import itertools
 import numbers
 import operator
-import typing
 import weakref
 from collections.abc import Hashable
 from functools import cached_property
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -29,6 +28,9 @@ from pyop3.axis_tree import (
 from pyop3.dtypes import ScalarType
 
 from .base import ReshapeTensorTransform, Tensor, TensorTransform
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 
 @pyop3.record.record()
@@ -124,7 +126,7 @@ class Mat(Tensor):
         *,
         buffer_spec: pyop3.buffer.PetscMatInitBufferSpec | None = None,
         preallocator: bool = False,
-        buffer_kwargs: pyop3.types.KwargsT = idict(),
+        buffer_kwargs: KwargsT = idict(),
         **kwargs,
     ) -> Mat:
         if isinstance(row_axes, pyop3.axis_tree.Axis):
@@ -145,7 +147,7 @@ class Mat(Tensor):
         return cls.empty(row_axes, column_axes, preallocator=True, **kwargs)
 
     @classmethod
-    def null(cls, row_axes, column_axes, dtype=pyop3.buffer.AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: pyop3.types.KwargsT = idict(), **kwargs) -> Mat:
+    def null(cls, row_axes, column_axes, dtype=pyop3.buffer.AbstractBuffer.DEFAULT_DTYPE, *, buffer_kwargs: KwargsT = idict(), **kwargs) -> Mat:
         row_axes = as_axis_tree(row_axes)
         column_axes = as_axis_tree(column_axes)
         buffer = pyop3.buffer.NullBuffer(
@@ -265,7 +267,7 @@ class Mat(Tensor):
         buffer = sparsity.buffer.materialize()
         return cls(sparsity.row_axes, sparsity.column_axes, buffer, **kwargs)
 
-    def _array_assign(self, other: pyop3.types.ExpressionT, /, mode: Literal[write, inc]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:
         try:
             # In some cases mat.data_XX is allowed. For example for read-only access
             # or if the mat is a MATPYTHON and thus holds a buffer

@@ -28,7 +28,7 @@ from pathlib import Path
 import typing
 import warnings
 from typing import Any, Iterable
-from typing import Literal, Tuple
+from typing import Literal
 
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
