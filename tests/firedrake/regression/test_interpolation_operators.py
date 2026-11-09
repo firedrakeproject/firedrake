@@ -114,7 +114,8 @@ def test_cross_mesh_mattype(value_shape, mat_type):
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("mode", ["test", "trial", "both"])
-def test_cross_mesh_arguments_in_integrals(mode):
+@pytest.mark.parametrize("assemble_matrix", [False, True], ids=["action", "matrix"])
+def test_cross_mesh_arguments_in_integrals(mode, assemble_matrix):
     source = UnitSquareMesh(3, 3)
     target = UnitSquareMesh(2, 2)
     V = FunctionSpace(source, "CG", 1)
@@ -124,7 +125,7 @@ def test_cross_mesh_arguments_in_integrals(mode):
     Iv = interpolate(v, Q) if mode in ("test", "both") else v
     Iu = interpolate(u, Q) if mode in ("trial", "both") else u
     a = inner(Iu, Iv) * dx(domain=target)
-    A = assemble(a, mat_type="aij")
+    A = assemble(a, mat_type="aij") if assemble_matrix else BaseFormAssembler.preprocess_base_form(a)
 
     # Compare the assembled operator against independent forward and adjoint
     # interpolation of a coefficient and the resulting linear functional.
@@ -137,6 +138,7 @@ def test_cross_mesh_arguments_in_integrals(mode):
     assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
 
     lowered = BaseFormAssembler.preprocess_base_form(a)
+    assert lowered.arguments() == a.arguments()
     assert isinstance(lowered, ufl.Action)
     assert BaseFormAssembler.preprocess_base_form(lowered) == lowered
 

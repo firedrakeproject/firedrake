@@ -11,14 +11,11 @@ from numbers import Number
 
 from ufl.algorithms import extract_arguments, extract_coefficients, replace
 from ufl.algorithms.analysis import extract_base_form_operators
-from ufl.algorithms.apply_derivatives import dual_slot_action
-from ufl.algorithms.map_integrands import map_integrands
-from ufl.algorithms.restructure_base_form import BaseFormTraversal
+from ufl.algorithms.restructure_base_form import BaseFormRestructurer
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.duals import is_dual
 from ufl.constantvalue import as_ufl, zero
-from ufl.corealg.dag_traverser import DAGTraverser
 from ufl.tensors import as_vector
 from ufl.form import ZeroBaseForm, BaseForm, Form
 from ufl.core.interpolate import Interpolate as UFLInterpolate
@@ -254,7 +251,7 @@ def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate
     return Interpolate(expr, V, **kwargs)
 
 
-class _ArgumentInterpolationLowerer(BaseFormTraversal):
+class _ArgumentInterpolationLowerer(BaseFormRestructurer):
     """Extract non-fusible argument interpolations from form integrands."""
 
     @singledispatchmethod
@@ -294,10 +291,10 @@ class _ArgumentInterpolationLowerer(BaseFormTraversal):
             if local_form.empty():
                 continue
             remainder = Form(untouched) + replace(affected, {operator: zero(operator.ufl_shape)})
-            contracted = dual_slot_action(operator._ufl_expr_reconstruct_(
+            contracted = self(operator._ufl_expr_reconstruct_(
                 *operator.ufl_operands, argument_slots=(local_form, *operator.argument_slots()[1:])
-            ), local_form)
-            return self(contracted) if remainder.empty() else self(remainder) + self(contracted)
+            ))
+            return contracted if remainder.empty() else self(remainder) + contracted
         return form
 
 
