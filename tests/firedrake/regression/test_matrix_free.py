@@ -123,6 +123,23 @@ def test_matrixfree_action(a, V, bcs):
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_matrixfree_repeated_transpose_with_dirichlet_bc(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    a = inner(grad(u), grad(v))*dx + inner(as_vector([1, 0]), grad(u))*v*dx
+    bc = DirichletBC(V, 0, 1)
+    A = assemble(a, bcs=bc, mat_type="matfree").petscmat
+    B = assemble(a, bcs=bc).petscmat
+    x, y = A.createVecs()
+    x.set(1)
+    expected = y.duplicate()
+    B.multTranspose(x, expected)
+    for _ in range(3):
+        A.multTranspose(x, y)
+        assert (y - expected).norm() < 1e-12
+
+
 @pytest.mark.parametrize("preassembled", [False, True],
                          ids=["variational", "preassembled"])
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
