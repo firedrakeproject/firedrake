@@ -1,5 +1,5 @@
 # Note that this file contains imports from all of pyop3. This module should
-# therefore only be imported after all other modules.
+# therefore only be imported inside a 'typing.TYPE_CHECKING' block.
 
 import numbers
 from collections.abc import Hashable, Mapping, Sequence
@@ -8,13 +8,7 @@ from typing import Any, Literal, TypeAlias
 import numpy as np
 from petsc4py import PETSc
 
-# {{{ imports we need in the namespace to resolve type hints
-
-import immutabledict
-
 import pyop3
-
-# }}}
 
 
 # TODO: When we drop Python 3.11, use the 'type' keyword here so Sphinx will

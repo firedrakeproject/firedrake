@@ -56,13 +56,11 @@ class AbstractStarForest(pyop3.obj.Object):
 
     @property
     @abc.abstractmethod
-    # def num_owned(self) -> pyop3.types.AxisComponentRegionSizeT:
     def num_owned(self):
         pass
 
     @property
     @abc.abstractmethod
-    # def num_ghost(self) -> pyop3.types.AxisComponentRegionSizeT:
     def num_ghost(self):
         pass
 
@@ -316,7 +314,6 @@ class NullStarForest(AbstractStarForest):
         return np.empty(0, dtype=IntType)
 
     @property
-    # def num_owned(self) -> pyop3.types.AxisComponentRegionSizeT:
     def num_owned(self):
         return self.size
 

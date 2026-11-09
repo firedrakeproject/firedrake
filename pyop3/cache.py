@@ -113,8 +113,7 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
-# def get_method_cache(obj: Any, func, cache_id, make_cache: Callable[[], Mapping]) -> None:
-def get_method_cache(obj: Any, func, cache_id, make_cache) -> None:
+def get_method_cache(obj: Any, func, cache_id, make_cache: Callable[[], Mapping]) -> None:
     cache_name = f"_pyop3_method_cache_{func.__name__}"
     if not hasattr(obj, cache_name):
         # Use object.__setattr__ to get around frozen dataclasses
@@ -124,8 +123,7 @@ def get_method_cache(obj: Any, func, cache_id, make_cache) -> None:
     return getattr(obj, cache_name)
 
 
-# def cached_method(key=default_hashkey, make_cache: Callable[[], Mapping] = dict) -> Callable:
-def cached_method(key=default_hashkey, make_cache=dict) -> Callable:
+def cached_method(key=default_hashkey, make_cache: Callable[[], Mapping] = dict) -> Callable:
     """TODO"""
     # Store a unique integer for each 'cached_method' decorator. This
     # identifier is different between ranks but that is fine as it is only
@@ -506,7 +504,6 @@ def parallel_cache(
     hashkey=default_parallel_hashkey,
     get_comm: Callable = default_get_comm,
     make_cache: Callable[[], Mapping] = lambda: DEFAULT_CACHE(),
-    # make_cache: Callable = lambda: DEFAULT_CACHE(),
     bcast=False,
     heavy: bool = False,
 ):
