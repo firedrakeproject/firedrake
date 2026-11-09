@@ -17,9 +17,9 @@ from gem.impero_utils import ImperoC
 from gem.node import pre_traversal
 
 from pyop3 import utils
-from pyop3.compile.passes.impero.nests import is_atomic, new_temporary
+from pyop3.compile.passes.impero.linear import linear
 from pyop3.compile.passes.impero.utils import (
-    assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, temporary,
+    assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, new_temporary, temporary,
 )
 
 ITEMS_PER_BLOCK = 128
@@ -103,12 +103,25 @@ def assign_crossing_values(impero: ImperoC) -> imp.Block:
     return map_terminals(impero.tree, assign)
 
 
+def needs_atomic(assignment: imp.Assignment, threads: tuple[gem.Index, ...]) -> bool:
+    """Whether `assignment` increments a kernel argument at an entry that another thread may increment.
+
+    `threads` are the indices whose points run on different threads. A
+    `"write"` to a kernel argument stays a plain store: concurrent writers
+    either store the same value or write through an injective map.
+    """
+    if assignment.mode != "inc" or is_temporary(assignment.assignee.aggregate):
+        return False
+    index = linear(assignment.assignee)
+    return index is None or not index.is_injective(threads)
+
+
 def mark_atomics(tree: imp.Block) -> imp.Block:
     """Make each increment `"atomic"` if another item of its parallel loop may increment the same kernel argument"""
 
     def mark(loops, terminal):
         items = tuple(loop.index for loop in loops if loop.is_parallel)[:1]
-        if items and isinstance(terminal, imp.Assignment) and is_atomic(terminal, items):
+        if items and isinstance(terminal, imp.Assignment) and needs_atomic(terminal, items):
             return imp.Assignment(terminal.assignee, terminal.expression, "atomic")
         return terminal
 

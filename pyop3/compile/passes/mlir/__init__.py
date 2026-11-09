@@ -6,7 +6,7 @@ from xdsl.context import Context
 from xdsl.dialects import get_all_dialects
 
 from pyop3.compile.passes.mlir.atomics import RelaxAtomicRMWPass
-from pyop3.compile.passes.mlir.thread_loops import DistributeThreadLoopsPass, InsertBarriersPass
+from pyop3.compile.passes.mlir.thread_loops import LowerThreadLoopsPass
 
 
 def mlir_context() -> Context:
@@ -24,6 +24,6 @@ def mlir_context() -> Context:
 
 PYOP3_PASSES = {
     pass_type.name: pass_type
-    for pass_type in (RelaxAtomicRMWPass, InsertBarriersPass, DistributeThreadLoopsPass)
+    for pass_type in (RelaxAtomicRMWPass, LowerThreadLoopsPass)
 }
 """The pyop3 xDSL passes by name, for the per-device lists in pyop3.cc.DEVICE_XDSL_PASSES."""

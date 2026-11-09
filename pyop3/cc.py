@@ -149,13 +149,11 @@ MLIR_OPT_PASSES = {
 # The CPU pass list runs --buffer-deallocation-pipeline, which rejects
 # llvm.atomicrmw because that op does not declare its memory effects. So the CPU kernels keep
 # the standard lowering of their atomics.
-# The barriers are inserted before the thread loops are distributed, because the barrier
-# pass finds the thread loops by their marks.
 DEVICE_XDSL_PASSES = {
     CPU: "",
-    CUDAGPU: "pyop3-insert-barriers,pyop3-distribute-thread-loops,pyop3-relax-atomicrmw",
+    CUDAGPU: "pyop3-lower-thread-loops,pyop3-relax-atomicrmw",
     AMDGPU: (
-        "pyop3-insert-barriers,pyop3-distribute-thread-loops,"
+        "pyop3-lower-thread-loops,"
         "pyop3-relax-atomicrmw{syncscope=agent no_fine_grained_memory=true}"
     ),
 }

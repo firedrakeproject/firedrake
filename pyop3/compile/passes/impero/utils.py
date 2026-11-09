@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import numbers
+import operator
 from collections.abc import Mapping
 from typing import Any
 
@@ -13,6 +14,7 @@ from gem import gem, impero as imp, replace
 from gem.node import pre_traversal
 
 from pyop3 import utils
+from pyop3.dtypes import ScalarType
 
 
 TEMPORARY_DATA = "null"
@@ -48,6 +50,24 @@ def num_points(indices: tuple[gem.Index, ...]) -> int:
 def temporary(name: str, shape: tuple, dtype, *, shared: bool = False) -> gem.Variable:
     """A kernel temporary, in the shared memory of the block of an `gem.impero.ItemBatch` if `shared`"""
     return gem.Variable(name, shape, dtype=dtype, data=SHARED_DATA if shared else TEMPORARY_DATA)
+
+
+def as_index(index: Any) -> int | gem.IndexBase:
+    """A flat index (an `int`, an index or a GEM expression) as an entry of a multi-index. An index is returned unchanged."""
+    if isinstance(index, numbers.Integral):
+        return int(index)
+    if isinstance(index, gem.Constant) and not index.shape:
+        return int(index.value)
+    return gem.VariableIndex(index)
+
+
+def new_temporary(name: str, indices: tuple[gem.Index, ...], dtype) -> gem.Indexed:
+    """The entry of a new row-major temporary, with one entry per point of `indices`, that stores and loads a value."""
+    strides = utils.row_major_strides([static_extent(index) for index in indices])
+    terms = [i if s == 1 else i * gem.as_gem_uint(s) for i, s in zip(indices, strides)]
+    index = functools.reduce(operator.add, terms) if terms else 0
+    variable = temporary(name, (num_points(indices),), dtype or ScalarType)
+    return gem.Indexed(variable, (as_index(index),))
 
 
 def is_temporary(variable: gem.Node) -> bool:
