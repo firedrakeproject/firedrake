@@ -103,25 +103,36 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
     @PETSc.Log.EventDecorator()
     def riesz_representation(self, **kwargs):
         """
-        Return the Riesz representation of this :class:`EnsembleFunction`
-        with respect to the given Riesz map.
+        Return the Riesz representation of this ``EnsembleFunction``
+        or ``EnsembleCofunction``.
 
-        Internally delegates to the
-        :meth:`firedrake.function.Function.riesz_representation()`
-        of each component.
+        The default behaviour is to delegate to a
+        :class:`firedrake.cofunction.RieszMap` for each subfunction.
+        Any ``kwargs`` will be forwarded on, for example to specify
+        the particular ``riesz_map``.
+
+        A custom Riesz map can also be provided as a callable via the
+        ``riesz_map`` kwarg. The callable should act on the entire
+        ``EnsembleFunction`` or ``EnsembleCofunction``.
 
         Parameters
         ----------
         riesz_map
-            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+            The Riesz map to use for each subfunction (e.g. ``"l2"``,
+            ``"L2"``, or ``"H1"``), or a callable acting on the entire
+            ``EnsembleFunction`` (or ``EnsembleCofunction``).
 
         kwargs
-            other arguments to be passed to the firedrake.riesz_map.
+            Other arguments to be forwarded to the
+            :class:`firedrake.cofunction.RieszMap`.
         """
+        riesz_map = kwargs.get('riesz_map', None)
+        if riesz_map and not isinstance(riesz_map, (str, ufl.sobolevspace.SobolevSpace)):
+            return riesz_map(self)
+
         riesz = EnsembleFunction(self.function_space().dual())
         for uself, uriesz in zip(self.subfunctions, riesz.subfunctions):
-            uriesz.assign(
-                uself.riesz_representation(**kwargs))
+            uriesz.assign(uself.riesz_representation(**kwargs))
         return riesz
 
     @PETSc.Log.EventDecorator()
