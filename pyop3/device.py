@@ -22,6 +22,17 @@ else:
     CUPY_AVAILABLE = True
 
 
+# NOTE: Temporary fix to forcibly set the MLIR stream to match CuPy
+# As the CuPy stream can sometimes clash with MLIR and cause bug
+# Also required for multi-GPU
+_STREAM_OVERRIDE = """
+static void *stream;
+void pyop3_set_stream(void *s) { stream = s; }
+void *mgpuStreamCreate(void) { return stream; }
+void mgpuStreamDestroy(void *s) { (void)s; }
+"""
+
+
 class Device(abc.ABC):
     """
     Device - Abstract class
@@ -166,9 +177,14 @@ class GPU(Device):
 
         if GPU._selected_device_id is None:
             self.cp.cuda.Device(device_id).use()
-            # The generated kernels link against this library by its soname, so
-            # the dynamic loader gives them the same instance as this one.
             ctypes.CDLL(f"lib{self.runtime_library}.so").mgpuSetDefaultDevice(ctypes.c_int32(device_id))
+
+            # This method runs before all other GPU streams so MLIR and CuPy should
+            # default here. Hacky way to force MLIR and CuPy to act on same stream
+            from pyop3.cc import load
+
+            override = ctypes.CDLL(load(_STREAM_OVERRIDE, "c", comm=MPI.COMM_SELF)._name, mode=ctypes.RTLD_GLOBAL)
+            override.pyop3_set_stream(ctypes.c_void_p(self.cp.cuda.get_current_stream().ptr))
             GPU._selected_device_id = device_id
         elif device_id != GPU._selected_device_id:
             raise ValueError(
