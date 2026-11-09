@@ -407,7 +407,7 @@ the basis functions in the function space.  We use them as follows:
 
 .. note::
 
-   A newly allocated :py:class:`firedrake.function.Function` has
+   A newly allocated :py:class:`Function <firedrake.function.Function>` has
    coefficients which are all zero.
 
 If ``V`` above were a
@@ -479,7 +479,7 @@ we will populate with the x component of the coordinate field.
    x = SpatialCoordinate(mesh)
    f.interpolate(x[0])
 
-For details on how :py:meth:`firedrake.function.Function.interpolate` works, see the
+For details on how :py:meth:`Function.interpolate <firedrake.function.Function.interpolate>` works, see the
 :doc:`appropriate section in the manual <interpolation>`.  The
 variational problem is to find :math:`u \in V` such that
 
@@ -525,7 +525,7 @@ time-dependent forcing function.  Although you can create a new form
 for each new value of this constant, this will not be efficient, since
 Firedrake must generate new code each time the value changes.  A
 better option is to use a :py:class:`~.Constant` coefficient.  This
-object behaves exactly like a :py:class:`firedrake.function.Function`, except that it
+object behaves exactly like a :py:class:`Function <firedrake.function.Function>`, except that it
 has a single value over the whole mesh.  One may assign a new value to
 the :py:class:`~.Constant` using the :py:meth:`~.Constant.assign`
 method.  As an example, let us consider a form which contains a time
@@ -581,7 +581,7 @@ for the various :ref:`utility meshes <utility_mesh_functions>` are
 described in their respective constructor documentation.  For
 externally generated meshes, Firedrake just uses whichever ids the
 mesh generator provided.  The ``value`` may be either a scalar, or
-more generally a UFL expression, for example a :class:`firedrake.function.Function` or
+more generally a UFL expression, for example a :class:`Function <firedrake.function.Function>` or
 :py:class:`~.Constant`, of the appropriate shape.  You may also supply
 an iterable of literal constants:
 

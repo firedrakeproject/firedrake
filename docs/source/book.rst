@@ -28,4 +28,5 @@ The Firedrake Manual
    intro_tut
    advanced_tut
    apidoc/firedrake
+   apidoc/pyop3
    funding
