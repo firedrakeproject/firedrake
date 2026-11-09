@@ -368,21 +368,21 @@ latex_elements = {
 f'''
 % Mark non-release versions with draft
 \\usepackage{{draftwatermark}}
-\DraftwatermarkOptions{{
+\\DraftwatermarkOptions{{
 stamp={str(not bool(watermark)).lower()},
 angle=90,
 scale=0.5,
-fontsize=0.1\paperwidth,
+fontsize=0.1\\paperwidth,
 text={{DRAFT {release}}},
-hpos=0.05\paperwidth
+hpos=0.05\\paperwidth
 }}
 
 % Hacky way to add all metadata, neither tool sets all fields
-\hypersetup{{pdfinfo={{
+\\hypersetup{{pdfinfo={{
 Title={{Firedrake User Manual}},
 Subject={{Mathematics}},
 }}}}
-\pdfinfo{{
+\\pdfinfo{{
 /Author ({author})
 /Keywords (Firedrake, Partial Differential Equations, PDEs, Finite Element, FEM, Code Generation)
 }}
