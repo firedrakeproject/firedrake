@@ -246,14 +246,8 @@ class Tensor(TerminalExpression, abc.ABC):
 
         return Assignment(assignee, other, mode)
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
-        from pyop3.expr.visitors import evaluate_arraywise
-
-        other_eval = evaluate_arraywise(other)
-        if mode == "write":
-            self.data_wo[...] = other_eval
-        else:
-            self.data_rw[...] += other_eval
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc", "max", "min"]) -> None:
+        array_assign(self, other, mode)
 
     @PETSc.Log.EventDecorator()
     def zero(self, **kwargs) -> pyop3.insn.Assignment | None:
@@ -300,6 +294,26 @@ class Tensor(TerminalExpression, abc.ABC):
                 cf_axis_tree = axis_tree
             new_axis_trees.append(cf_axis_tree)
         return self.with_axis_trees(new_axis_trees)
+
+
+def array_assign(target, other: ExpressionT, /, mode: Literal["write", "inc", "max", "min"]) -> None:
+    """Assign ``other`` to the ``data_wo`` or ``data_rw`` array of ``target``, with NumPy."""
+    from pyop3.expr.visitors import evaluate_arraywise
+
+    other_eval = evaluate_arraywise(other)
+    match mode:
+        case "write":
+            target.data_wo[...] = other_eval
+        case "inc":
+            target.data_rw[...] += other_eval
+        case "max":
+            data = target.data_rw
+            np.maximum(data, other_eval, out=data)
+        case "min":
+            data = target.data_rw
+            np.minimum(data, other_eval, out=data)
+        case _:
+            raise AssertionError(f"Assignment mode '{mode}' not recognised")
 
 
 # NOTE: No idea if this is where this should live, quite possibly this is wrong

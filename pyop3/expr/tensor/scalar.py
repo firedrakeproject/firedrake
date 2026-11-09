@@ -15,7 +15,7 @@ from pyop3.axis_tree.tree import UNIT_AXIS_TREE
 from pyop3.buffer import AbstractBuffer, ArrayBuffer
 from pyop3.sf import single_star_sf
 
-from .base import Tensor
+from .base import Tensor, array_assign
 
 if TYPE_CHECKING:
     from pyop3.types import *
@@ -111,14 +111,8 @@ class Scalar(Tensor):
     def local_min(self) -> numbers.Number:
         return self.local_max
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
-        from pyop3.expr.visitors import evaluate_arraywise
-
-        other_eval = evaluate_arraywise(other)
-        if mode == "write":
-            self.buffer.data_wo[...] = other_eval
-        else:
-            self.buffer.data_rw[...] += other_eval
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc", "max", "min"]) -> None:
+        array_assign(self.buffer, other, mode)
 
     # }}}
 
