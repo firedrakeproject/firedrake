@@ -118,7 +118,7 @@ Nicolas Loriant
 
 Fabio Luporini................<https://www.imperial.ac.uk/people/f.luporini12>
 
-Scott P. MacLachlan...........<https://www.math.mun.ca/~smaclachlan/>
+Scott P. MacLachlan
 
 Graham R. Markall.............<https://big-grey.co.uk/>
 
