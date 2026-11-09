@@ -29,9 +29,9 @@ LabelT: TypeAlias = Hashable
 NodeLabelT: TypeAlias = LabelT
 NodeComponentLabelT: TypeAlias = LabelT
 PathT: TypeAlias = Mapping[NodeLabelT, NodeComponentLabelT]
-"""..."""
+"""Type alias for things can be parsed into a tree path."""
 ConcretePathT: TypeAlias = immutabledict.immutabledict[NodeLabelT, NodeComponentLabelT]
-"""..."""
+"""Type alias for a tree path."""
 
 # }}}
 
@@ -39,10 +39,14 @@ ConcretePathT: TypeAlias = immutabledict.immutabledict[NodeLabelT, NodeComponent
 # {{{ axis tree types
 
 AxisLabelT: TypeAlias = NodeLabelT
+"""Type alias for axis labels."""
 AxisComponentLabelT: TypeAlias = NodeComponentLabelT
+"""Type alias for axis component labels."""
 AxisComponentRegionLabelT: TypeAlias = LabelT
+"""Type alias for axis component region labels."""
 
 AxisComponentLike: TypeAlias = pyop3.AxisComponent | AxisComponentLabelT
+"""Type alias for things that can be parsed into axis components."""
 AxisComponentRegionSizeT: TypeAlias = numbers.Integral | pyop3.expr.LinearDatBufferExpression
 
 # }}}

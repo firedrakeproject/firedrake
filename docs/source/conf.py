@@ -75,8 +75,18 @@ mathjax3_config = {
 
 # -- sphinx.ext.autodoc config ---------------------------------------------
 
-# explain me
-# https://github.com/sphinx-doc/sphinx/issues/10151
+# Do not include type hints in the API documentation. This is unfortunate
+# but necessary for two reasons:
+#
+#   1. Sphinx cannot parse type hints very well. This can be avoided with
+#      the sphinx_autodoc_typehints extension but then we hit:
+#   2. Napoleon (the Sphinx plugin parsing numpydoc to rst) resolves type
+#      information using the type declaration *string*. This means that
+#      for example '-> np.ndarray' will fail to correctly alias to
+#      numpy.ndarray because Napoleon only sees the string 'np.ndarray'
+#      and np is not recognised. The only solution is to use fully-qualified
+#      type hints throughout the codebase, which sucks.
+#      See https://github.com/sphinx-doc/sphinx/issues/10151 for more information.
 autodoc_typehints = 'none'
 
 # When Sphinx runs, typing.TYPE_CHECKING is False. This means that type hints
@@ -88,13 +98,6 @@ autodoc_type_aliases = {
     "NodeComponentLabelT": "pyop3.types.NodeComponentLabelT",
     "PathT": "pyop3.types.PathT",
 }
-
-# Only include the class docstring in the API documentation (i.e. do not
-# concatenate the __init__ method). This is because dataclasses will
-# automatically generate docstrings for __init__ using the available type
-# hints - and Sphinx cannot resolve them.
-# autoclass_content = 'class'
-# TRY BOTH
 
 # autodoc will try to infer the function signature of C modules from the first
 # line of the docstring. This is an issue for things like dicts, which we
@@ -124,9 +127,6 @@ autodoc_default_options = {
         simplify_via_aff,
     """,
 }
-
-# UNDO ME:
-autodoc_mock_imports = ["jax", "torch"]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
