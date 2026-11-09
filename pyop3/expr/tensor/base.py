@@ -344,8 +344,12 @@ class ReshapeTensorTransform(IdentityTensorTransform):
     prev: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # The buffers inside these axis trees (layouts and region sizes) are
+        # not replaced when a compiled loop is reused, so key them by identity.
+        with visitor.identity_hash_buffers():
+            axis_trees_key = tuple(map(visitor, self.axis_trees))
         return (
             type(self),
-            tuple(map(visitor, self.axis_trees)),
+            axis_trees_key,
             visitor(self.prev),
         )

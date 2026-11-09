@@ -215,6 +215,24 @@ def test_restricted_function_space_coord_change(j):
     compare_function_space_assembly(new_V, new_V_restricted, [bc])
 
 
+@pytest.mark.parametrize("order", [(1, 2), (2, 1)])
+def test_restricted_function_spaces_on_one_mesh(order):
+    # Two restricted spaces with different boundary sets on one mesh must give
+    # the same results as each space on a mesh of its own.
+    def solve_on(V, b):
+        R = RestrictedFunctionSpace(V, boundary_set=[b])
+        u, v = TrialFunction(R), TestFunction(R)
+        x = SpatialCoordinate(V.mesh())[0]
+        uh = Function(R)
+        solve(inner(grad(u), grad(v))*dx == x*v*dx, uh, bcs=DirichletBC(R, 0, b))
+        return assemble(uh*dx)
+
+    V = FunctionSpace(UnitSquareMesh(4, 4), "CG", 1)
+    one_mesh = [solve_on(V, b) for b in order]
+    separate = [solve_on(FunctionSpace(UnitSquareMesh(4, 4), "CG", 1), b) for b in order]
+    assert np.allclose(one_mesh, separate)
+
+
 @pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
 def test_poisson_restricted_mixed_space(assembled_rhs):
     mesh = UnitSquareMesh(1, 1)
