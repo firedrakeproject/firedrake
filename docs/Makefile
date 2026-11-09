@@ -122,7 +122,7 @@ source/team.rst: source/team2.py source/team.ini
 
 source/apt_deps.txt:
 	python3 ../scripts/firedrake-configure \
-		--os ubuntu24.04-x86_64 \
+		--os ubuntu26.04-x86_64 \
 		--show-system-packages > source/apt_deps.tmp
 	mv source/apt_deps.tmp source/apt_deps.txt
 
