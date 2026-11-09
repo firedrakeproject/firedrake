@@ -49,12 +49,11 @@ def _constant_axes(shape: tuple[int, ...]) -> op3.AxisTree:
         ))
 
 
-def _create_const(value, comm):
+def _create_const(value):
     data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
 
-    assert comm is MPI.COMM_SELF, "Constants are always defined on COMM_SELF"
     axes = _constant_axes(shape)
     dat = op3.Dat(axes, data=data.flatten())
     return dat, rank, shape
@@ -92,7 +91,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         name: str | None = None,
         count: int | None = None,
     ) -> None:
-        self.dat, rank, self._ufl_shape = _create_const(value, MPI.COMM_SELF)
+        self.dat, rank, self._ufl_shape = _create_const(value)
 
         super().__init__()
         Counted.__init__(self, count, Counted)
