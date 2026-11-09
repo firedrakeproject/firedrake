@@ -618,10 +618,11 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
     # {{{ parallel communication
+    @_not_in_flight
     def sync_roots(self) -> None:
         """Update roots."""
-        # With no pending reduction and no transfer in flight there is nothing to do
-        if self._roots_valid and self._finalizer is None:
+        # With no pending reduction there is nothing to do
+        if self._roots_valid:
             return
         self.sync_roots_begin()
         self.sync_roots_end()

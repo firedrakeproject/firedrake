@@ -33,11 +33,15 @@ from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
-# Intent groups for CompiledCodeExecutor._buffer_exchanges, which runs for
-# every buffer of every kernel call
+# Intent groups for CompiledCodeExecutor._buffer_exchanges_by_type, which runs
+# on every kernel call
 _INTENTS_NEEDING_VALID_DATA = frozenset({READ, RW, MAX_RW, MIN_RW})
 _REDUCTION_INTENTS = frozenset({INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE})
 _RW_REDUCTION_INTENTS = frozenset({MAX_RW, MIN_RW})
+
+# Return value of CompiledCodeExecutor._buffer_exchanges for a buffer that
+# needs no exchange
+_NO_EXCHANGES = ((), (), (), ())
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -672,23 +676,13 @@ class CompiledCodeExecutor:
             # updated via reductions
             # * you can only compute using leaf values once these have been updated
 
-        # Each access of a singledispatchmethod builds a new function, so bind it once
+        # Bind the method once because it is called for every buffer
         buffer_exchanges = self._buffer_exchanges
         initializers = []
         reductions = []
         broadcasts = []
         finalizers = []
         for buffer, intent in buffer_intents.items():
-            # A read-only array buffer with valid roots and leaves needs no
-            # exchange. Its state is read on every call because the buffer
-            # can be written between calls.
-            if (
-                intent == READ
-                and isinstance(buffer, pyop3.buffer.ArrayBuffer)
-                and buffer._roots_valid
-                and buffer._leaves_valid
-            ):
-                continue
             inits, reds, bcasts, fins = buffer_exchanges(buffer, intent)
             initializers.extend(inits)
             reductions.extend(reds)
@@ -798,11 +792,24 @@ class CompiledCodeExecutor:
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
-    @functools.singledispatchmethod
     def _buffer_exchanges(self, buffer: pyop3.buffer.ConcreteBuffer, intent):
+        # A read-only array buffer with valid roots and leaves needs no
+        # exchange. Most buffers of a loop are like this, so check it before
+        # the dispatch on the buffer type, which is slow.
+        if (
+            intent == READ
+            and isinstance(buffer, pyop3.buffer.ArrayBuffer)
+            and buffer._roots_valid
+            and buffer._leaves_valid
+        ):
+            return _NO_EXCHANGES
+        return self._buffer_exchanges_by_type(buffer, intent)
+
+    @functools.singledispatchmethod
+    def _buffer_exchanges_by_type(self, buffer: pyop3.buffer.ConcreteBuffer, intent):
         utils.raise_missing_dispatch_handler(buffer)
 
-    @_buffer_exchanges.register
+    @_buffer_exchanges_by_type.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer, intent):
         initializers, reductions, bcasts, finalizers = [], [], [], []
 
@@ -871,7 +878,7 @@ class CompiledCodeExecutor:
 
         return initializers, reductions, bcasts, finalizers
 
-    @_buffer_exchanges.register
+    @_buffer_exchanges_by_type.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer, intent):
         begin_insns = []
         end_insns = []

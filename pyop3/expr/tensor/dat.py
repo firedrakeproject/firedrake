@@ -496,7 +496,7 @@ class Dat(Tensor):
                 "Cannot nest vec contexts"
             )
         if block_shape is None:
-            block_size = self._block_size
+            block_size = self.axes.block_size
         else:
             block_size = np.prod(block_shape, dtype=int)
 
@@ -559,15 +559,6 @@ class Dat(Tensor):
             # we don't trust PETSc to exhaustively track all modifications.
             self.buffer.state = max(self._work_vec.stateGet(), self.buffer.state+1)
             self.buffer._leaves_valid = False
-
-    @cached_property
-    def _block_size(self) -> int:
-        """The block size of the PETSc Vec when no block shape is given.
-
-        The axes of a Dat do not change, so this is computed once.
-
-        """
-        return self.axes.block_size
 
     @property
     def _work_vec(self) -> PETSc.Vec:
