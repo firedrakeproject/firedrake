@@ -56,7 +56,6 @@ from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
 from pyop3.compile.mlir import MLIRBuilder
 from pyop3.compile.passes.impero.item_loop import assign_crossing_values, batch_items, mark_atomics
 from pyop3.compile.passes.impero.utils import temporary
-from pyop3.compile.passes.impero.thread_transposition import thread_transpose
 from pyop3.insn.exec import ParsedCompilerParameters
 
 
@@ -153,6 +152,7 @@ class GemExecutable(Executable):
         """
         on_device = get_current_device() != HOST_DEVICE
         if on_device and self.compiler_parameters.thread_transposition:
+            from pyop3.compile.passes.impero.thread_transposition import thread_transpose
             tree = thread_transpose(self._impero.tree, target=get_current_device().target)
         else:
             tree = assign_crossing_values(self._impero)
