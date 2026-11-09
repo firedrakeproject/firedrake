@@ -583,6 +583,7 @@ class CompiledCodeExecutor:
             # Only replaced buffers need a new view
             new_buffers_for_exec_args = dict(new_buffers)
             buffer_views = self.kernel_name_to_buffer_info.values()
+            # Each access of a singledispatchmethod builds a new function, so bind it once
             handle_to_pointer = self._handle_to_pointer
             exec_arguments = []
             for buf_view, pointer in zip(buffer_views, self._default_exec_arguments, strict=True):
@@ -727,10 +728,10 @@ class CompiledCodeExecutor:
 
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
-        """Pointers of the original buffers.
+        """Pointers to the data of the buffers, in kernel argument order.
 
-        The array of an ArrayBuffer and the Mat of a PetscMatBuffer are set
-        when the buffer is created, so these pointers do not change.
+        A buffer keeps the same array or Mat for its whole life, so these
+        pointers are computed once and reused on every call.
 
         """
         return tuple(
