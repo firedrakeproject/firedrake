@@ -10,8 +10,10 @@ from dataclasses import dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms.restructure_base_form import restructure_base_form
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
+from ufl.duals import is_dual
 from ufl.constantvalue import as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
@@ -121,7 +123,11 @@ class Interpolate(UFLInterpolate):
             # Need to create a Firedrake Argument so that it has a .function_space() method
             V = Argument(V.dual(), 1 if self.is_adjoint else 0)
 
-        self.target_space = V.arguments()[0].function_space()
+        # Argument 0 of the expression replaces Argument 0 of the dual slot.
+        # Otherwise the dual slot contracts its highest-numbered primal argument.
+        *_, highest = primal_args = [a for a in V.arguments() if not is_dual(a)]
+        contracted = next((a for a in primal_args if a.number() == 0 and 0 in expr_arg_numbers), highest)
+        self.target_space = contracted.function_space()
         if expr.ufl_shape != self.target_space.value_shape:
             raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
@@ -1325,7 +1331,7 @@ class MixedInterpolator(Interpolator):
             block = splitter.split(jacobian, indices)
             if not isinstance(self.dual_arg, Coargument):
                 # Contract the block with the dual argument on the same target subspace
-                block = action(block, splitter.split(self.dual_arg, indices[target:target + 1]))
+                block = restructure_base_form(action(block, splitter.split(self.dual_arg, indices[target:target + 1])))
             if isinstance(block, ZeroBaseForm):
                 # Ensure block sparsity
                 continue

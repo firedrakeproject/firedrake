@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.assemble import get_assembler
+from firedrake.matrix import ImplicitMatrix
 from firedrake.utils import ScalarType
 import ufl
 
@@ -112,6 +113,29 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
 
 
+@pytest.mark.parametrize("output", ["new", "tensor"])
+@pytest.mark.parametrize("assembled", ["matrix", "matrix-sum", "form-matrix-sum"])
+def test_assemble_action_adjoint(mesh, assembled, output):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "CG", 2)
+    x = Function(V).interpolate(SpatialCoordinate(mesh)[0])
+    w = TestFunction(W)
+    form = inner(TrialFunction(W), TestFunction(V)) * dx
+    A = assemble(form)
+    operand, scale = {
+        "matrix": (A, 1),
+        "matrix-sum": (ufl.FormSum((A, 3), (assemble(form), 2)), 5),
+        "form-matrix-sum": (ufl.FormSum((form, 3), (A, 2)), 5),
+    }[assembled]
+    tensor = Cofunction(W.dual()) if output == "tensor" else None
+
+    res = assemble(action(ufl.Adjoint(operand), x), tensor=tensor)
+
+    if tensor is not None:
+        assert res is tensor
+    assert np.allclose(res.dat.data_ro, scale * assemble(inner(x, w) * dx).dat.data_ro)
+
+
 @pytest.mark.parametrize("scale", ["float", "numpy", "ufl", "Constant", "Real"])
 def test_scalar_formsum(f, scale):
     c = Cofunction(f.function_space().dual())
@@ -181,6 +205,23 @@ def test_matrix_formsum(M):
     out = assemble(formsum, tensor=res2)
     assert out is res2
     assert np.allclose(sumfirst.petscmat[:, :], res2.petscmat[:, :], rtol=1E-14)
+
+
+@pytest.mark.parallel([1, 3])
+def test_matfree_form_sum_uses_implicit_matrix(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    A = interpolate(u, W)
+    B = interpolate(2 * u, W)
+    form = ufl.FormSum((A, 1), (B, 1))
+    assert len(form.components()) == 2
+
+    assembled = assemble(form, mat_type="matfree")
+
+    assert isinstance(assembled, ImplicitMatrix)
+    assert isinstance(assembled.a, ufl.FormSum)
+    assert len(assembled.a.components()) == 2
 
 
 def test_formsum_vector_self(a):

@@ -930,7 +930,10 @@ def test_interpolate_form():
     V2_dual_trial = TrialFunction(V2.dual())
 
     two_form = inner(V3_trial, V2_test) * dx  # V3 x V2 -> R, equiv V3 -> V2^*
-    interp = interpolate(V1_test, two_form)  # V3 x V1 -> R, equiv V3 -> V1^*
+    # Argument 0 of the expression replaces Argument 0 of the form, which is on V2,
+    # so the target is V2: V3 x V1 -> R, equiv V3 -> V1^*
+    interp = interpolate(V1_test, two_form)
+    assert interp.target_space == V2
     assert interp.arguments() == (V1_test, V3_trial)
     res1 = assemble(interp)
 
@@ -942,6 +945,25 @@ def test_interpolate_form():
 
     res3 = assemble(inner(V3_trial, V1_test) * dx)  # V3 x V1 -> R
     assert mat_equals(res1, res3)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form_different_shapes():
+    mesh = UnitSquareMesh(3, 3)
+    V1 = VectorFunctionSpace(mesh, "CG", 1)
+    V2 = VectorFunctionSpace(mesh, "CG", 2)
+    V3 = FunctionSpace(mesh, "CG", 3)
+
+    q = TestFunction(V1)
+    u = TrialFunction(V3)
+    form = inner(as_vector([u, u]), TestFunction(V2)) * dx  # V3 x V2 -> R
+
+    interp = interpolate(q, form)  # V3 x V1 -> R
+    assert interp.arguments() == (q, u)
+    res1 = assemble(interp)
+
+    res2 = assemble(action(interpolate(q, TrialFunction(V2.dual())), form))
+    assert mat_equals(res1, res2)
 
 
 @pytest.mark.parallel([1, 3])
