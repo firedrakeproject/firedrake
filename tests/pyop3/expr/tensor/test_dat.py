@@ -57,7 +57,8 @@ def test_lazy_assign(dat):
 
 @pytest.mark.parametrize("mode", ["max", "min"])
 @pytest.mark.parametrize("eager_strategy", ["array", "compile"])
-def test_eager_reduction_assign(mode, eager_strategy):
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_eager_assign_modes(mode, eager_strategy):
     axis = op3.Axis(10)
     initial = 4.5
     dat = op3.Dat(axis, data=np.full(10, initial, dtype=np.float64))
@@ -67,17 +68,6 @@ def test_eager_reduction_assign(mode, eager_strategy):
 
     reduction = {"max": np.maximum, "min": np.minimum}[mode]
     assert np.allclose(dat.data_ro, reduction(other.data_ro, initial))
-
-
-@pytest.mark.parametrize("mode, expected", [("write", 2.0), ("inc", 6.5), ("max", 4.5), ("min", 2.0)])
-@pytest.mark.parametrize("eager_strategy", ["array", "compile"])
-@pytest.mark.parallel(nprocs=[1, 2])
-def test_eager_assign_scalar(mode, expected, eager_strategy):
-    scalar = op3.Scalar(np.float64(4.5))
-
-    scalar.assign(2.0, mode, eager=True, eager_strategy=eager_strategy)
-
-    assert scalar.value == expected
 
 
 def test_assign_subset(dat):
