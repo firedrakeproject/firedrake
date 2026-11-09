@@ -190,8 +190,8 @@ def _checkpointed_adjoint_growth(nt):
     def count_functions(V):
         # Count the live Functions whose function space is V.
         gc.collect()
-        return sum(1 for obj in gc.get_objects()
-                   if isinstance(obj, Function) and obj.function_space() == V)
+        return len([obj for obj in gc.get_objects()
+                    if isinstance(obj, Function) and obj.function_space() == V])
 
     with set_working_tape() as tape:
         # This schedule keeps all forward data in memory, so the adjoint

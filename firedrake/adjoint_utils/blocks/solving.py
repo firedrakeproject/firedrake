@@ -124,7 +124,7 @@ class CachedSolverBlock(Block):
         # update the adj_sol in the cached forms with
         # the adj_sol value owned by this block.
         if self.adj_state is None:
-            raise RuntimeError("Hessian computation was run before adjoint.")
+            raise RuntimeError("adj_state is None. Was the hessian computation run before the derivative (adjoint) computation?")
         self.hessian_cache.adj_sol.assign(self.adj_state)
 
     def _compute_boundary(self, relevant_dependencies):
