@@ -21,8 +21,11 @@ PetscSizeT: TypeAlias = tuple[int | None, int | None]
 # {{{ tree types
 
 LabelT: TypeAlias = Hashable
+"""Something that may be used as a label."""
 NodeLabelT: TypeAlias = LabelT
+"""Something that may be used as a label for a node."""
 NodeComponentLabelT: TypeAlias = LabelT
+"""Something that may be used as a label for a node component."""
 PathT: TypeAlias = Mapping[NodeLabelT, NodeComponentLabelT]
 """Type alias for things can be parsed into a tree path."""
 ConcretePathT: TypeAlias = immutabledict.immutabledict[NodeLabelT, NodeComponentLabelT]

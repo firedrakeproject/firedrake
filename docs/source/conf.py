@@ -89,16 +89,6 @@ mathjax3_config = {
 #      See https://github.com/sphinx-doc/sphinx/issues/10151 for more information.
 autodoc_typehints = 'none'
 
-# When Sphinx runs, typing.TYPE_CHECKING is False. This means that type hints
-# relying on these imported objects do not resolve. Notably, anything coming
-# from 'from pyop3.types import *' is not visible to Sphinx. The best
-# workaround I have found is to enumerate these imports here:
-autodoc_type_aliases = {
-    # pyop3.types
-    "NodeComponentLabelT": "pyop3.types.NodeComponentLabelT",
-    "PathT": "pyop3.types.PathT",
-}
-
 # autodoc will try to infer the function signature of C modules from the first
 # line of the docstring. This is an issue for things like dicts, which we
 # inherit from in some places, where the docstring of dict.pop is:
