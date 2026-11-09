@@ -303,7 +303,7 @@ class TabulatedMapComponent(MapComponent):
 class AxisIndependentIndex(Index):
     @property
     @abc.abstractmethod
-    def axes(self) -> AbstractIndexedAxisTree:
+    def axes(self) -> pyop3.axis_tree.AbstractIndexedAxisTree:
         pass
 
     @property

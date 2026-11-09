@@ -90,8 +90,8 @@ def _(node_map: dict, /) -> dict:
     return node_map
 
 
-@_as_node_map.register
-def _(node_map: idict, /) -> dict:
+@_as_node_map.register(idict)
+def _(node_map: immutabledict.immutabledict, /) -> dict:
     return dict(node_map)
 
 
@@ -641,7 +641,7 @@ def as_path(obj: Any) -> ConcretePathT:
 
 
 @as_path.register(idict)
-def _(path: idict) -> ConcretePathT:
+def _(path: immutabledict.immutabledict) -> ConcretePathT:
     return path
 
 

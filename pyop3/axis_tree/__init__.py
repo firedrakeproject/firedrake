@@ -13,6 +13,7 @@ from .tree import (  # noqa: F401
     OWNED_REGION_LABEL,
     UNIT_AXIS_TREE,
     AbstractAxisTree,
+    AbstractIndexedAxisTree,
     AbstractNonUnitAxisTree,
     AbstractUnindexedAxisTree,
     AbstractUnitAxisTree,

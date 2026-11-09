@@ -411,7 +411,11 @@ class Mat(Tensor):
             return indices
 
 
-def make_full_mat_buffer_spec(partial_spec: pyop3.buffer.PetscMatInitBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
+def make_full_mat_buffer_spec(
+    partial_spec: pyop3.buffer.PetscMatInitBufferSpec,
+    row_axes: AbstractNonUnitAxisTree,
+    column_axes: AbstractNonUnitAxisTree,
+) -> pyop3.buffer.PetscMatBufferSpec:
     import pyop3.visitors
 
     if isinstance(partial_spec, pyop3.buffer.MonolithicPetscMatInitBufferSpec):

@@ -6,10 +6,15 @@ from collections.abc import Hashable, Mapping, Sequence
 from typing import Any, Literal, TypeAlias
 
 import numpy as np
-from immutabledict import immutabledict as idict
 from petsc4py import PETSc
 
+# {{{ imports we need in the namespace to resolve type hints
+
+import immutabledict
+
 import pyop3
+
+# }}}
 
 
 # TODO: When we drop Python 3.11, use the 'type' keyword here so Sphinx will
@@ -24,7 +29,9 @@ LabelT: TypeAlias = Hashable
 NodeLabelT: TypeAlias = LabelT
 NodeComponentLabelT: TypeAlias = LabelT
 PathT: TypeAlias = Mapping[NodeLabelT, NodeComponentLabelT]
-ConcretePathT: TypeAlias = idict[NodeLabelT, NodeComponentLabelT]
+"""..."""
+ConcretePathT: TypeAlias = immutabledict.immutabledict[NodeLabelT, NodeComponentLabelT]
+"""..."""
 
 # }}}
 

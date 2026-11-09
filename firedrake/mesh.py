@@ -2385,7 +2385,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     @collective
-    def facet_markers(self) -> np.ndarray[tuple[int], np.dtype[IntType]]:
+    def facet_markers(self):
         # The IS returned by 'getLabelIdIS' exists on COMM_SELF so if we want
         # a collective IS we must convert to COMM_WORLD before calling 'allGather'.
         local_facet_markers_is = self.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL)
@@ -3757,7 +3757,7 @@ values from f.)"""
 
     @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     @PETSc.Log.EventDecorator()
-    def bounding_box_coords(self) -> tuple[np.ndarray, np.ndarray]:
+    def bounding_box_coords(self) -> tuple:
         """Calculates bounding boxes of owned cells for the mesh rtree.
 
         Returns

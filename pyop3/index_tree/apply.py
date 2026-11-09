@@ -5,6 +5,7 @@ import itertools
 import numbers
 import types
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -31,6 +32,9 @@ from pyop3.index_tree.tree import (
     TabulatedMapComponent,
     UnitCalledMap,
 )
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 
 def index_axes(

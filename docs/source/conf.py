@@ -30,7 +30,6 @@ import firedrake
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
     'sphinx.ext.autodoc',
-    'sphinx_autodoc_typehints',
     'sphinx.ext.extlinks',
     'sphinx.ext.mathjax',
     'sphinx.ext.intersphinx',
@@ -74,8 +73,28 @@ mathjax3_config = {
     'tex': {'packages': {'[+]': ['mathtools']}}
 }
 
-# Concatenate the class’ and the __init__ method’s docstrings
-autoclass_content = 'both'
+# -- sphinx.ext.autodoc config ---------------------------------------------
+
+# explain me
+# https://github.com/sphinx-doc/sphinx/issues/10151
+autodoc_typehints = 'none'
+
+# When Sphinx runs, typing.TYPE_CHECKING is False. This means that type hints
+# relying on these imported objects do not resolve. Notably, anything coming
+# from 'from pyop3.types import *' is not visible to Sphinx. The best
+# workaround I have found is to enumerate these imports here:
+autodoc_type_aliases = {
+    # pyop3.types
+    "NodeComponentLabelT": "pyop3.types.NodeComponentLabelT",
+    "PathT": "pyop3.types.PathT",
+}
+
+# Only include the class docstring in the API documentation (i.e. do not
+# concatenate the __init__ method). This is because dataclasses will
+# automatically generate docstrings for __init__ using the available type
+# hints - and Sphinx cannot resolve them.
+# autoclass_content = 'class'
+# TRY BOTH
 
 # autodoc will try to infer the function signature of C modules from the first
 # line of the docstring. This is an issue for things like dicts, which we

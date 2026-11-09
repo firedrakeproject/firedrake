@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from functools import cached_property
 from immutabledict import immutabledict as idict
-from typing import Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self
 from mpi4py import MPI
 
 import finat.ufl
@@ -984,7 +984,7 @@ class AbstractFunctionSpace:
         dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
         node_map_dat = op3.Dat.empty(
             dof_map_dat.axes[:, ::self.block_size].materialize(),
-            dtype=PETSc.IntType,
+            dtype=IntType,
         )
         node_map_dat.assign(
             dof_map_dat[:, ::self.block_size] // self.block_size,
@@ -1079,7 +1079,7 @@ class AbstractFunctionSpace:
         # but that is really tangled and I need something very specific.
 
     @cached_property
-    def submesh_parent_to_child_map(self) -> op3.Map:
+    def submesh_parent_to_child_map(self) -> op3.ScalarMap:
         """Return the map between parent and child meshes.
 
         This method augments the existing point to point maps stored on the
@@ -1092,7 +1092,7 @@ class AbstractFunctionSpace:
         return op3.ScalarMap(connectivity)
 
     @cached_property
-    def submesh_child_to_parent_map(self) -> op3.Map:
+    def submesh_child_to_parent_map(self) -> op3.ScalarMap:
         """Return the map between child and parent meshes.
 
         This method augments the existing point to point maps stored on the
@@ -1578,11 +1578,11 @@ class FunctionSpace(AbstractFunctionSpace):
         return self.parent
 
     @property
-    def block_shape(self) -> tuple[IntType, ...]:
+    def block_shape(self):
         return self.shape
 
     @property
-    def block_size(self) -> numpy.dtype[IntType]:
+    def block_size(self):
         """The total number of degrees of freedom at each function space node."""
         return numpy.prod(self.shape, dtype=IntType)
 
@@ -2129,7 +2129,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return ()
 
     @property
-    def block_size(self) -> numpy.dtype[IntType]:
+    def block_size(self):
         return IntType.type(1)
 
     @cached_property

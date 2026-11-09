@@ -18,7 +18,7 @@ _default_cache_dir = pathlib.Path(tempfile.gettempdir()) / f"pyop3-cache-uid{os.
 
 @dataclasses.dataclass(frozen=True)
 class ConfigOption:
-    type_: Any
+    typ: Any
     default_value: Any
     description: str
     # kw only below
@@ -208,7 +208,7 @@ def _make_setter(name):
     return _setter
 
 
-# TODO: Use 'type_' to set annotations for the getter
+# TODO: Use 'typ' to set annotations for the getter
 for option_name, option in Pyop3Configuration.OPTIONS.items():
     option_property = property(
         option.value_getter or _make_getter(option_name),
