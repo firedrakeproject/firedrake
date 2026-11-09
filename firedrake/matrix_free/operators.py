@@ -150,11 +150,11 @@ class ImplicitMatrixContext:
             self.actionT = ZeroBaseForm(self.aT.arguments()[:-1])
 
         # For assembling action(f, self._x)
+        # The DirichletBC rows are left out because mult sets them
+        # (on the diagonal) or zeroes them (off the diagonal) afterwards.
         self.bcs_action = []
         for bc in self.bcs:
-            if isinstance(bc, DirichletBC):
-                self.bcs_action.append(bc)
-            elif isinstance(bc, EquationBCSplit):
+            if isinstance(bc, EquationBCSplit):
                 self.bcs_action.append(bc.reconstruct(action_x=self._x))
 
         self._assemble_action = get_assembler(self.action,
