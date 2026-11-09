@@ -155,7 +155,7 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
         if (derivs, arguments) in assembly_registry:
             return assembly_registry[(derivs, arguments)]
         # User can provide the sum of derivatives instead of the multi-index
-        #  => This is useful for arbitrary operators where the number of operators is unknwon a priori.
+        #  => This is useful for arbitrary operators where the number of operands is unknown a priori.
         return assembly_registry.get((sum(derivs), arguments))
 
     def assemble(self, assembly_opts=None):
