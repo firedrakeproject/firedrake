@@ -101,13 +101,23 @@ def test_reduction_assignment(mode):
     m = 10
     initial = 0.5
     axis = op3.Axis(m)
-    dat0 = op3.Dat(axis, data=np.arange(m, dtype=op3.ScalarType))
-    dat1 = op3.Dat(axis, data=np.full(m, initial, dtype=op3.ScalarType))
+    dat0 = op3.Dat(axis, data=np.arange(m, dtype=np.float64))
+    dat1 = op3.Dat(axis, data=np.full(m, initial, dtype=np.float64))
 
     op3.loop(p := axis.iter(), dat1[p].assign(dat0[p], mode), eager=True)
 
     reduction = {"max": np.maximum, "min": np.minimum}[mode]
     assert np.allclose(dat1.data_ro, reduction(dat0.data_ro, initial))
+
+
+@pytest.mark.parametrize("mode", ["max", "min"])
+def test_reduction_assignment_complex_raises(mode):
+    axis = op3.Axis(10)
+    dat0 = op3.Dat.zeros(axis, dtype=np.complex128)
+    dat1 = op3.Dat.zeros_like(dat0)
+
+    with pytest.raises(op3.exceptions.InvalidScalarTypeException):
+        op3.loop(p := axis.iter(), dat1[p].assign(dat0[p], mode), eager=True)
 
 
 def test_loop_over_parametrised_length(factory):
