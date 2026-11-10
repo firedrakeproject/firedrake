@@ -208,6 +208,9 @@ Tracing provides more information than sampling but has a higher overhead.
 
 The following instructions describe how to install TAU for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
+Installing TAU
+^^^^^^^^^^^^^^
+
 #. Start by making a directory for installing TAU, for example ``${HOME}/TAU``. We will store the path to this directory in an environment variable so it can be used later:
 
    .. code-block:: console
@@ -266,9 +269,7 @@ The following instructions describe how to install TAU for use with Firedrake on
      $ cd ${MY_TAU_DIR}/${MY_TAU_SRC}
      $ tar zxvf ../ext.tgz
 
-#. Build and install TAU
-
-   Run the configure command:
+#. Run the configure command to configure TAU for sampling:
 
    .. code-block:: console
 
@@ -289,7 +290,7 @@ The following instructions describe how to install TAU for use with Firedrake on
 
    where ``/path/to/TAU`` will be the path to your TAU installation (i.e. the same as ``$MY_TAU_DIR``). The ``x86_64`` part of the part is platform dependent and may differ on your system.
 
-   You will need to add this entry to your path whenever you use TAU.
+   *You will need to add this entry to your path whenever you use TAU.*
 
    Now make and install TAU:
 
@@ -297,34 +298,42 @@ The following instructions describe how to install TAU for use with Firedrake on
 
      $ make install
 
-#. Run an example:
+#. We will now add the capability for TAU to do tracing as well as sampling. This requires running configure and make again but this can be doing using the existing installation directory:
 
-   Set up a new directory for the example:
+   .. code-block:: console
+
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/${MY_PDT_SRC} -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
+     $ make install
+
+Using TAU: sampling
+^^^^^^^^^^^^^^^^^^^
+     
+#. Set up a new directory for the example:
 
    .. code-block:: console
 
      $ mkdir -p ~/tau_examples/sampling
      $ cd ~/tau_examples/sampling
 
-   Download a script for Firedrake to run, e.g. the Burgers equation example:
+#. Download a script for Firedrake to run, e.g. the Burgers equation example:
 
    .. code-block:: console
 
      $ wget https://firedrakeproject.org/demos/burgers.py
 
-   Make sure threading is not used. Firedrake complains if this is not done:
+#. Make sure threading is not used. Firedrake complains if this is not done:
 
    .. code-block:: console
 
      $ export OMP_NUM_THREADS=1
 
-   Run the example without TAU to make sure that all the JIT compilation has been done
+#. Run the example without TAU to make sure that all the JIT compilation has been done
 
    .. code-block:: console
 
      $ mpiexec -n 2 python burgers.py
 
-   Run the example with TAU to get a profile:
+#. Run the example with TAU to get a profile:
 
    .. code-block:: console
 
@@ -337,30 +346,23 @@ The following instructions describe how to install TAU for use with Firedrake on
      $ pprof > profile_combined.txt
      $ less profile_combined.txt
 
-#. We will now add the capability for TAU to do tracing (rather than sampling). This will show a timeline of what the application is doing. This requires running configure and make again but this can be doing using the existing installation directory:
+Using TAU: tracing
+^^^^^^^^^^^^^^^^^^
 
-   .. code-block:: console
-
-     $ cd ${MY_TAU_DIR}/${MY_TAU_SRC}
-     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/${MY_PDT_SRC} -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
-     $ make install
-
-#. Run a tracing example:
-
-   Set up a new directory for the example:
+#. Set up a new directory for the example:
 
    .. code-block:: console
 
      $ mkdir -p ~/tau_examples/tracing
      $ cd ~/tau_examples/tracing
 
-   Download a script for Firedrake to run, e.g. the Burgers equation example:
+#. Download a script for Firedrake to run, e.g. the Burgers equation example:
 
    .. code-block:: console
 
      $ wget https://firedrakeproject.org/demos/burgers.py
 
-   Set the trace output format for the Perfetto viewer:
+#. Set the trace output format for the Perfetto viewer:
 
    .. code-block:: console
 
@@ -372,7 +374,7 @@ The following instructions describe how to install TAU for use with Firedrake on
 
      $ mpiexec -n 2 tau_exec -T TRACE python burgers.py
 
-   There should now be a file called ``tau.perfetto.gz``. Unzip this file:
+#. There should now be a file called ``tau.perfetto.gz``. Unzip this file:
 
    .. code-block:: console
 
