@@ -261,9 +261,41 @@ class Mat(Tensor):
     def axis_trees(self) -> tuple[AbstractNonUnitAxisTree, AbstractNonUnitAxisTree]:
         return (self.row_axes, self.column_axes)
 
+    @cached_property
+    def _sparsity_template(self) -> pyop3.buffer.PetscMatBuffer:
+        """The assembled matrix that gives its nonzero pattern to the matrices made from this sparsity.
+
+        The template has the same size as the matrices that are made from it,
+        so it must be freed when the sparsity is freed. The sparsity holds the
+        template because the cached executors of the loops that fill the
+        sparsity can hold its buffer for much longer than the sparsity.
+        """
+        return self.buffer.materialize()
+
     @classmethod
     def from_sparsity(cls, sparsity, **kwargs):
-        buffer = sparsity.buffer.materialize()
+        """Return a new matrix with the nonzero pattern of a sparsity.
+
+        Parameters
+        ----------
+        sparsity
+            The `Mat` that `Mat.sparsity` returns, after the nonzero pattern
+            is set. The sparsity can make any number of matrices. A view of the
+            sparsity, for example from indexing, cannot make matrices because
+            it shares the preallocator but not the template.
+        kwargs
+            Extra keyword arguments that are given to the `Mat` constructor.
+
+        Returns
+        -------
+        Mat
+            A new matrix in which all the entries of the nonzero pattern are
+            present and are zero.
+
+        """
+        template = sparsity._sparsity_template
+        mat = pyop3.buffer.duplicate_mat(template.mat, copy=False)
+        buffer = pyop3.buffer.PetscMatBuffer(mat, comm=template.comm)
         return cls(sparsity.row_axes, sparsity.column_axes, buffer, **kwargs)
 
     def _array_assign(self, other: ExpressionT, /, mode: Literal[write, inc]) -> None:

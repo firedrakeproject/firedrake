@@ -115,6 +115,56 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("mat_type", ["aij", "nest"])
+def test_assemble_mat_keeps_no_other_mat_alive(mat_type):
+    """Check that only the assembled matrices stay alive.
+
+    A matrix that is made from a sparsity must not keep another matrix of
+    the same size alive. A new mesh makes sure that the compiled loops that
+    fill the sparsity are not already in the cache.
+    """
+    import gc
+
+    def is_preallocator(mat):
+        # A sparsity of a nested matrix is a nest of preallocators.
+        if mat.type == PETSc.Mat.Type.NEST:
+            return all(
+                is_preallocator(mat.getNestSubMatrix(i, j))
+                for i, j in np.ndindex(mat.getNestSize())
+            )
+        return mat.type == PETSc.Mat.Type.PREALLOCATOR
+
+    def live_mats():
+        gc.collect()
+        return [
+            obj for obj in gc.get_objects()
+            if isinstance(obj, PETSc.Mat) and obj.handle and not is_preallocator(obj)
+        ]
+
+    # Hold the matrices that exist before, so that no new matrix can get
+    # the handle of a matrix that is freed during the test.
+    before = live_mats()
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    a = inner(u, v) * dx
+
+    A = assemble(a, mat_type=mat_type)
+    B = assemble(a, mat_type=mat_type)
+
+    expected = set()
+    for mat in [A.petscmat, B.petscmat]:
+        expected.add(mat.handle)
+        if mat.type == PETSc.Mat.Type.NEST:
+            for i, j in np.ndindex(mat.getNestSize()):
+                expected.add(mat.getNestSubMatrix(i, j).handle)
+    new = {mat.handle for mat in live_mats()} - {mat.handle for mat in before}
+    assert new <= expected
+
+
 @pytest.mark.skip(reason="pyop3 failing")
 @pytest.mark.parallel
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"),

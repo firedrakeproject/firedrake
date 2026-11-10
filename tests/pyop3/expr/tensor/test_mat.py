@@ -575,6 +575,46 @@ class TestMatrices:
         expected = np.zeros((128, 128))
         assert np.allclose(mat.values, expected)
 
+    def test_mats_from_one_sparsity(self):
+        """Make two independent matrices from one sparsity.
+
+        The buffer of the sparsity is held on its own, as the cached
+        executor of a loop that fills the sparsity holds it. That buffer
+        must not keep a matrix of the full size alive.
+        """
+        import gc
+        from petsc4py import PETSc
+
+        def live_aij_handles():
+            gc.collect()
+            return {
+                obj.handle for obj in gc.get_objects()
+                if isinstance(obj, PETSc.Mat) and obj.handle
+                and obj.type == PETSc.Mat.Type.SEQAIJ
+            }
+
+        axes = op3.AxisTree.from_iterable([3, 2])
+        sparsity = op3.Mat.sparsity(axes, axes)
+        sparsity.buffer.set_diagonal(1)
+        sparsity.assemble()
+        sparsity_buffer = sparsity.buffer
+
+        before = live_aij_handles()
+        mat1 = op3.Mat.from_sparsity(sparsity)
+        mat2 = op3.Mat.from_sparsity(sparsity)
+        del sparsity
+        new = live_aij_handles() - before
+        assert new == {mat1.buffer.mat.handle, mat2.buffer.mat.handle}
+        assert sparsity_buffer.mat.type == PETSc.Mat.Type.PREALLOCATOR
+
+        # Both matrices have the nonzero pattern of the sparsity and do not
+        # share their values.
+        for mat in [mat1, mat2]:
+            assert mat.buffer.mat.getInfo()["nz_used"] == 6
+        mat1.buffer.set_diagonal(2)
+        assert np.allclose(mat1.values, 2 * np.identity(6))
+        assert np.allclose(mat2.values, 0)
+
     def test_assemble_mat(self, mass, mat, coords, elements,
                           elem_node, expected_matrix):
         """Assemble a simple finite-element matrix and check the result."""
