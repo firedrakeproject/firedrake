@@ -170,16 +170,18 @@ class StructuralCacheKeyGetter(MemoryCacheKeyGetter):
     expression on a different mesh (with different data for ``map1``) gives
     the same key.
 
-    The visited buffers and unindexed axis trees are recorded in visit order,
-    so a buffer of one instruction can be found at the same position in
-    another instruction with the same key.
+    The key of an unindexed axis tree also includes its layouts, because the
+    generated code depends on them (for instance on their static strides) and
+    they are only substituted into the instruction during preprocessing.
+    Visiting the layouts also records their buffers, so every buffer of the
+    generated code can be found at the same position in another instruction
+    with the same key.
 
     """
 
     def __init__(self) -> None:
         super().__init__(identity_hash_outer_buffers=False, recurse_vars=False)
         self.buffers = {}
-        self.axis_trees = {}
 
     @contextlib.contextmanager
     def identity_hash_buffers(self):
@@ -191,14 +193,19 @@ class StructuralCacheKeyGetter(MemoryCacheKeyGetter):
 
         if isinstance(obj, pyop3.buffer.AbstractBuffer):
             self.buffers.setdefault(obj, len(self.buffers))
-        elif isinstance(obj, pyop3.axis_tree.AxisTree):
-            self.axis_trees.setdefault(obj, len(self.axis_trees))
-        return super().process(obj)
+        key = super().process(obj)
+        if isinstance(obj, pyop3.axis_tree.AxisTree):
+            layouts_key = idict({
+                self.relabel_axis_tree_path(path): self(layout)
+                for path, layout in obj.layouts.items()
+            })
+            key = (key, layouts_key)
+        return key
 
 
 def get_structural_cache_key(
     obj: pyop3.obj.Object,
-) -> tuple[Hashable, tuple[pyop3.buffer.AbstractBuffer, ...], tuple[pyop3.axis_tree.AxisTree, ...]]:
+) -> tuple[Hashable, tuple[pyop3.buffer.AbstractBuffer, ...]]:
     """Return the structural cache key of an object.
 
     Parameters
@@ -209,10 +216,10 @@ def get_structural_cache_key(
     Returns
     -------
     tuple
-        The key, followed by the buffers and the unindexed axis trees visited
-        by `StructuralCacheKeyGetter`, in visit order.
+        The key, followed by the buffers visited by `StructuralCacheKeyGetter`
+        in visit order.
 
     """
     getter = StructuralCacheKeyGetter()
     key = getter(obj)
-    return key, tuple(getter.buffers), tuple(getter.axis_trees)
+    return key, tuple(getter.buffers)

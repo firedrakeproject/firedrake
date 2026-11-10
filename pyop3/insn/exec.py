@@ -247,8 +247,8 @@ class InstructionExecutionContext:
             if template is None:
                 executor = self._build_executor()
             else:
-                _, buffers, axis_trees = self._structural_cache_key
-                executor = template.bind(buffers, axis_trees, self.comm)
+                _, buffers = self._structural_cache_key
+                executor = template.bind(buffers, self.comm)
 
         arg_index_to_buffer_map = {
             i: self._extract_buffers(arg)
@@ -275,8 +275,8 @@ class InstructionExecutionContext:
             `CompiledCodeTemplate.from_executor`).
 
         """
-        _, buffers, axis_trees = self._structural_cache_key
-        return CompiledCodeTemplate.from_executor(self._build_executor(), buffers, axis_trees)
+        _, buffers = self._structural_cache_key
+        return CompiledCodeTemplate.from_executor(self._build_executor(), buffers)
 
     @cached_method()
     def _build_executor(self) -> CompiledCodeExecutor:
@@ -436,7 +436,7 @@ class InstructionExecutionContext:
         return (get_instruction_executor_cache_key(self.root_insn), self.compiler_parameters)
 
     @cached_property
-    def _structural_cache_key(self) -> tuple[Hashable, tuple[pyop3.buffer.AbstractBuffer, ...], tuple[pyop3.axis_tree.AxisTree, ...]]:
+    def _structural_cache_key(self) -> tuple[Hashable, tuple[pyop3.buffer.AbstractBuffer, ...]]:
         from pyop3.visitors import get_structural_cache_key
 
         return get_structural_cache_key(self.root_insn)
@@ -911,76 +911,30 @@ class CompiledCodeExecutor:
 
 
 @dataclasses.dataclass(frozen=True)
-class VisitedBufferLocation:
-    """The location of a buffer visited by `StructuralCacheKeyGetter`.
-
-    Parameters
-    ----------
-    index
-        The position of the buffer in visit order.
-
-    """
-    index: int
-
-    def locate(self, buffers, layout_buffers) -> pyop3.buffer.AbstractBuffer:
-        return buffers[self.index]
-
-
-@dataclasses.dataclass(frozen=True)
-class LayoutBufferLocation:
-    """The location of a layout buffer of an axis tree visited by `StructuralCacheKeyGetter`.
-
-    Layout buffers are not visited themselves because the layouts are only
-    substituted into the instruction during preprocessing.
-
-    Parameters
-    ----------
-    axis_tree_index
-        The position of the axis tree in visit order.
-    index
-        The position of the buffer in the layout buffers of the axis tree.
-
-    """
-    axis_tree_index: int
-    index: int
-
-    def locate(self, buffers, layout_buffers) -> pyop3.buffer.AbstractBuffer:
-        return layout_buffers(self.axis_tree_index)[self.index]
-
-
-def _layout_buffers(axis_tree: pyop3.axis_tree.AxisTree) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
-    """Return the layout buffers of an axis tree in a deterministic order."""
-    from pyop3.visitors import collect_buffers
-
-    return tuple(pyop3.collections.OrderedFrozenSet().union(
-        *(collect_buffers(layout) for layout in axis_tree.layouts.values())
-    ))
-
-
-@dataclasses.dataclass(frozen=True)
 class CompiledCodeTemplate:
     """Compiled code that is not bound to any buffers.
 
     Notes
     -----
     This class is intentionally distinct from `CompiledCodeExecutor` because it
-    stores the locations of buffers instead of the buffers themselves. This
-    means that templates hold no data and can be bound to any instruction with
-    the same structural cache key (see `pyop3.visitors.get_structural_cache_key`).
+    stores the visit order positions of buffers instead of the buffers
+    themselves. This means that templates hold no data and can be bound to any
+    instruction with the same structural cache key (see
+    `pyop3.visitors.get_structural_cache_key`).
 
     Parameters
     ----------
     executable
         The compiled operation.
-    kernel_name_to_buffer_location
-        Mapping from local kernel argument names to the location of the
-        buffer and the nest indices.
+    kernel_name_to_buffer_index
+        Mapping from local kernel argument names to the visit order position
+        of the buffer and the nest indices.
     buffer_intents
-        Pairs of buffer locations and intents.
+        Pairs of buffer visit order positions and intents.
 
     """
     executable: Executable
-    kernel_name_to_buffer_location: idict
+    kernel_name_to_buffer_index: idict
     buffer_intents: tuple
 
     @classmethod
@@ -988,7 +942,6 @@ class CompiledCodeTemplate:
         cls,
         executor: CompiledCodeExecutor,
         buffers: tuple[pyop3.buffer.AbstractBuffer, ...],
-        axis_trees: tuple[pyop3.axis_tree.AxisTree, ...],
     ) -> CompiledCodeTemplate | None:
         """Return a template for an executor.
 
@@ -999,44 +952,31 @@ class CompiledCodeTemplate:
         buffers
             The buffers of the instruction of ``executor`` visited by
             `StructuralCacheKeyGetter`, in visit order.
-        axis_trees
-            The unindexed axis trees of the instruction of ``executor`` visited
-            by `StructuralCacheKeyGetter`, in visit order.
 
         Returns
         -------
         CompiledCodeTemplate or None
-            The template, or `None` if a buffer of ``executor`` is neither a
-            visited buffer nor a layout buffer of a visited axis tree. This
-            happens if preprocessing creates new buffers, for instance when
-            compressing indirection maps.
+            The template, or `None` if a buffer of ``executor`` is not a
+            visited buffer. This happens if preprocessing creates new buffers,
+            for instance when compressing indirection maps.
 
         """
-        locations = {buf: VisitedBufferLocation(i) for i, buf in enumerate(buffers)}
-        unlocated = set(executor.buffer_intents) - locations.keys()
-        for axis_tree_index, axis_tree in enumerate(axis_trees):
-            if not unlocated:
-                break
-            for index, buf in enumerate(_layout_buffers(axis_tree)):
-                if buf in unlocated:
-                    locations[buf] = LayoutBufferLocation(axis_tree_index, index)
-                    unlocated.remove(buf)
-        if unlocated:
+        indices = {buf: i for i, buf in enumerate(buffers)}
+        if not indices.keys() >= executor.buffer_intents.keys():
             return None
 
-        kernel_name_to_buffer_location = idict({
-            name: (locations[buf_view.buffer], buf_view.nest_indices)
+        kernel_name_to_buffer_index = idict({
+            name: (indices[buf_view.buffer], buf_view.nest_indices)
             for name, buf_view in executor.kernel_name_to_buffer_info.items()
         })
         buffer_intents = tuple(
-            (locations[buf], intent) for buf, intent in executor.buffer_intents.items()
+            (indices[buf], intent) for buf, intent in executor.buffer_intents.items()
         )
-        return cls(executor.executable, kernel_name_to_buffer_location, buffer_intents)
+        return cls(executor.executable, kernel_name_to_buffer_index, buffer_intents)
 
     def bind(
         self,
         buffers: tuple[pyop3.buffer.AbstractBuffer, ...],
-        axis_trees: tuple[pyop3.axis_tree.AxisTree, ...],
         comm: MPI.Comm,
     ) -> CompiledCodeExecutor:
         """Bind the template to the buffers of an instruction.
@@ -1046,9 +986,6 @@ class CompiledCodeTemplate:
         buffers
             The buffers of the instruction visited by `StructuralCacheKeyGetter`,
             in visit order.
-        axis_trees
-            The unindexed axis trees of the instruction visited by
-            `StructuralCacheKeyGetter`, in visit order.
         comm
             The communicator.
 
@@ -1058,14 +995,12 @@ class CompiledCodeTemplate:
             The executor.
 
         """
-        layout_buffers = functools.cache(lambda index: _layout_buffers(axis_trees[index]))
         kernel_name_to_buffer_views = idict({
-            name: pyop3.buffer.IndexedBuffer(location.locate(buffers, layout_buffers), nest_indices)
-            for name, (location, nest_indices) in self.kernel_name_to_buffer_location.items()
+            name: pyop3.buffer.IndexedBuffer(buffers[index], nest_indices)
+            for name, (index, nest_indices) in self.kernel_name_to_buffer_index.items()
         })
         buffer_intents = idict({
-            location.locate(buffers, layout_buffers): intent
-            for location, intent in self.buffer_intents
+            buffers[index]: intent for index, intent in self.buffer_intents
         })
         return CompiledCodeExecutor(self.executable, kernel_name_to_buffer_views, buffer_intents, comm)
 
