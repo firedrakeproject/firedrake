@@ -143,12 +143,14 @@ def assert_matfree_matches_aij(Mmf, Maij):
     x.setArray(rng.random(x.getLocalSize()))
     y.setArray(rng.random(y.getLocalSize()))
 
-    actual, expect = Mmf.createVecLeft(), Maij.createVecLeft()
+    actual = Mmf.createVecLeft()
+    expect = Maij.createVecLeft()
     Mmf.mult(x, actual)
     Maij.mult(x, expect)
     assert (actual - expect).norm() < 1e-12 * max(expect.norm(), 1)
 
-    actual, expect = Mmf.createVecRight(), Maij.createVecRight()
+    actual = Mmf.createVecRight()
+    expect = Maij.createVecRight()
     Mmf.multTranspose(y, actual)
     Maij.multTranspose(y, expect)
     assert (actual - expect).norm() < 1e-12 * max(expect.norm(), 1)
@@ -164,18 +166,22 @@ def test_matrixfree_action_transpose_blocks(case):
     b = Constant([1.0, 0.5])
     if case == "component":
         V = VectorFunctionSpace(mesh, "CG", 2)
-        u, v = TrialFunction(V), TestFunction(V)
+        u = TrialFunction(V)
+        v = TestFunction(V)
         a = inner(grad(u), grad(v)) * dx + inner(dot(grad(u), b), v) * dx + inner(u, v) * dx
         bcs = [DirichletBC(V.sub(0), 0, 1), DirichletBC(V.sub(1), 0, 3)]
     else:
-        V = VectorFunctionSpace(mesh, "CG", 2) * FunctionSpace(mesh, "CG", 1)
-        (u, p), (v, q) = TrialFunctions(V), TestFunctions(V)
+        V2 = VectorFunctionSpace(mesh, "CG", 2)
+        Q1 = FunctionSpace(mesh, "CG", 1)
+        V = V2 * Q1
+        u, p = TrialFunctions(V)
+        v, q = TestFunctions(V)
         a = (inner(grad(u), grad(v)) * dx + inner(dot(grad(u), b), v) * dx
              - inner(p, div(v)) * dx - inner(div(u), q) * dx)
         if case == "mixed":
             bcs = [DirichletBC(V.sub(0).sub(0), 0, 1), DirichletBC(V.sub(0).sub(1), 0, 3),
                    DirichletBC(V.sub(0), 0, 4)]
-        else:
+        elif case == "mixed_equationbc":
             # The EquationBC rows of the velocity couple to the pressure
             # DirichletBC columns in the off-diagonal block.
             n = FacetNormal(mesh)
