@@ -263,12 +263,24 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
      $ wget http://tau.uoregon.edu/tau.tgz
      $ tar zxvf tau.tgz
 
+   Record the name of the TAU source directory in an environment variable for use later. For example if the directory created by the tar command above was ``tau-2.35.2`` then run the command:
+
+   .. code-block:: console
+
+     $ export MY_TAU_SRC=tau-2.35.2
+
 #. Download and unpack PDT (Program Database Toolkit):
 
    .. code-block:: console
 
      $ wget http://tau.uoregon.edu/pdt.tgz
      $ tar zxvf pdt.tgz
+
+   Record the name of the PDT source directory in an environment variable for use later. For example if the directory created by the tar command above was ``pdtoolkit-3.25.2`` then run the command:
+
+   .. code-block:: console
+
+     $ export MY_PDT_SRC=pdtoolkit-3.25.2
 
 #. Start the Firedrake venv so that you have the same python as used by Firedrake. Use the path to your firedrake installation in the following command:
 
@@ -280,18 +292,18 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
    .. code-block:: console
 
-     $ cd pdtoolkit-3.25.2
+     $ cd $MY_PDT_SRC
      $ ./configure
      $ make
      $ make install
 
-#. Download the third-party library package. This needs to be untarred in the top level directory of the tau distribution (``${HOME}/TAU/tau-2.35.2`` in this example). If you have a different version of TAU change the version number ``2.35.2`` to the version number that you have:
+#. Download the third-party library package. This needs to be untarred in ``${MY_TAU_DIR}/${MY_TAU_SRC}``:
 
    .. code-block:: console
 
      $ cd ..
      $ wget http://tau.uoregon.edu/ext.tgz
-     $ cd tau-2.35.2
+     $ cd ${MY_TAU_DIR}/${MY_TAU_SRC}
      $ tar zxvf ../ext.tgz
 
 #. Build and install TAU
@@ -300,7 +312,7 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
    .. code-block:: console
 
-     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/pdtoolkit-3.25.2 -prefix=${MY_TAU_DIR}/tau -python -mpi
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/${MY_PDT_SRC} -prefix=${MY_TAU_DIR}/tau -python -mpi
 
    At the end of the output from the configure command will be an entry to add to your PATH environment variable e.g.
 
@@ -315,7 +327,7 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
      $ export PATH=${PATH}:/path/to/TAU/tau/x86_64/bin
 
-   where ``/path/to/TAU`` will be replaced by the path to your TAU installation (e.g. ``${HOME}/TAU``). The ``x86_64`` part of the part is platform dependent and may differ on your system.
+   where ``/path/to/TAU`` will be the path to your TAU installation (i.e. the same as ``$MY_TAU_DIR``). The ``x86_64`` part of the part is platform dependent and may differ on your system.
 
    You will need to add this entry to your path whenever you use TAU.
 
@@ -369,8 +381,8 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
    .. code-block:: console
 
-     $ cd $MY_TAU_DIR/tau-2.35.2
-     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/pdtoolkit-3.25.2 -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
+     $ cd ${MY_TAU_DIR}/${MY_TAU_SRC}
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/${MY_PDT_SRC} -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
      $ make install
 
 #. Run a tracing example:
