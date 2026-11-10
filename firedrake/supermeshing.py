@@ -204,7 +204,7 @@ each supermesh cell.
 
     supermesh_kernel_str = """
     #include "libsupermesh-c.h"
-    #include <petsc.h>
+    #include <petscsys.h>
     %(to_reference)s
     %(evaluate_S)s
     %(evaluate_A)s

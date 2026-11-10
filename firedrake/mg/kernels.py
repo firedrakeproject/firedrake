@@ -62,7 +62,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
 
     evaluate_template_c = """#include <math.h>
 #include <stdio.h>
-#include <petsc.h>
+#include <petscsys.h>
 
 %(to_reference_coords_newton_step)s
 
