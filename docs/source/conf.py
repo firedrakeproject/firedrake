@@ -209,6 +209,7 @@ linkcheck_ignore = [
     r'https://www.ox.ac.uk',
     r'https://le.ac.uk/people/',
     r'https://gtr.ukri.org',
+    r'https://www.math.mun.ca',
 
     # event links
     r'https://www.crosscountrytrains.co.uk/',
