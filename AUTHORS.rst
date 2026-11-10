@@ -40,7 +40,7 @@ Nicolas Barral................<https://nicolasbarral.fr>
 
 Nicholas Barton
 
-Thomas M. Bendall
+Thomas Bendall
 
 Gheorghe-Teodor Bercea
 
