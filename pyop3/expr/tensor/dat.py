@@ -496,14 +496,15 @@ class Dat(Tensor):
                 "Cannot nest vec contexts"
             )
         if block_shape is None:
-            block_shape = self.axes.block_shape
+            block_size = self.axes.block_size
+        else:
+            block_size = np.prod(block_shape, dtype=int)
 
         # Make sure all root values are correct
         self.buffer.sync_roots()
 
         # The block size may change between invocations
         # TODO: Should reset it back at the end
-        block_size = np.prod(block_shape, dtype=int)
         if block_size != self._work_vec.block_size:
             self._work_vec.setBlockSize(block_size)
 
