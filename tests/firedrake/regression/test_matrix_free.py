@@ -123,6 +123,75 @@ def test_matrixfree_action(a, V, bcs):
 
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
+    with f.dat.vec_ro as y:
+        with expect.dat.vec as x:
+            A.petscmat.multTranspose(y, x)
+        with actual.dat.vec as x:
+            Amf.petscmat.multTranspose(y, x)
+
+    assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
+
+
+def assert_matfree_matches_aij(Mmf, Maij):
+    """Compare mult and multTranspose of a matrix-free and an aij PETSc matrix.
+
+    The random vectors are seeded per rank. The error is relative to the
+    norm of the aij result.
+    """
+    rng = np.random.default_rng(1234 + Mmf.comm.rank)
+    x, y = Mmf.createVecs()
+    x.setArray(rng.random(x.getLocalSize()))
+    y.setArray(rng.random(y.getLocalSize()))
+
+    actual, expect = Mmf.createVecLeft(), Maij.createVecLeft()
+    Mmf.mult(x, actual)
+    Maij.mult(x, expect)
+    assert (actual - expect).norm() < 1e-12 * max(expect.norm(), 1)
+
+    actual, expect = Mmf.createVecRight(), Maij.createVecRight()
+    Mmf.multTranspose(y, actual)
+    Maij.multTranspose(y, expect)
+    assert (actual - expect).norm() < 1e-12 * max(expect.norm(), 1)
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("case", ["component", "mixed", "mixed_equationbc"])
+def test_matrixfree_action_transpose_blocks(case):
+    # mult and multTranspose of the matrix-free operator, and of each
+    # field block from createSubMatrix, must match the aij matrix with the
+    # same bcs. The advection term makes the operator nonsymmetric.
+    mesh = UnitSquareMesh(4, 4)
+    b = Constant([1.0, 0.5])
+    if case == "component":
+        V = VectorFunctionSpace(mesh, "CG", 2)
+        u, v = TrialFunction(V), TestFunction(V)
+        a = inner(grad(u), grad(v)) * dx + inner(dot(grad(u), b), v) * dx + inner(u, v) * dx
+        bcs = [DirichletBC(V.sub(0), 0, 1), DirichletBC(V.sub(1), 0, 3)]
+    else:
+        V = VectorFunctionSpace(mesh, "CG", 2) * FunctionSpace(mesh, "CG", 1)
+        (u, p), (v, q) = TrialFunctions(V), TestFunctions(V)
+        a = (inner(grad(u), grad(v)) * dx + inner(dot(grad(u), b), v) * dx
+             - inner(p, div(v)) * dx - inner(div(u), q) * dx)
+        if case == "mixed":
+            bcs = [DirichletBC(V.sub(0).sub(0), 0, 1), DirichletBC(V.sub(0).sub(1), 0, 3),
+                   DirichletBC(V.sub(0), 0, 4)]
+        else:
+            # The EquationBC rows of the velocity couple to the pressure
+            # DirichletBC columns in the off-diagonal block.
+            n = FacetNormal(mesh)
+            ebc = EquationBC(inner(dot(grad(u), n) - p * n, v) * ds(2) == inner(Constant((0, 0)), v) * ds(2),
+                             Function(V), 2, V=V.sub(0))
+            bcs = [ebc.extract_form("J"), DirichletBC(V.sub(1), 0, 2), DirichletBC(V.sub(0), 0, 1)]
+
+    Mmf = assemble(a, bcs=bcs, mat_type="matfree").petscmat
+    Maij = assemble(a, bcs=bcs, mat_type="aij").petscmat
+    assert_matfree_matches_aij(Mmf, Maij)
+    ises = V.dof_dset.field_ises
+    for isrow in ises:
+        for iscol in ises:
+            assert_matfree_matches_aij(Mmf.createSubMatrix(isrow, iscol),
+                                       Maij.createSubMatrix(isrow, iscol))
+
 
 @pytest.mark.parametrize("preassembled", [False, True],
                          ids=["variational", "preassembled"])
