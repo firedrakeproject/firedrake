@@ -47,18 +47,18 @@ from gem.node import pre_traversal
 
 from pyop3 import utils
 from pyop3.compile.passes.impero.copy_propagation import propagate_copies
-from pyop3.compile.passes.impero.item_loop import needs_atomic
+from pyop3.compile.passes.impero.item_loop import needs_atomic, terminals, value_temporaries
 from pyop3.compile.passes.impero.linear import LinearIndex, flat_entry, linear
 from pyop3.compile.passes.impero.utils import (
-    as_index, assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, new_temporary, num_points,
-    static_extent, temporary,
+    as_index, assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, num_points, static_extent,
+    temporary,
 )
 from pyop3.device import GPUTarget
 from pyop3.dtypes import ScalarType
 
 
 MAX_BATCH_SIZE = 128
-"""The largest batch size (N_c) that stage 7 tries, the largest of the calibration."""
+"""The largest batch size that we try, haven't experimented beyond this """
 
 COST_TOLERANCE = 0.02
 """Pairs within this relative cost of the cheapest are equal, and the smallest batch size wins.
@@ -67,22 +67,14 @@ The model cannot separate pairs with the same threads per item, such as
 (32, 384) and (64, 768), but the larger batch measures a few percent slower.
 """
 
-
-@dataclasses.dataclass(frozen=True)
-class CostWeights:
-    """The weights of the stage 7 cost model, in units of one arithmetic operation.
-
-    Fitted to kernel timings on an RTX 3500 Ada. Global accesses
-    are cheaper than shared ones because most of them are cached map and
-    coordinate loads. Barriers have no weight of their own: the fit puts
-    their cost into `latency`.
-    """
-
-    operation: float = 1.0
-    global_access: float = 2.0
-    shared_access: float = 3.0
-    atomic: float = 2.0
-    latency: float = 180.0
+# Generalised cost weights from Nvidia GPUs from literature
+# Other method would be fitting a model but this would obviously not be feasible
+# (Microbenchmarking on Volta and Pascal Jia et al. 2018 and Abdelkhalik et al. 2022) 
+FP64_LATENCY = 8  # cycles of an FP64 FMA on Volta to Ada
+SHARED_LATENCY = 30  # cycles of a shared load on Volta to Ada 
+GLOBAL_LATENCY = 200  # cycles of an L2 hit (same sources), as most global loads are cached maps, coordinates, tables
+LSU_ACCESSES_PER_CYCLE = 16  # 64-bit accesses per SM per cycle: 32 banks of 4 bytes, 2 cycles per warp access
+ISSUE_PER_CYCLE = 128  # thread instructions issued per SM per cycle: 4 schedulers, one warp instruction each
 
 
 @dataclasses.dataclass(frozen=True)
@@ -188,13 +180,12 @@ def thread_transpose(
     target: GPUTarget,
     batch_size: int | None = None,
     block_size: int | None = None,
-    weights: CostWeights = CostWeights(),
     extra_shared_bytes: int = 0,
 ) -> imp.Block:
     """Return `tree` with its item loop replaced by an `ItemBatch`.
 
     `batch_size` (N_c) and `block_size` (T) fix the parameters instead of
-    the choice of the cost model. `target` gives the limits of the device.
+    the choice of the cost model. `target` gives the limits and the FP64 rate of the device.
     `extra_shared_bytes` is the shared memory per batch that is allocated outside this pass.
 
     Raises
@@ -207,10 +198,10 @@ def thread_transpose(
         phases = fuse_phases(propagate_copies(normalise(tree, loop)))
         _check(tree, loop, phases)
         temporaries = place_temporaries(phases, loop.index)
-        costs = tuple(_phase_cost(phase, temporaries, weights) for phase in phases)
+        counts = tuple(_phase_counts(phase, temporaries) for phase in phases)
         shared = sum(map(_bytes, {t.variable for t in temporaries.values() if not t.in_registers}))
         parameters = choose_parameters(
-            phases, costs, shared, extra_shared_bytes, target, weights, batch_size=batch_size, block_size=block_size
+            phases, counts, shared, extra_shared_bytes, target, batch_size=batch_size, block_size=block_size
         )
         return lower(tree, loop, phases, temporaries, parameters)
     except NotImplementedError as e:
@@ -231,32 +222,15 @@ def _item_loop(tree: imp.Block) -> imp.For:
 
 def normalise(tree: imp.Block, loop: imp.For) -> tuple[Nest, ...]:
     """The normalised nests of the body of `loop`, in execution order."""
-    names = name_generator(tree)
-    statements = list(_statements(loop.statement))
-    temporaries = _temporaries_for_values(statements, names)
+    statements = [(tuple(f.index for f in loops), terminal) for loops, terminal in terminals(loop.statement)]
+    temporaries = value_temporaries(
+        statements, name_generator(tree), "tt",
+        lambda loops, value: None if _is_inlined(value) else tuple(i for i in loops if i in value.free_indices),
+    )
     return tuple(
         _nest(loops, statement, loop.index) for loops, terminal in statements
         if (statement := _as_assignment(terminal, temporaries)) is not None
     )
-
-
-def _temporaries_for_values(statements, names: utils.UniqueNameGenerator) -> dict[gem.Node, gem.Indexed]:
-    """Map each value that crosses nests (non-inlined evaluations, index sums) to a load from a new temporary."""
-    temporaries = {}
-    for loops, terminal in statements:
-        match terminal:
-            case imp.Evaluate(expression=expr) if not _is_inlined(expr):
-                pass
-            case imp.Initialise(indexsum=expr) | imp.Accumulate(indexsum=expr):
-                pass
-            case _:
-                continue
-        if expr not in temporaries:
-            if expr.shape:
-                raise NotImplementedError("Only scalar-valued temporaries are supported")
-            indices = tuple(i for i in loops if i in expr.free_indices)
-            temporaries[expr] = new_temporary(names("tt"), indices, expr.dtype)
-    return temporaries
 
 
 def _as_assignment(terminal: imp.Terminal, temporaries) -> imp.Assignment | None:
@@ -412,11 +386,10 @@ def lower(
 
 def choose_parameters(
     phases: tuple[Phase, ...],
-    costs: tuple[float, ...],
+    counts: tuple[np.ndarray, ...],
     shared_per_item: int,
     shared_per_batch: int,
     target: GPUTarget,
-    weights: CostWeights,
     *,
     batch_size: int | None = None,
     block_size: int | None = None,
@@ -427,16 +400,20 @@ def choose_parameters(
         range(target.warp_size, target.max_threads_per_block + 1, target.warp_size)
         if block_size is None else (block_size,)
     )
+    w, fp64 = target.warp_size, target.fp64_per_cycle
+    op_latency = max(FP64_LATENCY, w * 4 / fp64)  # a warp's FP64 operation on one quarter of the SM
 
     def cost_per_item(n: int, t: int) -> float | None:
-        """The estimated cost of one item, or `None` if the pair does not fit the target.
+        """The estimated SM cycles of one item, or `None` if the pair does not fit the target.
 
-            Σ_k c_k ⌈N_c n_k / W⌉ W / N_c  +  latency Σ_k c_k ⌈N_c n_k / T⌉ / (N_c B)
+            Σ_k max(B ⌈N_c n_k / W⌉ W r_k,  ⌈N_c n_k / T⌉ l_k) / (B N_c)
 
-        with c_k the cost of a point of phase k, n_k its width, W the warp size
-        and B the resident blocks per SM. The first term is the work, counted
-        per warp. The second is the critical path of a batch (the thread loops
-        run one after another), shared by the items in flight on an SM.
+        with n_k the width of phase k, W the warp size and B the resident blocks
+        per SM. r_k is the cycles of a point on the busiest unit of the SM:
+        FP64 (operations), load/store (global and shared accesses) or issue
+        (all of them). l_k is the latency of a point. A barrier ends each phase, so a
+        phase lasts as long as the work of the SM or the critical path of a block,
+        whichever is longer. Every SM is assumed to hold B blocks.
         """
         shared = n * shared_per_item + shared_per_batch
         if shared > target.shared_memory_per_block or t > target.max_threads_per_block:
@@ -447,12 +424,14 @@ def choose_parameters(
         if blocks == 0:
             return None
 
-        work = path = 0.0
-        for phase, cost in zip(phases, costs, strict=True):
+        cycles = 0.0
+        for phase, (ops, glob, sh) in zip(phases, counts, strict=True):
             points = n * phase.width
-            work += cost * utils.ceildiv(points, target.warp_size) * target.warp_size
-            path += cost * utils.ceildiv(points, t)
-        return work / n + weights.latency * path / (n * blocks)
+            rate = max(ops / fp64, (glob + sh) / LSU_ACCESSES_PER_CYCLE, (ops + glob + sh) / ISSUE_PER_CYCLE)
+            work = blocks * utils.ceildiv(points, w) * w * rate
+            path = utils.ceildiv(points, t) * (ops * op_latency + sh * SHARED_LATENCY + glob * GLOBAL_LATENCY)
+            cycles += max(work, path)
+        return cycles / (blocks * n)
 
     pairs = {(n, t): cost for n in batch_sizes for t in block_sizes if (cost := cost_per_item(n, t)) is not None}
     if not pairs:
@@ -462,24 +441,26 @@ def choose_parameters(
     return Parameters(*pair, pairs[pair])
 
 
-def _phase_cost(phase: Phase, temporaries: Mapping[str, Temporary], weights: CostWeights) -> float:
-    """The cost of one point of `phase`: operations, non-register accesses and atomics, times the reductions."""
-    def access(variable: gem.Variable) -> float:
-        t = temporaries.get(variable.name)
-        return weights.global_access if t is None else 0.0 if t.in_registers else weights.shared_access
+def _phase_counts(phase: Phase, temporaries: Mapping[str, Temporary]) -> np.ndarray:
+    """The operations, global accesses and shared accesses of one point of `phase`, times the reductions.
 
-    total = 0.0
+    An atomic is a global access, as only kernel arguments are atomic. Register accesses are not counted.
+    """
+    def access(variable: gem.Variable) -> tuple[int, int, int]:
+        t = temporaries.get(variable.name)
+        return (0, 1, 0) if t is None else (0, 0, 0) if t.in_registers else (0, 0, 1)
+
+    total = np.zeros(3)
     for nest in phase.nests:
         s = nest.statement
-        cost = 0.0
+        counts = np.array(access(nest.write.aggregate))
         for node in pre_traversal((s.expression, *s.assignee.indirect_children)):
             if isinstance(node, (gem.Operator, gem.MathFunction, gem.Comparison, gem.Conditional)):
-                cost += weights.operation
+                counts[0] += 1
             elif isinstance(node, gem.Indexed) and isinstance(node.aggregate, gem.Variable):
-                cost += access(node.aggregate)
-        cost += weights.atomic if nest.atomic else access(nest.write.aggregate)
-        total += cost * num_points(nest.reductions)
-    return float(total)
+                counts += access(node.aggregate)
+        total += counts * num_points(nest.reductions)
+    return total
 
 # }}}
 
@@ -574,32 +555,18 @@ def _rename(nest: Nest, sigma: Mapping[gem.Index, gem.Index], domain: tuple[gem.
 
 # {{{ helpers
 
-def _statements(node: imp.Node, loops: tuple[gem.Index, ...] = ()):
-    """Yield each terminal below `node` with its enclosing loops, in execution order."""
-    match node:
-        case imp.Block():
-            for child in node.children:
-                yield from _statements(child, loops)
-        case imp.For():
-            yield from _statements(node.statement, loops + (node.index,))
-        case imp.Terminal():
-            yield loops, node
-        case _:
-            utils.raise_missing_dispatch_handler(node)
-
-
 def _is_inlined(expr: gem.Node) -> bool:
     """Whether `expr` is recomputed at each use instead of stored.
 
     Tables are read from their globals; indices, constants and loads are
     cheap; integer values, such as map offsets, keep their map loads in the
-    phase that uses them.
+    phase that uses them. An index sum is always stored.
     """
     if expr.shape or isinstance(expr, (gem.Index, gem.Constant, gem.Variable)):
         return True
     if isinstance(expr, gem.Indexed) and isinstance(expr.aggregate, (gem.Variable, gem.Constant)):
         return True
-    return np.dtype(expr.dtype or ScalarType).kind in "iub"
+    return not isinstance(expr, gem.IndexSum) and np.dtype(expr.dtype or ScalarType).kind in "iub"
 
 
 def _loops_around(statement: imp.Node, indices: tuple[gem.Index, ...]) -> imp.Node:

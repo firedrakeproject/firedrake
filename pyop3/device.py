@@ -126,12 +126,13 @@ class CPU(Device):
         return np.array(obj, dtype=dtype)
 
 
+FP32_LANES_PER_SM = {"70": 64, "75": 64, "80": 64, "86": 128, "87": 128, "89": 128, "90": 128}
+"""The FP32 lanes of one SM by compute capability """
+
+
 @dataclasses.dataclass(frozen=True)
 class GPUTarget:
-    """GPU limits
-    
-    i.e. blocks per thread and available static shared memory
-    """
+    """The limits and the FP64 rate of a GPU"""
 
     shared_memory_per_block: int
     shared_memory_per_sm: int
@@ -139,6 +140,8 @@ class GPUTarget:
     max_threads_per_sm: int
     max_blocks_per_sm: int
     warp_size: int
+    fp64_per_cycle: float
+    """FP64 thread operations per SM per cycle."""
 
 
 class GPU(Device):
@@ -208,7 +211,7 @@ class GPU(Device):
 
     @functools.cached_property
     def target(self) -> GPUTarget:
-        """The limits of the GPU."""
+        """The limits and the FP64 rate of the GPU."""
         attributes = self.cp.cuda.Device(self.device_id).attributes
         return GPUTarget(
             shared_memory_per_block=attributes["MaxSharedMemoryPerBlock"],
@@ -217,6 +220,7 @@ class GPU(Device):
             max_threads_per_sm=attributes["MaxThreadsPerMultiProcessor"],
             max_blocks_per_sm=attributes["MaxBlocksPerMultiprocessor"],
             warp_size=attributes["WarpSize"],
+            fp64_per_cycle=self.fp32_lanes_per_sm / attributes["SingleToDoublePrecisionPerfRatio"],
         )
 
     def asarray(self, arr, *, constant=False):
@@ -250,6 +254,14 @@ class CUDAGPU(GPU):
         """The name of the GPU architecture, for example ``sm_89``."""
         return f"sm_{self.cp.cuda.Device(self.device_id).compute_capability}"
 
+    @property
+    def fp32_lanes_per_sm(self) -> int:
+        """The FP32 lanes of one SM, from `FP32_LANES_PER_SM`."""
+        capability = self.cp.cuda.Device(self.device_id).compute_capability
+        if capability not in FP32_LANES_PER_SM:
+            raise NotImplementedError(f"The FP32 lanes per SM of {self.arch} are not known")
+        return FP32_LANES_PER_SM[capability]
+
 
 class AMDGPU(GPU):
     """An AMD GPU that is driven through a ROCm build of CuPy and the MLIR ROCm runtime"""
@@ -266,6 +278,13 @@ class AMDGPU(GPU):
         """The name of the GPU architecture without its target features"""
         name = self.cp.cuda.runtime.getDeviceProperties(self.device_id)["gcnArchName"]
         return name.decode().split(":")[0]
+
+    @property
+    def fp32_lanes_per_sm(self) -> int:
+        raise NotImplementedError(
+            "The FP32 lanes per compute unit of AMD GPUs are not known, "
+            "so thread transposition cannot choose its batch and block sizes"
+        )
 
 
 def _node_local_rank() -> int:

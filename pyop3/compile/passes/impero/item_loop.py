@@ -84,23 +84,30 @@ def assign_crossing_values(impero: ImperoC) -> imp.Block:
     loads from the temporary. Values outside the parallel loops do not depend on the item,
     and each item that uses them computes them again, so they are not stored.
     """
-    items = [n.statement for n in pre_traversal([impero.tree]) if is_item_loop(n)]
+    statements = [(loops, t) for loops, t in terminals(impero.tree) if any(map(is_item_loop, loops))]
     names = name_generator(impero.tree)
-    temporaries = {}
-    for terminal in pre_traversal(items):
-        match terminal:
-            case imp.Evaluate(expression=value) | imp.Initialise(indexsum=value) | imp.Accumulate(indexsum=value):
-                pass
-            case _:
-                continue
-        if value not in temporaries and (indices := impero.indices.get(value)):
-            temporaries[value] = new_temporary(names("t"), indices, value.dtype)
+    temporaries = value_temporaries(statements, names, "t", lambda loops, value: impero.indices.get(value) or None)
 
     def assign(loops, terminal: imp.Terminal) -> imp.Terminal:
         assignment = assign_value(terminal, temporaries)
         return assignment if assignment is not None else rewrite_terminal(terminal, temporaries)
 
     return map_terminals(impero.tree, assign)
+
+
+def value_temporaries(statements, names: utils.UniqueNameGenerator, prefix: str, indices: Callable) -> dict[gem.Node, gem.Indexed]:
+    """Map each value that a terminal of `statements` evaluates or sums to a load from a new temporary.
+
+    `statements` are pairs of loops and a terminal. `indices(loops, value)` gives the loop indices
+    of the temporary, or `None` if the value is not stored.
+    """
+    temporaries = {}
+    for loops, terminal in statements:
+        match terminal:
+            case imp.Evaluate(expression=value) | imp.Initialise(indexsum=value) | imp.Accumulate(indexsum=value):
+                if value not in temporaries and (value_indices := indices(loops, value)) is not None:
+                    temporaries[value] = new_temporary(names(prefix), value_indices, value.dtype)
+    return temporaries
 
 
 def needs_atomic(assignment: imp.Assignment, threads: tuple[gem.Index, ...]) -> bool:
@@ -159,6 +166,18 @@ def rewrite_terminal(terminal: imp.Terminal, mapping: Mapping) -> imp.Terminal:
         return replace(value, mapping) if isinstance(value, gem.Node) else value
 
     return type(terminal)(*(rewrite(getattr(terminal, slot)) for slot in terminal.__slots__))
+
+
+def terminals(node: imp.Node) -> list[tuple[tuple[imp.For, ...], imp.Terminal]]:
+    """Each terminal below `node` with its enclosing loops, in execution order"""
+    found = []
+
+    def visit(loops, terminal):
+        found.append((loops, terminal))
+        return terminal
+
+    map_terminals(node, visit)
+    return found
 
 
 @functools.singledispatch
