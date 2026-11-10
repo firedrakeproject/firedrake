@@ -743,6 +743,20 @@ class SameMeshInterpolator(Interpolator):
         else:
             return target_mesh.iter("cell")
 
+    @cached_property
+    def covers_target(self) -> bool:
+        """Whether the interpolation reaches every target cell.
+
+        An interpolation from a submesh that is not an ancestor of the target
+        mesh can miss some target cells. This check does not count the cells,
+        so it does not need an MPI reduction.
+        """
+        if self.subset is not None:
+            return False
+        source = self.source_mesh.unique().topology
+        common = source.submesh_youngest_common_ancestor(self.target_mesh.unique().topology)
+        return common is None or common is source
+
     def _loop_target_nodes(self, f: Function | Cofunction, value: float,
                            mode: Literal["inc", "min", "max"]) -> None:
         """Combine ``value`` with each node of ``f`` in the cells of the iteration set.
@@ -769,16 +783,19 @@ class SameMeshInterpolator(Interpolator):
 
         The other nodes keep the zero of a newly allocated tensor.
         """
+        finfo = numpy.finfo(tensor.dat.dtype)
+        identity = finfo.max if self.access is op3.MIN_WRITE else finfo.min
+        if self.covers_target:
+            # The interpolation reaches every node, including the ghost nodes.
+            # Therefore, we set the identity directly and do not generate a loop.
+            tensor.dat.data_wo_with_halos[...] = identity
+            return
         # A node can be reached only from the halo cells of its owner. The
         # opposite reduction carries the identity from the halo copies to the
         # owner. Therefore, the MIN identity is written with a MAX reduction,
         # and the MAX identity with a MIN reduction.
-        finfo = numpy.finfo(tensor.dat.dtype)
-        if self.access is op3.MIN_WRITE:
-            value, mode = float(finfo.max), "max"
-        else:
-            value, mode = float(finfo.min), "min"
-        self._loop_target_nodes(tensor, value, mode)
+        mode = "max" if self.access is op3.MIN_WRITE else "min"
+        self._loop_target_nodes(tensor, float(identity), mode)
 
     @cached_on(
         get_obj=lambda self: self.source_mesh.unique().topology,
