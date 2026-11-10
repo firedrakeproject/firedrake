@@ -8,10 +8,10 @@ def test_dual_restricted_function_space():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 2)
     Vstar = V.dual()
-    Vstar_res = RestrictedFunctionSpace(Vstar, [2])
+    Vstar_res = Vstar.reconstruct(boundary_set=[2])
     assert is_dual(Vstar_res)
 
-    V_res = RestrictedFunctionSpace(V, [2])
+    V_res = V.reconstruct(boundary_set=[2])
     assert Vstar_res == V_res.dual()
 
 
@@ -356,8 +356,8 @@ def test_reconstruct_mixed_restricted():
     Q = FunctionSpace(mesh, "CG", 2)
     Z = V * Q
 
-    Vres = RestrictedFunctionSpace(V, ("on_boundary",))
-    Qres = RestrictedFunctionSpace(Q, (2,))
+    Vres = V.reconstruct(boundary_set=("on_boundary",))
+    Qres = Q.reconstruct(boundary_set=(2,))
     Zres = Vres * Qres
 
     new_mesh = UnitSquareMesh(3, 3)

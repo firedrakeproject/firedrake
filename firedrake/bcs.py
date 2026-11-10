@@ -789,6 +789,7 @@ def extract_subdomain_ids(bcs):
 
 
 def restricted_function_space(V, ids):
+    return V.reconstruct(boundary_set=boundary_set)
     """Create a :class:`.RestrictedFunctionSpace` from a tuple of subdomain ids.
 
     Parameters

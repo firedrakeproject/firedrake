@@ -5,6 +5,8 @@ API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
 import itertools
+import warnings
+
 import ufl
 import finat.ufl
 
@@ -80,7 +82,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None, quad_scheme=None, _labels=None):
+                  vfamily=None, vdegree=None, variant=None, quad_scheme=None, boundary_set=frozenset(), _labels=None):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -106,6 +108,8 @@ def FunctionSpace(mesh, family, degree=None, name=None,
     quad_scheme :
         The quadrature scheme used to evaluate integral-type degrees of freedom.
         For more details see the :ref:`manual section on quadrature schemes <element_quad_scheme>`.
+    boundary_set : collections.abc.Set
+        ...
 
     Notes
     -----
@@ -115,7 +119,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name, _labels=_labels)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, boundary_set=boundary_set, _labels=_labels)
 
 
 @PETSc.Log.EventDecorator()
@@ -310,9 +314,9 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, _labels=None):
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
     for space in spaces:
-        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace, impl.RestrictedFunctionSpace):
+        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
             continue
-        elif type(space) in (impl.ProxyFunctionSpace, impl.ProxyRestrictedFunctionSpace):
+        elif type(space) is impl.ProxyFunctionSpace:
             if space.component is not None:
                 raise ValueError("Can't make mixed space with %s" % space)
             continue
@@ -339,17 +343,21 @@ def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None)
         An optional name for the function space.
 
     """
-    if not isinstance(function_space, (impl.WithGeometry, impl.FiredrakeDualSpace)):
-        raise TypeError(f"Can't make restricted space with {type(function_space).__name__}")
-
-    make_space = type(function_space)
-    mesh = function_space.mesh()
-
+    warnings.warn("no", FutureWarning)
     if function_space.boundary_set:
         boundary_set = frozenset(boundary_set) | function_space.boundary_set
-        function_space = function_space.function_space
-
-    return make_space(impl.RestrictedFunctionSpace(function_space.topological,
-                                                   boundary_set=boundary_set,
-                                                   name=name),
-                      mesh)
+    return function_space.reconstruct(boundary_set=boundary_set)
+    # if not isinstance(function_space, (impl.WithGeometry, impl.FiredrakeDualSpace)):
+    #     raise TypeError(f"Can't make restricted space with {type(function_space).__name__}")
+    #
+    # make_space = type(function_space)
+    # mesh = function_space.mesh()
+    #
+    # if function_space.boundary_set:
+    #     boundary_set = frozenset(boundary_set) | function_space.boundary_set
+    #     function_space = function_space.function_space
+    #
+    # return make_space(impl.RestrictedFunctionSpace(function_space.topological,
+    #                                                boundary_set=boundary_set,
+    #                                                name=name),
+    #                   mesh)

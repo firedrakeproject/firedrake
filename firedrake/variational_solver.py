@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import finat
 import ufl
 from itertools import chain
 from contextlib import ExitStack
@@ -106,7 +107,10 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         self.restrict = restrict and bcs
 
         if restrict and bcs:
-            V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
+            subdomain_ids = extract_subdomain_ids(bcs)
+            if type(V.element) is not finat.ufl.MixedElement:
+                subdomain_ids, = subdomain_ids
+            V_res = V.reconstruct(boundary_set=subdomain_ids)
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
             v_res, u_res = TestFunction(V_res), TrialFunction(V_res)

@@ -57,13 +57,12 @@ def get_function_space(dm):
     meshref_tuple, element, indices, (name, names), boundary_sets, labels = info
     if len(meshref_tuple) == 1:
         mesh = meshref_tuple[0]()
+        boundary_sets, = boundary_sets
     else:
         mesh = MeshSequenceGeometry([meshref() for meshref in meshref_tuple])
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
-    V = firedrake.FunctionSpace(mesh, element, name=name, _labels=labels)
-    if any(boundary_sets):
-        V = firedrake.bcs.restricted_function_space(V, boundary_sets)
+    V = firedrake.FunctionSpace(mesh, element, name=name, boundary_set=boundary_sets, _labels=labels)
     if len(V) > 1:
         for V_, name in zip(V, names):
             V_.topological.name = name

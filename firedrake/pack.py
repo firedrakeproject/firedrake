@@ -13,7 +13,7 @@ import firedrake.mesh
 from firedrake import utils
 from firedrake.cofunction import Cofunction
 from firedrake.function import CoordinatelessFunction, Function
-from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed, entity_dofs_key, entity_permutations_key
+from firedrake.functionspaceimpl import WithGeometry, is_mixed, entity_dofs_key, entity_permutations_key
 from firedrake.matrix import Matrix
 from firedrake.mesh import MeshLoopIndex, extract_mesh_topologies
 
@@ -109,8 +109,8 @@ def _pack_dat_nonmixed(
     loop_index: MeshLoopIndex,
     space: WithGeometry,
 ) -> op3.Dat:
-    if isinstance(space.topological, RestrictedFunctionSpace):
-        space = space.function_space
+    if space.boundary_set:
+        space = space.reconstruct(boundary_set=frozenset())
 
     # First pack the dat in a topological sense. This will pack all cell DoFs before
     # all edge DoFs etc but they will be correctly oriented and so on.
@@ -171,10 +171,10 @@ def _(
     row_space: WithGeometry,
     column_space: WithGeometry,
 ):
-    if isinstance(row_space.topological, RestrictedFunctionSpace):
-        row_space = row_space.function_space
-    if isinstance(column_space.topological, RestrictedFunctionSpace):
-        column_space = column_space.function_space
+    if row_space.boundary_set:
+        row_space = row_space.reconstruct(boundary_set=frozenset())
+    if column_space.boundary_set:
+        column_space = column_space.reconstruct(boundary_set=frozenset())
 
     packed_mats = np.empty((len(row_space), len(column_space)), dtype=object)
     for ir, (row_index, row_subspace) in enumerate(iter_space(row_space)):

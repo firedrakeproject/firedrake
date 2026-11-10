@@ -493,18 +493,21 @@ class WithGeometryBase:
         return type(self)(self.topological.collapse(), self.mesh())
 
     @classmethod
-    def make_function_space(cls, mesh, element, name=None, _labels=None, **kwargs):
+    def make_function_space(cls, mesh, element, name=None, _labels=None, boundary_set=None, **kwargs):
         r"""Factory method for :class:`.WithGeometryBase`."""
         topology = mesh.topology
         # Create a new abstract (Mixed/Real)FunctionSpace, these are neither primal nor dual.
         if type(element) is finat.ufl.MixedElement:
+            if boundary_set is None:
+                boundary_set = [None] * len(element.sub_elements)
+
             if isinstance(mesh, MeshGeometry):
                 mesh = MeshSequenceGeometry([mesh for _ in element.sub_elements])
                 topology = mesh.topology
             else:
                 if not isinstance(mesh, MeshSequenceGeometry):
                     raise TypeError(f"mesh must be MeshSequenceGeometry: got {mesh}")
-            spaces = [cls.make_function_space(topo, e) for topo, e in zip(topology, element.sub_elements, strict=True)]
+            spaces = [cls.make_function_space(topo, e, boundary_set=bset) for topo, e, bset in zip(topology, element.sub_elements, boundary_set, strict=True)]
             new = MixedFunctionSpace(spaces, topology, name=name, _labels=_labels)
         else:
             assert _labels is None
@@ -515,7 +518,7 @@ class WithGeometryBase:
             if element.family() == "Real":
                 new = RealFunctionSpace(topology, element, name=name, **kwargs)
             else:
-                new = FunctionSpace(topology, element, name=name, **kwargs)
+                new = FunctionSpace(topology, element, name=name, boundary_set=boundary_set, **kwargs)
         # Skip this if we are just building subspaces of an abstract MixedFunctionSpace
         if mesh is not topology:
             # Create a concrete WithGeometry or FiredrakeDualSpace on this mesh
@@ -566,6 +569,7 @@ class WithGeometryBase:
         mesh: MeshGeometry | None = None,
         element: finat.ufl.FiniteElement | None = None,
         name: str | None = None,
+        boundary_set: frozenset | None = None,
         **kwargs,
     ) -> "WithGeometryBase":
         """Return a new function space with modified fields.
@@ -578,6 +582,8 @@ class WithGeometryBase:
             The finite element (defaults to same element).
         name :
             The name (defaults to `None`).
+        boundary_set : frozenset, optional
+            TODO
 
         Returns
         -------
@@ -588,7 +594,6 @@ class WithGeometryBase:
         For details see `finat.ufl.finiteelement.FiniteElement.reconstruct`.
 
         """
-        from firedrake.bcs import restricted_function_space
         V_parent = self
 
         # Deal with ProxyFunctionSpace
@@ -612,13 +617,18 @@ class WithGeometryBase:
         if len(kwargs) > 0 or element.cell != cell:
             element = element.reconstruct(cell=cell, **kwargs)
 
-        # Reconstruct the parent space
-        V = type(self).make_function_space(mesh, element, name=name)
+        if boundary_set is None:
+            if type(element) is finat.ufl.MixedElement:
+                boundary_set = [Vsub.boundary_set for Vsub in V_parent]
+            else:
+                boundary_set = V_parent.boundary_set
+        else:
+            boundary_set = boundary_set
 
-        # Deal with RestrictedFunctionSpace
-        boundary_sets = [V_.boundary_set for V_ in V_parent]
-        if any(boundary_sets):
-            V = restricted_function_space(V, boundary_sets)
+        # Reconstruct the parent space
+        V = type(self).make_function_space(
+            mesh, element, name=name, boundary_set=boundary_set
+        )
 
         for i in reversed(indices):
             V = V.sub(i)
@@ -1127,11 +1137,20 @@ class FunctionSpace(AbstractFunctionSpace):
     topological mesh entities.  The degree of freedom mapping is
     determined from the provided element.
 
-    :arg mesh: The :func:`~.Mesh` to build the function space on.
-    :arg element: The :class:`finat.ufl.finiteelementbase.FiniteElementBase` describing the
-        degrees of freedom.
-    :kwarg name: An optional name for this :class:`FunctionSpace`,
+    Parameters
+    ----------
+    mesh : :func:`~.Mesh`
+        The mesh to build the function space on.
+    element : finat.ufl.finitelementbase.FiniteElementBase
+        The finite element describing the degrees of freedom.
+    name : str, optional
+        An optional name for this :class:`FunctionSpace`,
         useful for later identification.
+    boundary_set : collections.abc.Set
+        A set of subdomains on which a DirichletBC will be applied.
+        Not usually useful... mention restricted
+    layout : ???
+        TODO
 
     The element can be a essentially any
     :class:`finat.ufl.finiteelementbase.FiniteElementBase`, except for a
@@ -1150,12 +1169,33 @@ class FunctionSpace(AbstractFunctionSpace):
        they should use the utility :func:`~.FunctionSpace` function,
        which provides extra error checking and argument sanitising.
 
+    TODO: rewrite
+
+    To understand boundary_set...
+    If a :class:`FunctionSpace` is represented as V, we can decompose V into
+    V = V0 + VΓ, where V0 contains functions in the basis of V that vanish on
+    the boundary where a boundary condition is applied, and VΓ contains all
+    other basis functions. The :class:`RestrictedFunctionSpace`
+    corresponding to V takes functions only from V0 when solving problems, or
+    when creating a TestFunction and TrialFunction. The values on the boundary
+    set will remain constant when solving, but are present in the
+    output of the solver.
+
     """
 
-    boundary_set = frozenset()
-
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None, *, layout=None):
+    def __init__(
+        self,
+        mesh,
+        element,
+        name: str | None = None,
+        *,
+        boundary_set: collections.abc.Iterable = frozenset(),
+        layout=None,
+    ):
+        if boundary_set is None:  # old-style API
+            boundary_set = frozenset()
+
         super().__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
@@ -1179,7 +1219,7 @@ class FunctionSpace(AbstractFunctionSpace):
             self.shape = rvs[:len(rvs) - len(sub)]
         else:
             self.shape = ()
-        self._label = ""
+        self._label = ""  # is this useful?
         self._ufl_function_space = ufl.FunctionSpace(mesh.ufl_mesh(), element, label=self._label)
         self._mesh = mesh
 
@@ -1200,6 +1240,11 @@ class FunctionSpace(AbstractFunctionSpace):
         self.element = element
         self.finat_element = create_element(element)
 
+        self.boundary_set = frozenset(boundary_set)
+
+        # if not all(isinstance(x, int | str) for x in self.boundary_set):
+        #     breakpoint()
+
         if layout is None:
             # NOTE: Indicates bad inheritance
             if isinstance(self, RealFunctionSpace):
@@ -1209,6 +1254,29 @@ class FunctionSpace(AbstractFunctionSpace):
 
         self._layout = layout
         self.extruded = isinstance(mesh, ExtrudedMeshTopology)
+
+    def reconstruct(
+        self,
+        *,
+        mesh=None,
+        element=None,
+        name: str | None = None,
+        boundary_set: collections.abc.Iterable = None,
+        layout=None,
+    ):
+        if mesh is None:
+            mesh = self._mesh
+        if element is None:
+            element = self.element
+        if name is None:
+            name = self.name
+        if boundary_set is None:
+            boundary_set = self.boundary_set
+        if layout is None:
+            layout = self._layout
+        return type(self)(
+            mesh, element, name, boundary_set=boundary_set, layout=layout,
+        )
 
     @property
     def layout(self):
@@ -1558,7 +1626,7 @@ class FunctionSpace(AbstractFunctionSpace):
         )
 
     def __hash__(self):
-        return hash((self.mesh(), self.ufl_element()))
+        return hash((self.mesh(), self.ufl_element(), self.boundary_set))
 
     @cached_property
     def _ad_parent_space(self):
@@ -1696,7 +1764,7 @@ class FunctionSpace(AbstractFunctionSpace):
             return self.section
 
         return dmcommon.restrict_section(
-            self.function_space.section,
+            self.reconstruct(boundary_set=frozenset()).section,
             self.mesh().topology_dm,
             self.mesh().points.owned.local_size,
             self.boundary_set,
@@ -1825,76 +1893,73 @@ class FunctionSpace(AbstractFunctionSpace):
             return PETSc.LGMap().create(indices.copy(), bsize=1, comm=self.comm)
 
     def collapse(self):
-        return type(self)(self.mesh(), self.ufl_element(), name=self.name)
+        return type(self)(
+            self.mesh(),
+            self.ufl_element(),
+            name=self.name,
+            boundary_set=self.boundary_set,
+        )
 
 
-class RestrictedFunctionSpace(FunctionSpace):
-    r"""A representation of a function space, with additional information
-    about where boundary conditions are to be applied.
-
-    If a :class:`FunctionSpace` is represented as V, we can decompose V into
-    V = V0 + VΓ, where V0 contains functions in the basis of V that vanish on
-    the boundary where a boundary condition is applied, and VΓ contains all
-    other basis functions. The :class:`RestrictedFunctionSpace`
-    corresponding to V takes functions only from V0 when solving problems, or
-    when creating a TestFunction and TrialFunction. The values on the boundary
-    set will remain constant when solving, but are present in the
-    output of the solver.
-
-    :arg function_space: The :class:`FunctionSpace` to restrict.
-    :kwarg boundary_set: A set of subdomains on which a DirichletBC will be applied.
-    :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
-        useful for later identification.
-
-    Notes
-    -----
-    If using this class to solve or similar, a list of DirichletBCs will still
-    need to be specified on this space and passed into the function.
-    """
-    def __init__(self, function_space, boundary_set=frozenset(), name=None):
-        label = ""
-        boundary_set_ = []
-        # NOTE: boundary_set must be deterministically ordered here to ensure
-        # that the label is consistent between ranks.
-        for boundary_domain in sorted(boundary_set, key=str):
-            if isinstance(boundary_domain, str):
-                boundary_set_.append(boundary_domain)
-            else:
-                # Currently, can not handle intersection of boundaries;
-                # e.g., boundary_set = [(1, 2)], which is different from [1, 2].
-                bd, = as_tuple(boundary_domain)
-                boundary_set_.append(bd)
-        boundary_set = boundary_set_
-        for boundary_domain in boundary_set:
-            label += str(boundary_domain)
-            label += "_"
-        self.boundary_set = frozenset(boundary_set)
-        super().__init__(function_space._mesh.topology,
-                         function_space.ufl_element(), function_space.name)
-        self._label = label
-        self._ufl_function_space = ufl.FunctionSpace(function_space._mesh.ufl_mesh(),
-                                                     function_space.ufl_element(),
-                                                     label=self._label)
-        self.function_space = function_space
-        self.topological = self
-        self.name = name or function_space.name
-
-    def __eq__(self, other):
-        if not isinstance(other, RestrictedFunctionSpace):
-            return False
-        return self.function_space == other.function_space and \
-            self.boundary_set == other.boundary_set
-
-    def __repr__(self):
-        return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
-            str(self.function_space), self.name, self.boundary_set)
-
-    def __hash__(self):
-        return hash((self.mesh(), self.layout, self.ufl_element(),
-                     self.boundary_set))
-
-    def collapse(self):
-        return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
+# class RestrictedFunctionSpace(FunctionSpace):
+#     r"""A representation of a function space, with additional information
+#     about where boundary conditions are to be applied.
+#
+#
+#     :arg function_space: The :class:`FunctionSpace` to restrict.
+#     :kwarg boundary_set: A set of subdomains on which a DirichletBC will be applied.
+#     :kwarg name: An optional name for this :class:`RestrictedFunctionSpace`,
+#         useful for later identification.
+#
+#     Notes
+#     -----
+#     If using this class to solve or similar, a list of DirichletBCs will still
+#     need to be specified on this space and passed into the function.
+#     """
+#     def __init__(self, function_space, boundary_set=frozenset(), name=None):
+#         label = ""
+#         boundary_set_ = []
+#         # NOTE: boundary_set must be deterministically ordered here to ensure
+#         # that the label is consistent between ranks.
+#         for boundary_domain in sorted(boundary_set, key=str):
+#             if isinstance(boundary_domain, str):
+#                 boundary_set_.append(boundary_domain)
+#             else:
+#                 # Currently, can not handle intersection of boundaries;
+#                 # e.g., boundary_set = [(1, 2)], which is different from [1, 2].
+#                 bd, = as_tuple(boundary_domain)
+#                 boundary_set_.append(bd)
+#         boundary_set = boundary_set_
+#         for boundary_domain in boundary_set:
+#             label += str(boundary_domain)
+#             label += "_"
+#         self.boundary_set = frozenset(boundary_set)
+#         super().__init__(function_space._mesh.topology,
+#                          function_space.ufl_element(), function_space.name)
+#         self._label = label
+#         self._ufl_function_space = ufl.FunctionSpace(function_space._mesh.ufl_mesh(),
+#                                                      function_space.ufl_element(),
+#                                                      label=self._label)
+#         self.function_space = function_space
+#         self.topological = self
+#         self.name = name or function_space.name
+#
+#     def __eq__(self, other):
+#         if not isinstance(other, RestrictedFunctionSpace):
+#             return False
+#         return self.function_space == other.function_space and \
+#             self.boundary_set == other.boundary_set
+#
+#     def __repr__(self):
+#         return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
+#             str(self.function_space), self.name, self.boundary_set)
+#
+#     def __hash__(self):
+#         return hash((self.mesh(), self.layout, self.ufl_element(),
+#                      self.boundary_set))
+#
+#     def collapse(self):
+#         return type(self)(self.function_space.collapse(), boundary_set=self.boundary_set)
 
 
 class MixedFunctionSpace(AbstractFunctionSpace):
@@ -2263,63 +2328,63 @@ class ProxyFunctionSpace(FunctionSpace):
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
 
-class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
-    r"""A :class:`RestrictedFunctionSpace` that one can attach extra properties to.
-
-    :arg function_space: The function space to be restricted.
-    :kwarg boundary_set: The boundary domains on which boundary conditions will
-       be specified
-    :kwarg name: The name of the restricted function space.
-
-    .. warning::
-
-       Users should not build a :class:`ProxyRestrictedFunctionSpace` directly,
-       it is mostly used as an internal implementation detail.
-    """
-    def __new__(cls, function_space, boundary_set=frozenset(), name=None):
-        topology = function_space._mesh.topology
-        self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
-        if function_space._mesh is not topology:
-            return WithGeometry(self, function_space._mesh)
-        else:
-            return self
-
-    def __repr__(self):
-        return RestrictedFunctionSpace.__repr__(self)
-
-    def __str__(self):
-        return self.__repr__()
-
-    identifier = None
-    r"""An optional identifier, for debugging purposes."""
-
-    no_dats = False
-    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
-
-    def collapse(self) -> "RestrictedFunctionSpace":
-        """Drop the proxy metadata, returning a plain restricted space.
-
-        Returns
-        -------
-        RestrictedFunctionSpace
-            An unindexed space equal to this one.
-
-        See Also
-        --------
-        ProxyFunctionSpace.collapse
-        """
-        return RestrictedFunctionSpace(self.function_space.collapse(),
-                                       boundary_set=self.boundary_set)
-
-    @_with_mesh_heavy_cache
-    def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.types.dat.Dat`.
-
-        :raises ValueError: if :attr:`no_dats` is ``True``.
-        """
-        if self.no_dats:
-            raise ValueError("Can't build Function on %s function space" % self.identifier)
-        return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
+# class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
+#     r"""A :class:`RestrictedFunctionSpace` that one can attach extra properties to.
+#
+#     :arg function_space: The function space to be restricted.
+#     :kwarg boundary_set: The boundary domains on which boundary conditions will
+#        be specified
+#     :kwarg name: The name of the restricted function space.
+#
+#     .. warning::
+#
+#        Users should not build a :class:`ProxyRestrictedFunctionSpace` directly,
+#        it is mostly used as an internal implementation detail.
+#     """
+#     def __new__(cls, function_space, boundary_set=frozenset(), name=None):
+#         topology = function_space._mesh.topology
+#         self = super(ProxyRestrictedFunctionSpace, cls).__new__(cls)
+#         if function_space._mesh is not topology:
+#             return WithGeometry(self, function_space._mesh)
+#         else:
+#             return self
+#
+#     def __repr__(self):
+#         return RestrictedFunctionSpace.__repr__(self)
+#
+#     def __str__(self):
+#         return self.__repr__()
+#
+#     identifier = None
+#     r"""An optional identifier, for debugging purposes."""
+#
+#     no_dats = False
+#     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+#
+#     def collapse(self) -> "RestrictedFunctionSpace":
+#         """Drop the proxy metadata, returning a plain restricted space.
+#
+#         Returns
+#         -------
+#         RestrictedFunctionSpace
+#             An unindexed space equal to this one.
+#
+#         See Also
+#         --------
+#         ProxyFunctionSpace.collapse
+#         """
+#         return RestrictedFunctionSpace(self.function_space.collapse(),
+#                                        boundary_set=self.boundary_set)
+#
+#     @_with_mesh_heavy_cache
+#     def make_dat(self, *args, **kwargs):
+#         r"""Create a :class:`pyop2.types.dat.Dat`.
+#
+#         :raises ValueError: if :attr:`no_dats` is ``True``.
+#         """
+#         if self.no_dats:
+#             raise ValueError("Can't build Function on %s function space" % self.identifier)
+#         return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
 
 
 def IndexedFunctionSpace(index, space, parent):
@@ -2334,8 +2399,8 @@ def IndexedFunctionSpace(index, space, parent):
     """
     if space.ufl_element().family() == "Real":
         new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
-    elif len(space.boundary_set) > 0:
-        new = ProxyRestrictedFunctionSpace(space.function_space, name=space.name, boundary_set=space.boundary_set)
+    # elif len(space.boundary_set) > 0:
+    #     new = ProxyRestrictedFunctionSpace(space.function_space, name=space.name, boundary_set=space.boundary_set)
     else:
         new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
     new.index = index
