@@ -126,7 +126,8 @@ def test_matrixfree_action(a, V, bcs):
 @pytest.mark.parallel(nprocs=[1, 2])
 def test_matrixfree_repeated_transpose_with_dirichlet_bc(mesh):
     V = FunctionSpace(mesh, "CG", 1)
-    u, v = TrialFunction(V), TestFunction(V)
+    u = TrialFunction(V)
+    v = TestFunction(V)
     a = inner(grad(u), grad(v))*dx + inner(as_vector([1, 0]), grad(u))*v*dx
     bc = DirichletBC(V, 0, 1)
     A = assemble(a, bcs=bc, mat_type="matfree").petscmat
