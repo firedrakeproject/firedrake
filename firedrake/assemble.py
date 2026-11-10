@@ -162,7 +162,7 @@ def get_assembler(form, *args, **kwargs):
             and not BaseFormAssembler.needs_matfree_assembler(form, kwargs.get('mat_type'), kwargs.get('diagonal', False))):
         # Preprocessing can change the root BaseForm before assembler dispatch.
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
-        form = BaseFormAssembler.preprocess_base_form(form, form_compiler_parameters=fc_params)
+        form = BaseFormAssembler.preprocess_base_form(form)
     if isinstance(form, (ufl.Form, ufl.Interpolate)):
         numbers = {argument.number() for argument in form.arguments()}
         if numbers != set(range(len(numbers))):
@@ -748,30 +748,22 @@ class BaseFormAssembler(AbstractFormAssembler):
         return []
 
     @staticmethod
-    def preprocess_base_form(expr, form_compiler_parameters=None):
+    def preprocess_base_form(expr):
         """Restructure an expression before BaseForm assembly.
 
         Parameters
         ----------
         expr : ufl.BaseForm or slate.TensorBase
             Expression to preprocess.
-        form_compiler_parameters : dict or None
-            Form compiler parameters that determine whether complex mode is used.
-            Values override the global form compiler parameters.
 
         Returns
         -------
         ufl.BaseForm or ufl.core.expr.Expr or slate.TensorBase
             Expression that can be dispatched to an assembler.
         """
-        from tsfc.parameters import is_complex
-
         original_expr = expr
         if not isinstance(expr, slate.TensorBase):
-            scalar_type = parameters.parameters["form_compiler"]["scalar_type"]
-            if form_compiler_parameters is not None:
-                scalar_type = form_compiler_parameters.get("scalar_type", scalar_type)
-            expr = restructure_base_form(expr, complex_mode=is_complex(scalar_type))
+            expr = restructure_base_form(expr)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. All of this only holds when both are `ufl.Form` objects.
