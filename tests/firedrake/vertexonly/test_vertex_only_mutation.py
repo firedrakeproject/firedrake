@@ -116,7 +116,8 @@ def test_commit_reference_state_updates_swarm_and_vom_state(parent_mesh, with_ha
 
     new_points = vom.coordinates.dat.data_ro[::-1].copy()
     new_parent_cells, new_refcoords = locate_points(parent_mesh, new_points)
-    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
+    vom.topology.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_refcoords
 
     assert topology.cell_parent_cell_dat is parent_cell_dat
     assert topology.cell_parent_cell_map is parent_cell_map
@@ -139,13 +140,11 @@ def test_rebuild_vom_rebuilds_pids_lazily(parent_mesh):
 
     # Give each particle a new state.
     new_coordinates = vom.coordinates.dat.data_ro[:].copy() + 3
-    new_parent_cells, new_reference_coordinates = locate_points(parent_mesh, new_coordinates)
+    new_parent_cells, new_ref_coords = locate_points(parent_mesh, new_coordinates)
 
     vom.coordinates.dat.data[:] = new_coordinates
-    vom.update_parent_cells_and_ref_coords(
-        new_parent_cells,
-        new_reference_coordinates,
-    )
+    vom.topology.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_ref_coords
     parallel_assert(pids_before._mesh_topology_version == old_topology_version)
 
     # Rebuild the VOM topologically
@@ -175,14 +174,12 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     # Give each particle a new state.
     # Reversing locally owned midpoints keeps the particles on cells owned by the same rank.
     new_coordinates = vom.coordinates.dat.data_ro[::-1].copy()
-    new_parent_cells, new_reference_coordinates = locate_points(parent_mesh, new_coordinates)
+    new_parent_cells, new_ref_coords = locate_points(parent_mesh, new_coordinates)
 
     # NOTE: We write the updated state onto the VOM BEFORE rebuilding
     vom.coordinates.dat.data[:] = new_coordinates
-    vom.update_parent_cells_and_ref_coords(
-        new_parent_cells,
-        new_reference_coordinates,
-    )
+    vom.topology.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_ref_coords
 
     expected_state = vom_state_by_particle_id(vom)
     old_local_count = vom.topology.cells.owned.local_size
@@ -283,7 +280,8 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
 
     # Commit state
     vom.coordinates.dat.data_wo[:] = new_coords
-    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
+    vom.topology.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_refcoords
 
     # Rebuild the VOM
     vom.rebuild()
@@ -465,7 +463,8 @@ def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
 
     # Commit the new state
     vom.coordinates.dat.data_wo[:] = new_coords
-    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
+    vom.topology.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_refcoords
 
     old_version = vom._topology_version
 
@@ -568,7 +567,8 @@ def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
     )
 
     vom.coordinates.dat.data_wo[:] = new_coords
-    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
+    vom.topology.update_parent_cells(new_parent_cells)      
+    vom.reference_coordinates.dat.data_wo[:] = new_refcoords
 
     old_version = vom._topology_version
     vom.rebuild()
@@ -725,7 +725,8 @@ def test_rebuild_vom_keeps_input_ordering(parent_mesh):
         new_coords = vom.coordinates.dat.data_ro + shift
         new_parent_cells, new_refcoords = locate_points(parent_mesh, new_coords)
         vom.coordinates.dat.data_wo[:] = new_coords
-        vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
+        vom.topology.update_parent_cells(new_parent_cells)    
+        vom.reference_coordinates.dat.data_wo[:] = new_refcoords
         absorbed = None if absorb_every is None else np.arange(0, n_owned, absorb_every, dtype=IntType)
         vom.rebuild(absorbed)
 

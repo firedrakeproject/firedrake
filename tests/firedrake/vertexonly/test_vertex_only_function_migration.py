@@ -327,7 +327,8 @@ def test_vom_function_migrates_under_point_redistribution(vom, vom_fs, make_coef
         new_refcoords[0] = np.mean(ref_cell.get_vertices(), axis=0)
 
     vom.coordinates.dat.data_wo[:] = new_coords
-    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_refcoords)
+    vom.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_refcoords
     vom.rebuild()
 
     new_dat = f.dat  # trigger migration
@@ -463,48 +464,23 @@ def test_cofunction_inplace_operators_before_and_after_migration(vom, vom_fs, op
 
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("vom_fs", ["vector-DG0", "tensor-DG0"], indirect=True)
-def test_vom_function_components_migrate_with_their_parent_function(vom, vom_fs, make_coefficient):
+def test_vom_function_component_migration_raises(vom, vom_fs, make_coefficient):
+    """Check that reading a component of a vector- or tensor-valued function after a rebuild raises an error."""
     f = make_coefficient(vom_fs)
-    shape = vom_fs.shape
+    components = [f.sub(ix) for ix in np.ndindex(vom_fs.shape)]
 
-    pids_before = vom._particle_ids.dat.data_ro.copy()
-    values = assign_function_values_using_pids(pids_before, vom_fs.value_size, f.dat.dtype)
-    f.dat.data_wo[:] = values.reshape((-1, *shape))
+    vom.rebuild()
+    for c in components:
+        with pytest.raises(NotImplementedError, match="shared data"):
+            c.dat
 
-    components = {ix: f.sub(ix) for ix in np.ndindex(shape)}
-    for c in components.values():
-        _ = c.dat
-    old_version = vom._topology_version
-
-    # Remove points with an even particle ID
-    absorbed = np.flatnonzero(pids_before % 2 == 0)
-    vom.rebuild(absorbed=absorbed)
-    new_version = vom._topology_version
-
-    first, *_, last = components.values()
-
-    _ = first.dat
-    # Reading the dat of a component must migrate the parent dat first
-    parallel_assert(f._mesh_topology_version == new_version, "reading a function component did not migrate its parent")
-    # Read the dat of a component does not migrate the other component(s)
-    parallel_assert(last._mesh_topology_version == old_version, "reading a function component caused the other function component to migrate")
-
-    pids_after = vom._particle_ids.dat.data_ro.copy()
-    n_owned = vom.topology.cells.owned.local_size
-    expected = assign_function_values_using_pids(pids_after, vom_fs.value_size, f.dat.dtype)
-    expected = expected.reshape((-1, *shape))
-
-    for ix, c in components.items():
-        values = c.dat.data_ro
-        parallel_assert(c._mesh_topology_version == new_version,
-                        f"component {ix} is not on the current topology version")
-        parallel_assert(values.shape == (n_owned,) and np.allclose(values, expected[(slice(None), *ix)]),
-                        f"component {ix} does not hold the migrated values of its parent")
+    # The parent function owns its data, so it still migrates.
+    f.dat
 
 
 @pytest.mark.parallel([1, 3])
 def test_vom_subfunction_migration_raises(vom):
-    """Check that a subfunction of a mixed function on a VOM raises when its parent migrates."""
+    """Check that reading a subfunction of a mixed function after a rebuild raises an error."""
     V = FunctionSpace(vom, "DG", 0)
     w = Function(V * V)
     w0, _ = w.subfunctions
@@ -512,5 +488,5 @@ def test_vom_subfunction_migration_raises(vom):
 
     # The migration of w0 fails because its parent is a mixed function that is defined on a MeshSequenceTopology
     # for which mutation and function migration haven't been implemented yet.
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(NotImplementedError, match="shared data"):
         w0.dat

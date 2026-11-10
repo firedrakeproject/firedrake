@@ -176,7 +176,8 @@ def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
 
     new_parent_cells, new_ref_coords = locate_points(parent_mesh, new_coords)
     vom.coordinates.dat.data_wo[:] = new_coords
-    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_ref_coords)
+    vom.topology.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_ref_coords
     # rebuild VOM
     vom.rebuild()
 
