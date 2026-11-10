@@ -5,6 +5,7 @@ from firedrake.solving_utils import DEFAULT_KSP_PARAMETERS
 import pytest
 import numpy as np
 from mpi4py import MPI
+from itertools import product
 
 
 @pytest.fixture
@@ -190,10 +191,9 @@ def test_matrixfree_action_transpose_blocks(case):
     # TODO: use V.field_ises once release is merged into main, where
     # V._ises is deprecated.
     ises = V._ises
-    for isrow in ises:
-        for iscol in ises:
-            assert_matfree_matches_aij(Mmf.createSubMatrix(isrow, iscol),
-                                       Maij.createSubMatrix(isrow, iscol))
+    for isrow, iscol in product(ises, ises):
+        assert_matfree_matches_aij(Mmf.createSubMatrix(isrow, iscol),
+                                   Maij.createSubMatrix(isrow, iscol))
 
 
 @pytest.mark.parametrize("preassembled", [False, True],
