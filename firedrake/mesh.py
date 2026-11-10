@@ -506,11 +506,6 @@ class AbstractMeshTopology(abc.ABC):
     variable_layers = False
     """No variable layers on unstructured mesh"""
 
-    @cached_property_until_topology_changes
-    def _pyop3_cache(self) -> defaultdict:
-        """Stores the results that pyop3 caches on this topology with `pyop3.cache.cached_on`."""
-        return defaultdict(dict)
-
     @property
     @abc.abstractmethod
     def dimension(self):
@@ -525,6 +520,11 @@ class AbstractMeshTopology(abc.ABC):
     def _add_overlap(self):
         """Add overlap."""
         pass
+
+    # @cached_property_until_topology_changes
+    # def _pyop3_cache(self) -> defaultdict:
+    #     """Stores the results that pyop3 caches on this topology with `pyop3.cache.cached_on`."""
+    #     return defaultdict(dict)
 
     @cached_method_until_topology_changes
     def get_work_function_cache(self, ufl_element):
@@ -1221,10 +1221,11 @@ class AbstractMeshTopology(abc.ABC):
 
     # {{{ mesh iteration and maps
 
-    @cached_on(
-        get_obj=lambda self, *a, **kw: self.topology,
-        get_key=lambda self, *a, **kw: utils.freeze((a, kw)),
-    )
+    # @cached_on(
+    #     get_obj=lambda self, *a, **kw: self.topology,
+    #     get_key=lambda self, *a, **kw: utils.freeze((a, kw)),
+    # )
+    @cached_method_until_topology_changes
     def iter(
         self,
         integral_type: str,
@@ -3522,7 +3523,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property_until_topology_changes
     def cell_parent_cell_map(self):
-        """Return the :class:`pyop3.types.map.Map` from vertex only mesh cells to
+        """Return the :class:`pyop3.ScalarMap` from vertex only mesh cells to
         parent mesh cells.
         """
         dest_axis = self._parent_mesh._uid
@@ -3709,7 +3710,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._topology_step_sfs.clear()
         self._composed_topology_migration_sfs.clear()
 
-    def _update_parent_cells(self, parent_cells: np.ndarray) -> None:
+    def update_parent_cells(self, parent_cells: np.ndarray) -> None:
         """Update the parent cell of each locally owned point.
 
         Parameters
@@ -3721,6 +3722,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._check_mutation_support()
         parent_cells = np.asarray(parent_cells, dtype=IntType)
         n_owned = self.cells.owned.local_size
+        if parent_cells.shape != (n_owned,):
+            raise ValueError("Expected the parent cells to be supplied as a 1D array of shape (n_owned,)")
         self.cell_parent_cell_dat.data_wo[:n_owned] = parent_cells
 
     def _migrate_swarm_and_recompute_point_numbering(self, coordinates: np.ndarray, reference_coordinates: np.ndarray, absorbed: ArrayLike | None = None) -> None:
@@ -3738,7 +3741,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         absorbed_vom_indices : array_like of int, optional
             Local VOM indices of the particles to remove. By default, no particles are removed.
         """
-        swarm = self._topology_dm
+        swarm = self.topology_dm
         n_owned = self.cells.owned.local_size
 
         # Read data from the current topology
@@ -3817,6 +3820,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # Redistribute particles across ranks
         # TODO: change the swarm's migration type to ``DMSWARM_MIGRATE_BASIC``
         # so that particles are sent to the destination ranks set in ``DMSwarm_rank``.
+        # See https://github.com/firedrakeproject/firedrake/issues/5592.
         swarm.migrate(remove_sent_points=True)
 
         # Convert the received plex cell numbers to Firedrake cell numbers
@@ -4712,48 +4716,37 @@ values from f.)"""
         new_coordinates.dat.data_wo_with_halos[broken_indices] = own_curved_points
         return new_coordinates
 
-    def update_parent_cells_and_ref_coords(self, parent_cells: np.ndarray, reference_coordinates: np.ndarray | None) -> None:
-        """Update the parent cell and the reference coordinates of each locally owned point.
-
-        Parameters
-        ----------
-        parent_cells
-            The parent-mesh cell number of each locally owned point, in the current point ordering.
-        reference_coordinates
-            The reference coordinates of each point in its parent cell, in the current point ordering.
-
-        Raises
-        ------
-        NotImplementedError
-            If this mesh is not a vertex-only mesh.
-
-        Notes
-        -----
-        This operation is local. It does not change the topology, so the points stay
-        on the same rank until :meth:`rebuild` is called.
-        """
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise NotImplementedError("In-place mutation is currently supported only for vertex-only meshes.")
-
-        self.topology._update_parent_cells(parent_cells)
-        self.reference_coordinates.dat.data_wo[:] = reference_coordinates
-
+    @collective
     def rebuild(self, absorbed: ArrayLike | None = None) -> None:
-        """Rebuild the vertex-only mesh in place.
+        """Rebuild the topology of this mesh in-place.
+
+        This method is currently only supported for vertex-only meshes where the topology is rebuilt
+        following a change in the point set and/or a redistribution of points across ranks.
+
+        Rebuilding the topology of a VOM is done via the following steps:
+            1. Updating the underlying DMSwam
+                - Removing the points listed in ``absorbed`` (if any).
+                - Migrating the DMSwarm i.e., sending each remaining point to its new destination rank.
+            2. Recomputing the point numbering at the level of the `MeshTopology`.
+            3. Eagerly migrating the coordinate fields over to the new topology.
+                Every other function on the mesh keeps its values and migrates lazily the next time its data is accessed.
+
+        This method does not locate points and/or update the coordinates of the mesh.
+        If the points of a vertex-only mesh have moved, do these steps before you call this method:
+            1. Write the new positions of the points into :attr:`coordinates`.
+            2. Locate the points in the parent mesh, e.g., by calling :meth:`locate_cells_ref_coords_and_dists`.
+            3. Call :meth:`VertexOnlyMeshTopology.update_parent_cells` with the parent cells that step 2 gives.
+            4. Write the reference coordinates that step 2 gives into :attr:`reference_coordinates`.
 
         Parameters
         ----------
         absorbed
-            The local indices of the points to remove, in the current VOM ordering.
+            The local indices of the points to remove, in the current point ordering.
 
         Raises
         ------
         NotImplementedError
             If this mesh is not a vertex-only mesh.
-
-        Notes
-        -----
-        This is a collective operation.
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise NotImplementedError("In-place mutation is currently supported only for vertex-only meshes.")
