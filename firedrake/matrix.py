@@ -104,9 +104,6 @@ class MatrixBase(ufl.Matrix):
         else:
             return self._arguments
 
-    def ufl_domains(self):
-        return self._domains
-
     @property
     def has_bcs(self):
         """Return True if this :class:`MatrixBase` has any boundary
