@@ -412,13 +412,13 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
      $ mpiexec -n 2 tau_exec -T TRACE python burgers.py
 
-   There should now be a file called tau.perfetto.gz Unzip this file:
+   There should now be a file called ``tau.perfetto.gz``. Unzip this file:
 
    .. code-block:: console
 
      $ gunzip tau.perfetto.gz
 
-   and upload to ui.perfetto.dev for viewing using the 'Open trace file' option from the menu.
+   and upload to `Perfetto UI <https://ui.perfetto.dev>`_ for viewing using the 'Open trace file' option from the menu.
 
 #. View the trace.
 
