@@ -334,13 +334,10 @@ def _(assignment: pyop3.insn.Assignment, /) -> pyop3.insn.InstructionList:
         and isinstance(bare_expression, Mat)
         and not all(
             isinstance(t, pyop3.axis_tree.AbstractUnindexedAxisTree)
-            for t in bare_expression.axis_trees
+            for axes in bare_expression.axis_trees
+            for t in axes.trees
         )
     ):
-        assert not any(
-            isinstance(t, pyop3.axis_tree.AxisForest)
-            for t in bare_expression.axis_trees
-        )
         expression_temp = bare_expression.materialize()
         expression_insns += (expression_temp.assign(bare_expression),)
         bare_expression = expression_temp
