@@ -65,7 +65,8 @@ def _get_refcounts(lifetime_objs):
     return [sys.getrefcount(obj) for obj in lifetime_objs]
 
 
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False):
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False,
+              get_version: Callable = lambda obj: None):
     """
     Parameters
     ----------
@@ -80,23 +81,37 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
             else:
                 objs = (obj,)
 
+            # Handle the case where we have multiple objects: the cached value is only
+            # valid for a given combination of versions
+            versions = tuple(get_version(obj) for obj in objs)
+            key = get_key(*args, **kwargs)
+
+            caches = []
+
             # Create any missing caches
             for obj in objs:
                 if not hasattr(obj, "_pyop3_cache"):
                     # Use object.__setattr__ to get around frozen dataclasses
                     object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
-
-            key = get_key(*args, **kwargs)
+                values_by_version = obj._pyop3_cache[func.__qualname__]
+                if versions not in values_by_version:
+                    # Remove the values that were computed for the other versions
+                    values_by_version.clear()
+                    values_by_version[versions] = {}
+                caches.append(values_by_version[versions])
 
             value = _nothing
-            for obj in objs:
-                cache = obj._pyop3_cache[func.__qualname__]
-                try:
+            for cache in caches:
+                # cache is a single object's {key: value} dict at the current version tuple.
+                if key in cache:
                     value = cache[key]
-                except KeyError:
-                    pass
+                    break
+
             if value is _nothing:
                 value = func(*args, **kwargs)
+
+            for cache in caches:
+                cache.setdefault(key, value)
 
             # Store in all of the caches
             for obj in objs:

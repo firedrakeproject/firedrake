@@ -521,11 +521,6 @@ class AbstractMeshTopology(abc.ABC):
         """Add overlap."""
         pass
 
-    # @cached_property_until_topology_changes
-    # def _pyop3_cache(self) -> defaultdict:
-    #     """Stores the results that pyop3 caches on this topology with `pyop3.cache.cached_on`."""
-    #     return defaultdict(dict)
-
     @cached_method_until_topology_changes
     def get_work_function_cache(self, ufl_element):
         """Get the cache for work functions.
@@ -1221,11 +1216,11 @@ class AbstractMeshTopology(abc.ABC):
 
     # {{{ mesh iteration and maps
 
-    # @cached_on(
-    #     get_obj=lambda self, *a, **kw: self.topology,
-    #     get_key=lambda self, *a, **kw: utils.freeze((a, kw)),
-    # )
-    @cached_method_until_topology_changes
+    @cached_on(
+        get_obj=lambda self, *a, **kw: self.topology,
+        get_key=lambda self, *a, **kw: utils.freeze((a, kw)),
+        get_version=lambda self: self._topology_version
+    )
     def iter(
         self,
         integral_type: str,
