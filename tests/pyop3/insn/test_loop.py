@@ -110,6 +110,49 @@ def test_reduction_assignment(mode):
     assert np.allclose(dat1.data_ro, reduction(dat0.data_ro, initial))
 
 
+def _compile_loop(loop, compiler_parameters=None):
+    """Return the executable that is compiled for the loop."""
+    return loop._get_execution_context(compiler_parameters).compile().executable
+
+
+def test_assignment_does_not_use_petsc():
+    axis = op3.Axis(10)
+    dat0 = op3.Dat.zeros(axis, dtype=op3.ScalarType)
+    dat1 = op3.Dat.zeros_like(dat0)
+
+    executable = _compile_loop(op3.loop(p := axis.iter(), dat1[p].assign(dat0[p])))
+    assert op3.cc.LIBPETSC not in executable.extra_compiler_options.libraries
+    assert "#include <petsc" not in executable._device_code
+
+
+@pytest.mark.parametrize("compiler_parameters, header", [
+    ({"add_petsc_event": True}, "petsclog.h"),
+    ({"attach_debugger": True}, "petscsys.h"),
+])
+def test_assignment_with_petsc_compiler_parameter_uses_petsc(compiler_parameters, header):
+    axis = op3.Axis(10)
+    dat0 = op3.Dat.zeros(axis, dtype=op3.ScalarType)
+    dat1 = op3.Dat.zeros_like(dat0)
+
+    loop = op3.loop(p := axis.iter(), dat1[p].assign(dat0[p]))
+    executable = _compile_loop(loop, compiler_parameters)
+    assert op3.cc.LIBPETSC in executable.extra_compiler_options.libraries
+    assert "#include <petscmat.h>" in executable._device_code
+    assert f"#include <{header}>" in executable._device_code
+    assert "#include <petsc.h>" not in executable._device_code
+
+
+def test_called_function_does_not_use_petsc(factory):
+    axis = op3.Axis(10)
+    dat0 = op3.Dat.zeros(axis, dtype=op3.ScalarType)
+    dat1 = op3.Dat.zeros_like(dat0)
+
+    kernel = factory.copy_kernel(1)
+    executable = _compile_loop(op3.loop(p := axis.iter(), kernel(dat0[p], dat1[p])))
+    assert op3.cc.LIBPETSC not in executable.extra_compiler_options.libraries
+    assert "#include <petsc" not in executable._device_code
+
+
 @pytest.mark.parametrize("mode", ["max", "min"])
 def test_reduction_assignment_complex_raises(mode):
     axis = op3.Axis(10)
@@ -383,6 +426,7 @@ MatSetValues(mat, 3, idxs, 3, idxs, values, ADD_VALUES);
     kernel = op3.Function.from_c_string(
         # "mat_inc", c_kernel, [("mat", op3.dtypes.OpaqueType("Mat"), op3.WRITE)],
         "mat_inc", c_kernel, [("mat", op3.dtypes.OpaqueType("Mat"), op3.READ)],
+        libraries=(op3.cc.LIBPETSC,),
     )
 
     # create a 5x5 sparse matrix

@@ -5,7 +5,7 @@ import contextlib
 import functools
 import numbers
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import loopy as lp
 import numpy as np
@@ -16,6 +16,7 @@ from petsc4py import PETSc
 import pyop3.axis_tree
 import pyop3.buffer
 import pyop3.cache
+import pyop3.cc
 import pyop3.config
 import pyop3.constants
 import pyop3.dtypes
@@ -40,6 +41,9 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
+if TYPE_CHECKING:
+    from pyop3.insn.exec import ParsedCompilerParameters
+
 # FIXME this needs to be synchronised with TSFC, tricky
 # shared base package? or both set by Firedrake - better solution
 LOOPY_TARGET = lp.CWithGNULibcTarget()
@@ -53,6 +57,13 @@ class LoopyCodegenContext(CodegenContext):
 
         # initializer hash -> temporary name
         self._reusable_temporaries: dict[int, str] = {}
+
+        # Local kernels can call C standard library functions (e.g. 'creal') without including their headers.
+        self._preambles: dict[str, str] = {
+            "20_debug": "#include <stdio.h>",  # dont always inject
+            "20_complex": "#include <complex.h>",
+            "20_math": "#include <math.h>",
+        }
 
     @property
     def domains(self) -> tuple:
@@ -404,11 +415,17 @@ class LoopyCodegenContext(CodegenContext):
     def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None) -> pym.Expression:
         return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self)
 
-    def finalize_kernel(self, function_name, compiler_parameters):
-        preambles = [
-            ("20_debug", "#include <stdio.h>"),  # dont always inject
-            ("30_petsc", "#include <petsc.h>"),  # perhaps only if petsc callable used?
-        ]
+    def finalize_kernel(
+        self,
+        function_name: str,
+        compiler_parameters: ParsedCompilerParameters,
+        compiler_options: pyop3.cc.CompilerOptions,
+    ) -> lp.TranslationUnit:
+        # Include the headers of every library that the code is linked against.
+        preambles = {
+            **self._preambles,
+            **{f"30_{header}": f"#include <{header}>" for header in compiler_options.headers},
+        }
 
         # add a no-op instruction touching all of the kernel arguments so they are
         # not silently dropped
@@ -429,7 +446,7 @@ class LoopyCodegenContext(CodegenContext):
             name=function_name,
             target=LOOPY_TARGET,
             lang_version=LOOPY_LANG_VERSION,
-            preambles=preambles,
+            preambles=tuple(preambles.items()),
         )
         translation_unit = lp.merge((translation_unit, *self.subkernels))
 

@@ -380,12 +380,10 @@ class Function(pyop3.obj.Object):
         The loopy kernel that implements the function.
     access_descrs
         The access descriptor of each kernel argument.
-    include_dirs
-        The include directories that are needed to compile the kernel.
-    lib_dirs
-        The library directories that are needed to link the kernel.
-    libs
-        The libraries that are needed to link the kernel.
+    libraries
+        The libraries that the kernel is compiled and linked against, for
+        example `pyop3.cc.LIBPETSC` for a kernel that uses PETSc.
+
     """
 
     # {{{ instance attrs
@@ -408,9 +406,7 @@ class Function(pyop3.obj.Object):
         loopy_kernel,
         access_descrs,
         *,
-        include_dirs: Iterable[str] = (),
-        lib_dirs: Iterable[str] = (),
-        libs: Iterable[str] = (),
+        libraries: Iterable[pyop3.cc.Library] = (),
     ):
         lpy_args = loopy_kernel.default_entrypoint.args
         if len(lpy_args) != len(access_descrs):
@@ -419,12 +415,7 @@ class Function(pyop3.obj.Object):
         loopy_kernel = fix_intents(loopy_kernel, access_descrs)
         access_descrs = tuple(access_descrs)
 
-        library = pyop3.cc.Library(
-            include_dirs=tuple(include_dirs),
-            lib_dirs=tuple(lib_dirs),
-            libs=tuple(libs),
-        )
-        compiler_options = pyop3.cc.CompilerOptions(libraries=(library,))
+        compiler_options = pyop3.cc.CompilerOptions(libraries=tuple(libraries))
 
         object.__setattr__(self, "code", loopy_kernel)
         object.__setattr__(self, "_access_descrs", access_descrs)
@@ -489,10 +480,7 @@ class Function(pyop3.obj.Object):
             [loopy_insn],
             loopy_args,
             name=name,
-            preambles=[
-                ("20_petsc", "#include <petsc.h>"),
-                *preambles,
-            ],
+            preambles=preambles,
             target=LOOPY_TARGET,
             lang_version=LOOPY_LANG_VERSION,
         )
@@ -892,6 +880,17 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
     @property
     def comm(self) -> MPI.Comm:
         return self._comm
+
+    @cached_property
+    def is_mat_assignment(self) -> bool:
+        """Whether the assignee or the expression is a PETSc matrix."""
+        return any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in self.arguments)
+
+    @cached_property
+    def compiler_options(self) -> pyop3.cc.CompilerOptions:
+        # Matrix assignments call PETSc to get or set the matrix values.
+        libraries = (pyop3.cc.LIBPETSC,) if self.is_mat_assignment else ()
+        return pyop3.cc.CompilerOptions(libraries=libraries)
 
     def with_arguments(self, arguments):
         a, e = arguments

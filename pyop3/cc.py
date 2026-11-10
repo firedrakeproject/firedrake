@@ -98,11 +98,40 @@ class Library:
         and at run time.
     libs
         The names of the libraries, without the ``lib`` prefix.
+    headers
+        The header files that are included in the generated code.
 
     """
     include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    headers: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+
+
+LIBPETSC = Library(
+    include_dirs=petsctools.get_petsc_dirs(subdir="include"),
+    lib_dirs=petsctools.get_petsc_dirs(subdir="lib"),
+    libs=("petsc",),
+    # petscmat.h also includes petscsys.h and petsclog.h, and it compiles
+    # faster than petsc.h, which includes every PETSc header.
+    headers=("petscmat.h",),
+)
+"""The include and link flags and the header of PETSc."""
+
+_BLASLAPACK_FLAGS = petsctools.get_petscvariables()["BLASLAPACK_LIB"].split()
+
+LIBBLASLAPACK = Library(
+    # petscblaslapack.h is in the PETSc include directories.
+    include_dirs=petsctools.get_petsc_dirs(subdir="include"),
+    lib_dirs=tuple(flag.removeprefix("-L") for flag in _BLASLAPACK_FLAGS if flag.startswith("-L")),
+    libs=tuple(flag.removeprefix("-l") for flag in _BLASLAPACK_FLAGS if flag.startswith("-l")),
+    headers=("petscblaslapack.h",),
+)
+"""The include and link flags of the BLAS and LAPACK that PETSc is configured with.
+
+The header declares the BLAS and LAPACK routines with the PETSc names, for
+example ``LAPACKgetrf_``.
+"""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -133,6 +162,10 @@ class CompilerOptions:
     @property
     def libs(self) -> tuple[str, ...]:
         return tuple(name for lib in self.libraries for name in lib.libs)
+
+    @property
+    def headers(self) -> tuple[str, ...]:
+        return tuple(header for lib in self.libraries for header in lib.headers)
 
 
 def set_default_compiler(compiler):

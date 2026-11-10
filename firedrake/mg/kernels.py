@@ -248,6 +248,7 @@ def prolong_kernel(expression, Vf):
                 ("20_to_reference_kernel", str(to_reference_kernel)),
                 ("20_eval", evaluate_code),
             ],
+            libraries=(op3.cc.LIBPETSC,),
         )
 
         return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
@@ -379,6 +380,7 @@ def prolong_matrix_kernel(Vc, Vf):
                 ("20_to_reference_kernel", str(to_reference_kernel)),
                 ("20_eval", evaluate_code),
             ],
+            libraries=(op3.cc.LIBPETSC,),
         )
         return cache.setdefault(key, (transfer_kernel, kernel.oriented, kernel.needs_cell_sizes))
 
@@ -476,6 +478,7 @@ def restrict_kernel(Vf, Vc):
                 ("20_to_reference_kernel", str(to_reference_kernel)),
                 ("20_eval", evaluate_code),
             ],
+            libraries=(op3.cc.LIBPETSC,),
         )
 
         return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
@@ -786,7 +789,7 @@ def dg_injection_kernel(Vf, Vc, ncell):
     #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
     #     headers=Ainv.headers, events=Ainv.events)
     kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
-    return op3.Function(kernel, kernel_intents)
+    return op3.Function(kernel, kernel_intents, libraries=Ainv.compiler_options.libraries)
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):
