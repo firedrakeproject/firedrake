@@ -472,10 +472,21 @@ class Function(ufl.Coefficient, FunctionMixin):
         if subset is not Ellipsis or self.function_space().parent:
             self.dat.buffer.sync_roots()
 
+        # Array assignment does not reach the constrained DoFs of a restricted space
+        array_assign = not any(V.boundary_set for V in self.function_space())
+
         if self.ufl_element().family() == "Real" and isinstance(expr, Number | Collection):
             self.dat.data_wo_with_halos[...] = expr
         elif expr == 0:
             self.dat[subset].zero(eager=True)
+        elif array_assign and isinstance(expr, Number):
+            self.dat[subset].assign(expr, eager=True)
+        elif (
+            array_assign
+            and isinstance(expr, Function)
+            and expr.function_space() == self.function_space()
+        ):
+            self.dat[subset].assign(expr.dat[subset], eager=True)
         else:
             Assigner(self, expr, subset, allow_missing_dofs=allow_missing_dofs).assign()
         return self
