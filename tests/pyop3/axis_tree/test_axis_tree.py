@@ -58,7 +58,7 @@ def test_axis_forest_getitem_is_cached():
     indexed = forest[index]
     # Fail if the cached lookup indexes the trees again.
     with mock.patch.object(
-        op3.axis_tree.tree.AbstractNonUnitAxisTree, "getitem",
+        op3.axis_tree.tree.AxisForest, "_getitem_uncached",
         side_effect=AssertionError("forest indexes its trees again"),
     ):
         assert forest[index] is indexed
