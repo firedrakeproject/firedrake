@@ -245,8 +245,41 @@ To use it with Firedrake, users will also need to install Score-P's
 TAU
 ~~~
 
-These instructions describe how to install the `TAU profiling tools <https://www.cs.uoregon.edu/research/tau/home.php>`_
-for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
+The `TAU profiling tools <https://www.cs.uoregon.edu/research/tau/home.php>`_ can be used to profile your application to better understand where it is spending its time, so that you know where to look for optimisations. These instructions show how to set up two types of experiment: a sampling experiment and a tracing experiment.
+
+A sampling experiment gives a statistical view of which parts of your application are most time consuming. For example the following output from a sampling experiement shows that 34.1% of the run time was spent in ``firedrake.solving.solve``.
+
+.. code-block:: text
+
+  NODE 0;CONTEXT 0;THREAD 0:
+  ---------------------------------------------------------------------------------------
+  %Time    Exclusive    Inclusive       #Call      #Subrs  Inclusive Name
+                msec   total msec                          usec/call
+  ---------------------------------------------------------------------------------------
+  100.0        0.191        3,015           1           1    3015538 .TAU application
+  100.0           94        3,015           1         160    3015347 taupreload_main
+   87.1        1,255        2,627           1         420    2627861 Main Stage
+   34.1            1        1,027          16          80      64236 firedrake.solving.solve
+   28.5            8          858          34        2608      25245 firedrake.variational_solver.NonlinearVariationalSolver.solve
+   28.1            1          847          34         797      24917 SNESSolve
+   19.4            2          586          87        1895       6741 PCSetUp
+   12.4          332          373          51      101757       7327 MatLUFactorNum
+    8.0          240          240           1           2     240656 MPI_Init_thread()
+    7.4           10          222          18         652      12389 firedrake.projection.project
+    6.9          196          207          16        3169      12950 MatLUFactorSym
+
+Exclusive time is time spent in the specified block of code, and inclusive time is time spent in the specified block of code and functions which it calls. Sampling has a relatvily low overhead but does not show how a particular function was reached.
+
+A tracing experiment shows a timeline through your application so that you can see the path taken through the algorithm. The plot below shows the timeline from a TAU tracing experiment zoomed in on ``firedrake.solving.solve``. The trace shows that most of the time in ``firedrake.solving.solve`` is spent doing a ``SNESSolve``, and most of that time is accounted for by ``PCSetUp`` and ``SNESJacobianEval``.
+
+.. figure:: images/TAU_trace_example.png
+   :width: 75%
+   :alt: TAU trace zoomed in on firedrake.solving.solve
+   :align: center
+
+Tracing provides more information than sampling but has a higher overhead.
+
+The following instructions describe how to install TAU for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
 #. Start by making a directory for installing TAU, for example ``${HOME}/TAU``. We will store the path to this directory in an environment variable so it can be used later:
 
