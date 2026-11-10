@@ -7,14 +7,15 @@ from firedrake.petsc import PETSc
 from firedrake.dmhooks import get_function_space, get_appctx
 from firedrake.ufl_expr import TestFunction, TrialFunction
 from firedrake.function import Function
-from firedrake.functionspace import FunctionSpace, TensorFunctionSpace
+from firedrake.functionspace import FunctionSpace, TensorFunctionSpace, VectorFunctionSpace
+from firedrake.constant import Constant
 from firedrake.preconditioners.fdm import broken_function, tabulate_exterior_derivative
 from firedrake.preconditioners.hiptmair import curl_to_grad
 from ufl import H1, H2, inner, dx, JacobianDeterminant, replace, Form, div
 from finat.ufl import BrokenElement, TensorElement, VectorElement
 from pyop3.pyop2_utils import as_tuple
 
-from firedrake.parloops import par_loop, INC, READ
+from firedrake.parloops import par_loop, INC, READ, WRITE
 from firedrake.bcs import DirichletBC
 from firedrake.mesh import Submesh
 from pyop3.mpi import COMM_SELF
@@ -195,7 +196,7 @@ class BrokenDirichletBC(DirichletBC):
         super().__init__(V, g, bc.sub_domain)
 
     @cached_property
-    def nodes(self):
+    def _nodes(self):
         u = Function(self.bc.function_space())
         self.bc.set(u, 1)
         u = broken_function(u.function_space(), val=u.dat)
@@ -356,7 +357,7 @@ def get_primal_indices(V, primal_markers):
             domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
             instructions = """
             for i, j
-                w[i,j] = w[i,j] + t[0]
+                w[i,j] = w[i,j] + t[0,0]
             end
             """
             markers = Function(V)
@@ -370,106 +371,57 @@ def get_primal_indices(V, primal_markers):
     return primal_indices
 
 
-def get_entity_coordinates(V):
-    """
-    Return a Function on fd.VectorFunctionSpace(mesh, V.ufl_element()) containing
-    the physical coordinates of the entity associated with each degree of freedom of V.
-    """
-    import firedrake as fd
-    from pyop2 import op2
-    import numpy as np
+def get_entity_coordinates(V) -> numpy.ndarray:
+    """Return the coordinates of the entity that each degree of freedom of V belongs to.
 
+    The coordinates of an entity are the mean of the coordinates of the
+    vertices in its closure.
+
+    Parameters
+    ----------
+    V : firedrake.functionspaceimpl.WithGeometry
+        The function space.
+
+    Returns
+    -------
+    numpy.ndarray
+        An array with shape ``(N, gdim)``, where ``N`` is the number of scalar
+        degrees of freedom of V that this process owns. The coordinates are
+        repeated for each component of V.
+
+    """
     mesh = V.mesh()
     gdim = mesh.geometric_dimension
 
     base_element = V.ufl_element()
     if isinstance(base_element, (TensorElement, VectorElement)):
         base_element = base_element._sub_element
-    V_target = fd.VectorFunctionSpace(mesh, base_element)
-    cg1_coord = fd.VectorFunctionSpace(mesh, "CG", 1)
+    V_target = VectorFunctionSpace(mesh, base_element)
+    P1 = VectorFunctionSpace(mesh, "CG", 1)
+    P1_coords = Function(P1).interpolate(mesh.coordinates)
 
-    out_coords = fd.Function(V_target)
-    cg1_coords = fd.Function(cg1_coord).interpolate(mesh.coordinates)
+    # The averaging matrix on the reference cell maps the vertex coordinates
+    # to the coordinates of the entity of each degree of freedom
+    entity_dofs = V.finat_element.entity_dofs()
+    closure_dofs = P1.finat_element.entity_closure_dofs()
+    weights = numpy.zeros((V_target.finat_element.space_dimension(), P1.finat_element.space_dimension()))
+    for dim in entity_dofs:
+        for entity, dofs in entity_dofs[dim].items():
+            vertices = closure_dofs[dim][entity]
+            weights[numpy.ix_(dofs, vertices)] = 1 / len(vertices)
 
-    finat_element = V.finat_element
-    cg1_finat = cg1_coord.finat_element
-    active_entities = [
-        (dim, ent_num)
-        for dim, entities in finat_element.entity_dofs().items()
-        for ent_num, dofs in entities.items()
-        if dofs
-    ]
-    num_entities = len(active_entities)
-
-    def flatten_space_mapping(entities, query_map):
-        offsets = np.zeros(len(entities) + 1, dtype=np.int32)
-        flat_list = []
-
-        for idx, (dim, ent_num) in enumerate(entities):
-            offsets[idx] = len(flat_list)
-            flat_list.extend(query_map[dim][ent_num])
-
-        offsets[-1] = len(flat_list)
-        return offsets, np.array(flat_list, dtype=np.int32)
-
-    # Flatten both target (V) and source (CG1) layouts
-    target_dofs_map = finat_element.entity_dofs()
-    cg1_closure_map = cg1_finat.entity_closure_dofs()
-
-    v_offsets, v_flat = flatten_space_mapping(active_entities, target_dofs_map)
-    cg1_offsets, cg1_flat = flatten_space_mapping(active_entities, cg1_closure_map)
-
-    total_v_dofs = len(v_flat)
-    total_cg1_dofs = len(cg1_flat)
-    kernel_name = "compute_entity_coords"
-    kernel_code = f"""
-    void {kernel_name}(PetscScalar *out, PetscScalar *cg1_coords) {{
-
-        // Target space represented as a flattened pair of 1D arrays
-        const int v_offsets[{num_entities + 1}] = {{ {", ".join(map(str, v_offsets))} }};
-        const int v_flat_mapping[{total_v_dofs}] = {{ {", ".join(map(str, v_flat))} }};
-
-        // Source CG1 space represented as a flattened pair of 1D arrays
-        const int cg1_offsets[{num_entities + 1}] = {{ {", ".join(map(str, cg1_offsets))} }};
-        const int cg1_flat_mapping[{total_cg1_dofs}] = {{ {", ".join(map(str, cg1_flat))} }};
-
-        // Loop over the flat entity index
-        for (int e = 0; e < {num_entities}; ++e) {{
-            int v_start = v_offsets[e];
-            int v_end = v_offsets[e + 1];
-
-            int cg1_start = cg1_offsets[e];
-            int cg1_end = cg1_offsets[e + 1];
-            int num_cg1_dofs = cg1_end - cg1_start;
-
-            // Compute structural centroid tracking coordinates from CG1 vertices
-            PetscScalar ent_coord[{gdim}] = {{0.0}};
-
-            for (int j = cg1_start; j < cg1_end; ++j) {{
-                int src_dof = cg1_flat_mapping[j];
-                for (int c = 0; c < {gdim}; ++c) {{
-                    ent_coord[c] += cg1_coords[src_dof * {gdim} + c];
-                }}
-            }}
-
-            // Normalize physical coordinates for the specific entity space
-            for (int c = 0; c < {gdim}; ++c) {{
-                ent_coord[c] /= (PetscScalar)num_cg1_dofs;
-            }}
-
-            // Inner loop traversing the linear 1D slice for the target DoFs
-            for (int i = v_start; i < v_end; ++i) {{
-                int dest_dof = v_flat_mapping[i];
-
-                for (int c = 0; c < {gdim}; ++c) {{
-                    out[dest_dof * {gdim} + c] = ent_coord[c];
-                }}
-            }}
-        }}
-    }}
+    nvertices = weights.shape[1]
+    domain = "{[i, j, c]: 0 <= i < x.dofs and 0 <= j < y.dofs and 0 <= c < %d}" % gdim
+    instructions = f"""
+    for i, c
+        x[i, c] = 0
+        for j
+            x[i, c] = x[i, c] + w[i*{nvertices} + j] * y[j, c]
+        end
+    end
     """
-    kernel = op2.Kernel(kernel_code, kernel_name)
-    op2.par_loop(kernel, mesh.cell_set,
-                 out_coords.dat(op2.WRITE, out_coords.cell_node_map()),
-                 cg1_coords.dat(op2.READ, cg1_coords.cell_node_map()))
-    return out_coords.dat.data.real.repeat(V.block_size, axis=0)
+    out_coords = Function(V_target)
+    par_loop((domain, instructions), dx, {"x": (out_coords, WRITE),
+                                          "y": (P1_coords, READ),
+                                          "w": (Constant(weights), READ)})
+    return out_coords.dat.data_ro.real.repeat(V.block_size, axis=0)

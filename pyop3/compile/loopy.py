@@ -233,11 +233,15 @@ class LoopyCodegenContext(CodegenContext):
                 # have to make sure that the shapes match
                 shape = self._temporary_shapes.get(buffer, None)  # TODO: should be handle not buffer here?
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=handle.dtype, shape=shape)
-            else:
-                assert isinstance(handle, PETSc.Mat)
+            elif isinstance(handle, PETSc.Mat):
                 assert handle.type not in {"nest", "python"}
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
+            elif isinstance(handle, PETSc.Object):
+                name_in_kernel = self.unique_name(handle.klass.lower())
+                loopy_arg = lp.ValueArg(name_in_kernel, dtype=buffer.dtype)
+            else:
+                raise TypeError(f"Unsupported kernel argument type: {type(handle).__name__}")
 
             self._arguments.append(loopy_arg)
             return self.kernel_names.setdefault(buffer_view, name_in_kernel)

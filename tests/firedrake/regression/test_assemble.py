@@ -115,7 +115,6 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
     assert A2.M is A1.M
 
 
-@pytest.mark.skip(reason="pyop3 failing")
 @pytest.mark.parallel
 @pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"),
                                             ("mixed_blocks", "is"), ("mixed", "nest")])

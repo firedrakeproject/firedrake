@@ -265,10 +265,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
-    def collect_buffers(self, visitor):
+    def collect_buffers(self, visitor: Any) -> OrderedFrozenSet:
         return OrderedFrozenSet([self])
 
-    def get_disk_cache_key(self, visitor) -> Hashable:
+    def get_disk_cache_key(self, visitor: Any) -> Hashable:
         return (
             type(self),
             self.dtype,
@@ -1008,6 +1008,94 @@ class PetscMatAxisSpec(pyop3.obj.Object):
 
 
 @pyop3.record.record()
+class PetscObjectBuffer(ConcreteBuffer):
+    """A buffer that passes a PETSc object directly to a local kernel.
+
+    Parameters
+    ----------
+    obj
+        The PETSc object that the local kernel receives.
+    comm
+        The communicator on which the object is used.
+    name, prefix
+        The name for this buffer, or a prefix from which a name can be generated.
+
+    Notes
+    -----
+    The buffer does not inspect or modify the PETSc object. It only keeps the
+    object alive and supplies its C pointer to generated code.
+    """
+
+    _obj: PETSc.Object
+    _name: str
+    _dtype: pyop3.dtypes.OpaqueType
+    _comm: MPI.Comm
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor.renamer.add_obj(self), self._dtype)
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
+    def __init__(
+        self,
+        obj: PETSc.Object,
+        *,
+        comm: MPI.Comm,
+        name: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
+        if not isinstance(obj, PETSc.Object):
+            raise TypeError(f"'obj' must be a PETSc object, not {type(obj).__name__}.")
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._obj = obj
+        self._name = name
+        self._dtype = pyop3.dtypes.OpaqueType(obj.klass)
+        self._comm = comm
+
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    dtype: ClassVar[property] = pyop3.record.attr("_dtype")
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
+
+    @property
+    def constant(self) -> bool:
+        return True
+
+    @property
+    def state(self) -> int:
+        return 0
+
+    def inc_state(self) -> None:
+        pass
+
+    def duplicate(
+        self,
+        *,
+        copy: bool = False,
+        constant: bool | None = None,
+    ) -> PetscObjectBuffer:
+        raise NotImplementedError("PETSc object buffers cannot be duplicated")
+
+    def zero(self) -> None:
+        raise NotImplementedError("PETSc object buffers cannot be zeroed")
+
+    def nest_shape(
+        self,
+        nest_indices: Iterable[tuple[int, ...], ...] = (),
+    ) -> tuple[int, ...] | None:
+        assert not nest_indices
+        return None
+
+    DEFAULT_PREFIX = "petscobject"
+
+
+@pyop3.record.record()
 class PetscMatBuffer(ConcreteBuffer):
     """A buffer whose underlying data structure is a PETSc Mat.
 
@@ -1154,7 +1242,8 @@ class PetscMatBuffer(ConcreteBuffer):
                 mat_context = DenseBlockPythonMatContext.empty(comm)
             mat = PETSc.Mat().createPython(mat_context.sizes, mat_context, comm=comm)
         else:
-            if preallocator:
+            is_matis = mat_type == PETSc.Mat.Type.IS
+            if preallocator and not is_matis:
                 mat_type = PETSc.Mat.Type.PREALLOCATOR
 
             mat = PETSc.Mat().create(comm)
@@ -1170,6 +1259,15 @@ class PetscMatBuffer(ConcreteBuffer):
             mat.setBlockSizes(bsize, bsize)
 
             mat.setLGMap(row_spec.lgmap, column_spec.lgmap)
+
+            if preallocator and is_matis:
+                local_sizes = (row_spec.lgmap.getSize(), column_spec.lgmap.getSize())
+                local_preallocator = PETSc.Mat().create(MPI.COMM_SELF)
+                local_preallocator.setType(PETSc.Mat.Type.PREALLOCATOR)
+                local_preallocator.setSizes(local_sizes)
+                local_preallocator.setBlockSizes(bsize, bsize)
+                local_preallocator.setUp()
+                mat.setISLocalMat(local_preallocator)
 
         mat.setUp()
         return mat
@@ -1333,10 +1431,51 @@ class PetscMatBuffer(ConcreteBuffer):
                 self._preallocate(subpreallocator, submat)
         elif template.type == PETSc.Mat.Type.PYTHON:
             pass
+        elif template.type == PETSc.Mat.Type.IS:
+            self._preallocate_matis(preallocator, template)
         else:
             if preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
                 raise TypeError("Can only materialize preallocator mats")
             preallocator.preallocatorPreallocate(template)
+
+    @staticmethod
+    def _preallocate_matis(preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
+        """Preallocate a MATIS from a MATIS whose local matrix is a MATPREALLOCATOR.
+
+        Local degrees of freedom without nonzeros are masked out of the local-to-global maps.
+        """
+        local_preallocator = preallocator.getISLocalMat()
+        if local_preallocator.type != PETSc.Mat.Type.PREALLOCATOR:
+            raise TypeError("Can only materialize preallocator mats")
+
+        bsize, _ = local_preallocator.getBlockSizes()
+        local = PETSc.Mat().create(MPI.COMM_SELF)
+        local.setType(PETSc.Mat.Type.AIJ)
+        local.setSizes(local_preallocator.getSizes())
+        local.setBlockSizes(bsize, bsize)
+        local_preallocator.preallocatorPreallocate(local, fill=True)
+
+        indptr, indices = local.getRowIJ()
+        row_touched = np.diff(indptr) > 0
+        column_touched = np.zeros(local.getSize()[1], dtype=bool)
+        column_touched[indices] = True
+
+        lgmaps = []
+        index_sets = []
+        for lgmap, touched in zip(preallocator.getLGMap(), [row_touched, column_touched]):
+            lgmap_bsize = lgmap.getBlockSize()
+            keep_block = touched.reshape((-1, lgmap_bsize)).any(axis=1)
+            block_indices = lgmap.getBlockIndices().copy()
+            block_indices[~keep_block] = -1
+            lgmaps.append(PETSc.LGMap().create(block_indices, bsize=lgmap_bsize, comm=lgmap.comm))
+            index_sets.append(PETSc.IS().createBlock(lgmap_bsize, np.flatnonzero(keep_block).astype(IntType), comm=MPI.COMM_SELF))
+        template.setLGMap(*lgmaps)
+        template.setUp()
+
+        rows, columns = index_sets
+        submat = local.createSubMatrix(rows, columns)
+        submat.setLGMap(*template.getISLocalMat().getLGMap())
+        template.setISLocalMat(submat)
 
 
 def duplicate_mat(mat: PETSc.Mat, copy: bool = False) -> PETSc.Mat:
@@ -1598,6 +1737,12 @@ def _(mat_buf: PetscMatBuffer, nest_indices):
 
 
 @_denest.register
+def _(obj_buf: PetscObjectBuffer, nest_indices):
+    assert not nest_indices
+    return obj_buf._obj
+
+
+@_denest.register
 def _(array_buf: ArrayBuffer, nest_indices):
     assert not nest_indices
     return array_buf._current_device_array
@@ -1614,6 +1759,11 @@ def _(mat: PETSc.Mat, /):
         return mat.getPythonContext().buffer._current_device_array
     else:
         return mat
+
+
+@_extract_handle.register
+def _(obj: PETSc.Object, /):
+    return obj
 
 
 @_extract_handle.register
