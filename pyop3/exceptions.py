@@ -106,6 +106,10 @@ class CompilationException(Pyop3Exception):
 class InvalidIntentException(Pyop3Exception):
     """Error raised if an argument cannot be accessed using the declared intent."""
 
+
+class InvalidScalarTypeException(Pyop3Exception, TypeError):
+    """Exception raised when an operation does not support the scalar type of its data."""
+
 # }}}
 
 
