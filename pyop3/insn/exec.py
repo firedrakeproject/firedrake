@@ -676,14 +676,12 @@ class CompiledCodeExecutor:
             # updated via reductions
             # * you can only compute using leaf values once these have been updated
 
-        # Bind the method once because it is called for every buffer
-        buffer_exchanges = self._buffer_exchanges
         initializers = []
         reductions = []
         broadcasts = []
         finalizers = []
         for buffer, intent in buffer_intents.items():
-            inits, reds, bcasts, fins = buffer_exchanges(buffer, intent)
+            inits, reds, bcasts, fins = self._buffer_exchanges(buffer, intent)
             initializers.extend(inits)
             reductions.extend(reds)
             broadcasts.extend(bcasts)
