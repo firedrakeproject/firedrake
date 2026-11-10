@@ -1,3 +1,5 @@
+import collections
+
 import loopy as lp
 import numpy as np
 import pytest
@@ -157,20 +159,24 @@ def test_inc_from_tabulated_map(
     assert np.allclose(dat1.data_ro, expected)
 
 
-def test_inc_from_tabulated_map_reuses_compiled_code_for_new_map_data(vector_inc_kernel, monkeypatch):
+@pytest.fixture
+def num_preprocessed(monkeypatch):
+    """Return a counter of the instructions that are preprocessed."""
     from pyop3.insn.exec import InstructionExecutionContext
 
+    counter = collections.Counter()
     preprocess = InstructionExecutionContext.preprocess
-    num_preprocessed = 0
 
     def counting_preprocess(self):
-        nonlocal num_preprocessed
         if self._preprocessed is None:
-            num_preprocessed += 1
+            counter["count"] += 1
         return preprocess(self)
 
     monkeypatch.setattr(InstructionExecutionContext, "preprocess", counting_preprocess)
+    return counter
 
+
+def test_inc_from_tabulated_map_reuses_compiled_code_for_new_map_data(vector_inc_kernel, num_preprocessed):
     def inc_from_map(map_data):
         # Build new axis trees each time so the loops only share their structure
         m, n = map_data.shape
@@ -190,10 +196,32 @@ def test_inc_from_tabulated_map_reuses_compiled_code_for_new_map_data(vector_inc
     result, expected = inc_from_map(np.asarray([[1, 2, 0], [2, 0, 1], [3, 2, 3], [2, 0, 1]]))
     assert np.allclose(result, expected)
 
-    num_preprocessed = 0
+    num_preprocessed.clear()
     result, expected = inc_from_map(np.asarray([[0, 0, 0], [3, 3, 1], [1, 2, 3], [0, 3, 2]]))
     assert np.allclose(result, expected)
-    assert num_preprocessed == 0
+    assert num_preprocessed["count"] == 0
+
+
+def test_copy_with_ragged_axis_reuses_compiled_code_for_new_layout_data(factory, num_preprocessed):
+    def copy_ragged(nnz_data):
+        # Build new axis trees each time so the loops only share their structure
+        root = op3.Axis(len(nnz_data))
+        nnz = op3.Dat(root, data=nnz_data)
+        axes = op3.AxisTree.from_nest({root: op3.Axis(nnz)})
+        dat0 = op3.Dat(axes, data=np.arange(axes.local_size, dtype=op3.ScalarType))
+        dat1 = op3.Dat.zeros_like(dat0)
+        op3.loop(p := axes.iter(), factory.copy_kernel(1)(dat0[p], dat1[p]), eager=True)
+        return dat1.data_ro, dat0.data_ro
+
+    result, expected = copy_ragged(np.asarray([1, 1, 1, 1, 1]))
+    assert np.allclose(result, expected)
+
+    # The ragged offsets are layout buffers, so stale offsets from the first
+    # loop would leave the end of the larger 'dat1' unset.
+    num_preprocessed.clear()
+    result, expected = copy_ragged(np.asarray([3, 2, 1, 3, 2]))
+    assert np.allclose(result, expected)
+    assert num_preprocessed["count"] == 0
 
 
 def test_inc_from_multi_component_temporary(vector_inc_kernel):
