@@ -492,3 +492,9 @@ def test_mixed_broken_space(mesh):
     expected = FunctionSpace(mesh, broken_elem)
 
     assert broken == expected
+
+
+def test_quadrature_space_cached():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "BDM", 2)
+    assert V.quadrature_space is V.quadrature_space
