@@ -362,7 +362,7 @@ for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
 
    .. code-block:: console
 
-     $ mpiexec -n 2 tau_exec python burgers.py
+     $ mpiexec -n 2 python burgers.py
 
    Run the example with TAU to get a profile:
 
