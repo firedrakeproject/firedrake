@@ -567,7 +567,7 @@ def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
     )
 
     vom.coordinates.dat.data_wo[:] = new_coords
-    vom.topology.update_parent_cells(new_parent_cells)      
+    vom.topology.update_parent_cells(new_parent_cells)
     vom.reference_coordinates.dat.data_wo[:] = new_refcoords
 
     old_version = vom._topology_version
@@ -725,7 +725,7 @@ def test_rebuild_vom_keeps_input_ordering(parent_mesh):
         new_coords = vom.coordinates.dat.data_ro + shift
         new_parent_cells, new_refcoords = locate_points(parent_mesh, new_coords)
         vom.coordinates.dat.data_wo[:] = new_coords
-        vom.topology.update_parent_cells(new_parent_cells)    
+        vom.topology.update_parent_cells(new_parent_cells)
         vom.reference_coordinates.dat.data_wo[:] = new_refcoords
         absorbed = None if absorb_every is None else np.arange(0, n_owned, absorb_every, dtype=IntType)
         vom.rebuild(absorbed)
