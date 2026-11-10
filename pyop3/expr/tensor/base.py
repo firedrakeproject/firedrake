@@ -246,14 +246,23 @@ class Tensor(TerminalExpression, abc.ABC):
 
         return Assignment(assignee, other, mode)
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc", "max", "min"]) -> None:
         from pyop3.expr.visitors import evaluate_arraywise
 
         other_eval = evaluate_arraywise(other)
-        if mode == "write":
-            self.data_wo[...] = other_eval
-        else:
-            self.data_rw[...] += other_eval
+        match mode:
+            case "write":
+                self.data_wo[...] = other_eval
+            case "inc":
+                self.data_rw[...] += other_eval
+            case "max":
+                data = self.data_rw
+                np.maximum(data, other_eval, out=data)
+            case "min":
+                data = self.data_rw
+                np.minimum(data, other_eval, out=data)
+            case _:
+                raise AssertionError(f"Assignment mode '{mode}' not recognised")
 
     @PETSc.Log.EventDecorator()
     def zero(self, **kwargs) -> pyop3.insn.Assignment | None:
