@@ -419,11 +419,12 @@ class Function(pyop3.obj.Object):
         loopy_kernel = fix_intents(loopy_kernel, access_descrs)
         access_descrs = tuple(access_descrs)
 
-        compiler_options = pyop3.cc.CompilerOptions(
+        library = pyop3.cc.Library(
             include_dirs=tuple(include_dirs),
             lib_dirs=tuple(lib_dirs),
             libs=tuple(libs),
         )
+        compiler_options = pyop3.cc.CompilerOptions(libraries=(library,))
 
         object.__setattr__(self, "code", loopy_kernel)
         object.__setattr__(self, "_access_descrs", access_descrs)

@@ -57,7 +57,7 @@ from packaging.version import InvalidVersion, Version
 from petsc4py import PETSc
 
 import pyop3.config
-from pyop3 import mpi
+from pyop3 import mpi, utils
 from pyop3.cache import (
     DictLikeDiskAccess,
     as_hexdigest,
@@ -85,22 +85,54 @@ _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
 
-# TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True)
-class CompilerOptions:
+class Library:
+    """A C library that generated code is compiled and linked against.
+
+    Parameters
+    ----------
+    include_dirs
+        The directories that are searched for the header files.
+    lib_dirs
+        The directories that are searched for the libraries, at link time
+        and at run time.
+    libs
+        The names of the libraries, without the ``lib`` prefix.
+
+    """
     include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
 
+
+@dataclasses.dataclass(frozen=True)
+class CompilerOptions:
+    """The libraries that are needed to compile and link generated code.
+
+    Parameters
+    ----------
+    libraries
+        The libraries.
+
+    """
+    libraries: tuple[Library, ...] = dataclasses.field(default=(), kw_only=True)
+
     def __add__(self, other, /) -> Self:
         if not isinstance(other, CompilerOptions):
             return NotImplemented
+        return type(self)(libraries=utils.unique(self.libraries + other.libraries))
 
-        return type(self)(
-            include_dirs=self.include_dirs+other.include_dirs,
-            lib_dirs=self.lib_dirs+other.lib_dirs,
-            libs=self.libs+other.libs,
-        )
+    @property
+    def include_dirs(self) -> tuple[str, ...]:
+        return tuple(incdir for lib in self.libraries for incdir in lib.include_dirs)
+
+    @property
+    def lib_dirs(self) -> tuple[str, ...]:
+        return tuple(libdir for lib in self.libraries for libdir in lib.lib_dirs)
+
+    @property
+    def libs(self) -> tuple[str, ...]:
+        return tuple(name for lib in self.libraries for name in lib.libs)
 
 
 def set_default_compiler(compiler):
