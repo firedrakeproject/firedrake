@@ -169,79 +169,6 @@ Other useful tools
 Here we present a handful of performance analysis tools that users may
 find useful to run with their codes.
 
-py-spy
-~~~~~~
-
-`py-spy <https://github.com/benfred/py-spy>`_ is a great sampling
-profiler that outputs directly to SVG flame graphs. It allows users
-to see the entire stack trace of the program rather than just the
-annotated PETSc events and unlike most Python profilers it can also
-profile native code.
-
-A flame graph for your Firedrake script can be generated from py-spy with:
-
-.. code-block:: console
-
-   $ py-spy record -o foo.svg --native -- python myscript.py
-
-Beyond the inherent uncertainty that comes from using a sampling profiler,
-one substantial limitation of py-spy is that it does not work when run
-in parallel.
-
-pyinstrument
-~~~~~~~~~~~~~
-
-`pyinstrument <https://github.com/joerick/pyinstrument>`_ is a great
-sample-based profiling tool that you can use to easily identify
-hotspots in your code. To use the profiler simply run:
-
-.. code-block:: console
-
-   $ pyinstrument myscript.py
-
-This will print out a timed callstack to the terminal. To instead
-generate an interactive graphic you can view in your browser pass
-the ``-r html`` flag.
-
-Unfortunately, pyinstrument cannot profile native code. This means
-that information about the code's execution inside of PETSc is largely
-lost.
-
-memory_profiler
-~~~~~~~~~~~~~~~
-
-`memory_profiler <https://github.com/pythonprofilers/memory_profiler>`_
-is a useful tool that you can use to monitor the memory usage of your
-script. After installing it you can simply run:
-
-.. code-block:: console
-
-   $ mprof run python myscript.py
-   $ mprof plot
-
-The former command will run your script and generate a file containing the
-profiling information. The latter then displays a plot of the memory usage
-against execution time for the whole script.
-
-memory_profiler also works in parallel. You can pass either of the
-``--include-children`` or ``--multiprocess`` flags to ``mprof``
-depending on whether or not you want to accumulate the memory usage
-across ranks or plot them separately. For example:
-
-.. code-block:: console
-
-   $ mprof run --include-children mpiexec -n 4 python myscript.py
-
-Score-P
-~~~~~~~
-
-`Score-P <https://www.vi-hps.org/projects/score-p/>`_ is a tool aimed
-at HPC users. We found it to provide some useful insight into MPI
-considerations such as load balancing and communication overhead.
-
-To use it with Firedrake, users will also need to install Score-P's
-`Python bindings <https://github.com/score-p/scorep_binding_python>`_.
-
 TAU
 ~~~
 
@@ -461,3 +388,76 @@ The following instructions describe how to install TAU for use with Firedrake on
    - S: zoom out
    - A: move left (earlier time)
    - D: move right (later time)
+
+py-spy
+~~~~~~
+
+`py-spy <https://github.com/benfred/py-spy>`_ is a great sampling
+profiler that outputs directly to SVG flame graphs. It allows users
+to see the entire stack trace of the program rather than just the
+annotated PETSc events and unlike most Python profilers it can also
+profile native code.
+
+A flame graph for your Firedrake script can be generated from py-spy with:
+
+.. code-block:: console
+
+   $ py-spy record -o foo.svg --native -- python myscript.py
+
+Beyond the inherent uncertainty that comes from using a sampling profiler,
+one substantial limitation of py-spy is that it does not work when run
+in parallel.
+
+pyinstrument
+~~~~~~~~~~~~~
+
+`pyinstrument <https://github.com/joerick/pyinstrument>`_ is a great
+sample-based profiling tool that you can use to easily identify
+hotspots in your code. To use the profiler simply run:
+
+.. code-block:: console
+
+   $ pyinstrument myscript.py
+
+This will print out a timed callstack to the terminal. To instead
+generate an interactive graphic you can view in your browser pass
+the ``-r html`` flag.
+
+Unfortunately, pyinstrument cannot profile native code. This means
+that information about the code's execution inside of PETSc is largely
+lost.
+
+memory_profiler
+~~~~~~~~~~~~~~~
+
+`memory_profiler <https://github.com/pythonprofilers/memory_profiler>`_
+is a useful tool that you can use to monitor the memory usage of your
+script. After installing it you can simply run:
+
+.. code-block:: console
+
+   $ mprof run python myscript.py
+   $ mprof plot
+
+The former command will run your script and generate a file containing the
+profiling information. The latter then displays a plot of the memory usage
+against execution time for the whole script.
+
+memory_profiler also works in parallel. You can pass either of the
+``--include-children`` or ``--multiprocess`` flags to ``mprof``
+depending on whether or not you want to accumulate the memory usage
+across ranks or plot them separately. For example:
+
+.. code-block:: console
+
+   $ mprof run --include-children mpiexec -n 4 python myscript.py
+
+Score-P
+~~~~~~~
+
+`Score-P <https://www.vi-hps.org/projects/score-p/>`_ is a tool aimed
+at HPC users. We found it to provide some useful insight into MPI
+considerations such as load balancing and communication overhead.
+
+To use it with Firedrake, users will also need to install Score-P's
+`Python bindings <https://github.com/score-p/scorep_binding_python>`_.
