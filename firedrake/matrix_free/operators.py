@@ -176,18 +176,17 @@ class ImplicitMatrixContext:
                 equation_bcs.append(bc)
             equation_bcs += bc.sorted_equation_bcs()
         equation_bcs.sort(key=lambda bc: bc._bc_depth, reverse=True)
-        self.objs_actionT = equation_bcs + [self]
+        self.equation_bcs_actionT = equation_bcs
         # Each par_loop is to run with appropriate masks on self._y
-        self._assemble_actionT = []
         # Deepest EquationBCs first
-        for ebc in equation_bcs:
-            self._assemble_actionT.append(
-                get_assembler(action(adjoint(ebc.f), self._y),
-                              form_compiler_parameters=self.fc_params).assemble)
+        self._assemble_equation_bcs_actionT = [
+            get_assembler(action(adjoint(ebc.f), self._y),
+                          form_compiler_parameters=self.fc_params).assemble
+            for ebc in equation_bcs
+        ]
         # Domain last
-        self._assemble_actionT.append(
-            get_assembler(self.actionT,
-                          form_compiler_parameters=self.fc_params).assemble)
+        self._assemble_actionT = get_assembler(self.actionT,
+                                               form_compiler_parameters=self.fc_params).assemble
 
     @cached_property
     def _diagonal(self):
@@ -322,25 +321,27 @@ class ImplicitMatrixContext:
         if len(self.bcs) > 0:
             # Accumulate values in self._xstar
             self._xstar.dat.zero()
-            # Apply actionTs in sorted order
-            for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
+            # Apply the EquationBC actionTs in sorted order
+            for aT, ebc in zip(self._assemble_equation_bcs_actionT, self.equation_bcs_actionT):
                 # zero columns associated with DirichletBCs/EquationBCs
-                for obc in obj.bcs:
+                for obc in ebc.bcs:
                     obc.zero(self._y)
                 aT(tensor=self._xbc)
-                if obj is self:
-                    # mult applies the domain form to x with zeroed
-                    # DirichletBC columns, so the domain adjoint action
-                    # must not contribute to those columns.
-                    for bc in self.col_bcs:
-                        bc.zero(self._xbc)
                 self._xstar += self._xbc
+            # Apply the domain actionT last
+            for obc in self.bcs:
+                obc.zero(self._y)
+            self._assemble_actionT(tensor=self._xbc)
+            # mult applies the domain form to x with zeroed DirichletBC
+            # columns, so the domain adjoint action must not contribute to
+            # those columns.
+            for bc in self.col_bcs:
+                bc.zero(self._xbc)
+            self._xstar += self._xbc
         else:
             # No DirichletBC/EquationBC on the rows
-            # There is only a single element in the list (for the domain equation).
-            # Save to self._xstar directly
-            aT, = self._assemble_actionT
-            aT(tensor=self._xstar)
+            # Save the domain actionT to self._xstar directly
+            self._assemble_actionT(tensor=self._xstar)
             # mult applies the form to x with zeroed DirichletBC columns.
             for bc in self.col_bcs:
                 bc.zero(self._xstar)

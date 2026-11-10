@@ -133,15 +133,10 @@ def test_matrixfree_action(a, V, bcs):
 
 
 def assert_matfree_matches_aij(Mmf, Maij):
-    """Compare mult and multTranspose of a matrix-free and an aij PETSc matrix.
-
-    The random vectors are seeded per rank. The error is relative to the
-    norm of the aij result.
-    """
-    rng = np.random.default_rng(1234 + Mmf.comm.rank)
+    """Compare mult and multTranspose of a matrix-free and an aij PETSc matrix."""
     x, y = Mmf.createVecs()
-    x.setArray(rng.random(x.getLocalSize()))
-    y.setArray(rng.random(y.getLocalSize()))
+    x.setRandom()
+    y.setRandom()
 
     actual = Mmf.createVecLeft()
     expect = Maij.createVecLeft()
