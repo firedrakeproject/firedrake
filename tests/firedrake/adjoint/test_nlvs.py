@@ -1,4 +1,7 @@
+import gc
+
 import pytest
+from checkpoint_schedules import SingleMemoryStorageSchedule
 
 from firedrake import *
 from firedrake.adjoint import *
@@ -184,12 +187,13 @@ def _checkpointed_adjoint_growth(nt):
     the taping, so that data that the blocks allocate at taping time is
     also counted.
     """
-    import gc
-    from checkpoint_schedules import SingleMemoryStorageSchedule
 
     def count_functions(V):
         # Count the live Functions whose function space is V.
-        gc.collect()
+        # One gc pass can leave garbage behind, so collect until
+        # nothing more is freed.
+        while gc.collect() > 0:
+            pass
         return len([obj for obj in gc.get_objects()
                     if isinstance(obj, Function) and obj.function_space() == V])
 
