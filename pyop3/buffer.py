@@ -1312,21 +1312,30 @@ class PetscMatBuffer(ConcreteBuffer):
         set_petsc_mat_diagonal(self.mat, value)
 
     def materialize(self) -> PetscMatBuffer:
-        if not hasattr(self, "_lazy_template"):
-            self.assemble()
+        """Return a new assembled matrix with the nonzero pattern of this preallocator.
 
-            template = self._make_petsc_mat(self.mat_spec, comm=self.comm)
-            self._preallocate(self.mat, template)
+        PETSc can preallocate only one matrix from a preallocator, so this
+        method can be called only once for each buffer. To make more than one
+        matrix from a sparsity, use `pyop3.Mat.from_sparsity`.
 
-            # We can safely set these options since by using a sparsity we
-            # are asserting that we know where the non-zeros are going.
-            template.setOption(PETSc.Mat.Option.NEW_NONZERO_LOCATION_ERR, True)
-            template.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
+        Returns
+        -------
+        PetscMatBuffer
+            A buffer that holds the new matrix. All the entries of the
+            nonzero pattern are present and are zero.
 
-            template.assemble()
-            self._lazy_template = template
+        """
+        self.assemble()
 
-        mat = duplicate_mat(self._lazy_template, copy=False)
+        mat = self._make_petsc_mat(self.mat_spec, comm=self.comm)
+        self._preallocate(self.mat, mat)
+
+        # We can safely set these options since by using a sparsity we
+        # are asserting that we know where the non-zeros are going.
+        mat.setOption(PETSc.Mat.Option.NEW_NONZERO_LOCATION_ERR, True)
+        mat.setOption(PETSc.Mat.Option.IGNORE_ZERO_ENTRIES, True)
+
+        mat.assemble()
         return PetscMatBuffer(mat, comm=self.comm)
 
     def _preallocate(self, preallocator: PETSc.Mat, template: PETSc.Mat) -> None:
