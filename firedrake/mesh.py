@@ -109,6 +109,12 @@ DISTRIBUTION_PARAMETERS_NOOP = {
 """Distribution parameters for derived meshes (RelabeledMesh/Submesh)."""
 
 
+# a hashable permutation...
+class Permutation:
+    ...
+    # readonly permutation...
+
+
 def _generate_default_submesh_name(name):
     """Generate the default submesh name from the mesh name.
 
@@ -2359,17 +2365,22 @@ class MeshTopology(AbstractMeshTopology):
             for dim in range(self.dimension+1)
         )
 
-    @cached_property
-    def entity_orientations(self):
-        # return np.zeros_like(self._fiat_cell_closures)
-        return dmcommon.entity_orientations(self, self._fiat_cell_closures)[self._new_to_old_cell_numbering]
+    @cached_method()
+    def entity_orientations(
+        self, *, element_backend: Literal["fiat", "petsc"] = "fiat"
+    ):
+        fiat_orts = dmcommon.entity_orientations(
+            self, self._fiat_cell_closures
+        )[self._new_to_old_cell_numbering]
+        if element_backend == "fiat":
+            return fiat_orts
+        raise NotImplementedError
+        # need to account for the different numbering as well...
+        ??? handle petsc here
 
     @cached_property
     def entity_orientations_dat(self):
-        # FIXME: the following does not work because the labels change
         cell_axis = self.cells.root
-        # # so instead we do
-        # cell_axis = op3.Axis([self.points.root.components[0]], self.points.root.label)
 
         # TODO: This is quite a funky way of getting this. We should be able to get
         # it without calling the map.
@@ -5853,9 +5864,16 @@ def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl
         return _MultiCellTypeDummyCoordinates(topology, element)
 
     (gdim,) = element.reference_value_shape
-    coordinates_fs = functionspace.FunctionSpace(topology, element)
-    coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
-                                                 (topology.num_vertices(), gdim))
+    # coordinates_data = dmcommon.reordered_coords(topology.topology_dm, coordinates_fs.dm.getLocalSection(),
+    #                                              (topology.num_vertices(), gdim))
+    coordinates_data = topology.topology_dm.getCoordinatesLocal()
+    if topology.topology_dm.getCoordinateSection().getPermutation():
+        raise NotImplementedError
+    else:
+        perm = np.arange(coordinates_data.size, dtype=IntType)
+    coordinates_fs = functionspace.FunctionSpace(
+        topology, element, permutation=perm, backend="petsc"
+    )
     return function.CoordinatelessFunction(coordinates_fs,
                                            val=coordinates_data,
                                            name=_generate_default_mesh_coordinates_name(topology.name))

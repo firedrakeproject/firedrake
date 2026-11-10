@@ -1168,10 +1168,13 @@ class FunctionSpace(AbstractFunctionSpace):
     boundary_set = frozenset()
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None, *, layout=None):
+    def __init__(self, mesh, element, name=None, *, layout=None, permutation=None, backend: Literal["fiat", "petsc"] = "fiat"):
         super().__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
+
+        if permutation is None:
+            permutation = mesh._new_to_old_point_renumbering
 
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
@@ -1212,6 +1215,9 @@ class FunctionSpace(AbstractFunctionSpace):
 
         self.element = element
         self.finat_element = create_element(element)
+
+        self.permutation = permutation
+        self.backend = backend
 
         if layout is None:
             # NOTE: Indicates bad inheritance
@@ -1295,7 +1301,8 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             base_mesh = self._mesh
 
-        mesh_axis = base_mesh.flat_points
+        if self.permutation is not None...
+            mesh_axis = base_mesh.flat_points
         num_points = mesh_axis.local_size
 
         constraints = [AxisConstraint(mesh_axis)]
@@ -1514,6 +1521,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def _nodes_axis(self) -> op3.Axis:
+        raise NotImplementedError
         scalar_axis_tree = self.dm_axes.blocked(self.shape)
 
         if self.boundary_set:
