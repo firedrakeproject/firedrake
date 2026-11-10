@@ -176,18 +176,17 @@ class ImplicitMatrixContext:
                 equation_bcs.append(bc)
             equation_bcs += bc.sorted_equation_bcs()
         equation_bcs.sort(key=lambda bc: bc._bc_depth, reverse=True)
-        self.objs_actionT = equation_bcs + [self]
+        self.equation_bcs_actionT = equation_bcs
         # Each par_loop is to run with appropriate masks on self._y
-        self._assemble_actionT = []
         # Deepest EquationBCs first
-        for ebc in equation_bcs:
-            self._assemble_actionT.append(
-                get_assembler(action(adjoint(ebc.f), self._y),
-                              form_compiler_parameters=self.fc_params).assemble)
+        self._assemble_equation_bcs_actionT = [
+            get_assembler(action(adjoint(ebc.f), self._y),
+                          form_compiler_parameters=self.fc_params).assemble
+            for ebc in equation_bcs
+        ]
         # Domain last
-        self._assemble_actionT.append(
-            get_assembler(self.actionT,
-                          form_compiler_parameters=self.fc_params).assemble)
+        self._assemble_actionT = get_assembler(self.actionT,
+                                               form_compiler_parameters=self.fc_params).assemble
 
     @cached_property
     def _diagonal(self):
@@ -279,7 +278,7 @@ class ImplicitMatrixContext:
                     ( a a a b 0 c c )  ( y1 )
                     ( a a a b 0 c c )  ( y2 )
             M^T y = ( a a a b 0 c c )  ( y3 )
-                    ( 0 0 0 0 1 0 0 )  ( y4 )
+                    ( 0 0 0 b 1 0 0 )  ( y4 )
                     ( a a a b 0 c c )  ( y5 )
                     ( a a a b 0 c c )  ( y6 )
 
@@ -303,12 +302,12 @@ class ImplicitMatrixContext:
                        ( a a a a a a a )  ( y1 ) on domain
                        ( a a a a a a a )  ( y2 )
                      + ( a a a a a a a )  ( 0  ) Update y
-                       ( a a a a a a a )  ( 0  )
+                       ( 0 0 0 0 0 0 0 )  ( 0  ) Zero DBC1 columns
                        ( a a a a a a a )  ( 0  )
                        ( a a a a a a a )  ( 0  )
 
                        ( 0  )
-                       ( 0  ) Update y replace at the end (DBC1)
+                       ( 0  ) Add y at the end (DBC1)
                        ( 0  )
                      + ( 0  )
                        ( y4 )
@@ -320,21 +319,32 @@ class ImplicitMatrixContext:
             Y.copy(v)
 
         if len(self.bcs) > 0:
-            # Accumulate values in self._x
+            # Accumulate values in self._xstar
             self._xstar.dat.zero()
-            # Apply actionTs in sorted order
-            for aT, obj in zip(self._assemble_actionT, self.objs_actionT):
+            # Apply the EquationBC actionTs in sorted order
+            for aT, ebc in zip(self._assemble_equation_bcs_actionT, self.equation_bcs_actionT):
                 # zero columns associated with DirichletBCs/EquationBCs
-                for obc in obj.bcs:
+                for obc in ebc.bcs:
                     obc.zero(self._y)
                 aT(tensor=self._xbc)
                 self._xstar += self._xbc
+            # Apply the domain actionT last
+            for obc in self.bcs:
+                obc.zero(self._y)
+            self._assemble_actionT(tensor=self._xbc)
+            # mult applies the domain form to x with zeroed DirichletBC
+            # columns, so the domain adjoint action must not contribute to
+            # those columns.
+            for bc in self.col_bcs:
+                bc.zero(self._xbc)
+            self._xstar += self._xbc
         else:
-            # No DirichletBC/EquationBC
-            # There is only a single element in the list (for the domain equation).
-            # Save to self._x directly
-            aT, = self._assemble_actionT
-            aT(tensor=self._xstar)
+            # No DirichletBC/EquationBC on the rows
+            # Save the domain actionT to self._xstar directly
+            self._assemble_actionT(tensor=self._xstar)
+            # mult applies the form to x with zeroed DirichletBC columns.
+            for bc in self.col_bcs:
+                bc.zero(self._xstar)
 
         if self.on_diag:
             if len(self.col_bcs) > 0:
@@ -342,11 +352,10 @@ class ImplicitMatrixContext:
                 # with the identity rows from DirichletBCs.
                 with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
+                    with self._xstar.dat.vec_ro as xs:
+                        v.axpy(1.0, xs)
                 for bc in self.col_bcs:
-                    bc.set(self._xstar, self._xstar + self._ybc)
-        else:
-            for bc in self.col_bcs:
-                bc.zero(self._xstar)
+                    bc.set(self._xstar, self._ybc)
 
         with self._xstar.dat.vec_ro as v:
             v.copy(X)
