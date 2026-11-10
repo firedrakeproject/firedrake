@@ -15,7 +15,6 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 from ufl import as_ufl, replace, Form, BaseForm
@@ -88,36 +87,16 @@ def _restrict_form(form: BaseForm, u: Function, u_restricted: Function) -> BaseF
     """
     V = u.function_space()
     V_restricted = u_restricted.function_space()
-    v_restricted = TestFunction(V_restricted)
-    du_restricted = TrialFunction(V_restricted)
 
-    P = interpolate(du_restricted, V)  # V_restrict -> V
-    P_adj = ufl_expr.adjoint(P)  # V^* -> V_restrict^*
-    u_full = interpolate(u_restricted, V)  # P u_restrict
-
-    form_args = form.arguments()
-    if len(form_args) == 2:
-        if isinstance(form, Form):
-            # With `Form`s we can do a direct replacement of the coefficients and arguments
-            v_arg, u_arg = form_args
-            return replace(form, {v_arg: v_restricted, u_arg: du_restricted, u: u_restricted})
-        else:
-            form_full = replace(form, {u: u_full})
-            return ufl_expr.action(P_adj, ufl_expr.action(form_full, P))
-    elif len(form_args) == 1:
-        if isinstance(form, Form):
-            v_arg, = form_args
-            return replace(form, {v_arg: v_restricted, u: u_restricted})
-        else:
-            form_full = replace(form, {u: u_full})  # form(P u_restrict)
-            return ufl_expr.action(P_adj, form_full)
-    elif len(form_args) == 0:
-        if isinstance(form, Form):
-            return replace(form, {u: u_restricted})
-        else:
-            return replace(form, {u: u_full})
+    if isinstance(form, Form):
+        return replace(form, {u: u_restricted} | {
+            a: a.reconstruct(function_space=V_restricted) for a in form.arguments()
+        })
     else:
-        raise ValueError("Invalid form arity")
+        new_form = replace(form, {u: interpolate(u_restricted, V)})
+        for a in form.arguments():
+            new_form = interpolate(a.reconstruct(function_space=V_restricted), new_form)
+        return new_form
 
 
 class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
