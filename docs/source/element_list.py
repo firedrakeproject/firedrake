@@ -24,12 +24,19 @@ def cells(cellnames):
 with open("element_list.csv", 'w', newline='') as csvfile:
     csvwriter = csv.writer(csvfile)
 
+    rows = []
     for element in supported_elements:
         family, short_name, value_rank, sobolev_space, \
             mapping, degree_range, cellnames = ufl_elements[element]
 
-        short_name = short_name if short_name != family else ""
+        # An empty abbreviation tells the reader that only the full name
+        # is available for this family.
+        short_name = short_name if short_name not in (None, family) else ""
         cellnames = cells(cellnames)
         shape = shape_names[value_rank]
 
-        csvwriter.writerow((family, short_name, shape, cellnames))
+        rows.append((family, short_name, shape, cellnames))
+
+    # Sort alphabetically by name, ignoring case.
+    for row in sorted(rows, key=lambda row: row[0].casefold()):
+        csvwriter.writerow(row)
