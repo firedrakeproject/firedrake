@@ -153,14 +153,29 @@ def assert_matfree_matches_aij(Mmf, Maij):
 
 
 @pytest.mark.parallel(nprocs=[1, 3])
-@pytest.mark.parametrize("case", ["component", "mixed", "mixed_equationbc"])
+@pytest.mark.parametrize("case", ["component", "mixed", "mixed_equationbc",
+                                  "equationbc_nested", "mixed_equationbc_nested"])
 def test_matrixfree_action_transpose_blocks(case):
     # mult and multTranspose of the matrix-free operator, and of each
     # field block from createSubMatrix, must match the aij matrix with the
     # same bcs. The advection term makes the operator nonsymmetric.
     mesh = UnitSquareMesh(4, 4)
     b = Constant([1.0, 0.5])
-    if case == "component":
+    if case == "equationbc_nested":
+        # The EquationBC of linear_poisson_bbc in test_equation_bcs.py, with
+        # DirichletBCs on the end points of side 1. The aij matrix zeroes the
+        # columns of these DirichletBCs in the EquationBC rows, but not in the
+        # rows of the domain form.
+        V = FunctionSpace(mesh, "CG", 2)
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        a = inner(grad(u), grad(v)) * dx + inner(dot(grad(u), b), v) * dx
+        t = as_vector([0, 1])
+        a1 = (-inner(dot(grad(u), t), dot(grad(v), t)) + inner(u, v)) * ds(1)
+        ebc = EquationBC(a1 == inner(Constant(0), v) * ds(1), Function(V), 1,
+                         bcs=[DirichletBC(V, 0, ((1, 3), (1, 4)))])
+        bcs = [ebc.extract_form("J")]
+    elif case == "component":
         V = VectorFunctionSpace(mesh, "CG", 2)
         u = TrialFunction(V)
         v = TestFunction(V)
@@ -184,6 +199,14 @@ def test_matrixfree_action_transpose_blocks(case):
             ebc = EquationBC(inner(dot(grad(u), n) - p * n, v) * ds(2) == inner(Constant((0, 0)), v) * ds(2),
                              Function(V), 2, V=V.sub(0))
             bcs = [ebc.extract_form("J"), DirichletBC(V.sub(1), 0, 2), DirichletBC(V.sub(0), 0, 1)]
+        elif case == "mixed_equationbc_nested":
+            # The velocity EquationBC has a DirichletBC on one component at
+            # the end points of side 2. This DirichletBC zeroes its columns
+            # in the EquationBC rows only.
+            n = FacetNormal(mesh)
+            ebc = EquationBC(inner(dot(grad(u), n) - p * n, v) * ds(2) == inner(Constant((0, 0)), v) * ds(2),
+                             Function(V), 2, V=V.sub(0), bcs=[DirichletBC(V.sub(0).sub(1), 0, ((2, 3), (2, 4)))])
+            bcs = [ebc.extract_form("J"), DirichletBC(V.sub(0), 0, 1)]
 
     Mmf = assemble(a, bcs=bcs, mat_type="matfree").petscmat
     Maij = assemble(a, bcs=bcs, mat_type="aij").petscmat

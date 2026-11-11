@@ -674,12 +674,13 @@ class EquationBCSplit(BCBase):
         ebc = EquationBCSplit(form, subu, self.sub_domain, V=W)
         for bc in self.bcs:
             if isinstance(bc, DirichletBC):
-                ebc.add(bc.reconstruct(V=W, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=use_split))
+                # The nested DirichletBC keeps its own field and component.
+                bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain, use_split=use_split)
             elif isinstance(bc, EquationBCSplit):
                 bc_temp = bc.reconstruct(field=field, V=V, subu=subu, u=u, row_field=row_field, col_field=col_field, action_x=action_x, use_split=use_split)
-                # Due to the "if index", bc_temp can be None
-                if bc_temp is not None:
-                    ebc.add(bc_temp)
+            # Due to the "if index", bc_temp can be None
+            if bc_temp is not None:
+                ebc.add(bc_temp)
         return ebc
 
     def _as_nonlinear_variational_problem_arg(self, is_linear=False):
