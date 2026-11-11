@@ -15,7 +15,8 @@ def rg():
 
 
 @pytest.mark.skipcomplex
-def test_simple_solve(rg):
+@pytest.mark.parametrize("forcing_type", ["unassembled", "assembled"])
+def test_simple_solve(rg, forcing_type):
     tape = Tape()
     set_working_tape(tape)
 
@@ -30,11 +31,17 @@ def test_simple_solve(rg):
     a = u*v*dx
     L = f*v*dx
 
+    if forcing_type == "assembled":
+        L = assemble(L)
+
     u_ = Function(V)
 
     solve(a == L, u_)
 
     L = u_*v*dx
+
+    if forcing_type == "assembled":
+        L = assemble(L)
 
     u_sol = Function(V)
     solve(a == L, u_sol)

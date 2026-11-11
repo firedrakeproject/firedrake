@@ -611,6 +611,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         PETSc.garbage_cleanup(comm)
         return self.get_solution()
 
+    @staticmethod
+    def _ad_forward_solver_type(self):
+        """Class to use when recreating this solver for the tape.
+        """
+        return type(self)
+
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
     r"""Linear variational problem a(u, v) = L(v)."""
