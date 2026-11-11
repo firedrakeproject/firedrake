@@ -249,47 +249,26 @@ class Assigner:
         assignee_meshes = self.assignee.function_space().mesh()
         return any(mesh not in assignee_meshes for mesh in expr_meshes)
 
-    def _eager_assign_op(self) -> Callable[[], None] | None:
-        """Return an eager assignment of a scalar or of a function in the same space.
-
-        A scalar or a function in the same space as the assignee needs no
-        expression traversal and no generated code. The returned callable
-        writes it into the assignee with the eager pyop3 assignment, which
-        also handles a subset without a new pyop3 assignment for each call.
-
-        Returns
-        -------
-        Callable[[], None] | None
-            The eager assignment, or `None` if the expression is not a scalar
-            or a function in the same space as the assignee, or if the
-            assignment mode is not `AssignmentMode.STANDARD`.
-
-        """
-        if self.mode != AssignmentMode.STANDARD:
-            return None
+    @cached_property
+    def _assign_op(self) -> Callable[[], None]:
+        # A scalar or a function in the same space needs no generated code. The
+        # eager pyop3 assignment also handles a subset without a new pyop3
+        # assignment for each call.
         V = self.assignee.function_space()
         # Workaround for issue #5611: the eager array assignment leaves the
         # constrained DoFs of a restricted space unchanged.
-        if any(V_.boundary_set for V_ in V):
-            return None
-
-        if isinstance(self.expression, ufl.classes.ScalarValue):
-            lhs = self.assignee.dat[self.subset]
-            rhs = self.expression.value()
-        elif (
-            isinstance(self.expression, Function | Cofunction)
-            and self.expression.function_space() == V
-        ):
-            lhs = self.assignee.dat[self.subset]
-            rhs = self.expression.dat[self.subset]
-        else:
-            return None
-        return functools.partial(lhs.assign, rhs, eager=True)
-
-    @cached_property
-    def _assign_op(self) -> Callable[[], None]:
-        if (assign_op := self._eager_assign_op()) is not None:
-            return assign_op
+        if self.mode == AssignmentMode.STANDARD and not any(V_.boundary_set for V_ in V):
+            if isinstance(self.expression, ufl.classes.ScalarValue):
+                return functools.partial(
+                    self.assignee.dat[self.subset].assign, self.expression.value(), eager=True
+                )
+            elif (
+                isinstance(self.expression, Function | Cofunction)
+                and self.expression.function_space() == V
+            ):
+                return functools.partial(
+                    self.assignee.dat[self.subset].assign, self.expression.dat[self.subset], eager=True
+                )
 
         if self._cross_mesh:
             # If we are assigning between submeshes then we have to generate a
