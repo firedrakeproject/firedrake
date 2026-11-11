@@ -271,11 +271,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                         self, expr, rhs_from_assemble=expr_from_assemble)
                 )
 
-            # TODO: Shouldn't need to cast the axes
-            # self.dat[subset].assign(expr.dat[subset], eager=True)
-            lhs = self.dat[subset]
-            rhs = expr.dat[subset]
-            lhs.assign(rhs, eager=True)
+            with stop_annotating():
+                Assigner(self, expr, subset).assign()
             return self
         elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate

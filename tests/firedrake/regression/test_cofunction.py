@@ -35,6 +35,15 @@ def test_cofunction_assign_scaled_cofunction_with_subset(V):
     assert np.allclose(f.dat.data_ro[3:], 1.0)
 
 
+def test_cofunction_assign_scalar_with_subset(V):
+    f = Cofunction(V.dual())
+    f.dat.data[:] = 1.0
+
+    f.assign(2.0, subset=[0, 1, 2])
+    assert np.allclose(f.dat.data_ro[:3], 2.0)
+    assert np.allclose(f.dat.data_ro[3:], 1.0)
+
+
 def test_scalar_cofunction_zero(V):
     f = Cofunction(V.dual())
 
