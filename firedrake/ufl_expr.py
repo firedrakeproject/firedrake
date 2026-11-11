@@ -7,7 +7,6 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.domain import as_domain
 import firedrake
-from firedrake import function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 from functools import cached_property
@@ -83,8 +82,6 @@ class Argument(ufl.argument.Argument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.value_shape != self.function_space().value_shape:
-            raise ValueError("Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 
 
@@ -147,8 +144,6 @@ class Coargument(ufl.argument.Coargument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.value_shape != self.function_space().value_shape:
-            raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
         return Argument(function_space, number, part=part)
 
     def equals(self, other):
@@ -379,11 +374,12 @@ def extract_domains(f):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
+    from firedrake import Cofunction
     from firedrake.mesh import MeshSequenceGeometry
 
     if isinstance(f, firedrake.slate.TensorBase):
         return f.ufl_domains()
-    elif isinstance(f, (cofunction.Cofunction, Coargument)):
+    elif isinstance(f, (Cofunction, Coargument)):
         # ufl.domain.extract_domains does not work.
         mesh = f.function_space().mesh()
         if isinstance(mesh, MeshSequenceGeometry):
@@ -412,7 +408,9 @@ def extract_unique_domain(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
+    from firedrake import Function, Cofunction
+
+    if isinstance(func, (Function, Cofunction, Argument, Coargument)):
         return func.function_space().mesh().unique()
     else:
         return ufl.domain.extract_unique_domain(func)

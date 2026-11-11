@@ -12,8 +12,8 @@ def hierarchy():
 
     mh = MeshHierarchy(base, 3, distribution_parameters=distribution_parameters)
     for m in mh:
-        m.coordinates.dat.data[:, 0] -= 1
-        m.coordinates.dat.data[:, 1] -= 1
+        m.coordinates.dat.data_rw[::2] -= 1
+        m.coordinates.dat.data_rw[1::2] -= 1
     return mh
 
 

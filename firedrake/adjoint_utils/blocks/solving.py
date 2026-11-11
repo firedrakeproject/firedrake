@@ -49,11 +49,7 @@ class CachedSolverBlock(Block):
         self.tangent_cache = tangent_cache
         self.adjoint_cache = adjoint_cache
         self.hessian_cache = hessian_cache
-
-        # The adj_sol in the cached forms is shared by all blocks.
-        # This adj_sol belongs to this block specifically so we can
-        # stash the adjoint solution for the hessian calculation.
-        self.adj_sol = adjoint_cache.adj_sol.copy(deepcopy=True, annotate=False)
+        self.adj_state = None
 
     def _coefficient_dependencies(self, dependencies=None):
         dependencies = dependencies or self.get_dependencies()
@@ -127,7 +123,9 @@ class CachedSolverBlock(Block):
         self.update_tlm_dependencies()
         # update the adj_sol in the cached forms with
         # the adj_sol value owned by this block.
-        self.hessian_cache.adj_sol.assign(self.adj_sol)
+        if self.adj_state is None:
+            raise RuntimeError("adj_state is None. Was the hessian computation run before the derivative (adjoint) computation?")
+        self.hessian_cache.adj_sol.assign(self.adj_state)
 
     def _compute_boundary(self, relevant_dependencies):
         return any(isinstance(dep.output, firedrake.DirichletBC)
@@ -202,13 +200,9 @@ class CachedSolverBlock(Block):
 
         adj_sol, adj_sol_bc = self.solve_adj_equation(dJdu, compute_boundary)
 
-        # store adj_sol for Hessian computation later, or for inspecting
-        # adjoint sensitivities etc.
-        # self.adj_sol is owned by this block, whereas self.hessian_cache.adj_sol
-        # is shared between all blocks that the NLVS generates because it is the
-        # one in the cached forms, so we will update it as necessary if/when each
-        # block calculates the Hessian action.
-        self.adj_sol.assign(adj_sol)
+        # Keep this block's own copy of the adjoint solution for the Hessian.
+        # pyadjoint frees it with reset_adjoint_state.
+        self.adj_state = adj_sol
 
         prepared = {
             "adj_sol": adj_sol,
@@ -336,8 +330,6 @@ class GenericSolveBlock(Block):
         # Solution function
         self.func = func
         self.function_space = self.func.function_space()
-        # Storage for adjoint solution of this block
-        self.adj_state_buf = func.copy(deepcopy=True)
         # Boundary conditions
         self.bcs = []
         if bcs is not None:
@@ -486,8 +478,6 @@ class GenericSolveBlock(Block):
             dFdu_form, dJdu, compute_bdy
         )
         self.adj_sol = adj_sol
-        self.adj_state = adj_sol
-        self.adj_state_buf.assign(adj_sol)
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:
@@ -534,11 +524,8 @@ class GenericSolveBlock(Block):
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
-        if isinstance(dFdm, ufl.Form):
-            dFdm = firedrake.adjoint(dFdm)
-            dFdm = firedrake.action(dFdm, adj_sol)
-        else:
-            dFdm = dFdm(adj_sol)
+        dFdm = firedrake.adjoint(dFdm)
+        dFdm = firedrake.action(dFdm, adj_sol)
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
         return dFdm
 
@@ -631,7 +618,7 @@ class GenericSolveBlock(Block):
     def _assemble_soa_eq_rhs(self, dFdu_form, adj_sol, hessian_input, d2Fdu2):
         # Start piecing together the rhs of the soa equation
         b = hessian_input.copy()
-        if len(d2Fdu2.integrals()) > 0:
+        if not d2Fdu2.empty():
             b_form = firedrake.action(firedrake.adjoint(d2Fdu2), adj_sol)
         else:
             b_form = d2Fdu2
@@ -650,7 +637,7 @@ class GenericSolveBlock(Block):
                                             adj_sol)
                 d2Fdudm = ufl.algorithms.expand_derivatives(
                     firedrake.derivative(dFdu_adj, X, tlm_input))
-                if len(d2Fdudm.integrals()) > 0:
+                if not d2Fdudm.empty():
                     b_form += d2Fdudm
             elif not isinstance(c, firedrake.DirichletBC):
                 dFdu_adj = firedrake.action(firedrake.adjoint(dFdu_form),
@@ -661,7 +648,7 @@ class GenericSolveBlock(Block):
                 b_form += bo_form
 
         b_form = ufl.algorithms.expand_derivatives(b_form)
-        if len(b_form.integrals()) > 0:
+        if not b_form.empty():
             b -= firedrake.assemble(b_form)
 
         return b
@@ -685,8 +672,6 @@ class GenericSolveBlock(Block):
         fwd_block_variable = self.get_outputs()[0]
         hessian_input = hessian_inputs[0]
         tlm_output = fwd_block_variable.tlm_value
-
-        self.adj_state = self.adj_state_buf.copy(deepcopy=True)
 
         if hessian_input is None:
             return
@@ -899,8 +884,6 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         self.problem_J = problem_J
         self.solver_kwargs = solver_kwargs
 
-        self.adj_state_buf = func.copy(deepcopy=True)
-
         super().__init__(lhs, rhs, func, bcs, **{**solver_kwargs, **kwargs})
 
         if self.problem_J is not None:
@@ -994,11 +977,19 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
+    def _ad_assign_bcs(self, problem):
+        for block_variable in self.get_dependencies():
+            bc = block_variable.output
+            if bc in problem._ad_bc_map:
+                problem._ad_bc_map[bc].function_arg.assign(
+                    block_variable.saved_output.function_arg)
+
     def _ad_solver_replace_forms(self, solver=SolverType.FORWARD):
         if solver == SolverType.FORWARD:
             problem = self._ad_solvers["forward_nlvs"]._problem
             self._ad_assign_coefficients(problem.F, solver)
             self._ad_assign_coefficients(problem.J, solver)
+            self._ad_assign_bcs(problem)
         else:
             self._ad_assign_coefficients(
                 self._ad_solvers["adjoint_lvs"]._problem.J, solver)
@@ -1008,8 +999,7 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             relevant_dependencies
         )
         adj_sol, adj_sol_bdy = self._adjoint_solve(adj_inputs[0], compute_bdy)
-        self.adj_state = adj_sol
-        self.adj_state_buf.assign(adj_sol)
+        self.adj_sol = adj_sol
         if self.adj_cb is not None:
             self.adj_cb(adj_sol)
         if self.adj_bdy_cb is not None and compute_bdy:

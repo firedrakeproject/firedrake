@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from firedrake import *
 
+
 relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
 convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
 

@@ -1,4 +1,7 @@
+import gc
+
 import pytest
+from checkpoint_schedules import SingleMemoryStorageSchedule
 
 from firedrake import *
 from firedrake.adjoint import *
@@ -185,6 +188,79 @@ def test_nlvs_adjoint(control_type, bc_type, forcing_type):
         Jhat.hessian(h, evaluate_tlm=False)
         etime = MPI.Wtime()
         PETSc.Sys.Print(f"Hessian time: {etime - stime:.4f}")
+
+
+def _checkpointed_adjoint_growth(nt):
+    """Return how many Functions in V a checkpointed gradient leaves alive.
+
+    The helper counts the live Functions in V before it tapes ``nt`` NLVS
+    steps of the viscous Burgers equation on a new tape with checkpointing.
+    It then computes the gradient twice and counts again. The return value
+    is the second count minus the first count. The first count comes before
+    the taping, so that data that the blocks allocate at taping time is
+    also counted.
+    """
+
+    def count_functions(V):
+        # Count the live Functions whose function space is V.
+        # One gc pass can leave garbage behind, so collect until
+        # nothing more is freed.
+        while gc.collect() > 0:
+            pass
+        return len([obj for obj in gc.get_objects()
+                    if isinstance(obj, Function) and obj.function_space() == V])
+
+    with set_working_tape() as tape:
+        # This schedule keeps all forward data in memory, so the adjoint
+        # can be evaluated more than once.
+        tape.enable_checkpointing(SingleMemoryStorageSchedule())
+
+        mesh = UnitIntervalMesh(20)
+        x, = SpatialCoordinate(mesh)
+        V = FunctionSpace(mesh, "CG", 1)
+        ic = Function(V).interpolate(cos(2*pi*x))
+
+        # Implicit Euler step of the viscous Burgers equation.
+        dt = Constant(0.05)
+        nu = Constant(0.1)
+        u0 = Function(V)
+        u1 = Function(V)
+        v = TestFunction(V)
+        F = ((u1 - u0)*v
+             + dt*u1*u1.dx(0)*v
+             + dt*nu*u1.dx(0)*v.dx(0))*dx
+        solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u1))
+        m = ic.copy(deepcopy=True)
+        n_before = count_functions(V)
+
+        u1.assign(ic)
+        for _ in tape.timestepper(iter(range(nt))):
+            u0.assign(u1)
+            solver.solve()
+
+        J = assemble(u1*u1*dx)
+        Jhat = ReducedFunctional(J, Control(ic))
+
+        # The checkpoint manager needs a functional evaluation before each
+        # gradient.
+        for _ in range(2):
+            Jhat(m)
+            Jhat.derivative()
+        n_adjoint = count_functions(V)
+
+    return n_adjoint - n_before
+
+
+@pytest.mark.skipcomplex
+def test_nlvs_checkpointed_adjoint_memory():
+    """Check that a checkpointed gradient through NLVS keeps no per-step data.
+
+    The number of Functions that the gradient leaves alive does not depend
+    on the number of taped steps.
+    """
+    delta_short = _checkpointed_adjoint_growth(2)
+    delta_long = _checkpointed_adjoint_growth(8)
+    assert delta_long == delta_short
 
 
 if __name__ == "__main__":

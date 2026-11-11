@@ -1,9 +1,18 @@
-from firedrake import *
-from firedrake.pyplot import *
 import numpy as np
-import matplotlib.pyplot as plt
+import pytest
+
+from firedrake import *
 
 
+try:
+    import matplotlib.pyplot as plt
+    from firedrake.pyplot import *
+except ImportError:
+    # Matplotlib is not installed, tests should be skipped
+    pass
+
+
+@pytest.mark.skipplot
 def test_vom_plotting_2d_manual_examples():
     # [test_vom_plotting_2d_manual_examples 1]
     mesh = UnitSquareMesh(10, 10)
@@ -59,6 +68,7 @@ def test_vom_plotting_2d_manual_examples():
     # [test_vom_plotting_2d_manual_examples 6]
 
 
+@pytest.mark.skipplot
 def test_vom_plotting_3d_manual_examples():
 
     # [test_vom_plotting_3d_manual_examples 1]
