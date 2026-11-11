@@ -359,6 +359,7 @@ def test_solve_interp_u(mesh):
     assert np.allclose(u.dat.data, u2.dat.data)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 3])
 def test_solve_interp_hessian():
     # Fit a field to observations at a point cloud, regularised with a Laplacian term:
@@ -542,6 +543,7 @@ def test_assemble_action_adjoint(V1, V2):
     res = assemble(action(adjoint(assemble(b)), w))
     assert res.function_space() == V1.dual()
     assert np.allclose(res.dat.data_ro, expected.dat.data_ro)
+
 
 @pytest.mark.parallel(2)
 def test_form_interp_reuse():

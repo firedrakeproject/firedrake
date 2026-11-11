@@ -111,14 +111,29 @@ class Scalar(Tensor):
     def local_min(self) -> numbers.Number:
         return self.local_max
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
-        from pyop3.expr.visitors import evaluate_arraywise
+    def as_array(self, mode: Literal["ro", "wo", "rw"]) -> np.ndarray:
+        """Return a view of the scalar's buffer.
 
-        other_eval = evaluate_arraywise(other)
-        if mode == "write":
-            self.buffer.data_wo[...] = other_eval
-        else:
-            self.buffer.data_rw[...] += other_eval
+        Parameters
+        ----------
+        mode
+            The access mode: read-only, write-only, or read-write.
+
+        Returns
+        -------
+        numpy.ndarray
+            A view of the buffer with the requested access mode.
+
+        """
+        match mode:
+            case "ro":
+                return self.buffer.data_ro
+            case "wo":
+                return self.buffer.data_wo
+            case "rw":
+                return self.buffer.data_rw
+            case _:
+                raise ValueError(f"Unknown array access mode '{mode}'")
 
     # }}}
 
