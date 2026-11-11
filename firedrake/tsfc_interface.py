@@ -20,7 +20,7 @@ from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 
 from pyop2 import op2
 from pyop2.caching import memory_and_disk_cache, default_parallel_hashkey
-from pyop2.mpi import COMM_WORLD
+from pyop2.mpi import COMM_SELF, COMM_WORLD
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
@@ -63,7 +63,10 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diag
 
 
 def _compile_form_comm(form, *args, **kwargs):
-    return form.ufl_domains()[0].comm
+    # Use the communicator of the mesh. Use COMM_SELF for a form without a mesh,
+    # since such a form has no integrals and nothing is compiled or reduced.
+    domains = form.ufl_domains()
+    return domains[0].comm if domains else COMM_SELF
 
 
 # Decorate the original tsfc.compile_form with a cache
@@ -207,7 +210,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     """
 
     # Check that we get a Form
-    if not isinstance(form, Form):
+    if not isinstance(form, (Form, ZeroBaseForm)):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
     if parameters is None:
