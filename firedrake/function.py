@@ -1,4 +1,5 @@
 import textwrap
+import cachetools
 import numpy as np
 from functools import cached_property
 import firedrake_rtree
@@ -312,6 +313,13 @@ class Function(ufl.Coefficient, FunctionMixin):
                 for (i, val) in zip(range(len(self.function_space())), self.topological.subfunctions))
         else:
             return (self,)
+
+    @cached_property
+    def _assign_op_cache(self) -> cachetools.LRUCache:
+        """Cache of the assignment operations that `.Assigner` builds for this function."""
+        from firedrake.assign import ASSIGN_OP_CACHE_SIZE
+
+        return cachetools.LRUCache(maxsize=ASSIGN_OP_CACHE_SIZE)
 
     @cached_property
     def _components(self):

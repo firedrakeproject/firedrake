@@ -1,4 +1,5 @@
 from functools import cached_property
+import cachetools
 import numpy as np
 import ufl
 
@@ -123,6 +124,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return tuple(subfuncs)
         else:
             return (self,)
+
+    @cached_property
+    def _assign_op_cache(self) -> cachetools.LRUCache:
+        """Cache of the assignment operations that `.Assigner` builds for this cofunction."""
+        from firedrake.assign import ASSIGN_OP_CACHE_SIZE
+
+        return cachetools.LRUCache(maxsize=ASSIGN_OP_CACHE_SIZE)
 
     @cached_property
     def _components(self):
