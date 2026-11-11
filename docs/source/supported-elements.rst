@@ -17,34 +17,37 @@ polynomial *degree*, for example
 This page lists the element families which Firedrake supports, and it shows
 where to find more information about each one.
 
-Names and abbreviations
------------------------
+Family names
+------------
 
-Each family has a full name, and most also have an abbreviation.  You
-can use **either** of them as the family argument; they select the same
-element.  For example, these two lines are equivalent:
+Each family has a full name, and most also have one or more other names,
+such as an abbreviation.  You can use **any** of them as the family
+argument; they select the same element.  For example, these three lines
+are equivalent:
 
 .. code-block:: python
 
    V = FunctionSpace(mesh, "Raviart-Thomas", 1)
    V = FunctionSpace(mesh, "RT", 1)
+   V = FunctionSpace(mesh, "N1div", 1)
 
-If the "Abbreviation" column is empty, the family has no abbreviation,
-and you must use the full name.  Names are case sensitive.
+If the "Other names" column is empty, the family has no other name, and
+you must use the full name.  Names are case sensitive.
 
 List of supported elements
 --------------------------
 
 .. csv-table::
-    :header: "Name", "Abbreviation", "Value shape", "Valid cells"
-    :widths: 20, 10, 10, 40
+    :header: "Name", "Other names", "Value shape", "Valid cells"
+    :widths: 20, 20, 10, 30
     :file: element_list.csv
 
 The table above is generated from the element list in FIAT, specifically
 from the file ``finat/ufl/elementlist.py`` in the `FIAT repository <https://github.com/firedrakeproject/fiat>`__.
-The file also defines some further aliases (for
-example ``"P"`` for ``"Lagrange"`` and ``"DGT"`` for
-``"HDiv Trace"``).
+The file also defines names in the notation of finite element exterior
+calculus, for example ``"P-"``, ``"Q-"`` and ``"S Lambda"``.  These
+names are not in the table, because the family that they select depends
+on the cell dimension and on the form degree.
 
 In addition, the
 :py:class:`~finat.ufl.tensorproductelement.TensorProductElement`
