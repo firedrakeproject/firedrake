@@ -230,6 +230,14 @@ def test_zero_bc_nodes(mesh):
     assert np.allclose(b1.dat.data, b2.dat.data)
 
 
+@pytest.mark.parametrize("measure", [dx, ds])
+def test_assemble_vanishing_zero_form(mesh, measure):
+    # regression test for firedrake issue #3598
+    result = assemble(0 * measure(domain=mesh))
+    assert isinstance(result, ScalarType.type)
+    assert result == 0
+
+
 @pytest.mark.xfail(reason="Assembler caching not currently supported for zero forms")
 def test_zero_form_assembler_cache(mesh):
     from firedrake.assemble import _FORM_CACHE_KEY
