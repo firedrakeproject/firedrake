@@ -908,6 +908,10 @@ class BaseFormAssembler(AbstractFormAssembler):
         This function is called in :func:`base_form_assembly_visitor`. Depending on the type of the resulting tensor,
         we may call :func:`assemble_form` or traverse the sub-DAG via :func:`assemble_base_form`.
         """
+        if isinstance(form, ufl.form.Form) and not form.base_form_operators():
+            # Leave the derivatives to TSFC, since expanding them here drops the integrals
+            # of a vanishing form together with its mesh and its arguments.
+            return form
         if isinstance(form, ufl.form.Form):
             from firedrake.parameters import parameters as default_parameters
             from tsfc.parameters import is_complex
