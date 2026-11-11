@@ -268,7 +268,8 @@ class Assigner:
             else:
                 rhs = None
             if rhs is not None:
-                return functools.partial(self.assignee.dat[self.subset].assign, rhs, eager=True)
+                lhs = self.assignee.dat[self.subset]
+                return functools.partial(lhs.assign, rhs, eager=True)
 
         if self._cross_mesh:
             # If we are assigning between submeshes then we have to generate a
