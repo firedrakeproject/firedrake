@@ -259,16 +259,16 @@ class Assigner:
         # constrained DoFs of a restricted space unchanged.
         if self.mode == AssignmentMode.STANDARD and not any(V_.boundary_set for V_ in V):
             if isinstance(self.expression, ufl.classes.ScalarValue):
-                return functools.partial(
-                    self.assignee.dat[self.subset].assign, self.expression.value(), eager=True
-                )
+                rhs = self.expression.value()
             elif (
                 isinstance(self.expression, Function | Cofunction)
                 and self.expression.function_space() == V
             ):
-                return functools.partial(
-                    self.assignee.dat[self.subset].assign, self.expression.dat[self.subset], eager=True
-                )
+                rhs = self.expression.dat[self.subset]
+            else:
+                rhs = None
+            if rhs is not None:
+                return functools.partial(self.assignee.dat[self.subset].assign, rhs, eager=True)
 
         if self._cross_mesh:
             # If we are assigning between submeshes then we have to generate a
