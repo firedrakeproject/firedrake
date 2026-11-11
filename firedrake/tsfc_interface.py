@@ -63,10 +63,12 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diag
 
 
 def _compile_form_comm(form, *args, **kwargs):
-    # Use the communicator of the mesh. Use COMM_SELF for a form without a mesh,
-    # since such a form has no integrals and nothing is compiled or reduced.
     domains = form.ufl_domains()
-    return domains[0].comm if domains else COMM_SELF
+    if not domains:
+        if form.empty():
+            return COMM_SELF
+        raise ValueError("Cannot determine a communicator for a non-empty form without a domain.")
+    return domains[0].comm
 
 
 # Decorate the original tsfc.compile_form with a cache
