@@ -103,13 +103,12 @@ def test_restricted_subset_assign_writes_bc_nodes(dual, value):
     V_res = RestrictedFunctionSpace(V, boundary_set=[1])
     bc = DirichletBC(V_res, 0, 1)
     space = V_res.dual() if dual else V_res
-    space_type = Cofunction if dual else Function
 
-    u = space_type(space)
+    u = Function(space)
     if value == "scalar":
         expr = 2.0
     else:
-        expr = space_type(space)
+        expr = Function(space)
         expr.dat.data_wo_with_halos[...] = 2
     u.assign(expr, subset=bc.node_set)
 
