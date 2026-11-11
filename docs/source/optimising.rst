@@ -232,18 +232,13 @@ Installing TAU
 
      $ export MY_TAU_SRC=tau-2.35.2
 
-#. Download and unpack PDT (Program Database Toolkit):
+#. Download the third-party library package. This needs to be untarred in ``${MY_TAU_DIR}/${MY_TAU_SRC}``:
 
    .. code-block:: console
 
-     $ wget http://tau.uoregon.edu/pdt.tgz
-     $ tar zxvf pdt.tgz
-
-   Record the name of the PDT source directory in an environment variable for use later. For example if the directory created by the tar command above was ``pdtoolkit-3.25.2`` then run the command:
-
-   .. code-block:: console
-
-     $ export MY_PDT_SRC=pdtoolkit-3.25.2
+     $ wget http://tau.uoregon.edu/ext.tgz
+     $ cd ${MY_TAU_SRC}
+     $ tar zxvf ../ext.tgz
 
 #. Start the Firedrake venv so that you have the same python as used by Firedrake. Use the path to your firedrake installation in the following command:
 
@@ -251,29 +246,11 @@ Installing TAU
 
      $ . /path/to/firedrake/venv-firedrake/bin/activate
 
-#. Build PDT:
-
-   .. code-block:: console
-
-     $ cd $MY_PDT_SRC
-     $ ./configure
-     $ make
-     $ make install
-
-#. Download the third-party library package. This needs to be untarred in ``${MY_TAU_DIR}/${MY_TAU_SRC}``:
-
-   .. code-block:: console
-
-     $ cd ..
-     $ wget http://tau.uoregon.edu/ext.tgz
-     $ cd ${MY_TAU_DIR}/${MY_TAU_SRC}
-     $ tar zxvf ../ext.tgz
-
 #. Run the configure command to configure TAU for sampling:
 
    .. code-block:: console
 
-     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/${MY_PDT_SRC} -prefix=${MY_TAU_DIR}/tau -python -mpi
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -prefix=${MY_TAU_DIR}/tau -python -mpi
 
    At the end of the output from the configure command will be an entry to add to your PATH environment variable e.g.
 
@@ -302,7 +279,7 @@ Installing TAU
 
    .. code-block:: console
 
-     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -pdt=${MY_TAU_DIR}/${MY_PDT_SRC} -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
      $ make install
 
 Using TAU: sampling
@@ -390,6 +367,8 @@ Using TAU: tracing
    - S: zoom out
    - A: move left (earlier time)
    - D: move right (later time)
+
+   If you want to go back to running a sampling experiment remember to ``unset TAU_TRACE_FORMAT`` before doing so.
 
 py-spy
 ~~~~~~
