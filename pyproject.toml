@@ -28,7 +28,8 @@ dependencies = [
   "firedrake-rtree>=2026.3.0",
   "immutabledict",
   "libsupermesh>=2026.1",
-  "loopy>2024.1",
+  # TODO RELEASE
+  "loopy @ git+https://github.com/inducer/loopy.git@main",
   "numpy",
   "packaging",
   # TODO RELEASE
@@ -37,14 +38,15 @@ dependencies = [
   "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "progress",
-  "pyadjoint-ad>=2026.10",
+  # TODO RELEASE
+  "pyadjoint-ad @ git+https://github.com/dolfin-adjoint/pyadjoint@main",
   "pycparser",
   "pytools>=2026.1.1",
   "requests",
   "rtree>=1.2",
   "scipy",
   "sympy",
-  "islpy<2026.2",
+  "islpy",
   "islpy>=2025.1.5; sys_platform == 'darwin'",
 ]
 classifiers = [
@@ -169,7 +171,8 @@ requires = [
   "numpy",
   # TODO RELEASE
   # "petsc4py==XXX",
-  "petsctools",
+  # TODO RELEASE
+  "petsctools @ git+https://github.com/firedrakeproject/petsctools.git@main",
   "pkgconfig",
   "pybind11",
   "setuptools>=77.0.3",

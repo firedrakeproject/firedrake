@@ -123,6 +123,24 @@ def test_matrixfree_action(a, V, bcs):
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_matrixfree_repeated_transpose_with_dirichlet_bc(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v))*dx + inner(as_vector([1, 0]), grad(u))*v*dx
+    bc = DirichletBC(V, 0, 1)
+    A = assemble(a, bcs=bc, mat_type="matfree").petscmat
+    B = assemble(a, bcs=bc).petscmat
+    x, y = A.createVecs()
+    x.set(1)
+    expected = y.duplicate()
+    B.multTranspose(x, expected)
+    for _ in range(3):
+        A.multTranspose(x, y)
+        assert (y - expected).norm() < 1e-12
+
+
 @pytest.mark.parametrize("preassembled", [False, True],
                          ids=["variational", "preassembled"])
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
@@ -398,4 +416,40 @@ def test_sub_matrix_not_subfield(shape):
     A = assemble(a, bcs=bcs, mat_type="aij")
     Amat = A.petscmat
     Asub_aij = Amat.createSubMatrix(rows, cols)
+    assert np.allclose(Asub_aij[:, :], Asub_dense)
+
+
+@pytest.mark.parametrize("shape", ["scalar", "vector", "component"])
+def test_sub_matrix_whole_field_keeps_bcs(shape):
+    # A general (non-stride) IS that spans the whole space selects field 0.
+    # The resulting submatrix must keep the Dirichlet rows of the original matrix.
+    mesh = UnitSquareMesh(2, 2)
+    if shape == "scalar":
+        V = FunctionSpace(mesh, "CG", 1)
+        bcs = DirichletBC(V, 0, (1, 3))
+    else:
+        V = VectorFunctionSpace(mesh, "CG", 1)
+        bcs = DirichletBC(V if shape == "vector" else V.sub(0), 0, (1, 3))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+
+    n = V.dim()
+    rows = PETSc.IS().createGeneral(range(n))
+
+    A = assemble(a, bcs=bcs, mat_type="matfree")
+    Amat = A.petscmat
+    Asub = Amat.createSubMatrix(rows, rows)
+    x, y = Asub.createVecs()
+
+    Asub_dense = np.zeros((n, n))
+    for i in range(n):
+        x.set(0.0)
+        x[i] = 1.0
+        Asub.mult(x, y)
+        Asub_dense[:, i] = y[:]
+
+    A = assemble(a, bcs=bcs, mat_type="aij")
+    Amat = A.petscmat
+    Asub_aij = Amat.createSubMatrix(rows, rows)
     assert np.allclose(Asub_aij[:, :], Asub_dense)

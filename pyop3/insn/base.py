@@ -29,7 +29,7 @@ from pyop3.cache import (
 )
 from pyop3.collections import OrderedFrozenSet
 from pyop3.constants import Intent
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import InvalidScalarTypeException, Pyop3Exception
 from pyop3.expr import Tensor
 from pyop3.node import Node, Operator, Terminal
 
@@ -372,7 +372,21 @@ class FunctionArgument(abc.ABC):
 
 @pyop3.record.frozenrecord()
 class Function(pyop3.obj.Object):
-    """A callable function."""
+    """A callable function.
+
+    Parameters
+    ----------
+    loopy_kernel
+        The loopy kernel that implements the function.
+    access_descrs
+        The access descriptor of each kernel argument.
+    include_dirs
+        The include directories that are needed to compile the kernel.
+    lib_dirs
+        The library directories that are needed to link the kernel.
+    libs
+        The libraries that are needed to link the kernel.
+    """
 
     # {{{ instance attrs
 
@@ -714,21 +728,32 @@ class AbstractAssignment(AbstractAssignmentLike):
 
     __abstract_record_attrs = ("assignment_type",)
 
+    def __record_post_init(self) -> None:
+        # Complex numbers are not ordered, so min and max reductions are not defined for them.
+        if self.assignment_type in (AssignmentType.MAX, AssignmentType.MIN):
+            if np.issubdtype(self.assignee.dtype, np.complexfloating):
+                raise InvalidScalarTypeException(
+                    f"'{self.assignment_type.value}' assignment is not supported "
+                    f"for complex data (dtype '{self.assignee.dtype}')"
+                )
+
     @cached_property
     def argument_intents(self) -> dict:
-        if self.assignment_type == AssignmentType.WRITE:
-            assignee_intent = Intent.WRITE
-        else:
-            assert self.assignment_type == AssignmentType.INC
-            assignee_intent = Intent.INC
+        assignee_intent = assignment_type_as_intent(self.assignment_type)
         return ((self._assignee, assignee_intent), (self.expression, Intent.READ))
 
     def __str__(self) -> str:
-        if self.assignment_type == AssignmentType.WRITE:
-            operator = "="
-        else:
-            assert self.assignment_type == AssignmentType.INC
-            operator = "+="
+        match self.assignment_type:
+            case AssignmentType.WRITE:
+                operator = "="
+            case AssignmentType.INC:
+                operator = "+="
+            case AssignmentType.MAX:
+                operator = "max="
+            case AssignmentType.MIN:
+                operator = "min="
+            case _:
+                raise AssertionError(f"{self.assignment_type} not recognised")
 
         # 'assignee' and 'expression' might be multi-component and thus have
         # multi-line representations. We want to line these up.

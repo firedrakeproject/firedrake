@@ -15,10 +15,9 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import as_ufl, replace, Form
+from ufl import as_ufl, replace, Form, BaseForm
 from functools import cached_property
 from collections.abc import Callable
 
@@ -53,6 +52,51 @@ def is_form_consistent(is_linear, bcs):
     if not (is_linear == all(bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))
             or not is_linear == all(not bc.is_linear for bc in bcs if not isinstance(bc, DirichletBC))):
         raise TypeError("Form style mismatch: some forms are given in 'F == 0' style, but others are given in 'A == b' style.")
+
+
+def _restrict_form(form: BaseForm, u: Function, u_restricted: Function) -> BaseForm:
+    """Restrict a form and its solution Function.
+
+    Parameters
+    ----------
+    form
+        A form whose arguments belong to `u.function_space()`.
+    u
+        The solution Function in the original function space.
+    u_restricted
+        The solution Function in a restriction of the original space.
+
+    Returns
+    -------
+    BaseForm
+        A form whose arguments belong to the restricted space and whose
+        solution Function is `u_restricted`.
+
+    Notes
+    -----
+    Let V denote the original space, and let V_res denote a restriction of V.
+    Let P: V_res -> V and P*: V* -> V_res* denote the interpolation operator and
+    its adjoint between these spaces. Let E, F, J denote forms on V with zero, one, and two
+    arguments respectively. Then
+
+        E_res(u_res) = E(P u_res)
+        F_res(u_res) = P* F(P u_res)
+        J_res(u_res) = P* J(P u_res) P
+
+    are the forms on the restricted space V_res.
+    """
+    V = u.function_space()
+    V_restricted = u_restricted.function_space()
+
+    if isinstance(form, Form):
+        return replace(form, {u: u_restricted} | {
+            a: a.reconstruct(function_space=V_restricted) for a in form.arguments()
+        })
+    else:
+        new_form = replace(form, {u: interpolate(u_restricted, V)})
+        for a in form.arguments():
+            new_form = interpolate(a.reconstruct(function_space=V_restricted), new_form)
+        return new_form
 
 
 class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
@@ -105,24 +149,16 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             restrict = False
         self.restrict = restrict and bcs
 
-        if restrict and bcs:
+        if self.restrict:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
-            v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
-            if isinstance(F, Form):
-                F_arg, = F.arguments()
-                self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
-            else:
-                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
 
-            v_arg, u_arg = self.J.arguments()
-            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
-            if self.Jp:
-                v_arg, u_arg = self.Jp.arguments()
-                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
-            if self.E:
-                self.E = replace(self.E, {self.u: self.u_restrict})
+            self.F = _restrict_form(self.F, self.u, self.u_restrict)
+            self.J = _restrict_form(self.J, self.u, self.u_restrict)
+            self.Jp = _restrict_form(self.Jp, self.u, self.u_restrict) if self.Jp is not None else None
+            self.E = _restrict_form(self.E, self.u, self.u_restrict) if self.E is not None else None
+
             self.restricted_space = V_res
         else:
             self.u_restrict = u
@@ -553,11 +589,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp, problem.E)
-        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        objs = (*forms, *problem.bcs)
+        coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
-        for c in chain(coefficients, problem.dirichlet_bcs()):
+        for c in coefficients:
             dm = c.function_space().dm
             if dm == solution_dm:
                 # Make sure the solution dm is visited last

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms.restructure_base_form import restructure_base_form
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
 from ufl.duals import is_dual
@@ -130,7 +131,11 @@ class Interpolate(UFLInterpolate):
             # Need to create a Firedrake Argument so that it has a .function_space() method
             V = Argument(V.dual(), 1 if self.is_adjoint else 0)
 
-        self.target_space = V.arguments()[0].function_space()
+        # Argument 0 of the expression replaces Argument 0 of the dual slot.
+        # Otherwise the dual slot contracts its highest-numbered primal argument.
+        *_, highest = primal_args = [a for a in V.arguments() if not is_dual(a)]
+        contracted = next((a for a in primal_args if a.number() == 0 and 0 in expr_arg_numbers), highest)
+        self.target_space = contracted.function_space()
         if expr.ufl_shape != self.target_space.value_shape:
             raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
@@ -728,9 +733,9 @@ class SameMeshInterpolator(Interpolator):
             f = Function(R, dtype=ScalarType)
         elif self.rank == 1:
             f = Function(self.ufl_interpolate.function_space())
-            if self.access in {op3.MIN_WRITE, op3.MAX_WRITE}:
+            if self.access in {op3.MIN_RW, op3.MIN_WRITE, op3.MAX_RW, op3.MAX_WRITE}:
                 finfo = numpy.finfo(f.dat.dtype)
-                if self.access == op3.MIN_WRITE:
+                if self.access in {op3.MIN_RW, op3.MIN_WRITE}:
                     val = Constant(finfo.max)
                 else:
                     val = Constant(finfo.min)
@@ -814,7 +819,8 @@ class SameMeshInterpolator(Interpolator):
             # Split the cofunction
             dual_split = dict(split_form(self.dual_arg))
             # Combine the splits by taking their action
-            expressions = {i: action(interp_split[i], dual_split[i[-1:]]) for i in interp_split}
+            expressions = {i: restructure_base_form(action(interp_split[i], dual_split[i[-1:]]))
+                           for i in interp_split}
 
         # Interpolate each sub expression into each function space
         for indices, sub_expr in expressions.items():
@@ -1521,7 +1527,7 @@ class MixedInterpolator(Interpolator):
                 )
             if needs_action:
                 # Take the action of each sub-cofunction against each block
-                form = action(form, dual_split[indices[-1:]])
+                form = restructure_base_form(action(form, dual_split[indices[-1:]]))
             Isub[indices] = (get_interpolator(form), sub_bcs)
 
         return Isub
