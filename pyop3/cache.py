@@ -81,28 +81,31 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
             else:
                 objs = (obj,)
 
-            # Handle the case where we have multiple objects: the cached value is only
-            # valid for a given combination of versions
+            # Handle the case where we have multiple objects: a cached value is only
+            # valid for the versions of all the objects that is cached on
+            # Need to make versions part of the key so that values computed for different combinations
+            # of versions don't collide
             versions = tuple(get_version(obj) for obj in objs)
-            key = get_key(*args, **kwargs)
+            key = (versions, get_key(*args, **kwargs))
 
             caches = []
 
             # Create any missing caches
-            for obj in objs:
+            for obj, version in zip(objs, versions):
                 if not hasattr(obj, "_pyop3_cache"):
                     # Use object.__setattr__ to get around frozen dataclasses
                     object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
-                values_by_version = obj._pyop3_cache[func.__qualname__]
-                if versions not in values_by_version:
-                    # Remove the values that were computed for the other versions
-                    values_by_version.clear()
-                    values_by_version[versions] = {}
-                caches.append(values_by_version[versions])
+                stored_version, cache = obj._pyop3_cache.get(func.__qualname__, (_nothing, None))
+                if stored_version != version:
+                    # Invalidate the cache stored on this object only
+                    # TODO: need to think about the case where we can have multiple meshes hence multiple versions
+                    # how do we avoid retaining stale cached values?
+                    cache = {}
+                    obj._pyop3_cache[func.__qualname__] = (version, cache)
+                caches.append(cache)
 
             value = _nothing
             for cache in caches:
-                # cache is a single object's {key: value} dict at the current version tuple.
                 if key in cache:
                     value = cache[key]
                     break
@@ -112,12 +115,6 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
 
             for cache in caches:
                 cache.setdefault(key, value)
-
-            # Store in all of the caches
-            for obj in objs:
-                cache = obj._pyop3_cache[func.__qualname__]
-                if key not in cache:
-                    cache[key] = value
 
             return value
         return wrapper
