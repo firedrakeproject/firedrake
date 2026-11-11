@@ -170,7 +170,7 @@ def get_assembler(form, *args, **kwargs):
         # Preprocess the DAG and restructure the DAG
         # Only pre-process `form` once beforehand to avoid pre-processing for each assembly call
         form = BaseFormAssembler.preprocess_base_form(form, mat_type=mat_type, form_compiler_parameters=fc_params)
-    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
+    if isinstance(form, (ufl.form.Form, ufl.ZeroBaseForm, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         diagonal = kwargs.pop('diagonal', False)
         if len(form.arguments()) == 0:
             return ZeroFormAssembler(form, form_compiler_parameters=fc_params)
@@ -434,7 +434,7 @@ class BaseFormAssembler(AbstractFormAssembler):
 
         # Deal with 1-form bcs outside the visitor
         rank = len(self._form.arguments())
-        if rank == 1 and not isinstance(result, ufl.ZeroBaseForm):
+        if rank == 1:
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
         return result
@@ -446,7 +446,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             can arise in a `~ufl.classes.BaseForm` object. It is called by :func:`assemble_base_form`
             in a post-order fashion.
         """
-        if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+        if isinstance(expr, (ufl.form.Form, ufl.ZeroBaseForm, slate.TensorBase)):
             if args and self._mat_type != "matfree":
                 # Retrieve the Form's children
                 base_form_operators = BaseFormAssembler.base_form_operands(expr)
@@ -629,9 +629,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             return interpolator.assemble(tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type)
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
-        elif tensor and isinstance(expr, ufl.ZeroBaseForm):
-            return tensor.zero()
-        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument, ufl.ZeroBaseForm)):
+        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument)):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
@@ -949,8 +947,8 @@ class FormAssembler(AbstractFormAssembler):
 
     def __new__(cls, *args, **kwargs):
         form = args[0]
-        if not isinstance(form, (ufl.Form, slate.TensorBase)):
-            raise TypeError(f"The first positional argument must be of ufl.Form or slate.TensorBase: got {type(form)} ({form})")
+        if not isinstance(form, (ufl.Form, ufl.ZeroBaseForm, slate.TensorBase)):
+            raise TypeError(f"The first positional argument must be of ufl.Form, ufl.ZeroBaseForm or slate.TensorBase: got {type(form)} ({form})")
         # It is expensive to construct new assemblers because extracting the data
         # from the form is slow. Since all of the data structures in the assembler
         # are persistent apart from the output tensor, we stash the assembler on the
@@ -1113,7 +1111,7 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        if isinstance(self._form, ufl.Form):
+        if isinstance(self._form, (ufl.Form, ufl.ZeroBaseForm)):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
                 parameters=self._form_compiler_params
@@ -1176,14 +1174,11 @@ class ZeroFormAssembler(ParloopFormAssembler):
         super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters)
 
     def allocate(self):
-        # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0].comm seems the most robust method
-        # revisit in a refactor
         return op2.Global(
             1,
             [0.0],
             dtype=utils.ScalarType,
-            comm=self._form.ufl_domains()[0].comm
+            comm=tsfc_interface._compile_form_comm(self._form)
         )
 
     def _apply_bc(self, tensor, bc, u=None):
@@ -1301,7 +1296,7 @@ class OneFormAssembler(ParloopFormAssembler):
 
 
 def TwoFormAssembler(form, *args, **kwargs):
-    assert isinstance(form, (ufl.form.Form, slate.TensorBase))
+    assert isinstance(form, (ufl.form.Form, ufl.ZeroBaseForm, slate.TensorBase))
     mat_type = kwargs.pop('mat_type', None)
     sub_mat_type = kwargs.pop('sub_mat_type', None)
     mat_type, sub_mat_type = _get_mat_type(mat_type, sub_mat_type, form.arguments())
