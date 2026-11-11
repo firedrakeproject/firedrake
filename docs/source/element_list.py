@@ -1,12 +1,113 @@
 from finat.ufl.elementlist import aliases, ufl_elements
 from finat.element_factory import supported_elements
 import csv
+import sys
 
 shape_names = {
     0: 'scalar',
     1: 'vector',
     2: 'tensor'
     }
+
+# The DefElement page for each element family, as the page name in
+# https://defelement.org/elements/<name>.html.  A value of None means that
+# DefElement has no page for that family.  The build prints a warning for
+# any family that is missing from this dictionary.
+defelement_names = {
+    "Alfeld C2": None,
+    "Alfeld-Sorokina": "alfeld-sorokina",
+    "Argyris": "argyris",
+    "Arnold-Qin": None,
+    "Bell": "bell",
+    "Bernardi-Raugel": "bernardi-raugel",
+    "Bernardi-Raugel Bubble": None,
+    "Bernstein": "bernstein",
+    "Bramble-Zlamal C2": None,
+    "Brezzi-Douglas-Fortin-Marini": "brezzi-douglas-fortin-marini",
+    "Brezzi-Douglas-Marini": "brezzi-douglas-marini",
+    "Brezzi-Douglas-Marini Cube Edge": "scurl",
+    "Brezzi-Douglas-Marini Cube Face": "sdiv",
+    "Bubble": "bubble",
+    "Christiansen-Hu": None,
+    "Conforming Arnold-Winther": "arnold-winther",
+    "Crouzeix-Raviart": "crouzeix-raviart",
+    "Direct Serendipity": "direct-serendipity",
+    "Discontinuous Lagrange": "discontinuous-lagrange",
+    "Discontinuous Lagrange L2": "discontinuous-lagrange",
+    "Discontinuous Raviart-Thomas": None,
+    "Discontinuous Taylor": "taylor",
+    "DPC": "dpc",
+    "DPC L2": "dpc",
+    "DQ": "discontinuous-lagrange",
+    "DQ L2": "discontinuous-lagrange",
+    "FacetBubble": None,
+    "Gauss-Legendre": "gauss-legendre",
+    "Gauss-Legendre L2": "gauss-legendre",
+    "Gauss-Lobatto-Legendre": "lagrange",
+    "Gopalakrishnan-Lederer-Schoberl 1st kind": "gopalakrishnan-lederer-schoberl",
+    "Gopalakrishnan-Lederer-Schoberl 2nd kind": None,
+    "Guzman-Neilan 1st kind H1": "guzman-neilan",
+    "Guzman-Neilan 2nd kind H1": "guzman-neilan2",
+    "Guzman-Neilan Bubble": None,
+    "Guzman-Neilan H1(div)": None,
+    "HDiv Trace": "lagrange",
+    "Hellan-Herrmann-Johnson": "hellan-herrmann-johnson",
+    "Hermite": "hermite",
+    "Hsieh-Clough-Tocher": "hsieh-clough-tocher",
+    "Hu-Zhang": None,
+    "Johnson-Mercier": "johnson-mercier",
+    "Kong-Mulder-Veldhuizen": "kong-mulder-veldhuizen",
+    "Lagrange": "lagrange",
+    "Mardal-Tai-Winther": "mardal-tai-winther",
+    "Morley": "morley",
+    "NCE": "nedelec1",
+    "NCF": "raviart-thomas",
+    "Nedelec 1st kind H(curl)": "nedelec1",
+    "Nedelec 2nd kind H(curl)": "nedelec2",
+    "Nonconforming Arnold-Winther": "nonconforming-arnold-winther",
+    "Nonconforming Robust Wu-Xu": None,
+    "Nonconforming Wu-Xu": "wu-xu",
+    "Q": "lagrange",
+    "QuadraticPowellSabin12": None,
+    "QuadraticPowellSabin6": None,
+    "Raviart-Thomas": "raviart-thomas",
+    "Real": None,
+    "Reduced-Arnold-Qin": None,
+    "Reduced-Hsieh-Clough-Tocher": "reduced-hsieh-clough-tocher",
+    "Regge": "regge",
+    "RTCE": "nedelec1",
+    "RTCF": "raviart-thomas",
+    "S": "serendipity",
+    "SminusCurl": "trimmed-serendipity-curl",
+    "SminusDiv": "trimmed-serendipity-div",
+    "SminusE": "trimmed-serendipity-curl",
+    "SminusF": "trimmed-serendipity-div",
+    "Walkington": None,
+}
+
+
+def name_cell(family):
+    """Return the table cell for the name of an element family.
+
+    Parameters
+    ----------
+    family : str
+        The full name of the element family.
+
+    Returns
+    -------
+    str
+        The family name, as an RST link to its DefElement page if there is
+        one, or as plain text otherwise.
+    """
+    if family not in defelement_names:
+        print(f"element_list.py: no DefElement entry for {family!r}",
+              file=sys.stderr)
+    page = defelement_names.get(family)
+    if page is None:
+        return family
+    return f"`{family} <https://defelement.org/elements/{page}.html>`__"
+
 
 def simple_aliases():
     """Return the aliases that always select the same element family.
@@ -73,5 +174,5 @@ with open("element_list.csv", 'w', newline='') as csvfile:
         rows.append((family, other_names, shape, cellnames))
 
     # Sort alphabetically by name, ignoring case.
-    for row in sorted(rows, key=lambda row: row[0].casefold()):
-        csvwriter.writerow(row)
+    for family, *rest in sorted(rows, key=lambda row: row[0].casefold()):
+        csvwriter.writerow((name_cell(family), *rest))

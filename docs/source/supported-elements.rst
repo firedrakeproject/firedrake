@@ -60,7 +60,8 @@ Getting more information about an element
 
 To see what an element actually is (its degrees of freedom, its
 polynomial space, and diagrams of its basis functions), look it up on
-`DefElement <https://defelement.org>`__.
+`DefElement <https://defelement.org>`__.  In the table above, the name
+of each family that has a DefElement page is a link to that page.
 
 The page
 `Implemented in FIAT <https://defelement.org/lists/implementations/fiat.html>`__
