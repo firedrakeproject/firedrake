@@ -42,6 +42,9 @@ class CompilerParameters:
     thread_transposition: bool = False
     """ Option to apply thread-transposition as GPU optimisation """ 
 
+    shared_tables: bool = False
+    """ With thread transposition, copy the tensor-valued literals into the shared memory of each block """
+
     # }}}
 
     # {{{ profiling options

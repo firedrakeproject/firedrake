@@ -13,7 +13,7 @@ from pyop3 import utils
 from pyop3.buffer import NullBuffer, ArrayBuffer, IndexedBuffer
 from pyop3.device import Device, HOST_DEVICE, get_current_device
 from pyop3.compile.passes.mlir.atomics import ATOMIC_RMW_KIND_ADDF, ATOMIC_RMW_KIND_ADDI
-from pyop3.compile.passes.impero.utils import is_shared, is_temporary, static_extent
+from pyop3.compile.passes.impero.utils import gem_nodes, is_shared, is_temporary, static_extent, temporary
 from pyop3.compile.passes.mlir.thread_loops import THREAD_LOOP, WORKGROUP_ADDRESS_SPACE
 
 from gem import gem, impero as imp
@@ -49,6 +49,16 @@ FP_FAST = arith.FastMathFlagsAttr("fast")
 # LLVM combines adjacent shared-memory loads into 16-byte vector loads, so each
 # shared temporary must start on a 16-byte boundary.
 SHARED_ALIGNMENT = 16
+
+def tables(node: imp.Node) -> list[gem.Literal]:
+    """The tensor-valued literals below `node`, without repetition."""
+    return list(dict.fromkeys(n for n in gem_nodes(node) if isinstance(n, gem.Literal) and n.shape))
+
+
+def shared_table_bytes(node: imp.Node) -> int:
+    """The shared memory that the tables below `node` take when a builder has `shared_tables`."""
+    return sum(utils.ceildiv(t.array.nbytes, SHARED_ALIGNMENT) * SHARED_ALIGNMENT for t in tables(node))
+
 
 def get_mlir_type(dtype):
     dt = np.dtype(dtype)
@@ -120,6 +130,8 @@ class MLIRBuilder:
         root,
         arguments: Mapping[str, IndexedBuffer],
         name: str = "imp_kernel",
+        *,
+        shared_tables: bool = False,
     ) -> None:
         """Create the kernel FuncOp, with one memref argument for each buffer in `arguments`.
 
@@ -129,9 +141,12 @@ class MLIRBuilder:
         :arg arguments: Map from the kernel name of each buffer to its buffer view.
             Temporaries (views of a `NullBuffer`) are not function arguments and are dropped.
         :arg name: The name of the generated MLIR kernel
+        :arg shared_tables: Whether each block of an `ItemBatch` copies the tables into its shared memory.
+            The caller checks that they fit, see `shared_table_bytes`.
 
         """
         self._root = root
+        self._shared_tables = shared_tables
 
         # Kernel name -> buffer view, for the buffers that are function arguments
         # Excluding NullBuffers that are not function arguments 
@@ -584,6 +599,14 @@ class MLIRBuilder:
 
         block_id = body.args[0]
         with self._item_loop(body):
+            # One thread per entry copies each table, so that the phases read it from shared memory
+            for table in tables(batch) if self._shared_tables else ():
+                source = self._declare_buffer(table)
+                shared = self.buffer_for(temporary(self.unique_name("table"), (table.array.size,), table.dtype, shared=True))
+                with self.thread_loop([table.array.size]) as (entry,):
+                    self.insert(memref.StoreOp.get(self.insert(memref.LoadOp.get(source, [entry])), shared, [entry]))
+                self._buffers[self._entry, table] = shared
+
             # Each child of ItemBatch is a ThreadLoop. Each loop does not iterate but assigns steps to threads
             for loop in batch.statement.children:
                 with self.thread_loop([batch.batch_size, *map(static_extent, loop.domain)]) as (local, *indices):

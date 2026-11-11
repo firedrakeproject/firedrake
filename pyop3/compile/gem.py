@@ -53,7 +53,7 @@ from pyop3.insn.base import (
 from pyop3.device import HOST_DEVICE, get_current_device, offloading
 
 from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
-from pyop3.compile.mlir import MLIRBuilder
+from pyop3.compile.mlir import MLIRBuilder, shared_table_bytes
 from pyop3.compile.passes.impero.item_loop import assign_crossing_values, batch_items, mark_atomics
 from pyop3.compile.passes.impero.utils import temporary
 from pyop3.insn.exec import ParsedCompilerParameters
@@ -153,12 +153,17 @@ class GemExecutable(Executable):
         on_device = get_current_device() != HOST_DEVICE
         if on_device and self.compiler_parameters.thread_transposition:
             from pyop3.compile.passes.impero.thread_transposition import thread_transpose
-            tree = thread_transpose(self._impero.tree, target=get_current_device().target)
+            shared_tables = self.compiler_parameters.shared_tables
+            tree = thread_transpose(
+                self._impero.tree, target=get_current_device().target,
+                extra_shared_bytes=shared_table_bytes(self._impero.tree) if shared_tables else 0,
+            )
         else:
+            shared_tables = False
             tree = assign_crossing_values(self._impero)
             if on_device:
                 tree = batch_items(mark_atomics(tree))
-        builder = MLIRBuilder(tree, self.arguments)
+        builder = MLIRBuilder(tree, self.arguments, shared_tables=shared_tables)
         module_code, kernel_args, func_name = builder.build()
 
         # The argument devices are only complete after `build` has been called

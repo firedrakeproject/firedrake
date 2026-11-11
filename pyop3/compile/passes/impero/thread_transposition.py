@@ -268,7 +268,7 @@ def fuse_phases(nests: tuple[Nest, ...]) -> tuple[Phase, ...]:
     """Greedily fuse each nest into the previous phase, or open a new one."""
     phases = []
     for nest in nests:
-        if phases and (fused := _try_fuse(phases[-1], nest)) is not None:
+        if phases and (fused := try_fuse(phases[-1], nest)) is not None:
             phases[-1] = fused
         else:
             phases.append(Phase(nest.domain, (nest,)))
@@ -467,7 +467,7 @@ def _phase_counts(phase: Phase, temporaries: Mapping[str, Temporary]) -> np.ndar
 
 # {{{ phase fusion
 
-def _try_fuse(phase: Phase, nest: Nest) -> Phase | None:
+def try_fuse(phase: Phase, nest: Nest) -> Phase | None:
     """Return `phase` with `nest` fused in, or `None` if this is not legal.
 
     The nest domain must map onto the phase domain by an extent-preserving

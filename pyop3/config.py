@@ -145,6 +145,18 @@ class Pyop3Configuration:
             from_str=pytools.strtobool,
         ),
 
+        "ptxas_verbose": ConfigOption(
+            bool,
+            False,
+            """Write the verbose output of the PTX compiler into the compile log of each CUDA kernel.
+
+            The output has the registers, the shared memory and the spills of the kernel.
+
+            """,
+            default_debug_value=True,
+            from_str=pytools.strtobool,
+        ),
+
         "check_src_hashes": ConfigOption(
             bool,
             True,

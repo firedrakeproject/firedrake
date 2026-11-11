@@ -35,6 +35,7 @@
 import ctypes
 import dataclasses
 import os
+import re
 import platform
 import shlex
 import shutil
@@ -45,6 +46,7 @@ from collections.abc import Hashable
 from contextlib import contextmanager
 from functools import partial
 from hashlib import md5
+from io import StringIO
 from pathlib import Path
 from random import randint
 from tempfile import gettempdir, mkstemp
@@ -576,10 +578,14 @@ class MLIRCompiler(Compiler):
     @property
     def mlir_opt_flags(self) -> tuple[str, ...]:
         device = get_current_device()
-        return (
-            *(flag.format(arch=device.arch) for flag in MLIR_OPT_PASSES[type(device)]),
-            *getattr(pyop3.config, "extra_mlir_opt_flags", ()),
-        )
+        flags = (flag.format(arch=device.arch) for flag in MLIR_OPT_PASSES[type(device)])
+        if pyop3.config.ptxas_verbose:
+            # mlir-opt then stores the output of the PTX compiler in the binary, where _lower_mlir finds it
+            flags = (
+                f"{flag} collect-compiler-diagnostics ptxas-cmd-options=-v" if flag.startswith("--nvvm-attach-target") else flag
+                for flag in flags
+            )
+        return (*flags, *getattr(pyop3.config, "extra_mlir_opt_flags", ()))
 
     @property
     def xdsl_pipeline(self):
@@ -891,8 +897,16 @@ def _lower_mlir(compiler, code: str, lowered_name: Path, logfile: Path, errfile:
             Compile errors in {errfile!s}
         """)) from e
 
+    lowered = StringIO()
+    Printer(print_generic_format=True, stream=lowered).print_op(module)
     with open(lowered_name, "w") as fh:
-        Printer(print_generic_format=True, stream=fh).print_op(module)
+        fh.write(lowered.getvalue())
+
+    # The output of the PTX compiler, which mlir-opt stores if pyop3.config.ptxas_verbose is set
+    if ptx_logs := re.findall(r'ISACompilerLog = "((?:[^"\\]|\\.)*)"', lowered.getvalue()):
+        with open(logfile, "w") as log:
+            for ptx_log in ptx_logs:
+                log.write(re.sub(r"\\([0-9A-Fa-f]{2})", lambda m: chr(int(m[1], 16)), ptx_log) + "\n")
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):
