@@ -95,7 +95,7 @@ def test_restrict_assign(into_restricted):
 
 
 @pytest.mark.parallel([1, 3])
-@pytest.mark.parametrize("op", ["bc.zero", "zero", "assign"])
+@pytest.mark.parametrize("op", ["bc.zero", "zero", "assign", "max", "min"])
 def test_restricted_assign_writes_bc_nodes(op):
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 2)
@@ -110,11 +110,17 @@ def test_restricted_assign_writes_bc_nodes(op):
     elif op == "zero":
         u.zero()
         expected = 0
-    else:
+    elif op == "assign":
         g = Function(V_res)
         g.dat.data_wo_with_halos[...] = 2
         u.assign(g)
         expected = 2
+    elif op == "max":
+        u.dat.assign(3, mode="max", eager=True, eager_strategy="array")
+        expected = 3
+    else:
+        u.dat.assign(-1, mode="min", eager=True, eager_strategy="array")
+        expected = -1
 
     # The boundary condition nodes of a restricted space are the constrained DoFs
     assert np.allclose(u.dat.data_ro_with_halos[bc.nodes], expected)

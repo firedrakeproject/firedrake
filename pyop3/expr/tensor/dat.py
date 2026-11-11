@@ -411,16 +411,25 @@ class Dat(Tensor):
         """
         return self.as_array("rw", include_ghosts=True)
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc", "max", "min"]) -> None:
         from pyop3.expr.visitors import evaluate_arraywise
 
         # Use the views with ghosts because the views without them do not include
         # constrained entries. This writes the same entries as the compiled assignment.
         other_eval = evaluate_arraywise(other, include_ghosts=True)
-        if mode == "write":
-            self.data_wo_with_halos[...] = other_eval
-        else:
-            self.data_rw_with_halos[...] += other_eval
+        match mode:
+            case "write":
+                self.data_wo_with_halos[...] = other_eval
+            case "inc":
+                self.data_rw_with_halos[...] += other_eval
+            case "max":
+                data = self.data_rw_with_halos
+                np.maximum(data, other_eval, out=data)
+            case "min":
+                data = self.data_rw_with_halos
+                np.minimum(data, other_eval, out=data)
+            case _:
+                raise AssertionError(f"Assignment mode '{mode}' not recognised")
 
     # TODO: eventually deprecate this
     @property
