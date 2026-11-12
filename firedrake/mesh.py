@@ -2485,6 +2485,7 @@ class MeshTopology(AbstractMeshTopology):
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
+    @utils.deprecated("interpolate(..., subdomain_id=...) or Mesh.iter(...)")
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None) -> op3.Slice:
         """Return a subset over cells with the given subdomain_id.
 
@@ -2503,6 +2504,7 @@ class MeshTopology(AbstractMeshTopology):
          :returns: The subdomain ID.
         """
         # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
+        # See https://github.com/firedrakeproject/firedrake/issues/5630.
         return subdomain_id
 
     @staticmethod

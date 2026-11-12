@@ -800,7 +800,7 @@ def test_interpolation_cell_subset():
     mesh = RelabeledMesh(mesh, [ind], [100])
 
     a = Constant(1)
-    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subset=mesh.cell_subset(100))
+    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subdomain_id=100)
 
     assert assemble((u-a/2)*dx) < 1e-14
 
