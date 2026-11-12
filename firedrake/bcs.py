@@ -783,7 +783,8 @@ def extract_subdomain_ids(bcs):
     _chain = itertools.chain.from_iterable
     _to_tuple = lambda s: (s,) if isinstance(s, (int, str)) else s
     subdomain_ids = tuple(tuple(_chain(_to_tuple(bc.sub_domain)
-                                for bc in bcs if bc.function_space() == Vsub))
+                                for bc in bcs if bc.function_space() == Vsub
+                                and bc.function_space().index == Vsub.index))
                           for Vsub in V)
     return subdomain_ids
 
