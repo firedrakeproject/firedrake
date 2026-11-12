@@ -1,5 +1,6 @@
 import numpy
 import ufl
+from ufl.algorithms import extract_coefficients
 from ufl.domain import extract_domains, extract_unique_domain
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
@@ -61,12 +62,12 @@ class GenericSolveBlock(Block):
         if bcs is not None:
             self.bcs = Enlist(bcs)
 
-        if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
-            self.linear = True
-            for c in self.rhs.coefficients():
+        # A linear problem has a bilinear lhs. The rhs can be any 1-form,
+        # for example a Form, a Cofunction, or an Interpolate.
+        self.linear = isinstance(self.lhs, ufl.BaseForm) and len(self.lhs.arguments()) == 2
+        if isinstance(self.rhs, ufl.BaseForm):
+            for c in extract_coefficients(self.rhs):
                 self.add_dependency(c, no_duplicates=True)
-        else:
-            self.linear = False
 
         for c in self.lhs.coefficients():
             self.add_dependency(c, no_duplicates=True)
