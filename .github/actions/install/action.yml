@@ -165,6 +165,7 @@ runs:
 
         : # DROP BEFORE MERGE
         pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/fix/dual-enriched-again
+        pip install -v --no-deps --ignore-installed git+https://github.com/FEniCS/ufl.git@pbrubeck/join-domains-mesh-sequence
         pip install --verbose $EXTRA_PIP_FLAGS \
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
