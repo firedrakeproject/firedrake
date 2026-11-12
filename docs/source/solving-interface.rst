@@ -798,7 +798,7 @@ spanned by the set of vectors :math:`{e}` for which :math:`Ae = 0` is
 termed the *null space* of :math:`A`.  If we wish to solve such a
 system, we must remove the null space from the solution.  To do this
 in Firedrake, we first must define the null space, and then inform the
-solver of its existance.  We use a
+solver of its existence.  We use a
 :class:`~firedrake.nullspace.VectorSpaceBasis` to hold the vectors
 which span the null space.  We must provide a list of
 :class:`~.Function`\s spanning the space.  Additionally,

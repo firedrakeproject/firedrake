@@ -64,7 +64,7 @@
 #     \end{Bmatrix} \equiv \mathbf{b}
 # $$
 #
-# for the coefficent vectors $U$ and $D$. A challenge for systems of this type is finding a parameter-indepedent solver for which we have good convergence. First, let's set up an example.
+# for the coefficient vectors $U$ and $D$. A challenge for systems of this type is finding a parameter-independent solver for which we have good convergence. First, let's set up an example.
 
 # %% [markdown]
 # ## Example implementation

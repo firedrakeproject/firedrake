@@ -803,7 +803,7 @@ it in editable mode. However, there are a number of footguns to look out for:
    which tells you that the ``main`` branch of FIAT is expected.
 
 #. These packages **must be installed after Firedrake**. If Firedrake is installed
-   after installing the subpackage then the subpackage will be overwriiten. This is
+   after installing the subpackage then the subpackage will be overwritten. This is
    due to the way that pip manages dependencies. Similarly, it is necessary
    that **dependencies are themselves installed in reverse order**. For example, Firedrake
    depends on both FIAT_ and UFL_, but FIAT also depends on UFL, therefore FIAT must be
