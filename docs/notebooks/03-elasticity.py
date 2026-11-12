@@ -125,7 +125,7 @@ axes.set_aspect("equal");
 # %% [markdown]
 # ## Exercises
 #
-# Modify the problem so that the material density $\rho$ is not constant, but rather varies in space.  For example, you could try setting $\rho(x, y) = 0.01 + xy$.  That is, the material gets denser the futher away from the clamped end you get.
+# Modify the problem so that the material density $\rho$ is not constant, but rather varies in space.  For example, you could try setting $\rho(x, y) = 0.01 + xy$.  That is, the material gets denser the further away from the clamped end you get.
 #
 # - Hint 1: The values for the components of `as_vector` can be arbitrary UFL expressions.
 # - Hint 2: You can get symbolic expressions for the coordinates with `x, y = SpatialCoordinate(mesh)`.

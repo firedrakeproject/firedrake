@@ -45,7 +45,7 @@ To save functions to the :class:`~.vtk_output.VTKFile` we use the
    Output created for visualisation purposes is
    not intended for purposes other than visualisation. If you need
    to save data for checkpointing purposes, you should
-   instead use Firedrake's :doc:`checkingpointing capabilities
+   instead use Firedrake's :doc:`checkpointing capabilities
    <checkpointing>`.
 
 Saving time-dependent data
@@ -140,7 +140,7 @@ If instead we want projection, we use
 Using Paraview on higher order data
 +++++++++++++++++++++++++++++++++++
 
-Paraview's visualisation algorithims are typically exact on piecewise linear data,
+Paraview's visualisation algorithms are typically exact on piecewise linear data,
 but if you write higher order data, Paraview will produce an approximate visualisation.
 This approximation can be controlled in at least two ways:
 
@@ -320,7 +320,7 @@ is the same.
 For 1D functions with degree less than 4, the plot of the function would be
 exact using Bezier curves. For higher order 1D functions, the plot would be the
 linear approximation by sampling points of the function. The number of sample
-points per element could be specfied to when calling :func:`plot
+points per element could be specified when calling :func:`plot
 <firedrake.pyplot.plot>`.
 
 To install matplotlib_, please look at the installation instructions of
@@ -334,7 +334,7 @@ Plotting vertex-only mesh data with matplotlib
 
 Firedrake supports the visualisation of point data, represented as a :func:`~.VertexOnlyMesh`, in much the same way as its other plotting routines.
 In particular, :func:`scatter <firedrake.pyplot.scatter>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
-Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjuction with :func:`triplot <firedrake.pyplot.triplot>`
+Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjunction with :func:`triplot <firedrake.pyplot.triplot>`
 which makes apparent the embedding of the vertex-only mesh inside its parent mesh. As the below code demonstrates, :func:`scatter <firedrake.pyplot.scatter>` gives the user the freedom to pass 
 either a :func:`~.VertexOnlyMesh` object or a scalar :class:`~.Function` defined on it, in which case, the values of the function will be used to colour the points. 
 

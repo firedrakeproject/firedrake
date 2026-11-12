@@ -114,7 +114,7 @@ for `R`. Note that there is only a single basis function for `R` and `\psi_i \eq
 
   K_{ij} = \int_\Omega \phi_i \,\mathrm{d}x
 
-with the result that `K` is a single dense matrix column. Similiarly,
+with the result that `K` is a single dense matrix column. Similarly,
 `K^T` is a single dense matrix row.
 
 Using the CSR matrix format typically employed by Firedrake, each

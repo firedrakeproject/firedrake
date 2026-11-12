@@ -133,7 +133,7 @@ paths=plot(dJ, axes=axes)
 # \hat{J}(m) = J(u(m), m)
 # $$
 #
-# Where $m$ is the control. As well as differentiating the functional, it's possible to evaluate it for a new intial condition. This is achieved by calling the reduced functional:
+# Where $m$ is the control. As well as differentiating the functional, it's possible to evaluate it for a new initial condition. This is achieved by calling the reduced functional:
 #
 # ```python3
 # Jhat(u_new)
@@ -200,7 +200,7 @@ adjoints += [Jhat.controls[0].adj_value]
 adjoints
 
 # %% [markdown]
-# The adjoint variables are, as expected, cofunctions. To recover the adjoint solutions in a form we can visualise, we take the Riesz represntation to recover Functions:
+# The adjoint variables are, as expected, cofunctions. To recover the adjoint solutions in a form we can visualise, we take the Riesz representation to recover Functions:
 
 # %%
 adjoints = [a.riesz_representation(riesz_map="L2") for a in adjoints if a] 
@@ -250,7 +250,7 @@ continue_annotation()
 # %% [markdown]
 # ## Visualising the tape
 #
-# An exceptionally useful aid to understanding the computation of the adjoint is to produce a visual representation of the tape. To produce a managable sized figure, we'll rerun the Burgers equation with just 5 timesteps:
+# An exceptionally useful aid to understanding the computation of the adjoint is to produce a visual representation of the tape. To produce a manageable sized figure, we'll rerun the Burgers equation with just 5 timesteps:
 
 # %%
 tape=get_working_tape()

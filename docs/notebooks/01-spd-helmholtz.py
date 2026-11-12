@@ -211,7 +211,7 @@ u_exact = cos(2*pi*x)*cos(2*pi*y)
 # %%
 
 # %% [markdown]
-# ## Part II: inhomogeneous Neuman conditions
+# ## Part II: inhomogeneous Neumann conditions
 #
 # Let us recall again the statement of our problem.  We seek $u \in V$ satisfying
 #

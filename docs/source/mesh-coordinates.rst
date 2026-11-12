@@ -14,7 +14,7 @@ a mesh object. For example,
 
    mesh.coordinates.dat.data[:, 1] *= 2.0
 
-streches the mesh in the *y*-direction. Another possibility is to use
+stretches the mesh in the *y*-direction. Another possibility is to use
 :meth:`~.Function.assign`:
 
 .. code-block:: python

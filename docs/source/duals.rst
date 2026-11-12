@@ -92,7 +92,7 @@ represents the integration of the unknown function ``a`` over the domain. It's t
     c = assemble(res)
 
 
-Furthermore, we will want to express unknown objects in the dual space. For example, in order to represent interpolation from a space :math:`U` to a space :math:`V`,  it is convienent to reframe this as a problem involving the dual space:
+Furthermore, we will want to express unknown objects in the dual space. For example, in order to represent interpolation from a space :math:`U` to a space :math:`V`,  it is convenient to reframe this as a problem involving the dual space:
 
 .. math::
 
@@ -109,7 +109,7 @@ A :py:class:`~.Coargument` can be constructed by either calling :py:class:`~.ufl
     w = Coargument(V.dual(), 3) # type Coargument
 
 
-There is a further dual-related type avalilable in UFL. In :py:class:`~.ufl.Cofunction`, we have represented an assembled 1-form. However, commonly we also assemble 2-forms. :py:class:`~.Matrix` allows an analogous use, and assembled 2-forms can be naturally combined with 2-forms that have not yet been assembled:
+There is a further dual-related type available in UFL. In :py:class:`~.ufl.Cofunction`, we have represented an assembled 1-form. However, commonly we also assemble 2-forms. :py:class:`~.Matrix` allows an analogous use, and assembled 2-forms can be naturally combined with 2-forms that have not yet been assembled:
 
 .. code-block:: python
 
