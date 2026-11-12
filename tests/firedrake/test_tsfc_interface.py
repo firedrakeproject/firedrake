@@ -99,6 +99,7 @@ def test_tsfc_cell_exterior_facet_kernel(rhs2):
 
 
 @pytest.mark.parametrize("add_petsc_events", [False, True])
+@pytest.mark.parallel([1, 2])
 def test_tsfc_kernel_links_petsc_for_log_events(mass, add_petsc_events):
     k, = tsfc_interface.compile_form(mass, 'mass', parameters={"add_petsc_events": add_petsc_events})
     libraries = k.kinfo.kernel.compiler_options.libraries

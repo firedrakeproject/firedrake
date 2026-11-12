@@ -60,7 +60,6 @@ class LoopyCodegenContext(CodegenContext):
 
         # Local kernels can call C standard library functions (e.g. 'creal') without including their headers.
         self._preambles: dict[str, str] = {
-            "20_debug": "#include <stdio.h>",  # dont always inject
             "20_complex": "#include <complex.h>",
             "20_math": "#include <math.h>",
         }

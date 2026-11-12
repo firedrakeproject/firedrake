@@ -123,6 +123,7 @@ def test_assignment_does_not_use_petsc():
     executable = _compile_loop(op3.loop(p := axis.iter(), dat1[p].assign(dat0[p])))
     assert op3.cc.LIBPETSC not in executable.extra_compiler_options.libraries
     assert "#include <petsc" not in executable._device_code
+    assert "#include <stdio.h>" not in executable._device_code
 
 
 @pytest.mark.parametrize("compiler_parameters, header", [

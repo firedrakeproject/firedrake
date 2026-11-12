@@ -14,9 +14,12 @@ def mat_equals(a, b):
     return a.norm(norm_type=PETSc.NormType.NORM_FROBENIUS) < 1e-14
 
 
-def test_constant():
+@pytest.mark.parametrize("add_petsc_events", [False, True])
+@pytest.mark.parallel([1, 2])
+def test_constant(add_petsc_events):
     cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
-    f = assemble(interpolate(Constant(1.0), cg1))
+    f = assemble(interpolate(Constant(1.0), cg1),
+                 form_compiler_parameters={"add_petsc_events": add_petsc_events})
     assert np.allclose(1.0, f.dat.data_ro)
 
 

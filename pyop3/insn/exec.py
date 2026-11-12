@@ -461,8 +461,7 @@ class Executable:
     comm
         The communicator.
     extra_compiler_options
-        The libraries that are needed to compile and link the code, in
-        addition to the libraries that every loop links against.
+        The libraries that are needed to compile and link the code.
     petsc_events
         The names of the PETSc log events that the code records.
 

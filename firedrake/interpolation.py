@@ -34,7 +34,7 @@ from firedrake import utils
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.utils import IntType, ScalarType, tuplify
 from firedrake.pointeval_utils import runtime_quadrature_element
-from firedrake.tsfc_interface import extract_numbered_coefficients, kernel_libraries, _cachedir
+from firedrake.tsfc_interface import extract_numbered_coefficients, _cachedir
 from firedrake.mesh import MissingPointsBehaviour, VertexOnlyMeshTopology, MeshGeometry, MeshTopology, VertexOnlyMesh
 from firedrake.ufl_expr import Argument, Coargument, TrialFunction, TestFunction, action
 from firedrake.petsc import PETSc
@@ -1194,7 +1194,7 @@ def _build_interpolation_callables(
     expression_kernel = op3.Function(
         kernel.ast,
         [access] + [op3.READ for _ in local_kernel_args[1:]],
-        libraries=kernel_libraries(kernel),
+        libraries=(op3.cc.LIBPETSC,) if kernel.event is not None else (),
     )
     parloop = op3.loop(loop_index, expression_kernel(*local_kernel_args))
 
