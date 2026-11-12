@@ -380,6 +380,7 @@ latex_elements = {
 \sphinxDUC{25A3}{$\boxdot$}
 \sphinxDUC{03BB}{$\lambda$}
 \sphinxDUC{0393}{$\Gamma$}
+\sphinxDUC{27A4}{}  % can be omitted
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 
