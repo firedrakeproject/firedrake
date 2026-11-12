@@ -523,6 +523,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
 
+        if problem.restrict:
+            V = problem.u_restrict.function_space()
+            nullspace = nullspace.rediscretise(V) if nullspace is not None else None
+            transpose_nullspace = transpose_nullspace.rediscretise(V) if transpose_nullspace is not None else None
+            near_nullspace = near_nullspace.rediscretise(V) if near_nullspace is not None else None
+
         ctx.set_objective(self.snes)
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
