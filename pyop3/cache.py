@@ -31,8 +31,8 @@ from petsc4py import PETSc
 
 import pyop3.collections
 import pyop3.config
+import pyop3.constants
 from pyop3 import utils
-from pyop3.constants import _nothing
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
 _CACHE_CIDX = itertools.count()
@@ -104,13 +104,13 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
                     obj._pyop3_cache[func.__qualname__] = (version, cache)
                 caches.append(cache)
 
-            value = _nothing
+            value = pyop3.constants.NOTHING
             for cache in caches:
                 if key in cache:
                     value = cache[key]
                     break
 
-            if value is _nothing:
+            if value is pyop3.constants.NOTHING:
                 value = func(*args, **kwargs)
 
             for cache in caches:
@@ -571,14 +571,6 @@ def default_parallel_hashkey(*args, **kwargs) -> Hashable:
 
 class DEFAULT_CACHE(dict):
     pass
-
-
-# Turn on cache measurements if printing cache info is enabled
-# FIXME: make a function, not global config
-# if configuration["print_cache_info"]:
-
-
-execs = weakref.WeakSet()
 
 
 # TODO: One day should use the compilation comm to do the bcast

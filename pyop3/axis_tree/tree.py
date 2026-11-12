@@ -11,7 +11,7 @@ import typing
 import weakref
 from collections.abc import Hashable, Iterable, Mapping, Sequence
 from functools import cached_property
-from types import GeneratorType, NoneType
+from types import NoneType
 from typing import (
     Any,
     Self,
@@ -61,7 +61,6 @@ from pyop3.utils import (
 from ._tree_cy import create_section_with_arrays  # noqa: F401
 
 if typing.TYPE_CHECKING:
-    import pyop3.visitors
     from pyop3.types import *
 
 
@@ -77,7 +76,7 @@ class LoopContextAwareAxisTreeLike(pyop3.obj.Object):
     def __getitem__(self, indices):
         pass
 
-    # Prevent defining __getitem__ making the class implicitly iterable
+    # Prevent defining __getitem__ from making the class implicitly iterable
     __iter__ = None
 
 
@@ -91,7 +90,7 @@ class LoopContextFreeAxisTreeLike(LoopContextAwareAxisTreeLike, pyop3.labeled_tr
 
     @property
     @abc.abstractmethod
-    def unindexed(self) -> LoopContextFreeAxisTreeLike | None:
+    def unindexed(self):
         pass
 
     @property
@@ -286,6 +285,12 @@ class AxisComponent(LabeledNodeComponent):
     """
     Parameters
     ----------
+    regions
+        regions
+    label
+        label
+    sf
+        sf
     size
         This is useful if we know a-priori that the region sizes sum to something.
         For example the number of unconstrained+constrained dofs will always add to 3.
@@ -295,8 +300,8 @@ class AxisComponent(LabeledNodeComponent):
 
     regions: Any
     _size: Any
-    label: ComponentLabelT
-    sf: Any
+    label: NodeComponentLabelT
+    sf: AbstractStarForest | None
 
     def get_disk_cache_key(self, visitor) -> Hashable:
         return (
@@ -314,9 +319,9 @@ class AxisComponent(LabeledNodeComponent):
     def __init__(
         self,
         regions,
-        label=DECIDE,
+        label: NodeComponentLabelT | pyop3.constants.DecideType = DECIDE,
         *,
-        sf=None,
+        sf: AbstractStarForest | None = None,
         size: Any = None,
     ) -> None:
         from pyop3 import evaluate
@@ -398,7 +403,7 @@ class AxisComponent(LabeledNodeComponent):
         return len(self.regions) > 1 or utils.just_one(self.regions).label is not None
 
     @property
-    def region_labels(self) -> tuple[ComponentRegionLabelT]:
+    def region_labels(self) -> tuple[AxisComponentRegionLabelT]:
         return tuple(r.label for r in self.regions)
 
     @property
@@ -510,7 +515,7 @@ class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
         # instead of an IndexedAxisTree.
         return self.as_tree()[indices]
 
-    def iter(self, **kwargs):
+    def iter(self, **kwargs) -> pyop3.Index:
         return self.as_tree().iter(**kwargs)
 
     @property
@@ -603,7 +608,7 @@ class Axis(LoopContextFreeAxisTreeLike, MultiComponentLabeledNode):
         clabel = as_component_label(component)
         return self.component_labels.index(clabel)
 
-    def matching_component(self, component_label: ComponentLabelT) -> AxisComponent:
+    def matching_component(self, component_label: NodeComponentLabelT) -> AxisComponent:
         return self.components[self.component_index(component_label)]
 
     @property
@@ -654,7 +659,7 @@ class AxisTarget(pyop3.obj.Object):
     # {{{ instance attrs
 
     axis: AxisLabelT
-    component: AxisComponentLabelT
+    component: NodeComponentLabelT
     expr: ExpressionT
 
     def collect_buffers(self, visitor) -> OrderedFrozenSet:
@@ -853,7 +858,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         indices,
         *,
         strict=False,
-    ) -> AbstractNonUnitAxisTree | AxisForest | ContextSensitiveAxisTree:
+    ) -> LoopContextAwareAxisTreeLike:
         import pyop3.index_tree.tree
 
         if utils.is_ellipsis_type(indices):
@@ -871,7 +876,8 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         else:
             return self._getitem_cached(indices, strict=strict)
 
-    @cached_method()
+    # LRU since indices may hold arrays (e.g. DirichletBC node sets)
+    @cached_method(make_cache=lambda: pyop3.cache.LRUCache(100))
     def _getitem_cached(self, indices, *, strict):
         return self._getitem_uncached(indices, strict=strict)
 
@@ -969,12 +975,11 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def index(self) -> LoopIndex:
         return self.iter()
 
-    def iter(self, *, eager=False) -> LoopIndex | GeneratorType[IteratorIndexT]:
+    def iter(self, *, eager=False) -> pyop3.LoopIndex:
         import pyop3
 
         if eager:
             raise NotImplementedError
-            return _iter_axis_tree(self)
         elif self.is_linear:
             return pyop3.LoopContextFreeLoopIndex(self)
         else:
@@ -983,7 +988,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
     def as_tree(self) -> Self:
         return self
 
-    def component_size(self, path: PathT, component_label: ComponentLabelT) -> ExpressionT:
+    def component_size(self, path: PathT, component_label: NodeComponentLabelT) -> ExpressionT:
         from pyop3 import Scalar
         from pyop3.expr import ScalarBufferExpression
 
@@ -1006,7 +1011,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     @property
     @abc.abstractmethod
-    def global_numbering(self) -> op3.Dat:
+    def global_numbering(self) -> pyop3.Dat:
         pass
 
     @property
@@ -1049,7 +1054,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         return self.comm.allreduce(self.owned.local_size)
 
     @abc.abstractmethod
-    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: AxisComponentLike = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
         pass
 
     @cached_property
@@ -1070,7 +1075,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         """TODO"""
         return self.with_region_labels({region_label}, allow_missing=allow_missing)
 
-    def with_region_labels(self, region_labels: Sequence[ComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
+    def with_region_labels(self, region_labels: Sequence[AxisComponentRegionLabelT], *, allow_missing: bool = False) -> IndexedAxisTree:
         """TODO"""
         if not region_labels or not self._all_region_labels and allow_missing:
             return self
@@ -1153,7 +1158,7 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
 
     # TODO: rename to just _region_labels or similar
     @cached_property
-    def _all_region_labels(self) -> tuple[ComponentRegionLabelT]:
+    def _all_region_labels(self) -> tuple[AxisComponentRegionLabelT]:
         region_labels = OrderedSet()
         for axis in self.axes:
             for component in axis.components:
@@ -1218,7 +1223,7 @@ class AbstractIndexedAxisTree(LoopContextFreeAxisTreeLike):
 
     __abstract_record_attrs = ("_unindexed", "_targets")
 
-    def restrict_nest(self, nest_label: ComponentLabelT) -> AbstractNonUnitAxisTree:
+    def restrict_nest(self, nest_label: NodeComponentLabelT) -> AbstractNonUnitAxisTree:
         """Restrict an axis tree to a nested piece of it.
 
         The idea here is to trim ``orig_axes`` with index such that we can pretend
@@ -1241,6 +1246,13 @@ class AbstractIndexedAxisTree(LoopContextFreeAxisTreeLike):
 
 @pyop3.record.frozenrecord()
 class _UnitAxisTree(AbstractUnindexedAxisTree, AbstractUnitAxisTree):
+    """An axis tree representing a single value.
+
+    The singleton `UNIT_AXIS_TREE` should be used.
+
+    :meta public:
+
+    """
 
     # {{{ instance attrs
 
@@ -1326,7 +1338,7 @@ class _UnitAxisTree(AbstractUnindexedAxisTree, AbstractUnitAxisTree):
         assert node is None
         return idict()
 
-    def index(self) -> LoopIndex:
+    def index(self) -> pyop3.LoopIndex:
         from pyop3 import LoopIndex
 
         return LoopIndex(self)
@@ -1344,6 +1356,19 @@ labels.
 
 @pyop3.record.frozenrecord(repr=False)
 class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUnitAxisTree):
+    """Data layout descriptor.
+
+    Parameters
+    ----------
+    node_map : collections.abc.Mapping[pyop3.types.PathT, Axis] | types.NoneType
+        Mapping representing the tree of axes. Each key is a path of :class:`Axis`,
+        :class:`AxisComponent` label pairs (also a mapping), and each value is the
+        :class:`Axis` at this point in the tree. If ``node_map`` is :data:`None` then the
+        tree is considered empty (zero-sized).
+    comm : mpi4py.MPI.Comm | types.NoneType
+        MPI communicator for the object.
+
+    """
 
     # {{{ instance attrs
 
@@ -1364,7 +1389,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
 
     def __init__(
         self,
-        node_map: Mapping[PathT, Node] | None = None,
+        node_map: Mapping[PathT, Axis] | None = None,
         *,
         comm: MPI.Comm | None = None,
         _validate: bool = True,
@@ -1446,14 +1471,14 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
             return self[self._block_indices(block_shape)].materialize()
 
     # TODO: rename to local_section
-    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: AxisComponentLike = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as indexedaxistree but offsets are known to increase linearly
         from pyop3 import Dat
         from pyop3.expr.visitors import replace_terminals
 
         path = as_path(path)
         axis = self.node_map[path]
-        if component is pyop3.constants._nothing:
+        if component is pyop3.constants.NOTHING:
             component_label = utils.just_one(axis.component_labels)
         else:
             component_label = as_component_label(component)
@@ -1600,7 +1625,7 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
 
     # This is a PETSc-specific attribute
     @cached_property
-    def global_numbering(self) -> Dat[IntType]:
+    def global_numbering(self) -> pyop3.Dat:
         from pyop3 import Dat
 
         num_free_pts = self.buffer_size(include_ghosts=False)
@@ -1618,6 +1643,13 @@ class AxisTree(MutableLabeledTreeMixin, AbstractUnindexedAxisTree, AbstractNonUn
 
 @pyop3.record.frozenrecord(repr=False)
 class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
+    """An axis tree that has been indexed.
+
+    Indexed axis trees preserve the original axis tree and the expressions
+    that are needed to address the original tree using indices in the
+    current tree.
+
+    """
 
     # {{{ instance attrs
 
@@ -1774,7 +1806,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
             _validate=False,
         )
 
-    def section(self, path: PathT, component: ComponentT = pyop3.constants._nothing, indices=idict()) -> PETSc.Section:
+    def section(self, path: PathT, component: AxisComponentLike = pyop3.constants.NOTHING, indices=idict()) -> PETSc.Section:
         # NOTE: This is the same as axistree but offsets are known not to increase linearly
         # clean this up once we know if works
         from pyop3 import Dat
@@ -1783,7 +1815,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         path = as_path(path)
         axis = self.node_map[path]
 
-        if component is pyop3.constants._nothing:
+        if component is pyop3.constants.NOTHING:
             component_label = utils.just_one(axis.component_labels)
         else:
             component_label = as_component_label(component)
@@ -1889,7 +1921,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         make_cache=lambda: pyop3.cache.LRUCache(10),
         get_comm=lambda s, **kw: s.comm,
     )
-    def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray[IntType]:
+    def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray:
         mask_dat = pyop3.Dat(self, data=np.zeros(self.unindexed.local_size, dtype=np.uint8))
         for leaf_path in self.leaf_paths:
             iterset = self.linearize(leaf_path)
@@ -1904,7 +1936,7 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         return indices
 
     @cached_method()
-    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray[int]:
+    def buffer_slice(self, *, include_ghosts: bool) -> slice | np.ndarray:
         # Attempt to convert the indices into a slice if possible
         indices = self._buffer_indices(include_ghosts=include_ghosts)
         maybe_slice = utils.try_cast_slice(indices)
@@ -2242,10 +2274,23 @@ class AxisForest(LoopContextFreeAxisTreeLike):
         return self.getitem(indices, strict=False)
 
     def getitem(self, indices, *, strict=False):
-        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
+        import pyop3.index_tree.tree
 
         if utils.is_ellipsis_type(indices):
             return self
+
+        # Same caching strategy as AbstractNonUnitAxisTree.getitem
+        if pyop3.index_tree.tree.has_loop_indices(indices):
+            return self._getitem_uncached(indices, strict=strict)
+        else:
+            return self._getitem_cached(indices, strict=strict)
+
+    @cached_method()
+    def _getitem_cached(self, indices, *, strict):
+        return self._getitem_uncached(indices, strict=strict)
+
+    def _getitem_uncached(self, indices, *, strict):
+        from pyop3.axis_tree.context_sensitive import LoopContextSensitiveAxisTreeLike
 
         indexed_trees = []
         for tree in self.trees:
@@ -2253,9 +2298,9 @@ class AxisForest(LoopContextFreeAxisTreeLike):
                 indexed_tree = tree.getitem(indices, strict=strict)
                 indexed_trees.append(indexed_tree)
             except (pyop3.exceptions.InvalidIndexTargetException, pyop3.exceptions.IncompatibleAxisTargetException):
-                # FIXME: This is a performance bottleneck in some cases because we cannot
-                # cache exceptions (leads to reference leaks). The solution is to stash the
-                # boolean 'can_index' or similar.
+                # FIXME: This is a performance bottleneck for loop indices, which are not
+                # cached, because we cannot cache exceptions (leads to reference leaks).
+                # The solution is to stash the boolean 'can_index' or similar.
                 pass
 
         if not indexed_trees:
@@ -2353,7 +2398,7 @@ class AxisForest(LoopContextFreeAxisTreeLike):
         return type(self)(tree.with_context(context) for tree in self.trees)
 
     @cached_property
-    def global_numbering(self) -> Dat:
+    def global_numbering(self) -> pyop3.Dat:
         from pyop3 import Dat
 
         buffers = [t.global_numbering.buffer for t in self.trees]
@@ -2407,14 +2452,6 @@ def merge_axis_trees(trees: Iterable[AxisTree], *, only_unit: bool = False) -> A
 def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -> AxisTree:
     """Merge two axis trees together.
 
-    Parameters
-    ----------
-
-    only_unit
-        Whether or not the second tree is allowed to introduce new axes that
-        are not 'unit' axes. This option is useful for when one is happy to
-        have extra axes that do not materially affect the output shape.
-
     If the second tree has no common axes (share a lable) with the first then it is
     appended to every leaf of the first tree. Any common axes are skipped.
 
@@ -2427,6 +2464,15 @@ def merge_trees2(tree1: AxisTree, tree2: AxisTree, *, only_unit: bool = False) -
         AxisTree.from_nest({axis_a: [axis_b, axis_c]})
 
         is added to axis_a: things should split up.
+
+
+    Parameters
+    ----------
+
+    only_unit
+        Whether or not the second tree is allowed to introduce new axes that
+        are not 'unit' axes. This option is useful for when one is happy to
+        have extra axes that do not materially affect the output shape.
 
     """
     if tree1 and not isinstance(tree1, _UnitAxisTree):
@@ -2674,29 +2720,6 @@ def full_shape(axes):
         return axes, replace_map
 
 
-def _iter_axis_tree(axis_tree: AbstractNonUnitAxisTree) -> GeneratorType[IteratorIndexT]:
-    if isinstance(axis_tree, IndexedAxisTree):
-        raise NotImplementedError("Need to consider targets")
-
-    return _iter_axis_tree_rec(axis_tree, idict(), idict())
-
-
-def _iter_axis_tree_rec(axis_tree: AbstractNonUnitAxisTree, path: ConcretePathT, indices: idict[AxisLabelT, int]) -> GeneratorType[IteratorIndexT]:
-    from pyop3 import evaluate
-
-    axis = axis_tree.node_map[path]
-    for component in axis.components:
-        path_ = path | {axis.label: component.label}
-
-        component_size = evaluate(component.size, indices)
-        for i in range(component_size):
-            indices_ = indices | {axis.label: i}
-            if axis_tree.node_map[path_]:
-                yield from _iter_axis_tree_rec(axis_tree, path_, indices_)
-            else:
-                yield (path_, indices_)
-
-
 @functools.singledispatch
 def replace_exprs(treelike, replace_map):
     raise NotImplementedError
@@ -2746,7 +2769,10 @@ def trim_axis_targets(targets, to_trim):
     })
 
 
-def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _UnitAxisTree) -> ContextFreeAxisTreeT:
+def matching_axis_tree(
+    candidate: LoopContextFreeAxisTreeLike,
+    target: AxisTree | _UnitAxisTree,
+) -> LoopContextFreeAxisTreeLike:
     if isinstance(candidate, AxisForest):
         for candidate_ in candidate.trees:
             if axis_tree_is_valid_subset(candidate_, target):
@@ -2757,10 +2783,7 @@ def matching_axis_tree(candidate: ContextFreeAxisTreeT, target: AxisTree | _Unit
         return candidate
 
 
-def axis_tree_is_valid_subset(
-    candidate: ContextFreeSingleAxisTreeT,
-    target: ContextFreeSingleAxisTreeT,
-) -> bool:
+def axis_tree_is_valid_subset(candidate, target) -> bool:
     """Return if one axis tree may be 'overlaid' on top of another.
 
     We consider an axis tree to be a valid subset if all of its leaf paths

@@ -209,7 +209,7 @@ class LinearEigensolver(OptionsManager):
 
         Returns
         -------
-        (Function, Function)
+        (firedrake.function.Function, firedrake.function.Function)
             The real and imaginary parts of the eigenfunction.
         """
         if self._problem.restrict:

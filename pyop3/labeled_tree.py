@@ -141,7 +141,7 @@ class LabeledTree(AbstractLabeledTreeLike):
     # {{{ factory methods
 
     @classmethod
-    def from_iterable(cls, iterable: Iterable, comm: MPI.Comm | None = None) -> LabeledTree:
+    def from_iterable(cls, iterable: Iterable, *args, **kwargs) -> LabeledTree:
         raise NotImplementedError
 
     @classmethod
@@ -299,7 +299,7 @@ class LabeledTree(AbstractLabeledTreeLike):
     def is_linear(self) -> bool:
         return len(self.leaf_paths) == 1
 
-    def visited_nodes(self, path: PathT) -> tuple[tuple[Node, ComponentLabelT], ...]:
+    def visited_nodes(self, path: PathT) -> tuple[tuple[Node, NodeComponentLabelT], ...]:
         path = as_path(path)
 
         ordered_path = utils.just_one(
@@ -610,12 +610,11 @@ def previsit(
 def postvisit(tree, fn, path: PathT = idict(), **kwargs) -> Any:
     """Traverse the tree in postorder.
 
-    # TODO rewrite
     Parameters
     ----------
-    tree: Tree
+    tree: LabeledTree
         The tree to be visited.
-    fn: function(node, *fn_children)
+    fn: collections.abc.Callable
         A function to be applied at each node. The function should take
         the node to be visited as its first argument, and the results of
         visiting its children as any further arguments.

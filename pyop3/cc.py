@@ -88,6 +88,8 @@ MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").j
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True)
 class CompilerOptions:
+    """Compiler options associated with a pyop3 object."""
+
     include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
@@ -238,7 +240,7 @@ class Compiler(ABC):
         The environment variables ``PYOP2_CFLAGS`` and ``PYOP2_CXXFLAGS``
         can also be used to extend these options.
     :arg extra_linker_flags: A list of arguments to the linker (LDFLAGS)
-    (optional, prepended to any flags specified as the ldflags configuration option).
+        (optional, prepended to any flags specified as the ldflags configuration option).
         The environment variable ``PYOP2_LDFLAGS`` can also be used to
         extend these options.
     :arg version: (Optional) usually sniffed by loader.
@@ -564,8 +566,11 @@ def make_so(compiler, code, extension, comm):
     :arg filename: The filename of the library to create.
     :arg extension: extension of the source file (c, cpp).
     :arg comm: Communicator over which to perform compilation.
+
     Returns a :class:`ctypes.CDLL` object of the resulting shared
-    library."""
+    library.
+
+    """
     # Compilation communicators are reference counted on the PyOP2 comm
     icomm = mpi.internal_comm(comm, compiler)
     ccomm = mpi.compilation_comm(icomm, compiler)
@@ -652,7 +657,7 @@ def add_profiling_events(dll, events):
     If PyOP2 is in profiling mode, events are attached to dll to profile the local linear algebra calls.
     The event is generated here in python and then set in the shared library,
     so that memory is not allocated over and over again in the C kernel. The naming
-    convention is that the event ids are named by the event name prefixed by "ID_".
+    convention is that the event ids are named by the event name prefixed by ``"ID_"``.
     """
     if PETSc.Log.isActive():
         # also link the events from the linear algebra callables
