@@ -86,6 +86,21 @@ defelement_names = {
 }
 
 
+# test if set of defelement_names equals set of supported_elements, with
+# specific errors otherwise
+used_in_def = set()
+for elem in supported_elements:
+    family, _, _, _, _, _, _ = ufl_elements[elem]
+    try:
+        defelem_name = defelement_names[family]
+    except KeyError as exc:
+        raise KeyError(f"Element {family} has no entry in defelement_names") from exc
+    else:
+        used_in_def.add(family)
+if used_in_def != set(defelement_names):
+    raise ValueError(f"defelement_names contains elements not in supported_elements")
+
+
 def simple_aliases():
     """Return the aliases that always select the same element family.
 
