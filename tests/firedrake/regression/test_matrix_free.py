@@ -5,6 +5,7 @@ from firedrake.solving_utils import DEFAULT_KSP_PARAMETERS
 import pytest
 import numpy as np
 from mpi4py import MPI
+from itertools import product
 
 
 @pytest.fixture
@@ -121,6 +122,95 @@ def test_matrixfree_action(a, V, bcs):
             Amf.petscmat.mult(x, y)
 
     assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
+
+    with f.dat.vec_ro as y:
+        with expect.dat.vec as x:
+            A.petscmat.multTranspose(y, x)
+        with actual.dat.vec as x:
+            Amf.petscmat.multTranspose(y, x)
+
+    assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
+
+
+def assert_matfree_matches_aij(Mmf, Maij):
+    """Compare mult and multTranspose of a matrix-free and an aij PETSc matrix."""
+    x, y = Mmf.createVecs()
+    x.setRandom()
+    y.setRandom()
+
+    actual = Mmf.createVecLeft()
+    expect = Maij.createVecLeft()
+    Mmf.mult(x, actual)
+    Maij.mult(x, expect)
+    assert (actual - expect).norm() < 1e-12 * max(expect.norm(), 1)
+
+    actual = Mmf.createVecRight()
+    expect = Maij.createVecRight()
+    Mmf.multTranspose(y, actual)
+    Maij.multTranspose(y, expect)
+    assert (actual - expect).norm() < 1e-12 * max(expect.norm(), 1)
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("case", ["component", "mixed", "mixed_equationbc"])
+def test_matrixfree_action_transpose_blocks(case):
+    # mult and multTranspose of the matrix-free operator, and of each
+    # field block from createSubMatrix, must match the aij matrix with the
+    # same bcs. The advection term makes the operator nonsymmetric.
+    mesh = UnitSquareMesh(4, 4)
+    b = Constant([1.0, 0.5])
+    if case == "component":
+        V = VectorFunctionSpace(mesh, "CG", 2)
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        a = inner(grad(u), grad(v)) * dx + inner(dot(grad(u), b), v) * dx + inner(u, v) * dx
+        bcs = [DirichletBC(V.sub(0), 0, 1), DirichletBC(V.sub(1), 0, 3)]
+    else:
+        V2 = VectorFunctionSpace(mesh, "CG", 2)
+        Q1 = FunctionSpace(mesh, "CG", 1)
+        V = V2 * Q1
+        u, p = TrialFunctions(V)
+        v, q = TestFunctions(V)
+        a = (inner(grad(u), grad(v)) * dx + inner(dot(grad(u), b), v) * dx
+             - inner(p, div(v)) * dx - inner(div(u), q) * dx)
+        if case == "mixed":
+            bcs = [DirichletBC(V.sub(0).sub(0), 0, 1), DirichletBC(V.sub(0).sub(1), 0, 3),
+                   DirichletBC(V.sub(0), 0, 4)]
+        elif case == "mixed_equationbc":
+            # The EquationBC rows of the velocity couple to the pressure
+            # DirichletBC columns in the off-diagonal block.
+            n = FacetNormal(mesh)
+            ebc = EquationBC(inner(dot(grad(u), n) - p * n, v) * ds(2) == inner(Constant((0, 0)), v) * ds(2),
+                             Function(V), 2, V=V.sub(0))
+            bcs = [ebc.extract_form("J"), DirichletBC(V.sub(1), 0, 2), DirichletBC(V.sub(0), 0, 1)]
+
+    Mmf = assemble(a, bcs=bcs, mat_type="matfree").petscmat
+    Maij = assemble(a, bcs=bcs, mat_type="aij").petscmat
+    assert_matfree_matches_aij(Mmf, Maij)
+    # TODO: use V.field_ises once release is merged into main, where
+    # V._ises is deprecated.
+    ises = V._ises
+    for isrow, iscol in product(ises, ises):
+        assert_matfree_matches_aij(Mmf.createSubMatrix(isrow, iscol),
+                                   Maij.createSubMatrix(isrow, iscol))
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_matrixfree_repeated_transpose_with_dirichlet_bc(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v))*dx + inner(as_vector([1, 0]), grad(u))*v*dx
+    bc = DirichletBC(V, 0, 1)
+    A = assemble(a, bcs=bc, mat_type="matfree").petscmat
+    B = assemble(a, bcs=bc).petscmat
+    x, y = A.createVecs()
+    x.set(1)
+    expected = y.duplicate()
+    B.multTranspose(x, expected)
+    for _ in range(3):
+        A.multTranspose(x, y)
+        assert (y - expected).norm() < 1e-12
 
 
 @pytest.mark.parametrize("preassembled", [False, True],

@@ -202,12 +202,14 @@ def test_interpolate():
 
     f = Function(V)
     f.dat.data[:] = 2
-    J = assemble(interpolate(f**2, c))
+    J = assemble(interpolate(f**4, c))
     Jhat = ReducedFunctional(J, Control(f))
 
     h = Function(V)
     h.dat.data[:] = 3
-    assert taylor_test(Jhat, f, h) > 1.9
+    dJdf = assemble(inner(Jhat.derivative(apply_riesz=True), h) * dx)
+    Hh = assemble(inner(Jhat.hessian(h, apply_riesz=True), h) * dx)
+    assert taylor_test(Jhat, f, h, dJdm=dJdf, Hm=Hh) > 2.9
 
 
 @pytest.mark.skipcomplex

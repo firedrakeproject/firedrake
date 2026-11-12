@@ -29,7 +29,7 @@ from pyop3.cache import (
 )
 from pyop3.collections import OrderedFrozenSet
 from pyop3.constants import Intent
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import InvalidScalarTypeException, Pyop3Exception
 from pyop3.expr import Tensor
 from pyop3.node import Node, Operator, Terminal
 
@@ -726,6 +726,15 @@ class AbstractAssignmentLike(TerminalInstruction):
 class AbstractAssignment(AbstractAssignmentLike):
 
     __abstract_record_attrs = ("assignment_type",)
+
+    def __record_post_init(self) -> None:
+        # Complex numbers are not ordered, so min and max reductions are not defined for them.
+        if self.assignment_type in (AssignmentType.MAX, AssignmentType.MIN):
+            if np.issubdtype(self.assignee.dtype, np.complexfloating):
+                raise InvalidScalarTypeException(
+                    f"'{self.assignment_type.value}' assignment is not supported "
+                    f"for complex data (dtype '{self.assignee.dtype}')"
+                )
 
     @cached_property
     def argument_intents(self) -> dict:
