@@ -94,6 +94,30 @@ def test_restrict_assign(into_restricted):
     assert errornorm(ures, u) < 1E-13
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("dual", (False, True), ids=("primal", "dual"))
+@pytest.mark.parametrize("value", ("scalar", "function"))
+def test_restricted_subset_assign_writes_bc_nodes(dual, value):
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 2)
+    V_res = RestrictedFunctionSpace(V, boundary_set=[1])
+    bc = DirichletBC(V_res, 0, 1)
+    space = V_res.dual() if dual else V_res
+
+    u = Function(space)
+    if value == "scalar":
+        expr = 2.0
+    else:
+        expr = Function(space)
+        expr.dat.data_wo_with_halos[...] = 2
+    u.assign(expr, subset=bc.node_set)
+
+    # The boundary condition nodes of a restricted space are the constrained DoFs
+    data = u.dat.data_ro_with_halos
+    assert np.allclose(data[bc.nodes], 2)
+    assert np.allclose(np.delete(data, bc.nodes), 0)
+
+
 def test_poisson_homogeneous_bcs():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 2)

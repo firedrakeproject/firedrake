@@ -3,9 +3,11 @@ import functools
 import numbers
 import types
 import warnings
+import weakref
 from functools import cached_property
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
+import cachetools
 import numpy as np
 from mpi4py import MPI
 
@@ -23,6 +25,10 @@ from firedrake.petsc import PETSc
 from firedrake.utils import IntType
 
 
+ASSIGN_OP_CACHE_SIZE = 8
+"""Number of assignment operations kept on each function or cofunction."""
+
+
 class AssignExprBuilder(DAGTraverser):
     """Traverser used for converting an expression into a pyop3 expression."""
 
@@ -34,6 +40,13 @@ class AssignExprBuilder(DAGTraverser):
         self.function_space = function_space
         self.loop_index = loop_index
         self.array_assign_safe = True
+        # Set to False when the pyop3 expression holds a copy of some values.
+        # Such an expression contains a new Dat on every call and never matches
+        # a cache key, so Assigner does not add it to the cache.
+        self.reusable = True
+        # Collect the functions and cofunctions of the expression, so that
+        # Assigner can drop a cached operation when one of them is deleted.
+        self.functions = []
         super().__init__()
 
     @functools.singledispatchmethod
@@ -42,7 +55,11 @@ class AssignExprBuilder(DAGTraverser):
 
     @process.register
     def _(self, func: Function | Cofunction, /) -> op3.Dat:
+        self.functions.append(func)
         if func.ufl_element().family() == "Real":
+            # The new Dat copies the current value of the function, so an
+            # operation built from it cannot see later changes.
+            self.reusable = False
             data = func.dat.global_data
             return (
                 op3.Dat(
@@ -251,6 +268,71 @@ class Assigner:
 
     @cached_property
     def _assign_op(self) -> Callable[[], None]:
+        """Return the operation that performs the assignment.
+
+        Building a pyop3 assignment and looking up its compiled code costs much
+        more than running it. This method therefore keeps the operation in a
+        cache on the assignee and reuses it when the same expression is
+        assigned over the same subset again. The cache key uses the pyop3
+        expression instead of the UFL expression, because UFL compares
+        coefficients by their count, and because a vector UFL expression gets
+        new free indices every time it is built.
+        """
+        # Write a bare number with the eager assignment, because generated code
+        # contains the value of the number and every new value would need new
+        # code. Restricted spaces use generated code, because the eager
+        # assignment does not write their constrained DoFs (issue #5611).
+        if (
+            self.mode == AssignmentMode.STANDARD
+            and isinstance(self.expression, ufl.classes.ScalarValue)
+            and not any(V.boundary_set for V in self.assignee.function_space())
+        ):
+            lhs = self.assignee.dat[self.subset]
+            return functools.partial(lhs.assign, self.expression.value(), eager=True)
+
+        # Do not cache a cross-mesh operation, because it refers to this
+        # Assigner, and a cache entry would then make a reference cycle with
+        # the assignee.
+        if self._cross_mesh:
+            return self._build_assign_op()
+
+        expr_builder = AssignExprBuilder(self.assignee.function_space(), None)
+        op3_expr, _ = expr_builder(self.expression)
+        if not expr_builder.reusable:
+            return self._build_assign_op(op3_expr, expr_builder.array_assign_safe)
+
+        # Key on Dats instead of Functions, so that the cache does not keep the
+        # Functions alive. Dats compare by identity, so a hit refers to the
+        # same data.
+        cache = self.assignee._assign_op_cache
+        key = (self.assignee.dat, op3_expr, self.subset, self.mode)
+        try:
+            return cache[key].assign_op
+        except KeyError:
+            assign_op = self._build_assign_op(op3_expr, expr_builder.array_assign_safe)
+            # Watch each function of the expression once. The assignee is left
+            # out, because its deletion also deletes the cache.
+            others = {id(f): f for f in expr_builder.functions if f is not self.assignee}
+            cache[key] = _CachedAssignOp(cache, key, assign_op, others.values())
+            return assign_op
+
+    def _build_assign_op(
+        self,
+        op3_expr: op3.expr.Expression | numbers.Number | None = None,
+        array_assign_safe: bool | None = None,
+    ) -> Callable[[], None]:
+        """Build the operation that performs the assignment.
+
+        Parameters
+        ----------
+        op3_expr
+            The pyop3 expression of ``self.expression`` if it is already built.
+            It must be `None` for an assignment across meshes.
+        array_assign_safe
+            Whether NumPy arrays can evaluate ``op3_expr``. Only used if
+            ``op3_expr`` is given.
+
+        """
         if self._cross_mesh:
             # If we are assigning between submeshes then we have to generate a
             # full parloop in order to be able to include maps. For example:
@@ -263,8 +345,10 @@ class Assigner:
             loop_index = None
             op3_assignee = self.assignee.dat[self.subset]
 
-        expr_builder = AssignExprBuilder(self.assignee.function_space(), loop_index)
-        op3_expr, _ = expr_builder(self.expression)
+        if op3_expr is None:
+            expr_builder = AssignExprBuilder(self.assignee.function_space(), loop_index)
+            op3_expr, _ = expr_builder(self.expression)
+            array_assign_safe = expr_builder.array_assign_safe
 
         match self.mode:
             case AssignmentMode.STANDARD:
@@ -341,7 +425,7 @@ class Assigner:
                 assignee_buffer._current_device_array[unchanged_idxs] = orig_assignee_data[unchanged_idxs]
 
         # If possible try to do the assignment by operating on numpy arrays
-        elif self.subset is Ellipsis and expr_builder.array_assign_safe:
+        elif self.subset is Ellipsis and array_assign_safe:
             # TODO: This is technically less efficient than the compile strategy
             # for repeated use. This should be exposed to the user.
             def assign_op() -> None:
@@ -351,6 +435,68 @@ class Assigner:
             assign_op = op3_assignee.assign(op3_expr, _weakref=False)
 
         return assign_op
+
+
+class _CachedAssignOp:
+    """An assignment operation in the cache of its assignee.
+
+    The operation holds the data of every function in its expression. A
+    finalizer on each of these functions removes the entry when the function
+    is deleted, so that the cache does not keep the data of a temporary
+    function alive.
+
+    Parameters
+    ----------
+    cache
+        The cache of the assignee.
+    key
+        The key of this entry in ``cache``.
+    assign_op
+        The assignment operation.
+    functions
+        The functions and cofunctions of the expression, without the assignee.
+
+    """
+
+    def __init__(
+        self,
+        cache: cachetools.LRUCache,
+        key: tuple,
+        assign_op: Callable[[], None],
+        functions: Iterable[Function | Cofunction],
+    ) -> None:
+        self.assign_op = assign_op
+        cache_ref = weakref.ref(cache)
+        self._finalizers = []
+        for func in functions:
+            finalizer = weakref.finalize(func, _remove_cached_assign_op, cache_ref, key)
+            # Do not run the finalizer at exit, because the cache is then
+            # discarded anyway.
+            finalizer.atexit = False
+            self._finalizers.append(finalizer)
+
+    def __del__(self) -> None:
+        # Detach the finalizers when the entry is removed from the cache or the
+        # cache is deleted, so that long-lived functions do not collect
+        # finalizers of entries that no longer exist.
+        for finalizer in self._finalizers:
+            finalizer.detach()
+
+
+def _remove_cached_assign_op(cache_ref: weakref.ref, key: tuple) -> None:
+    """Remove an entry from the cache of an assignee.
+
+    Parameters
+    ----------
+    cache_ref
+        Weak reference to the cache of the assignee.
+    key
+        The key of the entry.
+
+    """
+    cache = cache_ref()
+    if cache is not None:
+        cache.pop(key, None)
 
 
 @functools.singledispatch
