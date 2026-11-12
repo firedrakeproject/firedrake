@@ -40,7 +40,7 @@ def _axis_tree_size_rec(axis_tree: AxisTree, path):
 
 # TODO: just be a cached method? Or globally cache?
 @cached_on(lambda tree, *a, **kw: tree, lambda tree, path, label: (path, label))
-def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: PathT, component_label: ComponentLabelT):
+def compute_axis_tree_component_size(axis_tree: AbstractNonUnitAxisTree, path: PathT, component_label: NodeComponentLabelT):
     import pyop3
 
     path = as_path(path)

@@ -57,10 +57,12 @@
    API documentation
    =================
 
-   The complete list of all the classes and methods in Firedrake is
-   available at the :doc:`firedrake` page. The same information is
-   :ref:`indexed <genindex>` in alphabetical order. Another very
-   effective mechanism is the site :ref:`search engine <search>`.
+   .. toctree::
+      :maxdepth: 1
+
+      apidoc/firedrake
+      apidoc/pyop3
+      search
 
    .. include:: manual.rst
 

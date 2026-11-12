@@ -176,8 +176,6 @@ class Visitor(abc.ABC):
             **kwargs:
                 Keyword arguments for the ``process`` singledispatchmethod.
 
-        Returns:
-            Processed :py:class:`Expr`.
         """
         raise TypeError(f"'{utils.pretty_type(self)}' does not define a rule for '{utils.pretty_type(o)}'")
 
