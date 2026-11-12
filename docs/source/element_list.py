@@ -153,10 +153,7 @@ with open("element_list.csv", 'w', newline='') as csvfile:
         family, short_name, value_rank, sobolev_space, \
             mapping, degree_range, cellnames = ufl_elements[element]
 
-        other_names = [short_name] if short_name not in (None, family) else []
-        other_names += [a for a in family_aliases.get(family, [])
-                        if a not in other_names]
-        other_names = ", ".join(other_names)
+        other_names = family_aliases.get(family, [])
         cellnames = cells(cellnames)
         shape = shape_names[value_rank]
 
