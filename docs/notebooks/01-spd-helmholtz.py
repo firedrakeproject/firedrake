@@ -184,7 +184,7 @@ fig.colorbar(collection);
 # For solutions with sufficient smoothness (like the choice we have here), this method with a piecewise linear approximation space should converge in the $L_2$ error with rate $\mathcal{O}(h^{-2})$, where $h$ is the typical mesh spacing.  Confirm this for the example in question by computing the $L_2$ error in the solution for a sequence of finer and finer meshes.
 #
 # - Hint 1: You can compute errors using [errornorm](http://firedrakeproject.org/firedrake.html#firedrake.norms.errornorm)
-# - Hint 2: If the error is $\mathcal{O}(h^{-2})$ then $\log_2 (e_H/e_h) \approx 2$.
+# - Hint 2: If the error is $\mathcal{O}(h^2)$ then $\log_2 (e_H/e_h) \approx 2$.
 #   The Python module `math` contains an implementation of `log`.
 #   
 # #### What works better?  Mesh refinement, or increasing the approximation degree?
