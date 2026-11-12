@@ -201,7 +201,8 @@ def test_stokes_degree_two(mesh_factory, family) -> None:
     solve(a == L, solution, bcs=DirichletBC(Z.sub(0), 0, "on_boundary"),
           nullspace=nullspace,
           solver_parameters={"ksp_type": "preonly", "pc_type": "lu",
-                             "pc_factor_mat_solver_type": "mumps", "mat_mumps_icntl_24": 1,
+                             "pc_factor_mat_solver_type": "mumps",
+                             "mat_mumps_icntl_24": 1,
                              "mat_mumps_icntl_8": 0})
     uh, ph = solution.subfunctions
     assert norm(interpolate(div(uh), Q)) < 1e-9
