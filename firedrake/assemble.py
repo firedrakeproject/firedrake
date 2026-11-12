@@ -827,7 +827,9 @@ class BaseFormAssembler(AbstractFormAssembler):
         """
         original_expr = expr
         if not isinstance(expr, slate.TensorBase):
-            expr = restructure_base_form(expr)
+            # Keep the operators of rank 2 in a Form whose operators can all be fused into its kernel.
+            max_composed_rank = 1 if BaseFormAssembler.base_form_operands(expr) else 2
+            expr = restructure_base_form(expr, max_composed_rank=max_composed_rank)
         # Preprocessing the form makes a new object -> current form caching mechanism
         # will populate `expr`'s cache which is now different than `original_expr`'s cache so we need
         # to transmit the cache. Both objects must support the assembler cache.
