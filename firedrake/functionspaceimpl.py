@@ -480,13 +480,22 @@ class WithGeometryBase:
 
     @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key, get_version=lambda mesh_topology: mesh_topology._topology_version)
     def get_facet_closure_nodes(self, mesh, key):
-        """Function space nodes in the closure of facets with a given
-        marker.
-        :arg mesh: Mesh to cache on
-        :arg key: (edofs, sub_domain, boundary_set) tuple
-        :arg V: function space.
-        :returns: numpy array of unique nodes in the closure of facets
-           with provided markers (both interior and exterior)."""
+        """Function space nodes in the closure of facets with a given marker.
+
+        Parameters
+        ----------
+        mesh : MeshGeometry
+            Mesh to cache on
+        key : tuple
+            (edofs, sub_domain, boundary_set) tuple
+
+        Returns
+        -------
+        numpy.ndarray
+            numpy array of unique nodes in the closure of facets
+            with provided markers (both interior and exterior).
+
+        """
         _, sub_domain, boundary_set = key
         if sub_domain not in {"on_boundary", "top", "bottom"}:
             valid = set(self._mesh.facet_markers)

@@ -341,7 +341,7 @@ class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
         mesh: MeshGeometry,
         integral_type: str,
         plex_indices_is: PETSc.IS | None,
-    ) -> dict:
+    ) -> None:
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "integral_type", integral_type)
         object.__setattr__(self, "plex_indices_is", plex_indices_is)
