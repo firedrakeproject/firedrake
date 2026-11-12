@@ -18,6 +18,19 @@ def test_ufl_only_simple():
     assert kernel.needs_external_coords is False
 
 
+def test_ufl_only_nested_interpolate():
+    mesh = ufl.Mesh(finat.ufl.VectorElement("P", ufl.triangle, 1))
+    V = ufl.FunctionSpace(mesh, finat.ufl.VectorElement("P", ufl.triangle, 2))
+    W = ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("RT", ufl.triangle, 1))
+    X = ufl.FunctionSpace(mesh, finat.ufl.VectorElement("P", ufl.triangle, 2))
+    v = ufl.Coefficient(V)
+    expression = ufl.Interpolate(ufl.Interpolate(v, W), X)
+
+    kernel = compile_expression_dual_evaluation(expression, X.ufl_element())
+
+    assert kernel.needs_external_coords is True
+
+
 def test_ufl_only_spatialcoordinate():
     mesh = ufl.Mesh(finat.ufl.VectorElement("P", ufl.triangle, 1))
     V = ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("P", ufl.triangle, 2))
@@ -61,8 +74,8 @@ def test_ufl_only_shape_mismatch():
         compile_expression_dual_evaluation(expr, W.ufl_element())
 
 
-def dual_argument_kernel(cell, degree, restriction=None):
-    """Compile a degree-lowering interpolation against a Cofunction dual argument.
+def dual_argument_kernel(cell, degree, restriction=None, dual="cofunction"):
+    """Compile a degree-lowering interpolation against a dual argument.
 
     Parameters
     ----------
@@ -72,10 +85,15 @@ def dual_argument_kernel(cell, degree, restriction=None):
         The polynomial degree to interpolate from.
     restriction
         An optional restriction, such as ``"facet"``, to apply to both elements.
+    dual
+        ``"cofunction"`` contracts an Argument against a Cofunction, so the
+        dual basis is summed in the kernel. ``"argument"`` interpolates a
+        Coefficient against a dual Argument, so the dual basis indexes the
+        return variable.
 
     Returns
     -------
-    ExpressionKernel
+    Kernel
         The compiled dual evaluation kernel.
     """
     mesh = ufl.Mesh(finat.ufl.VectorElement("Q", cell, 1))
@@ -85,7 +103,10 @@ def dual_argument_kernel(cell, degree, restriction=None):
         source, target = source[restriction], target[restriction]
     V = ufl.FunctionSpace(mesh, source)
     W = ufl.FunctionSpace(mesh, target)
-    expr = ufl.Interpolate(ufl.Argument(V, 0), ufl.Cofunction(W.dual()))
+    if dual == "cofunction":
+        expr = ufl.Interpolate(ufl.Argument(V, 0), ufl.Cofunction(W.dual()))
+    else:
+        expr = ufl.Interpolate(ufl.Coefficient(V), ufl.Argument(W.dual(), 0))
     return compile_expression_dual_evaluation(expr, target)
 
 
@@ -102,10 +123,11 @@ def test_dual_argument_on_concatenated_dual_basis():
     assert output.loopy_arg.shape == (create_element(element).space_dimension(),)
 
 
+@pytest.mark.parametrize("dual", ["cofunction", "argument"])
 @pytest.mark.parametrize("restriction", [None, "facet"])
 @pytest.mark.parametrize("cell", [ufl.quadrilateral, ufl.hexahedron])
-def test_dual_argument_is_sum_factorised(cell, restriction):
-    """Contracting a Cofunction against the dual basis must sum factorise.
+def test_dual_argument_is_sum_factorised(cell, restriction, dual):
+    """Contracting a dual argument against the dual basis must sum factorise.
 
     Interpolation on a tensor product cell costs O(degree^(dim + 1)) flops when
     the contraction is sum factorised, and O(degree^(2 * dim)) when it is not.
@@ -114,7 +136,8 @@ def test_dual_argument_is_sum_factorised(cell, restriction):
     # power less.
     dim = cell.topological_dimension - (restriction is not None)
     degrees = [8, 16]
-    flops = [dual_argument_kernel(cell, degree, restriction=restriction).flop_count
+    flops = [dual_argument_kernel(cell, degree, restriction=restriction, dual=dual).flop_count
              for degree in degrees]
     rate = math.log(flops[1] / flops[0]) / math.log(degrees[1] / degrees[0])
-    assert rate < dim + 1
+    # Lower order terms move the measured rate to either side of dim + 1.
+    assert rate < dim + 1.5
