@@ -1191,11 +1191,7 @@ def _build_interpolation_callables(
                 # vertex cell.)
                 local_kernel_args.append(pack(target_mesh.reference_coordinates, loop_index))
 
-    expression_kernel = op3.Function(
-        kernel.ast,
-        [access] + [op3.READ for _ in local_kernel_args[1:]],
-        libraries=(op3.cc.LIBPETSC,) if kernel.event is not None else (),
-    )
+    expression_kernel = op3.Function(kernel.ast, [access] + [op3.READ for _ in local_kernel_args[1:]])
     parloop = op3.loop(loop_index, expression_kernel(*local_kernel_args))
 
     pyop3_compiler_parameters = {"optimize": True} | pyop3_compiler_parameters
