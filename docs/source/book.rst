@@ -27,5 +27,5 @@ The Firedrake Manual
    manual
    intro_tut
    advanced_tut
-   firedrake
+   apidoc/firedrake
    funding

@@ -13,7 +13,7 @@ Performance of a Firedrake script is rarely optimal from the outset.
 Choice of solver options, discretisation and variational form all have
 an impact on the amount of time your script takes to run. More general
 programming considerations such as not repeating unnecessary work inside
-of a loop can also be signficant.
+of a loop can also be significant.
 
 It is always a bad idea to attempt to optimise your code without a solid
 understanding of where the bottlenecks are, else you could spend vast

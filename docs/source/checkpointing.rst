@@ -179,7 +179,7 @@ following.
 
 Note that one needs to load the mesh before loading the :class:`~.Function` s
 that are defined on it. If the default mesh name, :data:`~.DEFAULT_MESH_NAME`,
-was used when saving, the mesh name can be ommitted when loading.
+was used when saving, the mesh name can be omitted when loading.
 
 Extrusion
 ---------

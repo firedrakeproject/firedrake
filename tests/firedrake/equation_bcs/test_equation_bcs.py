@@ -2,11 +2,9 @@
 # =========================
 
 import pytest
-import numpy as np
 import ufl
 
 from firedrake import *
-from firedrake.bcs import EquationBCSplit
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 import math
 
@@ -301,28 +299,39 @@ def test_equationbc_with_dirichletbc(mat_type, pre_apply_bcs):
     assert error < 1e-12
 
 
-def test_equationbc_with_dirichletbc_transpose():
-    mesh = UnitIntervalMesh(1)
-    V = FunctionSpace(mesh, "CG", 1)
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("mesh_type,degree", [("interval", 1), ("interval", 2), ("square", 2)])
+def test_equationbc_with_dirichletbc_transpose(mesh_type, degree):
+    # The matrix-free operator and its transpose must match the aij matrix
+    # with the same form and bcs. With degree 2, or with more cells, there are
+    # interior rows that couple to the DirichletBC column, and on these
+    # meshes the EquationBC row also couples to the DirichletBC column.
+    if mesh_type == "interval":
+        mesh = UnitIntervalMesh(1)
+    else:
+        mesh = UnitSquareMesh(1, 4)
+    V = FunctionSpace(mesh, "CG", degree)
     u, v = TrialFunction(V), TestFunction(V)
     a = inner(grad(u), grad(v)) * dx
 
     w = Function(V)
     dbc = DirichletBC(V, 1, 1)
     ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
-    ebc_form = ebc.extract_form("J")
-    matrix = assemble(a, bcs=[dbc, ebc_form], mat_type="matfree")
-    adjoint_ebc = EquationBCSplit(adjoint(ebc_form.f), Function(V), 2)
-    reference = assemble(adjoint(a), bcs=[dbc, adjoint_ebc], mat_type="aij")
+    bcs = [dbc, ebc.extract_form("J")]
+    matrix = assemble(a, bcs=bcs, mat_type="matfree")
+    reference = assemble(a, bcs=bcs, mat_type="aij")
 
     rg = RandomGenerator(PCG64(seed=1234))
+    x = rg.uniform(V)
     y = rg.uniform(V)
 
-    actual = assemble(ufl.Action(y, matrix))
-
-    expected = assemble(action(reference, y))
-
-    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+    for actual, expected in [
+        (assemble(action(matrix, x)), assemble(action(reference, x))),
+        (assemble(ufl.Action(y, matrix)), assemble(ufl.Action(y, reference))),
+    ]:
+        with actual.dat.vec_ro as actual_vec, expected.dat.vec_ro as expected_vec:
+            error = (actual_vec - expected_vec).norm() / expected_vec.norm()
+        assert error < 1e-12
 
 
 # This test is so sensitive it will not pass unless MUMPS is used
