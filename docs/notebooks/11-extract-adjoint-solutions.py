@@ -22,7 +22,7 @@
 # \frac{\partial u}{\partial t} + u \frac{\partial u}{\partial x} - \nu \frac{\partial^2 u}{\partial x^2} = 0.
 # $$
 #
-# Applying finite element in time and implicit Euler in space, the problem becomes at each timestep find $u^{n+1}\in V$ such that:
+# Applying finite element in space and implicit Euler in time, the problem becomes: at each timestep find $u^{n+1}\in V$ such that
 #
 # $$
 # \int_\Omega \frac{u^{n+1} - u^n}{\Delta t} v + u^{n+1} \frac{\partial u^{n+1}}{\partial x} v + \nu \frac{\partial u^{n+1}}{\partial x}\frac{\partial v}{\partial x} \, \mathrm{d}x = 0 \quad \forall v \in V.
