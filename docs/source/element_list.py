@@ -86,29 +86,6 @@ defelement_names = {
 }
 
 
-def name_cell(family):
-    """Return the table cell for the name of an element family.
-
-    Parameters
-    ----------
-    family : str
-        The full name of the element family.
-
-    Returns
-    -------
-    str
-        The family name, as an RST link to its DefElement page if there is
-        one, or as plain text otherwise.
-    """
-    if family not in defelement_names:
-        print(f"element_list.py: no DefElement entry for {family!r}",
-              file=sys.stderr)
-    page = defelement_names.get(family)
-    if page is None:
-        return family
-    return f"`{family} <https://defelement.org/elements/{page}.html>`__"
-
-
 def simple_aliases():
     """Return the aliases that always select the same element family.
 
@@ -169,6 +146,12 @@ with open("element_list.csv", 'w', newline='') as csvfile:
         shape = shape_names[value_rank]
 
         rows.append((family, other_names, shape, cellnames))
+
+    def name_cell(family):
+        page = defelement_names.get(family)
+        if page is None:
+            return family
+        return f"`{family} <https://defelement.org/elements/{page}.html>`__"
 
     # Sort alphabetically by name, ignoring case.
     for family, *rest in sorted(rows, key=lambda row: row[0].casefold()):
