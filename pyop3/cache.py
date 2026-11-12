@@ -95,7 +95,7 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
                 if not hasattr(obj, "_pyop3_cache"):
                     # Use object.__setattr__ to get around frozen dataclasses
                     object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
-                stored_version, cache = obj._pyop3_cache.get(func.__qualname__, (_nothing, None))
+                stored_version, cache = obj._pyop3_cache.get(func.__qualname__, (pyop3.constants.NOTHING, None))
                 if stored_version != version:
                     # Invalidate the cache stored on this object only
                     # TODO: need to think about the case where we can have multiple meshes hence multiple versions
