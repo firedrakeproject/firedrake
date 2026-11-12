@@ -148,7 +148,7 @@ def test_rebuild_vom_rebuilds_pids_lazily(parent_mesh):
     parallel_assert(pids_before._mesh_topology_version == old_topology_version)
 
     # Rebuild the VOM topologically
-    vom.rebuild()
+    vom._rebuild()
     new_topology_version = vom._topology_version
     parallel_assert(new_topology_version == old_topology_version + 1)
 
@@ -186,7 +186,7 @@ def test_rebuild_vom_no_absorption_no_rank_transfer_preserves_state(parent_mesh)
     old_global_count = parent_mesh.comm.allreduce(old_local_count, op=MPI.SUM)
     old_version = vom._topology_version
 
-    vom.rebuild()
+    vom._rebuild()
 
     actual_state = vom_state_by_particle_id(vom)
     new_global_count = parent_mesh.comm.allreduce(vom.topology.cells.owned.local_size, op=MPI.SUM)
@@ -284,7 +284,7 @@ def test_rebuild_vom_no_absorption_migrates_particles(parent_mesh):
     vom.reference_coordinates.dat.data_wo[:] = new_refcoords
 
     # Rebuild the VOM
-    vom.rebuild()
+    vom._rebuild()
 
     # Check state after rebuilding
     pids_post_rebuild = vom._particle_ids.dat.data_ro.copy()
@@ -342,7 +342,7 @@ def test_rebuild_vom_with_absorption(parent_mesh):
 
     global_absorbed_count = parent_mesh.comm.allreduce(len(absorbed_pids), op=MPI.SUM)
 
-    vom.rebuild(absorbed=absorbed_local_indices)
+    vom._rebuild(absorbed=absorbed_local_indices)
 
     # State + counts post rebuild
     state_post_rebuild = vom_state_by_particle_id(vom)
@@ -390,7 +390,7 @@ def test_rebuild_vom_can_produce_empty_vom(parent_mesh):
     # Remove all points on all ranks
     absorbed_local_indices = np.arange(old_local_count, dtype=int)
 
-    vom.rebuild(absorbed=absorbed_local_indices)
+    vom._rebuild(absorbed=absorbed_local_indices)
 
     # Check that the rebuild completes
     parallel_assert(
@@ -469,7 +469,7 @@ def test_rebuild_vom_topology_step_sf_maps_rank_local_particles(parent_mesh):
     old_version = vom._topology_version
 
     # Rebuild the VOM around the new state
-    vom.rebuild(absorbed=absorbed_local_indices)
+    vom._rebuild(absorbed=absorbed_local_indices)
 
     new_version = vom._topology_version
     parallel_assert(new_version == old_version + 1)
@@ -571,7 +571,7 @@ def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
     vom.reference_coordinates.dat.data_wo[:] = new_refcoords
 
     old_version = vom._topology_version
-    vom.rebuild()
+    vom._rebuild()
     new_version = vom._topology_version
 
     parallel_assert(new_version == old_version + 1)
@@ -641,7 +641,7 @@ def test_successive_vom_rebuilds(parent_mesh):
     absorbed_pid_1 = pids_0[absorbed_indices_1[0]]  # get pid of absorbed particle
 
     # First rebuild
-    vom.rebuild(absorbed=absorbed_indices_1)
+    vom._rebuild(absorbed=absorbed_indices_1)
 
     v1 = vom._topology_version
     local_count_v1 = vom.topology.cells.owned.local_size
@@ -662,7 +662,7 @@ def test_successive_vom_rebuilds(parent_mesh):
     absorbed_pid_2 = pids_1[absorbed_indices_2[0]]  # get pid of absorbed particle
 
     # Second rebuild
-    vom.rebuild(absorbed=absorbed_indices_2)
+    vom._rebuild(absorbed=absorbed_indices_2)
 
     v2 = vom._topology_version
     local_count_v2 = vom.topology.cells.owned.local_size
@@ -728,7 +728,7 @@ def test_rebuild_vom_keeps_input_ordering(parent_mesh):
         vom.topology.update_parent_cells(new_parent_cells)
         vom.reference_coordinates.dat.data_wo[:] = new_refcoords
         absorbed = None if absorb_every is None else np.arange(0, n_owned, absorb_every, dtype=IntType)
-        vom.rebuild(absorbed)
+        vom._rebuild(absorbed)
 
         # The input ordering VOM is the same mesh and it still holds the user's points.
         parallel_assert(vom.input_ordering is io, "The input ordering VOM was replaced")

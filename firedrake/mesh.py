@@ -4712,7 +4712,7 @@ values from f.)"""
         return new_coordinates
 
     @collective
-    def rebuild(self, absorbed: ArrayLike | None = None) -> None:
+    def _rebuild(self, absorbed: ArrayLike | None = None) -> None:
         """Rebuild the topology of this mesh in-place.
 
         This method is currently only supported for vertex-only meshes where the topology is rebuilt
