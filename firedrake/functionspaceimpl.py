@@ -337,9 +337,9 @@ class WithGeometryBase:
         self.mesh().set_max_work_functions(self, val)
 
     def get_work_function(self, zero=True):
-        r"""Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
+        r"""Get a temporary work :class:`firedrake.function.Function` on this :class:`FunctionSpace`.
 
-        :arg zero: Should the :class:`~.Function` be guaranteed zero?
+        :arg zero: Should the :class:`firedrake.function.Function` be guaranteed zero?
             If ``zero`` is ``False`` the returned function may or may
             not be zeroed, and the user is responsible for appropriate
             zeroing.
@@ -351,7 +351,7 @@ class WithGeometryBase:
 
             This method is intended to be used for short-lived work
             functions, if you actually need a function for general
-            usage use the :class:`~.Function` constructor.
+            usage use the :class:`firedrake.function.Function` constructor.
 
             When you are finished with the work function, you should
             restore it to the pool of available functions with
@@ -636,6 +636,19 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
 @dataclass(frozen=True)
 class AxisConstraint:
+    """An axis constraint.
+
+    Parameters
+    ----------
+    axis: pyop3.Axis
+        The axis.
+    within_axes: Mapping[str, str]
+        Axis, component label pairs that this axis must be beneath. For instance
+        the cell DoF axis must be beneath the cell component of the mesh axis to
+        be valid.
+
+    """
+
     axis: op3.Axis
     within_axes: Mapping[str, str] = dataclasses.field(default_factory=idict)
 
@@ -966,7 +979,7 @@ class AbstractFunctionSpace:
         dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
         node_map_dat = op3.Dat.empty(
             dof_map_dat.axes[:, ::self.block_size].materialize(),
-            dtype=PETSc.IntType,
+            dtype=IntType,
         )
         node_map_dat.assign(
             dof_map_dat[:, ::self.block_size] // self.block_size,
@@ -1061,7 +1074,7 @@ class AbstractFunctionSpace:
         # but that is really tangled and I need something very specific.
 
     @cached_property
-    def submesh_parent_to_child_map(self) -> op3.Map:
+    def submesh_parent_to_child_map(self) -> op3.ScalarMap:
         """Return the map between parent and child meshes.
 
         This method augments the existing point to point maps stored on the
@@ -1074,7 +1087,7 @@ class AbstractFunctionSpace:
         return op3.ScalarMap(connectivity)
 
     @cached_property
-    def submesh_child_to_parent_map(self) -> op3.Map:
+    def submesh_child_to_parent_map(self) -> op3.ScalarMap:
         """Return the map between child and parent meshes.
 
         This method augments the existing point to point maps stored on the
@@ -1560,11 +1573,11 @@ class FunctionSpace(AbstractFunctionSpace):
         return self.parent
 
     @property
-    def block_shape(self) -> tuple[IntType, ...]:
+    def block_shape(self):
         return self.shape
 
     @property
-    def block_size(self) -> IntType:
+    def block_size(self):
         """The total number of degrees of freedom at each function space node."""
         return numpy.prod(self.shape, dtype=IntType)
 
@@ -2111,7 +2124,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return ()
 
     @property
-    def block_size(self) -> IntType:
+    def block_size(self):
         return IntType.type(1)
 
     @cached_property
@@ -2183,8 +2196,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     # NOTE: This function is exactly the same as make_dat for a non-mixed space
     @_with_mesh_heavy_cache
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
-        :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
+        """Return a newly allocated :class:`pyop3.Dat` for this space."""
         if val is not None and val.size != self.axes.local_size:
             raise ValueError("Provided array has the wrong number of entries")
 
@@ -2235,7 +2247,7 @@ class ProxyFunctionSpace(FunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+    r"""Can this proxy make :class:`pyop3.Dat` objects"""
 
     def collapse(self) -> "FunctionSpace":
         """Drop the proxy metadata, returning a plain function space.
@@ -2249,7 +2261,7 @@ class ProxyFunctionSpace(FunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.types.dat.Dat`.
+        r"""Create a :class:`pyop3.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
@@ -2289,7 +2301,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+    r"""Can this proxy make :class:`pyop3.Dat` objects"""
 
     def collapse(self) -> "RestrictedFunctionSpace":
         """Drop the proxy metadata, returning a plain restricted space.
@@ -2308,7 +2320,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.types.dat.Dat`.
+        r"""Create a :class:`pyop3.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """

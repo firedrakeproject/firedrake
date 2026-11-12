@@ -64,11 +64,12 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : pyop3.Slice or None
-        An optional subset to apply the interpolation over.
+    subset : int, tuple of int, {"everywhere", "otherwise"}, or None
+        The subdomain IDs of the target cells over which to interpolate.
+        If None, interpolate over all target cells.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
-    access : pyop3.constants.Intent or None
+    access : pyop3.Intent or None
         The pyop3 access descriptor for combining updates to shared
         DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``.
         ``WRITE``, ``MIN``, and ``MAX`` are supported when interpolating across
@@ -93,7 +94,7 @@ class InterpolateOptions:
         the :meth:`interpolate` method or (b) set to zero.
         Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
     """
-    subset: op3.Slice | None = None
+    subset: int | tuple[int, ...] | Literal["everywhere", "otherwise"] | None = None
     access: Literal[op3.WRITE, op3.MIN_WRITE, op3.MAX_WRITE, op3.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
@@ -368,7 +369,7 @@ class Interpolator(abc.ABC):
             are supported.
         Returns
         -------
-        Function | Cofunction | MatrixBase | numbers.Number
+        firedrake.function.Function | Cofunction | MatrixBase | numbers.Number
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """

@@ -286,10 +286,14 @@ def prolong_matrix_kernel(Vc, Vf):
 
     Returns
     -------
-    tsfc.kernel_interface.firedrake_loopy.Kernel
-        A kernel descriptor that fills in the local dense matrix of the point evaluation
+    kernel : pyop3.Function
+        A kernel that fills in the local dense matrix of the point evaluation
         prolongation operator, for each fine grid cell and its overlapping
         coarse grid cells.
+    oriented : bool
+        Whether the kernel requires cell orientations.
+    needs_cell_sizes : bool
+        Whether the kernel requires cell sizes.
 
     """
     hierarchy, levelf = utils.get_level(Vf.mesh())
@@ -805,9 +809,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints(kernel_name)
 
-    # return op2.Kernel(
-    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-    #     headers=Ainv.headers, events=Ainv.events)
     kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
     return op3.Function(kernel, kernel_intents)
 

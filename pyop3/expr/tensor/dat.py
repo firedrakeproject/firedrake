@@ -5,7 +5,7 @@ import contextlib
 import math
 import numbers
 import typing
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from functools import cached_property
 from types import GeneratorType
 from typing import ClassVar, Literal
@@ -31,7 +31,7 @@ from pyop3.axis_tree.tree import (
 )
 from pyop3.buffer import AbstractBuffer, ArrayBuffer, NullBuffer
 from pyop3.cache import cached_method
-from pyop3.dtypes import DTypeT, IntType
+from pyop3.dtypes import IntType
 from pyop3.exceptions import Pyop3Exception
 from pyop3.expr.base import Terminal
 from pyop3.index_tree import ScalarIndex
@@ -47,7 +47,6 @@ from .base import (
 )
 
 if typing.TYPE_CHECKING:
-    import pyop3.insn
     from pyop3.types import *
 
 
@@ -71,7 +70,7 @@ class Dat(Tensor):
 
     # {{{ instance attrs
 
-    axes: AxisTreeT
+    axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike
     buffer: AbstractBuffer
     name: str
     _transform: TensorTransform | None = None
@@ -89,12 +88,12 @@ class Dat(Tensor):
 
     def __init__(
         self,
-        axes: AxisTreeT,
+        axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike,
         buffer: AbstractBuffer | None = None,
         *,
         data: np.ndarray | None = None,
-        name=None,
-        prefix=None,
+        name: str | None = None,
+        prefix: str | None = None,
         buffer_kwargs=None,
         constant: bool = False,
         transform=None,
@@ -252,7 +251,7 @@ class Dat(Tensor):
         cls,
         array: np.ndarray,
         *,
-        sf: StarForest | None = None,
+        sf: pyop3.sf.StarForest | None = None,
         comm: MPI.Comm = MPI.COMM_SELF,
         buffer_kwargs=None,
         constant: bool = False,
@@ -291,7 +290,7 @@ class Dat(Tensor):
         return cls(axes, buffer=buffer, **kwargs)
 
     @classmethod
-    def from_sequence(cls, sequence: Sequence, dtype: DTypeT, **kwargs) -> Dat:
+    def from_sequence(cls, sequence: Sequence, dtype, **kwargs) -> Dat:
         array = np.asarray(sequence, dtype=dtype)
         return cls.from_array(array, **kwargs)
 
@@ -597,7 +596,7 @@ class Dat(Tensor):
     def maxpy(self, alphas: Iterable[numbers.Number], dats: Iterable[Dat]) -> None:
         """Compute a sequence of axpy operations.
 
-        This is equivalent to calling `axpy` for each pair of
+        This is equivalent to calling ``axpy`` for each pair of
         scalars and `Dat` in the input sequences.
 
         Parameters
@@ -605,7 +604,7 @@ class Dat(Tensor):
         alphas :
             A sequence of scalars.
         dats :
-            A sequence of `Dat`s.
+            A sequence of `Dat`.
 
         """
         for alpha, dat in zip(alphas, dats, strict=True):
@@ -631,7 +630,7 @@ class Dat(Tensor):
 
         Returns
         -------
-        np.number :
+        numpy.number :
             The l2 inner product.
 
         """

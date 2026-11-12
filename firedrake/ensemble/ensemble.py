@@ -34,7 +34,7 @@ class Ensemble:
         Create a set of space and ensemble subcommunicators.
 
         Wrapper methods around many MPI communication functions are
-        provided for sending :class:`.Function` and :class:`.Cofunction`
+        provided for sending :class:`firedrake.function.Function` and :class:`.Cofunction`
         objects between spatial communicators.
 
         For non-Firedrake objects these wrappers will dispatch to the
@@ -104,15 +104,15 @@ class Ensemble:
     def _check_function(self, f: Function | Cofunction,
                         g: Function | Cofunction | None = None):
         """
-        Check if :class:`.Function` ``f`` (and possibly a second
-        :class:`.Function` ``g``) is a valid argument for ensemble MPI routines
+        Check if :class:`firedrake.function.Function` ``f`` (and possibly a second
+        :class:`firedrake.function.Function` ``g``) is a valid argument for ensemble MPI routines
 
         Parameters
         ----------
         f :
-            The :class:`.Function` to check.
+            The :class:`firedrake.function.Function` to check.
         g :
-            Second :class:`.Function` to check.
+            Second :class:`firedrake.function.Function` to check.
 
         Raises
         ------
@@ -136,12 +136,12 @@ class Ensemble:
                   op: MPI.Op = MPI.SUM
                   ) -> Function | Cofunction:
         """
-        Allreduce a :class:`.Function` ``f`` into ``f_reduced``.
+        Allreduce a :class:`firedrake.function.Function` ``f`` into ``f_reduced``.
 
         Parameters
         ----------
         f :
-            The :class:`.Function` to allreduce.
+            The :class:`firedrake.function.Function` to allreduce.
         f_reduced :
             The result of the reduction. Must be in the same
             :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
@@ -150,7 +150,7 @@ class Ensemble:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The result of the reduction.
 
         Raises
@@ -173,12 +173,12 @@ class Ensemble:
                    op: MPI.Op = MPI.SUM
                    ) -> MPI.Request:
         """
-        Allreduce (non-blocking) a :class:`.Function` ``f`` into ``f_reduced``.
+        Allreduce (non-blocking) a :class:`firedrake.function.Function` ``f`` into ``f_reduced``.
 
         Parameters
         ----------
         f :
-            The a :class:`.Function` to allreduce.
+            The a :class:`firedrake.function.Function` to allreduce.
         f_reduced :
             The result of the reduction. Must be in the same
             :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
@@ -208,12 +208,12 @@ class Ensemble:
                op: MPI.Op = MPI.SUM, root: int = 0
                ) -> Function | Cofunction:
         """
-        Reduce a :class:`.Function` ``f`` into ``f_reduced``.
+        Reduce a :class:`firedrake.function.Function` ``f`` into ``f_reduced``.
 
         Parameters
         ----------
         f :
-            The :class:`.Function` to reduce.
+            The :class:`firedrake.function.Function` to reduce.
         f_reduced :
             The result of the reduction. Must be in the same
             :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
@@ -224,7 +224,7 @@ class Ensemble:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The result of the reduction.
 
         Raises
@@ -252,12 +252,12 @@ class Ensemble:
                 op: MPI.Op = MPI.SUM, root: int = 0
                 ) -> MPI.Request:
         """
-        Reduce (non-blocking) a :class:`.Function` ``f`` into ``f_reduced``.
+        Reduce (non-blocking) a :class:`firedrake.function.Function` ``f`` into ``f_reduced``.
 
         Parameters
         ----------
         f :
-            The a :class:`.Function` to reduce.
+            The a :class:`firedrake.function.Function` to reduce.
         f_reduced :
             The result of the reduction. Must be in the same
             :func:`~firedrake.functionspace.FunctionSpace` as ``f``.
@@ -287,19 +287,19 @@ class Ensemble:
     def bcast(self, f: Function | Cofunction, root: int = 0
               ) -> Function | Cofunction:
         """
-        Broadcast a :class:`.Function` ``f`` over ``ensemble_comm``
+        Broadcast a :class:`firedrake.function.Function` ``f`` over ``ensemble_comm``
         from :attr:`~.Ensemble.ensemble_rank` ``root``.
 
         Parameters
         ----------
         f :
-            The :class:`.Function` to broadcast.
+            The :class:`firedrake.function.Function` to broadcast.
         root :
             The rank to broadcast from.
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The result of the broadcast.
 
         Raises
@@ -318,13 +318,13 @@ class Ensemble:
     def ibcast(self, f: Function | Cofunction, root: int = 0
                ) -> MPI.Request:
         """
-        Broadcast (non-blocking) a :class:`.Function` ``f`` over
+        Broadcast (non-blocking) a :class:`firedrake.function.Function` ``f`` over
         ``ensemble_comm`` :attr:`~.Ensemble.ensemble_rank` ``root``.
 
         Parameters
         ----------
         f :
-            The :class:`.Function` to broadcast.
+            The :class:`firedrake.function.Function` to broadcast.
         root :
             The rank to broadcast from.
 
@@ -345,13 +345,13 @@ class Ensemble:
     @_ensemble_mpi_dispatch
     def send(self, f: Function | Cofunction, dest: int, tag: int = 0):
         """
-        Send (blocking) a :class:`.Function` ``f`` over ``ensemble_comm``
+        Send (blocking) a :class:`firedrake.function.Function` ``f`` over ``ensemble_comm``
         to another :attr:`~.Ensemble.ensemble_rank`.
 
         Parameters
         ----------
         f :
-            The a :class:`.Function` to send.
+            The a :class:`firedrake.function.Function` to send.
         dest :
             The :attr:`~.Ensemble.ensemble_rank` to send ``f`` to.
         tag :
@@ -371,13 +371,13 @@ class Ensemble:
              tag: int = MPI.ANY_TAG, status: MPI.Status = None,
              ) -> Function | Cofunction:
         """
-        Receive (blocking) a :class:`.Function` ``f`` over
+        Receive (blocking) a :class:`firedrake.function.Function` ``f`` over
         ``ensemble_comm`` from another :attr:`~.Ensemble.ensemble_rank`.
 
         Parameters
         ----------
         f :
-            The :class:`.Function` to receive into.
+            The :class:`firedrake.function.Function` to receive into.
         source :
             The :attr:`~.Ensemble.ensemble_rank` to receive ``f`` from.
         tag :
@@ -387,7 +387,7 @@ class Ensemble:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             ``f`` with the received data.
 
         Raises
@@ -407,13 +407,13 @@ class Ensemble:
     def isend(self, f: Function | Cofunction, dest: int, tag: int = 0
               ) -> MPI.Request:
         """
-        Send (non-blocking) a :class:`.Function` ``f`` over ``ensemble_comm``
+        Send (non-blocking) a :class:`firedrake.function.Function` ``f`` over ``ensemble_comm``
         to another :attr:`~.Ensemble.ensemble_rank`.
 
         Parameters
         ----------
         f :
-            The a :class:`.Function` to send.
+            The a :class:`firedrake.function.Function` to send.
         dest :
             The :attr:`~.Ensemble.ensemble_rank` to send ``f`` to.
         tag :
@@ -439,13 +439,13 @@ class Ensemble:
               tag: int = MPI.ANY_TAG
               ) -> MPI.Request:
         """
-        Receive (non-blocking) a :class:`.Function` ``f`` over
+        Receive (non-blocking) a :class:`firedrake.function.Function` ``f`` over
         ``ensemble_comm`` from another :attr:`~.Ensemble.ensemble_rank`.
 
         Parameters
         ----------
         f :
-            The :class:`.Function` to receive into.
+            The :class:`firedrake.function.Function` to receive into.
         source :
             The :attr:`~.Ensemble.ensemble_rank` to receive ``f`` from.
         tag :
@@ -471,8 +471,8 @@ class Ensemble:
                  recvtag: int = MPI.ANY_TAG, statuses: list[MPI.Status] | MPI.Status = None
                  ) -> Function | Cofunction:
         """
-        Send (blocking) a :class:`.Function` ``fsend`` and receive a
-        :class:`.Function` ``frecv`` over ``ensemble_comm`` to/from other
+        Send (blocking) a :class:`firedrake.function.Function` ``fsend`` and receive a
+        :class:`firedrake.function.Function` ``frecv`` over ``ensemble_comm`` to/from other
         :attr:`~.Ensemble.ensemble_rank`.
 
         ``fsend`` and ``frecv`` do not need to be in the same function space
@@ -481,13 +481,13 @@ class Ensemble:
         Parameters
         ----------
         fsend :
-            The a :class:`.Function` to send.
+            The a :class:`firedrake.function.Function` to send.
         dest :
             The :attr:`~.Ensemble.ensemble_rank` to send ``fsend`` to.
         sendtag :
             The tag of the send message.
         frecv :
-            The :class:`.Function` to receive into.
+            The :class:`firedrake.function.Function` to receive into.
         source :
             The :attr:`~.Ensemble.ensemble_rank` to receive ``frecv`` from.
         recvtag :
@@ -498,7 +498,7 @@ class Ensemble:
 
         Returns
         -------
-        Function | Cofunction
+        firedrake.function.Function | Cofunction
             ``frecv`` with the received data.
 
         Raises
@@ -531,8 +531,8 @@ class Ensemble:
                   source: int = MPI.ANY_SOURCE, recvtag: int = MPI.ANY_TAG
                   ) -> list[MPI.Request]:
         """
-        Send (non-blocking) a :class:`.Function` ``fsend`` and receive a
-        :class:`.Function` ``frecv`` over ``ensemble_comm`` to/from other
+        Send (non-blocking) a :class:`firedrake.function.Function` ``fsend`` and receive a
+        :class:`firedrake.function.Function` ``frecv`` over ``ensemble_comm`` to/from other
         :attr:`~.Ensemble.ensemble_rank`.
 
         ``fsend`` and ``frecv`` do not need to be in the same function space.
@@ -540,13 +540,13 @@ class Ensemble:
         Parameters
         ----------
         fsend :
-            The a :class:`.Function` to send.
+            The a :class:`firedrake.function.Function` to send.
         dest :
             The :attr:`~.Ensemble.ensemble_rank` to send ``fsend`` to.
         sendtag :
             The tag of the send message.
         frecv :
-            The :class:`.Function` to receive into.
+            The :class:`firedrake.function.Function` to receive into.
         source :
             The :attr:`~.Ensemble.ensemble_rank` to receive ``frecv`` from.
         recvtag :
@@ -581,7 +581,7 @@ class Ensemble:
 
         Any data in ``kwargs`` will be made available in the returned
         context and will be communicated forward after each ensemble
-        member exits. :class:`.Function` or :class:`.Cofunction`
+        member exits. :class:`firedrake.function.Function` or :class:`.Cofunction`
         ``kwargs`` will be sent with the corresponding Ensemble methods.
 
         For example:
