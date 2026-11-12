@@ -161,9 +161,6 @@ with open("element_list.csv", 'w', newline='') as csvfile:
         family, short_name, value_rank, sobolev_space, \
             mapping, degree_range, cellnames = ufl_elements[element]
 
-        # The other names are the abbreviation followed by the simple
-        # aliases.  An empty cell tells the reader that only the full name
-        # is available for this family.
         other_names = [short_name] if short_name not in (None, family) else []
         other_names += [a for a in family_aliases.get(family, [])
                         if a not in other_names]
