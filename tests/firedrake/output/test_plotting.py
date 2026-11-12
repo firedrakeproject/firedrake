@@ -201,6 +201,31 @@ def test_fn_plotter_extruded_mesh_offsets(family, degree):
 
 
 @pytest.mark.skipplot
+@pytest.mark.parametrize("family,degree", [("Morley", 2), ("Hermite", 3), ("Reduced-Hermite", 3), ("RT", 1),
+                                           ("Bernardi-Raugel", 1), ("Rotated-Bernardi-Raugel", 1)])
+def test_fn_plotter_mapped_element(family, degree):
+    # The basis functions of these elements are not the pullback of the
+    # reference basis functions, so they must be mapped before sampling.
+    mesh = UnitSquareMesh(3, 2)
+    x, y = SpatialCoordinate(mesh)
+
+    fn_plotter = FunctionPlotter(mesh, num_sample_points=10)
+
+    V = FunctionSpace(mesh, family, degree)
+    if V.value_shape:
+        u = project(as_vector([sin(x), cos(y)]), V)
+        DG = VectorFunctionSpace(mesh, "DG", V.ufl_element().embedded_superdegree)
+    else:
+        u = project(sin(x) * cos(y), V)
+        DG = FunctionSpace(mesh, "DG", V.ufl_element().embedded_superdegree)
+
+    # The interpolant of u in DG is exact, and DG needs no mapping, so it
+    # gives the correct samples of u.
+    expected = fn_plotter(assemble(interpolate(u, DG)))
+    assert np.allclose(fn_plotter(u), expected)
+
+
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)
