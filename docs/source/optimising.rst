@@ -169,6 +169,207 @@ Other useful tools
 Here we present a handful of performance analysis tools that users may
 find useful to run with their codes.
 
+TAU
+~~~
+
+The `TAU profiling tools <https://www.cs.uoregon.edu/research/tau/home.php>`_ can be used to profile your application to better understand where it is spending its time, so that you know where to look for optimisations. These instructions show how to set up two types of experiment: a sampling experiment and a tracing experiment.
+
+A sampling experiment gives a statistical view of which parts of your application are most time consuming. For example the following output from a sampling experiement shows that 34.1% of the run time was spent in ``firedrake.solving.solve``.
+
+.. code-block:: text
+
+  NODE 0;CONTEXT 0;THREAD 0:
+  ---------------------------------------------------------------------------------------
+  %Time    Exclusive    Inclusive       #Call      #Subrs  Inclusive Name
+                msec   total msec                          usec/call
+  ---------------------------------------------------------------------------------------
+  100.0        0.191        3,015           1           1    3015538 .TAU application
+  100.0           94        3,015           1         160    3015347 taupreload_main
+   87.1        1,255        2,627           1         420    2627861 Main Stage
+   34.1            1        1,027          16          80      64236 firedrake.solving.solve
+   28.5            8          858          34        2608      25245 firedrake.variational_solver.NonlinearVariationalSolver.solve
+   28.1            1          847          34         797      24917 SNESSolve
+   19.4            2          586          87        1895       6741 PCSetUp
+   12.4          332          373          51      101757       7327 MatLUFactorNum
+    8.0          240          240           1           2     240656 MPI_Init_thread()
+    7.4           10          222          18         652      12389 firedrake.projection.project
+    6.9          196          207          16        3169      12950 MatLUFactorSym
+
+Exclusive time is time spent in the specified block of code, and inclusive time is time spent in the specified block of code and functions which it calls. Sampling has a relatvily low overhead but does not show how a particular function was reached.
+
+A tracing experiment shows a timeline through your application so that you can see the path taken through the algorithm. The plot below shows the timeline from a TAU tracing experiment zoomed in on ``firedrake.solving.solve``. The trace shows that most of the time in ``firedrake.solving.solve`` is spent doing a ``SNESSolve``, and most of that time is accounted for by ``PCSetUp`` and ``SNESJacobianEval``.
+
+.. figure:: images/TAU_trace_example.png
+   :width: 75%
+   :alt: TAU trace zoomed in on firedrake.solving.solve
+   :align: center
+
+Tracing provides more information than sampling but has a higher overhead.
+
+The following instructions describe how to install TAU for use with Firedrake on an Ubuntu system (including Ubuntu run using WSL).
+
+Installing TAU
+^^^^^^^^^^^^^^
+
+#. Start by making a directory for installing TAU, for example ``${HOME}/TAU``. We will store the path to this directory in an environment variable so it can be used later:
+
+   .. code-block:: console
+
+     $ export MY_TAU_DIR=${HOME}/TAU
+     $ mkdir $MY_TAU_DIR
+     $ cd $MY_TAU_DIR
+
+#. Download and unpack TAU into this directory:
+
+   .. code-block:: console
+
+     $ wget http://tau.uoregon.edu/tau.tgz
+     $ tar zxvf tau.tgz
+
+   Record the name of the TAU source directory in an environment variable for use later. For example if the directory created by the tar command above was ``tau-2.35.2`` then run the command:
+
+   .. code-block:: console
+
+     $ export MY_TAU_SRC=tau-2.35.2
+
+#. Download the third-party library package. This needs to be untarred in ``${MY_TAU_DIR}/${MY_TAU_SRC}``:
+
+   .. code-block:: console
+
+     $ wget http://tau.uoregon.edu/ext.tgz
+     $ cd ${MY_TAU_SRC}
+     $ tar zxvf ../ext.tgz
+
+#. Start the Firedrake venv so that you have the same python as used by Firedrake. Use the path to your firedrake installation in the following command:
+
+   .. code-block:: console
+
+     $ . /path/to/firedrake/venv-firedrake/bin/activate
+
+#. Run the configure command to configure TAU for sampling:
+
+   .. code-block:: console
+
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -prefix=${MY_TAU_DIR}/tau -python -mpi
+
+   At the end of the output from the configure command will be an entry to add to your PATH environment variable e.g.
+
+   .. code-block:: console
+
+     Configuration complete!
+     Please add  /path/to/TAU/tau/x86_64/bin  to your path
+
+   Add this directory to your PATH e.g.
+
+   .. code-block:: console
+
+     $ export PATH=${PATH}:/path/to/TAU/tau/x86_64/bin
+
+   where ``/path/to/TAU`` will be the path to your TAU installation (i.e. the same as ``$MY_TAU_DIR``). The ``x86_64`` part of the part is platform dependent and may differ on your system.
+
+   *You will need to add this entry to your path whenever you use TAU.*
+
+   Now make and install TAU:
+
+   .. code-block:: console
+
+     $ make install
+
+#. We will now add the capability for TAU to do tracing as well as sampling. This requires running configure and make again but this can be doing using the existing installation directory:
+
+   .. code-block:: console
+
+     $ ./configure -bfd=download -dwarf=download -unwind=download -iowrapper -prefix=${MY_TAU_DIR}/tau -python -mpi -TRACE -perfetto
+     $ make install
+
+Using TAU: sampling
+^^^^^^^^^^^^^^^^^^^
+     
+#. Set up a new directory for the example:
+
+   .. code-block:: console
+
+     $ mkdir -p ~/tau_examples/sampling
+     $ cd ~/tau_examples/sampling
+
+#. Download a script for Firedrake to run, e.g. the Burgers equation example:
+
+   .. code-block:: console
+
+     $ wget https://firedrakeproject.org/demos/burgers.py
+
+#. Make sure threading is not used. Firedrake complains if this is not done:
+
+   .. code-block:: console
+
+     $ export OMP_NUM_THREADS=1
+
+#. Run the example without TAU to make sure that all the JIT compilation has been done
+
+   .. code-block:: console
+
+     $ mpiexec -n 2 python burgers.py
+
+#. Run the example with TAU to get a profile:
+
+   .. code-block:: console
+
+     $ mpiexec -n 2 tau_exec python burgers.py
+
+#. Post process and view the output:
+
+   .. code-block:: console
+
+     $ pprof > profile_combined.txt
+     $ less profile_combined.txt
+
+Using TAU: tracing
+^^^^^^^^^^^^^^^^^^
+
+#. Set up a new directory for the example:
+
+   .. code-block:: console
+
+     $ mkdir -p ~/tau_examples/tracing
+     $ cd ~/tau_examples/tracing
+
+#. Download a script for Firedrake to run, e.g. the Burgers equation example:
+
+   .. code-block:: console
+
+     $ wget https://firedrakeproject.org/demos/burgers.py
+
+#. Set the trace output format for the Perfetto viewer:
+
+   .. code-block:: console
+
+     $ export TAU_TRACE_FORMAT=perfetto
+
+   Run the tracing experiment:
+
+   .. code-block:: console
+
+     $ mpiexec -n 2 tau_exec -T TRACE python burgers.py
+
+#. There should now be a file called ``tau.perfetto.gz``. Unzip this file:
+
+   .. code-block:: console
+
+     $ gunzip tau.perfetto.gz
+
+   and upload to `Perfetto UI <https://ui.perfetto.dev>`_ for viewing using the 'Open trace file' option from the menu.
+
+#. View the trace.
+
+   In the Perfetto viewer click on the trace for one of the ranks to expand the view. You can navigate the trace using:
+
+   - W: zoom in
+   - S: zoom out
+   - A: move left (earlier time)
+   - D: move right (later time)
+
+   If you want to go back to running a sampling experiment remember to ``unset TAU_TRACE_FORMAT`` before doing so.
+
 py-spy
 ~~~~~~
 
