@@ -73,9 +73,9 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subdomain_id : int, tuple of int, {"everywhere", "otherwise"}, or None
+    subdomain_id : int, tuple of int, or {"everywhere", "otherwise"}
         The subdomain IDs of the target cells over which to interpolate.
-        If None, interpolate over all target cells.
+        The default is "everywhere", which selects all target cells.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
     access : pyop3.Intent or None
@@ -103,21 +103,10 @@ class InterpolateOptions:
         the :meth:`interpolate` method or (b) set to zero.
         Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
     """
-    subdomain_id: int | tuple[int, ...] | Literal["everywhere", "otherwise"] | None = None
+    subdomain_id: int | tuple[int, ...] | Literal["everywhere", "otherwise"] = "everywhere"
     access: Literal[op3.WRITE, op3.MIN_WRITE, op3.MAX_WRITE, op3.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
-    subset: dataclasses.InitVar = None
-
-    def __post_init__(self, subset: int | tuple[int, ...] | str | None):
-        if subset is not None:
-            warnings.warn(
-                "The interpolation keyword 'subset' is deprecated; use 'subdomain_id' instead.",
-                FutureWarning, stacklevel=2,
-            )
-            if self.subdomain_id is not None:
-                raise ValueError("Cannot supply both 'subset' and 'subdomain_id'.")
-            self.subdomain_id = subset
 
 
 class Interpolate(UFLInterpolate):
@@ -154,6 +143,15 @@ class Interpolate(UFLInterpolate):
 
         super().__init__(expr, V)
 
+        subset = kwargs.pop("subset", None)
+        if subset is not None:
+            warnings.warn(
+                "The 'subset' argument is deprecated and will be removed in a future release. "
+                "Please use 'subdomain_id' instead.", FutureWarning,
+            )
+            if "subdomain_id" in kwargs:
+                raise ValueError("Cannot supply both 'subset' and 'subdomain_id'.")
+            kwargs["subdomain_id"] = subset
         self._options = InterpolateOptions(**kwargs)
 
     function_space = UFLInterpolate.ufl_function_space
@@ -1017,7 +1015,7 @@ def _build_interpolation_callables(
     expr: Interpolate | ZeroBaseForm,
     tensor: op3.Scalar | op3.Dat | op3.Mat,
     access: Literal[op3.WRITE, op3.MIN, op3.MAX, op3.INC],
-    subdomain_id: int | tuple[int, ...] | Literal["everywhere", "otherwise"] | None = None,
+    subdomain_id: int | tuple[int, ...] | Literal["everywhere", "otherwise"] = "everywhere",
     bcs: Iterable[DirichletBC] | None = None,
     pyop3_compiler_parameters=None,
 ) -> tuple[Callable, ...]:
@@ -1032,9 +1030,9 @@ def _build_interpolation_callables(
         Object to hold the result of the interpolation.
     access : Literal[op3.WRITE, op3.MIN, op3.MAX, op3.INC]
         pyop3 access descriptor
-    subdomain_id : int, tuple of int, {"everywhere", "otherwise"}, or None
+    subdomain_id : int, tuple of int, or {"everywhere", "otherwise"}
         The subdomain IDs of the target cells over which to interpolate.
-        If None, interpolate over all target cells.
+        The default is "everywhere", which selects all target cells.
     bcs : Iterable[DirichletBC] | None
         An optional list of boundary conditions to zero-out in the
         output function space. Interpolator rows or columns which are
@@ -1079,15 +1077,12 @@ def _build_interpolation_callables(
         source_mesh is not target_mesh
         and source_mesh.submesh_youngest_common_ancestor(target_mesh)
     ):
-        if subdomain_id is not None:
-            raise NotImplementedError("TODO")
+        if subdomain_id != "everywhere":
+            raise NotImplementedError("Interpolation across submeshes with a subdomain ID is not implemented")
 
         loop_index = target_mesh.iter("cell", intersect_meshes=[source_mesh])
     else:
-        if subdomain_id is not None:
-            loop_index = target_mesh.iter("cell", subdomain_id=subdomain_id)
-        else:
-            loop_index = target_mesh.iter("cell")
+        loop_index = target_mesh.iter("cell", subdomain_id=subdomain_id)
 
     target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):
