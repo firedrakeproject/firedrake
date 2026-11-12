@@ -105,7 +105,7 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
 
     Returns
     -------
-    pyop2.op2.Kernel
+    pyop3.insn.base.Function
         The kernel
     """
     source_mesh = extract_unique_domain(operand)
@@ -255,7 +255,7 @@ def prolong_kernel(expression, Vf):
 
 
 def prolong_matrix_kernel(Vc, Vf):
-    """Return a PyOP2 kernel that assembles the local prolongation matrices mapping Vc to Vf.
+    """Return a pyop3 kernel that assembles the local prolongation matrices mapping Vc to Vf.
 
     Parameters
     ----------
@@ -266,7 +266,7 @@ def prolong_matrix_kernel(Vc, Vf):
 
     Returns
     -------
-    pyop2.op2.Kernel
+    pyop3.insn.base.Function
         A kernel that fills in the local dense matrix of the point evaluation
         prolongation operator, for each fine grid cell and its overlapping
         coarse grid cells.
@@ -785,9 +785,6 @@ def dg_injection_kernel(Vf, Vc, ncell):
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints(kernel_name)
 
-    # return op2.Kernel(
-    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-    #     headers=Ainv.headers, events=Ainv.events)
     kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
     return op3.Function(kernel, kernel_intents, libraries=Ainv.compiler_options.libraries)
 

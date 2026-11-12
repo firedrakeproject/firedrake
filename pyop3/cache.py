@@ -30,8 +30,8 @@ from petsc4py import PETSc
 
 import pyop3.collections
 import pyop3.config
+import pyop3.constants
 from pyop3 import utils
-from pyop3.constants import _nothing
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
 _CACHE_CIDX = itertools.count()
@@ -86,14 +86,14 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
 
             key = get_key(*args, **kwargs)
 
-            value = _nothing
+            value = pyop3.constants.NOTHING
             for obj in objs:
                 cache = obj._pyop3_cache[func.__qualname__]
                 try:
                     value = cache[key]
                 except KeyError:
                     pass
-            if value is _nothing:
+            if value is pyop3.constants.NOTHING:
                 value = func(*args, **kwargs)
 
             # Store in all of the caches
@@ -499,14 +499,6 @@ class DEFAULT_CACHE(dict):
     pass
 
 
-# Turn on cache measurements if printing cache info is enabled
-# FIXME: make a function, not global config
-# if configuration["print_cache_info"]:
-
-
-execs = weakref.WeakSet()
-
-
 # TODO: One day should use the compilation comm to do the bcast
 def parallel_cache(
     hashkey=default_parallel_hashkey,
@@ -794,6 +786,7 @@ class heavy_caches:
 def with_heavy_caches(get_obj: Callable) -> Callable:
     """Function decorator that pushes and pops lifetime objects."""
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
             assert pyop3.collections.is_ordered_sequence(obj)

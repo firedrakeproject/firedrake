@@ -155,7 +155,8 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
 
         Returns
         -------
-        self
+        typing.Self
+            self
 
         """
         if self.ufl_shape and np.array(value).shape != self.ufl_shape:

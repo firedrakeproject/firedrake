@@ -56,16 +56,16 @@ class CoordinatelessFunction(ufl.Coefficient):
         r"""
         :param function_space: the :class:`.FunctionSpace`, or
             :class:`.MixedFunctionSpace` on which to build this
-            :class:`Function`.
+            :class:`firedrake.function.Function`.
 
-            Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`)
+            Alternatively, another :class:`firedrake.function.Function` may be passed here and its function space
+            will be used to build this :class:`firedrake.function.Function`.
+        :param val: NumPy array-like (or :class:`pyop3.Dat`)
             providing initial values (optional).
-            This :class:`Function` will share data with the provided
+            This :class:`firedrake.function.Function` will share data with the provided
             value.
-        :param name: user-defined name for this :class:`Function` (optional).
-        :param dtype: optional data type for this :class:`Function`
+        :param name: user-defined name for this :class:`firedrake.function.Function` (optional).
+        :param dtype: optional data type for this :class:`firedrake.function.Function`
                (defaults to ``ScalarType``).
         """
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
@@ -240,7 +240,7 @@ class Function(ufl.Coefficient, FunctionMixin):
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.  In this
             case, the function values are copied.
-        :param val: NumPy array-like (or :class:`pyop2.types.dat.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop3.Dat`) providing initial values (optional).
             If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
@@ -323,7 +323,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     def sub(self, indices: tuple[int] | int) -> "Function":
-        """Extract the `i`th sub function of this function.
+        """Extract the i-th sub function of this function.
 
         If the `Function` is defined on a `~.VectorFunctionSpace` or
         `~.TensorFunctionSpace` this returns a proxy object indexing the 'i'th
@@ -331,13 +331,14 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         Parameters
         ----------
-        indices :
+        indices
             Indices indicating the sub function to extract. If an `int` is
             used then this is converted into a `tuple`.
 
         Returns
         -------
-        The sub function.
+        firedrake.function.Function
+            The sub function.
 
         See Also
         --------
@@ -407,9 +408,9 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         Parameters
         ----------
-        subset : pyop2.types.set.Subset
-                 A subset of the domain indicating the nodes to zero.
-                 If `None` then the whole function is zeroed.
+        subset : pyop3.Index | None
+             A subset of the domain indicating the nodes to zero.
+             If `None` then the whole function is zeroed.
 
         Returns
         -------
@@ -430,9 +431,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         ----------
         expr : ufl.core.expr.Expr
             Expression to be assigned.
-        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
-            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
-            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed function.
+        subset : pyop3.Index
+            Subset of nodes to assign to.
         allow_missing_dofs : bool
             Permit assignment between objects with mismatching nodes. If `True` then
             assignee nodes with no matching assigner nodes are ignored.

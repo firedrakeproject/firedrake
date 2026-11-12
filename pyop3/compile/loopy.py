@@ -309,7 +309,7 @@ class LoopyCodegenContext(CodegenContext):
         loop_indices,
         *,
         intent,
-    ) -> pym.Expression:
+    ):
         name_in_kernel = self.add_buffer(buffer_view, intent)
 
         buffer = buffer_view.buffer
@@ -412,7 +412,7 @@ class LoopyCodegenContext(CodegenContext):
 
         self.add_assignment(lexpr, rexpr)
 
-    def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None) -> pym.Expression:
+    def lower_expr(self, expr, iname_maps, loop_indices, *, intent=READ, paths=None):
         return _lower_expr(expr, iname_maps, loop_indices, intent=intent, paths=paths, context=self)
 
     def finalize_kernel(

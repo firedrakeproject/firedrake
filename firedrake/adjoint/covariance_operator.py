@@ -103,7 +103,7 @@ class NoiseBackendBase:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The white noise sample in :math:`V`
         """
         raise NotImplementedError
@@ -404,7 +404,7 @@ class WhiteNoiseGenerator:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The white noise sample
         """
         return self.backend.sample(
