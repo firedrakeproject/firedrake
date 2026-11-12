@@ -179,12 +179,23 @@ class FieldsplitSNES(SNESBase):
 
         self.Gk = replace(ctx.F, {ctx._x: self.uk})
 
-        # Break the SNESContext apart into one per split
-        split_ctxs = ctx.split(self.splits)
+        # The options prefixes of the splits are built from the options
+        # prefix of the context. A nonlinear preconditioner shares the DM,
+        # and so the context, of its outer SNES, but it has its own options
+        # prefix. In that case we make a context with the prefix of this
+        # SNES so that the splits read the options of this SNES.
+        prefix_ctx = ctx
+        if outer_prefix != (ctx.options_prefix or ""):
+            prefix_ctx = ctx.reconstruct(options_prefix=outer_prefix)
 
+        # Break the SNESContext apart into one per split
+        split_ctxs = prefix_ctx.split(self.splits)
+
+        # The reconstructed context does not keep the nullspace,
+        # so the nullspaces must come from the original context.
         nullspaces = self._get_nullspaces(ctx, split_ctxs, self.splits)
 
-        default_parameters = self._get_default_parameters(ctx, split_ctxs)
+        default_parameters = self._get_default_parameters(prefix_ctx, split_ctxs)
 
         # Each split problem holds the form for its own part
         # of G^{k+1}, but we also need to apply the forcing

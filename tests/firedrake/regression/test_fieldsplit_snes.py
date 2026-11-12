@@ -465,12 +465,16 @@ def test_fieldsplit_snes_default_fields():
     assert errornorm(w_explicit, w_default) < 1e-14
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("npc", [False, True])
 @pytest.mark.parametrize("named", [False, True])
-def test_fieldsplit_snes_default_options(named):
+def test_fieldsplit_snes_default_options(named, npc):
     """Check that options with the fieldsplit_ prefix are used as
     defaults for every split, that options for a specific split take
     priority over them, and that they take priority over Firedrake's
-    default solver parameters.
+    default solver parameters. When the FieldsplitSNES is a nonlinear
+    preconditioner, it shares the DM of the outer SNES but has its own
+    options prefix, which the splits must use.
     """
     mesh = UnitIntervalMesh(10)
     if named:
@@ -509,14 +513,23 @@ def test_fieldsplit_snes_default_options(named):
         },
     }
 
+    if npc:
+        params = {
+            'snes_type': 'ngmres',
+            'snes_max_it': 2,
+            'snes_convergence_test': 'skip',
+            'npc': {**params, 'snes_max_it': 1},
+        }
+
     solver = NonlinearVariationalSolver(
         NonlinearVariationalProblem(F, w),
         solver_parameters=params)
     solver.solve()
 
-    split_solvers = solver.snes.getPythonContext().split_solvers
+    fs_snes = solver.snes.getNPC() if npc else solver.snes
+    split_solvers = fs_snes.getPythonContext().split_solvers
     assert [s.snes.getOptionsPrefix() for s in split_solvers] == [
-        f"{solver.snes.getOptionsPrefix()}fieldsplit_{name}_" for name in names]
+        f"{fs_snes.getOptionsPrefix()}fieldsplit_{name}_" for name in names]
 
     expected_rtols = [1e-3, 1e-7]
     for split_solver, rtol in zip(split_solvers, expected_rtols):
