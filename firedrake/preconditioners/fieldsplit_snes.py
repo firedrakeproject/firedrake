@@ -191,9 +191,12 @@ class FieldsplitSNES(SNESBase):
         # Break the SNESContext apart into one per split
         split_ctxs = prefix_ctx.split(self.splits)
 
-        # The reconstructed context does not keep the nullspace,
-        # so the nullspaces must come from the original context.
-        nullspaces = self._get_nullspaces(ctx, split_ctxs, self.splits)
+        # The reconstructed context does not keep the nullspaces,
+        # so they must come from the original context.
+        nullspaces, transpose_nullspaces, near_nullspaces = (
+            self._get_nullspaces(nullspace, split_ctxs, self.splits)
+            for nullspace in (ctx._nullspace, ctx._nullspace_T,
+                              ctx._near_nullspace))
 
         default_parameters = self._get_default_parameters(prefix_ctx, split_ctxs)
 
@@ -229,7 +232,7 @@ class FieldsplitSNES(SNESBase):
                 split_problem.u_restrict,
                 bcs=split_problem.bcs,
                 J=split_problem.J,
-                Jp=None if split_problem.Jp_eq_J else split_problem.Jp,
+                Jp=split_problem.Jp,
                 is_linear=split_problem.is_linear,
                 form_compiler_parameters=split_problem.form_compiler_parameters)
             forced_problem._constant_jacobian = split_problem._constant_jacobian
@@ -245,9 +248,13 @@ class FieldsplitSNES(SNESBase):
                 solver_parameters=dict(default_parameters),
                 appctx=split_ctx.appctx,
                 nullspace=nullspace,
+                transpose_nullspace=transpose_nullspace,
+                near_nullspace=near_nullspace,
                 options_prefix=split_ctx.options_prefix)
-            for split_problem, split_ctx, nullspace in zip(
-                split_problems, split_ctxs, nullspaces)
+            for (split_problem, split_ctx, nullspace,
+                 transpose_nullspace, near_nullspace) in zip(
+                split_problems, split_ctxs, nullspaces,
+                transpose_nullspaces, near_nullspaces)
         )
 
         outer_snes = snes
@@ -347,21 +354,26 @@ class FieldsplitSNES(SNESBase):
         return get_default_options(default_options_set)
 
     def _get_nullspaces(
-            self, ctx: _SNESContext,
+            self, nullspace: MixedVectorSpaceBasis | None,
             split_ctxs: Sequence[_SNESContext],
             splits: Sequence[Sequence[int]],
     ) -> list[VectorSpaceBasis | MixedVectorSpaceBasis | None]:
-        """Return the nullspace for each split, or None if it has none."""
+        """Return the part of a nullspace for each split.
+
+        This is used for the nullspace, the transpose nullspace and
+        the near nullspace of the full problem. The result for a split
+        is None if the nullspace has no part on that split.
+        """
         from firedrake.nullspace import (
             VectorSpaceBasis, MixedVectorSpaceBasis)
 
-        if ctx._nullspace is None:
+        if nullspace is None:
             return [None for _ in splits]
 
         nullspaces = []
         for split_ctx, fields in zip(split_ctxs, splits):
             if len(fields) == 1:
-                base = ctx._nullspace._bases[fields[0]]
+                base = nullspace._bases[fields[0]]
                 if isinstance(base, VectorSpaceBasis):
                     nullspaces.append(base)
                 else:
@@ -369,7 +381,7 @@ class FieldsplitSNES(SNESBase):
 
             else:
                 W = split_ctx._x.function_space()
-                mono_bases = [ctx._nullspace._bases[i] for i in fields]
+                mono_bases = [nullspace._bases[i] for i in fields]
 
                 split_bases = [
                     base if isinstance(base, VectorSpaceBasis) else W.sub(k)

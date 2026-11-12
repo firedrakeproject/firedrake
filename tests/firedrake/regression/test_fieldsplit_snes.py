@@ -627,3 +627,69 @@ def test_fieldsplit_snes_nested():
     y_nested = step(nested_solver)
     assert norm(y_flat) > 0
     assert errornorm(y_flat, y_nested) < 1e-12
+
+
+def test_fieldsplit_snes_nullspaces():
+    """Check that the nullspace, transpose nullspace and near nullspace
+    of the full problem are split and given to the solver for each split.
+    """
+    from firedrake import dmhooks
+
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V * V
+
+    w = Function(W)
+    u0, u1, u2 = split(w)
+    v0, v1, v2 = TestFunctions(W)
+    F = (inner(grad(u0), grad(v0))*dx + inner(u0 - 1, v0)*dx
+         + inner(grad(u1), grad(v1))*dx + inner(u1 - 2, v1)*dx
+         + inner(grad(u2), grad(v2))*dx + inner(u2 - 3, v2)*dx)
+
+    # Each nullspace has a basis on a different field, so that we
+    # can check that each one is split separately.
+    def make_nullspace(field):
+        return MixedVectorSpaceBasis(
+            W, [VectorSpaceBasis(constant=True, comm=mesh.comm) if i == field else W.sub(i)
+                for i in range(len(W))])
+
+    nullspace = make_nullspace(0)
+    transpose_nullspace = make_nullspace(1)
+    near_nullspace = make_nullspace(2)
+
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, w),
+        nullspace=nullspace,
+        transpose_nullspace=transpose_nullspace,
+        near_nullspace=near_nullspace,
+        solver_parameters={
+            'snes_type': 'python',
+            'snes_python_type': 'firedrake.FieldsplitSNES',
+            'snes_fieldsplit_0_fields': '0',
+            'snes_fieldsplit_1_fields': '1,2',
+        })
+
+    # Set up the FieldsplitSNES in the same way as a solve would.
+    snes = solver.snes
+    with solver.inserted_options(), \
+            dmhooks.add_hooks(snes.getDM(), solver, appctx=solver._ctx):
+        snes.setUp()
+
+    split_ctxs = [s._ctx for s in snes.getPythonContext().split_solvers]
+
+    # The first split is field 0, which only the nullspace has a basis on.
+    assert split_ctxs[0]._nullspace is nullspace._bases[0]
+    assert split_ctxs[0]._nullspace_T is None
+    assert split_ctxs[0]._near_nullspace is None
+
+    # The second split is fields 1 and 2, so each of its nullspaces is
+    # mixed, with a basis only where the full nullspace has one.
+    assert all(not isinstance(base, VectorSpaceBasis)
+               for base in split_ctxs[1]._nullspace._bases)
+    for split_nullspace, basis, field in [
+            (split_ctxs[1]._nullspace_T, transpose_nullspace, 1),
+            (split_ctxs[1]._near_nullspace, near_nullspace, 2)]:
+        assert isinstance(split_nullspace, MixedVectorSpaceBasis)
+        bases = split_nullspace._bases
+        assert bases[field - 1] is basis._bases[field]
+        assert not isinstance(bases[2 - field], VectorSpaceBasis)
