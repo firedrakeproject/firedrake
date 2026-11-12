@@ -27,3 +27,4 @@ from firedrake.preconditioners.facet_split import FacetSplitPC  # noqa: F401
 from firedrake.preconditioners.bddc import BDDCPC  # noqa: F401
 from firedrake.preconditioners.covariance import CovariancePC  # noqa: F401
 from firedrake.preconditioners.auxiliary_snes import AuxiliaryOperatorSNES  # noqa: F401
+from firedrake.preconditioners.fieldsplit_snes import FieldsplitSNES  # noqa: F401
