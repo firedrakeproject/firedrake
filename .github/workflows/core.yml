@@ -594,8 +594,14 @@ jobs:
         id: install
         run: |
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
+          : # DROP BEFORE MERGE: test against FIAT PR 308
+          pip install -v --ignore-installed --no-deps \
+            'git+https://github.com/firedrakeproject/fiat.git@pbrubeck/enriched-single-point'
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
+          : # DROP BEFORE MERGE: replace the FIAT version resolved by pip
+          pip install -v --ignore-installed --no-deps \
+            'git+https://github.com/firedrakeproject/fiat.git@pbrubeck/enriched-single-point'
           firedrake-clean
           pip list
 
