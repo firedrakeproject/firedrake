@@ -484,3 +484,17 @@ def test_extract_subdomain_ids_mixed():
     W = V * V
     bc = DirichletBC(W.sub(1), 0, 1)
     assert extract_subdomain_ids([bc]) == ((), (1,))
+
+
+def test_solve_mixed_bcs_restrict():
+    V = FunctionSpace(UnitIntervalMesh(2), "CG", 1)
+    W = V * V
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    w = Function(W)
+    bc = DirichletBC(W.sub(1), 0, "on_boundary")
+    a = inner(u, v) * dx
+    L = inner(as_vector([1, 0]), v) * dx
+    solve(a == L, w, bcs=bc, restrict=True)
+    assert np.allclose(w.sub(0).dat.data_ro, 1)
+    assert np.allclose(w.sub(1).dat.data_ro, 0)
