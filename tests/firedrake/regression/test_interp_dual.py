@@ -545,6 +545,15 @@ def test_assemble_action_adjoint(V1, V2):
     assert np.allclose(res.dat.data_ro, expected.dat.data_ro)
 
 
+def test_assemble_interp_pullback_of_action(V1, V2):
+    # Check that pulling J back through interpolations into its own spaces gives J.
+    v, u = TestFunction(V1), TrialFunction(V1)
+    J = action(inner(TrialFunction(V2), v) * dx, interpolate(u, V2))
+    pullback = interpolate(u, interpolate(v, J))
+    assert pullback.arguments() == J.arguments()
+    assert np.allclose(assemble(pullback).petscmat[:, :], assemble(J).petscmat[:, :])
+
+
 @pytest.mark.parallel(2)
 def test_form_interp_reuse():
     from firedrake.assemble import OneFormAssembler, get_assembler
@@ -578,6 +587,22 @@ def test_form_interp_mapped_derivative():
     actual = assemble(inner(grad(interpolation), grad(interpolation)) * dx)
     interpolated = assemble(interpolation)
     expected = assemble(inner(grad(interpolated), grad(interpolated)) * dx)
+    assert np.isclose(actual, expected)
+
+
+def test_form_interp_mapped_derivative_mixed():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "RT", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = V * Q
+    x, y = SpatialCoordinate(mesh)
+    u = Function(Z).interpolate(as_vector((x**2 + y, x - y**2, x * y)))
+    interpolation = interpolate(u, Z)
+
+    sigma, _ = split(interpolation)
+    actual = assemble(inner(grad(sigma), grad(sigma)) * dx)
+    sigma, _ = split(assemble(interpolation))
+    expected = assemble(inner(grad(sigma), grad(sigma)) * dx)
     assert np.isclose(actual, expected)
 
 
