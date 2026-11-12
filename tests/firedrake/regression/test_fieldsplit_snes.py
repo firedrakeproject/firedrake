@@ -507,10 +507,6 @@ def test_fieldsplit_snes_default_options(named):
         f'fieldsplit_{names[1]}': {
             'snes_rtol': 1e-7,
         },
-        # options for a split that does not exist are not defaults
-        'fieldsplit_7': {
-            'snes_rtol': 0.5,
-        },
     }
 
     solver = NonlinearVariationalSolver(
@@ -528,7 +524,6 @@ def test_fieldsplit_snes_default_options(named):
         assert snes.getTolerances()[0] == rtol
         assert snes.ksp.getType() == "gmres"
         assert snes.ksp.pc.getType() == "lu"
-        assert not any(k.startswith("7_") for k in split_solver.parameters)
 
 
 def test_fieldsplit_snes_nested():

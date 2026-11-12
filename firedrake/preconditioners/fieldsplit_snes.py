@@ -333,13 +333,7 @@ class FieldsplitSNES(SNESBase):
             base_prefix=base_prefix,
             custom_prefix_endings=[prefix[len(base_prefix):]
                                    for prefix in split_prefixes])
-
-        # Options for a numbered split that does not exist (e.g.
-        # -fieldsplit_7_ when there are only 3 splits) are not defaults.
-        return {
-            k: v for k, v in get_default_options(default_options_set).items()
-            if not re.match(r"\d+_", k)
-        }
+        return get_default_options(default_options_set)
 
     def _get_nullspaces(
             self, ctx: _SNESContext,
