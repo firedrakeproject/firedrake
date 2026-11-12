@@ -438,6 +438,9 @@ class BaseFormAssembler(AbstractFormAssembler):
         self._diagonal = diagonal
         self._weight = weight
         self._allocation_integral_types = allocation_integral_types
+        self._node_tensors = {}
+        self._form_assemblers = {}
+        self._interpolation_assemblers = {}
 
     @staticmethod
     def needs_matfree_assembler(form, mat_type, diagonal=False):
@@ -462,8 +465,13 @@ class BaseFormAssembler(AbstractFormAssembler):
                 return self._matrix_free_assembler.allocate()
             else:
                 test, trial = self._form.arguments()
-                sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
-                mat = op3.Mat.from_sparsity(sparsity)
+                if self._allocation_integral_types is not None:
+                    sparsity = ExplicitMatrixAssembler._make_sparsity(test, trial, self._mat_spec, self.maps_and_regions)
+                    mat = op3.Mat.from_sparsity(sparsity)
+                else:
+                    mat = op3.Mat.empty(test.function_space().axes, trial.function_space().axes,
+                                        buffer_spec=self._mat_spec)
+                    mat.assemble()
                 return Matrix(self._form, mat, bcs=self._bcs, options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
         else:
             raise NotImplementedError("Only implemented for rank = 2 and diagonal = False")
@@ -603,12 +611,24 @@ class BaseFormAssembler(AbstractFormAssembler):
     def _assemble_base_form(self, expr, tensor=None):
         """Assemble a BaseForm tree in post-order."""
         def visitor(e, *operands):
-            t = tensor if e is expr else None
+            t = tensor if e is expr else self._node_tensors.get(e)
             # Deal with 2-form bcs inside the visitor
             bcs = self._bcs if isinstance(e, ufl.BaseForm) and len(e.arguments()) == 2 else ()
-            return self.base_form_assembly_visitor(e, t, bcs, *operands)
+            result = self.base_form_assembly_visitor(e, t, bcs, *operands)
+            if (e is not expr and not isinstance(e, (firedrake.Function, firedrake.Cofunction, MatrixBase))
+                    and isinstance(result, (firedrake.Function, firedrake.Cofunction, MatrixBase))
+                    and all(result is not operand for operand in operands)):
+                self._node_tensors[e] = result
+            return result
 
-        return BaseFormAssembler.base_form_postorder_traversal(expr, visitor, {})
+        result = BaseFormAssembler.base_form_postorder_traversal(expr, visitor, {})
+        if tensor is None and any(result is work for work in self._node_tensors.values()):
+            if isinstance(result, MatrixBase):
+                result = Matrix(expr, result.petscmat.copy(), bcs=self._bcs,
+                                options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
+            else:
+                result = result.copy(deepcopy=True)
+        return result
 
     def base_form_assembly_visitor(self, expr, tensor, bcs, *args):
         r"""Assemble a :class:`~ufl.classes.BaseForm` object given its assembled operands.
@@ -618,6 +638,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             in a post-order fashion.
         """
         if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+            node = expr
             # Only the output matrix uses the requested allocation integral types.
             # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
             allocation_integral_types = self._allocation_integral_types if expr is self._form else None
@@ -628,20 +649,23 @@ class BaseFormAssembler(AbstractFormAssembler):
                 expr = ufl.replace(expr, dict(zip(base_form_operators, args)))
             form = expr
             is_matrix = len(form.arguments()) == 2 and not self._diagonal
-            assembler = get_form_assembler(
-                form,
-                bcs=bcs if is_matrix else (),
-                form_compiler_parameters=self._form_compiler_params,
-                pyop3_compiler_parameters=self._pyop3_compiler_parameters,
-                mat_type=self._mat_type,
-                sub_mat_type=self._sub_mat_type,
-                options_prefix=self._options_prefix,
-                appctx=self._appctx,
-                zero_bc_nodes=self._zero_bc_nodes,
-                diagonal=self._diagonal,
-                weight=self._weight,
-                allocation_integral_types=allocation_integral_types,
-            )
+            cached_form, assembler = self._form_assemblers.get(node, (None, None))
+            if form != cached_form:
+                assembler = get_form_assembler(
+                    form,
+                    bcs=bcs if is_matrix else (),
+                    form_compiler_parameters=self._form_compiler_params,
+                    pyop3_compiler_parameters=self._pyop3_compiler_parameters,
+                    mat_type=self._mat_type,
+                    sub_mat_type=self._sub_mat_type,
+                    options_prefix=self._options_prefix,
+                    appctx=self._appctx,
+                    zero_bc_nodes=self._zero_bc_nodes,
+                    diagonal=self._diagonal,
+                    weight=self._weight,
+                    allocation_integral_types=allocation_integral_types,
+                )
+                self._form_assemblers[node] = (form, assembler)
             return assembler.assemble(tensor=tensor)
         elif isinstance(expr, ufl.Adjoint):
             if len(args) != 1:
@@ -766,6 +790,7 @@ class BaseFormAssembler(AbstractFormAssembler):
                 return self.contract(expr, result, dual, tensor=tensor)
             return tensor.assign(result) if tensor else result
         elif isinstance(expr, ufl.Interpolate):
+            node = expr
             # Replace assembled children
             _, operand = expr.argument_slots()
             v, *assembled_operand = args
@@ -780,6 +805,21 @@ class BaseFormAssembler(AbstractFormAssembler):
             if rank > 2:
                 raise ValueError("Cannot assemble an Interpolate with more than two arguments")
             interpolator = get_interpolator(expr)
+            if tensor is not None and not (rank == 2 and self._mat_type == "matfree"):
+                cached_expr, cached_tensor, interpolate = self._interpolation_assemblers.get(node, (None, None, None))
+                if expr != cached_expr or tensor is not cached_tensor:
+                    interpolator._check_mat_type(self._mat_type)
+                    interpolate = interpolator._get_callable(
+                        tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
+                        pyop3_compiler_parameters=self._pyop3_compiler_parameters,
+                    )
+                    self._interpolation_assemblers[node] = (expr, tensor, interpolate)
+                result = interpolate()
+                if rank == 2:
+                    if result is not tensor:
+                        result.petscmat.copy(tensor.petscmat)
+                    return tensor
+                return tensor.assign(result)
             return interpolator.assemble(
                 tensor=tensor, bcs=bcs, mat_type=self._mat_type, sub_mat_type=self._sub_mat_type,
                 pyop3_compiler_parameters=self._pyop3_compiler_parameters,

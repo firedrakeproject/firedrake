@@ -875,6 +875,13 @@ class SameMeshInterpolator(Interpolator):
                       pyop3_compiler_parameters=None):
         from firedrake.assemble import get_form_assembler
 
+        if (self.rank == 2 and isinstance(self.operand, Argument)
+                and self.subset is None and not bcs
+                and self.source_mesh is self.target_mesh
+                and len(self.target_space) == 1
+                and self.operand.function_space().ufl_element() == self.target_space.ufl_element()):
+            return self._get_identity_callable(tensor, mat_type, sub_mat_type)
+
         # The output tensor can share a dat with an input. Then the kernel would
         # overwrite input values that it has not read yet. Therefore, the kernel
         # must write into a temporary, and we copy the temporary into the output
@@ -923,6 +930,30 @@ class SameMeshInterpolator(Interpolator):
             return output if copy_output is not None else result
 
         return callable
+
+    def _get_identity_callable(self, tensor: MatrixBase | None,
+                               mat_type: str | None, sub_mat_type: str | None) -> Callable[[], MatrixBase]:
+        """Build the transfer between two layouts of the same finite element."""
+        from firedrake.assemble import make_mat_spec
+
+        row, col = (arg.function_space() for arg in self.interpolate_args)
+        spec = make_mat_spec(mat_type, sub_mat_type, self.interpolate_args)
+        sparsity = op3.Mat.sparsity(row.axes, col.axes, buffer_spec=spec)
+        index = row.plex_axes.iter()
+        op3.loop(index, sparsity[index, index].assign(1), eager=True)
+        sparsity.assemble()
+        mat = op3.Mat.from_sparsity(sparsity)
+        transfer = op3.loop(index, mat[index, index].assign(1))
+
+        def interpolate_identity() -> MatrixBase:
+            transfer()
+            mat.assemble()
+            if tensor is None:
+                return Matrix(self.ufl_interpolate, mat)
+            mat.handle.copy(tensor.petscmat, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
+            return tensor
+
+        return interpolate_identity
 
     @property
     def _allowed_mat_types(self):
@@ -1413,25 +1444,24 @@ class MixedInterpolator(Interpolator):
 
     def _build_matnest(
             self,
-            Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
-            sub_mat_type: Literal["aij", "baij"],
+            interpolations: dict[tuple[int, int], Callable[[], MatrixBase]],
     ) -> PETSc.Mat:
         """Return a PETSc nested matrix built from sub-interpolator matrices."""
         spaces = tuple(a.function_space() for a in self.interpolate_args)
         shape = tuple(len(V) for V in spaces)
         blocks = numpy.full(shape, PETSc.Mat(), dtype=object)
-        for indices, (interp, sub_bcs) in Isub.items():
-            blocks[indices] = interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type)().petscmat
+        for indices, interpolate in interpolations.items():
+            blocks[indices] = interpolate().petscmat
         isrows, iscols = (V.field_ises for V in spaces)
         return PETSc.Mat().createNest(blocks, isrows=isrows, iscols=iscols, comm=self.target_space.comm)
 
     def _build_aij(
             self,
-            Isub: dict[tuple[int] | tuple[int, int], tuple[Interpolator, list[DirichletBC]]],
+            interpolations: dict[tuple[int, int], Callable[[], MatrixBase]],
     ) -> PETSc.Mat:
         """Return a PETSc AIJ matrix built from sub-interpolator matrices by converting a
         nested matrix."""
-        matnest = self._build_matnest(Isub, sub_mat_type="aij")
+        matnest = self._build_matnest(interpolations)
         return matnest.convert("aij")
 
     def _get_callable(
@@ -1444,11 +1474,16 @@ class MixedInterpolator(Interpolator):
         V_dest = self.ufl_interpolate.function_space() or self.target_space
         f = tensor or Function(V_dest)
         if self.rank == 2:
+            interpolations = {
+                indices: interp._get_callable(bcs=sub_bcs, mat_type=sub_mat_type,
+                                              pyop3_compiler_parameters=pyop3_compiler_parameters)
+                for indices, (interp, sub_bcs) in Isub.items()
+            }
             if mat_type == "nest":
-                build = partial(self._build_matnest, Isub, sub_mat_type)
+                build = partial(self._build_matnest, interpolations)
             else:
                 assert mat_type == "aij"
-                build = partial(self._build_aij, Isub)
+                build = partial(self._build_aij, interpolations)
 
             def callable() -> Matrix:
                 return Matrix(self.ufl_interpolate, build(), bcs=bcs)

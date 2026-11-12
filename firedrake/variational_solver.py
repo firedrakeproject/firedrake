@@ -88,6 +88,11 @@ def _restrict_form(form: BaseForm, u: Function, u_restricted: Function) -> BaseF
     """
     V = u.function_space()
     V_restricted = u_restricted.function_space()
+    if isinstance(form, ufl.FormSum):
+        return ufl.FormSum(*(
+            (_restrict_form(component, u, u_restricted), weight)
+            for component, weight in zip(form.components(), form.weights())
+        ))
     v_restricted = TestFunction(V_restricted)
     du_restricted = TrialFunction(V_restricted)
 
