@@ -46,6 +46,7 @@ _NO_EXCHANGES = ((), (), (), ())
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
+    """Parameters processed by the pyop3 compiler."""
 
     # {{{ optimisation options
 
@@ -602,13 +603,6 @@ class CompiledCodeExecutor:
                     pointer = handle_to_pointer(buf_view.record_new(buffer=new_buffer).handle)
                 exec_arguments.append(pointer)
             assert not new_buffers_for_exec_args
-
-        # if "MatSetValues" in str(self) and "slate_wrapper" in str(self):
-        #     if "subkernel0_interior_facet_horiz_top_to__exterior_facet_top_integral_otherwise" in str(self):
-        #         breakpoint()
-        # if "slate_wrapper" in str(self):
-        #     import pyop3.debug
-        #     pyop3.debug.maybe_breakpoint()
 
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),

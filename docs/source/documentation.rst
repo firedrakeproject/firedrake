@@ -61,6 +61,7 @@
       :maxdepth: 1
 
       apidoc/firedrake
+      apidoc/pyop3
       search
 
    .. include:: manual.rst

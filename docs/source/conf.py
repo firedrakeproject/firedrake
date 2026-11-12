@@ -108,7 +108,15 @@ autodoc_inherit_docstrings = False
 
 # Document __call__ methods
 autodoc_default_options = {
-    'special-members': '__call__'
+    'special-members': '__call__,__getitem__',
+    # skip some entries that throw some erroneous warnings - these are just
+    # attributes that we import into our namespace and it is a Sphinx bug that
+    # they are even being parsed.
+    'exclude-members': """
+        CallInstruction,
+        MultiAssignmentBase,
+        simplify_via_aff,
+    """,
 }
 
 # Add any paths that contain templates here, relative to this directory.
@@ -192,6 +200,9 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
+    (r'py:.*', r'loopy.kernel\..*'),
+    (r'py:.*', r'loopy.symbolic\..*'),
+    (r'py:.*', r'loopy.types\..*'),
     # Ignore missing docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
@@ -371,6 +382,7 @@ latex_elements = {
 \sphinxDUC{25A3}{$\boxdot$}
 \sphinxDUC{03BB}{$\lambda$}
 \sphinxDUC{0393}{$\Gamma$}
+\sphinxDUC{27A4}{}  % can be omitted
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 
@@ -501,6 +513,9 @@ intersphinx_mapping = {
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
+    'pytools': ('https://documen.tician.de/pytools/', None),
+    'pymbolic': ('https://documen.tician.de/pymbolic/', None),
+    'immutabledict': ('https://immutabledict.corenting.fr/', None),
     'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }
