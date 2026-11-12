@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.bcs import extract_subdomain_ids
 from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
@@ -476,3 +477,24 @@ def test_homogeneous_bc_residual():
 
     interior = np.setdiff1d(range(r_data.shape[0]), bc.nodes)
     assert np.allclose(r_data[interior], 333)
+
+
+def test_extract_subdomain_ids_mixed():
+    V = FunctionSpace(UnitIntervalMesh(2), "CG", 1)
+    W = V * V
+    bc = DirichletBC(W.sub(1), 0, 1)
+    assert extract_subdomain_ids([bc]) == ((), (1,))
+
+
+def test_solve_mixed_bcs_restrict():
+    V = FunctionSpace(UnitIntervalMesh(5), "CG", 1)
+    W = V * V
+    u = TrialFunction(W)
+    v = TestFunction(W)
+    w = Function(W)
+    bc = DirichletBC(W.sub(1), 2, "on_boundary")
+    a = inner(grad(u), grad(v)) * dx + inner(u, v) * dx
+    L = replace(a, {u: as_vector([1, 2])})
+    solve(a == L, w, bcs=bc, restrict=True)
+    assert np.allclose(w.subfunctions[0].dat.data_ro, 1)
+    assert np.allclose(w.subfunctions[1].dat.data_ro, 2)

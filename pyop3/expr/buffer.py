@@ -39,14 +39,14 @@ class BufferExpression(Expression, metaclass=abc.ABCMeta):
         return self.buffer_view.buffer.dtype
 
     # used?
-    def assign(self, other, *, _weakref: bool = True) -> ArrayAssignment:
+    def assign(self, other, *, _weakref: bool = True) -> pyop3.insn.Assignment:
         from pyop3.insn import Assignment
 
         assignee = weakref.ref(self) if _weakref else self
         return Assignment(assignee, other, "write")
 
     # used?
-    def iassign(self, other, *, _weakref: bool = True) -> ArrayAssignment:
+    def iassign(self, other, *, _weakref: bool = True) -> pyop3.insn.Assignment:
         from pyop3.insn import Assignment
 
         assignee = weakref.ref(self) if _weakref else self
@@ -303,8 +303,8 @@ class MatPetscMatBufferExpression(MatBufferExpression, LinearBufferExpression):
     # {{{ instance attrs
 
     buffer_view: pyop3.buffer.IndexedBuffer
-    row_layout: ExprT
-    column_layout: ExprT
+    row_layout: ExpressionT
+    column_layout: ExpressionT
 
     def collect_buffers(self, visitor):
         return visitor(self.buffer_view).union(visitor(self.row_layout), visitor(self.column_layout))

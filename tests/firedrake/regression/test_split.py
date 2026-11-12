@@ -168,3 +168,36 @@ def test_split_action_composition():
         expected = matrix.createSubMatrix(ises[i], ises[j])
         actual.axpy(-1, expected, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
         assert actual.norm(PETSc.NormType.NORM_FROBENIUS) < 1e-12
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("cofunction", [True, False])
+def test_split_duplicate_mixed_spaces(cofunction):
+    from firedrake.solving_utils import _SNESContext
+
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q * V * Q
+    expected = Function(W)
+    for i, sub in enumerate(expected.subfunctions):
+        sub.assign(i + 1)
+
+    w = Function(W)
+    u0, p0, u1, p1 = split(w)
+    v0, q0, v1, q1 = TestFunctions(W)
+    F = (inner(u0, v0) + inner(grad(u0), grad(v0)) - inner(p0, div(v0)) + inner(div(u0), q0)
+         + inner(u1, v1) + inner(grad(u1), grad(v1)) - inner(p1, div(v1)) + inner(div(u1), q1)) * dx
+    forcing = replace(F, {w: expected})
+    if cofunction:
+        forcing = assemble(forcing)
+    F -= forcing
+
+    problem = NonlinearVariationalProblem(F, w)
+    ctx = _SNESContext(problem, "aij", "aij")
+    split_ctxs = ctx.split(((0, 1), (2, 3)))
+    w.assign(expected)
+    for split_ctx in split_ctxs:
+        residual = assemble(split_ctx.F)
+        with residual.dat.vec_ro as vec:
+            assert vec.norm() < 1e-10
