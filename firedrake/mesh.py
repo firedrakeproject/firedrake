@@ -3532,7 +3532,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     ``"custom"``
         use a custom kernel to generate the extruded coordinates
 
-    For more details see the :doc:`manual section on extruded meshes <extruded-meshes>`.
+    For more details see the :doc:`manual section on extruded meshes </extruded-meshes>`.
     """
     import firedrake.functionspace as functionspace
     import firedrake.function as function

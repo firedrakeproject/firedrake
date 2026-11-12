@@ -21,13 +21,13 @@ __pycache__/
 /docs/source/firedrake.*.rst
 /docs/source/homebrew_deps.txt
 /docs/source/minimal_apt_deps.txt
-/docs/source/obtaining_pyop2.rst
 /docs/source/petsc_configure_options.txt
 /docs/source/team.rst
 /docs/source/teamgrid.rst
 /docs/source/teaminactive.rst
 /docs/source/demos
 /docs/source/notebooks
+/docs/source/apidoc
 /firedrake/cython/*.c
 /firedrake.egg-info
 /firedrake/_check/Makefile
