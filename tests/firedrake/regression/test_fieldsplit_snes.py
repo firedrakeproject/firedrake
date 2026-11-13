@@ -146,8 +146,8 @@ def test_fieldsplit_snes(fs_type):
         'snes_max_it': max_it,
         'snes_type': 'fieldsplit',
         **fs_options,
-        'fieldsplit_0': sub_params,
-        'fieldsplit_1': sub_params,
+        **{f'fieldsplit_{i}_{key}': value
+           for i in range(2) for key, value in sub_params.items()},
     }
 
     fs_problem = NonlinearVariationalProblem(F, w)
@@ -245,8 +245,8 @@ def test_fieldsplit_snes_forcing(fs_type):
         'snes_max_it': 1,
         'snes_type': 'fieldsplit',
         **fs_options,
-        'fieldsplit_0': sub_params,
-        'fieldsplit_1': sub_params,
+        **{f'fieldsplit_{i}_{key}': value
+           for i in range(2) for key, value in sub_params.items()},
     }
 
     fs_problem = NonlinearVariationalProblem(F, w)
@@ -270,10 +270,8 @@ def test_fieldsplit_snes_independent_solvers():
         'snes_fieldsplit_type': 'multiplicative',
         'snes_max_it': 2,
         'snes_convergence_test': 'skip',
-        'fieldsplit': {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-        },
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
     }
     solvers = []
     for i, w in enumerate(solutions):
@@ -357,7 +355,8 @@ def test_fieldsplit_snes_default_fields():
             'snes_type': 'fieldsplit',
             'snes_fieldsplit_type': 'multiplicative',
             **fs_options,
-            **{f'fieldsplit_{i}': sub_params for i in range(3)},
+            **{f'fieldsplit_{i}_{key}': value
+               for i in range(3) for key, value in sub_params.items()},
         }
         problem = NonlinearVariationalProblem(F, w)
         solver = NonlinearVariationalSolver(problem, solver_parameters=params)
@@ -410,19 +409,21 @@ def test_fieldsplit_snes_split_options(named, npc):
         'snes_fieldsplit_type': 'multiplicative',
         'snes_max_it': 2,
         'snes_convergence_test': 'skip',
-        **{f'fieldsplit_{name}': {
-            'snes_rtol': rtol,
-            'ksp_type': 'gmres',
-            'pc_type': 'lu',
-        } for name, rtol in zip(names, [1e-3, 1e-7])},
     }
+    for name, rtol in zip(names, [1e-3, 1e-7]):
+        params.update({
+            f'fieldsplit_{name}_snes_rtol': rtol,
+            f'fieldsplit_{name}_ksp_type': 'gmres',
+            f'fieldsplit_{name}_pc_type': 'lu',
+        })
 
     if npc:
         params = {
             'snes_type': 'ngmres',
             'snes_max_it': 2,
             'snes_convergence_test': 'skip',
-            'npc': {**params, 'snes_max_it': 1},
+            **{f'npc_{key}': value for key, value in params.items()},
+            'npc_snes_max_it': 1,
         }
 
     problem = NonlinearVariationalProblem(F, w)
@@ -479,10 +480,11 @@ def test_fieldsplit_snes_nested(auxiliary):
             'snes_fieldsplit_type': 'multiplicative',
             'snes_max_it': max_it,
             'snes_convergence_test': 'skip',
-            'fieldsplit': newton,
+            **{f'fieldsplit_{key}': value for key, value in newton.items()},
         }
 
-    flat_solver = make_solver(fieldsplit(3))
+    flat_params = fieldsplit(3)
+    flat_solver = make_solver(flat_params)
 
     # The defaults for the outer splits are not used by the inner
     # splits, so the inner native fieldsplit needs its own defaults.
@@ -493,14 +495,15 @@ def test_fieldsplit_snes_nested(auxiliary):
             'snes_python_type': 'firedrake.AuxiliaryOperatorSNES',
             'snes_max_it': 1,
             'snes_convergence_test': 'skip',
-            'aux': inner_options,
+            **{f'aux_{key}': value for key, value in inner_options.items()},
         }
-    nested_solver = make_solver({
+    nested_params = {
         **fieldsplit(3),
         'snes_fieldsplit_0_fields': '0,1',
         'snes_fieldsplit_1_fields': '2',
-        'fieldsplit_0': inner_options,
-    })
+        **{f'fieldsplit_0_{key}': value for key, value in inner_options.items()},
+    }
+    nested_solver = make_solver(nested_params)
 
     flat_solver.solve()
     nested_solver.solve()
@@ -636,11 +639,9 @@ def test_fieldsplit_snes_bcs_jp(pre_apply_bcs, mat_type):
         'snes_rtol': 1e-10,
         'mat_type': mat_type,
         'pmat_type': 'aij',
-        'fieldsplit': {
-            'ksp_type': 'gmres',
-            'ksp_rtol': 1e-12,
-            'pc_type': 'lu',
-        },
+        'fieldsplit_ksp_type': 'gmres',
+        'fieldsplit_ksp_rtol': 1e-12,
+        'fieldsplit_pc_type': 'lu',
     }
     problem = NonlinearVariationalProblem(F, w, bcs=bcs, Jp=Jp)
     solver = NonlinearVariationalSolver(
@@ -650,8 +651,9 @@ def test_fieldsplit_snes_bcs_jp(pre_apply_bcs, mat_type):
     solver.snes.reset()
     w.zero()
     solver.solve()
-    assert errornorm(Function(V).interpolate(u_exact), w.sub(0)) < 1e-9
-    assert errornorm(Function(V).interpolate(p_exact), w.sub(1)) < 1e-9
+    u, p = w.subfunctions
+    assert errornorm(u_exact, u) < 1e-9
+    assert errornorm(p_exact, p) < 1e-9
     for child in solver.snes.getFieldSplitSubSNES():
         with solver.inserted_options(), \
                 dmhooks.add_hooks(solver.snes.dm, solver, appctx=solver._ctx):
@@ -681,22 +683,16 @@ def test_fieldsplit_snes_reset_options_invalidation(grouped):
     L = forcing*(v + 2*q)*dx
     parameters = {
         'snes_type': 'fieldsplit',
-        'fieldsplit': {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-        },
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
     }
     if grouped:
         parameters.update({
             'snes_fieldsplit_0_fields': '0,1',
-            'fieldsplit': {
-                'ksp_type': 'gmres',
-                'pc_type': 'fieldsplit',
-                'fieldsplit': {
-                    'ksp_type': 'preonly',
-                    'pc_type': 'lu',
-                },
-            },
+            'fieldsplit_ksp_type': 'gmres',
+            'fieldsplit_pc_type': 'fieldsplit',
+            'fieldsplit_fieldsplit_ksp_type': 'preonly',
+            'fieldsplit_fieldsplit_pc_type': 'lu',
         })
     problem = LinearVariationalProblem(a, L, w, constant_jacobian=True)
     solver = LinearVariationalSolver(problem, solver_parameters=parameters)
@@ -713,8 +709,9 @@ def test_fieldsplit_snes_reset_options_invalidation(grouped):
     coefficient.assign(2)
     solver.solve()
     assert children[0].getTolerances()[0] == 1e-9
-    assert errornorm(Function(V).assign(1.5), w.sub(0)) < 1e-12
-    assert errornorm(Function(V).assign(3), w.sub(1)) < 1e-12
+    u, p = w.subfunctions
+    assert errornorm(Constant(1.5), u) < 1e-12
+    assert errornorm(Constant(3), p) < 1e-12
 
 
 def test_fieldsplit_snes_grouped_linear_fieldsplit():
@@ -732,21 +729,18 @@ def test_fieldsplit_snes_grouped_linear_fieldsplit():
         'snes_fieldsplit_0_fields': '0,1',
         'mat_type': 'matfree',
         'pmat_type': 'aij',
-        'fieldsplit': {
-            'ksp_type': 'gmres',
-            'pc_type': 'fieldsplit',
-            'fieldsplit': {
-                'ksp_type': 'preonly',
-                'pc_type': 'lu',
-            },
-        },
+        'fieldsplit_ksp_type': 'gmres',
+        'fieldsplit_pc_type': 'fieldsplit',
+        'fieldsplit_fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_fieldsplit_pc_type': 'lu',
     }
     problem = NonlinearVariationalProblem(F, w)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
 
     solver.solve()
-    assert errornorm(Function(V).assign(0.8/0.99), w.sub(0)) < 1e-9
-    assert errornorm(Function(V).assign(1.9/0.99), w.sub(1)) < 1e-9
+    u, p = w.subfunctions
+    assert errornorm(Constant(0.8/0.99), u) < 1e-9
+    assert errornorm(Constant(1.9/0.99), p) < 1e-9
 
 
 def test_fieldsplit_snes_child_fd():
@@ -763,11 +757,9 @@ def test_fieldsplit_snes_child_fd():
     F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
     params = {
         'snes_type': 'fieldsplit',
-        'fieldsplit': {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-        },
-        'fieldsplit_0': {'snes_fd': None},
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
+        'fieldsplit_0_snes_fd': None,
     }
     problem = NonlinearVariationalProblem(F, w)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
@@ -776,7 +768,8 @@ def test_fieldsplit_snes_child_fd():
     solver.snes.reset()
     w.zero()
     solver.solve()
-    assert errornorm(Function(V).assign(0.8/0.99), w.sub(0)) < 1e-8
+    u, p = w.subfunctions
+    assert errornorm(Constant(0.8/0.99), u) < 1e-8
     assert solver.snes.dm != solver.snes.getFieldSplitSubSNES()[0].dm
     with solver.inserted_options(), dmhooks.add_hooks(solver.snes.dm, solver, appctx=solver._ctx):
         J, P, _ = solver.snes.getJacobian()
@@ -800,10 +793,8 @@ def test_fieldsplit_snes_scalar_nullspace():
     nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
     params = {
         'snes_type': 'fieldsplit',
-        'fieldsplit': {
-            'ksp_type': 'cg',
-            'pc_type': 'none',
-        },
+        'fieldsplit_ksp_type': 'cg',
+        'fieldsplit_pc_type': 'none',
     }
     problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, nullspace=nullspace,
@@ -820,8 +811,9 @@ def test_fieldsplit_snes_objective():
     W = V * V
 
     w = Function(W)
-    w.sub(0).assign(1)
-    w.sub(1).assign(2)
+    u, p = w.subfunctions
+    u.assign(1)
+    p.assign(2)
     u, p = split(w)
     v, q = TestFunctions(W)
     F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
@@ -830,10 +822,8 @@ def test_fieldsplit_snes_objective():
         'snes_type': 'fieldsplit',
         'snes_max_it': 1,
         'snes_convergence_test': 'skip',
-        'fieldsplit': {
-            'ksp_type': 'preonly',
-            'pc_type': 'lu',
-        },
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
     }
     problem = NonlinearVariationalProblem(F, w, objective=E)
     solver = NonlinearVariationalSolver(problem, solver_parameters=params)
@@ -848,5 +838,6 @@ def test_fieldsplit_snes_objective():
         child.setMonitor(monitor)
     solver.solve()
     assert values == pytest.approx([-2.3, -2.3])
-    assert errornorm(Function(V).assign(0.8), w.sub(0)) < 1e-12
-    assert errornorm(Function(V).assign(1.9), w.sub(1)) < 1e-12
+    u, p = w.subfunctions
+    assert errornorm(Constant(0.8), u) < 1e-12
+    assert errornorm(Constant(1.9), p) < 1e-12
