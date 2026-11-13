@@ -1265,6 +1265,16 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
     return mat_spec
 
 
+def _sparsity_cache_key(test, trial, mat_spec, maps_and_regions):
+    # Key on the spaces and on the values that describe each loop (mesh,
+    # integral type, subdomain and field indices) so that matrices of
+    # different forms with the same pattern share one sparsity.
+    if isinstance(mat_spec, op3.NestedPetscMatInitBufferSpec):
+        # The blocks of a nested spec are stored in an array that cannot be hashed
+        mat_spec = tuple(map(tuple, mat_spec.submat_specs))
+    return (test.function_space(), trial.function_space(), mat_spec, maps_and_regions)
+
+
 class ExplicitMatrixAssembler(ParloopFormAssembler):
     """Class for assembling a matrix.
 
@@ -1330,7 +1340,14 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         else:
             return None
 
+    # Reuse the sparsity of an earlier matrix with the same pattern. The cache
+    # lives on the topology of the test space mesh, so it is freed with the mesh.
     @staticmethod
+    @op3.cache.cached_on(
+        lambda test, *args: test.function_space().mesh().topology,
+        get_key=_sparsity_cache_key,
+        make_cache=lambda: op3.cache.LRUCache(10),
+    )
     def _make_sparsity(test, trial, mat_spec, maps_and_regions):
         # Is this overly restrictive?
         if any(is_mixed(a) for a in [test, trial]) and mat_spec.mat_type == "baij":
@@ -1348,7 +1365,8 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
-        for loop_index, (test_index, trial_index) in maps_and_regions:
+        for (mesh, integral_type, subdomain_id), (test_index, trial_index) in maps_and_regions:
+            loop_index = mesh.iter(integral_type, subdomain_id)
             # If indices are 'None' then this means all to allocate for all spaces
             if test_index is None:
                 if is_mixed(test):
@@ -1400,8 +1418,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 for local_kernel, subdomain_id in assembler.local_kernels:
                     mesh = all_meshes[local_kernel.kinfo.domain_number]  # integration domain
                     integral_type = local_kernel.kinfo.integral_type
-                    loop_index = mesh.iter(integral_type, subdomain_id)
-                    loops.append((loop_index, local_kernel.indices))
+                    loops.append(((mesh, integral_type, subdomain_id), local_kernel.indices))
             return tuple(loops)
 
     @staticmethod
@@ -1422,8 +1439,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     if len(trial.function_space()) == 1:
                         j = None
 
-                    loop_index = mesh.iter(integral_type)
-                    loops.append((loop_index, (i, j)))
+                    loops.append(((mesh, integral_type, "everywhere"), (i, j)))
         return tuple(loops)
 
     @cached_property

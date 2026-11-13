@@ -64,7 +64,7 @@ def _get_refcounts(lifetime_objs):
     return [sys.getrefcount(obj) for obj in lifetime_objs]
 
 
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False):
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False, make_cache: Callable[[], Mapping] = dict):
     """
     Parameters
     ----------
@@ -83,6 +83,8 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
                 if not hasattr(obj, "_pyop3_cache"):
                     # Use object.__setattr__ to get around frozen dataclasses
                     object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
+                if func.__qualname__ not in obj._pyop3_cache:
+                    obj._pyop3_cache[func.__qualname__] = make_cache()
 
             key = get_key(*args, **kwargs)
 
