@@ -106,6 +106,29 @@ def set_function_space(dm, V):
     dm.setAttr("__fs_info__", info)
 
 
+def _attach_function_space(dm: PETSc.DM, V: "firedrake.functionspaceimpl.WithGeometry") -> PETSc.DM:
+    """Attach Firedrake shell callbacks and the space's mesh layout."""
+    from firedrake.mg.utils import get_level
+    from firedrake.functionspaceimpl import is_mixed
+
+    if is_mixed(V):
+        sf = section = None
+    else:
+        sf = V.mesh().topology_dm.getPointSF()
+        section = V.section
+    _, level = get_level(V.mesh())
+    attach_hooks(dm, level=level, sf=sf, section=section)
+    set_function_space(dm, V)
+    return dm
+
+
+def _create_dm(V: "firedrake.functionspaceimpl.WithGeometry") -> PETSc.DM:
+    """Create independent SNES callback storage for a FunctionSpace."""
+    dm = PETSc.DMShell().create(comm=V.comm)
+    dm.setGlobalVector(V.template_vec)
+    return _attach_function_space(dm, V)
+
+
 # Attribute management on DMs. Since they are reused in multiple
 # places, use a stack.
 def push_attr(attr, dm, obj):
@@ -391,8 +414,11 @@ def create_subdm(dm, fields, *args, **kwargs):
         # Need to build an MFS for the subspace
         labels = [W._labels[f] for f in fields]
         subspace = firedrake.MixedFunctionSpace([W[f] for f in fields], _labels=labels)
+        subdm = subspace.dm
+        if subdm == parent:
+            subdm = _create_dm(subspace)
 
-        add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
+        add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
                  call_setup=True)
         # Index set mapping from W into subspace.
         iset = PETSc.IS().createGeneral(numpy.concatenate([W.field_ises[f].indices
@@ -400,13 +426,13 @@ def create_subdm(dm, fields, *args, **kwargs):
                                         comm=W.comm)
         if ctx is not None:
             ctx, = ctx.split([fields])
-            add_hook(parent, setup=partial(push_appctx, subspace.dm, ctx),
-                     teardown=partial(pop_appctx, subspace.dm, ctx),
+            add_hook(parent, setup=partial(push_appctx, subdm, ctx),
+                     teardown=partial(pop_appctx, subdm, ctx),
                      call_setup=True)
-            add_hook(parent, setup=partial(push_ctx_coarsener, subspace.dm, coarsen),
-                     teardown=partial(pop_ctx_coarsener, subspace.dm, coarsen),
+            add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen),
+                     teardown=partial(pop_ctx_coarsener, subdm, coarsen),
                      call_setup=True)
-        return iset, subspace.dm
+        return iset, subdm
 
 
 def set_ksp_operators(dm: PETSc.DM) -> None:

@@ -810,21 +810,7 @@ class AbstractFunctionSpace:
         return dm
 
     def _dm(self):
-        from firedrake.mg.utils import get_level
-
-        if is_mixed(self):
-            sf = None
-            section = None
-        else:
-            sf = self.mesh().topology_dm.getPointSF()
-            section = self.section
-
-        dm = self._cached_dm()
-        _, level = get_level(self.mesh())
-        dmhooks.attach_hooks(dm, level=level, sf=sf, section=section)
-        # Remember the function space so we can get from DM back to FunctionSpace.
-        dmhooks.set_function_space(dm, self)
-        return dm
+        return dmhooks._attach_function_space(self._cached_dm(), self)
 
     @_dof_dset_cached
     def _cached_dm(self):

@@ -13,9 +13,9 @@ and then combines the updates. The sweep can apply the updates all at
 once (a nonlinear block Jacobi iteration) or one after another, so that
 each split sees the latest values of the fields that came before it (a
 nonlinear block Gauss-Seidel iteration). Firedrake provides this as the
-python SNES type :class:`~firedrake.preconditioners.fieldsplit_snes.FieldsplitSNES`.
+native PETSc SNES type ``fieldsplit``.
 
-This demo shows how to use ``FieldsplitSNES`` as a solver by itself
+This demo shows how to use ``fieldsplit`` as a solver by itself
 and as a nonlinear preconditioner for an accelerated nonlinear solver.
 For a review of these methods, see :cite:`brune2015composing`. The
 demo on :doc:`nonlinear preconditioning for the Allen-Cahn equation
@@ -136,15 +136,13 @@ Nonlinear Gauss-Seidel
 ----------------------
 
 To use nonlinear block Gauss-Seidel, we set the SNES type to
-``python`` and the python type to ``firedrake.FieldsplitSNES``, and
-choose the ``multiplicative`` fieldsplit type. By default there is one
+``fieldsplit`` and choose the ``multiplicative`` fieldsplit type. By default there is one
 split for each field of the mixed space, and the splits are solved in
 field order. The ``-snes_fieldsplit_%d_fields`` options change how the
 fields are grouped into splits and the order of the splits, in the
 same way as for the linear ``fieldsplit`` preconditioner.
 
-Each split is solved with its own
-:class:`~firedrake.variational_solver.NonlinearVariationalSolver`. The
+Each split is solved with its own native PETSc SNES. The
 options for split ``i`` have the prefix ``fieldsplit_i_``. The options
 with the prefix ``fieldsplit_`` are defaults for all of the splits, so
 here every split uses Newton's method with a direct linear solver. An
@@ -156,8 +154,7 @@ default for that split only.
 
   def fieldsplit(fieldsplit_type):
       return {
-          "snes_type": "python",
-          "snes_python_type": "firedrake.FieldsplitSNES",
+          "snes_type": "fieldsplit",
           "snes_fieldsplit_type": fieldsplit_type,
           "fieldsplit": newton,
       }
@@ -285,9 +282,9 @@ system needs fewer iterations still for this small problem. The
 fieldsplit methods are useful when the coupled problem is hard to solve
 but each field is easy to solve by itself, for example because a good
 solver is already available for each separate equation. Because each
-split uses a standard ``NonlinearVariationalSolver``, the split solvers
+split uses a native PETSc SNES, the split solvers
 can use any of the solver options that are available in Firedrake,
-including another ``FieldsplitSNES`` for a split that contains more
+including another ``fieldsplit`` for a split that contains more
 than one field.
 
 Try changing ``beta`` to see how the coupling strength changes the

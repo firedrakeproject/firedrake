@@ -2,6 +2,18 @@ from firedrake import *
 import pytest
 
 
+def _solve_native(solver, rhs=None):
+    from firedrake import dmhooks
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        stack.enter_context(solver.inserted_options())
+        stack.enter_context(dmhooks.add_hooks(solver.snes.dm, solver, appctx=solver._ctx))
+        x = stack.enter_context(solver._problem.u.dat.vec_rw)
+        b = None if rhs is None else stack.enter_context(rhs.dat.vec_ro)
+        solver.snes.solve(b, x)
+
+
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("fs_type", ["additive", "lower", "upper"])
 def test_fieldsplit_snes(fs_type):
@@ -120,8 +132,7 @@ def test_fieldsplit_snes(fs_type):
         'snes_view': ':snes_fs_view.log',
         'snes_convergence_test': 'skip',
         'snes_max_it': max_it,
-        'snes_type': 'python',
-        'snes_python_type': 'firedrake.FieldsplitSNES',
+        'snes_type': 'fieldsplit',
         **fs_options,
         'fieldsplit_0': sub_params,
         'fieldsplit_1': sub_params,
@@ -140,12 +151,7 @@ def test_fieldsplit_snes(fs_type):
 
 @pytest.mark.parametrize("fs_type", ["additive", "lower", "upper"])
 def test_fieldsplit_snes_forcing(fs_type):
-    """Check that FieldsplitSNES correctly applies a nonzero forcing
-    term (G^{k} - F^{k}). This is zero when the outer SNES solves
-    F(u) = 0, but is nonzero when the SNES is given a right hand
-    side, e.g. as the coarse solver in FAS. Here we call the step
-    method directly with a residual f = F(x) - r, so the forcing is r.
-    """
+    """Compare a sweep with nonzero RHS against component solves."""
     mesh = UnitIntervalMesh(20)
     x, = SpatialCoordinate(mesh)
     V1 = FunctionSpace(mesh, "CG", 1)
@@ -209,7 +215,7 @@ def test_fieldsplit_snes_forcing(fs_type):
         Gu_solver.solve()
         GT_solver.solve()
 
-    # FieldsplitSNES step with residual f = F(x) - r
+    # Native fieldsplit sweep with nonzero right hand side r.
     w = Function(W)
     u, T = split(w)
     F = Fu(u, T, du) + FT(u, T, dT)
@@ -228,8 +234,7 @@ def test_fieldsplit_snes_forcing(fs_type):
     fs_params = {
         'snes_convergence_test': 'skip',
         'snes_max_it': 1,
-        'snes_type': 'python',
-        'snes_python_type': 'firedrake.FieldsplitSNES',
+        'snes_type': 'fieldsplit',
         **fs_options,
         'fieldsplit_0': sub_params,
         'fieldsplit_1': sub_params,
@@ -239,124 +244,38 @@ def test_fieldsplit_snes_forcing(fs_type):
         NonlinearVariationalProblem(F, w),
         solver_parameters=fs_params)
 
-    # Solve once so that the python SNES is set up.
-    fs_solver.solve()
-
-    snes = fs_solver.snes
-    fs_snes = snes.getPythonContext()
-
     w.assign(wk)
-    f = assemble(F)
-    f -= r
-
-    y = Function(W)
-    with wk.dat.vec_ro as xvec, f.dat.vec_ro as fvec, y.dat.vec_wo as yvec:
-        fs_snes.step(snes, xvec, fvec, yvec)
-
-    # The step returns the update y = x^{k} - x^{k+1}
-    expected = Function(W).assign(wk - wk1)
-    for ys, es in zip(y.subfunctions, expected.subfunctions):
-        assert errornorm(es, ys) < 1e-10
+    _solve_native(fs_solver, r)
+    assert errornorm(wk1, w) < 1e-10
 
 
-def test_fieldsplit_snes_update():
-    """Check that FieldsplitSNES rebuilds itself if the context on
-    the DM is replaced (e.g. by mesh adaptivity), and keeps its
-    existing state otherwise.
-    """
-    from firedrake import dmhooks
-
-    sub_params = {
-        'snes_type': 'newtonls',
-        'mat_type': 'aij',
-        'ksp_type': 'preonly',
-        'pc_type': 'lu',
-    }
-    fs_params = {
-        'snes_convergence_test': 'skip',
-        'snes_max_it': 1,
-        'snes_type': 'python',
-        'snes_python_type': 'firedrake.FieldsplitSNES',
-        'snes_fieldsplit_type': 'multiplicative',
-        'fieldsplit_0': sub_params,
-        'fieldsplit_1': sub_params,
-    }
-
-    def make_solver(n):
-        mesh = UnitIntervalMesh(n)
-        W = FunctionSpace(mesh, "CG", 1) * FunctionSpace(mesh, "CG", 1)
-        w = Function(W)
-        u, T = split(w)
-        du, dT = TestFunctions(W)
-        F = (inner(grad(u), grad(du))*dx + inner(u + 0.1*T*T - 1, du)*dx
-             + inner(grad(T), grad(dT))*dx + inner(T + 0.1*u*u - 2, dT)*dx)
-        solver = NonlinearVariationalSolver(
-            NonlinearVariationalProblem(F, w),
-            solver_parameters=fs_params)
-        # Solve once so that the python SNES is set up.
-        solver.solve()
-        return solver, w, F
-
-    solver, _, _ = make_solver(10)
-    snes = solver.snes
-    fs_snes = snes.getPythonContext()
-
-    dm = snes.getDM()
-    split_solvers = fs_snes.split_solvers
-
-    # No context on the DM (outside of a solve): nothing is rebuilt.
-    fs_snes.update(snes)
-    assert fs_snes.split_solvers is split_solvers
-
-    # Unchanged context (as during a solve): nothing is rebuilt.
-    dmhooks.push_appctx(dm, solver._ctx)
-    try:
-        fs_snes.update(snes)
-    finally:
-        dmhooks.pop_appctx(dm, solver._ctx)
-    assert fs_snes.split_solvers is split_solvers
-
-    # Replace the context on the DM with one on a different mesh,
-    # as mesh adaptivity would.
-    new_solver, new_w, new_F = make_solver(17)
-    new_ctx = new_solver._ctx
-    dmhooks.push_appctx(dm, new_ctx)
-    try:
-        # A real re-setup happens during solve, when the outer solver's
-        # options are in the PETSc options database. They are needed
-        # because initialize reads e.g. snes_fieldsplit_type from them.
-        with solver.inserted_options():
-            fs_snes.update(snes)
-        assert fs_snes.fieldsplit_type == 'multiplicative'
-        assert fs_snes.split_solvers is not split_solvers
-        assert fs_snes.u is new_ctx._x
-
-        # The rebuilt FieldsplitSNES should take the same step as
-        # one that was originally built on the new context.
-        # Both are built from the same (cached) splits of new_ctx, so
-        # use a nonzero forcing r to check that they do not interfere.
-        # Use a separate x because step writes into new_w.
-        new_w.zero()
-        x = Function(new_w.function_space())
-        du, dT = TestFunctions(new_w.function_space())
-        r = assemble(inner(1, du)*dx + inner(2, dT)*dx)
-        f = assemble(new_F)
-        f -= r
-        y = Function(new_w.function_space())
-        y_ref = Function(new_w.function_space())
-        # Step the reference first so that its forcing is nonzero
-        # when the rebuilt FieldsplitSNES steps.
-        with x.dat.vec_ro as xvec, f.dat.vec_ro as fvec:
-            with y_ref.dat.vec_wo as yvec:
-                new_solver.snes.getPythonContext().step(
-                    new_solver.snes, xvec, fvec, yvec)
-            with y.dat.vec_wo as yvec:
-                fs_snes.step(snes, xvec, fvec, yvec)
-    finally:
-        dmhooks.pop_appctx(dm, new_ctx)
-
-    assert norm(y_ref) > 0
-    assert errornorm(y_ref, y) < 1e-12
+def test_fieldsplit_snes_independent_solvers():
+    """Keep restricted equations independent on a shared FunctionSpace."""
+    mesh = UnitIntervalMesh(10)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    v, q = TestFunctions(W)
+    solutions = [Function(W), Function(W)]
+    solvers = []
+    for i, w in enumerate(solutions):
+        u, p = split(w)
+        F = ((u + 0.1*p - (i + 1))*v + (p + 0.1*u - 2)*q)*dx
+        solvers.append(NonlinearVariationalSolver(
+            NonlinearVariationalProblem(F, w), solver_parameters={
+                'snes_type': 'fieldsplit',
+                'snes_fieldsplit_type': 'multiplicative',
+                'snes_max_it': 2, 'snes_convergence_test': 'skip',
+                'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}))
+    for solver in solvers:
+        solver.set_transfer_manager(TransferManager())
+    solvers[0].solve()
+    saved = solutions[0].copy(deepcopy=True)
+    solvers[1].solve()
+    assert errornorm(saved, solutions[0]) == 0
+    assert errornorm(solutions[0], solutions[1]) > 0.1
+    solutions[0].zero()
+    solvers[0].solve()
+    assert errornorm(saved, solutions[0]) < 1e-13
 
 
 @pytest.mark.parametrize("options,nfields,expected", [
@@ -374,43 +293,18 @@ def test_fieldsplit_snes_update():
     ({'0_fields': '1', '1_fields': '0', 'default': None}, 2, [[1], [0]]),
 ])
 def test_fieldsplit_snes_get_splits(options, nfields, expected):
-    prefix = "test_get_splits_snes_fieldsplit_"
-    opts = PETSc.Options(prefix)
-    for k, v in options.items():
-        opts[k] = v
-    try:
-        splits = FieldsplitSNES()._get_splits(opts, nfields)
-    finally:
-        for k in options:
-            opts.delValue(k)
+    mesh = UnitIntervalMesh(2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = MixedFunctionSpace([V]*nfields)
+    w = Function(W)
+    v = TestFunction(W)
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(inner(w, v)*dx, w),
+        solver_parameters={'snes_type': 'fieldsplit',
+                           **{f'snes_fieldsplit_{k}': v for k, v in options.items()}})
+    snes = solver.snes
+    splits = [snes.getFieldSplitFields(i) for i in range(len(snes.getFieldSplitSubSNES()))]
     assert [list(s) for s in splits] == expected
-
-
-@pytest.mark.parametrize("options,nfields,error", [
-    # gap in the split numbering
-    ({'0_fields': '0', '2_fields': '1'}, 2, "consecutively"),
-    # split numbering does not start from 0
-    ({'1_fields': '0,1'}, 2, "consecutively"),
-    # field index out of range
-    ({'0_fields': '0', '1_fields': '1,2'}, 2, "only 2 fields"),
-    # field in more than one split
-    ({'0_fields': '0,1', '1_fields': '1'}, 2, "more than one split"),
-    ({'0_fields': '0,1', '1_fields': '1', 'default': None}, 3,
-     "more than one split"),
-    # missing field without -snes_fieldsplit_default
-    ({'0_fields': '0', '1_fields': '2'}, 3, "not in any split"),
-])
-def test_fieldsplit_snes_get_splits_errors(options, nfields, error):
-    prefix = "test_get_splits_errors_snes_fieldsplit_"
-    opts = PETSc.Options(prefix)
-    for k, v in options.items():
-        opts[k] = v
-    try:
-        with pytest.raises(ValueError, match=error):
-            FieldsplitSNES()._get_splits(opts, nfields)
-    finally:
-        for k in options:
-            opts.delValue(k)
 
 
 def test_fieldsplit_snes_default_fields():
@@ -438,8 +332,7 @@ def test_fieldsplit_snes_default_fields():
         params = {
             'snes_convergence_test': 'skip',
             'snes_max_it': 2,
-            'snes_type': 'python',
-            'snes_python_type': 'firedrake.FieldsplitSNES',
+            'snes_type': 'fieldsplit',
             'snes_fieldsplit_type': 'multiplicative',
             **fs_options,
             **{f'fieldsplit_{i}': sub_params for i in range(3)},
@@ -448,7 +341,8 @@ def test_fieldsplit_snes_default_fields():
             NonlinearVariationalProblem(F, w),
             solver_parameters=params)
         solver.solve()
-        return w, solver.snes.getPythonContext().splits
+        return w, [solver.snes.getFieldSplitFields(i)
+                   for i in range(len(solver.snes.getFieldSplitSubSNES()))]
 
     w_default, splits_default = solve_with({
         'snes_fieldsplit_0_fields': '2',
@@ -472,9 +366,8 @@ def test_fieldsplit_snes_default_options(named, npc):
     """Check that options with the fieldsplit_ prefix are used as
     defaults for every split, that options for a specific split take
     priority over them, and that they take priority over Firedrake's
-    default solver parameters. When the FieldsplitSNES is a nonlinear
-    preconditioner, it shares the DM of the outer SNES but has its own
-    options prefix, which the splits must use.
+    default solver parameters. A nonlinear preconditioner's splits use
+    its own options prefix.
     """
     mesh = UnitIntervalMesh(10)
     if named:
@@ -494,8 +387,7 @@ def test_fieldsplit_snes_default_options(named, npc):
          + inner(grad(u1), grad(v1))*dx + inner(u1 + 0.1*u0*u0 - 2, v1)*dx)
 
     params = {
-        'snes_type': 'python',
-        'snes_python_type': 'firedrake.FieldsplitSNES',
+        'snes_type': 'fieldsplit',
         'snes_fieldsplit_type': 'multiplicative',
         'snes_max_it': 2,
         'snes_convergence_test': 'skip',
@@ -527,21 +419,22 @@ def test_fieldsplit_snes_default_options(named, npc):
     solver.solve()
 
     fs_snes = solver.snes.getNPC() if npc else solver.snes
-    split_solvers = fs_snes.getPythonContext().split_solvers
-    assert [s.snes.getOptionsPrefix() for s in split_solvers] == [
+    split_solvers = fs_snes.getFieldSplitSubSNES()
+    assert [s.getOptionsPrefix() for s in split_solvers] == [
         f"{fs_snes.getOptionsPrefix()}fieldsplit_{name}_" for name in names]
 
     expected_rtols = [1e-3, 1e-7]
     for split_solver, rtol in zip(split_solvers, expected_rtols):
-        snes = split_solver.snes
+        snes = split_solver
         assert snes.getTolerances()[0] == rtol
         assert snes.ksp.getType() == "gmres"
         assert snes.ksp.pc.getType() == "lu"
 
 
-def test_fieldsplit_snes_nested():
-    """Check that a FieldsplitSNES can be used as the solver for a split
-    of another FieldsplitSNES. One multiplicative sweep over fields 0
+@pytest.mark.parametrize("auxiliary", [False, True])
+def test_fieldsplit_snes_nested(auxiliary):
+    """Check that a native fieldsplit can be used as the solver for a split
+    of another native fieldsplit. One multiplicative sweep over fields 0
     and 1 inside a multiplicative sweep over [0, 1] and [2] is the same
     as a multiplicative sweep over [0], [1] and [2]. This is checked
     for a full solve, and for a single step with a nonzero forcing.
@@ -570,8 +463,7 @@ def test_fieldsplit_snes_nested():
 
     def fieldsplit(max_it):
         return {
-            'snes_type': 'python',
-            'snes_python_type': 'firedrake.FieldsplitSNES',
+            'snes_type': 'fieldsplit',
             'snes_fieldsplit_type': 'multiplicative',
             'snes_max_it': max_it,
             'snes_convergence_test': 'skip',
@@ -581,30 +473,43 @@ def test_fieldsplit_snes_nested():
     flat_solver = make_solver(fieldsplit(3))
 
     # The defaults for the outer splits are not used by the inner
-    # splits, so the inner FieldsplitSNES needs its own defaults.
+    # splits, so the inner native fieldsplit needs its own defaults.
+    inner_options = fieldsplit(1)
+    if auxiliary:
+        inner_options = {
+            'snes_type': 'python',
+            'snes_python_type': 'firedrake.AuxiliaryOperatorSNES',
+            'snes_max_it': 1, 'snes_convergence_test': 'skip',
+            'aux': inner_options,
+        }
     nested_solver = make_solver({
         **fieldsplit(3),
         'snes_fieldsplit_0_fields': '0,1',
         'snes_fieldsplit_1_fields': '2',
-        'fieldsplit_0': fieldsplit(1),
+        'fieldsplit_0': inner_options,
     })
 
     flat_solver.solve()
     nested_solver.solve()
 
     outer_prefix = nested_solver.snes.getOptionsPrefix()
-    inner_fs = nested_solver.snes.getPythonContext().split_solvers[0].snes.getPythonContext()
-    assert isinstance(inner_fs, FieldsplitSNES)
-    assert inner_fs.splits == [[0], [1]]
-    assert [s.snes.getOptionsPrefix() for s in inner_fs.split_solvers] == [
-        f"{outer_prefix}fieldsplit_0_fieldsplit_{i}_" for i in range(2)]
+    inner_fs = nested_solver.snes.getFieldSplitSubSNES()[0]
+    if auxiliary:
+        inner_fs = inner_fs.getPythonContext().solver.snes
+        outer_prefix += "fieldsplit_0_aux_"
+    else:
+        outer_prefix += "fieldsplit_0_"
+    assert inner_fs.getType() == "fieldsplit"
+    assert [inner_fs.getFieldSplitFields(i) for i in range(2)] == [(0,), (1,)]
+    assert [s.getOptionsPrefix() for s in inner_fs.getFieldSplitSubSNES()] == [
+        f"{outer_prefix}fieldsplit_{i}_" for i in range(2)]
 
     w_flat = flat_solver._problem.u
     w_nested = nested_solver._problem.u
     assert errornorm(w_flat, w_nested) < 1e-12
 
     # Take one step from the same x with a residual f = F(x) - r,
-    # so the inner FieldsplitSNES must split the outer forcing.
+    # so the inner native fieldsplit must split the outer forcing.
     x = Function(W)
     for i, xi in enumerate(x.subfunctions):
         xi.assign(0.5 + 0.1*i)
@@ -613,15 +518,9 @@ def test_fieldsplit_snes_nested():
 
     def step(solver):
         solver._problem.u.assign(x)
-        f = assemble(solver._problem.F)
-        f -= r
-        y = Function(W)
-        # The step is taken outside a solve, so the options of the outer
-        # solver must be inserted for the inner solvers to find them.
-        with solver.inserted_options():
-            with x.dat.vec_ro as xvec, f.dat.vec_ro as fvec, y.dat.vec_wo as yvec:
-                solver.snes.getPythonContext().step(solver.snes, xvec, fvec, yvec)
-        return y
+        solver.snes.setTolerances(max_it=1)
+        _solve_native(solver, r)
+        return solver._problem.u.copy(deepcopy=True)
 
     y_flat = step(flat_solver)
     y_nested = step(nested_solver)
@@ -663,19 +562,19 @@ def test_fieldsplit_snes_nullspaces():
         transpose_nullspace=transpose_nullspace,
         near_nullspace=near_nullspace,
         solver_parameters={
-            'snes_type': 'python',
-            'snes_python_type': 'firedrake.FieldsplitSNES',
+            'snes_type': 'fieldsplit',
             'snes_fieldsplit_0_fields': '0',
             'snes_fieldsplit_1_fields': '1,2',
         })
 
-    # Set up the FieldsplitSNES in the same way as a solve would.
+    # Set up the native fieldsplit in the same way as a solve would.
     snes = solver.snes
     with solver.inserted_options(), \
             dmhooks.add_hooks(snes.getDM(), solver, appctx=solver._ctx):
         snes.setUp()
 
-    split_ctxs = [s._ctx for s in snes.getPythonContext().split_solvers]
+    split_ctxs = [ctx for child, ctx in solver._ctx._snes_contexts
+                  if child in snes.getFieldSplitSubSNES()]
 
     # The first split is field 0, which only the nullspace has a basis on.
     assert split_ctxs[0]._nullspace is nullspace._bases[0]
@@ -693,3 +592,184 @@ def test_fieldsplit_snes_nullspaces():
         bases = split_nullspace._bases
         assert bases[field - 1] is basis._bases[field]
         assert not isinstance(bases[2 - field], VectorSpaceBasis)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("pre_apply_bcs", [False, True])
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+def test_fieldsplit_snes_bcs_jp(pre_apply_bcs, mat_type):
+    """Preserve nonzero BCs and distinct assembled preconditioning forms."""
+    mesh = UnitIntervalMesh(5)
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    w = Function(W)
+    u, p = split(w)
+    v, q = TestFunctions(W)
+    du, dp = TrialFunctions(W)
+    u_exact, p_exact = 1 + x, 2 - x
+    F = ((u + u**3 + 0.1*p - u_exact - u_exact**3 - 0.1*p_exact)*v
+         + (p + p**3 + 0.1*u - p_exact - p_exact**3 - 0.1*u_exact)*q)*dx
+    Jp = ((1 + 3*u**2)*du*v + (1 + 3*p**2)*dp*q)*dx
+    bcs = [DirichletBC(W.sub(0), u_exact, "on_boundary"),
+           DirichletBC(W.sub(1), p_exact, "on_boundary")]
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, w, bcs=bcs, Jp=Jp),
+        pre_apply_bcs=pre_apply_bcs, solver_parameters={
+            'snes_type': 'fieldsplit', 'snes_fieldsplit_type': 'multiplicative',
+            'snes_rtol': 1e-10,
+            'fieldsplit': {'mat_type': mat_type, 'pmat_type': 'aij',
+                           'ksp_type': 'gmres', 'ksp_rtol': 1e-12, 'pc_type': 'lu'}})
+    solver.solve()
+    solver.snes.reset()
+    w.zero()
+    solver.solve()
+    assert errornorm(Function(V).interpolate(u_exact), w.sub(0)) < 1e-9
+    assert errornorm(Function(V).interpolate(p_exact), w.sub(1)) < 1e-9
+    for child, ctx in solver._ctx._snes_contexts:
+        assert ctx.Jp is not None
+        assert ctx.mat_type == mat_type
+        assert ctx.pmat_type == 'aij'
+
+        J, P, _ = child.getJacobian()
+        assert J == ctx._jac.petscmat
+        assert P == ctx._pjac.petscmat
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_fieldsplit_snes_reset_options_invalidation(grouped):
+    """Reuse child settings and invalidate their constant Jacobian caches."""
+    mesh = UnitIntervalMesh(3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+    w = Function(W)
+    forcing = Constant(1)
+    coefficient = Constant(1)
+    a = coefficient*(u*v + p*q)*dx
+    L = forcing*(v + 2*q)*dx
+    parameters = {'snes_type': 'fieldsplit',
+                  'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}
+    if grouped:
+        parameters.update({
+            'snes_fieldsplit_0_fields': '0,1',
+            'fieldsplit': {'ksp_type': 'gmres', 'pc_type': 'fieldsplit',
+                           'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}})
+    solver = LinearVariationalSolver(
+        LinearVariationalProblem(a, L, w, constant_jacobian=True),
+        solver_parameters=parameters)
+    original_ctx = solver._ctx
+    children = solver.snes.getFieldSplitSubSNES()
+    children[0].setTolerances(rtol=1e-9)
+    solver.solve()
+    assert solver._ctx is original_ctx
+    assert children[0].getTolerances()[0] == 1e-9
+    solver.invalidate_jacobian()
+    solver.snes.reset()
+    forcing.assign(3)
+    coefficient.assign(2)
+    solver.solve()
+    assert children[0].getTolerances()[0] == 1e-9
+    assert errornorm(Function(V).assign(1.5), w.sub(0)) < 1e-12
+    assert errornorm(Function(V).assign(3), w.sub(1)) < 1e-12
+
+
+def test_fieldsplit_snes_grouped_linear_fieldsplit():
+    """Use a matrix-free grouped equation with a linear field decomposition."""
+    mesh = UnitIntervalMesh(3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    w = Function(W)
+    u, p = split(w)
+    v, q = TestFunctions(W)
+    F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, w), solver_parameters={
+            'snes_type': 'fieldsplit', 'snes_fieldsplit_0_fields': '0,1',
+            'fieldsplit': {'mat_type': 'matfree', 'pmat_type': 'aij',
+                           'ksp_type': 'gmres', 'pc_type': 'fieldsplit',
+                           'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}})
+    solver.solve()
+    assert errornorm(Function(V).assign(0.8/0.99), w.sub(0)) < 1e-9
+    assert errornorm(Function(V).assign(1.9/0.99), w.sub(1)) < 1e-9
+
+
+def test_fieldsplit_snes_child_fd():
+    """Keep a child's finite-difference Jacobian local to its owned DM."""
+    from firedrake import dmhooks
+
+    mesh = UnitIntervalMesh(3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    w = Function(W)
+    u, p = split(w)
+    v, q = TestFunctions(W)
+    F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, w), solver_parameters={
+            'snes_type': 'fieldsplit',
+            'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'},
+            'fieldsplit_0': {'snes_fd': None}})
+    solver.solve()
+    solver.snes.reset()
+    w.zero()
+    solver.solve()
+    assert errornorm(Function(V).assign(0.8/0.99), w.sub(0)) < 1e-8
+    assert solver.snes.dm != solver.snes.getFieldSplitSubSNES()[0].dm
+    with solver.inserted_options(), dmhooks.add_hooks(solver.snes.dm, solver, appctx=solver._ctx):
+        J, P, _ = solver.snes.getJacobian()
+        solver.snes.computeJacobian(solver.snes.getSolution(), J, P)
+    expected = assemble(derivative(F, w))
+    difference = solver.snes.getJacobian()[0].copy()
+    difference.axpy(-1, expected.petscmat)
+    assert difference.norm() < 1e-12
+
+
+def test_fieldsplit_snes_scalar_nullspace():
+    """Bind a scalar equation and retain its full-space nullspace."""
+    mesh = UnitIntervalMesh(8)
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    exact = Function(V).interpolate(cos(2*pi*x))
+    v = TestFunction(V)
+    F = inner(grad(u - exact), grad(v))*dx
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, u),
+        nullspace=VectorSpaceBasis(constant=True, comm=mesh.comm),
+        solver_parameters={'snes_type': 'fieldsplit',
+                           'fieldsplit': {'ksp_type': 'cg', 'pc_type': 'none'}})
+    solver.solve()
+    assert assemble(inner(grad(u - exact), grad(u - exact))*dx) < 1e-20
+
+
+def test_fieldsplit_snes_objective():
+    """Evaluate child objectives with the other field fixed at its base value."""
+    mesh = UnitIntervalMesh(3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    w = Function(W)
+    w.sub(0).assign(1)
+    w.sub(1).assign(2)
+    u, p = split(w)
+    v, q = TestFunctions(W)
+    F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
+    E = (0.5*(u**2 + p**2) + 0.1*u*p - u - 2*p)*dx
+    solver = NonlinearVariationalSolver(
+        NonlinearVariationalProblem(F, w, objective=E), solver_parameters={
+            'snes_type': 'fieldsplit', 'snes_max_it': 1,
+            'snes_convergence_test': 'skip',
+            'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}})
+    values = []
+
+    def monitor(snes, iteration, rnorm):
+        if iteration == 0:
+            values.append(snes.computeObjective(snes.getSolution()))
+
+    for child in solver.snes.getFieldSplitSubSNES():
+        child.setMonitor(monitor)
+    solver.solve()
+    assert values == pytest.approx([-2.3, -2.3])
+    assert errornorm(Function(V).assign(0.8), w.sub(0)) < 1e-12
+    assert errornorm(Function(V).assign(1.9), w.sub(1)) < 1e-12
