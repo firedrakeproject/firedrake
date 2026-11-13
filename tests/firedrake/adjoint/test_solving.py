@@ -382,6 +382,39 @@ def test_dirichlet_bc_value_in_form():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("use_solver", (False, True))
+def test_linear_problem_interpolate_rhs(use_solver, rg):
+    # The rhs is an Interpolate, not a Form or a Cofunction,
+    # and it depends on the control only through its operand.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "CG", 2)
+    X, Y = SpatialCoordinate(mesh)
+
+    m = Function(V).interpolate(sin(pi*X)*sin(pi*Y))
+    c = assemble(TestFunction(W)*dx)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = (inner(u, v) + inner(grad(u), grad(v)))*dx
+    L = interpolate(m**2 * v, c)
+    uh = Function(V)
+    if use_solver:
+        LinearVariationalSolver(LinearVariationalProblem(a, L, uh)).solve()
+    else:
+        solve(a == L, uh)
+
+    J = assemble(inner(uh, uh)*dx)
+    rf = ReducedFunctional(J, Control(m))
+
+    h = rg.uniform(V)
+    rates = taylor_to_dict(rf, m, h)
+    assert min(rates["R0"]["Rate"]) > 0.9
+    assert min(rates["R1"]["Rate"]) > 1.9
+    assert min(rates["R2"]["Rate"]) > 2.9
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)
