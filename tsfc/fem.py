@@ -938,7 +938,7 @@ def translate_ufl_element(ufl_element: finat.ufl.FiniteElementBase,
     assert result.shape == mt.expr.ufl_shape
     allowed_indices = set(chain(ctx.point_indices, *ctx.argument_multiindices))
     unexpected_indices = set(result.free_indices) - ctx.unsummed_coefficient_indices - allowed_indices
-    assert not unexpected_indices, unexpected_indices
+    assert not unexpected_indices
 
     # Detect Jacobian of affine cells
     if not result.free_indices and all(numpy.count_nonzero(node.array) <= 2
