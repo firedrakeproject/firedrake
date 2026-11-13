@@ -359,6 +359,23 @@ class Mat(Tensor):
         else:
             raise NotImplementedError
 
+    # Return the views of as_array, which already include the ghost entries,
+    # because Tensor._array_assign reads these accessors
+    @property
+    def data_ro_with_halos(self):
+        """Return a read-only view of the matrix values, including ghost entries."""
+        return self.as_array("ro")
+
+    @property
+    def data_wo_with_halos(self):
+        """Return a write-only view of the matrix values, including ghost entries."""
+        return self.as_array("wo")
+
+    @property
+    def data_rw_with_halos(self):
+        """Return a modifiable view of the matrix values, including ghost entries."""
+        return self.as_array("rw")
+
     @staticmethod
     def _array_view(array, row_indices, column_indices, mode):
         block_shape = ()  # for now

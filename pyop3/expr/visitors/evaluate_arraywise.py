@@ -25,7 +25,9 @@ class ArraywiseEvaluator(OverloadedExpressionEvaluator):
 
     @process.register
     def _(self, dat: pyop3.expr.Dat, /) -> np.ndarray:
-        return dat.data_ro
+        # Read the ghost and constrained entries too, to match the entries
+        # written by Tensor._array_assign
+        return dat.data_ro_with_halos
 
 
 def evaluate_arraywise(expr: pyop3.expr.ExpressionT):
