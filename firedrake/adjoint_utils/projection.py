@@ -14,9 +14,14 @@ def annotate_project(project):
     def wrapper(*args, **kwargs):
         annotate = annotate_tape(kwargs)
         if annotate:
+            # annotation enabled: let the Projector or Assigner record
+            # its own block through the ProjectorMixin path
             return project(*args, **kwargs)
 
         with stop_annotating():
+            # if global annotation was enabled, but annotation=False
+            # was passed to this call: take the same path, but ensuring
+            # all nested annotation is disabled
             return project(*args, **kwargs)
 
     return wrapper
