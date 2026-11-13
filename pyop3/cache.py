@@ -61,18 +61,25 @@ class gc_disabled(contextlib.ContextDecorator):
             gc.enable()
 
 
-def _get_refcounts(lifetime_objs):
-    return [sys.getrefcount(obj) for obj in lifetime_objs]
-
-
 def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False,
               get_version: Callable = lambda obj: None):
-    """
+    """Decorator that caches function results on an object.
+
     Parameters
     ----------
-    TODO
+    get_obj : Callable
+        Function returning the object that holds the cache.
+    get_key : Callable
+        Function returning the cache key.
+    multi : bool
+        Does ``get_obj`` return multiple objects? Default is `False`.
+    get_version : Callable
+        Function returning the cache 'version'. If this changes then previous
+        caches are discarded. Default is to return `None`.
+
     """
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
             if multi:

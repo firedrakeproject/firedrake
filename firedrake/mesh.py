@@ -1257,7 +1257,7 @@ class AbstractMeshTopology(abc.ABC):
 
         Returns
         -------
-        MeshLoopIndex
+        pyop3.LoopIndex
             A loop index object representing the iteration that can be used
             inside a `pyop3.Loop`.
 
