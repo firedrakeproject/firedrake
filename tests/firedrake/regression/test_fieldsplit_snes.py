@@ -95,13 +95,11 @@ def test_fieldsplit_snes(fs_type):
         'pc_type': 'lu',
     }
 
-    Gu_solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(Gu, uk1),
-        solver_parameters=sub_params)
+    Gu_problem = NonlinearVariationalProblem(Gu, uk1)
+    Gu_solver = NonlinearVariationalSolver(Gu_problem, solver_parameters=sub_params)
 
-    GT_solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(GT, Tk1),
-        solver_parameters=sub_params)
+    GT_problem = NonlinearVariationalProblem(GT, Tk1)
+    GT_solver = NonlinearVariationalSolver(GT_problem, solver_parameters=sub_params)
 
     for i in range(max_it):
         wk.assign(wk1)
@@ -152,9 +150,8 @@ def test_fieldsplit_snes(fs_type):
         'fieldsplit_1': sub_params,
     }
 
-    fs_solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w),
-        solver_parameters=fs_params)
+    fs_problem = NonlinearVariationalProblem(F, w)
+    fs_solver = NonlinearVariationalSolver(fs_problem, solver_parameters=fs_params)
 
     fs_solver.solve()
     u, T = w.subfunctions
@@ -215,12 +212,10 @@ def test_fieldsplit_snes_forcing(fs_type):
         'pc_type': 'lu',
     }
 
-    Gu_solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(Gu - ru, uk1),
-        solver_parameters=sub_params)
-    GT_solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(GT - rT, Tk1),
-        solver_parameters=sub_params)
+    Gu_problem = NonlinearVariationalProblem(Gu - ru, uk1)
+    Gu_solver = NonlinearVariationalSolver(Gu_problem, solver_parameters=sub_params)
+    GT_problem = NonlinearVariationalProblem(GT - rT, Tk1)
+    GT_solver = NonlinearVariationalSolver(GT_problem, solver_parameters=sub_params)
 
     if fs_type == "upper":
         GT_solver.solve()
@@ -254,9 +249,8 @@ def test_fieldsplit_snes_forcing(fs_type):
         'fieldsplit_1': sub_params,
     }
 
-    fs_solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w),
-        solver_parameters=fs_params)
+    fs_problem = NonlinearVariationalProblem(F, w)
+    fs_solver = NonlinearVariationalSolver(fs_problem, solver_parameters=fs_params)
 
     w.assign(wk)
     _solve_native(fs_solver, r)
@@ -268,18 +262,27 @@ def test_fieldsplit_snes_independent_solvers():
     mesh = UnitIntervalMesh(10)
     V = FunctionSpace(mesh, "CG", 1)
     W = V * V
+
     v, q = TestFunctions(W)
     solutions = [Function(W), Function(W)]
+    params = {
+        'snes_type': 'fieldsplit',
+        'snes_fieldsplit_type': 'multiplicative',
+        'snes_max_it': 2,
+        'snes_convergence_test': 'skip',
+        'fieldsplit': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+        },
+    }
     solvers = []
     for i, w in enumerate(solutions):
         u, p = split(w)
         F = ((u + 0.1*p - (i + 1))*v + (p + 0.1*u - 2)*q)*dx
-        solvers.append(NonlinearVariationalSolver(
-            NonlinearVariationalProblem(F, w), solver_parameters={
-                'snes_type': 'fieldsplit',
-                'snes_fieldsplit_type': 'multiplicative',
-                'snes_max_it': 2, 'snes_convergence_test': 'skip',
-                'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}))
+        problem = NonlinearVariationalProblem(F, w)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+        solvers.append(solver)
+
     for solver in solvers:
         solver.set_transfer_manager(TransferManager())
     solvers[0].solve()
@@ -310,12 +313,17 @@ def test_fieldsplit_snes_get_splits(options, nfields, expected):
     mesh = UnitIntervalMesh(2)
     V = FunctionSpace(mesh, "CG", 1)
     W = MixedFunctionSpace([V]*nfields)
+
     w = Function(W)
     v = TestFunction(W)
-    solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(inner(w, v)*dx, w),
-        solver_parameters={'snes_type': 'fieldsplit',
-                           **{f'snes_fieldsplit_{k}': v for k, v in options.items()}})
+    F = inner(w, v)*dx
+    params = {
+        'snes_type': 'fieldsplit',
+        **{f'snes_fieldsplit_{k}': v for k, v in options.items()},
+    }
+    problem = NonlinearVariationalProblem(F, w)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+
     snes = solver.snes
     splits = [snes.getFieldSplitFields(i) for i in range(len(_get_split_solvers(solver)))]
     assert [list(s) for s in splits] == expected
@@ -351,9 +359,8 @@ def test_fieldsplit_snes_default_fields():
             **fs_options,
             **{f'fieldsplit_{i}': sub_params for i in range(3)},
         }
-        solver = NonlinearVariationalSolver(
-            NonlinearVariationalProblem(F, w),
-            solver_parameters=params)
+        problem = NonlinearVariationalProblem(F, w)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=params)
         solver.solve()
         return w, [solver.snes.getFieldSplitFields(i)
                    for i in range(len(solver.snes.getFieldSplitSubSNES()))]
@@ -418,9 +425,8 @@ def test_fieldsplit_snes_split_options(named, npc):
             'npc': {**params, 'snes_max_it': 1},
         }
 
-    solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w),
-        solver_parameters=params)
+    problem = NonlinearVariationalProblem(F, w)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
     solver.solve()
 
     fs_snes = solver.snes.getNPC() if npc else solver.snes
@@ -455,8 +461,9 @@ def test_fieldsplit_snes_nested(auxiliary):
         F = (inner(grad(u0), grad(v0))*dx + inner(u0 + 0.1*u1*u2 - 1, v0)*dx
              + inner(grad(u1), grad(v1))*dx + inner(u1 + 0.1*u0*u2 - 2, v1)*dx
              + inner(grad(u2), grad(v2))*dx + inner(u2 + 0.1*u0*u1 - 3, v2)*dx)
-        return NonlinearVariationalSolver(
-            NonlinearVariationalProblem(F, w), solver_parameters=params)
+        problem = NonlinearVariationalProblem(F, w)
+        solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+        return solver
 
     newton = {
         'snes_type': 'newtonls',
@@ -484,7 +491,8 @@ def test_fieldsplit_snes_nested(auxiliary):
         inner_options = {
             'snes_type': 'python',
             'snes_python_type': 'firedrake.AuxiliaryOperatorSNES',
-            'snes_max_it': 1, 'snes_convergence_test': 'skip',
+            'snes_max_it': 1,
+            'snes_convergence_test': 'skip',
             'aux': inner_options,
         }
     nested_solver = make_solver({
@@ -561,16 +569,18 @@ def test_fieldsplit_snes_nullspaces():
     transpose_nullspace = make_nullspace(1)
     near_nullspace = make_nullspace(2)
 
+    params = {
+        'snes_type': 'fieldsplit',
+        'snes_fieldsplit_0_fields': '0',
+        'snes_fieldsplit_1_fields': '1,2',
+    }
+    problem = NonlinearVariationalProblem(F, w)
     solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w),
+        problem,
         nullspace=nullspace,
         transpose_nullspace=transpose_nullspace,
         near_nullspace=near_nullspace,
-        solver_parameters={
-            'snes_type': 'fieldsplit',
-            'snes_fieldsplit_0_fields': '0',
-            'snes_fieldsplit_1_fields': '1,2',
-        })
+        solver_parameters=params)
 
     # Set up the native fieldsplit in the same way as a solve would.
     snes = solver.snes
@@ -608,6 +618,7 @@ def test_fieldsplit_snes_bcs_jp(pre_apply_bcs, mat_type):
     x, = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
     W = V * V
+
     w = Function(W)
     u, p = split(w)
     v, q = TestFunctions(W)
@@ -618,12 +629,23 @@ def test_fieldsplit_snes_bcs_jp(pre_apply_bcs, mat_type):
     Jp = ((1 + 3*u**2)*du*v + (1 + 3*p**2)*dp*q)*dx
     bcs = [DirichletBC(W.sub(0), u_exact, "on_boundary"),
            DirichletBC(W.sub(1), p_exact, "on_boundary")]
+
+    params = {
+        'snes_type': 'fieldsplit',
+        'snes_fieldsplit_type': 'multiplicative',
+        'snes_rtol': 1e-10,
+        'mat_type': mat_type,
+        'pmat_type': 'aij',
+        'fieldsplit': {
+            'ksp_type': 'gmres',
+            'ksp_rtol': 1e-12,
+            'pc_type': 'lu',
+        },
+    }
+    problem = NonlinearVariationalProblem(F, w, bcs=bcs, Jp=Jp)
     solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w, bcs=bcs, Jp=Jp),
-        pre_apply_bcs=pre_apply_bcs, solver_parameters={
-            'snes_type': 'fieldsplit', 'snes_fieldsplit_type': 'multiplicative',
-            'snes_rtol': 1e-10, 'mat_type': mat_type, 'pmat_type': 'aij',
-            'fieldsplit': {'ksp_type': 'gmres', 'ksp_rtol': 1e-12, 'pc_type': 'lu'}})
+        problem, pre_apply_bcs=pre_apply_bcs, solver_parameters=params)
+
     solver.solve()
     solver.snes.reset()
     w.zero()
@@ -649,6 +671,7 @@ def test_fieldsplit_snes_reset_options_invalidation(grouped):
     mesh = UnitIntervalMesh(3)
     V = FunctionSpace(mesh, "CG", 1)
     W = V * V
+
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
     w = Function(W)
@@ -656,16 +679,28 @@ def test_fieldsplit_snes_reset_options_invalidation(grouped):
     coefficient = Constant(1)
     a = coefficient*(u*v + p*q)*dx
     L = forcing*(v + 2*q)*dx
-    parameters = {'snes_type': 'fieldsplit',
-                  'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}
+    parameters = {
+        'snes_type': 'fieldsplit',
+        'fieldsplit': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+        },
+    }
     if grouped:
         parameters.update({
             'snes_fieldsplit_0_fields': '0,1',
-            'fieldsplit': {'ksp_type': 'gmres', 'pc_type': 'fieldsplit',
-                           'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}})
-    solver = LinearVariationalSolver(
-        LinearVariationalProblem(a, L, w, constant_jacobian=True),
-        solver_parameters=parameters)
+            'fieldsplit': {
+                'ksp_type': 'gmres',
+                'pc_type': 'fieldsplit',
+                'fieldsplit': {
+                    'ksp_type': 'preonly',
+                    'pc_type': 'lu',
+                },
+            },
+        })
+    problem = LinearVariationalProblem(a, L, w, constant_jacobian=True)
+    solver = LinearVariationalSolver(problem, solver_parameters=parameters)
+
     original_ctx = solver._ctx
     children = _get_split_solvers(solver)
     children[0].setTolerances(rtol=1e-9)
@@ -687,16 +722,28 @@ def test_fieldsplit_snes_grouped_linear_fieldsplit():
     mesh = UnitIntervalMesh(3)
     V = FunctionSpace(mesh, "CG", 1)
     W = V * V
+
     w = Function(W)
     u, p = split(w)
     v, q = TestFunctions(W)
     F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
-    solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w), solver_parameters={
-            'snes_type': 'fieldsplit', 'snes_fieldsplit_0_fields': '0,1',
-            'mat_type': 'matfree', 'pmat_type': 'aij',
-            'fieldsplit': {'ksp_type': 'gmres', 'pc_type': 'fieldsplit',
-                           'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}})
+    params = {
+        'snes_type': 'fieldsplit',
+        'snes_fieldsplit_0_fields': '0,1',
+        'mat_type': 'matfree',
+        'pmat_type': 'aij',
+        'fieldsplit': {
+            'ksp_type': 'gmres',
+            'pc_type': 'fieldsplit',
+            'fieldsplit': {
+                'ksp_type': 'preonly',
+                'pc_type': 'lu',
+            },
+        },
+    }
+    problem = NonlinearVariationalProblem(F, w)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+
     solver.solve()
     assert errornorm(Function(V).assign(0.8/0.99), w.sub(0)) < 1e-9
     assert errornorm(Function(V).assign(1.9/0.99), w.sub(1)) < 1e-9
@@ -709,15 +756,22 @@ def test_fieldsplit_snes_child_fd():
     mesh = UnitIntervalMesh(3)
     V = FunctionSpace(mesh, "CG", 1)
     W = V * V
+
     w = Function(W)
     u, p = split(w)
     v, q = TestFunctions(W)
     F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
-    solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w), solver_parameters={
-            'snes_type': 'fieldsplit',
-            'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'},
-            'fieldsplit_0': {'snes_fd': None}})
+    params = {
+        'snes_type': 'fieldsplit',
+        'fieldsplit': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+        },
+        'fieldsplit_0': {'snes_fd': None},
+    }
+    problem = NonlinearVariationalProblem(F, w)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+
     solver.solve()
     solver.snes.reset()
     w.zero()
@@ -738,15 +792,23 @@ def test_fieldsplit_snes_scalar_nullspace():
     mesh = UnitIntervalMesh(8)
     x, = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
+
     u = Function(V)
     exact = Function(V).interpolate(cos(2*pi*x))
     v = TestFunction(V)
     F = inner(grad(u - exact), grad(v))*dx
-    solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, u),
-        nullspace=VectorSpaceBasis(constant=True, comm=mesh.comm),
-        solver_parameters={'snes_type': 'fieldsplit',
-                           'fieldsplit': {'ksp_type': 'cg', 'pc_type': 'none'}})
+    nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
+    params = {
+        'snes_type': 'fieldsplit',
+        'fieldsplit': {
+            'ksp_type': 'cg',
+            'pc_type': 'none',
+        },
+    }
+    problem = NonlinearVariationalProblem(F, u)
+    solver = NonlinearVariationalSolver(problem, nullspace=nullspace,
+                                        solver_parameters=params)
+
     solver.solve()
     assert assemble(inner(grad(u - exact), grad(u - exact))*dx) < 1e-20
 
@@ -756,6 +818,7 @@ def test_fieldsplit_snes_objective():
     mesh = UnitIntervalMesh(3)
     V = FunctionSpace(mesh, "CG", 1)
     W = V * V
+
     w = Function(W)
     w.sub(0).assign(1)
     w.sub(1).assign(2)
@@ -763,11 +826,18 @@ def test_fieldsplit_snes_objective():
     v, q = TestFunctions(W)
     F = ((u + 0.1*p - 1)*v + (p + 0.1*u - 2)*q)*dx
     E = (0.5*(u**2 + p**2) + 0.1*u*p - u - 2*p)*dx
-    solver = NonlinearVariationalSolver(
-        NonlinearVariationalProblem(F, w, objective=E), solver_parameters={
-            'snes_type': 'fieldsplit', 'snes_max_it': 1,
-            'snes_convergence_test': 'skip',
-            'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}})
+    params = {
+        'snes_type': 'fieldsplit',
+        'snes_max_it': 1,
+        'snes_convergence_test': 'skip',
+        'fieldsplit': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+        },
+    }
+    problem = NonlinearVariationalProblem(F, w, objective=E)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+
     values = []
 
     def monitor(snes, iteration, rnorm):
