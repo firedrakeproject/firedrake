@@ -2,16 +2,30 @@ from firedrake import *
 import pytest
 
 
+def _get_split_solvers(solver):
+    """Create the field-split children of a solver with their equations."""
+    from firedrake import dmhooks
+
+    with solver.inserted_options(), \
+            dmhooks.add_hooks(solver.snes.dm, solver, appctx=solver._ctx):
+        return solver.snes.getFieldSplitSubSNES()
+
+
 def _solve_native(solver, rhs=None):
+    """Solve on a copy of the solution, as the solver does."""
     from firedrake import dmhooks
     from contextlib import ExitStack
 
+    u = solver._problem.u
+    with u.dat.vec_ro as v:
+        x = v.copy()
     with ExitStack() as stack:
         stack.enter_context(solver.inserted_options())
         stack.enter_context(dmhooks.add_hooks(solver.snes.dm, solver, appctx=solver._ctx))
-        x = stack.enter_context(solver._problem.u.dat.vec_rw)
         b = None if rhs is None else stack.enter_context(rhs.dat.vec_ro)
         solver.snes.solve(b, x)
+    with u.dat.vec_wo as v:
+        x.copy(v)
 
 
 @pytest.mark.parallel([1, 2])
@@ -303,7 +317,7 @@ def test_fieldsplit_snes_get_splits(options, nfields, expected):
         solver_parameters={'snes_type': 'fieldsplit',
                            **{f'snes_fieldsplit_{k}': v for k, v in options.items()}})
     snes = solver.snes
-    splits = [snes.getFieldSplitFields(i) for i in range(len(snes.getFieldSplitSubSNES()))]
+    splits = [snes.getFieldSplitFields(i) for i in range(len(_get_split_solvers(solver)))]
     assert [list(s) for s in splits] == expected
 
 
@@ -362,12 +376,10 @@ def test_fieldsplit_snes_default_fields():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("npc", [False, True])
 @pytest.mark.parametrize("named", [False, True])
-def test_fieldsplit_snes_default_options(named, npc):
-    """Check that options with the fieldsplit_ prefix are used as
-    defaults for every split, that options for a specific split take
-    priority over them, and that they take priority over Firedrake's
-    default solver parameters. A nonlinear preconditioner's splits use
-    its own options prefix.
+def test_fieldsplit_snes_split_options(named, npc):
+    """Check that each split reads its options under its own prefix, which
+    is named after its field. A nonlinear preconditioner's splits use its
+    own options prefix.
     """
     mesh = UnitIntervalMesh(10)
     if named:
@@ -391,18 +403,11 @@ def test_fieldsplit_snes_default_options(named, npc):
         'snes_fieldsplit_type': 'multiplicative',
         'snes_max_it': 2,
         'snes_convergence_test': 'skip',
-        # defaults for all splits
-        'fieldsplit': {
-            'snes_rtol': 1e-3,
-            'mat_type': 'aij',
-            # Firedrake's default would be preonly
+        **{f'fieldsplit_{name}': {
+            'snes_rtol': rtol,
             'ksp_type': 'gmres',
             'pc_type': 'lu',
-        },
-        # overrides for the second split
-        f'fieldsplit_{names[1]}': {
-            'snes_rtol': 1e-7,
-        },
+        } for name, rtol in zip(names, [1e-3, 1e-7])},
     }
 
     if npc:
@@ -572,9 +577,7 @@ def test_fieldsplit_snes_nullspaces():
     with solver.inserted_options(), \
             dmhooks.add_hooks(snes.getDM(), solver, appctx=solver._ctx):
         snes.setUp()
-
-    split_ctxs = [ctx for child, ctx in solver._ctx._snes_contexts
-                  if child in snes.getFieldSplitSubSNES()]
+        split_ctxs = [dmhooks.get_appctx(child.dm) for child in snes.getFieldSplitSubSNES()]
 
     # The first split is field 0, which only the nullspace has a basis on.
     assert split_ctxs[0]._nullspace is nullspace._bases[0]
@@ -599,6 +602,8 @@ def test_fieldsplit_snes_nullspaces():
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
 def test_fieldsplit_snes_bcs_jp(pre_apply_bcs, mat_type):
     """Preserve nonzero BCs and distinct assembled preconditioning forms."""
+    from firedrake import dmhooks
+
     mesh = UnitIntervalMesh(5)
     x, = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
@@ -617,16 +622,18 @@ def test_fieldsplit_snes_bcs_jp(pre_apply_bcs, mat_type):
         NonlinearVariationalProblem(F, w, bcs=bcs, Jp=Jp),
         pre_apply_bcs=pre_apply_bcs, solver_parameters={
             'snes_type': 'fieldsplit', 'snes_fieldsplit_type': 'multiplicative',
-            'snes_rtol': 1e-10,
-            'fieldsplit': {'mat_type': mat_type, 'pmat_type': 'aij',
-                           'ksp_type': 'gmres', 'ksp_rtol': 1e-12, 'pc_type': 'lu'}})
+            'snes_rtol': 1e-10, 'mat_type': mat_type, 'pmat_type': 'aij',
+            'fieldsplit': {'ksp_type': 'gmres', 'ksp_rtol': 1e-12, 'pc_type': 'lu'}})
     solver.solve()
     solver.snes.reset()
     w.zero()
     solver.solve()
     assert errornorm(Function(V).interpolate(u_exact), w.sub(0)) < 1e-9
     assert errornorm(Function(V).interpolate(p_exact), w.sub(1)) < 1e-9
-    for child, ctx in solver._ctx._snes_contexts:
+    for child in solver.snes.getFieldSplitSubSNES():
+        with solver.inserted_options(), \
+                dmhooks.add_hooks(solver.snes.dm, solver, appctx=solver._ctx):
+            ctx = dmhooks.get_appctx(child.dm)
         assert ctx.Jp is not None
         assert ctx.mat_type == mat_type
         assert ctx.pmat_type == 'aij'
@@ -660,7 +667,7 @@ def test_fieldsplit_snes_reset_options_invalidation(grouped):
         LinearVariationalProblem(a, L, w, constant_jacobian=True),
         solver_parameters=parameters)
     original_ctx = solver._ctx
-    children = solver.snes.getFieldSplitSubSNES()
+    children = _get_split_solvers(solver)
     children[0].setTolerances(rtol=1e-9)
     solver.solve()
     assert solver._ctx is original_ctx
@@ -687,8 +694,8 @@ def test_fieldsplit_snes_grouped_linear_fieldsplit():
     solver = NonlinearVariationalSolver(
         NonlinearVariationalProblem(F, w), solver_parameters={
             'snes_type': 'fieldsplit', 'snes_fieldsplit_0_fields': '0,1',
-            'fieldsplit': {'mat_type': 'matfree', 'pmat_type': 'aij',
-                           'ksp_type': 'gmres', 'pc_type': 'fieldsplit',
+            'mat_type': 'matfree', 'pmat_type': 'aij',
+            'fieldsplit': {'ksp_type': 'gmres', 'pc_type': 'fieldsplit',
                            'fieldsplit': {'ksp_type': 'preonly', 'pc_type': 'lu'}}})
     solver.solve()
     assert errornorm(Function(V).assign(0.8/0.99), w.sub(0)) < 1e-9
@@ -767,7 +774,7 @@ def test_fieldsplit_snes_objective():
         if iteration == 0:
             values.append(snes.computeObjective(snes.getSolution()))
 
-    for child in solver.snes.getFieldSplitSubSNES():
+    for child in _get_split_solvers(solver):
         child.setMonitor(monitor)
     solver.solve()
     assert values == pytest.approx([-2.3, -2.3])

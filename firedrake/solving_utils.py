@@ -9,15 +9,17 @@ from firedrake.bcs import DirichletBC
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
+from firedrake.nullspace import MixedVectorSpaceBasis, VectorSpaceBasis
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
-from functools import cached_property, partial
+from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
 from ufl import as_vector, replace, split, zero
 
 if typing.TYPE_CHECKING:
+    from firedrake.functionspaceimpl import WithGeometry
     from firedrake.variational_solver import NonlinearVariationalProblem
 
 
@@ -138,26 +140,34 @@ Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
 
-def _get_split_nullspaces(nullspace, split_ctxs, splits):
-    """Restrict one of the parent nullspaces to each field group."""
-    from firedrake.nullspace import VectorSpaceBasis, MixedVectorSpaceBasis
+def _get_split_nullspace(nullspace: VectorSpaceBasis | MixedVectorSpaceBasis | None,
+                         V: "WithGeometry",
+                         fields: tuple[int, ...]) -> VectorSpaceBasis | MixedVectorSpaceBasis | None:
+    """Restrict a nullspace to a group of fields.
 
-    if nullspace is None:
-        return [None for _ in splits]
-    if isinstance(nullspace, VectorSpaceBasis):
-        return [nullspace]
-    nullspaces = []
-    for ctx, fields in zip(split_ctxs, splits):
-        if len(fields) == 1:
-            base = nullspace._bases[fields[0]]
-            nullspaces.append(base if isinstance(base, VectorSpaceBasis) else None)
-        else:
-            W = ctx._x.function_space()
-            bases = [nullspace._bases[i] for i in fields]
-            nullspaces.append(MixedVectorSpaceBasis(W, [
-                base if isinstance(base, VectorSpaceBasis) else W.sub(k)
-                for k, base in enumerate(bases)]))
-    return nullspaces
+    Parameters
+    ----------
+    nullspace
+        A nullspace of the full space, or ``None``.
+    V
+        The space of the fields in `fields`.
+    fields
+        The fields of the full space that `V` contains.
+
+    Returns
+    -------
+    VectorSpaceBasis | MixedVectorSpaceBasis | None
+        The basis of `nullspace` on `fields`, or ``None`` if `nullspace`
+        has no basis on them.
+    """
+    if not isinstance(nullspace, MixedVectorSpaceBasis):
+        return nullspace
+    bases = [nullspace._bases[i] for i in fields]
+    if len(fields) == 1:
+        base, = bases
+        return base if isinstance(base, VectorSpaceBasis) else None
+    return MixedVectorSpaceBasis(V, [base if isinstance(base, VectorSpaceBasis) else V.sub(k)
+                                     for k, base in enumerate(bases)])
 
 
 class _SNESContext:
@@ -316,7 +326,9 @@ class _SNESContext:
 
         self._jacobian_assembled = False
         self._splits = {}
-        self._snes_contexts = []
+        # The solution of the parent equation when this context is a split
+        # of it. Its fields outside the split are coefficients of this equation.
+        self._xparent = None
         self._coarse = None
         self._fine = None
 
@@ -391,105 +403,9 @@ class _SNESContext:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
 
-    def _set_snes_children(self, snes: PETSc.SNES, owner, *, tree: bool = False) -> dict:
-        """Bind ordinary restricted equations before configuring native children."""
-        from petsctools import OptionsManager
-        from petsctools.options import DefaultOptionSet, get_default_options
-        from firedrake.functionspaceimpl import is_mixed
-        from firedrake.variational_solver import NonlinearVariationalSolver
-
-        defaults = {}
-        if snes.getType() == "fieldsplit":
-            prefix = snes.getOptionsPrefix() or ""
-            owned = self
-            if not tree:
-                work = Function(self._x.function_space())
-                problem = self._problem.rediscretise(u=work)
-                problem._constant_jacobian = self._problem._constant_jacobian
-                appctx = self.appctx.copy()
-                if appctx.get("state") is self._x:
-                    appctx["state"] = work
-                owned = self.reconstruct(problem, appctx=appctx, options_prefix=prefix)
-            children = snes.getFieldSplitSubSNES()
-            fields = [snes.getFieldSplitFields(i) for i in range(len(children))]
-            split_ctxs = owned.split(fields) if is_mixed(owned._x.function_space()) else [owned]
-            base_prefix = prefix + "fieldsplit_"
-            common = get_default_options(DefaultOptionSet(
-                base_prefix=base_prefix,
-                custom_prefix_endings=[child.getOptionsPrefix()[len(base_prefix):]
-                                       for child in children]))
-            nullspaces = [_get_split_nullspaces(basis, split_ctxs, fields)
-                          for basis in (self._nullspace, self._nullspace_T,
-                                        self._near_nullspace)]
-            for i, (child, split_ctx) in enumerate(zip(children, split_ctxs)):
-                parameters = set_defaults(
-                    common, split_ctx.J.arguments(),
-                    snes_defaults=NonlinearVariationalSolver.DEFAULT_SNES_PARAMETERS,
-                    ksp_defaults=NonlinearVariationalSolver.DEFAULT_KSP_PARAMETERS)
-                options = OptionsManager(parameters, child.getOptionsPrefix())
-                parameters = options.parameters
-                split_ctx = split_ctx.reconstruct(
-                    options_prefix=child.getOptionsPrefix(),
-                    mat_type=parameters.get("mat_type", split_ctx.mat_type),
-                    pmat_type=parameters.get("pmat_type", parameters.get("mat_type", split_ctx.pmat_type)),
-                    sub_mat_type=parameters.get("sub_mat_type", split_ctx.sub_mat_type),
-                    sub_pmat_type=parameters.get("sub_pmat_type", split_ctx.sub_pmat_type))
-                split_ctx._nullspace, split_ctx._nullspace_T, split_ctx._near_nullspace = (
-                    basis[i] for basis in nullspaces)
-                split_ctx.set_snes(child)
-                self._set_child_context(snes, child, split_ctx)
-                self._snes_contexts.append((child, split_ctx))
-                child_prefix = child.getOptionsPrefix()[len(owner.options_prefix):]
-                defaults.update((child_prefix + key, value) for key, value in parameters.items())
-                options.set_from_options(child)
-                with options.inserted_options():
-                    defaults.update(split_ctx._set_snes_children(child, owner, tree=True))
-            snes.setFieldSplitPreSolve(self._copy_snes_state, args=(owned._x,))
-
-        # getNPC() creates an NPC, so inspect only objects that already exist.
-        if snes.hasNPC():
-            npc = snes.getNPC()
-            existing = dmhooks.get_appctx(npc.dm)
-            if existing is None or existing is self:
-                self._set_child_context(snes, npc, self)
-                # The initial PETSc recursion can precede equation binding.
-                npc.setFromOptions()
-                defaults.update(self._set_snes_children(npc, owner, tree=tree))
-        return defaults
-
-    @staticmethod
-    def _set_child_context(parent: PETSc.SNES, child: PETSc.SNES, ctx: "_SNESContext") -> None:
-        dm = dmhooks._create_dm(ctx._x.function_space())
-        child.setDM(dm)
-        parent_dm = dmhooks.get_parent(parent.dm)
-        coarsen = dmhooks.get_ctx_coarsener(parent_dm)
-        for push, pop, value in ((dmhooks.push_parent, dmhooks.pop_parent, parent_dm),
-                                 (dmhooks.push_ctx_coarsener, dmhooks.pop_ctx_coarsener, coarsen),
-                                 (dmhooks.push_appctx, dmhooks.pop_appctx, ctx)):
-            dmhooks.add_hook(parent_dm, setup=partial(push, dm, value),
-                             teardown=partial(pop, dm, value), call_setup=True)
-        ctx.set_objective(child)
-        ctx.set_function(child)
-        ctx.set_jacobian(child)
-        dmhooks.add_hook(parent_dm, setup=partial(child.setJacobian, None,
-                                                  J=ctx._jac.petscmat,
-                                                  P=ctx._pjac.petscmat))
-        ises = ctx._x.function_space().field_ises
-        ctx.set_nullspace(ctx._nullspace, ises)
-        ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True)
-        ctx.set_nullspace(ctx._near_nullspace, ises, near=True)
-
-    @staticmethod
-    def _copy_snes_state(parent: PETSc.SNES, index: int, base: PETSc.Vec,
-                         child: PETSc.SNES, state: Function) -> None:
-        with state.dat.vec_wo as work:
-            base.copy(work)
-
     def invalidate_jacobian(self) -> None:
         self._jacobian_assembled = False
-        contexts = chain(chain.from_iterable(self._splits.values()),
-                         (ctx for _, ctx in self._snes_contexts))
-        for ctx in contexts:
+        for ctx in chain.from_iterable(self._splits.values()):
             ctx.invalidate_jacobian()
 
     @property
@@ -552,9 +468,7 @@ class _SNESContext:
         if self._transfer_manager is not None:
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
-        contexts = chain(chain.from_iterable(self._splits.values()),
-                         (ctx for _, ctx in self._snes_contexts))
-        for ctx in contexts:
+        for ctx in chain.from_iterable(self._splits.values()):
             ctx.transfer_manager = manager
 
     def set_objective(self, snes):
@@ -686,15 +600,40 @@ class _SNESContext:
                 pmat_type = self.pmat_type
                 sub_pmat_type = self.sub_pmat_type
 
-            splits.append(self.reconstruct(
+            split_ctx = self.reconstruct(
                 new_problem,
                 mat_type=mat_type,
                 sub_mat_type=sub_mat_type,
                 pmat_type=pmat_type,
                 sub_pmat_type=sub_pmat_type,
                 options_prefix=options_prefix,
-            ))
+            )
+            split_ctx._xparent = self._x
+            split_ctx._nullspace = _get_split_nullspace(self._nullspace, V, field)
+            split_ctx._nullspace_T = _get_split_nullspace(self._nullspace_T, V, field)
+            split_ctx._near_nullspace = _get_split_nullspace(self._near_nullspace, V, field)
+            splits.append(split_ctx)
         return self._splits.setdefault(fields, splits)
+
+    def _update_xparent(self, dm: PETSc.DM) -> None:
+        """Copy the parent iterate of a nonlinear field split into the parent solution.
+
+        Parameters
+        ----------
+        dm
+            The DM of the SNES that solves the equation of this context.
+
+        Notes
+        -----
+        During a child solve of ``SNESFIELDSPLIT``, the auxiliary vector of
+        the child DM holds a snapshot of the parent iterate. The equation of
+        a split reads its other fields from the parent solution, so they must
+        hold that snapshot when the equation is evaluated.
+        """
+        xparent = dm.getAuxiliaryVec()
+        if xparent:
+            with self._xparent.dat.vec_wo as v:
+                xparent.copy(v)
 
     @staticmethod
     def form_objective(snes, X):
@@ -705,6 +644,7 @@ class _SNESContext:
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
+        ctx._update_xparent(dm)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
@@ -727,6 +667,7 @@ class _SNESContext:
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
+        ctx._update_xparent(dm)
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
