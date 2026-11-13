@@ -60,7 +60,7 @@ class gc_disabled(contextlib.ContextDecorator):
             gc.enable()
 
 
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False,
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False, make_cache: Callable[[], Mapping] = dict,
               get_version: Callable = lambda obj: None):
     """Decorator that caches function results on an object.
 
@@ -72,6 +72,8 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
         Function returning the cache key.
     multi : bool
         Does ``get_obj`` return multiple objects? Default is `False`.
+    make_cache : Callable
+        Function called to create a new cache.
     get_version : Callable
         Function returning the cache 'version'. If this changes then previous
         caches are discarded. Default is to return `None`.
@@ -105,7 +107,7 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
                     # Invalidate the cache stored on this object only
                     # TODO: need to think about the case where we can have multiple meshes hence multiple versions
                     # how do we avoid retaining stale cached values?
-                    cache = {}
+                    cache = make_cache()
                     obj._pyop3_cache[func.__qualname__] = (version, cache)
                 caches.append(cache)
 
