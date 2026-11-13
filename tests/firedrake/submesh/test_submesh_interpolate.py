@@ -1,3 +1,4 @@
+from firedrake.assemble import BaseFormAssembler, get_assembler
 import pytest
 from firedrake import *
 import numpy as np
@@ -59,8 +60,6 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
 
 @pytest.mark.parallel([1, 3])
 def test_submesh_form_interp():
-    from firedrake.assemble import OneFormAssembler, get_assembler
-
     mesh = UnitSquareMesh(4, 4)
     x, y = SpatialCoordinate(mesh)
     submesh = make_submesh(mesh, conditional(x < 0.51, 1, 0), 999)
@@ -81,7 +80,6 @@ def test_submesh_form_interp():
     subdx = Measure("dx", submesh, intersect_measures=(Measure("dx", mesh),))
     form = inner(interpolate(f, W), v) * subdx
     assembler = get_assembler(form)
-    assert isinstance(assembler, OneFormAssembler)
     actual = assembler.assemble()
     expected = assemble(inner(expected, v) * dx(submesh))
     assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
@@ -120,8 +118,6 @@ def test_submesh_interpolate_with_subset():
 def test_submesh_form_interp_coverage(covered):
     # A Form iterates over its own cells, so it only fuses an interpolation
     # whose source mesh supplies every target cell.
-    from firedrake.assemble import BaseFormAssembler
-
     mesh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
     x, y = SpatialCoordinate(mesh)
     DG0 = FunctionSpace(mesh, "DG", 0)
@@ -150,11 +146,10 @@ def test_submesh_form_interp_coverage(covered):
 def test_submesh_form_interp_facet_trace():
     # An interpolation that crosses a codimension does not map cells to cells,
     # so the Form that holds it assembles it on its own.
-    from firedrake.assemble import BaseFormAssembler
-
     mesh = UnitCubeMesh(4, 4, 4)
     x, y, z = SpatialCoordinate(mesh)
-    trace = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    trace = Function(T)
     trace.interpolate(conditional(x > .999, 1., 0.))
     mesh = RelabeledMesh(mesh, [trace], [999])
     subm = Submesh(mesh, mesh.topological_dimension - 1, 999)

@@ -39,7 +39,7 @@ from ufl.algorithms import extract_arguments
 
 from tsfc import ufl2gem
 from tsfc.kernel_interface import ProxyKernelInterface
-from tsfc.kernel_interface.common import lower_integral_type
+from tsfc.kernel_interface import common
 from tsfc.modified_terminals import (analyse_modified_terminal,
                                      ModifiedTerminal,
                                      construct_modified_terminal)
@@ -83,7 +83,7 @@ class ContextBase(ProxyKernelInterface):
         for domain, integral_type in self.domain_integral_type_map.items():
             cell = domain.ufl_cell()
             fiat_cell = as_fiat_cell(cell)
-            integration_dim, _ = lower_integral_type(fiat_cell, integral_type)
+            integration_dim, _ = common.lower_integral_type(fiat_cell, integral_type)
             integration_dims.add(integration_dim)
         integration_dim, = integration_dims
         return integration_dim
