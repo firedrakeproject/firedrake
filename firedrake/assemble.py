@@ -852,6 +852,9 @@ class FormAssembler(AbstractFormAssembler):
 
     """
 
+    _cache_assemblers = False
+    """Whether assemblers of this class are stored on the form and reused."""
+
     def __new__(cls, *args, **kwargs):
         form = args[0]
         if not isinstance(form, (ufl.Form, ufl.Interpolate, slate.TensorBase)):
@@ -867,8 +870,8 @@ class FormAssembler(AbstractFormAssembler):
         # repeated assembly of the same form but with different boundary conditions
         # will lead to old bcs getting stored along with old tensors.
         # FIXME This only works for 1-forms at the moment
-        key = cls._cache_key(*args, **kwargs)
-        if key is not None:
+        if cls._cache_assemblers:
+            key = cls._cache_key(*args, **kwargs)
             try:
                 return form._cache[_FORM_CACHE_KEY][key]
             except KeyError:
@@ -876,16 +879,19 @@ class FormAssembler(AbstractFormAssembler):
         self = super().__new__(cls)
         self._initialised = False
         self.__init__(*args, **kwargs)
-        if key is not None:
+        if cls._cache_assemblers:
             if _FORM_CACHE_KEY not in form._cache:
                 form._cache[_FORM_CACHE_KEY] = {}
             form._cache[_FORM_CACHE_KEY][key] = self
         return self
 
     @classmethod
-    @abc.abstractmethod
     def _cache_key(cls, *args, **kwargs):
-        """Return cache key."""
+        """Return the key that stores this assembler on the form.
+
+        Subclasses that set ``_cache_assemblers`` must override this method.
+        """
+        raise NotImplementedError(f"{cls.__name__} does not cache assemblers")
 
     @staticmethod
     def _skip_if_initialised(init):
@@ -1111,10 +1117,6 @@ class ZeroFormAssembler(ParloopFormAssembler):
     diagonal = False
     """Diagonal assembly not possible for zero forms."""
 
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        return
-
     @FormAssembler._skip_if_initialised
     def __init__(self, form, form_compiler_parameters=None, pyop3_compiler_parameters=None):
         super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=None)
@@ -1156,6 +1158,8 @@ class OneFormAssembler(ParloopFormAssembler):
     See `FormAssembler` and `assemble` for descriptions of the other parameters.
 
     """
+
+    _cache_assemblers = True
 
     @classmethod
     def _cache_key(cls, form, bcs=None, form_compiler_parameters=None, pyop3_compiler_parameters=None, needs_zeroing=True,
@@ -1361,10 +1365,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
 
     diagonal = False
     """Diagonal assembly not possible for two forms."""
-
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        return
 
     @FormAssembler._skip_if_initialised
     def __init__(self, form, bcs=None, form_compiler_parameters=None, needs_zeroing=True,

@@ -596,9 +596,6 @@ class CrossMeshInterpolator(Interpolator):
             f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
         else:
             f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
-        # Each target DoF receives a single value. Therefore, MIN and MAX only
-        # combine that value with the current values of a supplied output.
-        reduction = {op3.MIN_WRITE: numpy.minimum, op3.MAX_WRITE: numpy.maximum}.get(self.access) if f is tensor else None
 
         point_eval, point_eval_input_ordering = self._symbolic_expressions
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -675,7 +672,11 @@ class CrossMeshInterpolator(Interpolator):
                 else:
                     indices = slice(None)
                 values = f_point_eval_input_ordering.dat.data_ro[indices]
-                if reduction is not None:
+                if f is tensor and self.access in {op3.MIN_WRITE, op3.MAX_WRITE}:
+                    # A MIN or MAX interpolation into a supplied tensor keeps, at
+                    # each DoF, the smaller or the larger of the current value and
+                    # the interpolated value.
+                    reduction = numpy.minimum if self.access is op3.MIN_WRITE else numpy.maximum
                     values = reduction(f.dat.data_ro[indices], values)
                 f.dat.data_wo[indices] = values
 
