@@ -11,8 +11,7 @@ from pyop3.expr.visitors.base import OverloadedExpressionEvaluator
 
 class ArraywiseEvaluator(OverloadedExpressionEvaluator):
 
-    def __init__(self, *, include_ghosts: bool = False) -> None:
-        self._include_ghosts = include_ghosts
+    def __init__(self) -> None:
         # Pass reuse_results=False because numpy arrays are not hashable
         super().__init__(reuse_results=False)
 
@@ -26,20 +25,10 @@ class ArraywiseEvaluator(OverloadedExpressionEvaluator):
 
     @process.register
     def _(self, dat: pyop3.expr.Dat, /) -> np.ndarray:
-        return dat.data_ro_with_halos if self._include_ghosts else dat.data_ro
+        # Read the ghost and constrained entries too, to match the entries
+        # written by Tensor._array_assign
+        return dat.data_ro_with_halos
 
 
-def evaluate_arraywise(expr: pyop3.expr.ExpressionT, *, include_ghosts: bool = False):
-    """Evaluate an expression with NumPy operations on the arrays of its Dats.
-
-    Parameters
-    ----------
-    expr
-        The expression to evaluate.
-    include_ghosts
-        If `True`, read each Dat through its view with ghosts, which also
-        includes the constrained entries. If `False`, read only the owned
-        and unconstrained entries.
-
-    """
-    return ArraywiseEvaluator(include_ghosts=include_ghosts)(expr)
+def evaluate_arraywise(expr: pyop3.expr.ExpressionT):
+    return ArraywiseEvaluator()(expr)
