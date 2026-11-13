@@ -1,3 +1,4 @@
+import gc
 import pytest
 from firedrake import *
 from firedrake import adapt, dmhooks
@@ -197,6 +198,30 @@ def test_goal_oriented_marker_effectivity_index(snes_type):
         assert estimate.effectivity_index == estimate.error_estimate / estimate.true_error
         # The marker sees the converged solution, so the solver error is small.
         assert abs(estimate.solver_error) < 1e-10 * abs(estimate.discretisation_error)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("refine", [False, True], ids=["noop", "refine"])
+def test_adaptive_refine_vector_references(refine: bool) -> None:
+    problem = poisson_problem(2)
+    mesh = problem.u.function_space().mesh()
+    markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1) if refine else None
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=goal_parameters(1),
+        marking_callback=lambda ctx, u: None,
+    )
+    solver.solve()
+    work = solver.snes.getSolution()
+    gc.collect()
+    references = work.getRefCount()
+    solver.set_marking_callback(lambda ctx, u: markers)
+
+    result = solver.solve()
+    gc.collect()
+
+    # Refinement releases the SNES reference to the original vector.
+    assert work.getRefCount() == references - int(refine)
+    assert (result.function_space().mesh() is mesh) == (not refine)
 
 
 @pytest.mark.parallel([1, 2])

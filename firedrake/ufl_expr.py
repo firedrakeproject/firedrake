@@ -82,8 +82,6 @@ class Argument(ufl.argument.Argument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.value_shape != self.function_space().value_shape:
-            raise ValueError("Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 
 
@@ -146,8 +144,6 @@ class Coargument(ufl.argument.Coargument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.value_shape != self.function_space().value_shape:
-            raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
         return Argument(function_space, number, part=part)
 
     def equals(self, other):
@@ -210,12 +206,12 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
     Given a form, this computes its linearization with respect to the
-    provided :class:`.Function`.  The resulting form has one
+    provided :class:`firedrake.function.Function`.  The resulting form has one
     additional :class:`Argument` in the same finite element space as
     the Function.
 
     :arg form: a :class:`~ufl.classes.Form` to compute the derivative of.
-    :arg u: a :class:`.Function` to compute the derivative with
+    :arg u: a :class:`firedrake.function.Function` to compute the derivative with
          respect to.
     :arg du: an optional :class:`Argument` to use as the replacement
          in the new form (constructed automatically if not provided).
@@ -300,7 +296,7 @@ def action(form, coefficient, derivatives_expanded=None):
     """Compute the action of a form on a coefficient.
 
     :arg form: A UFL form, or a Slate tensor.
-    :arg coefficient: The :class:`~.Function` to act on.
+    :arg coefficient: The :class:`firedrake.function.Function` to act on.
     :returns: a symbolic expression for the action.
     """
     if isinstance(form, firedrake.slate.TensorBase):
