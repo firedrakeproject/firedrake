@@ -1386,6 +1386,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return tuple(constraints)
 
     @cached_property
+    @_with_mesh_heavy_cache
     def plex_axes(self) -> op3.IndexedAxisTree:
         # NOTE: We now have different but very similar treatment for R and AxR spaces
         if self._is_real_tensor_product:
@@ -1393,7 +1394,6 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             return self._make_plex_axes_default()
 
-    @_with_mesh_heavy_cache
     def _make_plex_axes_default(self) -> op3.IndexedAxisTree:
         strata_slice = self._mesh._dim_slice(renumber=self.renumber)
         index_tree = op3.IndexTree(strata_slice)
@@ -1419,7 +1419,6 @@ class FunctionSpace(AbstractFunctionSpace):
                 index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
         return self.dm_axes[index_tree]
 
-    @_with_mesh_heavy_cache
     def _make_plex_axes_real_tensor_product(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # Very similar to what we do for purely Real function spaces except
         # the base mesh exists.
@@ -1818,10 +1817,12 @@ class FunctionSpace(AbstractFunctionSpace):
             if isinstance(val, numpy.ndarray):
                 if valuetype is not None:
                     val = val.astype(valuetype, copy=False, casting="unsafe")
+                data = val.ravel()
+            elif isinstance(val, PETSc.Vec):
                 data = val
             else:
-                data = numpy.asarray(val, dtype=valuetype)
-            return op3.Dat(self.axes, data=data.ravel(), name=name)
+                data = numpy.asarray(val, dtype=valuetype).ravel()
+            return op3.Dat(self.axes, data=data, name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
@@ -2211,9 +2212,12 @@ class MixedFunctionSpace(AbstractFunctionSpace):
             raise ValueError("Provided array has the wrong number of entries")
 
         if val is not None:
-            if valuetype is not None:
-                val = val.astype(valuetype, copy=False, casting="unsafe")
-            return op3.Dat(self.axes, data=val.ravel(), name=name)
+            if isinstance(val, numpy.ndarray):
+                if valuetype is not None:
+                    val = val.astype(valuetype, copy=False, casting="unsafe").ravel()
+            else:
+                assert isinstance(val, PETSc.Vec)
+            return op3.Dat(self.axes, data=val, name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 

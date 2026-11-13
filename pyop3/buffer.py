@@ -931,6 +931,98 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
 
+class PetscObjectBuffer(ConcreteBuffer):
+
+    @property
+    @abc.abstractmethod
+    def petsc_obj(self) -> PETSc.Object:
+        """The wrapped PETSc object (e.g. a vector or matrix)."""
+
+    dtype = ScalarType
+
+    def duplicate(self, **kwargs) -> PetscMatBuffer:
+        raise NotImplementedError("TODO")
+
+    @property
+    def state(self) -> int:
+        return self.petsc_obj.stateGet()
+
+    def inc_state(self) -> None:
+        self.petsc_obj.stateIncrease()
+
+
+@pyop3.record.record()
+class PetscVecBuffer(AbstractArrayBuffer, PetscObjectBuffer):
+
+    vec: PETSc.Vec
+    sf: pyop3.sf.StarForest
+    _name: str
+    _constant: bool
+    _ordered: bool
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (type(self), visitor.renamer.add_obj(self), self._constant)
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        if visitor._identity_hash_buffers:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
+        else:
+            return (
+                type(self),
+                visitor.renamer.add_obj(self),
+                self.vec.type,
+                self._constant,
+            )
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
+    def __init__(
+        self,
+        vec: PETSc.Vec,
+        sf: pyop3.sf.StarForest,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        constant: bool = False,
+        ordered: bool = False,
+    ) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self.vec = vec
+        self.sf = sf
+        self._name = name
+        self._constant = constant
+        self._ordered = ordered
+
+    DEFAULT_PREFIX = "petscmat"
+
+    @property
+    def petsc_obj(self) -> PETSc.Vec:
+        return self.vec
+
+    # TODO: Prefer to use __abstract_record_attrs instead of this
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
+    ordered: ClassVar[property] = pyop3.record.attr("_ordered")
+
+    def duplicate(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def zero(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @property
+    def shape(self):
+        return (self.vec.size,)  # might be wrong
+
+    @property
+    def nest_shape(self):
+        assert self.vec.type != PETSc.Vec.Type.NEST
+        return None
+
+
 class PetscMatInitBufferSpec(pyop3.obj.Object):
     """Abstract class for a 'partial' specification of how to build a PETSc Mat.
 
@@ -1010,7 +1102,7 @@ class PetscMatAxisSpec(pyop3.obj.Object):
 
 
 @pyop3.record.record()
-class PetscMatBuffer(ConcreteBuffer):
+class PetscMatBuffer(PetscObjectBuffer):
     """A buffer whose underlying data structure is a PETSc Mat.
 
     Parameters
@@ -1180,14 +1272,14 @@ class PetscMatBuffer(ConcreteBuffer):
 
     # {{{ interface impls
 
+    @property
+    def petsc_obj(self) -> PETSc.Mat:
+        return self.mat
+
     name: ClassVar[property] = pyop3.record.attr("_name")
     constant: ClassVar[property] = pyop3.record.attr("_constant")
 
-    dtype = ScalarType
     rank_equal = False
-
-    def duplicate(self, **kwargs) -> PetscMatBuffer:
-        raise NotImplementedError("TODO")
 
     @property
     def is_nested(self) -> bool:
@@ -1288,13 +1380,6 @@ class PetscMatBuffer(ConcreteBuffer):
                 mat.assemblyBegin(assembly_type)
             else:  # end
                 mat.assemblyEnd(assembly_type)
-
-    @property
-    def state(self) -> int:
-        return self.mat.stateGet()
-
-    def inc_state(self) -> None:
-        self.mat.stateIncrease()
 
     # }}}
 
