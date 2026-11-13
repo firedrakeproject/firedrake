@@ -142,9 +142,7 @@ def test_fieldsplit_fieldsplit_aux_multigrid():
         "fieldsplit_0_fieldsplit_1_pc_python_type": __name__ + ".SchurApprox",
         "fieldsplit_0_fieldsplit_1_aux_pc_type": "mg",
         "fieldsplit_0_fieldsplit_1_aux_pc_mg_type": "full",
-        "fieldsplit_0_fieldsplit_1_aux_mg_coarse_pc_type": "python",
-        "fieldsplit_0_fieldsplit_1_aux_mg_coarse_pc_python_type": "firedrake.AssembledPC",
-        "fieldsplit_0_fieldsplit_1_aux_mg_coarse_assembled": {
+        "fieldsplit_0_fieldsplit_1_aux_mg_coarse": {
             "mat_type": "aij",
             "pc_type": "lu",
             "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,

@@ -86,9 +86,7 @@ def test_line_smoother_periodic():
         "pc_mg_type": "full",
         "pc_mg_log": None,
         "mg_levels": mg_levels,
-        "mg_coarse_pc_type": "python",
-        "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-        "mg_coarse_assembled": {
+        "mg_coarse": {
             "mat_type": "aij",
             "pc_type": "telescope",
             "pc_telescope_subcomm_type": "contiguous",

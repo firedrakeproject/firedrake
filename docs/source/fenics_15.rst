@@ -28,7 +28,7 @@ Programme
 * **Featured talks:**
    * Dr Jack Hale University of Luxembourg.
    * `Dr Marie Rognes <http://www.simula.no/people/meg>`_ Simula Research Laboratory.
-   * `Dr Lawrence Mitchell <http://www.imperial.ac.uk/people/lawrence.mitchell>`_ Imperial College London.
+   * Dr Lawrence Mitchell Imperial College London.
 
 
 Videos of the talks are available `on the Firedrake youtube channel
@@ -92,7 +92,7 @@ Local organising committee
 
 * `David Ham <http://www.imperial.ac.uk/people/david.ham>`_
 * `Colin Cotter <http://www.imperial.ac.uk/people/colin.cotter>`_
-* `Lawrence Mitchell <http://www.imperial.ac.uk/people/lawrence.mitchell>`_
+* Lawrence Mitchell
 
 Sponsors
 --------

@@ -1,33 +1,24 @@
 import pytest
 
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.adjoint import *
 from checkpoint_schedules import SingleMemoryStorageSchedule
 
-from numpy.random import rand, default_rng
 from numpy.testing import assert_approx_equal, assert_allclose
 
 
 @pytest.fixture(autouse=True)
-def handle_taping():
-    yield
-    tape = get_working_tape()
-    tape.clear_tape()
+def autouse_set_test_tape(set_test_tape):
+    pass
 
 
-@pytest.fixture(autouse=True, scope="module")
-def handle_annotation():
-    if not annotate_tape():
-        continue_annotation()
-    yield
-    # Ensure annotation is paused when we finish.
-    if annotate_tape():
-        pause_annotation()
+@pytest.fixture
+def rg():
+    return RandomGenerator(PCG64(seed=1234))
 
 
 @pytest.mark.skipcomplex
-def test_assign_linear_combination():
+def test_assign_linear_combination(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -41,8 +32,7 @@ def test_assign_linear_combination():
     J = assemble(u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = rand(V.dim())
+    h = rg.uniform(V)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -62,8 +52,7 @@ def test_assign_vector_valued():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1.)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -83,8 +72,7 @@ def test_assign_tlm():
     J = assemble(inner(f, g)*u**2*dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = 1
+    h = Function(V).assign(1.)
     f.block_variable.tlm_value = h
 
     tape = get_working_tape()
@@ -138,14 +126,13 @@ def test_assign_hessian():
 
     dJdm = rf.derivative()
 
-    h = Function(V)
-    h.vector()[:] = 1.0
+    h = Function(V).assign(1.)
     Hm = rf.hessian(h)
     assert taylor_test(rf, f, h, dJdm=h._ad_dot(dJdm), Hm=h._ad_dot(Hm)) > 2.9
 
 
 @pytest.mark.skipcomplex
-def test_assign_nonlincom():
+def test_assign_nonlincom(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -159,8 +146,7 @@ def test_assign_nonlincom():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, Control(f))
 
-    h = Function(V)
-    h.vector()[:] = rand(V.dim())
+    h = rg.uniform(V)
     assert taylor_test(rf, f, h) > 1.9
 
 
@@ -180,16 +166,16 @@ def test_assign_with_constant():
     J = assemble(u ** 2 * dx)
 
     rf = ReducedFunctional(J, Control(c))
-    dJdc = rf.derivative()
+    dJdc = rf.derivative(apply_riesz=True)
     assert_approx_equal(float(dJdc), 10.)
 
     rf = ReducedFunctional(J, Control(d))
-    dJdd = rf.derivative()
+    dJdd = rf.derivative(apply_riesz=True)
     assert_approx_equal(float(dJdd), 228.)
 
 
 @pytest.mark.skipcomplex
-def test_assign_nonlin_changing():
+def test_assign_nonlin_changing(rg):
     mesh = IntervalMesh(10, 0, 1)
     V = FunctionSpace(mesh, "CG", 1)
 
@@ -214,11 +200,9 @@ def test_assign_nonlin_changing():
     J = assemble(u ** 2 * dx)
     rf = ReducedFunctional(J, control)
 
-    g = Function(V)
-    g.vector()[:] = rand(V.dim())
+    g = rg.uniform(V)
 
-    h = Function(V)
-    h.vector()[:] = rand(V.dim())
+    h = rg.uniform(V)
     assert taylor_test(rf, g, h) > 1.9
 
 
@@ -245,7 +229,7 @@ def test_assign_constant_scale():
 
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("scheduler", (None, SingleMemoryStorageSchedule()))
-def test_adjoint_cleanup(scheduler):
+def test_adjoint_cleanup(scheduler, rg):
     # This test checks that the adjoint does not discard too many checkpoint
     # variables. This is achieved by computing the derivative before conducting
     # the Taylor test. This extra derivative is the thing that would cause the
@@ -282,8 +266,6 @@ def test_adjoint_cleanup(scheduler):
     reduced_functional.derivative()
 
     # Choosing fixed perturbation
-    dtemp = Function(u_0.function_space())
-    rng = default_rng(42)
-    dtemp.dat.data_wo[:] = rng.random(dtemp.dat.data_ro.shape)
+    dtemp = rg.uniform(u_0.function_space())
 
     assert taylor_test(reduced_functional, u_0, dtemp) > 1.99999999

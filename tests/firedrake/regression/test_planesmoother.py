@@ -182,10 +182,9 @@ def test_not_aligned():
                          "mg_levels_patch_pc_patch_construct_python_type": "firedrake.PlaneSmoother",
                          "mg_levels_patch_sub_ksp_type": "preonly",
                          "mg_levels_patch_sub_pc_type": "lu",
-                         "mg_coarse_pc_type": "python",
-                         "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-                         "mg_coarse_assembled_pc_type": "lu",
-                         "mg_coarse_assembled_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
+                         "mg_coarse_mat_type": "aij",
+                         "mg_coarse_pc_type": "lu",
+                         "mg_coarse_pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER,
                          "ksp_monitor": None}
     appctx = {}
     appctx["x_plus_y"] = lambda z: z[0]+z[1]

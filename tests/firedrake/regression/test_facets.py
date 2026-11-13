@@ -187,6 +187,5 @@ def test_facet_map_no_reshape():
 
 def test_mesh_with_no_facet_markers():
     mesh = UnitTriangleMesh()
-    mesh.init()
     with pytest.raises(LookupError):
         mesh.exterior_facets.subset((10,))

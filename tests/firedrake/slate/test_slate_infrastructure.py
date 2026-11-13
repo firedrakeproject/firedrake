@@ -1,6 +1,8 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.slate.slate import ScalarMul, UnaryOp, as_slate
+from ufl.form import FormSum
 import math
 
 
@@ -46,7 +48,7 @@ def mixed_space(request, mesh):
 def mass(function_space):
     u = TrialFunction(function_space)
     v = TestFunction(function_space)
-    return Tensor(u * v * dx)
+    return Tensor(inner(u, v) * dx)
 
 
 @pytest.fixture
@@ -62,7 +64,7 @@ def load(function_space):
     x = SpatialCoordinate(function_space.mesh())
     f.interpolate(cos(x[0])*math.pi*2)
     v = TestFunction(function_space)
-    return Tensor(f * v * dx)
+    return Tensor(inner(f, v) * dx)
 
 
 @pytest.fixture
@@ -74,7 +76,7 @@ def boundary_load(function_space):
     else:
         f.interpolate(cos(x[1] * math.pi*2))
     v = TestFunction(function_space)
-    return Tensor(f * v * ds)
+    return Tensor(inner(f, v) * ds)
 
 
 @pytest.fixture
@@ -92,13 +94,13 @@ def zero_rank_tensor(function_space):
 def mixed_matrix(mixed_space):
     u, p, r = TrialFunctions(mixed_space)
     v, q, s = TestFunctions(mixed_space)
-    return Tensor(u*v*dx + p*q*dx + r*s*dx)
+    return Tensor(inner(u, v)*dx + inner(p, q)*dx + inner(r, s)*dx)
 
 
 @pytest.fixture
 def mixed_vector(mixed_space):
     v, q, s = TestFunctions(mixed_space)
-    return Tensor(v*dx + q*dx + s*dx)
+    return Tensor(conj(v)*dx + conj(q)*dx + conj(s)*dx)
 
 
 def test_arguments(mass, stiffness, load, boundary_load, zero_rank_tensor):
@@ -133,10 +135,11 @@ def test_arguments(mass, stiffness, load, boundary_load, zero_rank_tensor):
     assert (N*G).arguments() == (v,)
     assert ((M + N) * (F - G)).arguments() == (v,)
 
-    assert Tensor(v * dx).arguments() == (v,)
-    assert (Tensor(v * dx) + Tensor(f * v * ds)).arguments() == (v,)
+    assert Tensor(conj(v) * dx).arguments() == (v,)
+    assert (Tensor(conj(v) * dx) + Tensor(inner(f, v) * ds)).arguments() == (v,)
     assert (M + N).arguments() == (v, u)
-    assert (Tensor((f * v) * u * dx) + Tensor((u * 3) * (v / 2) * dx)).arguments() == (v, u)
+    assert (Tensor(inner(f * u, v) * dx)
+            + Tensor(inner(u * 3, v / 2) * dx)).arguments() == (v, u)
     assert (G - F).arguments() == (v,)
 
 
@@ -169,12 +172,14 @@ def test_coefficients(mass, stiffness, load, boundary_load, zero_rank_tensor):
     assert Tensor(f * dx).coefficients() == (f,)
     assert (Tensor(f * dx) + Tensor(f * ds)).coefficients() == (f,)
     assert (Tensor(f * dx) + Tensor(g * dS)).coefficients() == (f, g)
-    assert Tensor(f * v * dx).coefficients() == (f,)
-    assert (Tensor(f * v * ds) + Tensor(f * v * dS)).coefficients() == (f,)
-    assert (Tensor(f * v * dx) + Tensor(g * v * ds)).coefficients() == (f, g)
-    assert Tensor(f * u * v * dx).coefficients() == (f,)
-    assert (Tensor(f * u * v * dx) + Tensor(f * inner(grad(u), grad(v)) * dx)).coefficients() == (f,)
-    assert (Tensor(f * u * v * dx) + Tensor(g * inner(grad(u), grad(v)) * dx)).coefficients() == (f, g)
+    assert Tensor(inner(f, v) * dx).coefficients() == (f,)
+    assert (Tensor(inner(f, v) * ds) + Tensor(inner(f, v) * dS)).coefficients() == (f,)
+    assert (Tensor(inner(f, v) * dx) + Tensor(inner(g, v) * ds)).coefficients() == (f, g)
+    assert Tensor(inner(f * u, v) * dx).coefficients() == (f,)
+    assert (Tensor(inner(f * u, v) * dx)
+            + Tensor(f * inner(grad(u), grad(v)) * dx)).coefficients() == (f,)
+    assert (Tensor(inner(f * u, v) * dx)
+            + Tensor(g * inner(grad(u), grad(v)) * dx)).coefficients() == (f, g)
 
 
 def test_integral_information(mass, stiffness, load, boundary_load, zero_rank_tensor):
@@ -214,13 +219,13 @@ def test_equality_relations(function_space):
     v = TestFunction(V)
 
     f = AssembledVector(Function(V))
-    A = Tensor(u * v * dx)
+    A = Tensor(inner(u, v) * dx)
     B = Tensor(inner(grad(u), grad(v)) * dx)
 
-    assert A == Tensor(u * v * dx)
+    assert A == Tensor(inner(u, v) * dx)
     assert B != A
     assert B * f != A * f
-    assert A + B == Tensor(u * v * dx) + Tensor(inner(grad(u), grad(v)) * dx)
+    assert A + B == Tensor(inner(u, v) * dx) + Tensor(inner(grad(u), grad(v)) * dx)
     assert A*B != B*A
     assert B.T != B.inv
     assert A != -A
@@ -309,23 +314,52 @@ def test_implicit_casting_add_sub():
     v = TestFunction(V)
     u = Function(V)
 
-    b = Tensor(v * dx)
+    b = Tensor(conj(v) * dx)
 
     # combine slate Tensor and ufl Form
     f = inner(u, v)*dx
     r = Tensor(f)
     assert b + f == b + r
     assert b - f == b - r
-    assert f + b == r + b
-    assert f - b == r - b
+    # A TensorBase is a BaseForm, so UFL claims the reflected operator and
+    # returns a FormSum; as_slate recovers the equivalent Slate expression.
+    assert as_slate(f + b) == r + b
+    assert as_slate(f - b) == r - b
 
     # combine slate Tensor and Cofunction
     c = Cofunction(V.dual())
     s = AssembledVector(c)
     assert b + c == b + s
     assert b - c == b - s
-    assert c + b == s + b
-    assert c - b == s - b
+    assert as_slate(c + b) == s + b
+    assert as_slate(c - b) == s - b
+
+
+def test_scalar_multiplication():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    b = Tensor(v * dx)
+
+    zero = ScalarMul(0, b)
+    assert isinstance(zero, Tensor)
+    assert ScalarMul(2, zero) is zero
+    assert ScalarMul(-1, zero) is zero
+    assert ScalarMul(1, b) is b
+    assert ScalarMul(-1, b) == -b
+    assert isinstance(ScalarMul(2, b), UnaryOp)
+    assert isinstance(-b, ScalarMul)
+    assert 2 * b == ScalarMul(2, b)
+    assert b * 0.5 == ScalarMul(0.5, b)
+
+    weighted = FormSum((b, 2), (b, 1))
+    assert as_slate(weighted) == ScalarMul(2, b) + b
+
+    scalar = Constant(2)
+    assert b * scalar == ScalarMul(scalar, b)
+    assert scalar * b == ScalarMul(scalar, b)
+    with pytest.raises(ValueError, match="scalar-valued"):
+        ScalarMul(Constant([1, 2]), b)
 
 
 def test_implicit_casting_action():
@@ -352,8 +386,8 @@ def test_illegal_add_sub():
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    A = Tensor(u * v * dx)
-    b = Tensor(v * dx)
+    A = Tensor(inner(u, v) * dx)
+    b = Tensor(conj(v) * dx)
     c = Function(V)
     c.interpolate(Constant(1))
     s = Tensor(c * dx)
@@ -377,7 +411,7 @@ def test_ops_TypeError():
     u = TrialFunction(V)
     v = TestFunction(V)
     f = Constant(1)
-    A = Tensor(u * v * dx)
+    A = Tensor(inner(u, v) * dx)
 
     with pytest.raises(TypeError):
         A + f
@@ -391,8 +425,7 @@ def test_ops_TypeError():
     with pytest.raises(TypeError):
         f - A
 
-    with pytest.raises(TypeError):
-        f * A
+    assert f * A == ScalarMul(f, A)
 
 
 def test_illegal_mul():
@@ -405,8 +438,8 @@ def test_illegal_mul():
     w = TrialFunction(W)
     x = TestFunction(W)
 
-    A = Tensor(u * v * dx)
-    B = Tensor(w * x * dx)
+    A = Tensor(inner(u, v) * dx)
+    B = Tensor(inner(w, x) * dx)
 
     with pytest.raises(ValueError):
         B * A
@@ -421,7 +454,7 @@ def test_illegal_inverse():
     DG = FunctionSpace(mesh, "DG", 0)
     sigma = TrialFunction(RT)
     v = TestFunction(DG)
-    A = Tensor(v * div(sigma) * dx)
+    A = Tensor(inner(div(sigma), v) * dx)
     with pytest.raises(AssertionError):
         A.inv
 
@@ -430,7 +463,7 @@ def test_illegal_compile():
     from firedrake.slate.slac import compile_expression as compile_slate
     V = FunctionSpace(UnitSquareMesh(1, 1), "CG", 1)
     v = TestFunction(V)
-    form = v * dx
+    form = conj(v) * dx
     with pytest.raises(ValueError):
         compile_slate(form)
 

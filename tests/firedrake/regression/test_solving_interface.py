@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 from numpy.linalg import norm as np_norm
@@ -83,6 +84,14 @@ def test_assembled_solver_gced(a_L_out):
     after = count_refs(LinearSolver)
 
     assert before == after
+
+
+def test_linear_solve_zero_rhs(a_L_out):
+    a, L, out = a_L_out
+
+    out.assign(1)
+    solve(a == 0, out)
+    assert np_norm(out.dat.data_ro) < 1E-13
 
 
 def test_nonlinear_solver_gced(a_L_out):
@@ -287,6 +296,27 @@ def test_solve_assembled_lhs(mesh, mat_type):
         solve(A == form, w, bcs=bcs)
 
 
+@pytest.mark.parametrize("sub_mat_type", ["baij", "aij"])
+def test_solve_sub_mat_type(mesh, sub_mat_type):
+    V = VectorFunctionSpace(mesh, "DG", 0, dim=2)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = V * Q
+
+    z = Function(Z)
+    a = inner(TrialFunction(Z), TestFunction(Z))*dx
+    L = inner(as_vector(np.ones(z.ufl_shape)), TestFunction(Z))*dx
+
+    params = {"mat_type": "nest", "sub_mat_type": sub_mat_type}
+    problem = LinearVariationalProblem(a, L, z)
+    solver = LinearVariationalSolver(problem, solver_parameters=params)
+    solver.solve()
+
+    A, P = solver.snes.ksp.pc.getOperators()
+    assert P.getType() == "nest"
+    for (i, j) in np.ndindex((len(Z), len(Z))):
+        P.getNestSubMatrix(i, j).getType() == sub_mat_type
+
+
 @pytest.mark.skipif(utils.complex_mode, reason="Differentiation of energy not defined in Complex.")
 @pytest.mark.parametrize("mixed", (False, True), ids=("primal", "mixed"))
 def test_solve_pre_apply_bcs(mesh, mixed):
@@ -316,7 +346,7 @@ def test_solve_pre_apply_bcs(mesh, mixed):
 
     # Hyperelastic energy functional
     lam = Constant(1E3)
-    dim = mesh.geometric_dimension()
+    dim = mesh.geometric_dimension
     F = grad(u) + Identity(dim)
     J = det(F)
     logJ = 0.5*ln(J**2)
@@ -338,3 +368,98 @@ def test_solve_pre_apply_bcs(mesh, mixed):
     z.zero()
     solve(a == L, z, bcs, pre_apply_bcs=False)
     assert errornorm(g, uh) < 1E-10
+
+
+class AppctxRecorderPC(PCBase):
+    """Identity preconditioner that records the appctx it was given.
+
+    The recorded values let a test check which appctx reached the
+    preconditioner, without depending on the preconditioner doing any real
+    work. The application is the identity, so the outer Krylov method still
+    converges to the correct answer.
+    """
+
+    # Class attribute, so that the test can read what the instance built by
+    # PETSc saw. Every test that reads it must clear it first.
+    seen = []
+
+    def initialize(self, pc):
+        AppctxRecorderPC.seen.append(self.get_appctx(pc))
+
+    def update(self, pc):
+        pass
+
+    def apply(self, pc, X, Y):
+        X.copy(Y)
+
+    def applyTranspose(self, pc, X, Y):
+        X.copy(Y)
+
+
+@pytest.fixture
+def mass_system():
+    """An assembled mass matrix, a right hand side and an output Function.
+
+    The exact solution of the system is the constant 1, which makes the
+    correctness check in the tests below independent of the mesh.
+    """
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    A = assemble(inner(u, v) * dx)
+    b = assemble(conj(v) * dx)
+    return A, Function(V), b
+
+
+# Solver parameters that drive the solve through AppctxRecorderPC. The
+# preconditioner is the identity, so cg still converges on the mass matrix.
+_recorder_parameters = {
+    "ksp_type": "cg",
+    "pc_type": "python",
+    "pc_python_type": __name__ + ".AppctxRecorderPC",
+}
+
+
+def test_la_solve_appctx_kwarg(mass_system):
+    """``solve(A, x, b, appctx=...)`` reaches a Python-type preconditioner."""
+    A, x, b = mass_system
+    AppctxRecorderPC.seen.clear()
+
+    solve(A, x, b, appctx={"value": 42}, solver_parameters=_recorder_parameters)
+
+    assert AppctxRecorderPC.seen[0]["value"] == 42
+    assert np.allclose(x.dat.data_ro, 1.0)
+
+
+def test_la_solve_appctx_in_solver_parameters(mass_system):
+    """An ``"appctx"`` entry of ``solver_parameters`` still works, with a warning."""
+    A, x, b = mass_system
+    AppctxRecorderPC.seen.clear()
+    parameters = {**_recorder_parameters, "appctx": {"value": 42}}
+
+    with pytest.warns(FutureWarning, match="appctx inside solver_parameters"):
+        solve(A, x, b, solver_parameters=parameters)
+
+    assert AppctxRecorderPC.seen[0]["value"] == 42
+    assert np.allclose(x.dat.data_ro, 1.0)
+    # The appctx is removed from a copy, so the caller's own dict still has the
+    # entry. Only the "value" key is checked: the solver adds its own keys
+    # ("state", "form_compiler_parameters") to whatever appctx it is given.
+    assert parameters["appctx"]["value"] == 42
+
+
+def test_la_solve_appctx_given_twice(mass_system):
+    """Giving the appctx both ways is a mistake, so it raises."""
+    A, x, b = mass_system
+
+    with pytest.raises(ValueError, match="both as a keyword argument"):
+        solve(A, x, b, appctx={"value": 42},
+              solver_parameters={**_recorder_parameters, "appctx": {"value": 7}})
+
+
+def test_la_solve_rejects_unknown_kwarg(mass_system):
+    """Kwarg validation still rejects a name that is not on the list."""
+    A, x, b = mass_system
+    with pytest.raises(RuntimeError, match="Illegal keyword argument"):
+        solve(A, x, b, not_a_kwarg=1)

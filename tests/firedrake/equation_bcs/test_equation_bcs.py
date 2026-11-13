@@ -2,6 +2,7 @@
 # =========================
 
 import pytest
+import ufl
 
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
@@ -174,8 +175,8 @@ def linear_poisson_mixed(solver_parameters, mesh_num, porder):
     u1 = cos(2 * pi * y) / 2
     n = FacetNormal(mesh)
 
-    a = (inner(sigma, tau) + inner(u, div(tau)) + inner(div(sigma), v)) * dx
-    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v) * dx
+    a = inner(sigma, tau)*dx + inner(u, div(tau))*dx + inner(div(sigma), v + div(tau))*dx
+    L = inner(u1, dot(tau, n)) * ds(1) + inner(f, v + div(tau)) * dx
 
     g = as_vector([-2 * pi * sin(2 * pi * x + pi / 3) * cos(2 * pi * y), -2 * pi * cos(2 * pi * x + pi / 3) * sin(2 * pi * y)])
 
@@ -271,6 +272,68 @@ def test_EquationBC_poisson_matfree(with_bbc):
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
 
 
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+@pytest.mark.parametrize("pre_apply_bcs", [False, True])
+def test_equationbc_with_dirichletbc(mat_type, pre_apply_bcs):
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    w = Function(V)
+
+    dbc = DirichletBC(V, 1, 1)
+    ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
+    problem = LinearVariationalProblem(
+        inner(grad(u), grad(v)) * dx,
+        inner(Constant(0), v) * dx,
+        w,
+        bcs=[dbc, ebc],
+    )
+    solver = LinearVariationalSolver(
+        problem,
+        pre_apply_bcs=pre_apply_bcs,
+        solver_parameters={"mat_type": mat_type, "ksp_type": "gmres", "pc_type": "none"},
+    )
+    solver.solve()
+
+    error = sqrt(assemble(inner(w - 1, w - 1) * dx))
+    assert error < 1e-12
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("mesh_type,degree", [("interval", 1), ("interval", 2), ("square", 2)])
+def test_equationbc_with_dirichletbc_transpose(mesh_type, degree):
+    # The matrix-free operator and its transpose must match the aij matrix
+    # with the same form and bcs. With degree 2, or with more cells, there are
+    # interior rows that couple to the DirichletBC column, and on these
+    # meshes the EquationBC row also couples to the DirichletBC column.
+    if mesh_type == "interval":
+        mesh = UnitIntervalMesh(1)
+    else:
+        mesh = UnitSquareMesh(1, 4)
+    V = FunctionSpace(mesh, "CG", degree)
+    u, v = TrialFunction(V), TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+
+    w = Function(V)
+    dbc = DirichletBC(V, 1, 1)
+    ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
+    bcs = [dbc, ebc.extract_form("J")]
+    matrix = assemble(a, bcs=bcs, mat_type="matfree")
+    reference = assemble(a, bcs=bcs, mat_type="aij")
+
+    rg = RandomGenerator(PCG64(seed=1234))
+    x = rg.uniform(V)
+    y = rg.uniform(V)
+
+    for actual, expected in [
+        (assemble(action(matrix, x)), assemble(action(reference, x))),
+        (assemble(ufl.Action(y, matrix)), assemble(ufl.Action(y, reference))),
+    ]:
+        with actual.dat.vec_ro as actual_vec, expected.dat.vec_ro as expected_vec:
+            error = (actual_vec - expected_vec).norm() / expected_vec.norm()
+        assert error < 1e-12
+
+
 # This test is so sensitive it will not pass unless MUMPS is used
 @pytest.mark.skipmumps
 @pytest.mark.parametrize("eq_type", ["linear", "nonlinear"])
@@ -331,24 +394,24 @@ def test_EquationBC_mixedpoisson_matfree_fieldsplit():
     eq_type = "linear"
     porder = 0
     # Mixed poisson with EquationBCs
-    # matfree with fieldsplit pc
+    # matfree with fieldsplit schur direct solver
 
     solver_parameters = {'mat_type': mat_type,
-                         'ksp_type': 'fgmres',
-                         'ksp_atol': 1e-11,
-                         'ksp_max_it': 200,
+                         'ksp_type': 'preonly',
                          'pc_type': 'fieldsplit',
                          'pc_fieldsplit_type': 'schur',
                          'pc_fieldsplit_schur_fact_type': 'full',
-                         'fieldsplit_0_ksp_type': 'cg',
+                         'fieldsplit_0_ksp_type': 'preonly',
                          'fieldsplit_0_pc_type': 'python',
                          'fieldsplit_0_pc_python_type': 'firedrake.AssembledPC',
                          'fieldsplit_0_assembled_pc_type': 'lu',
-                         'fieldsplit_1_ksp_type': 'cg',
-                         'fieldsplit_1_pc_use_amat': True,
+                         'fieldsplit_0_assembled_pc_factor_mat_solver_type': 'mumps',
+                         'fieldsplit_1_ksp_type': 'gmres',
                          'fieldsplit_1_pc_type': 'python',
                          'fieldsplit_1_pc_python_type': 'firedrake.MassInvPC',
-                         'fieldsplit_1_Mp_pc_type': 'icc'}
+                         'fieldsplit_1_Mp_pc_type': 'lu',
+                         'fieldsplit_1_Mp_pc_factor_mat_solver_type': 'mumps',
+                         }
     err = []
     mesh_sizes = [16, 32]
     if eq_type == "linear":

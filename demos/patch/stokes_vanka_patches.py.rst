@@ -16,18 +16,27 @@ of the patch but not pressures.
 In practice, we arrive at mesh-independent multigrid convergence using these relaxation.
 We can construct Vanka patches either through :class:`~.PatchPC`, in which the bilinear form
 is assembled on each vertex patch, or through :class:`~.ASMVankaPC`, in which the patch
-operators are extracted from the globally assembled stiffness matrix. ::
+operators are extracted from the globally assembled stiffness matrix.
+
+We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
+exact solution and forcing data. Crucially, the meshes must have an overlapping
+parallel domain decomposition that supports the Vanka patches. This is set
+via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.
+
+.. code-block:: python
 
   from firedrake import *
 
-  base = UnitSquareMesh(4, 4)
+  dparams = {"overlap_type": (DistributedMeshOverlapType.VERTEX, 2)}
+  base = UnitSquareMesh(4, 4, distribution_parameters=dparams)
   mh = MeshHierarchy(base, 3)
   mesh = mh[-1]
 
 Next, this function solves the Stokes equation discretized with Taylor-Hood
 elements and user-provided solver parameters and returns the iteration count
-required for convergence.  Here, we use a driven cavity problem::
+required for convergence.  Here, we use a driven cavity problem:
 
+.. code-block:: python
 
   def run_solve(mesh, params):
       V = VectorFunctionSpace(mesh, "CG", 2)
@@ -52,35 +61,14 @@ required for convergence.  Here, we use a driven cavity problem::
       return solver.snes.getLinearSolveIterations()
 
 
-These two dictionaries specify parameters for sparse direct method, to be used
-on the coarsest level of the multigrid hierarchy. ::
-
-  ldlt = {
-      "ksp_type": "preonly",
-      "pc_type": "cholesky",
-      "pc_factor_shift_type": "nonzero"
-  }
-
-When we use a matrix-free method, there will not be an assembled matrix to factor
-on the coarse level. This forces the matrix to be assembled. ::
-
-  assembled_ldlt = {
-      "ksp_type": "preonly",
-      "pc_type": "python",
-      "pc_python_type": "firedrake.AssembledPC",
-      "assembled": ldlt
-  }
-
 This function creates multigrid parameters using a given set of
-relaxation options and matrix assembled type. ::
+relaxation options and matrix assembly type.  On the coarsest level of the
+multigrid hierarchy, we force the matrix to be assembled and use a sparse direct
+solver.
 
+.. code-block:: python
 
   def mg_params(relax, mat_type="aij"):
-      if mat_type == "aij":
-          coarse = ldlt
-      else:
-          coarse = assembled_ldlt
-
       return {
           "mat_type": mat_type,
           "ksp_type": "gmres",
@@ -90,7 +78,12 @@ relaxation options and matrix assembled type. ::
               "ksp_max_it": 2,
               **relax
           },
-          "mg_coarse": coarse
+          "mg_coarse": {
+              "mat_type": "aij",
+              "ksp_type": "preonly",
+              "pc_type": "cholesky",
+              "pc_factor_shift_type": "nonzero"
+          }
       }
 
 
@@ -98,7 +91,9 @@ These options specify an additive Schwarz relaxation through :class:`~.PatchPC`.
 :class:`~.PatchPC` builds the patch operators by assembling the bilineary form over
 each subdomain.  Hence, it does not require the global stiffness
 matrix to be assembled.  These are quite similar to the options used in
-<poisson_mg_patches.py>::
+<poisson_mg_patches.py>:
+
+.. code-block:: python
 
   patch_relax = mg_params(
       {"pc_type": "python",
@@ -116,7 +111,9 @@ matrix to be assembled.  These are quite similar to the options used in
       mat_type="matfree")
 
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
-patch operators for each patch from the already-assembled global stiffness matrix. ::
+patch operators for each patch from the already-assembled global stiffness matrix.
+
+.. code-block:: python
 
   asm_relax = mg_params(
       {"pc_type": "python",
@@ -126,7 +123,7 @@ patch operators for each patch from the already-assembled global stiffness matri
        "pc_vanka_backend": "tinyasm"
        })
 
-The `tinyasm` backend uses LAPACK to invert all the patch operators.  If this option
+The ``tinyasm`` backend uses LAPACK to invert all the patch operators.  If this option
 is not specified, PETSc's ASM framework will set up a small KSP for each patch.
 This can be useful when the patches become larger and one wants to use a sparse
 direct or Krylov method on each one.
@@ -134,7 +131,9 @@ direct or Krylov method on each one.
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
 in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
-latter options do the same operations, just via different code paths. ::
+latter options do the same operations, just via different code paths.
+
+.. code-block:: python
 
   names = {"ASM Vanka": asm_relax,
            "Patch Vanka": patch_relax}

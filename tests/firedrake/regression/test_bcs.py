@@ -83,17 +83,29 @@ def test_zero_bcs_wrong_fs(V, f2):
         bc.zero(f2)
 
 
-def test_init_bcs_wrong_fs(V, f2):
-    "Initialise a DirichletBC with a Function on an incompatible FunctionSpace."
-    with pytest.raises(RuntimeError):
-        DirichletBC(V, f2, 1)
+def test_init_bcs_mismatching_fs(V, f2):
+    "Initialise a DirichletBC with a Function on a different FunctionSpace."
+    if V.value_shape == f2.ufl_shape:
+        bc = DirichletBC(V, f2, 1)
+        g = bc.function_arg
+        assert g.function_space() == V
+        assert errornorm(f2, g) < 1E-12
+    else:
+        with pytest.raises(RuntimeError):
+            DirichletBC(V, f2, 1)
 
 
-def test_set_bcs_wrong_fs(V, f2):
-    "Set a DirichletBC to a Function on an incompatible FunctionSpace."
+def test_set_bcs_mismatching_fs(V, f2):
+    "Set a DirichletBC to a Function on a different FunctionSpace."
     bc = DirichletBC(V, 32, 1)
-    with pytest.raises(RuntimeError):
+    if V.value_shape == f2.ufl_shape:
         bc.set_value(f2)
+        g = bc.function_arg
+        assert g.function_space() == V
+        assert errornorm(f2, g) < 1E-12
+    else:
+        with pytest.raises(RuntimeError):
+            bc.set_value(f2)
 
 
 def test_homogeneous_bcs(a, u, V):
@@ -103,17 +115,17 @@ def test_homogeneous_bcs(a, u, V):
     # Compute solution - this should have the solution u = 0
     solve(a == 0, u, bcs=bcs)
 
-    assert abs(u.vector().array()).max() == 0.0
+    assert abs(u.dat.data_ro).max() == 0.0
 
 
 def test_homogenize_doesnt_overwrite_function(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.homogenize()
 
-    assert (f.vector().array() == 10.0).all()
+    assert (f.dat.data_ro == 10.0).all()
 
     solve(a == 0, u, bcs=[bc])
-    assert abs(u.vector().array()).max() == 0.0
+    assert abs(u.dat.data_ro).max() == 0.0
 
 
 def test_homogenize(V):
@@ -132,11 +144,11 @@ def test_restore_bc_value(a, u, V, f):
     bc.homogenize()
 
     solve(a == 0, u, bcs=[bc])
-    assert abs(u.vector().array()).max() == 0.0
+    assert abs(u.dat.data_ro).max() == 0.0
 
     bc.restore()
     solve(a == 0, u, bcs=[bc])
-    assert np.allclose(u.vector().array(), 10.0)
+    assert np.allclose(u.dat.data_ro, 10.0)
 
 
 def test_set_bc_value(a, u, V, f):
@@ -146,7 +158,7 @@ def test_set_bc_value(a, u, V, f):
 
     solve(a == 0, u, bcs=[bc])
 
-    assert np.allclose(u.vector().array(), 7.0)
+    assert np.allclose(u.dat.data_ro, 7.0)
 
 
 def test_homogenize_old_function_arg_unchanged(a, u, V, f):
@@ -185,13 +197,13 @@ def test_update_bc_constant(a, u, V, f):
     solve(a == 0, u, bcs=[bc])
 
     # We should get the value in the constant
-    assert np.allclose(u.vector().array(), 1.0)
+    assert np.allclose(u.dat.data_ro, 1.0)
 
     c.assign(2.0)
     solve(a == 0, u, bcs=[bc])
 
     # Updating the constant value should give new value.
-    assert np.allclose(u.vector().array(), 2.0)
+    assert np.allclose(u.dat.data_ro, 2.0)
 
     c.assign(3.0)
     bc.homogenize()
@@ -199,26 +211,26 @@ def test_update_bc_constant(a, u, V, f):
 
     # Homogenized bcs shouldn't be overridden by the constant
     # changing.
-    assert np.allclose(u.vector().array(), 0.0)
+    assert np.allclose(u.dat.data_ro, 0.0)
 
     bc.restore()
     solve(a == 0, u, bcs=[bc])
 
     # Restoring the bcs should give the new constant value.
-    assert np.allclose(u.vector().array(), 3.0)
+    assert np.allclose(u.dat.data_ro, 3.0)
 
     bc.set_value(7)
     solve(a == 0, u, bcs=[bc])
 
     # Setting a value should replace the constant
-    assert np.allclose(u.vector().array(), 7.0)
+    assert np.allclose(u.dat.data_ro, 7.0)
 
     c.assign(4.0)
     solve(a == 0, u, bcs=[bc])
 
     # And now we should just have the new value (since the constant
     # is gone)
-    assert np.allclose(u.vector().array(), 7.0)
+    assert np.allclose(u.dat.data_ro, 7.0)
 
 
 def test_preassembly_doesnt_modify_assembled_rhs(V, f):
@@ -231,13 +243,13 @@ def test_preassembly_doesnt_modify_assembled_rhs(V, f):
     L = inner(f, v)*dx
     b = assemble(L)
 
-    b_vals = b.vector().array()
+    b_vals = b.dat.data_ro
 
     u = Function(V)
     solve(A, u, b)
-    assert np.allclose(u.vector().array(), 10.0)
+    assert np.allclose(u.dat.data_ro, 10.0)
 
-    assert np.allclose(b_vals, b.vector().array())
+    assert np.allclose(b_vals, b.dat.data_ro)
 
 
 def test_preassembly_bcs_caching(V):
@@ -423,8 +435,8 @@ def test_bcs_mixed_real():
     bc = DirichletBC(V.sub(0), 0.0, 1)
     a = inner(u1, v0) * dx + inner(u0, v1) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[0.00], [0.00], [0.25], [0.25]])
-    assert np.allclose(A.M[1][0].values, [[0.00, 0.00, 0.25, 0.25]])
+    assert np.allclose(A.M[0][1].values, [[0.00], [0.25], [0.25], [0.00]])
+    assert np.allclose(A.M[1][0].values, [[0.00, 0.25, 0.25, 0.00]])
 
 
 def test_bcs_mixed_real_vector():
@@ -437,8 +449,8 @@ def test_bcs_mixed_real_vector():
     bc = DirichletBC(V.sub(0).sub(1), 0.0, 1)
     a = inner(as_vector([u1, u1]), v0) * dx + inner(u0, as_vector([v1, v1])) * dx
     A = assemble(a, bcs=[bc, ])
-    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.], [0.25], [0.25], [0.25], [0.25]]])
-    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0., 0.25, 0.25, 0.25, 0.25]])
+    assert np.allclose(A.M[0][1].values, [[[0.25], [0.], [0.25], [0.25], [0.25], [0.25], [0.25], [0.]]])
+    assert np.allclose(A.M[1][0].values, [[0.25, 0., 0.25, 0.25, 0.25, 0.25, 0.25, 0.]])
 
 
 def test_homogeneous_bc_residual():

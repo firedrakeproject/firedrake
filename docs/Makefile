@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish publishpdf serve reset_notebooks
+publish publishpdf serve
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/team.rst source/demos source/element_list.csv source/firedrake_citations.rst source/apt_deps.txt source/homebrew_deps.txt source/minimal_apt_deps.txt source/petsc_configure_options.txt
+GENERATED_FILES = source/team.rst source/demos source/notebooks source/element_list.csv source/apt_deps.txt source/homebrew_deps.txt source/petsc_configure_options.txt
 
 publishpdf:
 	env FIREDRAKE_MANUAL_RELEASE=`date +%Y-%m` $(MAKE) latexpdf
@@ -59,67 +59,92 @@ livehtml:
 serve: html
 	cd $(BUILDDIR)/html; python3 -m SimpleHTTPServer $(PORT)
 
-.PHONY: copy_demos
+.PHONY: copy_demos copy_notebooks
 
 source/demos: copy_demos
 
 copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
-	for file in source/demos/*.py.rst; do pylit $$file; done
+	for file in source/demos/*.py.rst; do pylit --code-block-marker ".. code-block:: python" $$file; done
 
-reset_notebooks:
-	jupyter-nbconvert --clear-output ./notebooks/*.ipynb
-	env OMP_NUM_THREADS=1 jupyter-nbconvert \
+NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
+EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))
+NOTEBOOK_ASSETS = $(patsubst notebooks/%,source/notebooks/%,\
+	$(wildcard notebooks/*.geo notebooks/*.msh notebooks/image/*))
+NOTEBOOK_PROFILE = $(BUILDDIR)/ipython/profile_default/ipython_kernel_config.py
+
+# Build all generated notebooks.
+source/notebooks: $(EXECUTED_NOTEBOOKS)
+
+# Copy each notebook asset (geometry, mesh, or image file) from notebooks/ to the
+# matching path under source/notebooks/. Keep each asset as a separate target so
+# Make can update it independently.
+$(NOTEBOOK_ASSETS): source/notebooks/%: notebooks/%
+	mkdir -p $(dir $@)
+	cp $< $@
+
+# Copy the IPython kernel configuration into the profile that runs the
+# generated notebooks.
+$(NOTEBOOK_PROFILE): ipython_kernel_config.py
+	mkdir -p $(dir $@)
+	cp $< $@
+
+# Convert each Jupytext-formatted Python source to a Jupyter notebook, then
+# execute it. Sphinx uses the stored output instead of executing it again. Each
+# generated notebook has its own target, so editing one Python source rebuilds
+# only its corresponding notebook, and `make -j` can build them in parallel.
+# nbconvert skips cells tagged `skip-execution` and allows cells tagged
+# `raises-exception` to raise an exception.
+# The `|` makes notebook assets and the IPython profile order-only prerequisites.
+# Make builds the notebook assets and IPython profile first, but changes to these
+# prerequisites do not cause the generated notebook to run again.
+source/notebooks/%.ipynb: notebooks/%.py | $(NOTEBOOK_ASSETS) $(NOTEBOOK_PROFILE)
+	mkdir -p $(dir $@)
+	jupytext --to ipynb --output $@ $<
+	env IPYTHONDIR=$(CURDIR)/$(BUILDDIR)/ipython OMP_NUM_THREADS=1 jupyter nbconvert \
 		--execute \
-		--ClearMetadataPreprocessor.enabled=True \
-		--allow-errors \
 		--to notebook \
 		--inplace \
-		./notebooks/*.ipynb
+		--ExecutePreprocessor.timeout=600 \
+		$@
+
+# Remove the generated notebooks and notebook assets, then rebuild them.
+copy_notebooks:
+	rm -rf source/notebooks
+	$(MAKE) source/notebooks
 
 source/element_list.csv: source/element_list.py
 	cd source; python3 element_list.py
 
-source/team.rst: source/team2.py
+source/team.rst: source/team2.py source/team.ini
 	cd source; python3 team2.py; mv AUTHORS.rst ../..
-
-source/firedrake_citations.rst:
-	sphinx-apidoc -f -T -o source/ ../firedrake_citations
-	echo ":orphan:\n\n" | cat - source/firedrake_citations.rst > source/firedrake_citations.tmp
-	mv source/firedrake_citations.tmp source/firedrake_citations.rst
 
 source/apt_deps.txt:
 	python3 ../scripts/firedrake-configure \
-		--package-manager apt-x86_64 \
+		--os ubuntu26.04-x86_64 \
 		--show-system-packages > source/apt_deps.tmp
 	mv source/apt_deps.tmp source/apt_deps.txt
 
 source/homebrew_deps.txt:
 	python3 ../scripts/firedrake-configure \
-		--package-manager brew-arm64 \
+		--os macos-arm64 \
 		--show-system-packages > source/homebrew_deps.tmp
 	mv source/homebrew_deps.tmp source/homebrew_deps.txt
 
-source/minimal_apt_deps.txt:
-	python3 ../scripts/firedrake-configure \
-		--package-manager apt-x86_64 \
-		--show-minimal-system-packages > source/minimal_apt_deps.tmp
-	mv source/minimal_apt_deps.tmp source/minimal_apt_deps.txt
-
-
 source/petsc_configure_options.txt:
 	python3 ../scripts/firedrake-configure \
-		--no-package-manager \
+		--os unknown \
 		--show-petsc-configure-options > source/petsc_configure_options.tmp
 	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
+	sphinx-apidoc -f -T -o source/apidoc ../firedrake ../firedrake/cython/*.so
 
 clean:
 	-rm -rf $(BUILDDIR)/*
 	-rm -rf $(GENERATED_FILES)
+	-rm -rf source/apidoc
 
 buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html

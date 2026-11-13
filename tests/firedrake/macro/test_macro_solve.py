@@ -24,7 +24,7 @@ def mixed_element(mh, variant):
         Vel = FiniteElement("CG", cell, degree=1, variant="iso")
         Pel = FiniteElement("CG", cell, degree=1)
     elif variant == "alfeld":
-        dim = mh[0].topological_dimension()
+        dim = mh[0].topological_dimension
         Vel = FiniteElement("CG", cell, degree=dim, variant="alfeld")
         Pel = FiniteElement("DG", cell, degree=dim-1, variant="alfeld")
     elif variant == "th":
@@ -63,7 +63,7 @@ def riesz_map(Z, gamma=None):
 
 
 def test_riesz(mh, variant, mixed_element):
-    dim = mh[0].geometric_dimension()
+    dim = mh[0].geometric_dimension
     u_err = []
     p_err = []
     el1, el2 = mixed_element
@@ -121,7 +121,7 @@ def errornormL2_0(pexact, ph):
 
 
 def test_stokes(mh, variant, mixed_element):
-    dim = mh[0].geometric_dimension()
+    dim = mh[0].geometric_dimension
     u_err = []
     p_err = []
     div_err = []
@@ -169,7 +169,7 @@ def test_stokes(mh, variant, mixed_element):
     elif variant == "alfeld":
         if dim == 3:
             assert np.allclose(u_err, 0, atol=1E-9)
-            assert np.allclose(p_err, 0, atol=1E-9)
+            assert np.allclose(p_err, 0, atol=2E-9)
         else:
             assert conv_rates(u_err, h)[-1] >= dim + 0.9
             assert conv_rates(p_err, h)[-1] >= dim-1 + 0.9

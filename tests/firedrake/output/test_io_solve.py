@@ -18,7 +18,7 @@ def _solve_poisson(msh):
     u = TrialFunction(V)
     a = inner(u, v) * dx
     L = inner(f, v) * dx
-    bc = DirichletBC(V, Constant(1., domain=msh), labelVal)
+    bc = DirichletBC(V, Constant(1.), labelVal)
     sol = Function(V, name=func_name)
     solve(a == L, sol, bcs=[bc, ])
     return sol

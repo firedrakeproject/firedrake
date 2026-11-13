@@ -45,7 +45,7 @@ def f(function_space):
         if fs_i.rank == 1:
             fi.interpolate(as_vector((x[0]*x[1],) * fs_i.value_size))
         elif fs_i.rank == 2:
-            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension())]
+            fi.interpolate(as_tensor([[x[0]*x[1] for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             fi.interpolate(x[0]*x[1])
@@ -66,7 +66,7 @@ def g(function_space):
         if fs_i.rank == 1:
             gi.interpolate(as_vector((x[0]*sin(x[1]),) * fs_i.value_size))
         elif fs_i.rank == 2:
-            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension())]
+            gi.interpolate(as_tensor([[x[0]*sin(x[1]) for i in range(fs_i.mesh().geometric_dimension)]
                                       for j in range(fs_i.rank)]))
         else:
             gi.interpolate(x[0]*sin(x[1]))
@@ -91,7 +91,8 @@ def matrix_mixed_nofacet():
     u, p, lambdar = TrialFunctions(W)
     w, q, gammar = TestFunctions(W)
 
-    return (inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx)
+    return (inner(u, w)*dx + inner(p, q)*dx
+            - inner(p, div(w))*dx + inner(div(u), q)*dx)
 
 
 @pytest.fixture
@@ -135,20 +136,33 @@ def test_assemble_vector_into_tensor(mesh):
     v = TestFunction(V)
     f = Cofunction(V.dual())
     # Assemble a SLATE tensor into f
-    f = assemble(Tensor(v * dx), tensor=f)
+    f = assemble(Tensor(conj(v) * dx), tensor=f)
     # Assemble a different tensor into f
-    f = assemble(Tensor(Constant(2) * v * dx), tensor=f)
-    assert np.allclose(f.dat.data, 2*assemble(Tensor(v * dx)).dat.data, rtol=1e-14)
+    f = assemble(Tensor(Constant(2) * conj(v) * dx), tensor=f)
+    assert np.allclose(f.dat.data, 2*assemble(Tensor(conj(v) * dx)).dat.data, rtol=1e-14)
+
+
+def test_assemble_scalar_multiplication(mesh):
+    V = FunctionSpace(mesh, "DG", 1)
+    v = TestFunction(V)
+    tensor = Tensor(conj(v) * dx)
+    reference = assemble(tensor).dat.data
+
+    for scalar in (0, 0.5, 2):
+        assert np.allclose(assemble(scalar * tensor).dat.data,
+                           scalar * reference, rtol=1e-14)
+        assert np.allclose(assemble(tensor * scalar).dat.data,
+                           scalar * reference, rtol=1e-14)
 
 
 def test_assemble_matrix_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     u = TestFunction(V)
     v = TrialFunction(V)
-    M = assemble(Tensor(u * v * dx))
+    M = assemble(Tensor(inner(v, u) * dx))
     # Assemble a different SLATE tensor into M
-    M = assemble(Tensor(Constant(2) * u * v * dx), tensor=M)
-    assert np.allclose(M.M.values, 2*assemble(Tensor(u * v * dx)).M.values, rtol=1e-14)
+    M = assemble(Tensor(Constant(2) * inner(v, u) * dx), tensor=M)
+    assert np.allclose(M.M.values, 2*assemble(Tensor(inner(v, u) * dx)).M.values, rtol=1e-14)
 
 
 def test_mixed_coefficient_matrix(mesh):
@@ -159,8 +173,8 @@ def test_mixed_coefficient_matrix(mesh):
     f.assign(1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    T = Tensor((f[0] + f[1]) * u * v * dx)
-    ref = assemble((f[0] + f[1]) * u * v * dx)
+    T = Tensor(inner((f[0] + f[1]) * u, v) * dx)
+    ref = assemble(inner((f[0] + f[1]) * u, v) * dx)
 
     assert np.allclose(assemble(T).M.values, ref.M.values, rtol=1e-14)
 
@@ -186,7 +200,7 @@ def test_nested_coefficients_matrix(mesh):
 
     u = TrialFunction(V)
     v = TestFunction(V)
-    form = inner(v, f*u)*dx - div(T(v))*inner(u, n)*ds
+    form = inner(f*u, v)*dx - inner(inner(u, n), div(T(v)))*ds
     A = Tensor(form)
     M = assemble(A)
 
@@ -199,9 +213,9 @@ def test_mixed_argument_tensor(mesh):
     W = V * U
     sigma, _ = TrialFunctions(W)
     tau, _ = TestFunctions(W)
-    T = Tensor(sigma * tau * dx)
+    T = Tensor(inner(sigma, tau) * dx)
     As = assemble(T)
-    A = assemble(sigma * tau * dx)
+    A = assemble(inner(sigma, tau) * dx)
     for ms, m in zip(As.M, A.M):
         assert np.allclose(ms.values, m.values)
 
@@ -240,9 +254,11 @@ def test_matrix_subblocks(mesh):
     u, p, lambdar = TrialFunctions(W)
     w, q, gammar = TestFunctions(W)
 
-    A = Tensor(inner(u, w)*dx + p*q*dx - div(w)*p*dx + q*div(u)*dx
-               + lambdar('+')*jump(w, n=n)*dS + gammar('+')*jump(u, n=n)*dS
-               + lambdar*gammar*ds)
+    A = Tensor(inner(u, w)*dx + inner(p, q)*dx
+               - inner(p, div(w))*dx + inner(div(u), q)*dx
+               + inner(lambdar('+'), jump(w, n=n))*dS
+               + inner(jump(u, n=n), gammar('+'))*dS
+               + inner(lambdar, gammar)*ds)
 
     # Test individual blocks
     indices = [(0, 0), (0, 1), (1, 0), (1, 1), (1, 2), (2, 1), (2, 2)]
@@ -306,26 +322,23 @@ def test_diagonal(mass, matrix_mixed_nofacet):
     ref = assemble(mass, diagonal=True).dat.data
     ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # vectorspace
     ref = np.concatenate(ref) if len(np.shape(ref)) > 1 else ref  # tensorspace
-    for r, d in zip(ref, np.diag(res)):
-        assert np.allclose(r, d, rtol=1e-14)
+    assert np.allclose(ref, np.diag(res), rtol=1e-14)
 
     # test matrix built from diagonal for non mass matrix
     res2 = assemble(DiagonalTensor(Tensor(matrix_mixed_nofacet))).M.values
     ref2 = np.concatenate(assemble(matrix_mixed_nofacet, diagonal=True).dat.data)
-    for r, d in zip(res2, np.diag(ref2)):
-        assert np.allclose(r, d, rtol=1e-14)
+    assert np.allclose(ref2, np.diag(res2), rtol=1e-14)
 
     # test matrix built from diagonal
     # for a Slate expression on a non mass matrix
     A = Tensor(matrix_mixed_nofacet)
     res3 = assemble(DiagonalTensor(A+A)).M.values
     ref3 = np.concatenate(assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data)
-    for r, d in zip(res3, np.diag(ref3)):
-        assert np.allclose(r, d, rtol=1e-14)
+    assert np.allclose(ref3, np.diag(res3), rtol=1e-14)
 
 
-@pytest.mark.parametrize("function_space", ["dg0"], indirect=True)
-def test_reciprocal(function_space):
+def test_reciprocal(mesh):
+    function_space = FunctionSpace(mesh, "DG", 0)
     # test reciprocal of vector built from diagonal
     # note: reciprocal does not commute with addition so one can only test DG
     u = TrialFunction(function_space)
@@ -343,3 +356,30 @@ def test_reciprocal(function_space):
     ref = [1./d for d in assemble(mass + mass, diagonal=True).dat.data]
     for r, d in zip(res, np.diag(ref)):
         assert np.allclose(r, d, rtol=1e-14)
+
+
+@pytest.mark.parametrize("degree", (0, 1))
+def test_nested_block(mesh, degree):
+    V = FunctionSpace(mesh, "CG", degree+1)
+    Q = FunctionSpace(mesh, "DG", degree, variant="integral")
+    Z = V * Q
+
+    v0, q0 = TestFunctions(Z)
+    v1, q1 = TrialFunctions(Z)
+    a = (inner(grad(v1), grad(v0)) * dx
+         + inner(q1, v0) * dx
+         + inner(v1, q0) * dx
+         - inner(q1, q0) * dx
+         )
+
+    b = inner(q1, v0) * dx
+    J = Tensor(a)
+    D = Block(J, (1, 1))
+    B = Block(Tensor(b), ((0, 1), 1))
+    Jp = J - B * Inverse(D) * B.T
+
+    expect = assemble(Jp, mat_type="nest").petscmat.getNestSubMatrix(0, 0)
+
+    result = assemble(Block(Jp, (0, 0))).petscmat
+
+    assert np.allclose(result[:, :], expect[:, :])

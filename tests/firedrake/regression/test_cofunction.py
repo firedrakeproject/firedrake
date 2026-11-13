@@ -60,3 +60,26 @@ def test_scalar_cofunction_zero_with_subset(V):
     assert f is g
     assert np.allclose(f.dat.data_ro[:2], 0.0)
     assert np.allclose(f.dat.data_ro[2:], 1.0)
+
+
+def test_cofunction_riesz_representation_l2_dat_version(V):
+    f = Cofunction(V.dual())
+    version = f.dat.dat_version
+    _ = f.riesz_representation(riesz_map="l2")
+    assert f.dat.dat_version == version
+
+
+def test_riesz_map_options_prefix(V):
+    options = PETSc.Options()
+    options['riesz_ksp_type'] = 'richardson'
+    options['riesz_ksp_max_it'] = '1'
+    options['riesz_pc_type'] = 'none'
+
+    riesz = RieszMap(V, options_prefix='riesz')
+    with pytest.raises(ConvergenceError):
+        f = Cofunction(V.dual()).assign(1.)
+        riesz(f)
+
+    del options['riesz_ksp_type']
+    del options['riesz_ksp_max_it']
+    del options['riesz_pc_type']

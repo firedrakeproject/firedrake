@@ -1,24 +1,24 @@
 import ufl
 import firedrake
-from ufl.domain import as_domain
+from ufl.domain import extract_domains
 from ufl.formatting.ufl2unicode import ufl2unicode
 from pyadjoint import Block, AdjFloat, create_overloaded_object
 from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
-from .block_utils import isconstant
 
 
 class AssembleBlock(Block):
     def __init__(self, form, ad_block_tag=None):
         super(AssembleBlock, self).__init__(ad_block_tag=ad_block_tag)
         self.form = form
-        try:
-            mesh = as_domain(form)
+        try:  # form can have multiple meshes
+            meshes = tuple(extract_domains(form))
         except AttributeError:
-            mesh = None
+            meshes = None
 
-        if mesh and not isinstance(self.form, ufl.Interpolate):
+        if meshes and not isinstance(self.form, ufl.Interpolate):
             # Interpolation differentiation wrt spatial coordinates is currently not supported.
-            self.add_dependency(mesh)
+            for mesh in meshes:  # add all meshes as dependency
+                self.add_dependency(mesh, no_duplicates=True)
 
         for c in self.form.coefficients():
             self.add_dependency(c, no_duplicates=True)
@@ -101,13 +101,9 @@ class AssembleBlock(Block):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
-        from ufl.algorithms.analysis import extract_arguments
-        arity_form = len(extract_arguments(form))
+        arity_form = len(form.arguments())
 
-        if isconstant(c):
-            mesh = as_domain(self.form)
-            space = c._ad_function_space(mesh)
-        elif isinstance(c, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             space = c.function_space()
         elif isinstance(c, firedrake.MeshGeometry):
             c_rep = firedrake.SpatialCoordinate(c_rep)
@@ -157,16 +153,12 @@ class AssembleBlock(Block):
         hessian_input = hessian_inputs[0]
         adj_input = adj_inputs[0]
 
-        from ufl.algorithms.analysis import extract_arguments
-        arity_form = len(extract_arguments(form))
+        arity_form = len(form.arguments())
 
         c1 = block_variable.output
         c1_rep = block_variable.saved_output
 
-        if isconstant(c1):
-            mesh = as_domain(form)
-            space = c1._ad_function_space(mesh)
-        elif isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
+        if isinstance(c1, (firedrake.Function, firedrake.Cofunction)):
             space = c1.function_space()
         elif isinstance(c1, firedrake.MeshGeometry):
             c1_rep = firedrake.SpatialCoordinate(c1)

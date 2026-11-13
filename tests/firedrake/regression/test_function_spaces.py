@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.bcs import restricted_function_space
 from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual, is_primal
 
@@ -111,6 +112,34 @@ def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
 
 
+@pytest.mark.parametrize("restrict", [False, True])
+def test_collapsed_subspace_argument_hash(restrict):
+    # UFL hashes Arguments by repr, so collapsing a subspace must drop the
+    # proxy metadata that FunctionSpace.__eq__ ignores. Otherwise a collapsed
+    # subspace and the equal plain space carry Arguments that compare equal
+    # but hash apart, and replace() silently fails to substitute.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, MixedElement([FiniteElement("CG", triangle, 1),
+                                          FiniteElement("DG", triangle, 0)]))
+    if restrict:
+        V = restricted_function_space(V, [{"on_boundary"}, frozenset()])
+
+    for Vsub in V:
+        W = Vsub.collapse()
+        P = FunctionSpace(mesh, Vsub.ufl_element())
+        if Vsub.boundary_set:
+            P = RestrictedFunctionSpace(P, boundary_set=Vsub.boundary_set)
+        assert W == P
+        assert repr(W) == repr(P)
+        assert hash(W) == hash(P)
+
+        u, w = TrialFunction(P), TrialFunction(W)
+        assert u == w and hash(u) == hash(w)
+        # The substitution must actually reach into the form.
+        a = replace(inner(u, TestFunction(P)) * dx, {u: w})
+        assert a.arguments()[1] is w
+
+
 @pytest.mark.parametrize("space",
                          [FunctionSpace, VectorFunctionSpace,
                           TensorFunctionSpace])
@@ -120,7 +149,7 @@ def test_function_space_variant(mesh, space):
 
 
 @pytest.mark.parametrize("modifier",
-                         [BrokenElement, HDivElement,
+                         [HDivElement,
                           HCurlElement])
 @pytest.mark.parametrize("element",
                          [FiniteElement("CG", triangle, 1),
@@ -249,8 +278,8 @@ def test_reconstruct_variant(family, dual):
 def test_reconstruct_mixed(fs, mesh, mesh2, dual):
     W1 = fs.dual() if dual else fs
     W2 = W1.reconstruct(mesh=mesh2)
-    assert W1.mesh() == mesh
-    assert W2.mesh() == mesh2
+    assert W1.mesh().unique() == mesh
+    assert W2.mesh().unique() == mesh2
     assert W1.ufl_element() == W2.ufl_element()
     for index, V in enumerate(W1):
         V1 = W1.sub(index)
@@ -313,3 +342,46 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             assert is_primal(V1.parent) == is_primal(V2.parent) != dual
             assert V1.parent.ufl_element() == V2.parent.ufl_element()
             assert V1.parent.index == V2.parent.index == index
+
+
+@pytest.mark.parametrize("family", ("CG", "BDM", "DG"))
+@pytest.mark.parametrize("shape", (0, 2, (2, 3)), ids=("0", "2", "(2,3)"))
+def test_broken_space(mesh, shape, family):
+    """Check that FunctionSpace.broken_space returns the a
+    FunctionSpace with the correct element.
+    """
+    kwargs = {"variant": "spectral"} if family == "DG" else {}
+
+    elem = FiniteElement(family, mesh.ufl_cell(), 1, **kwargs)
+
+    if not isinstance(shape, int):
+        make_element = lambda elem: TensorElement(elem, shape=shape)
+    elif shape > 0:
+        make_element = lambda elem: VectorElement(elem, dim=shape)
+    else:
+        make_element = lambda elem: elem
+
+    fs = FunctionSpace(mesh, make_element(elem))
+    broken = fs.broken_space()
+    expected = FunctionSpace(mesh, make_element(BrokenElement(elem)))
+
+    assert broken == expected
+
+
+def test_mixed_broken_space(mesh):
+    """Check that MixedFunctionSpace.broken_space returns the a
+    MixedFunctionSpace with the correct element.
+    """
+
+    mixed_elem = MixedElement([
+        FiniteElement("CG", mesh.ufl_cell(), 1),
+        VectorElement("BDM", mesh.ufl_cell(), 2, dim=2),
+        TensorElement("DG", mesh.ufl_cell(), 1, shape=(2, 3), variant="spectral")
+    ])
+    broken_elem = MixedElement([BrokenElement(elem) for elem in mixed_elem.sub_elements])
+
+    mfs = FunctionSpace(mesh, mixed_elem)
+    broken = mfs.broken_space()
+    expected = FunctionSpace(mesh, broken_elem)
+
+    assert broken == expected

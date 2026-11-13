@@ -1,0 +1,257 @@
+'''
+This module contains all the functions related to wrapping NGSolve meshes to Firedrake
+
+This file was copied from ngsPETSc.
+'''
+import numpy as np
+from scipy.spatial.distance import cdist
+
+from pyop2.mpi import COMM_WORLD
+from firedrake.petsc import PETSc
+import firedrake
+
+# Netgen and ngsPETSc are not available when the documentation is getting built
+# because they do not have ARM wheels.
+try:
+    import netgen.meshing as ngm
+    from netgen.meshing import MeshingParameters
+    from ngsPETSc import MeshMapping, createNetgenMesh
+except ImportError:
+    pass
+
+try:
+    import ngsolve as ngs
+except ImportError:
+    class ngs:
+        "dummy class"
+        class comp:
+            "dummy class"
+            Mesh = type(None)
+
+
+def netgen_distribute(V: firedrake.functionspaceimpl.WithGeometryBase,
+                      netgen_data: np.ndarray):
+    """
+    Distribute data from the netgen layout into the DMPlex layout.
+
+    Parameters
+    ----------
+    V
+        The target function space defining the DMPlex layout.
+    netgen_data
+        The data in the layout of the underlying netgen mesh.
+
+    Returns
+    -------
+    ``np.ndarray``
+        The data in the target DMPlex layout.
+
+    """
+    netgen_data = np.asarray(netgen_data)
+    mesh = V.mesh()
+    sf = mesh.sfBC_orig
+    if sf is None:
+        # This mesh was not redistributed at construction.
+        # This means that the underlying netgen mesh represents
+        # the local part of the mesh owned by this process.
+        # Therefore the netgen data is already distributed.
+        plex_data = netgen_data
+    else:
+        plex = mesh.topology_dm
+        nshape = netgen_data.shape
+        dtype = netgen_data.dtype
+
+        sfBCInv = sf.createInverse()
+        section = V.dm.getLocalSection()
+        vec = V.dof_dset.layout_vec
+        section0, vec0 = plex.distributeField(sfBCInv, section, vec)
+        vec0.set(0)
+        plex_data = None
+        for i in np.ndindex(V.shape):
+            di = netgen_data[(..., *i)].flatten()
+            vec0[:len(di)] = di
+            _, vec = plex.distributeField(sf, section0, vec0)
+            arr = vec.getArray()
+            if plex_data is None:
+                plex_data = np.empty(arr.shape + V.shape, dtype=dtype)
+            plex_data[(..., *i)] = arr
+        plex_data = plex_data.reshape(-1, *nshape[1:])
+    return plex_data
+
+
+@PETSc.Log.EventDecorator()
+def find_permutation(points_a: np.ndarray, points_b: np.ndarray):
+    """ Find all permutations between a list of two sets of points.
+
+    Given two numpy arrays of shape (ncells, npoints, dim) containing
+    floating point coordinates for each cell, determine each index
+    permutation that takes `points_a` to `points_b`. Ie:
+    ```
+    permutation = find_permutation(points_a, points_b)
+    assert np.allclose(points_a[permutation], points_b, rtol=0, atol=tol)
+    ```
+    """
+    if points_a.shape != points_b.shape:
+        raise ValueError("`points_a` and `points_b` must have the same shape.")
+
+    # Match reference points instead of physical points to ensure scale invariance
+    dim = points_a.shape[-1]
+    vids = list(range(dim+1))
+    # Infer the affine mapping (A, b) from the image of the vertices (first dim+1 dofs)
+    bs = points_a[:, vids[:1], :]
+    As = points_a[:, vids[1:], :]
+    As -= bs
+    Ainvs = np.linalg.inv(As)
+    # x_phys = A * x_ref + b <==> x_ref = inv(A) * (x_phys - b)
+    # Multiply inv(A) from the right, since the data is row-major
+    ref_points_a = np.matmul(points_a - bs, Ainvs)
+    ref_points_b = np.matmul(points_b - bs, Ainvs)
+
+    p = [np.argmin(cdist(a, b), axis=0) for a, b in zip(ref_points_a, ref_points_b)]
+
+    if len(p) == 0:
+        return p
+
+    try:
+        permutation = np.array(p, ndmin=2)
+    except ValueError as e:
+        raise ValueError(
+            "It was not possible to find a permutation for every cell"
+            " within the provided tolerance"
+        ) from e
+
+    if permutation.shape != points_a.shape[0:2]:
+        raise ValueError(
+            "It was not possible to find a permutation for every cell"
+            " within the provided tolerance"
+        )
+
+    return permutation
+
+
+def _snap_to_netgen(plex: PETSc.DMPlex, geometry: "ngm.Mesh") -> "ngm.Mesh":
+    """Project the boundary vertices of a refined DMPlex onto a Netgen geometry.
+
+    A refined DMPlex must be snapped before it is refined again, so that each
+    level subdivides a mesh that already lies on the geometry.
+
+    Parameters
+    ----------
+    plex
+        A DMPlex with linear coordinates. Its coordinates are modified in place.
+    geometry
+        The Netgen mesh of the coarse mesh.
+
+    Returns
+    -------
+    netgen.meshing.Mesh
+        The Netgen mesh of the local part of ``plex``.
+
+    """
+    ngmesh = createNetgenMesh(plex, geometry)
+    coordinates = plex.getCoordinatesLocal()
+    coordinates.array[:] = ngmesh.Coordinates().reshape(-1)
+    plex.setCoordinatesLocal(coordinates)
+    return ngmesh
+
+
+def _curve_netgen_mesh(mesh, order, cg_field=None):
+    """Curve the coordinates of a mesh that has a Netgen mesh.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        A mesh with Netgen attributes.
+    order : int
+        The polynomial degree of the curved coordinates.
+    cg_field : bool
+        Whether the curved coordinates are continuous. Defaults to the
+        continuity of the coordinates of ``mesh``.
+
+    Returns
+    -------
+    MeshGeometry
+        A mesh that shares the topology of ``mesh``.
+
+    """
+    if order == mesh.coordinates.function_space().ufl_element().degree():
+        return mesh
+    coordinates = mesh.curve_field(order=order, cg_field=cg_field)
+    curved_mesh = firedrake.Mesh(coordinates,
+                                 name=mesh.name,
+                                 reorder=None,
+                                 perm_is=mesh._dm_renumbering,
+                                 distribution_parameters=firedrake.mesh.DISTRIBUTION_PARAMETERS_NOOP,
+                                 tolerance=mesh.tolerance,
+                                 comm=mesh.comm)
+    curved_mesh.netgen_mesh = mesh.netgen_mesh
+    curved_mesh.netgen_flags = mesh.netgen_flags
+    curved_mesh.sfBC = mesh.sfBC
+    curved_mesh.sfBC_orig = mesh.sfBC_orig
+    curved_mesh._distribution_parameters = mesh._distribution_parameters
+    curved_mesh._did_reordering = mesh._did_reordering
+    return curved_mesh
+
+
+def splitToQuads(plex, dim, comm):
+    """Split a Netgen mesh into quads using a PETSc transform."""
+    # TODO: Improve support quad meshing.
+    # @pef  Get netgen to make a quad-dominant mesh, and then only split the triangles.
+    #       Current implementation will make for poor-quality meshes.
+    if dim == 2:
+        transform = PETSc.DMPlexTransform().create(comm=comm)
+        transform.setType(PETSc.DMPlexTransformType.REFINETOBOX)
+        transform.setDM(plex)
+        transform.setUp()
+    else:
+        raise RuntimeError("Splitting to quads is only possible for 2D meshes.")
+    newplex = transform.apply(plex)
+    return newplex
+
+
+splitTypes = {"Alfeld": lambda x: x.SplitAlfeld(),
+              "Powell-Sabin": lambda x: x.SplitPowellSabin()}
+
+
+class FiredrakeMesh:
+    '''
+    This class creates a Firedrake mesh from Netgen/NGSolve meshes.
+
+    :arg mesh: the mesh object, it can be either a Netgen/NGSolve mesh or a PETSc DMPlex
+    :param netgen_flags: The dictionary of flags to be passed to ngsPETSc.
+    :arg comm: the MPI communicator.
+    '''
+    def __init__(self, mesh, netgen_flags, user_comm=COMM_WORLD):
+        self.comm = user_comm
+        # Parsing netgen flags
+        if not isinstance(netgen_flags, dict):
+            netgen_flags = {}
+        split2tets = netgen_flags.get("split_to_tets", False)
+        split = netgen_flags.get("split", False)
+        quad = netgen_flags.get("quad", False)
+        optMoves = netgen_flags.get("optimisation_moves", False)
+        # Checking the mesh format
+        if isinstance(mesh, (ngs.comp.Mesh, ngm.Mesh)):
+            if split2tets:
+                mesh = mesh.Split2Tets()
+            if split:
+                # Split mesh this includes Alfeld and Powell-Sabin
+                splitTypes[split](mesh)
+            if optMoves:
+                # Optimises the mesh, for example smoothing
+                if mesh.dim == 2:
+                    mesh.OptimizeMesh2d(MeshingParameters(optimize2d=optMoves))
+                elif mesh.dim == 3:
+                    mesh.OptimizeVolumeMesh(MeshingParameters(optimize3d=optMoves))
+                else:
+                    raise ValueError("Only 2D and 3D meshes can be optimised.")
+            # We create the plex from the netgen mesh
+            self.meshMap = MeshMapping(mesh, comm=self.comm)
+            # We apply the DMPLEX transform
+            if quad:
+                newplex = splitToQuads(self.meshMap.petscPlex, mesh.dim, comm=self.comm)
+                self.meshMap = MeshMapping(newplex)
+        elif isinstance(mesh, PETSc.DMPlex):
+            self.meshMap = MeshMapping(mesh)
+        else:
+            raise ValueError("Mesh format not recognised.")

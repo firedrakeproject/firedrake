@@ -13,8 +13,8 @@ def get_plex_with_update_coordinates(mesh):
     """
     Update the coordinates of the dmplex in mesh and return a copy of the dmplex
     """
-    tdim = mesh.topological_dimension()
-    gdim = mesh.geometric_dimension()
+    tdim = mesh.topological_dimension
+    gdim = mesh.geometric_dimension
     entity_dofs = np.zeros(tdim + 1, dtype=np.int32)
     entity_dofs[0] = gdim
     coord_section, _ = mesh.create_section(entity_dofs)
@@ -23,7 +23,7 @@ def get_plex_with_update_coordinates(mesh):
     remove_pyop2_label(plex)
 
     coord_dm = plex.getCoordinateDM()
-    coord_dm.setSection(coord_section)
+    coord_dm.setLocalSection(coord_section)
     coords_local = coord_dm.createLocalVec()
     coords_local.array[:] = np.reshape(
         mesh.coordinates.dat.data_ro_with_halos, coords_local.array.shape

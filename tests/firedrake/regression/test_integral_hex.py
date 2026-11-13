@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 from os.path import abspath, dirname, join
 
@@ -92,3 +93,17 @@ def test_integral_hex_interior_facet_facet_avg():
     assert abs(A - 1. / 20.) < 1.e-14
     EA = assemble(e * a * dS)
     assert abs(EA - E * A) < 1.e-14
+
+
+def test_integral_hex_interior_facet_issue4653():
+    mesh = BoxMesh(2, 1, 1, 2., 1., 1., hexahedral=True)
+    V = FunctionSpace(mesh, "DQ", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a0 = inner(u('+'), v('+')) * dS
+    a1 = inner(u('+'), dot(grad(v)('-'), as_vector([1, 2, 3]))) * dS
+    a = a0 + a1
+    A0 = assemble(a0)
+    A1 = assemble(a1)
+    A = assemble(a)
+    assert np.allclose(A.M.values, A0.M.values + A1.M.values)

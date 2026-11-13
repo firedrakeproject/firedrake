@@ -35,7 +35,7 @@ def test_split_communicators():
         u = TrialFunction(V)
         v = TestFunction(V)
 
-        const = Constant((1, 0), domain=m)
+        const = Constant((1, 0))
         solve(inner(u, v) * dx == inner(const, v) * dx, f)
 
         expect = Function(V).interpolate(const)

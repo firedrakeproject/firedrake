@@ -36,14 +36,14 @@
 #     Extra arguments to pass to PETSc's `configure` script
 #
 # Example usage for a specific firedrake release with complex scalars:
-#  $ docker build \
+#  $ docker build . \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:2025.4.2-complex \
 #     --build-arg ARCH=complex \
 #     --build-arg BRANCH=2025.4.2
 #
 # Example usage for building from firedrake main with real scalars, ml installed with PETSc, and valgrind installed with apt:
-#  $ docker build \
+#  $ docker build . \
 #     --file=Dockerfile.vanilla \
 #     --tag=firedrake:main-latest \
 #     --build-arg ARCH=default \
@@ -51,7 +51,7 @@
 #     --build-arg PETSC_EXTRA_ARGS="--download-ml" \
 #     --build-arg APT_EXTRA_PACKAGES="valgrind"
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 # Firedrake arch to build
 ARG ARCH="default"
@@ -105,12 +105,15 @@ ENV OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 # 3. Remove non-essential files to reduce container size (keep SLEPc for slepc4py).
 RUN if [ "${BRANCH}" != "main" ]; then \
         CLONE_ARGS="--branch $(python3 /opt/firedrake-configure --show-petsc-version)"; \
+        PETSC_CONFIGURE_OPTIONS="--download-slepc-commit=v3.26.0"; \
+    else \
+        PETSC_CONFIGURE_OPTIONS=""; \
     fi; \
     git clone --depth 1 ${CLONE_ARGS} https://gitlab.com/petsc/petsc.git /opt/petsc \
     && cd /opt/petsc \
     && python3 /opt/firedrake-configure --arch $ARCH --show-petsc-configure-options | \
         sed "s/-march=native -mtune=native/-mtune=generic/g" | \
-        xargs -L1 ./configure --with-make-np=8 --download-slepc ${PETSC_EXTRA_ARGS} \
+        xargs -L1 ./configure --with-make-np=8 --download-slepc ${PETSC_CONFIGURE_OPTIONS} ${PETSC_EXTRA_ARGS} \
     && make; \
     if [ $? -eq 1 ]; then \
         cat configure.log; \
@@ -132,28 +135,32 @@ ENV SLEPC_DIR=$PETSC_DIR/$PETSC_ARCH
 ENV PATH="$PETSC_DIR/$PETSC_ARCH/bin:$PATH"
 
 ENV HDF5_MPI=ON
-ENV CC=mpicc CXX=mpicxx
-ENV MPICC=$CC
-ENV CFLAGS="-O3 -mtune=generic" CPPFLAGS="-O3 -mtune=generic"
+ENV MPICC=mpicc
+ENV CFLAGS="-O1 -mtune=generic -fno-fast-math" CPPFLAGS="-O1 -mtune=generic -fno-fast-math"
 
 # Install Firedrake
-# - petsc4py and slepc4py are installed from source in PETSc repo.
-# - slepc4py is installed without build isolation so it links against
-#     the correct petsc4py version.
+# - If installing 'main' then petsc4py and slepc4py are installed from source,
+#   otherwise they are installed from PyPI. This mirrors our CI.
 # - Firedrake main branch requires main/master branch of some upstream
 #     packages. These are installed in editable mode.
 #     The order these are installed is important, e.g. FIAT must be installed
 #     before UFL otherwise `pip install fiat` will reinstall pypi ufl.
+
 RUN git clone --branch ${BRANCH} \
       https://github.com/firedrakeproject/firedrake.git /opt/firedrake \
-   && pip cache purge \
-   && pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
-   && pip install --verbose -r /opt/firedrake/requirements-build.txt \
-   && pip install --verbose --no-build-isolation \
-      ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
-   && pip install --verbose --no-binary h5py --no-build-isolation \
-      --editable '/opt/firedrake[docker]' || exit; \
-   if [ ${BRANCH} == "main" ]; then \
+    && pip cache purge || exit; \
+    if [ ${BRANCH} = "main" ]; then \
+      pip install --verbose ${PETSC_DIR}/src/binding/petsc4py \
+      && pip install --verbose -r /opt/firedrake/requirements-build.txt \
+      && pip install --verbose --no-build-isolation \
+           ${SLEPC_DIR}/externalpackages/git.slepc/src/binding/slepc4py \
+      && pip install --verbose --no-binary h5py --no-build-isolation \
+        --editable '/opt/firedrake[docker]' || exit; \
+    else \
+      pip install --verbose --no-binary h5py \
+        --editable '/opt/firedrake[docker]' || exit; \
+    fi; \
+    if [ ${BRANCH} = "main" ]; then \
       for pkg in \
          "git+https://github.com/dolfin-adjoint/pyadjoint.git#egg=pyadjoint-ad" \
          "git+https://github.com/firedrakeproject/fiat.git#egg=firedrake-fiat" \
@@ -168,5 +175,5 @@ ENV PYOP2_CFLAGS=$CFLAGS
 
 # Run the smoke tests.
 RUN cd /opt/firedrake/ \
-    && firedrake-check \
+    && firedrake-check --mpiexec 'mpiexec --oversubscribe -n' \
     && firedrake-clean

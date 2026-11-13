@@ -132,11 +132,10 @@ def run_riesz_map(V, mat_type, max_it, solver_type="gmg"):
     return errornorm(u_exact, uh)
 
 
-@pytest.mark.skipcomplexnoslate
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
 def test_gmg_hiptmair_hcurl(mesh_hierarchy, mat_type):
     mesh = mesh_hierarchy[-1]
-    if mesh.ufl_cell().is_simplex():
+    if mesh.ufl_cell().is_simplex:
         family = "N1curl"
         max_it = 14
     else:
@@ -146,11 +145,10 @@ def test_gmg_hiptmair_hcurl(mesh_hierarchy, mat_type):
     assert run_riesz_map(V, mat_type, max_it) < 1E-6
 
 
-@pytest.mark.skipcomplexnoslate
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
 def test_gmg_hiptmair_hdiv(mesh_hierarchy, mat_type):
     mesh = mesh_hierarchy[-1]
-    if mesh.ufl_cell().is_simplex():
+    if mesh.ufl_cell().is_simplex:
         family = "N1div"
         max_it = 14
     else:

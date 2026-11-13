@@ -60,7 +60,7 @@ def run_gtmg_mixed_poisson(custom_transfer=False):
     if custom_transfer:
         P1 = get_p1_space()
         V = FunctionSpace(mesh, "DGT", degree - 1)
-        I = assemble(Interpolate(TrialFunction(P1), V)).petscmat
+        I = assemble(interpolate(TrialFunction(P1), V)).petscmat
         R = PETSc.Mat().createTranspose(I)
         appctx['interpolation_matrix'] = I
         appctx['restriction_matrix'] = R
@@ -158,12 +158,10 @@ def run_gtmg_scpc_mixed_poisson():
     return errornorm(f, uh, norm_type="L2")
 
 
-@pytest.mark.skipcomplexnoslate
 @pytest.mark.parametrize("custom_transfer", [False, True])
 def test_mixed_poisson_gtmg(custom_transfer):
     assert run_gtmg_mixed_poisson(custom_transfer) < 1e-5
 
 
-@pytest.mark.skipcomplexnoslate
 def test_scpc_mixed_poisson_gtmg():
     assert run_gtmg_scpc_mixed_poisson() < 1e-5

@@ -55,7 +55,7 @@ def count_flops(form):
                           (triangle, 4),
                           (tetrahedron, 6)])
 def test_bilinear(form, cell, order):
-    degrees = numpy.arange(1, 9 - 2 * cell.topological_dimension())
+    degrees = numpy.arange(1, 9 - 2 * cell.topological_dimension)
     flops = [count_flops(form(cell, int(degree)))
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees + 1))
@@ -73,7 +73,7 @@ def test_linear(cell, order):
         v = TestFunction(V)
         return v*dx
 
-    degrees = numpy.arange(2, 9 - 1.5 * cell.topological_dimension())
+    degrees = numpy.arange(2, 9 - 1.5 * cell.topological_dimension)
     flops = [count_flops(form(cell, int(degree)))
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees + 1))
@@ -91,7 +91,7 @@ def test_functional(cell, order):
         f = Coefficient(V)
         return div(f)*dx
 
-    dim = cell.topological_dimension()
+    dim = cell.topological_dimension
     degrees = numpy.arange(2, 8 - dim) + (3 - dim)
     flops = [count_flops(form(cell, int(degree)))
              for degree in degrees]

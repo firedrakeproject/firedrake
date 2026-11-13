@@ -1,32 +1,16 @@
 import firedrake
 import ufl
 import finat.ufl
+import warnings
 import weakref
 from enum import IntEnum
 from firedrake.petsc import PETSc
 from firedrake.embedding import get_embedding_dg_element
+from .interface import assemble_prolongation_aij
+from finat.element_factory import create_element
+from .utils import get_level
 
-
-__all__ = ("TransferManager", )
-
-
-native_families = frozenset(["Lagrange", "Discontinuous Lagrange", "Real", "Q", "DQ", "BrokenElement"])
-alfeld_families = frozenset(["Hsieh-Clough-Tocher", "Reduced-Hsieh-Clough-Tocher", "Johnson-Mercier",
-                             "Alfeld-Sorokina", "Arnold-Qin", "Reduced-Arnold-Qin", "Christiansen-Hu",
-                             "Guzman-Neilan", "Guzman-Neilan Bubble"])
-non_native_variants = frozenset(["integral", "fdm", "alfeld"])
-
-
-def get_embedding_element(element, value_shape):
-    broken_cg = element.sobolev_space in {ufl.H1, ufl.H2}
-    dg_element = get_embedding_dg_element(element, value_shape, broken_cg=broken_cg)
-    variant = element.variant() or "default"
-    family = element.family()
-    # Elements on Alfeld splits are embedded onto DG Powell-Sabin.
-    # This yields supermesh projection
-    if (family in alfeld_families) or ("alfeld" in variant.lower() and family != "Discontinuous Lagrange"):
-        dg_element = dg_element.reconstruct(variant="powell-sabin")
-    return dg_element
+__all__ = ("TransferManager",)
 
 
 class Op(IntEnum):
@@ -51,44 +35,75 @@ class TransferManager(object):
             self._work_vec = {}
             self._V_dof_weights = {}
 
-    def __init__(self, *, native_transfers=None, use_averaging=True):
-        """
-        An object for managing transfers between levels in a multigrid
-        hierarchy (possibly via embedding in DG spaces).
+    def __init__(self, *, native_transfers=None, use_averaging=True, mat_type="matfree"):
+        """Manage transfers between levels in a multigrid hierarchy.
 
-        :arg native_transfers: dict mapping UFL element
-           to "natively supported" transfer operators. This should be
-           a three-tuple of (prolong, restrict, inject).
-        :arg use_averaging: Use averaging to approximate the
-           projection out of the embedded DG space? If False, a global
-           L2 projection will be performed.
+        Parameters
+        ----------
+        native_transfers : dict
+            A mapping from UFL elements to natively supported transfer
+            operators. Each value must be a three-tuple containing the
+            prolong, restrict, and inject operators.
+        use_averaging : bool
+            Whether to use averaging to approximate the projection out of an
+            embedded DG space. If false, perform a global L2 projection.
+        mat_type : str
+            The matrix assembly type for prolongation and restriction.
         """
         self.native_transfers = native_transfers or {}
         self.use_averaging = use_averaging
         self.caches = {}
+        self.mat_type = mat_type
+        self._mat_cache = {}
 
-    def is_native(self, element, op):
-        if element in self.native_transfers.keys():
+    def is_native(self, element, gdim, op):
+        if element in self.native_transfers:
             return self.native_transfers[element][op] is not None
-        if isinstance(element.cell, ufl.TensorProductCell) and len(element.sub_elements) > 0:
-            return all(self.is_native(e, op) for e in element.sub_elements)
-        return (element.family() in native_families) and not (element.variant() in non_native_variants)
+        if isinstance(element.cell, ufl.TensorProductCell):
+            if isinstance(element, finat.ufl.TensorProductElement):
+                return all(self.is_native(e, gdim, op) for e in element.factor_elements)
+            elif isinstance(element, finat.ufl.MixedElement):
+                return all(self.is_native(e, gdim, op) for e in element.sub_elements)
 
-    def _native_transfer(self, element, op):
+        # Can we interpolate into this element?
+        # Piola-mapped elements on manifolds
+        # have degrees of freedom evaluating to
+        # different values on either side of a facet
+        tdim = element.cell.topological_dimension
+        if tdim != gdim and element.mapping() != "identity":
+            return False
+
+        finat_element = create_element(element)
+        try:
+            finat_element.dual_basis
+        except NotImplementedError:
+            return False
+        else:
+            return True
+
+    def _native_transfer(self, element, gdim, op):
         try:
             return self.native_transfers[element][op]
         except KeyError:
-            if self.is_native(element, op):
-                ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+            if self.is_native(element, gdim, op):
+                if self.mat_type == "aij":
+                    ops = self._prolong_aij, self._restrict_aij, firedrake.inject
+                elif self.mat_type == "matfree":
+                    ops = firedrake.prolong, firedrake.restrict, firedrake.inject
+                else:
+                    raise ValueError(f"Unsupported mat_type {self.mat_type}")
                 return self.native_transfers.setdefault(element, ops)[op]
         return None
 
     def cache(self, V):
-        key = (V.ufl_element(), V.value_shape)
+        key = (V.ufl_element(), V.value_shape, V.boundary_set)
         try:
             return self.caches[key]
         except KeyError:
-            return self.caches.setdefault(key, TransferManager.Cache(*key))
+            return self.caches.setdefault(key, TransferManager.Cache(*key[:2]))
+
+    def cache_key(self, V):
+        return (V.dim(),)
 
     def V_dof_weights(self, V):
         """Dof weights for averaging projection.
@@ -97,7 +112,7 @@ class TransferManager(object):
         :returns: A PETSc Vec.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_dof_weights[key]
         except KeyError:
@@ -122,7 +137,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_DG_mass[key]
         except KeyError:
@@ -153,7 +168,7 @@ class TransferManager(object):
         :returns: A PETSc Mat mapping from V -> DG.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_approx_inv_mass[key]
         except KeyError:
@@ -171,13 +186,13 @@ class TransferManager(object):
         :returns: A PETSc KSP for inverting (V, V).
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._V_inv_mass_ksp[key]
         except KeyError:
             M = firedrake.assemble(firedrake.inner(firedrake.TrialFunction(V),
                                                    firedrake.TestFunction(V))*firedrake.dx)
-            ksp = PETSc.KSP().create(comm=V._comm)
+            ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
             ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
             ksp.setType("preonly")
@@ -193,7 +208,7 @@ class TransferManager(object):
         """
         needs_dual = ufl.duals.is_dual(V)
         cache = self.cache(V)
-        key = (V.dim(), needs_dual)
+        key = self.cache_key(V) + (needs_dual,)
         try:
             return cache._DG_work[key]
         except KeyError:
@@ -210,7 +225,7 @@ class TransferManager(object):
         :returns: A PETSc Vec for V.
         """
         cache = self.cache(V)
-        key = V.dim()
+        key = self.cache_key(V)
         try:
             return cache._work_vec[key]
         except KeyError:
@@ -244,15 +259,22 @@ class TransferManager(object):
         Vt = target.function_space()
         source_element = Vs.ufl_element()
         target_element = Vt.ufl_element()
-        if not self.requires_transfer(Vs, transfer_op, source, target):
-            return
 
-        if all(self.is_native(e, transfer_op) for e in (source_element, target_element)):
-            self._native_transfer(source_element, transfer_op)(source, target)
-        elif type(source_element) is finat.ufl.MixedElement:
+        # Recurse on sub-elements before any cache lookup: the mixed element may
+        # span multiple cell types (e.g. volume + surface submesh), which would
+        # cause cache() to call get_embedding_dg_element on a multi-cell element.
+        if type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.op(source_, target_, transfer_op=transfer_op)
+            return
+
+        if not self.requires_transfer(Vs, transfer_op, source, target):
+            return
+
+        gdim = Vt.mesh().geometric_dimension
+        if self.is_native(target_element, gdim, transfer_op):
+            self._native_transfer(target_element, gdim, transfer_op)(source, target)
         else:
             # Get some work vectors
             dgsource = self.DG_work(Vs)
@@ -283,6 +305,23 @@ class TransferManager(object):
                     self.V_inv_mass_ksp(Vt).solve(work, t)
         self.cache_dat_versions(Vs, transfer_op, source, target)
 
+    def transfer(self, x, y):
+        """Transfer a function/cofunction.
+
+        :arg x: The source (co)function.
+        :arg y: The target (co)function.
+        """
+        _, xlevel = get_level(x.function_space().mesh())
+        _, ylevel = get_level(y.function_space().mesh())
+        if ufl.duals.is_dual(x):
+            if xlevel > ylevel:
+                return self.restrict(x, y)
+            return y.interpolate(x)
+        elif xlevel < ylevel:
+            return self.prolong(x, y)
+        else:
+            return self.inject(x, y)
+
     def prolong(self, uc, uf):
         """Prolong a function.
 
@@ -300,7 +339,7 @@ class TransferManager(object):
         self.op(uf, uc, transfer_op=Op.INJECT)
 
     def restrict(self, source, target):
-        """Restrict a dual function.
+        """Restrict a cofunction.
 
         :arg source: The source (fine grid) :class:`.Cofunction`.
         :arg target: The target (coarse grid) :class:`.Cofunction`.
@@ -309,15 +348,22 @@ class TransferManager(object):
         Vt_star = target.function_space()
         source_element = Vs_star.ufl_element()
         target_element = Vt_star.ufl_element()
-        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
-            return
 
-        if all(self.is_native(e, Op.RESTRICT) for e in (source_element, target_element)):
-            self._native_transfer(source_element, Op.RESTRICT)(source, target)
-        elif type(source_element) is finat.ufl.MixedElement:
+        # Recurse on sub-elements before any cache lookup: the mixed element may
+        # span multiple cell types (e.g. volume + surface submesh), which would
+        # cause cache() to call get_embedding_dg_element on a multi-cell element.
+        if type(source_element) is finat.ufl.MixedElement:
             assert type(target_element) is finat.ufl.MixedElement
             for source_, target_ in zip(source.subfunctions, target.subfunctions):
                 self.restrict(source_, target_)
+            return
+
+        if not self.requires_transfer(Vs_star, Op.RESTRICT, source, target):
+            return
+
+        gdim = Vs_star.mesh().geometric_dimension
+        if self.is_native(source_element, gdim, Op.RESTRICT):
+            self._native_transfer(source_element, gdim, Op.RESTRICT)(source, target)
         else:
             Vs = Vs_star.dual()
             Vt = Vt_star.dual()
@@ -346,3 +392,69 @@ class TransferManager(object):
                 self.DG_inv_mass(VDGt).mult(dgv, dgwork)
                 self.V_DG_mass(Vt, VDGt).multTranspose(dgwork, t)
         self.cache_dat_versions(Vs_star, Op.RESTRICT, source, target)
+
+    def _prolongation_matrix(self, Vc, Vf):
+        """Assemble and cache the prolongation matrix mapping Vc to Vf.
+
+        Parameters
+        ----------
+        Vc : WithGeometry
+            The source (coarse grid) function space.
+        Vf : WithGeometry
+            The target (fine grid) function space.
+
+        Returns
+        -------
+        AssembledMatrix
+            The cached prolongation matrix mapping Vc to Vf.
+
+        """
+        key = (Vc, Vf)
+        try:
+            return self._mat_cache[key]
+        except KeyError:
+            P = assemble_prolongation_aij(Vc, Vf)
+            return self._mat_cache.setdefault(key, P)
+
+    def _prolong_aij(self, uc, uf):
+        """Prolong a function by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        uc : Function
+            The source (coarse grid) function.
+        uf : Function
+            The target (fine grid) function.
+
+        """
+        Vc = uc.function_space()
+        Vf = uf.function_space()
+        P = self._prolongation_matrix(Vc, Vf)
+        with uc.dat.vec_ro as x, uf.dat.vec_wo as y:
+            P.petscmat.mult(x, y)
+
+    def _restrict_aij(self, rf, rc):
+        """Restrict a cofunction by explicit matrix-vector product.
+
+        Parameters
+        ----------
+        rf : Cofunction
+            The source (fine grid) cofunction.
+        rc : Cofunction
+            The target (coarse grid) cofunction.
+
+        """
+        Vc = rc.function_space().dual()
+        Vf = rf.function_space().dual()
+        P = self._prolongation_matrix(Vc, Vf)
+        with rf.dat.vec_ro as x, rc.dat.vec_wo as y:
+            P.petscmat.multTranspose(x, y)
+
+
+def AdaptiveTransferManager(*args, **kwargs):
+    """Deprecated alias for `TransferManager`."""
+    warnings.warn(
+        "The ``AdaptiveTransferManager`` class is deprecated and will be removed in a future release. "
+        "Please use the ``TransferManager`` class instead.", FutureWarning
+    )
+    return TransferManager(*args, **kwargs)

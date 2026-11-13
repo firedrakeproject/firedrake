@@ -70,7 +70,9 @@ equation (3) with different forcing terms :math:`f_s(\mathbf{x}, t)`, different 
 gradients (which we will discuss later).
 
 Instantiating an ensemble requires a communicator (usually MPI_COMM_WORLD) plus the number of MPI
-processes to be used in each member of the ensemble (2, in this case)::
+processes to be used in each member of the ensemble (2, in this case):
+
+.. code-block:: python
 
     from firedrake import *
     M = 2
@@ -83,25 +85,29 @@ for 3 wave sources. Therefore, we will have 3 emsemble members, each with 2 rank
 processes launched by mpiexec must therefore be equal to the product of number of ensemble members
 (3, in this case) with the number of processes to be used for each ensemble member (``M=2``, in this case).
 Additional details about the ensemble parallelism can be found in the
-`Firedrake documentation <https://www.firedrakeproject.org/parallelism.html#ensemble-parallelism>`_.
+`Firedrake documentation <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
 
 The subcommunicators in each ensemble member are: ``Ensemble.comm`` and ``Ensemble.ensemble_comm``.
 ``Ensemble.comm`` is the spatial communicator. ``Ensemble.ensemble_comm`` allows communication between
 the ensemble members. In this example, ``Ensemble.ensemble_comm`` benefits the communication of the
 functionals :math:`J_s` and their gradients for the distinct the wave sources.
 
-The number of sources is defined with ``my_ensemble.ensemble_comm.size`` (3 in this case)::
+The number of sources is defined with ``my_ensemble.ensemble_comm.size`` (3 in this case):
+
+.. code-block:: python
 
     num_sources = my_ensemble.ensemble_comm.size
 
-The source number is defined with the ``Ensemble.ensemble_comm`` rank::
+The source number is defined with the ``Ensemble.ensemble_comm`` rank:
+
+.. code-block:: python
 
     source_number = my_ensemble.ensemble_comm.rank
 
 In this example, we consider a two-dimensional square domain with a side length of 1.0 km. The mesh is
 built over the ``my_ensemble.comm`` (spatial) communicator.
 
-::
+.. code-block:: python
 
     import os
     if os.getenv("FIREDRAKE_CI") == "1": 
@@ -109,14 +115,18 @@ built over the ``my_ensemble.comm`` (spatial) communicator.
         dt = 0.03  # time step in seconds
         final_time = 0.6  # final time in seconds
         nx, ny = 15, 15
+        ftol = 0.9  # optimisation tolerance
     else:
         dt = 0.002  # time step in seconds
         final_time = 1.0  # final time in seconds
         nx, ny = 80, 80
+        ftol = 1e-2  # optimisation tolerance
 
     mesh = UnitSquareMesh(nx, ny, comm=my_ensemble.comm)
 
-The frequency of the Ricker wavelet, the source and receiver locations are defined as follows::
+The frequency of the Ricker wavelet, the source and receiver locations are defined as follows:
+
+.. code-block:: python
 
     import numpy as np
     frequency_peak = 7.0  # The dominant frequency of the Ricker wavelet in Hz.
@@ -136,7 +146,9 @@ These data are subject to influences of the subsurface medium while waves propag
 In this example, we emulate observed data by executing the acoustic wave equation with a synthetic
 pressure wave velocity model. The synthetic pressure wave velocity model is referred to here as the
 true velocity model (``c_true``). For the sake of simplicity, we consider ``c_true`` consisting of a
-circle in the centre of the domain, as shown in the following code cell::
+circle in the centre of the domain, as shown in the following code cell:
+
+.. code-block:: python
 
     V = FunctionSpace(mesh, "KMV", 1)
     x, z = SpatialCoordinate(mesh)
@@ -153,7 +165,9 @@ as:
 
 .. math:: \int_{\Omega} f_s(\mathbf{x},t) v \, dx = r(t) q_s(\mathbf{x}),  \quad q_s(\mathbf{x}) \in V^{\ast} \quad \quad (6)
 
-where :math:`r(t)` is the Ricker wavelet coded as follows::
+where :math:`r(t)` is the Ricker wavelet coded as follows:
+
+.. code-block:: python
 
     def ricker_wavelet(t, fs, amp=1.0):
         ts = 1.5
@@ -162,26 +176,36 @@ where :math:`r(t)` is the Ricker wavelet coded as follows::
                 * np.exp((-1.0 / 4.0) * (2.0 * np.pi * fs) * (2.0 * np.pi * fs) * t0 * t0))
 
 To compute the cofunction :math:`q_s(\mathbf{x})\in V^{\ast}`, we first construct the source mesh over the
-source location :math:`\mathbf{x}_s`, for the source number ``source_number``::
+source location :math:`\mathbf{x}_s`, for the source number ``source_number``:
+
+.. code-block:: python
 
     source_mesh = VertexOnlyMesh(mesh, [source_locations[source_number]])
 
-Next, we define a function space :math:`V_s` accordingly::
+Next, we define a function space :math:`V_s` accordingly:
+
+.. code-block:: python
 
     V_s = FunctionSpace(source_mesh, "DG", 0)
 
-The point source value :math:`d_s(\mathbf{x}_s) = 1.0` is coded as::
+The point source value :math:`d_s(\mathbf{x}_s) = 1.0` is coded as:
+
+.. code-block:: python
 
     d_s = Function(V_s)
     d_s.interpolate(1.0)
 
-We then interpolate a cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}` to then have :math:`q_s \in V^{\ast}`::
+We then interpolate a cofunction in :math:`V_s^{\ast}` onto :math:`V^{\ast}` to then have :math:`q_s \in V^{\ast}`:
+
+.. code-block:: python
 
     source_cofunction = assemble(d_s * TestFunction(V_s) * dx)
     q_s = Cofunction(V.dual()).interpolate(source_cofunction)
 
 
-The forward wave equation solver is written as follows::
+The forward wave equation solver is written as follows:
+
+.. code-block:: python
 
     import finat
     
@@ -208,16 +232,18 @@ The forward wave equation solver is written as follows::
 You can find more details about the wave equation with mass lumping on this
 `Firedrake demos <https://www.firedrakeproject.org/demos/higher_order_mass_lumping.py.html>`_.
 
-The receivers mesh and its function space :math:`V_r`::
+The receivers mesh and its function space :math:`V_r`:
+
+.. code-block:: python
 
     receiver_mesh = VertexOnlyMesh(mesh, receiver_locations)
     V_r = FunctionSpace(receiver_mesh, "DG", 0)
 
 The receiver mesh is required in order to interpolate the wave equation solution at the receivers.
 
-We are now able to proceed with the synthetic data computations and record them on the receivers::
+We are now able to proceed with the synthetic data computations and record them on the receivers:
 
-    from firedrake.__future__ import interpolate
+.. code-block:: python
 
     true_data_receivers = []
     total_steps = int(final_time / dt) + 1
@@ -246,7 +272,9 @@ Next, the FWI problem is executed with the following steps:
 
 6. Repeat steps 2-5 until the optimisation stopping criterion is satisfied.
 
-**Step 1**: The initial guess is set as a constant field with a value of 1.5 km/s::
+**Step 1**: The initial guess is set as a constant field with a value of 1.5 km/s:
+
+.. code-block:: python
 
     c_guess = Function(V).interpolate(1.5)
 
@@ -257,13 +285,17 @@ Next, the FWI problem is executed with the following steps:
     :align: center
 
 
-To have the step 4, we need first to tape the forward problem. That is done by calling::
+To have the step 4, we need first to tape the forward problem. That is done by calling:
+
+.. code-block:: python
 
     from firedrake.adjoint import *
     continue_annotation()
     get_working_tape().progress_bar = ProgressBar
 
-**Steps 2-3**: Solve the wave equation and compute the functional::
+**Steps 2-3**: Solve the wave equation and compute the functional:
+
+.. code-block:: python
 
     f = Cofunction(V.dual())  # Wave equation forcing term.
     solver, u_np1, u_n, u_nm1 = wave_equation_solver(c_guess, f, dt, V)
@@ -278,9 +310,13 @@ To have the step 4, we need first to tape the forward problem. That is done by c
         misfit = guess_receiver - true_data_receivers[step]
         J_val += 0.5 * assemble(inner(misfit, misfit) * dx)
 
-We now instantiate :class:`~.EnsembleReducedFunctional`::
+We now instantiate :class:`~.EnsembleReducedFunctional`:
 
-    J_hat = EnsembleReducedFunctional(J_val, Control(c_guess), my_ensemble)
+.. code-block:: python
+
+    J_hat = EnsembleReducedFunctional(J_val,
+                                      Control(c_guess, riesz_map="l2"),
+                                      my_ensemble)
 
 which enables us to recompute :math:`J` and its gradient :math:`\nabla_{\mathtt{c\_guess}} J`,
 where the :math:`J_s` and its gradients :math:`\nabla_{\mathtt{c\_guess}} J_s` are computed in parallel
@@ -288,13 +324,20 @@ based on the ``my_ensemble`` configuration.
 
 
 **Steps 4-6**: The instance of the :class:`~.EnsembleReducedFunctional`, named ``J_hat``,
-is then passed as an argument to the ``minimize`` function::
+is then passed as an argument to the ``minimize`` function. The default ``minimize`` function
+uses ``scipy.minimize``, and wraps the ``ReducedFunctional`` in a ``ReducedFunctionalNumPy``
+that handles transferring data between Firedrake and numpy data structures. However, because
+we have a custom ``ReducedFunctional``, we need to do this ourselves:
 
-    c_optimised = minimize(J_hat, method="L-BFGS-B", options={"disp": True, "maxiter": 1},
-                            bounds=(1.5, 2.0), derivative_options={"riesz_representation": 'l2'}
-                            )
+.. code-block:: python
 
-The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``maxiter``) is met.
+    from pyadjoint.reduced_functional_numpy import ReducedFunctionalNumPy
+    Jnumpy = ReducedFunctionalNumPy(J_hat)
+
+    c_optimised = minimize(Jnumpy, method="L-BFGS-B", options={"disp": True, "ftol": ftol},
+                           bounds=(1.5, 2.0))
+
+The ``minimize`` function executes the optimisation algorithm until the stopping criterion (``ftol``) is met.
 For 20 iterations, the predicted velocity model is shown in the following figure.
 
 .. image:: c_predicted.png
@@ -305,9 +348,7 @@ For 20 iterations, the predicted velocity model is shown in the following figure
 .. warning::
 
     The ``minimize`` function uses the SciPy library for optimisation. However, for scenarios that require higher
-    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem.
-    SciPy's optimisation algorithm is not inner-product-aware. Therefore, we configure the options with
-    ``derivative_options={"riesz_representation": 'l2'}`` to account for this requirement.
+    levels of spatial parallelism, you should assess whether SciPy is the most suitable option for your problem such as the pyadjoint's TAOSolver.
 
 .. note::
 

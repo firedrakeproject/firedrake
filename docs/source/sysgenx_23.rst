@@ -10,8 +10,8 @@
 SysGenX Meeting and Sprint
 --------------------------
                
-The whole SysGenX consortium and collaborators will be be meeting at `Missenden
-Abbey <https://missendenabbey.co.uk>`__ from 11-13 September 2023. This is a
+The whole SysGenX consortium and collaborators will be be meeting at Missenden
+Abbey from 11-13 September 2023. This is a
 key opportunity to exchange results and ideas related to the SysGenX project,
 and to sit down together and collaborate on code and simulations.
 

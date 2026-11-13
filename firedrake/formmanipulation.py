@@ -2,8 +2,9 @@
 import numpy
 import collections
 
-from ufl import as_vector, split
-from ufl.classes import Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl import as_tensor, as_vector, split
+from ufl.classes import Form, FormSum, Zero, FixedIndex, ListTensor, ZeroBaseForm
+from ufl.algorithms.analysis import has_type
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms import expand_derivatives
 from ufl.corealg.map_dag import MultiFunction, map_expr_dags
@@ -14,7 +15,8 @@ from pyop2.utils import as_tuple
 from firedrake.petsc import PETSc
 from firedrake.functionspace import MixedFunctionSpace
 from firedrake.cofunction import Cofunction
-from firedrake.matrix import AssembledMatrix
+from firedrake import slate
+from firedrake.ufl_expr import Coargument
 
 
 def subspace(V, indices):
@@ -48,7 +50,19 @@ class ExtractSubBlock(MultiFunction):
                     return ListTensor(*(child[i] for i in indices))
             return self.expr(o, child, multiindex)
 
-    index_inliner = IndexInliner()
+    @property
+    def index_inliner(self):
+        """Return an IndexInliner multifunction.
+
+        This is a property so that the IndexInliner is not created on import.
+        This is a workaround for issues in Irksome caused by the UFL typecode
+        system.
+        """
+        try:
+            return self._index_inliner
+        except AttributeError:
+            type(self)._index_inliner = self.IndexInliner()
+        return self._index_inliner
 
     def _subspace_argument(self, a):
         return type(a)(subspace(a.function_space(), self.blocks[a.number()]),
@@ -77,6 +91,15 @@ class ExtractSubBlock(MultiFunction):
             assert (len(idx) == 1 for idx in self.blocks.values())
             assert (idx[0] == 0 for idx in self.blocks.values())
             return form
+
+        if isinstance(form, FormSum) and has_type(form, slate.slate.TensorBase):
+            # A Slate component cannot be traversed as a UFL DAG, so recover the
+            # equivalent Slate expression and take a Block of that instead.
+            form = slate.slate.as_slate(form)
+
+        if isinstance(form, slate.slate.TensorBase):
+            return slate.push_block(slate.slate.Block(form, tuple(self.blocks[i] for i in range(form.rank))))
+
         # TODO find a way to distinguish empty Forms avoiding expand_derivatives
         f = map_integrand_dags(self, form)
         if expand_derivatives(f).empty():
@@ -133,6 +156,17 @@ class ExtractSubBlock(MultiFunction):
                 args.extend(Zero() for j in numpy.ndindex(V[i].value_shape))
         return self._arg_cache.setdefault(o, as_vector(args))
 
+    def coargument(self, o):
+        V = o.function_space()
+
+        if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
+            return o
+
+        indices = self.blocks[o.number()]
+        W = subspace(V, indices)
+        return Coargument(W, number=o.number(), part=o.part())
+
     def cofunction(self, o):
         V = o.function_space()
 
@@ -149,27 +183,95 @@ class ExtractSubBlock(MultiFunction):
             return Cofunction(W, val=MixedDat(o.dat[i] for i in indices))
 
     def matrix(self, o):
+        from firedrake.bcs import DirichletBC, EquationBCSplit
+        from firedrake.matrix import AssembledMatrix
+
         ises = []
         args = []
+        argument_indices = []
         for a in o.arguments():
             V = a.function_space()
             iset = PETSc.IS()
             if a.number() in self.blocks:
+                fields = self.blocks[a.number()]
                 asplit = self._subspace_argument(a)
-                for f in self.blocks[a.number()]:
+                for f in fields:
                     fset = V.dof_dset.field_ises[f]
                     iset = iset.expand(fset)
             else:
+                fields = tuple(range(len(V)))
                 asplit = a
                 for fset in V.dof_dset.field_ises:
                     iset = iset.expand(fset)
 
             ises.append(iset)
             args.append(asplit)
+            argument_indices.append(fields)
+
+        if isinstance(o.a, Form):
+            form = self.split(o.a, argument_indices=argument_indices)
+            if isinstance(form, ZeroBaseForm):
+                return form
+        else:
+            form = None
 
         submat = o.petscmat.createSubMatrix(*ises)
-        bcs = ()
-        return AssembledMatrix(tuple(args), bcs, submat)
+
+        bcs = []
+        spaces = [a.function_space() for a in o.arguments()]
+        for bc in o.bcs:
+            W = bc.function_space()
+            while W.parent is not None:
+                W = W.parent
+
+            number = spaces.index(W)
+            field = self.blocks[number]
+            V = args[number].function_space()
+            if isinstance(bc, DirichletBC):
+                bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, use_split=True)
+            elif isinstance(bc, EquationBCSplit):
+                row_field, col_field = argument_indices
+                bc_temp = bc.reconstruct(field=field, V=V, row_field=row_field, col_field=col_field, use_split=True)
+            if bc_temp is not None:
+                bcs.append(bc_temp)
+
+        return AssembledMatrix(form or tuple(args), submat, tuple(bcs))
+
+    def zero_base_form(self, o):
+        return ZeroBaseForm(tuple(map(self, o.arguments())))
+
+    def interpolate(self, o, operand):
+        if isinstance(operand, Zero):
+            return self(ZeroBaseForm(o.arguments()))
+
+        dual_arg, _ = o.argument_slots()
+        if len(dual_arg.arguments()) == 1 or len(dual_arg.arguments()[-1].function_space()) == 1:
+            # The dual argument has been contracted or does not need to be split
+            return o._ufl_expr_reconstruct_(operand, dual_arg)
+
+        if not isinstance(dual_arg, Coargument):
+            raise NotImplementedError(f"I do not know how to split an Interpolate with a {type(dual_arg).__name__}.")
+
+        indices = self.blocks[dual_arg.number()]
+        V = dual_arg.function_space()
+
+        # Split the target (dual) argument
+        sub_dual_arg = self(dual_arg)
+        W = sub_dual_arg.function_space()
+
+        # Unflatten the expression into the target shape
+        cur = 0
+        components = []
+        for i, Vi in enumerate(V):
+            if i in indices:
+                components.extend(operand[i] for i in range(cur, cur+Vi.value_size))
+            cur += Vi.value_size
+
+        operand = as_tensor(numpy.reshape(components, W.value_shape))
+        if isinstance(operand, Zero):
+            return self(ZeroBaseForm(o.arguments()))
+
+        return o._ufl_expr_reconstruct_(operand, sub_dual_arg)
 
 
 SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
@@ -184,7 +286,7 @@ def split_form(form, diagonal=False):
 
     For example, consider the following code:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         V = FunctionSpace(m, 'CG', 1)
         W = V*V*V
@@ -194,7 +296,7 @@ def split_form(form, diagonal=False):
 
     Then splitting the form returns a tuple of two forms.
 
-    .. code-block:: python3
+    .. code-block:: python
 
        ((0, 2), w*p*dx),
         (1, 0), q*u*dx))

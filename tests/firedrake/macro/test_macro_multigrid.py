@@ -1,7 +1,6 @@
 import numpy
 import pytest
 from firedrake import *
-from firedrake.__future__ import *
 from firedrake.utils import complex_mode
 
 
@@ -116,11 +115,7 @@ def test_macro_grid_transfer(hierarchy, space, degrees, variant, transfer_type):
     if not hierarchy.nested and transfer_type == "injection":
         pytest.skip("Not implemented")
     if transfer_type == "injection":
-        if space in {"DG", "DQ"} and complex_mode:
-            with pytest.raises(NotImplementedError):
-                run_injection(hierarchy, space, degrees, variant)
-        else:
-            run_injection(hierarchy, space, degrees, variant)
+        run_injection(hierarchy, space, degrees, variant)
     elif transfer_type == "restriction":
         run_restriction(hierarchy, space, degrees, variant)
     elif transfer_type == "prolongation":
@@ -134,9 +129,8 @@ mg_params = {
     "pc_type": "mg",
     "mg_levels_ksp_type": "chebyshev",
     "mg_levels_pc_type": "jacobi",
-    "mg_coarse_pc_type": "python",
-    "mg_coarse_pc_python_type": "firedrake.AssembledPC",
-    "mg_coarse_assembled_pc_type": "cholesky",
+    "mg_coarse_mat_type": "aij",
+    "mg_coarse_pc_type": "cholesky",
 }
 
 
@@ -160,7 +154,7 @@ def test_macro_multigrid_poisson(hierarchy, degree, variant, petsc_raises):
         solver.solve()
 
     expected = 10
-    if mesh.geometric_dimension() == 3 and variant == "alfeld":
+    if mesh.geometric_dimension == 3 and variant == "alfeld":
         expected = 14
     assert solver.snes.ksp.getIterationNumber() <= expected
 

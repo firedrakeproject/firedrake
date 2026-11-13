@@ -138,5 +138,5 @@ def test_auxiliary_dm():
     # Error in L2 norm
     (u, v, alpha) = z.subfunctions
     u_exact = problem.analytical_solution(mesh)
-    error_L2 = errornorm(u_exact, u, 'L2') / errornorm(u_exact, Function(FunctionSpace(mesh, 'CG', 1)), 'L2')
+    error_L2 = errornorm(u_exact, u) / norm(u_exact)
     assert error_L2 < 0.02

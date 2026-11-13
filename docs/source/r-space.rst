@@ -41,7 +41,7 @@ system is find `u\in V`, `r\in R` such that:
 
 The corresponding Python code is:
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -70,7 +70,7 @@ Functions in the space `R` are equivalent to a single floating point value. The
 value can be set using the :meth:`.Assigner.assign` method of Firedrake functions, and
 the value can be accessed simply by casting it to :class:`float`:
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 
@@ -114,7 +114,7 @@ for `R`. Note that there is only a single basis function for `R` and `\psi_i \eq
 
   K_{ij} = \int_\Omega \phi_i \,\mathrm{d}x
 
-with the result that `K` is a single dense matrix column. Similiarly,
+with the result that `K` is a single dense matrix column. Similarly,
 `K^T` is a single dense matrix row.
 
 Using the CSR matrix format typically employed by Firedrake, each
@@ -164,7 +164,7 @@ vertical average of a three-dimensional DG1 field by projecting the source
 field on a DG1 x R space.
 
 
-.. code-block:: python3
+.. code-block:: python
 
   from firedrake import *
 

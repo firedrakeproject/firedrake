@@ -1,133 +1,216 @@
 import ufl
-from ufl.corealg.map_dag import map_expr_dag
-from ufl.corealg.multifunction import MultiFunction
-from ufl.domain import as_domain, extract_unique_domain
-from ufl.duals import is_dual
+from ufl.corealg.dag_traverser import DAGTraverser
+from ufl.domain import extract_unique_domain, as_domain
 
-from functools import singledispatch, partial
+from functools import singledispatch, singledispatchmethod, partial
 import firedrake
 from firedrake.petsc import PETSc
+from firedrake.solving_utils import _SNESContext
 from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
 from . import utils
 
 
-__all__ = ["coarsen"]
+__all__ = ["coarsen", "refine"]
 
 
-class CoarseningError(Exception):
-    """Exception raised when coarsening symbolic information fails."""
+class ReconstructionError(Exception):
+    """Exception raised when reconstructing symbolic information fails."""
     pass
 
 
-class CoarsenIntegrand(MultiFunction):
+class ReconstructIntegrand(DAGTraverser):
 
-    """'Coarsen' a :class:`ufl.Expr` by replacing coefficients,
-    arguments and domain data with coarse mesh equivalents."""
+    """Reconstruct a :class:`ufl.Expr` with coefficients, arguments and
+    domain data on the target mesh level."""
 
-    def __init__(self, coarsen, coefficient_mapping=None):
+    def __init__(self, dispatch, coefficient_mapping=None):
+        super().__init__()
         if coefficient_mapping is None:
             coefficient_mapping = {}
         self.coefficient_mapping = coefficient_mapping
-        self.coarsen = coarsen
-        super(CoarsenIntegrand, self).__init__()
+        self.dispatch = dispatch
 
-    ufl_type = MultiFunction.reuse_if_untouched
+    @singledispatchmethod
+    def process(self, o):
+        return super().process(o)
 
+    @process.register(ufl.BaseForm)
+    @process.register(ufl.classes.Expr)
+    def expr(self, o):
+        return self.reuse_if_untouched(o)
+
+    @process.register(ufl.classes.Argument)
     def argument(self, o):
-        V = self.coarsen(o.function_space(), self.coarsen)
+        V = self.dispatch(o.function_space(), self.dispatch)
         return o.reconstruct(V)
 
+    @process.register(ufl.classes.Coefficient)
     def coefficient(self, o):
-        return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
+        return self.dispatch(o, self.dispatch, coefficient_mapping=self.coefficient_mapping)
 
+    @process.register(ufl.classes.Cofunction)
     def cofunction(self, o):
-        return self.coarsen(o, self.coarsen, coefficient_mapping=self.coefficient_mapping)
+        return self.dispatch(o, self.dispatch, coefficient_mapping=self.coefficient_mapping)
 
+    @process.register(ufl.classes.GeometricQuantity)
     def geometric_quantity(self, o):
-        return type(o)(self.coarsen(extract_unique_domain(o), self.coarsen))
+        return type(o)(self.dispatch(extract_unique_domain(o), self.dispatch))
 
+    @process.register(ufl.classes.Circumradius)
     def circumradius(self, o):
-        mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
+        mesh = self.dispatch(extract_unique_domain(o), self.dispatch)
         return firedrake.Circumradius(mesh)
 
+    @process.register(ufl.classes.FacetNormal)
     def facet_normal(self, o):
-        mesh = self.coarsen(extract_unique_domain(o), self.coarsen)
+        mesh = self.dispatch(extract_unique_domain(o), self.dispatch)
         return firedrake.FacetNormal(mesh)
 
 
 @singledispatch
-def coarsen(expr, self, coefficient_mapping=None):
-    # Default, just send it back
+def _reconstruct(expr, self, coefficient_mapping=None):
+    """Fallback case: leave an expression with no registered handler unchanged."""
     return expr
 
 
+@singledispatch
+def coarsen(expr, self, coefficient_mapping=None):
+    return _reconstruct(expr, self, coefficient_mapping=coefficient_mapping)
+
+
+@singledispatch
+def refine(expr, self, coefficient_mapping=None):
+    return _reconstruct(expr, self, coefficient_mapping=coefficient_mapping)
+
+
+def as_ufl_domain(obj):
+    """Return the underlying ufl domain"""
+    if isinstance(obj, _SNESContext):
+        obj = obj._problem
+    if isinstance(obj, firedrake.NonlinearVariationalProblem):
+        obj = obj.u.function_space()
+    elif isinstance(obj, firedrake.LinearEigenproblem):
+        obj = obj.output_space
+
+    if isinstance(obj, (firedrake.functionspaceimpl.WithGeometryBase,
+                        firedrake.functionspaceimpl.MixedFunctionSpace)):
+        return obj.mesh()
+    else:
+        return as_domain(obj)
+
+
+def get_relative(dispatch, old, reverse=False):
+    """Return old._coarse or old._fine depending on dispatch
+       if they share the same hierarchy, otherwise None."""
+    if reverse:
+        dispatch = coarsen if dispatch is refine else refine
+    new = None
+    if dispatch is coarsen:
+        new = getattr(old, "_coarse", None)
+    elif dispatch is refine:
+        new = getattr(old, "_fine", None)
+
+    if new is not None:
+        new_hierarchy, _ = utils.get_level(as_ufl_domain(new))
+        old_hierarchy, _ = utils.get_level(as_ufl_domain(old))
+        if new_hierarchy is not old_hierarchy:
+            new = None
+    return new
+
+
+def attach_relative(dispatch, old, new, reverse=False):
+    """Set old._coarse or old._fine to new depending on dispatch."""
+    if reverse:
+        dispatch = coarsen if dispatch is refine else refine
+    if dispatch is coarsen:
+        old._coarse = new
+    elif dispatch is refine:
+        old._fine = new
+
+
 @coarsen.register(ufl.Mesh)
+@coarsen.register(ufl.MeshSequence)
 def coarsen_mesh(mesh, self, coefficient_mapping=None):
     hierarchy, level = utils.get_level(mesh)
     if hierarchy is None:
-        raise CoarseningError("No mesh hierarchy available")
+        raise ReconstructionError("No mesh hierarchy available")
     return hierarchy[level - 1]
 
 
-@coarsen.register(ufl.BaseForm)
-@coarsen.register(ufl.classes.Expr)
-def coarse_expr(expr, self, coefficient_mapping=None):
+@refine.register(ufl.Mesh)
+@refine.register(ufl.MeshSequence)
+def refine_mesh(mesh, self, coefficient_mapping=None):
+    hierarchy, level = utils.get_level(mesh)
+    if hierarchy is None:
+        raise ReconstructionError("No mesh hierarchy available")
+    if len(hierarchy) <= level + 1:
+        raise ReconstructionError("Cannot refine the finest mesh")
+    return hierarchy[level + 1]
+
+
+@_reconstruct.register(ufl.BaseForm)
+@_reconstruct.register(ufl.classes.Expr)
+def reconstruct_expr(expr, self, coefficient_mapping=None):
     if expr is None:
         return None
-    mapper = CoarsenIntegrand(self, coefficient_mapping)
-    return map_expr_dag(mapper, expr)
+    mapper = ReconstructIntegrand(self, coefficient_mapping)
+    return mapper(expr)
 
 
-@coarsen.register(ufl.Form)
-def coarsen_form(form, self, coefficient_mapping=None):
-    """Return a coarse mesh version of a form
+@_reconstruct.register(ufl.Form)
+def reconstruct_form(form, self, coefficient_mapping=None):
+    """Return a coarse or fine mesh version of a form.
 
-    :arg form: The :class:`~ufl.classes.Form` to coarsen.
-    :kwarg mapping: an optional map from coefficients to their
-        coarsened equivalents.
+    :arg form: The :class:`~ufl.classes.Form` to reconstruct.
+    :kwarg coefficient_mapping: an optional map from coefficients to their
+        reconstructed equivalents.
 
     This maps over the form and replaces coefficients and arguments
-    with their coarse mesh equivalents."""
+    with their coarse/fine mesh equivalents."""
     if form is None:
         return None
 
-    mapper = CoarsenIntegrand(self, coefficient_mapping)
+    mapper = ReconstructIntegrand(self, coefficient_mapping)
     integrals = []
     for it in form.integrals():
-        integrand = map_expr_dag(mapper, it.integrand())
-        mesh = as_domain(it)
+        integrand = mapper(it.integrand())
+        mesh = it.ufl_domain()
         new_mesh = self(mesh, self)
         if isinstance(integrand, ufl.classes.Zero):
             continue
         if it.subdomain_data() is not None:
-            raise CoarseningError("Don't know how to coarsen subdomain data")
+            raise ReconstructionError("Don't know how to reconstruct subdomain data")
+        # Reconstruct secondary meshes in cross-mesh integrals (e.g. intersect_measures).
+        integral_type_map = {self(d, self): itype
+                             for d, itype in it.extra_domain_integral_type_map().items()}
         new_itg = it.reconstruct(integrand=integrand,
-                                 domain=new_mesh)
+                                 domain=new_mesh,
+                                 extra_domain_integral_type_map=integral_type_map)
         integrals.append(new_itg)
     form = ufl.Form(integrals)
     return form
 
 
-@coarsen.register(ufl.FormSum)
-def coarsen_formsum(form, self, coefficient_mapping=None):
+@_reconstruct.register(ufl.FormSum)
+def reconstruct_formsum(form, self, coefficient_mapping=None):
     return type(form)(*[(self(ci, self, coefficient_mapping=coefficient_mapping),
                          self(wi, self, coefficient_mapping=coefficient_mapping))
                         for ci, wi in zip(form.components(), form.weights())])
 
 
-@coarsen.register(firedrake.DirichletBC)
-def coarsen_bc(bc, self, coefficient_mapping=None):
+@_reconstruct.register(firedrake.DirichletBC)
+def reconstruct_bc(bc, self, coefficient_mapping=None):
     V = self(bc.function_space(), self, coefficient_mapping=coefficient_mapping)
-    val = self(bc.function_arg, self, coefficient_mapping=coefficient_mapping)
+    val = self(bc._original_arg, self, coefficient_mapping=coefficient_mapping)
     subdomain = bc.sub_domain
 
     return type(bc)(V, val, subdomain)
 
 
-@coarsen.register(firedrake.EquationBC)
-def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
+@_reconstruct.register(firedrake.EquationBC)
+def reconstruct_equation_bc(ebc, self, coefficient_mapping=None):
     J = self(ebc._J.f, self, coefficient_mapping=coefficient_mapping)
     Jp = self(ebc._Jp.f, self, coefficient_mapping=coefficient_mapping)
     u = self(ebc._F.u, self, coefficient_mapping=coefficient_mapping)
@@ -141,85 +224,125 @@ def coarsen_equation_bc(ebc, self, coefficient_mapping=None):
     return type(ebc)(lhs == rhs, u, sub_domain, V=V, bcs=bcs, J=J, Jp=Jp)
 
 
-@coarsen.register(firedrake.functionspaceimpl.WithGeometryBase)
-def coarsen_function_space(V, self, coefficient_mapping=None):
-    if hasattr(V, "_coarse"):
-        return V._coarse
+@_reconstruct.register(firedrake.functionspaceimpl.WithGeometryBase)
+def reconstruct_function_space(V, self, coefficient_mapping=None):
+    V_new = get_relative(self, V)
+    if V_new is not None:
+        return V_new
 
-    V_fine = V
-    mesh_coarse = self(V_fine.mesh(), self)
-    name = f"coarse_{V.name}" if V.name else None
-    V_coarse = V_fine.reconstruct(mesh=mesh_coarse, name=name)
-    V_coarse._fine = V_fine
-    V_fine._coarse = V_coarse
-    return V_coarse
+    # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
+    mesh = V.mesh() if V.index is None else V.parent.mesh()
+    new_mesh = self(mesh, self)
+
+    V_parent = V
+    while get_relative(self, V_parent, reverse=True) is not None:
+        V_parent = get_relative(self, V_parent, reverse=True)
+    name = V_parent.name
+    if name is not None:
+        mh, level = utils.get_level(new_mesh)
+        name = f"{name}_level_{level}"
+    V_new = V.reconstruct(mesh=new_mesh, name=name)
+    attach_relative(self, V_new, V, reverse=True)
+    attach_relative(self, V, V_new)
+    return V_new
 
 
-@coarsen.register(firedrake.Cofunction)
-@coarsen.register(firedrake.Function)
-def coarsen_function(expr, self, coefficient_mapping=None):
+@_reconstruct.register(firedrake.Cofunction)
+@_reconstruct.register(firedrake.Function)
+def reconstruct_function(expr, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
     new = coefficient_mapping.get(expr)
     if new is None:
-        Vf = expr.function_space()
-        Vc = self(Vf, self)
-        new = firedrake.Function(Vc, name=f"coarse_{expr.name()}")
-        manager = get_transfer_manager(Vf.dm)
-        if is_dual(expr):
-            manager.restrict(expr, new)
-        else:
-            manager.inject(expr, new)
+        V = expr.function_space()
+        Vnew = self(V, self)
+        name = expr.name()
+        if name is not None:
+            try:
+                name, prev_level = name.split("_level_")
+            except ValueError:
+                prev_level = 0
+            level_inc = 1 if self is refine else -1
+            level = int(prev_level) + level_inc
+            name = f"{name}_level_{level}"
+
+        new = firedrake.Function(Vnew, name=name)
+        manager = get_transfer_manager(V.dm)
+        manager.transfer(expr, new)
         coefficient_mapping[expr] = new
     return new
 
 
-@coarsen.register(firedrake.NonlinearVariationalProblem)
-def coarsen_nlvp(problem, self, coefficient_mapping=None):
-    if hasattr(problem, "_coarse"):
-        return problem._coarse
+@_reconstruct.register(firedrake.NonlinearVariationalProblem)
+def reconstruct_nlvp(problem, self, coefficient_mapping=None):
+    new_problem = get_relative(self, problem)
+    if new_problem is not None:
+        return new_problem
 
-    def inject_on_restrict(fine, restriction, rscale, injection, coarse):
-        manager = get_transfer_manager(fine)
+    def transfer_callback(fine, restriction, rscale, injection, coarse):
         cctx = get_appctx(coarse)
         cmapping = cctx._coefficient_mapping
         if cmapping is None:
             return
-        for c in cmapping:
-            if is_dual(c):
-                manager.restrict(c, cmapping[c])
-            else:
-                manager.inject(c, cmapping[c])
+
+        manager = get_transfer_manager(fine)
+        for c, mapped in cmapping.items():
+            manager.transfer(c, mapped)
+
         # Apply bcs
         if cctx.pre_apply_bcs:
             for bc in cctx._problem.dirichlet_bcs():
                 bc.apply(cctx._x)
 
-    dm = problem.u.function_space().dm
+    def coarsen_callback(fine, coarse):
+        if not coarse.getAttr("_coarsen_hook"):
+            coarse.addCoarsenHook(coarsen_callback, transfer_callback)
+            coarse.setAttr("_coarsen_hook", True)
+
+    dm = problem.u_restrict.function_space().dm
     if not dm.getAttr("_coarsen_hook"):
         # The hook is persistent and cumulative, but also problem-independent.
         # Therefore, we are only adding it once.
-        dm.addCoarsenHook(None, inject_on_restrict)
+        dm.addCoarsenHook(coarsen_callback, transfer_callback)
         dm.setAttr("_coarsen_hook", True)
 
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
     bcs = [self(bc, self, coefficient_mapping=coefficient_mapping) for bc in problem.bcs]
+    E = self(problem.E, self, coefficient_mapping=coefficient_mapping)
     F = self(problem.F, self, coefficient_mapping=coefficient_mapping)
     J = self(problem.J, self, coefficient_mapping=coefficient_mapping)
     Jp = self(problem.Jp, self, coefficient_mapping=coefficient_mapping)
-    u = coefficient_mapping[problem.u]
+    u = self(problem.u_restrict, self, coefficient_mapping=coefficient_mapping)
 
-    fine = problem
-    problem = firedrake.NonlinearVariationalProblem(F, u, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
-                                                    form_compiler_parameters=problem.form_compiler_parameters)
-    fine._coarse = problem
-    return problem
+    new_problem = firedrake.NonlinearVariationalProblem(
+        F, u, bcs=bcs, J=J, Jp=Jp, objective=E, is_linear=problem.is_linear,
+        form_compiler_parameters=problem.form_compiler_parameters)
+    attach_relative(self, problem, new_problem)
+    return new_problem
 
 
-@coarsen.register(firedrake.VectorSpaceBasis)
-def coarsen_vectorspacebasis(basis, self, coefficient_mapping=None):
+@_reconstruct.register(firedrake.LinearEigenproblem)
+def reconstruct_eigenproblem(problem, self, coefficient_mapping=None):
+    new_problem = get_relative(self, problem)
+    if new_problem is not None:
+        return new_problem
+
+    if coefficient_mapping is None:
+        coefficient_mapping = {}
+    bcs = [self(bc, self, coefficient_mapping=coefficient_mapping)
+           for bc in problem.bcs]
+    A = self(problem.A, self, coefficient_mapping=coefficient_mapping)
+    M = self(problem.M, self, coefficient_mapping=coefficient_mapping)
+    new_problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
+                                               bc_shift=problem.bc_shift, restrict=problem.restrict)
+    attach_relative(self, problem, new_problem)
+    return new_problem
+
+
+@_reconstruct.register(firedrake.VectorSpaceBasis)
+def reconstruct_vectorspacebasis(basis, self, coefficient_mapping=None):
     # Do not add basis._vecs to the coefficient_mapping,
     # as they need to be normalized, and are not meant to be reinjected
     coarse_vecs = [self(vec, self) for vec in basis._vecs]
@@ -228,8 +351,8 @@ def coarsen_vectorspacebasis(basis, self, coefficient_mapping=None):
     return vsb
 
 
-@coarsen.register(firedrake.MixedVectorSpaceBasis)
-def coarsen_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
+@_reconstruct.register(firedrake.MixedVectorSpaceBasis)
+def reconstruct_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
     coarse_V = self(mspbasis._function_space, self, coefficient_mapping=coefficient_mapping)
     coarse_bases = []
 
@@ -244,15 +367,14 @@ def coarsen_mixedvectorspacebasis(mspbasis, self, coefficient_mapping=None):
     return firedrake.MixedVectorSpaceBasis(coarse_V, coarse_bases)
 
 
-@coarsen.register(firedrake.solving_utils._SNESContext)
-def coarsen_snescontext(context, self, coefficient_mapping=None):
+@_reconstruct.register(_SNESContext)
+def reconstruct_snescontext(context, self, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
-    # Have we already done this?
-    coarse = context._coarse
-    if coarse is not None:
-        return coarse
+    new_context = get_relative(self, context)
+    if new_context is not None:
+        return new_context
 
     problem = self(context._problem, self, coefficient_mapping=coefficient_mapping)
     appctx = context.appctx
@@ -263,51 +385,104 @@ def coarsen_snescontext(context, self, coefficient_mapping=None):
             # Constructor makes this one.
             try:
                 new_appctx[k] = self(v, self, coefficient_mapping=coefficient_mapping)
-            except CoarseningError:
-                # Assume not something that needs coarsening (e.g. float)
+            except ReconstructionError:
+                # Assume not something that needs reconstruction (e.g. float)
                 new_appctx[k] = v
-    coarse = type(context)(problem,
-                           mat_type=context.mat_type,
-                           pmat_type=context.pmat_type,
-                           appctx=new_appctx,
-                           transfer_manager=context.transfer_manager,
-                           pre_apply_bcs=context.pre_apply_bcs)
-    coarse._coefficient_mapping = coefficient_mapping
-    coarse._fine = context
-    context._coarse = coarse
 
-    # Now that we have the coarse snescontext, push it to the coarsened DMs
-    # Otherwise they won't have the right transfer manager when they are
-    # coarsened in turn
+    # Get options prefix for current level
+    parent_context = context
+    while get_relative(self, parent_context, reverse=True) is not None:
+        parent_context = get_relative(self, parent_context, reverse=True)
+
+    parent_prefix = parent_context.options_prefix
+    opts = PETSc.Options(parent_prefix)
+    if opts.getString("snes_type", "") == "fas":
+        solver_prefix = "fas_"
+    else:
+        solver_prefix = "mg_"
+    _, level = utils.get_level(problem.u_restrict.function_space().mesh())
+    if level == 0:
+        levels_prefix = f"{solver_prefix}coarse_"
+    else:
+        levels_prefix = f"{solver_prefix}levels_"
+    current_level_prefix = f"{solver_prefix}levels_{level}_"
+    options_prefix = f"{parent_prefix}{current_level_prefix}"
+
+    # Use different mat_type on each level
+    mat_type = None
+    pmat_type = None
+    sub_mat_type = None
+    sub_pmat_type = None
+    for prefix in (levels_prefix, current_level_prefix):
+        mat_type = opts.getString(f"{prefix}mat_type", "") or mat_type
+        pmat_type = opts.getString(f"{prefix}pmat_type", "") or pmat_type
+        sub_mat_type = opts.getString(f"{prefix}sub_mat_type", "") or sub_mat_type
+        sub_pmat_type = opts.getString(f"{prefix}sub_pmat_type", "") or sub_pmat_type
+
+    pmat_type = pmat_type or mat_type
+    sub_pmat_type = sub_pmat_type or sub_mat_type
+    new_context = context.reconstruct(problem=problem,
+                                      mat_type=mat_type,
+                                      pmat_type=pmat_type,
+                                      sub_mat_type=sub_mat_type,
+                                      sub_pmat_type=sub_pmat_type,
+                                      appctx=new_appctx,
+                                      options_prefix=options_prefix,
+                                      )
+    new_context._coefficient_mapping = coefficient_mapping
+    attach_relative(self, new_context, context, reverse=True)
+    attach_relative(self, context, new_context)
+
+    solutiondm = context._problem.u_restrict.function_space().dm
+    parentdm = get_parent(solutiondm)
+    # Now that we have the reconstructed snescontext, push it to the reconstructed DMs.
+    # Otherwise they will not have the right transfer manager when they are reconstructed in turn.
     for val in coefficient_mapping.values():
         if isinstance(val, (firedrake.Function, firedrake.Cofunction)):
             V = val.function_space()
-            coarseneddm = V.dm
-            parentdm = get_parent(context._problem.u.function_space().dm)
+            newdm = V.dm
 
             # Now attach the hook to the parent DM
-            if get_appctx(coarseneddm) is None:
-                push_appctx(coarseneddm, coarse)
-                teardown = partial(pop_appctx, coarseneddm, coarse)
-                add_hook(parentdm, teardown=teardown)
+            if get_appctx(newdm) is None:
+                push_appctx(newdm, new_context)
+                if parentdm.getAttr("__setup_hooks__"):
+                    add_hook(parentdm, teardown=partial(pop_appctx, newdm, new_context))
 
-    ises = problem.J.arguments()[0].function_space()._ises
-    coarse._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
-    coarse.set_nullspace(coarse._nullspace, ises, transpose=False, near=False)
-    coarse._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
-    coarse.set_nullspace(coarse._nullspace_T, ises, transpose=True, near=False)
-    coarse._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
-    coarse.set_nullspace(coarse._near_nullspace, ises, transpose=False, near=True)
+    ises = new_context._x.function_space()._ises
+    new_context._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
+    new_context.set_nullspace(new_context._nullspace, ises, transpose=False, near=False)
+    new_context._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
+    new_context.set_nullspace(new_context._nullspace_T, ises, transpose=True, near=False)
+    new_context._near_nullspace = self(context._near_nullspace, self, coefficient_mapping=coefficient_mapping)
+    new_context.set_nullspace(new_context._near_nullspace, ises, transpose=False, near=True)
+    return new_context
 
-    return coarse
+
+@_reconstruct.register(firedrake.slate.BlockAssembledVector)
+def reconstruct_slate_block_assembled_vector(tensor, self, coefficient_mapping=None):
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    block = self(tensor._block, self, coefficient_mapping=coefficient_mapping)
+    child, = block.children
+    return type(tensor)(form, child, block._indices)
+
+
+@_reconstruct.register(firedrake.slate.TensorBase)
+def reconstruct_slate_tensor(tensor, self, coefficient_mapping=None):
+    if tensor.children:
+        children = (self(c, self, coefficient_mapping=coefficient_mapping)
+                    for c in tensor.children)
+        return tensor.reconstruct(*children)
+
+    form = self(tensor.form, self, coefficient_mapping=coefficient_mapping)
+    return tensor.reconstruct(form)
 
 
 class Interpolation(object):
-    def __init__(self, coarse, fine, manager, cbcs=None, fbcs=None):
-        self.cprimal = coarse
-        self.fprimal = fine
-        self.cdual = coarse.riesz_representation(riesz_map="l2")
-        self.fdual = fine.riesz_representation(riesz_map="l2")
+    def __init__(self, Vcoarse, Vfine, manager, cbcs=None, fbcs=None):
+        self.cprimal = firedrake.Function(Vcoarse)
+        self.fprimal = firedrake.Function(Vfine)
+        self.cdual = firedrake.Cofunction(Vcoarse.dual())
+        self.fdual = firedrake.Cofunction(Vfine.dual())
         self.cbcs = cbcs or []
         self.fbcs = fbcs or []
         self.manager = manager
@@ -352,9 +527,9 @@ class Interpolation(object):
 
 
 class Injection(object):
-    def __init__(self, cfn, ffn, manager, cbcs=None):
-        self.cfn = cfn
-        self.ffn = ffn
+    def __init__(self, Vcoarse, Vfine, manager, cbcs=None):
+        self.cfn = firedrake.Function(Vcoarse)
+        self.ffn = firedrake.Function(Vfine)
         self.cbcs = cbcs or []
         self.manager = manager
 
@@ -367,49 +542,67 @@ class Injection(object):
         with self.cfn.dat.vec_ro as v:
             v.copy(y)
 
+    def multTranspose(self, mat, x, y):
+        # PETSc's MatRestrict() cannot distinguish an injection matrix from
+        # an interpolation matrix when the coarse and fine spaces happen to
+        # have equal size (e.g. a no-op adaptive refinement level), and may
+        # call MatMultTranspose() instead of MatMult(). Injection is only
+        # ever used in one direction (fine to coarse), so both must agree.
+        self.mult(mat, x, y)
+
 
 def create_interpolation(dmc, dmf):
     cctx = get_appctx(dmc)
     fctx = get_appctx(dmf)
 
-    manager = get_transfer_manager(dmf)
-
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._problem.u_restrict.function_space()
+    V_f = fctx._problem.u_restrict.function_space()
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
-
-    cfn = firedrake.Function(V_c)
-    ffn = firedrake.Function(V_f)
     cbcs = tuple(cctx._problem.dirichlet_bcs())
     fbcs = tuple(fctx._problem.dirichlet_bcs())
 
-    ctx = Interpolation(cfn, ffn, manager, cbcs, fbcs)
+    manager = get_transfer_manager(dmf)
+    ctx = Interpolation(V_c, V_f, manager, cbcs, fbcs)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
     mat.setUp()
-    return mat, None
+    if row_size == col_size:
+        # PETSc cannot determine the coarse space if the dimensions are equal.
+        # The coarse space is identified by the dimension of rscale, so we provide one.
+        rscale = mat.createVecRight()
+        rscale.set(1.0)
+    else:
+        rscale = None
+    return mat, rscale
 
 
 def create_injection(dmc, dmf):
     cctx = get_appctx(dmc)
     fctx = get_appctx(dmf)
 
-    manager = get_transfer_manager(dmf)
-
-    V_c = cctx._problem.u.function_space()
-    V_f = fctx._problem.u.function_space()
+    V_c = cctx._problem.u_restrict.function_space()
+    V_f = fctx._problem.u_restrict.function_space()
 
     row_size = V_c.dof_dset.layout_vec.getSizes()
     col_size = V_f.dof_dset.layout_vec.getSizes()
 
-    cfn = firedrake.Function(V_c)
-    ffn = firedrake.Function(V_f)
+    if (V_c.ufl_element().family() == "Real"
+            and V_f.ufl_element().family() == "Real"):
+        assert row_size == col_size
+        # If the coarse and fine spaces have equal size
+        # PETSc will apply the transpose of the injection.
+        # It does not make sense to implement Injection.multTranspose,
+        # instead we return a concrete identity matrix.
+        dvec = V_c.dof_dset.layout_vec.duplicate()
+        dvec.set(1.0)
+        return PETSc.Mat().createDiagonal(dvec)
 
-    ctx = Injection(cfn, ffn, manager)
+    manager = get_transfer_manager(dmf)
+    ctx = Injection(V_c, V_f, manager)
     mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes((row_size, col_size))
     mat.setType(mat.Type.PYTHON)

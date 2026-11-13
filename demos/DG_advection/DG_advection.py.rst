@@ -109,7 +109,9 @@ and outflow integrals over the entire boundary, but construct them so that they
 only contribute in the correct places.
 
 As usual, we start by importing Firedrake.  We also import the math library to
-give us access to the value of pi.  We use a 40-by-40 mesh of squares. ::
+give us access to the value of pi.  We use a 40-by-40 mesh of squares.
+
+.. code-block:: python
 
   from firedrake import *
   from firedrake.pyplot import FunctionPlotter, tripcolor
@@ -120,12 +122,16 @@ give us access to the value of pi.  We use a 40-by-40 mesh of squares. ::
   mesh = UnitSquareMesh(40, 40, quadrilateral=True)
 
 We set up a function space of discontinuous bilinear elements for :math:`q`, and
-a vector-valued continuous function space for our velocity field. ::
+a vector-valued continuous function space for our velocity field.
+
+.. code-block:: python
 
   V = FunctionSpace(mesh, "DQ", 1)
   W = VectorFunctionSpace(mesh, "CG", 1)
 
-We set up the initial velocity field using a simple analytic expression. ::
+We set up the initial velocity field using a simple analytic expression.
+
+.. code-block:: python
 
   x, y = SpatialCoordinate(mesh)
 
@@ -134,7 +140,9 @@ We set up the initial velocity field using a simple analytic expression. ::
 
 Now, we set up the cosine-bell--cone--slotted-cylinder initial condition. The
 first four lines declare various parameters relating to the positions of these
-objects, while the analytic expressions appear in the last three lines. ::
+objects, while the analytic expressions appear in the last three lines.
+
+.. code-block:: python
 
   bell_r0 = 0.15; bell_x0 = 0.25; bell_y0 = 0.5
   cone_r0 = 0.15; cone_x0 = 0.5; cone_y0 = 0.25
@@ -151,13 +159,17 @@ We then declare the initial condition of :math:`q` to be the sum of these fields
 Furthermore, we add 1 to this, so that the initial field lies between 1 and 2,
 rather than between 0 and 1.  This ensures that we can't get away with
 neglecting the inflow boundary condition.  We also save the initial state so
-that we can check the :math:`L^2`-norm error at the end. ::
+that we can check the :math:`L^2`-norm error at the end.
+
+.. code-block:: python
 
   q = Function(V).interpolate(1.0 + bell + cone + slot_cyl)
   q_init = Function(V).assign(q)
 
 Next we'll create a list to store the function values at every timestep so that
-we can make a movie of them later. ::
+we can make a movie of them later.
+
+.. code-block:: python
 
   qs = []
 
@@ -166,7 +178,9 @@ a timestep close to the CFL limit.  We declare an extra variable ``dtc``; for
 technical reasons, this means that Firedrake does not have to compile new C code
 if the user tries different timesteps.  Finally, we define the inflow boundary
 condition, :math:`q_\mathrm{in}`.  In general, this would be a ``Function``, but
-here we just use a ``Constant`` value. ::
+here we just use a ``Constant`` value.
+
+.. code-block:: python
 
   T = 2*math.pi
   dt = T/600.0
@@ -175,7 +189,9 @@ here we just use a ``Constant`` value. ::
 
 Now we declare our variational forms.  Solving for :math:`\Delta q` at each
 stage, the explicit timestepping scheme means that the left hand side is just a
-mass matrix. ::
+mass matrix.
+
+.. code-block:: python
 
   dq_trial = TrialFunction(V)
   phi = TestFunction(V)
@@ -185,7 +201,9 @@ The right-hand-side is more interesting.  We define ``n`` to be the built-in
 ``FacetNormal`` object; a unit normal vector that can be used in integrals over
 exterior and interior facets.  We next define ``un`` to be an object which is
 equal to :math:`\vec{u}\cdot\vec{n}` if this is positive, and zero if this is
-negative.  This will be useful in the upwind terms. ::
+negative.  This will be useful in the upwind terms.
+
+.. code-block:: python
 
   n = FacetNormal(mesh)
   un = 0.5*(dot(u, n) + abs(dot(u, n)))
@@ -209,7 +227,9 @@ Instead, we make use of the quantity ``un``, which is either
 :math:`\vec{u}\cdot\vec{n}` or zero, in order to avoid writing explicit
 conditionals. Although it is not obvious at first sight, the expression given in
 code is equivalent to the desired expression, assuming
-:math:`\vec{n}_- = -\vec{n}_+`. ::
+:math:`\vec{n}_- = -\vec{n}_+`.
+
+.. code-block:: python
 
   L1 = dtc*(q*div(phi*u)*dx
             - conditional(dot(u, n) < 0, phi*dot(u, n)*q_in, 0.0)*ds
@@ -219,12 +239,16 @@ code is equivalent to the desired expression, assuming
 In our Runge-Kutta scheme, the first step uses :math:`q^n` to obtain
 :math:`q^{(1)}`.  We therefore declare similar forms that use :math:`q^{(1)}`
 to obtain :math:`q^{(2)}`, and :math:`q^{(2)}` to obtain :math:`q^{n+1}`. We
-make use of UFL's ``replace`` feature to avoid writing out the form repeatedly. ::
+make use of UFL's ``replace`` feature to avoid writing out the form repeatedly.
+
+.. code-block:: python
 
   q1 = Function(V); q2 = Function(V)
   L2 = replace(L1, {q: q1}); L3 = replace(L1, {q: q2})
 
-We now declare a variable to hold the temporary increments at each stage. ::
+We now declare a variable to hold the temporary increments at each stage.
+
+.. code-block:: python
 
   dq = Function(V)
 
@@ -236,7 +260,9 @@ cache and reuse the assembled left-hand-side matrix.  Since the DG mass matrices
 are block-diagonal, we use the 'preconditioner' ILU(0) to solve the linear
 systems. As a minor technical point, we in fact use an outer block Jacobi
 preconditioner. This allows the code to be executed in parallel without any
-further changes being necessary. ::
+further changes being necessary.
+
+.. code-block:: python
 
   params = {'ksp_type': 'preonly', 'pc_type': 'bjacobi', 'sub_pc_type': 'ilu'}
   prob1 = LinearVariationalProblem(a, L1, dq)
@@ -248,7 +274,9 @@ further changes being necessary. ::
 
 We now run the time loop.  This consists of three Runge-Kutta stages, and every
 20 steps we write out the solution to file and print the current time to the
-terminal. ::
+terminal.
+
+.. code-block:: python
 
   t = 0.0
   step = 0
@@ -271,7 +299,9 @@ terminal. ::
           print("t=", t)
 
 To check our solution, we display the normalised :math:`L^2` error, by comparing
-to the initial condition. ::
+to the initial condition.
+
+.. code-block:: python
 
   L2_err = sqrt(assemble((q - q_init)*(q - q_init)*dx))
   L2_init = sqrt(assemble(q_init*q_init*dx))
@@ -280,12 +310,16 @@ to the initial condition. ::
 Finally, we'll animate our solution using matplotlib. We'll need to evaluate
 the solution at many points in every frame of the animation, so we'll employ a
 helper class that pre-computes some relevant data in order to speed up the
-evaluation. ::
+evaluation.
+
+.. code-block:: python
 
   nsp = 16
   fn_plotter = FunctionPlotter(mesh, num_sample_points=nsp)
 
-We first set up a figure and axes and draw the first frame. ::
+We first set up a figure and axes and draw the first frame.
+
+.. code-block:: python
 
   fig, axes = plt.subplots()
   axes.set_aspect('equal')
@@ -293,12 +327,16 @@ We first set up a figure and axes and draw the first frame. ::
   fig.colorbar(colors)
 
 Now we'll create a function to call in each frame. This function will use the
-helper object we created before. ::
+helper object we created before.
+
+.. code-block:: python
 
   def animate(q):
       colors.set_array(fn_plotter(q))
 
-The last step is to make the animation and save it to a file. ::
+The last step is to make the animation and save it to a file.
+
+.. code-block:: python
 
   interval = 1e3 * output_freq * dt
   animation = FuncAnimation(fig, animate, frames=qs, interval=interval)

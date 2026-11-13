@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.__future__ import *
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -154,6 +153,6 @@ def test_no_horiz_jump():
     u = TestFunction(DG)
 
     _, _, z = SpatialCoordinate(mesh)
-    form = jump(z*u)*dS_h
+    form = jump(z*conj(u))*dS_h
 
     assert np.allclose(assemble(Tensor(form)).dat.data, assemble(form).dat.data)

@@ -1,27 +1,31 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import numpy as np
 
-import functools
+from functools import partial, reduce, cached_property
 import itertools
+
+import numpy as np
+from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
+from ufl.algorithms import extract_coefficients
 from finat.ufl import VectorElement
 import finat
 
 import pyop2 as op2
 from pyop2 import exceptions
+from pyop2.mpi import temp_internal_comm
 from pyop2.utils import as_tuple
 
 import firedrake
-import firedrake.matrix as matrix
 import firedrake.utils as utils
-from firedrake import ufl_expr
-from firedrake import slate
-from firedrake import solving
+from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.logging import logger
 from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
+from firedrake.function import Function
+from firedrake.cofunction import Cofunction
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -88,7 +92,15 @@ class BCBase(object):
             raise RuntimeError("This function should only be called when function space is indexed")
         return fs.index
 
-    @utils.cached_property
+    @property
+    def parent_function_space(self):
+        """The top-level function space, walking up through indexed or component subspaces."""
+        V = self._function_space
+        while V.parent is not None:
+            V = V.parent
+        return V
+
+    @cached_property
     def domain_args(self):
         r"""The sub_domain the BC applies to."""
         # Define facet, edge, vertex using tuples:
@@ -123,19 +135,19 @@ class BCBase(object):
             s.append((ndim - 1 - i, as_tuple(sd[i])))
         return as_tuple(s)
 
-    @utils.cached_property
+    @cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         V = self._function_space
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
-           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension() > 1):
+           (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
-            tdim = self._function_space.mesh().topological_dimension()
+            tdim = self._function_space.mesh().topological_dimension
             if isinstance(fe, finat.Hermite) and tdim == 1:
                 bcnodes = bcnodes[::2]  # every second dof is the vertex value
             elif fe.complex.is_macrocell() and self._function_space.ufl_element().sobolev_space == ufl.H1:
@@ -148,7 +160,7 @@ class BCBase(object):
                     bcnodes = np.setdiff1d(bcnodes, deriv_ids)
             return bcnodes
 
-        sub_d = (self.sub_domain, ) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
+        sub_d = (self.sub_domain,) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
         sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
         for s in sub_d:
@@ -162,18 +174,24 @@ class BCBase(object):
                 # take intersection of facet nodes, and add it to bcnodes
                 # i, j, k can also be strings.
                 bcnodes1 = []
-                if len(s) > 1 and not isinstance(self._function_space.finat_element, (finat.Lagrange, finat.GaussLobattoLegendre)):
-                    raise TypeError("Currently, edge conditions have only been tested with CG Lagrange elements")
                 for ss in s:
                     # intersection of facets
                     # Edge conditions have only been tested with Lagrange elements.
                     # Need to expand the list.
                     bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-                bcnodes1 = functools.reduce(np.intersect1d, bcnodes1)
+                bcnodes1 = reduce(np.intersect1d, bcnodes1)
                 bcnodes.append(bcnodes1)
-        return np.concatenate(bcnodes)
+        bcnodes = np.concatenate(bcnodes)
 
-    @utils.cached_property
+        with temp_internal_comm(self._function_space.mesh().comm) as icomm:
+            num_global_nodes = icomm.reduce(len(bcnodes), MPI.SUM, root=0)
+            if num_global_nodes == 0 and icomm.rank == 0:
+                logger.warning(f"Subdomain {self.sub_domain} is empty. This is likely an error. "
+                               "Did you choose the right label?")
+
+        return bcnodes
+
+    @cached_property
     def node_set(self):
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
@@ -188,8 +206,8 @@ class BCBase(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.MatrixBase):
-            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
+        if not isinstance(r, Function | Cofunction):
+            raise NotImplementedError(f"Zeroing bcs not supported for {type(r).__name__}")
 
         for idx in self._indices:
             r = r.sub(idx)
@@ -215,6 +233,9 @@ class BCBase(object):
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
 
+    def coefficients(self):
+        raise NotImplementedError("coefficients() method has to be overwritten")
+
     @PETSc.Log.EventDecorator()
     def as_subspace(self, field, V, use_split):
         fs = self._function_space
@@ -222,6 +243,8 @@ class BCBase(object):
             index = fs.parent.index
         else:
             index = fs.index
+        if index is None:
+            index = 0
         cmpt = fs.component
         # TODO: need to test this logic
         field_renumbering = dict([f, i] for i, f in enumerate(field))
@@ -261,7 +284,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, or a UFL expression that can be interpolated into
+        ``V``, or a :class:`.Function` on a different space or UFL expression that can be interpolated into
         ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a
         literal constant which can be pointwise evaluated at the nodes
@@ -271,24 +294,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
         to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
-    :arg method: the method for determining boundary nodes.
-        DEPRECATED. The only way boundary nodes are identified is by
-        topological association.
 
     '''
 
     @DirichletBCMixin._ad_annotate_init
-    def __init__(self, V, g, sub_domain, method=None):
-        if method == "geometric":
-            raise NotImplementedError("'geometric' bcs are no longer implemented. Please enforce them weakly")
-        if method not in {None, "topological"}:
-            raise ValueError(f"Unhandled boundary condition method '{method}'")
-        if method is not None:
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter('always', DeprecationWarning)
-                warnings.warn("Selecting a bcs method is deprecated. Only topological association is supported",
-                              DeprecationWarning)
+    def __init__(self, V, g, sub_domain):
         super().__init__(V, sub_domain)
         if len(V.boundary_set) and not set(self.sub_domain).issubset(V.boundary_set):
             raise ValueError(f"Sub-domain {self.sub_domain} not in the boundary set of the restricted space {V.boundary_set}.")
@@ -337,6 +347,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return type(self)(V, g, sub_domain)
 
     @function_arg.setter
+    @DirichletBCMixin._ad_annotate_function_arg
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
         try:
@@ -344,11 +355,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             del self._function_arg_update
         except AttributeError:
             pass
+        self._coefficients = ()
         V = self.function_space()
-        if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
-            if g.function_space() != V:
-                raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
+        if isinstance(g, firedrake.Function) and g.function_space() == V:
             self._function_arg = g
+            self._coefficients = (g,)
         elif isinstance(g, ufl.classes.Zero):
             if g.ufl_shape and g.ufl_shape != V.value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
@@ -358,16 +369,21 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
-                self._function_arg = firedrake.Function(V)
-                # Use `Interpolator` instead of assembling an `Interpolate` form
-                # as the expression compilation needs to happen at this stage to
-                # determine if we should use interpolation or projection
-                #  -> e.g. interpolation may not be supported for the element.
-                self._function_arg_update = firedrake.Interpolator(g, self._function_arg)._interpolate
-            except (NotImplementedError, AttributeError):
+                # Probe the dual basis before choosing interpolation over projection.
+                _ = V.finat_element.dual_basis
+                can_interpolate = True
+            except NotImplementedError:
+                can_interpolate = False
+
+            self._function_arg = firedrake.Function(V)
+            if can_interpolate:
+                interp = firedrake.interpolate(g, V)
+                self._function_arg_update = partial(firedrake.assemble, interp, tensor=self._function_arg)
+            else:
                 # Element doesn't implement interpolation
-                self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
+            self._function_arg_update()
+            self._coefficients = tuple(extract_coefficients(g))
         else:
             try:
                 g = as_ufl(g)
@@ -424,7 +440,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         corresponding rows and columns.
 
         """
-        if isinstance(r, matrix.MatrixBase):
+        if isinstance(r, ufl.Matrix):
             raise NotImplementedError("Capability to delay bc application has been dropped. Use assemble(a, bcs=bcs, ...) to obtain a fully assembled matrix")
 
         fs = self._function_space
@@ -461,6 +477,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
     def integrals(self):
         return []
+
+    def coefficients(self):
+        return self._coefficients
 
     def extract_form(self, form_type):
         # DirichletBC is directly used in assembly.
@@ -569,6 +588,10 @@ class EquationBC(object):
     def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         return self
 
+    def coefficients(self):
+        splits = (self._F, self._J, self._Jp)
+        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in splits))
+
 
 class EquationBCSplit(BCBase):
     r'''Class for a BC tree that stores/manipulates either `F`, `J`, or `Jp`.
@@ -615,6 +638,10 @@ class EquationBCSplit(BCBase):
     def integrals(self):
         return self.f.integrals()
 
+    def coefficients(self):
+        objs = (self.f, *self.bcs)
+        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in objs))
+
     def add(self, bc):
         if not isinstance(bc, (DirichletBC, EquationBCSplit)):
             raise TypeError("EquationBCSplit.add expects an instance of DirichletBC or EquationBCSplit.")
@@ -639,9 +666,6 @@ class EquationBCSplit(BCBase):
             rank = len(self.f.arguments())
             splitter = ExtractSubBlock()
             form = splitter.split(self.f, argument_indices=(row_field, col_field)[:rank])
-            if isinstance(form, ufl.ZeroBaseForm) or form.empty():
-                # form is empty, do nothing
-                return
             if u is not None:
                 form = firedrake.replace(form, {self.u: u})
         if action_x is not None:
@@ -744,11 +768,11 @@ def restricted_function_space(V, ids):
         return V
 
     assert len(ids) == len(V)
-    spaces = [Vsub if len(boundary_set) == 0 else
-              firedrake.RestrictedFunctionSpace(Vsub, boundary_set=boundary_set)
-              for Vsub, boundary_set in zip(V, ids)]
+    spaces = [V_ if len(boundary_set) == 0 else
+              firedrake.RestrictedFunctionSpace(V_, boundary_set=boundary_set, name=V_.name)
+              for V_, boundary_set in zip(V, ids)]
 
     if len(spaces) == 1:
         return spaces[0]
     else:
-        return firedrake.MixedFunctionSpace(spaces)
+        return firedrake.MixedFunctionSpace(spaces, name=V.name)

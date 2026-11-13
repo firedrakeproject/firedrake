@@ -27,7 +27,6 @@ def quadrilateral(request):
     return request.param
 
 
-@pytest.mark.skipcomplexnoslate
 def test_periodic_rectangle_advection(degree, threshold,
                                       direction, quadrilateral):
     l2error = []
@@ -58,9 +57,9 @@ def test_periodic_rectangle_advection(degree, threshold,
         n = FacetNormal(mesh)
         un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
-        a_mass = phi*D*dx
-        a_int = dot(grad(phi), -u*D)*dx
-        a_flux = dot(jump(phi), jump(un*D))*dS
+        a_mass = inner(D, phi)*dx
+        a_int = inner(-u*D, grad(phi))*dx
+        a_flux = inner(jump(un*D), jump(phi))*dS
 
         dD1 = Function(V)
         D1 = Function(V)
@@ -108,7 +107,6 @@ def test_periodic_rectangle_advection(degree, threshold,
     assert np.all(convergence > threshold)
 
 
-@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=3)
 def test_parallel_periodic_rectangle_advection():
     test_periodic_rectangle_advection(1, 1.8, "x", False)

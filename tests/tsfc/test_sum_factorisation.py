@@ -3,7 +3,7 @@ import pytest
 
 from ufl import (Mesh, FunctionSpace, TestFunction, TrialFunction,
                  TensorProductCell, dx, action, interval, triangle,
-                 quadrilateral, curl, dot, div, grad)
+                 quadrilateral, hexahedron, curl, dot, div, grad)
 from finat.ufl import (FiniteElement, VectorElement, EnrichedElement,
                        TensorProductElement, HCurlElement, HDivElement)
 
@@ -20,9 +20,9 @@ def helmholtz(cell, degree):
 
 def split_mixed_poisson(cell, degree):
     m = Mesh(VectorElement('CG', cell, 1))
-    if cell.cellname() in ['interval * interval', 'quadrilateral']:
+    if cell.cellname in ['interval * interval', 'quadrilateral']:
         hdiv_element = FiniteElement('RTCF', cell, degree)
-    elif cell.cellname() == 'triangle * interval':
+    elif cell.cellname == 'triangle * interval':
         U0 = FiniteElement('RT', triangle, degree)
         U1 = FiniteElement('DG', triangle, degree - 1)
         V0 = FiniteElement('CG', interval, degree)
@@ -30,7 +30,7 @@ def split_mixed_poisson(cell, degree):
         Wa = HDivElement(TensorProductElement(U0, V1))
         Wb = HDivElement(TensorProductElement(U1, V0))
         hdiv_element = EnrichedElement(Wa, Wb)
-    elif cell.cellname() == 'quadrilateral * interval':
+    elif cell.cellname == 'quadrilateral * interval':
         hdiv_element = FiniteElement('NCF', cell, degree)
     RT = FunctionSpace(m, hdiv_element)
     DG = FunctionSpace(m, FiniteElement('DQ', cell, degree - 1))
@@ -43,9 +43,9 @@ def split_mixed_poisson(cell, degree):
 
 def split_vector_laplace(cell, degree):
     m = Mesh(VectorElement('CG', cell, 1))
-    if cell.cellname() in ['interval * interval', 'quadrilateral']:
+    if cell.cellname in ['interval * interval', 'quadrilateral']:
         hcurl_element = FiniteElement('RTCE', cell, degree)
-    elif cell.cellname() == 'triangle * interval':
+    elif cell.cellname == 'triangle * interval':
         U0 = FiniteElement('RT', triangle, degree)
         U1 = FiniteElement('CG', triangle, degree)
         V0 = FiniteElement('CG', interval, degree)
@@ -53,7 +53,7 @@ def split_vector_laplace(cell, degree):
         Wa = HCurlElement(TensorProductElement(U0, V0))
         Wb = HCurlElement(TensorProductElement(U1, V1))
         hcurl_element = EnrichedElement(Wa, Wb)
-    elif cell.cellname() == 'quadrilateral * interval':
+    elif cell.cellname == 'quadrilateral * interval':
         hcurl_element = FiniteElement('NCE', cell, degree)
     RT = FunctionSpace(m, hcurl_element)
     CG = FunctionSpace(m, FiniteElement('Q', cell, degree))
@@ -70,6 +70,15 @@ def count_flops(form):
     return flops
 
 
+def count_storage(form):
+    kernel, = compile_form(form, parameters=dict(mode='spectral'))
+    temporaries = kernel.ast.default_entrypoint.temporary_variables
+    return sum(numpy.prod(temporary.shape, dtype=int)
+               for temporary in temporaries.values()
+               if temporary.shape and not (temporary.read_only
+                                           and temporary.initializer is not None))
+
+
 @pytest.mark.parametrize(('cell', 'order'),
                          [(quadrilateral, 5),
                           (TensorProductCell(interval, interval), 5),
@@ -82,6 +91,19 @@ def test_lhs(cell, order):
     flops = [count_flops(helmholtz(cell, degree))
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops)) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(('cell', 'order'),
+                         [(quadrilateral, 1),
+                          (TensorProductCell(interval, interval), 1),
+                          (TensorProductCell(triangle, interval), 1),
+                          (TensorProductCell(quadrilateral, interval), 2)])
+def test_contraction_storage_rate(cell, order):
+    degrees = list(range(3, 8))
+    storage = [count_storage(action(helmholtz(cell, degree)))
+               for degree in degrees]
+    rates = numpy.diff(numpy.log(storage)) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
 
 
@@ -166,6 +188,19 @@ def test_vector_laplace_action(cell, order):
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
+
+
+@pytest.mark.parametrize(('cell', 'equivalent_cell'),
+                         [(quadrilateral, TensorProductCell(interval, interval)),
+                          (hexahedron, TensorProductCell(quadrilateral, interval)),
+                          (hexahedron, TensorProductCell(interval, interval, interval))])
+@pytest.mark.parametrize('degree', [3, 5])
+def test_equivalent_cells(cell, equivalent_cell, degree):
+    """A form is compiled the same way on cells that hold the same space."""
+    a = helmholtz(cell, degree)
+    b = helmholtz(equivalent_cell, degree)
+    assert count_flops(a) == count_flops(b)
+    assert count_flops(action(a)) == count_flops(action(b))
 
 
 if __name__ == "__main__":

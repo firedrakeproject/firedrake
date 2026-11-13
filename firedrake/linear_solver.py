@@ -1,8 +1,6 @@
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
-from pyop2.mpi import internal_comm
 from firedrake.variational_solver import LinearVariationalProblem, LinearVariationalSolver
 
 __all__ = ["LinearSolver"]
@@ -39,6 +37,7 @@ class LinearSolver(LinearVariationalSolver):
           Any boundary conditions for this solve *must* have been
           applied when assembling the operator.
         """
+        from firedrake.matrix import MatrixBase
         if not isinstance(A, MatrixBase):
             raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
         if P is not None and not isinstance(P, MatrixBase):
@@ -55,7 +54,6 @@ class LinearSolver(LinearVariationalSolver):
 
         self.A = A
         self.comm = A.comm
-        self._comm = internal_comm(self.comm, self)
         self.P = P if P is not None else A
 
         self.ksp = self.snes.ksp

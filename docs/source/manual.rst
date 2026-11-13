@@ -19,6 +19,7 @@ Manual
    duals
    interpolation
    point-evaluation
+   quadrature
    external_operators
    adjoint
    visualisation
@@ -27,5 +28,6 @@ Manual
    preconditioning
    petsc-interface
    parallelism
+   ensemble_parallelism
    zenodo
    optimising

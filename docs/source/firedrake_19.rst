@@ -58,8 +58,8 @@ presenters.
 * Colin Cotter: `Time (integrator) parallel exponential integration
   and phase-averaging for geophysical fluid dynamics
   <_static/firedrake19-slides/cotter.pdf>`__
-* Matt Knepley: `Understanding multivariate computation using the
-  Kolmogorov superposition theorem <https://cse.buffalo.edu/~knepley/presentations/PresFiredrake2019.pdf>`_
+* Matt Knepley: Understanding multivariate computation using the
+  Kolmogorov superposition theorem
 * Lawrence Mitchell: `PCPATCH: topological construction of multigrid
   relaxation methods <_static/firedrake19-slides/mitchell.pdf>`__
 * Joe Wallwork: `Anisotropic goal-oriented mesh adaptation in
@@ -68,8 +68,8 @@ presenters.
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-There will be a workshop dinner in the evening of 26 September at `ASK
-Italian <https://www.askitalian.co.uk/restaurant/durham/>`_ on
+There will be a workshop dinner in the evening of 26 September at ASK
+Italian on
 Durham's Millenium Square (easily accessible by foot from the
 conference location and town centre).
 

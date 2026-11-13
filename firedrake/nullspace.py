@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import numpy
 
-from pyop2.mpi import COMM_WORLD, internal_comm
+from pyop2.mpi import COMM_WORLD
 
+import firedrake
 from firedrake import function
 from firedrake.logging import warning
 from firedrake.matrix import MatrixBase
@@ -16,8 +19,7 @@ class VectorSpaceBasis(object):
 
     You can use this basis to express the null space of a singular operator.
 
-    :arg vecs: a list of :class:`.Vector`\s or :class:`.Function`\s
-         spanning the space.
+    :arg vecs: a list of :class:`.Function`\s spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
@@ -58,7 +60,6 @@ class VectorSpaceBasis(object):
         else:
             warning("No comm specified for VectorSpaceBasis, COMM_WORLD assumed")
             self.comm = COMM_WORLD
-        self._comm = internal_comm(self.comm, self)
 
     @PETSc.Log.EventDecorator()
     def nullspace(self, comm=None):
@@ -71,7 +72,7 @@ class VectorSpaceBasis(object):
             warning("Specifiy comm when initialising VectorSpaceBasis, ignoring comm argument")
         self._nullspace = PETSc.NullSpace().create(constant=self._constant,
                                                    vectors=self._petsc_vecs,
-                                                   comm=self._comm)
+                                                   comm=self.comm)
         return self._nullspace
 
     @PETSc.Log.EventDecorator()
@@ -98,6 +99,24 @@ class VectorSpaceBasis(object):
             vec.normalize()
         self.check_orthogonality()
         self._ad_orthogonalized = True
+
+    def rediscretise(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> VectorSpaceBasis:
+        r"""Reconstruct this basis on a new function space.
+
+        Parameters
+        ----------
+        function_space
+            the new :class:`~.FunctionSpace`.
+
+        Returns
+        -------
+        VectorSpaceBasis
+            The basis vectors interpolated onto `function_space` and re-orthonormalized.
+        """
+        vecs = [function.Function(function_space).interpolate(vec) for vec in self._vecs]
+        new_basis = VectorSpaceBasis(vecs, constant=self._constant, comm=self.comm)
+        new_basis.orthonormalize()
+        return new_basis
 
     @PETSc.Log.EventDecorator()
     def orthogonalize(self, b):
@@ -224,7 +243,6 @@ class MixedVectorSpaceBasis(object):
     def __init__(self, function_space, bases):
         self._function_space = function_space
         self.comm = function_space.comm
-        self._comm = internal_comm(self.comm, self)
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue
@@ -241,6 +259,27 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
+
+    def rediscretise(self, function_space: firedrake.functionspaceimpl.WithGeometryBase) -> MixedVectorSpaceBasis:
+        r"""Reconstruct this basis on a new mixed function space.
+
+        Parameters
+        ----------
+        function_space
+            the new :class:`~.FunctionSpace`.
+
+        Returns
+        -------
+        MixedVectorSpaceBasis
+            The bases reconstructed on the sub-spaces of `function_space`.
+        """
+        bases = []
+        for V_, basis in zip(function_space, self._bases):
+            if isinstance(basis, VectorSpaceBasis):
+                bases.append(basis.rediscretise(V_))
+            else:
+                bases.append(function_space.sub(basis.index))
+        return MixedVectorSpaceBasis(function_space, bases)
 
     def _build_monolithic_basis(self):
         r"""Build a basis for the complete mixed space.
@@ -276,7 +315,7 @@ class MixedVectorSpaceBasis(object):
 
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs,
-                                                   comm=self._comm)
+                                                   comm=self.comm)
 
     def _apply_monolithic(self, matrix, transpose=False, near=False):
         r"""Set this class:`MixedVectorSpaceBasis` as a nullspace for a

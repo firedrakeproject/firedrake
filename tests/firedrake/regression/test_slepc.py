@@ -48,8 +48,8 @@ def test_laplace_physical_ev(parallel=False):
     assert nconv > 0
 
     # Create the results vectors
-    vr, wr = A.getVecs()
-    vi, wi = A.getVecs()
+    vr, wr = A.createVecs()
+    vi, wi = A.createVecs()
     ev = []
     for i in range(nconv):
         k = E.getEigenpair(i, vr, vi)

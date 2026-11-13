@@ -1,5 +1,6 @@
 """This tests that exchanging the coordinate field for one of a different dimension does the right thing."""
 
+import numpy as np
 import pytest
 
 from firedrake import *
@@ -13,7 +14,7 @@ def test_immerse_1d(dim):
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == dim
+    assert m.geometric_dimension == dim
 
 
 def test_immerse_2d():
@@ -23,7 +24,7 @@ def test_immerse_2d():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 3
+    assert m.geometric_dimension == 3
 
 
 def test_project_2d():
@@ -33,7 +34,7 @@ def test_project_2d():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 1
+    assert m.geometric_dimension == 1
 
 
 def test_immerse_extruded():
@@ -44,4 +45,41 @@ def test_immerse_extruded():
 
     m = Mesh(new_coords)
 
-    assert m.geometric_dimension() == 3
+    assert m.geometric_dimension == 3
+
+
+def test_relabeled_mesh_preserves_coord_changes():
+    orig_mesh = UnitSquareMesh(3, 3)
+
+    high_order_space = VectorFunctionSpace(orig_mesh, "CG", 3)
+    high_order_coords = Function(high_order_space).interpolate(orig_mesh.coordinates)
+    high_order_mesh = Mesh(high_order_coords)
+
+    x, _ = SpatialCoordinate(high_order_mesh)
+    marker_space = FunctionSpace(high_order_mesh, "DG", 0)
+    marker = Function(marker_space).interpolate(conditional(x > 0.5, 1., 0.))
+    relabeled_mesh = RelabeledMesh(high_order_mesh, [marker], [666])
+
+    expected = high_order_mesh.coordinates.dat.data_ro
+    actual = relabeled_mesh.coordinates.dat.data_ro
+    assert actual.shape == expected.shape
+    assert (actual == expected).all()
+
+
+def test_scale_coordinates():
+
+    m = UnitSquareMesh(4, 4)
+    m.coordinates *= 2
+
+    assert np.allclose(assemble(Constant(1)*dx(domain=m)), 4.0)
+
+
+def test_addto_coordinates():
+
+    m = UnitSquareMesh(4, 4)
+    X = SpatialCoordinate(m)
+    xf = Function(m.coordinates.function_space())
+    xf.interpolate(X)
+    m.coordinates += xf
+
+    assert np.allclose(assemble(Constant(1)*dx(domain=m)), 4.0)

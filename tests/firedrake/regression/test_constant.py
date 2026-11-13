@@ -7,7 +7,7 @@ import pytest
 
 def test_scalar_constant():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m)
+        c = Constant(1)
         # Check that the constant has the correct dimension.
         assert c._ad_dim() == 1
         assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
@@ -15,7 +15,7 @@ def test_scalar_constant():
 
 def test_scalar_constant_assign():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m)
+        c = Constant(1)
         assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
         c.assign(4)
         assert abs(assemble(c*dx(domain=m)) - 4.0) < 1e-10
@@ -70,7 +70,7 @@ def test_vector_constant_2d():
     m = UnitSquareMesh(1, 1)
     n = FacetNormal(m)
 
-    c = Constant([1, -1], domain=m)
+    c = Constant([1, -1])
     # Mesh is:
     # ,---.
     # |\  |
@@ -78,20 +78,20 @@ def test_vector_constant_2d():
     # |  \|
     # `---'
     # Normal is in (1, 1) direction
-    assert abs(assemble(dot(c('+'), n('+'))*dS)) < 1e-10
-    assert abs(assemble(dot(c('-'), n('+'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('+'), n('+'))*dS(domain=m))) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS(domain=m))) < 1e-10
 
     # Normal is in (-1, -1) direction
-    assert abs(assemble(dot(c('+'), n('-'))*dS)) < 1e-10
-    assert abs(assemble(dot(c('-'), n('-'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('+'), n('-'))*dS(domain=m))) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS(domain=m))) < 1e-10
 
     c.assign([1, 1])
-    assert abs(assemble(dot(c('+'), n('+'))*dS) - 2) < 1e-10
-    assert abs(assemble(dot(c('-'), n('+'))*dS) - 2) < 1e-10
+    assert abs(assemble(dot(c('+'), n('+'))*dS(domain=m)) - 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS(domain=m)) - 2) < 1e-10
 
     # Normal is in (-1, -1) direction
-    assert abs(assemble(dot(c('+'), n('-'))*dS) + 2) < 1e-10
-    assert abs(assemble(dot(c('-'), n('-'))*dS) + 2) < 1e-10
+    assert abs(assemble(dot(c('+'), n('-'))*dS(domain=m)) + 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS(domain=m)) + 2) < 1e-10
 
 
 def test_tensor_constant():
@@ -200,7 +200,6 @@ def test_fresh_constant_hashes_different():
 
 def test_constants_are_renumbered_in_form_signature():
     mesh = UnitSquareMesh(1, 1)
-    mesh.init()
     c = Constant(1)
     d = Constant(1)
 
@@ -278,17 +277,17 @@ def test_derivative_wrt_constant():
 
 def test_constant_ufl2unicode():
     mesh = UnitIntervalMesh(1)
-    a = Constant(1.0, name="a")
-    b = Constant(2.0, name="b")
+    a = Constant(1.0, name="a", count=0)
+    b = Constant(2.0, name="b", count=1)
     F = a * a * b * b * dx(mesh)
-    _ = ufl2unicode(F)
+    assert ufl2unicode(F) == "∫[rest of domain] ((C₀ C₀) C₁) C₁ 𝐝𝐱"
 
     dFda = derivative(F, u=a)
     dFdb = derivative(F, u=b)
-    _ = ufl2unicode(dFda)
-    _ = ufl2unicode(dFdb)
+    assert ufl2unicode(dFda) == "∫[rest of domain] ((v C₀ + v C₀) C₁) C₁ 𝐝𝐱"
+    assert ufl2unicode(dFdb) == "∫[rest of domain] v (C₀ C₀) C₁ + (v C₀ C₀) C₁ 𝐝𝐱"
 
-    dFda_du = derivative(F, u=a, du=ufl.classes.IntValue(1))
-    dFdb_du = derivative(F, u=b, du=ufl.classes.IntValue(1))
-    _ = ufl2unicode(dFda_du)
-    _ = ufl2unicode(dFdb_du)
+    dFda_du = derivative(F, u=a, du=IntValue(1))
+    dFdb_du = derivative(F, u=b, du=IntValue(1))
+    assert ufl2unicode(dFda_du) == "∫[rest of domain] ((C₀ + C₀) C₁) C₁ 𝐝𝐱"
+    assert ufl2unicode(dFdb_du) == "∫[rest of domain] (C₀ C₀) C₁ + (C₀ C₀) C₁ 𝐝𝐱"

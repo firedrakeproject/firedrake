@@ -13,7 +13,7 @@ Performance of a Firedrake script is rarely optimal from the outset.
 Choice of solver options, discretisation and variational form all have
 an impact on the amount of time your script takes to run. More general
 programming considerations such as not repeating unnecessary work inside
-of a loop can also be signficant.
+of a loop can also be significant.
 
 It is always a bad idea to attempt to optimise your code without a solid
 understanding of where the bottlenecks are, else you could spend vast
@@ -62,7 +62,7 @@ To generate a flame graph from your Firedrake script you need to:
 1. Run your code with the extra flag ``-log_view :foo.txt:ascii_flamegraph``.
    For example:
 
-   .. code-block:: bash
+   .. code-block:: console
 
      $ python myscript.py -log_view :foo.txt:ascii_flamegraph
 
@@ -75,7 +75,7 @@ To generate a flame graph from your Firedrake script you need to:
      `this repository <https://github.com/brendangregg/FlameGraph>`_
      with the command:
 
-     .. code-block:: bash
+     .. code-block:: console
 
        $ ./flamegraph.pl foo.txt > foo.svg
 
@@ -121,7 +121,7 @@ Caveats
   fix to this is to include the command line option ``--countname us``
   when you generate the SVG. For example:
 
-  .. code-block:: bash
+  .. code-block:: console
 
     $ ./flamegraph.pl --countname us foo.txt > foo.svg
 
@@ -136,11 +136,11 @@ Caveats
 
   .. code-block:: python
 
-    from firedrake.petsc import OptionsManager
+    import petsctools
 
     # If the -log_view flag is passed you don't need to call
     # PETSc.Log.begin because it is done automatically.
-    if "log_view" not in OptionsManager.commandline_options:
+    if "log_view" not in petsctools.get_commandline_options():
         PETSc.Log.begin()
 
 Common performance issues
@@ -180,7 +180,7 @@ profile native code.
 
 A flame graph for your Firedrake script can be generated from py-spy with:
 
-.. code-block:: bash
+.. code-block:: console
 
    $ py-spy record -o foo.svg --native -- python myscript.py
 
@@ -195,7 +195,7 @@ pyinstrument
 sample-based profiling tool that you can use to easily identify
 hotspots in your code. To use the profiler simply run:
 
-.. code-block:: bash
+.. code-block:: console
 
    $ pyinstrument myscript.py
 
@@ -214,7 +214,7 @@ memory_profiler
 is a useful tool that you can use to monitor the memory usage of your
 script. After installing it you can simply run:
 
-.. code-block:: bash
+.. code-block:: console
 
    $ mprof run python myscript.py
    $ mprof plot
@@ -228,7 +228,7 @@ memory_profiler also works in parallel. You can pass either of the
 depending on whether or not you want to accumulate the memory usage
 across ranks or plot them separately. For example:
 
-.. code-block:: bash
+.. code-block:: console
 
    $ mprof run --include-children mpiexec -n 4 python myscript.py
 

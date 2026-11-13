@@ -22,19 +22,23 @@ class KernelInterface(metaclass=ABCMeta):
         """Return the GEM expression corresponding to the constant."""
 
     @abstractmethod
-    def cell_orientation(self, restriction):
+    def cell_orientation(self, domain, restriction):
         """Cell orientation as a GEM expression."""
 
     @abstractmethod
-    def cell_size(self, restriction):
+    def cell_size(self, domain, restriction):
         """Mesh cell size as a GEM expression.  Shape (nvertex, ) in FIAT vertex ordering."""
 
     @abstractmethod
-    def entity_number(self, restriction):
+    def entity_ids(self, domain):
+        """Target indices of entity_number."""
+
+    @abstractmethod
+    def entity_number(self, domain, restriction):
         """Facet or vertex number as a GEM index."""
 
     @abstractmethod
-    def entity_orientation(self, restriction):
+    def entity_orientation(self, domain, restriction):
         """Entity orientation as a GEM index."""
 
     @abstractmethod
@@ -46,6 +50,10 @@ class KernelInterface(metaclass=ABCMeta):
     def unsummed_coefficient_indices(self):
         """A set of indices that coefficient evaluation should not sum over.
         Used for macro-cell integration."""
+
+    @abstractproperty
+    def domain_integral_type_map(self):
+        """domain integral_type map."""
 
 
 ProxyKernelInterface = make_proxy_class('ProxyKernelInterface', KernelInterface)
