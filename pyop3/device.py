@@ -120,14 +120,18 @@ def offloading(dev: Device):
 
     Updates current context to the given `dev` variable.
     Former device is stored in stack, to be restored when finished
-        - This also allows for stacking of context windows
+    - This also allows for stacking of context windows
 
     Context variables are also async safe.
 
     --- Example:
-    gpu = op3.CUDAGPU()
-    with op3.offloading(gpu):
-        g.dat.assign(23, eager=True, eager_strategy="array")
+
+    .. code-block:: python
+
+       gpu = op3.CUDAGPU()
+       with op3.offloading(gpu):
+           g.dat.assign(23, eager=True, eager_strategy="array")
+
     """
     # TODO: Not Device exception
     if not isinstance(dev, Device):

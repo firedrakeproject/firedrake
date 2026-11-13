@@ -246,14 +246,23 @@ class Tensor(TerminalExpression, abc.ABC):
 
         return Assignment(assignee, other, mode)
 
-    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc"]) -> None:
+    def _array_assign(self, other: ExpressionT, /, mode: Literal["write", "inc", "max", "min"]) -> None:
         from pyop3.expr.visitors import evaluate_arraywise
 
         other_eval = evaluate_arraywise(other)
-        if mode == "write":
-            self.data_wo[...] = other_eval
-        else:
-            self.data_rw[...] += other_eval
+        match mode:
+            case "write":
+                self.data_wo[...] = other_eval
+            case "inc":
+                self.data_rw[...] += other_eval
+            case "max":
+                data = self.data_rw
+                np.maximum(data, other_eval, out=data)
+            case "min":
+                data = self.data_rw
+                np.minimum(data, other_eval, out=data)
+            case _:
+                raise AssertionError(f"Assignment mode '{mode}' not recognised")
 
     @PETSc.Log.EventDecorator()
     def zero(self, **kwargs) -> pyop3.insn.Assignment | None:
@@ -344,8 +353,12 @@ class ReshapeTensorTransform(IdentityTensorTransform):
     prev: TensorTransform | None = None
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # The buffers inside these axis trees (layouts and region sizes) are
+        # not replaced when a compiled loop is reused, so key them by identity.
+        with visitor.identity_hash_buffers():
+            axis_trees_key = tuple(map(visitor, self.axis_trees))
         return (
             type(self),
-            tuple(map(visitor, self.axis_trees)),
+            axis_trees_key,
             visitor(self.prev),
         )

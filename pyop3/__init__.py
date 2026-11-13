@@ -61,6 +61,9 @@ from pyop3.buffer import (
 __all__ += [
     "ArrayBuffer",
     "DensePythonMatContext",
+    "DenseRowPythonMatContext",
+    "DenseColumnPythonMatContext",
+    "DenseBlockPythonMatContext",
     "MonolithicPetscMatBufferSpec",
     "MonolithicPetscMatInitBufferSpec",
     "NestedPetscMatBufferSpec",
@@ -80,6 +83,7 @@ from pyop3.constants import (
     READ,
     RW,
     WRITE,
+    Intent,
 )
 __all__ += [
     "DECIDE",
@@ -93,6 +97,7 @@ __all__ += [
     "READ",
     "RW",
     "WRITE",
+    "Intent",
 ]
 from pyop3.device import CUDAGPU, HOST_DEVICE, offloading
 __all__ += ["CUDAGPU", "HOST_DEVICE", "offloading"]
@@ -143,6 +148,7 @@ __all__ += [
 from pyop3.index_tree import (
     AbstractLoopIndex,
     AffineSliceComponent,
+    CalledMap,
     Index,
     IndexTree,
     LoopIndex,
@@ -158,6 +164,7 @@ from pyop3.index_tree import (
 __all__ += [
     "AbstractLoopIndex",
     "AffineSliceComponent",
+    "CalledMap",
     "Index",
     "IndexTree",
     "LoopContextFreeLoopIndex",

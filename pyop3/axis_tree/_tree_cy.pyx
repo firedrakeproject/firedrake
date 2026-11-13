@@ -18,7 +18,7 @@ def create_section_with_arrays(
     comm: MPI.Comm,
     const cpetsc.PetscInt[::1] sizes,
     const cpetsc.PetscInt[::1] offsets=None,
-) -> cpetsc.PetscSection_py:
+):
     cdef cpetsc.PetscSection_py sec
 
     sec = PETSc.Section().create(comm=comm)
