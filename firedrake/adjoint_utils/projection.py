@@ -84,7 +84,9 @@ class ProjectorMixin(NonlinearVariationalSolverMixin):
         Pv = firedrake.TrialFunction(V)
         a = firedrake.inner(Pv, w) * dx
         L = firedrake.inner(self.source, w) * dx
-        p = firedrake.LinearVariationalProblem(a, L, ad_target)
+        p = firedrake.LinearVariationalProblem(
+            a, L, ad_target, bcs=self.bcs,
+        )
 
         # If we project from an expression containing u (e.g. u + c) onto u, the
         # resulting form looks nonlinear. However, the projection is in effect a
