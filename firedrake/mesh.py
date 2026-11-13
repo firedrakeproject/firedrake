@@ -28,7 +28,7 @@ from pathlib import Path
 import typing
 import warnings
 from typing import Any, Iterable
-from typing import Literal, Tuple
+from typing import Literal
 
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
@@ -545,7 +545,7 @@ class AbstractMeshTopology(abc.ABC):
 
         This number is shared between all function spaces with the same
         :meth:`~.FunctionSpace.ufl_element` and
-        :meth:`~FunctionSpace.mesh`.
+        :meth:`firedrake.functionspaceimpl.FunctionSpace.mesh`.
 
         The default is 25 work functions per function space.  This can be
         set using :func:`set_max_work_functions`.
@@ -561,7 +561,7 @@ class AbstractMeshTopology(abc.ABC):
 
         This number is shared between all function spaces with the same
         :meth:`~.FunctionSpace.ufl_element` and
-        :meth:`~FunctionSpace.mesh`.
+        :meth:`firedrake.functionspaceimpl.FunctionSpace.mesh`.
         """
         self._max_work_functions[V.ufl_element()] = val
 
@@ -1204,7 +1204,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     def cell_to_facets(self):
-        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop3.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -1232,23 +1232,37 @@ class AbstractMeshTopology(abc.ABC):
         intersect_meshes=None,
         include_ghosts: bool = False,
     ) -> MeshLoopIndex:
-        """Return an iteration set appropriate for the requested integral type.
+        """Iterate over the mesh.
 
-        :arg integral_type: The type of the integral (should be a valid UFL measure).
-        :arg subdomain_id: The subdomain of the mesh to iterate over.
-             Either an integer, an iterable of integers or the special
-             subdomains ``"everywhere"`` or ``"otherwise"``.
-        :arg all_integer_subdomain_ids: Information to interpret the
-             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
-             entities not explicitly enumerated by the integer
-             subdomains provided here.  For example, if
-             all_integer_subdomain_ids is empty, then ``"otherwise" ==
-             "everywhere"``.  If it contains ``(1, 2)``, then
-             ``"otherwise"`` is all entities except those marked by
-             subdomains 1 and 2.  This should be a dict mapping
-             ``integral_type`` to the explicitly enumerated subdomain ids.
+        Parameters
+        ----------
+        integral_type
+            The type of the integral (should be a valid UFL measure).
+        subdomain_id
+            The subdomain of the mesh to iterate over.
+            Either an integer, an iterable of integers or the special
+            subdomains ``"everywhere"`` or ``"otherwise"``.
+        all_integer_subdomain_ids
+            Information to interpret the
+            ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+            entities not explicitly enumerated by the integer
+            subdomains provided here.  For example, if
+            all_integer_subdomain_ids is empty, then ``"otherwise" ==
+            "everywhere"``.  If it contains ``(1, 2)``, then
+            ``"otherwise"`` is all entities except those marked by
+            subdomains 1 and 2.  This should be a dict mapping
+            ``integral_type`` to the explicitly enumerated subdomain ids.
+        intersect_meshes
+            Other meshes to intersect the iteration set with.
+        include_ghosts
+            Should the iteration include ghost points?
 
-         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+        Returns
+        -------
+        MeshLoopIndex
+            A loop index object representing the iteration that can be used
+            inside a `pyop3.Loop`.
+
         """
         if all_integer_subdomain_ids is None:
             all_integer_subdomain_ids = {}
@@ -2371,7 +2385,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     @collective
-    def facet_markers(self) -> np.ndarray[IntType, ...]:
+    def facet_markers(self):
         # The IS returned by 'getLabelIdIS' exists on COMM_SELF so if we want
         # a collective IS we must convert to COMM_WORLD before calling 'allGather'.
         local_facet_markers_is = self.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL)
@@ -2382,7 +2396,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def cell_to_facets(self):
-        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop3.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -2486,7 +2500,7 @@ class MeshTopology(AbstractMeshTopology):
              ``"otherwise"`` is all entities except those marked by
              subdomains 1 and 2.
 
-         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+         :returns: The subdomain ID.
         """
         # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
         return subdomain_id
@@ -3466,7 +3480,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property  # TODO: Recalculate if mesh moves
     def cell_parent_cell_map(self):
-        """Return the :class:`pyop2.types.map.Map` from vertex only mesh cells to
+        """Return the :class:`pyop3.index_tree.tree.Map` from vertex only mesh cells to
         parent mesh cells.
         """
         dest_axis = self._parent_mesh._uid
@@ -3676,7 +3690,7 @@ values from f.)"""
 
     @cached_property
     def cell_sizes(self):
-        """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
+        """A :class:`firedrake.function.Function` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
         from firedrake.ufl_expr import CellSize
@@ -3743,7 +3757,7 @@ values from f.)"""
 
     @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     @PETSc.Log.EventDecorator()
-    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
+    def bounding_box_coords(self) -> tuple:
         """Calculates bounding boxes of owned cells for the mesh rtree.
 
         Returns
@@ -4245,7 +4259,7 @@ values from f.)"""
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
 
-        :arg f: The :class:`.Function` object that marks
+        :arg f: The :class:`firedrake.function.Function` object that marks
             selected entities as 1. f.function_space().ufl_element()
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
@@ -4798,7 +4812,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
                          Can be used with any "extrusion_type" to make annulus, torus, etc.
     :arg kernel:         a ``pyop2.Kernel`` to produce coordinates for
-                         the extruded mesh. See :func:`~.make_extruded_coords`
+                         the extruded mesh. See :func:`firedrake.extrusion_utils.make_extruded_coords`
                          for more details.
     :arg gdim:           number of spatial dimensions of the
                          resulting mesh (this is only used if a
@@ -4835,7 +4849,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     ``"custom"``
         use a custom kernel to generate the extruded coordinates
 
-    For more details see the :doc:`manual section on extruded meshes <extruded-meshes>`.
+    For more details see the :doc:`manual section on extruded meshes </extruded-meshes>`.
     """
     import firedrake.functionspace as functionspace
     import firedrake.function as function

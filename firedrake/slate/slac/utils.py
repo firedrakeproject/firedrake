@@ -290,12 +290,17 @@ from loopy.translation_unit import TranslationUnit
 class DimChanger(IdentityMapper):
     """
     Mapper to change the dimensions of an argument.
+
     .. attribute:: callee_arg_dict
-        A mapping from the argument name (:class:`str`) to instances of
-        :class:`loopy.kernel.array.ArrayBase`.
-    .. attribute:: desried_shape
-        A mapping from argument name (:class:`str`) to an instance of
-        :class:`tuple`.
+
+       A mapping from the argument name (:class:`str`) to instances of
+       :class:`loopy.kernel.array.ArrayBase`.
+
+    .. attribute:: desired_shape
+
+       A mapping from argument name (:class:`str`) to an instance of
+       :class:`tuple`.
+
     """
     def __init__(self, callee_arg_dict, desired_shape):
         self.callee_arg_dict = callee_arg_dict

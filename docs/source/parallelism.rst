@@ -89,7 +89,7 @@ different simulations on the two halves we would write.
    If you need to create Firedrake meshes on different communicators,
    then usually the best approach is to use the :class:`~.Ensemble`,
    which manages splitting MPI communicators and communicating
-   :class:`~.Function` objects between the split communicators.  More
+   :class:`Function <firedrake.function.Function>` objects between the split communicators.  More
    information on using the :class:`~.Ensemble` can be found
    :doc:`here <ensemble_parallelism>`.
 

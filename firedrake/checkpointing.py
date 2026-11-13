@@ -63,7 +63,7 @@ class DumbCheckpoint:
 
     r"""A very dumb checkpoint object.
 
-    This checkpoint object is capable of writing :class:`~.Function`\s
+    This checkpoint object is capable of writing :class:`firedrake.function.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
     number of processes and a :func:`~.Mesh` constructed identically.
 
@@ -83,7 +83,7 @@ class DumbCheckpoint:
     .. note::
 
        This object contains both a PETSc ``Viewer``, used for storing
-       and loading :class:`~.Function` data, and an :class:`h5py.File`
+       and loading :class:`firedrake.function.Function` data, and an :class:`h5py.File`
        opened on the same file handle.  *DO NOT* call
        :meth:`h5py.File.close` on the latter, this will cause
        breakages.
@@ -351,7 +351,7 @@ class HDF5File:
 
     r"""An object to facilitate checkpointing.
 
-    This checkpoint object is capable of writing :class:`~.Function`\s
+    This checkpoint object is capable of writing :class:`firedrake.function.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
     number of processes and a :func:`~.Mesh` constructed identically.
 
@@ -698,14 +698,14 @@ class TemporaryFunctionCheckpointFile:
 
 class CheckpointFile:
 
-    r"""Checkpointing meshes and :class:`~.Function` s in an HDF5 file.
+    r"""Checkpointing meshes and :class:`firedrake.function.Function` s in an HDF5 file.
 
     :arg filename: the name of the HDF5 checkpoint file (.h5 or .hdf5).
     :arg mode: the file access mode (:obj:`~.FILE_READ`, :obj:`~.FILE_CREATE`, :obj:`~.FILE_UPDATE`) or ('r', 'w', 'a').
     :arg comm: the communicator.
 
     This object allows for a scalable and flexible checkpointing of states.
-    One can save and load meshes and :class:`~.Function` s entirely in parallel
+    One can save and load meshes and :class:`firedrake.function.Function` s entirely in parallel
     without needing to gather them to or scatter them from a single process.
     One can also use different number of processes for saving and for loading.
 
@@ -1097,9 +1097,9 @@ class CheckpointFile:
 
     @PETSc.Log.EventDecorator("SaveFunction")
     def save_function(self, f, idx=None, name=None, timestepping_info=None):
-        r"""Save a :class:`~.Function`.
+        r"""Save a :class:`firedrake.function.Function`.
 
-        :arg f: the :class:`~.Function` to save.
+        :arg f: the :class:`firedrake.function.Function` to save.
         :kwarg idx: optional timestepping index. A function can
             either be saved in timestepping mode or in normal
             mode (non-timestepping); for each function of interest,
@@ -1479,13 +1479,13 @@ class CheckpointFile:
 
     @PETSc.Log.EventDecorator("LoadFunction")
     def load_function(self, mesh, name, idx=None):
-        r"""Load a :class:`~.Function` defined on `mesh`.
+        r"""Load a :class:`firedrake.function.Function` defined on `mesh`.
 
         :arg mesh: the mesh on which the function is defined.
-        :arg name: the name of the :class:`~.Function` to load.
+        :arg name: the name of the :class:`firedrake.function.Function` to load.
         :kwarg idx: optional timestepping index. A function can
             be loaded with idx only when it was saved with idx.
-        :returns: the loaded :class:`~.Function`.
+        :returns: the loaded :class:`firedrake.function.Function`.
         """
         # TODO: Add general MeshSequence support.
         mesh = mesh.unique()
