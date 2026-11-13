@@ -375,8 +375,9 @@ def create_field_decomposition(dm, *args, **kwargs):
     for d in dms:
         add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
                  call_setup=True)
-    if ctx is not None and len(W) > 1:
-        ctxs = ctx.split([(i,) for i in range(len(W))])
+    if ctx is not None:
+        # A single field is the whole problem, so its DM takes the full context.
+        ctxs = ctx.split([(i,) for i in range(len(W))]) if len(W) > 1 else [ctx]
         for d, c in zip(dms, ctxs):
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)

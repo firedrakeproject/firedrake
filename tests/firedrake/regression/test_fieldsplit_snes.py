@@ -804,6 +804,33 @@ def test_fieldsplit_snes_scalar_nullspace():
     assert assemble(inner(grad(u - exact), grad(u - exact))*dx) < 1e-20
 
 
+@pytest.mark.parallel([1, 2])
+def test_fieldsplit_snes_single_field():
+    """Solve a nonlinear equation on an unmixed space with one split."""
+    mesh = UnitIntervalMesh(8)
+    x, = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    exact = Function(V).interpolate(1 + x)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(u**3 - exact**3, v)*dx
+    params = {
+        'snes_type': 'fieldsplit',
+        'snes_fieldsplit_0_fields': '0',
+        'snes_rtol': 1e-12,
+        'fieldsplit_0_snes_type': 'ksponly',
+        'fieldsplit_0_ksp_type': 'preonly',
+        'fieldsplit_0_pc_type': 'lu',
+    }
+    problem = NonlinearVariationalProblem(F, u)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params)
+
+    u.assign(1)
+    solver.solve()
+    assert errornorm(exact, u) < 1e-10
+
+
 def test_fieldsplit_snes_objective():
     """Evaluate child objectives with the other field fixed at its base value."""
     mesh = UnitIntervalMesh(3)

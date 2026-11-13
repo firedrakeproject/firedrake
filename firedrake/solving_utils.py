@@ -599,7 +599,8 @@ class _SNESContext:
         hold that snapshot when the equation is evaluated.
         """
         xparent = dm.getAuxiliaryVec()
-        if xparent:
+        # An unsplit context has no other fields to read from the parent.
+        if xparent and self._xparent is not None:
             with self._xparent.dat.vec_wo as v:
                 xparent.copy(v)
 
