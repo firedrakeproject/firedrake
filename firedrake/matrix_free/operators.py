@@ -112,6 +112,10 @@ class ImplicitMatrixContext:
         self.bcs_col = col_bcs
         self.row_bcs = tuple(bc for bc in itertools.chain(*row_bcs) if isinstance(bc, DirichletBC))
         self.col_bcs = tuple(bc for bc in itertools.chain(*col_bcs) if isinstance(bc, DirichletBC))
+        # The domain form acts on the input with zeroed columns for the
+        # top-level DirichletBCs only. A DirichletBC that is nested in an
+        # EquationBC only zeroes the columns of that EquationBC.
+        self._domain_col_bcs = tuple(bc for bc in col_bcs if isinstance(bc, DirichletBC))
 
         # create functions from test and trial space to help
         # with 1-form assembly
@@ -133,12 +137,6 @@ class ImplicitMatrixContext:
         if len(self.col_bcs) > 0:
             self._ybc = Function(test_space.dual())
 
-        self._x_equationbc = None
-        if any(isinstance(bc, EquationBCSplit) for bc in itertools.chain(*self.bcs)):
-            # Preserve the original input for EquationBC actions while the
-            # ordinary form action uses zeroed columns.
-            self._x_equationbc = Function(trial_space)
-
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
         test_vec = test_space.dof_dset.layout_vec
@@ -156,12 +154,19 @@ class ImplicitMatrixContext:
             self.actionT = ZeroBaseForm(self.aT.arguments()[:-1])
 
         # For assembling action(f, self._x)
+        # Each top-level EquationBC acts on its own copy of the input. This
+        # copy has zeroed columns for all DirichletBCs that are nested in the
+        # EquationBC, at any depth, and keeps the columns of the top-level
+        # DirichletBCs. For one level of nesting, this matches the aij matrix.
+        self._x_equationbcs = []
         self.bcs_action = []
         for bc in self.bcs:
             if isinstance(bc, DirichletBC):
                 self.bcs_action.append(bc)
             elif isinstance(bc, EquationBCSplit):
-                self.bcs_action.append(bc.reconstruct(action_x=self._x_equationbc))
+                x_equationbc = Function(trial_space)
+                self._x_equationbcs.append((x_equationbc, tuple(bc.dirichlet_bcs())))
+                self.bcs_action.append(bc.reconstruct(action_x=x_equationbc))
 
         self._assemble_action = get_assembler(self.action,
                                               bcs=self.bcs_action,
@@ -169,20 +174,21 @@ class ImplicitMatrixContext:
                                               ).assemble
 
         # For assembling action(adjoint(f), self._y)
-        # Sorted list of equation bcs
+        # Sorted list of equation bcs, each with the DirichletBCs whose
+        # columns it excludes in mult
         equation_bcs = []
         for bc in self.bcs:
             if isinstance(bc, EquationBCSplit):
-                equation_bcs.append(bc)
-            equation_bcs += bc.sorted_equation_bcs()
-        equation_bcs.sort(key=lambda bc: bc._bc_depth, reverse=True)
+                dirichlet_bcs = tuple(bc.dirichlet_bcs())
+                equation_bcs.extend((ebc, dirichlet_bcs) for ebc in (bc, *bc.sorted_equation_bcs()))
+        equation_bcs.sort(key=lambda item: item[0]._bc_depth, reverse=True)
         self.equation_bcs_actionT = equation_bcs
         # Each par_loop is to run with appropriate masks on self._y
         # Deepest EquationBCs first
         self._assemble_equation_bcs_actionT = [
             get_assembler(action(adjoint(ebc.f), self._y),
                           form_compiler_parameters=self.fc_params).assemble
-            for ebc in equation_bcs
+            for ebc, _ in equation_bcs
         ]
         # Domain last
         self._assemble_actionT = get_assembler(self.actionT,
@@ -215,9 +221,15 @@ class ImplicitMatrixContext:
     def mult(self, mat, X, Y):
         with self._x.dat.vec_wo as v:
             X.copy(v)
-        if self._x_equationbc is not None:
-            with self._x_equationbc.dat.vec_wo as v:
+        for x_equationbc, dirichlet_bcs in self._x_equationbcs:
+            with x_equationbc.dat.vec_wo as v:
                 X.copy(v)
+            if self.on_diag:
+                # Off the diagonal, the nested DirichletBCs are defined
+                # on the test space, and the aij block does not zero
+                # their columns.
+                for bc in dirichlet_bcs:
+                    bc.zero(x_equationbc)
 
         # if we are a block on the diagonal, then the matrix has an
         # identity block corresponding to the Dirichlet boundary conditions.
@@ -229,7 +241,7 @@ class ImplicitMatrixContext:
         # non-fixed dofs and I is the identity block on the fixed dofs.
 
         # If we are not, then the matrix just has 0s in the rows and columns.
-        for bc in self.col_bcs:
+        for bc in self._domain_col_bcs:
             bc.zero(self._x)
         self._assemble_action(tensor=self._ystar)
         # This sets the essential boundary condition values on the
@@ -322,11 +334,16 @@ class ImplicitMatrixContext:
             # Accumulate values in self._xstar
             self._xstar.dat.zero()
             # Apply the EquationBC actionTs in sorted order
-            for aT, ebc in zip(self._assemble_equation_bcs_actionT, self.equation_bcs_actionT):
+            for aT, (ebc, dirichlet_bcs) in zip(self._assemble_equation_bcs_actionT, self.equation_bcs_actionT):
                 # zero columns associated with DirichletBCs/EquationBCs
                 for obc in ebc.bcs:
                     obc.zero(self._y)
                 aT(tensor=self._xbc)
+                if self.on_diag:
+                    # mult applies the EquationBC to x with zeroed
+                    # columns for its nested DirichletBCs.
+                    for bc in dirichlet_bcs:
+                        bc.zero(self._xbc)
                 self._xstar += self._xbc
             # Apply the domain actionT last
             for obc in self.bcs:
@@ -335,7 +352,7 @@ class ImplicitMatrixContext:
             # mult applies the domain form to x with zeroed DirichletBC
             # columns, so the domain adjoint action must not contribute to
             # those columns.
-            for bc in self.col_bcs:
+            for bc in self._domain_col_bcs:
                 bc.zero(self._xbc)
             self._xstar += self._xbc
         else:
@@ -343,7 +360,7 @@ class ImplicitMatrixContext:
             # Save the domain actionT to self._xstar directly
             self._assemble_actionT(tensor=self._xstar)
             # mult applies the form to x with zeroed DirichletBC columns.
-            for bc in self.col_bcs:
+            for bc in self._domain_col_bcs:
                 bc.zero(self._xstar)
 
         if self.on_diag:
