@@ -756,6 +756,7 @@ def test_nested_submesh_interp():
 
     interpolation = interpolate(x + y, V)
     nested = interpolate(interpolation, W, allow_missing_dofs=True)
+    # TSFC can compile the nested Interpolate when no base-form operands need separate assembly.
     assert interpolation not in BaseFormAssembler.base_form_operands(nested)
 
     expected = assemble(interpolate(assemble(interpolation), W, allow_missing_dofs=True))
