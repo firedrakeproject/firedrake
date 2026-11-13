@@ -1471,7 +1471,7 @@ class FunctionSpace(AbstractFunctionSpace):
                             selector, axis_target.expr  # index using current axis var
                         )
 
-                        axis_target = op3.AxisTarget("mesh", "mylabel", target_expr)
+                        axis_target = op3.AxisTarget("mesh", None, target_expr)
                     elif "dof" in axis_target.axis:
                         axis_target = op3.AxisTarget("dof", None, axis_target.expr)
                     else:
@@ -1651,7 +1651,7 @@ class FunctionSpace(AbstractFunctionSpace):
             section = PETSc.Section().create(comm=self.comm)
             p_start, p_end = self.mesh().topology_dm.getChart()
             section.setChart(p_start, p_end)
-            section.setPermutation(self.mesh()._new_to_old_point_renumbering_is)
+            section.setPermutation(self.mesh()._new_to_old_point_numbering_is)
             for pt in range(p_start, p_end):
                 section.setDof(pt, ndofs)
                 section.setOffset(pt, 0)
@@ -1662,7 +1662,7 @@ class FunctionSpace(AbstractFunctionSpace):
             section = PETSc.Section().create(comm=self.comm)
             p_start, p_end = self.mesh().topology_dm.getChart()
             section.setChart(p_start, p_end)
-            section.setPermutation(self.mesh()._new_to_old_point_renumbering_is)
+            section.setPermutation(self.mesh()._new_to_old_point_numbering_is)
 
             def drop_last(elem):
                 subelem, _ = elem.factor_elements
@@ -1687,12 +1687,12 @@ class FunctionSpace(AbstractFunctionSpace):
         # When this fails this means that we cannot validly create a section. Examples include for
         # mixed spaces if the field axis is outermost.
         # TODO: I would like this to work for Real too
-        axis_section = self.dm_axes.section({}, "mylabel")
+        axis_section = self.dm_axes.section({}, None)
 
         # The section returned by pyop3 deals with mesh points according to their final
         # numbering. We want a section that thinks in terms of DMPlex points (i.e. the
         # old numbering).
-        return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_renumbering)
+        return dmcommon.section_permute(axis_section, self.mesh()._new_to_old_point_numbering)
 
     @cached_property
     def _restricted_section(self):

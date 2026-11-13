@@ -427,8 +427,8 @@ class AbstractMeshTopology(abc.ABC):
         dmcommon.mark_owned_points(self.topology_dm)
 
         if perm_is:
-            self._old_to_new_point_renumbering = perm_is.invertPermutation().indices
-            self._new_to_old_point_renumbering = perm_is.indices
+            self._old_to_new_point_numbering = perm_is.invertPermutation().indices
+            self._new_to_old_point_numbering = perm_is.indices
         else:
             with PETSc.Log.Event("Renumber mesh topology"):
                 if isinstance(self.topology_dm, PETSc.DMPlex):
@@ -468,7 +468,7 @@ class AbstractMeshTopology(abc.ABC):
                     if reorder:
                         swarm = self.topology_dm
                         cell_id_name = swarm.getCellDMActive().getCellID()
-                        parent_pt_nums = self._parent_mesh._old_to_new_point_renumbering
+                        parent_pt_nums = self._parent_mesh._old_to_new_point_numbering
                         with (
                             swarm.field(cell_id_name) as swarm_parent_cell_nums,
                             swarm.field("globalindex") as swarm_global_indices,
@@ -481,9 +481,8 @@ class AbstractMeshTopology(abc.ABC):
                     else:
                         new_to_old_point_numbering = dmcommon.compute_dm_renumbering(self, None).indices
 
-            # TODO: replace "renumbering" with "numbering"
-            self._new_to_old_point_renumbering = new_to_old_point_numbering
-            self._old_to_new_point_renumbering = utils.invert(new_to_old_point_numbering)
+            self._new_to_old_point_numbering = new_to_old_point_numbering
+            self._old_to_new_point_numbering = utils.invert(new_to_old_point_numbering)
 
         self.name = name
         self._did_reordering = bool(reorder)
@@ -576,19 +575,19 @@ class AbstractMeshTopology(abc.ABC):
         else:
             point_sf = op3.local_sf(self.num_points, self.comm).sf
 
-        point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_renumbering)
+        point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_numbering)
         point_sf_renum = op3.StarForest(point_sf_renum, self.comm)
 
         # TODO: Allow the label here to be None
         return op3.Axis(
-            [op3.AxisComponent(self.num_points, "mylabel", sf=point_sf_renum)],
+            [op3.AxisComponent(self.num_points, sf=point_sf_renum)],
             label="mesh",
         )
 
     @cached_property
     def _strata_slice(self):
         if self.dimension == 0:
-            return op3.Slice("mesh", [op3.AffineSliceComponent("mylabel", 0, None, label=0)], label=self._uid)
+            return op3.Slice("mesh", [op3.AffineSliceComponent(None, 0, None, label=0)], label=self._uid)
 
         subsets = []
         if self._is_renumbered:
@@ -597,13 +596,13 @@ class AbstractMeshTopology(abc.ABC):
                 # NOTE: We should be able to do this without matching axes I think
                 subset_axes = op3.Axis({dim: op3.Scalar(indices.size)}, self._uid)
                 subset_array = op3.Dat(subset_axes, buffer=indices)
-                subset = op3.SubsetSliceComponent("mylabel", subset_array, label=dim)
+                subset = op3.SubsetSliceComponent(None, subset_array, label=dim)
                 subsets.append(subset)
         else:
             raise NotImplementedError("TODO")
             for dim in self._plex_strata_ordering:
                 start, end = self.topology_dm.getDepthStratum(dim)
-                slice_component = op3.AffineSliceComponent("mylabel", start, end, label=str(dim))
+                slice_component = op3.AffineSliceComponent(None, start, end, label=str(dim))
                 subsets.append(slice_component)
 
         return op3.Slice("mesh", subsets, label=self._uid)
@@ -611,7 +610,7 @@ class AbstractMeshTopology(abc.ABC):
     @cached_method()
     def _dim_indices_renum(self, dim: int) -> np.ndarray:
         p_start, p_end = self.topology_dm.getDepthStratum(dim)
-        renumbering = self._old_to_new_point_renumbering
+        renumbering = self._old_to_new_point_numbering
         return readonly(np.sort(renumbering[p_start:p_end]))
 
     @property
@@ -740,13 +739,13 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     def _dm_renumbering(self):
-        return self._new_to_old_point_renumbering_is
+        return self._new_to_old_point_numbering_is
 
     @cached_property
     def _old_to_new_point_numbering_section(self) -> PETSc.Section:
         return dmcommon.entity_numbering(
             PETSc.IS().createStride(self.num_points, comm=MPI.COMM_SELF),
-            self._new_to_old_point_renumbering_is,
+            self._new_to_old_point_numbering_is,
             self.comm
         )
 
@@ -756,8 +755,8 @@ class AbstractMeshTopology(abc.ABC):
             map(
                 lambda x: x is not None,
                 [
-                    self._old_to_new_point_renumbering,
-                    self._new_to_old_point_renumbering,
+                    self._old_to_new_point_numbering,
+                    self._new_to_old_point_numbering,
                 ],
             )
         )
@@ -1004,7 +1003,7 @@ class AbstractMeshTopology(abc.ABC):
             "plex", _selector=_selector, name=name, dim=dim, stratum=stratum
         )
         return dmcommon.entity_numbering(
-            plex_indices_is, self._new_to_old_point_renumbering_is, self.comm
+            plex_indices_is, self._new_to_old_point_numbering_is, self.comm
         )
 
     @property
@@ -1014,8 +1013,8 @@ class AbstractMeshTopology(abc.ABC):
     # below need cleaning up
 
     @cached_property
-    def _new_to_old_point_renumbering_is(self) -> PETSc.IS:
-        return PETSc.IS().createGeneral(self._new_to_old_point_renumbering, comm=MPI.COMM_SELF)
+    def _new_to_old_point_numbering_is(self) -> PETSc.IS:
+        return PETSc.IS().createGeneral(self._new_to_old_point_numbering, comm=MPI.COMM_SELF)
 
     @cached_property
     def _old_to_new_cell_numbering_is(self) -> PETSc.IS:
@@ -2913,11 +2912,11 @@ class ExtrudedMeshTopology(MeshTopology):
         npoints = base_mesh_axis.component.local_size * column_height
 
         point_sf = self.point_sf.sf
-        point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_renumbering)
+        point_sf_renum = op3.sf.renumber_petsc_sf(point_sf, self._new_to_old_point_numbering)
         point_sf_renum = op3.StarForest(point_sf_renum, self.comm)
 
         return op3.Axis(
-            [op3.AxisComponent(npoints, "mylabel", sf=point_sf_renum)],
+            [op3.AxisComponent(npoints, sf=point_sf_renum)],
             label="mesh",
         )
 
@@ -2963,11 +2962,11 @@ class ExtrudedMeshTopology(MeshTopology):
         return self._base_mesh.num_vertices() * (nlayers+1)
 
     @cached_property
-    def _new_to_old_point_renumbering(self) -> PETSc.IS:
-        return utils.invert(self._old_to_new_point_renumbering)
+    def _new_to_old_point_numbering(self) -> PETSc.IS:
+        return utils.invert(self._old_to_new_point_numbering)
 
     @cached_property
-    def _old_to_new_point_renumbering(self) -> np.ndarray:
+    def _old_to_new_point_numbering(self) -> np.ndarray:
         """
         Consider
 
@@ -2995,9 +2994,9 @@ class ExtrudedMeshTopology(MeshTopology):
 
         """
         # we always have 2n+1 entities when we extrude
-        base_indices = self._base_mesh._old_to_new_point_renumbering
+        base_indices = self._base_mesh._old_to_new_point_numbering
 
-        return dmcommon.extrude_point_renumbering(
+        return dmcommon.extrude_point_numbering(
             self.topology_dm,
             self._base_mesh.topology_dm,
             base_indices,
@@ -3028,7 +3027,7 @@ class ExtrudedMeshTopology(MeshTopology):
         )
         # Finally do the renumbering
         return utils.readonly(
-            np.sort(self._old_to_new_point_renumbering[matching_extruded_points.indices])
+            np.sort(self._old_to_new_point_numbering[matching_extruded_points.indices])
         )
 
     @property
@@ -5648,7 +5647,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     reorder_noop = None
     tmesh1 = MeshTopology(plex1, name=plex1.getName(), reorder=reorder_noop,
                           distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
-                          perm_is=tmesh._new_to_old_point_renumbering_is,
+                          perm_is=tmesh._new_to_old_point_numbering_is,
                           distribution_name=tmesh._distribution_name,
                           permutation_name=tmesh._permutation_name,
                           comm=tmesh.comm)
