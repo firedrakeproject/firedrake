@@ -96,7 +96,7 @@ def test_vom_fs_data_resizes_to_match_new_vom_topology(vom, vom_fs):
     pids = vom._particle_ids.dat.data_ro.copy()
     absorbed = np.flatnonzero(pids % 2 == 0)
     # rebuild VOM
-    vom.rebuild(absorbed=absorbed)
+    vom._rebuild(absorbed=absorbed)
 
     n_expected = n_owned - len(absorbed)
     n_global_absorbed = vom.comm.allreduce(len(absorbed), op=MPI.SUM)
@@ -119,7 +119,7 @@ def test_vom_fs_rebuilds_under_successive_vom_rebuilds(vom, vom_fs):
 
         # Remove every other point on each rank
         absorbed = np.arange(1, n_expected, 2, dtype=IntType)
-        vom.rebuild(absorbed=absorbed)
+        vom._rebuild(absorbed=absorbed)
         n_expected -= len(absorbed)
         n_expected_global_dofs -= vom.comm.allreduce(len(absorbed), op=MPI.SUM) * bs
 
@@ -141,7 +141,7 @@ def test_vom_fs_rebuilds_to_match_empty_vom(vom, vom_fs):
 
     # Remove every point on every rank
     n_owned = vom.topology.cells.owned.local_size
-    vom.rebuild(absorbed=np.arange(n_owned, dtype=IntType))
+    vom._rebuild(absorbed=np.arange(n_owned, dtype=IntType))
 
     assert_fs_layout(vom, T, 0)
     parallel_assert(T.template_vec.getSize() == 0, "the global template vector is not empty")
@@ -176,9 +176,10 @@ def test_vom_fs_rebuilds_under_parallel_migration(parent_mesh, vom, vom_fs):
 
     new_parent_cells, new_ref_coords = locate_points(parent_mesh, new_coords)
     vom.coordinates.dat.data_wo[:] = new_coords
-    vom.update_parent_cells_and_ref_coords(new_parent_cells, new_ref_coords)
+    vom.topology.update_parent_cells(new_parent_cells)
+    vom.reference_coordinates.dat.data_wo[:] = new_ref_coords
     # rebuild VOM
-    vom.rebuild()
+    vom._rebuild()
 
     n_expected = old_local_nodes
     if parent_mesh.comm.rank == 0:

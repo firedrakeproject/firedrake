@@ -343,7 +343,7 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
 
     Returns
     -------
-    op3.Function
+    pyop3.Function
         The pyop3 function that calls the kernel.
 
     """

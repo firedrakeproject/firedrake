@@ -44,10 +44,10 @@ from firedrake.utils import IntType
 from firedrake._functionspaceimpl_cy import _get_ndofs_extruded, _partition_constrained_points
 
 cached_property_until_mesh_topology_changes = cached_property_until(
-    lambda self: self.mesh()._topology_version
+    lambda self: self.mesh().topology._topology_version
 )
 cached_method_until_mesh_topology_changes = cached_method_until(
-    lambda self: self.mesh()._topology_version
+    lambda self: self.mesh().topology._topology_version
 )
 
 
@@ -167,6 +167,7 @@ def _mesh_cached(hashkey=lambda *a: a):
         return cached_on(
             lambda self: extract_mesh_topologies(self.mesh()), multi=True,
             get_key=hashkey,
+            get_version=lambda self: self._topology_version
         )(func)
     return wrapper
 
@@ -305,7 +306,7 @@ class WithGeometryBase:
             indices = parse_component_indices(indices, self.shape)
             return self._components[indices]
 
-    @cached_property
+    @cached_property_until_mesh_topology_changes
     def dm(self):
         dm = self._dm()
         dmhooks.set_function_space(dm, self)
@@ -344,9 +345,9 @@ class WithGeometryBase:
         self.mesh().set_max_work_functions(self, val)
 
     def get_work_function(self, zero=True):
-        r"""Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
+        r"""Get a temporary work :class:`firedrake.function.Function` on this :class:`FunctionSpace`.
 
-        :arg zero: Should the :class:`~.Function` be guaranteed zero?
+        :arg zero: Should the :class:`firedrake.function.Function` be guaranteed zero?
             If ``zero`` is ``False`` the returned function may or may
             not be zeroed, and the user is responsible for appropriate
             zeroing.
@@ -358,7 +359,7 @@ class WithGeometryBase:
 
             This method is intended to be used for short-lived work
             functions, if you actually need a function for general
-            usage use the :class:`~.Function` constructor.
+            usage use the :class:`firedrake.function.Function` constructor.
 
             When you are finished with the work function, you should
             restore it to the pool of available functions with
@@ -372,7 +373,7 @@ class WithGeometryBase:
             if not out:
                 cache[function] = True
                 if zero:
-                    function.dat.zero()
+                    function.dat.zero(eager=True)
                 return function
         if len(cache) == self.max_work_functions:
             raise ValueError("Can't check out more than %d work functions." %
@@ -444,7 +445,6 @@ class WithGeometryBase:
 
     def __getattr__(self, name):
         val = getattr(self.topological, name)
-        setattr(self, name, val)
         return val
 
     def __dir__(self):
@@ -478,15 +478,24 @@ class WithGeometryBase:
         key = (entity_dofs_key(self.finat_element.entity_dofs()), sdkey, self.boundary_set)
         return self.get_facet_closure_nodes(self.mesh(), key)
 
-    @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key)
+    @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key, get_version=lambda mesh_topology: mesh_topology._topology_version)
     def get_facet_closure_nodes(self, mesh, key):
-        """Function space nodes in the closure of facets with a given
-        marker.
-        :arg mesh: Mesh to cache on
-        :arg key: (edofs, sub_domain, boundary_set) tuple
-        :arg V: function space.
-        :returns: numpy array of unique nodes in the closure of facets
-           with provided markers (both interior and exterior)."""
+        """Function space nodes in the closure of facets with a given marker.
+
+        Parameters
+        ----------
+        mesh : MeshGeometry
+            Mesh to cache on
+        key : tuple
+            (edofs, sub_domain, boundary_set) tuple
+
+        Returns
+        -------
+        numpy.ndarray
+            numpy array of unique nodes in the closure of facets
+            with provided markers (both interior and exterior).
+
+        """
         _, sub_domain, boundary_set = key
         if sub_domain not in {"on_boundary", "top", "bottom"}:
             valid = set(self._mesh.facet_markers)
@@ -648,6 +657,19 @@ class FiredrakeDualSpace(WithGeometryBase, ufl.functionspace.DualSpace):
 
 @dataclass(frozen=True)
 class AxisConstraint:
+    """An axis constraint.
+
+    Parameters
+    ----------
+    axis: pyop3.Axis
+        The axis.
+    within_axes: Mapping[str, str]
+        Axis, component label pairs that this axis must be beneath. For instance
+        the cell DoF axis must be beneath the cell component of the mesh axis to
+        be valid.
+
+    """
+
     axis: op3.Axis
     within_axes: Mapping[str, str] = dataclasses.field(default_factory=idict)
 
@@ -978,7 +1000,7 @@ class AbstractFunctionSpace:
         dof_map_dat = self._iterset_to_dof_map_dat(iter_type)
         node_map_dat = op3.Dat.empty(
             dof_map_dat.axes[:, ::self.block_size].materialize(),
-            dtype=PETSc.IntType,
+            dtype=IntType,
         )
         node_map_dat.assign(
             dof_map_dat[:, ::self.block_size] // self.block_size,
@@ -1073,7 +1095,7 @@ class AbstractFunctionSpace:
         # but that is really tangled and I need something very specific.
 
     @cached_property
-    def submesh_parent_to_child_map(self) -> op3.Map:
+    def submesh_parent_to_child_map(self) -> op3.ScalarMap:
         """Return the map between parent and child meshes.
 
         This method augments the existing point to point maps stored on the
@@ -1086,7 +1108,7 @@ class AbstractFunctionSpace:
         return op3.ScalarMap(connectivity)
 
     @cached_property
-    def submesh_child_to_parent_map(self) -> op3.Map:
+    def submesh_child_to_parent_map(self) -> op3.ScalarMap:
         """Return the map between child and parent meshes.
 
         This method augments the existing point to point maps stored on the
@@ -1572,11 +1594,11 @@ class FunctionSpace(AbstractFunctionSpace):
         return self.parent
 
     @property
-    def block_shape(self) -> tuple[IntType, ...]:
+    def block_shape(self):
         return self.shape
 
     @property
-    def block_size(self) -> IntType:
+    def block_size(self):
         """The total number of degrees of freedom at each function space node."""
         return numpy.prod(self.shape, dtype=IntType)
 
@@ -2123,7 +2145,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return ()
 
     @property
-    def block_size(self) -> IntType:
+    def block_size(self):
         return IntType.type(1)
 
     @cached_property
@@ -2195,8 +2217,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     # NOTE: This function is exactly the same as make_dat for a non-mixed space
     @_with_mesh_heavy_cache
     def make_dat(self, val=None, valuetype=None, name=None):
-        r"""Return a newly allocated :class:`pyop2.types.dat.MixedDat` defined on the
-        :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
+        """Return a newly allocated :class:`pyop3.Dat` for this space."""
         if val is not None and val.size != self.axes.local_size:
             raise ValueError("Provided array has the wrong number of entries")
 
@@ -2247,7 +2268,7 @@ class ProxyFunctionSpace(FunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+    r"""Can this proxy make :class:`pyop3.Dat` objects"""
 
     def collapse(self) -> "FunctionSpace":
         """Drop the proxy metadata, returning a plain function space.
@@ -2261,7 +2282,7 @@ class ProxyFunctionSpace(FunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.types.dat.Dat`.
+        r"""Create a :class:`pyop3.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
@@ -2301,7 +2322,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
     r"""An optional identifier, for debugging purposes."""
 
     no_dats = False
-    r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+    r"""Can this proxy make :class:`pyop3.Dat` objects"""
 
     def collapse(self) -> "RestrictedFunctionSpace":
         """Drop the proxy metadata, returning a plain restricted space.
@@ -2320,7 +2341,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
 
     @_with_mesh_heavy_cache
     def make_dat(self, *args, **kwargs):
-        r"""Create a :class:`pyop2.types.dat.Dat`.
+        r"""Create a :class:`pyop3.Dat`.
 
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """

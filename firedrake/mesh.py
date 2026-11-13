@@ -29,7 +29,7 @@ from pathlib import Path
 import typing
 import warnings
 from typing import Any, Iterable
-from typing import Literal, Tuple
+from typing import Literal
 
 from pyop3.mpi import (
     MPI, COMM_WORLD, temp_internal_comm, collective
@@ -341,7 +341,7 @@ class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
         mesh: MeshGeometry,
         integral_type: str,
         plex_indices_is: PETSc.IS | None,
-    ) -> dict:
+    ) -> None:
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "integral_type", integral_type)
         object.__setattr__(self, "plex_indices_is", plex_indices_is)
@@ -547,7 +547,7 @@ class AbstractMeshTopology(abc.ABC):
 
         This number is shared between all function spaces with the same
         :meth:`~.FunctionSpace.ufl_element` and
-        :meth:`~FunctionSpace.mesh`.
+        :meth:`firedrake.functionspaceimpl.FunctionSpace.mesh`.
 
         The default is 25 work functions per function space.  This can be
         set using :func:`set_max_work_functions`.
@@ -563,7 +563,7 @@ class AbstractMeshTopology(abc.ABC):
 
         This number is shared between all function spaces with the same
         :meth:`~.FunctionSpace.ufl_element` and
-        :meth:`~FunctionSpace.mesh`.
+        :meth:`firedrake.functionspaceimpl.FunctionSpace.mesh`.
         """
         self._max_work_functions[V.ufl_element()] = val
 
@@ -1206,7 +1206,7 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     def cell_to_facets(self):
-        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop3.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -1224,6 +1224,7 @@ class AbstractMeshTopology(abc.ABC):
     @cached_on(
         get_obj=lambda self, *a, **kw: self.topology,
         get_key=lambda self, *a, **kw: utils.freeze((a, kw)),
+        get_version=lambda self: self._topology_version
     )
     def iter(
         self,
@@ -1234,23 +1235,37 @@ class AbstractMeshTopology(abc.ABC):
         intersect_meshes=None,
         include_ghosts: bool = False,
     ) -> MeshLoopIndex:
-        """Return an iteration set appropriate for the requested integral type.
+        """Iterate over the mesh.
 
-        :arg integral_type: The type of the integral (should be a valid UFL measure).
-        :arg subdomain_id: The subdomain of the mesh to iterate over.
-             Either an integer, an iterable of integers or the special
-             subdomains ``"everywhere"`` or ``"otherwise"``.
-        :arg all_integer_subdomain_ids: Information to interpret the
-             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
-             entities not explicitly enumerated by the integer
-             subdomains provided here.  For example, if
-             all_integer_subdomain_ids is empty, then ``"otherwise" ==
-             "everywhere"``.  If it contains ``(1, 2)``, then
-             ``"otherwise"`` is all entities except those marked by
-             subdomains 1 and 2.  This should be a dict mapping
-             ``integral_type`` to the explicitly enumerated subdomain ids.
+        Parameters
+        ----------
+        integral_type
+            The type of the integral (should be a valid UFL measure).
+        subdomain_id
+            The subdomain of the mesh to iterate over.
+            Either an integer, an iterable of integers or the special
+            subdomains ``"everywhere"`` or ``"otherwise"``.
+        all_integer_subdomain_ids
+            Information to interpret the
+            ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+            entities not explicitly enumerated by the integer
+            subdomains provided here.  For example, if
+            all_integer_subdomain_ids is empty, then ``"otherwise" ==
+            "everywhere"``.  If it contains ``(1, 2)``, then
+            ``"otherwise"`` is all entities except those marked by
+            subdomains 1 and 2.  This should be a dict mapping
+            ``integral_type`` to the explicitly enumerated subdomain ids.
+        intersect_meshes
+            Other meshes to intersect the iteration set with.
+        include_ghosts
+            Should the iteration include ghost points?
 
-         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+        Returns
+        -------
+        pyop3.LoopIndex
+            A loop index object representing the iteration that can be used
+            inside a `pyop3.Loop`.
+
         """
         if all_integer_subdomain_ids is None:
             all_integer_subdomain_ids = {}
@@ -2384,7 +2399,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     @collective
-    def facet_markers(self) -> np.ndarray[IntType, ...]:
+    def facet_markers(self):
         # The IS returned by 'getLabelIdIS' exists on COMM_SELF so if we want
         # a collective IS we must convert to COMM_WORLD before calling 'allGather'.
         local_facet_markers_is = self.topology_dm.getLabelIdIS(dmcommon.FACE_SETS_LABEL)
@@ -2395,7 +2410,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def cell_to_facets(self):
-        """Returns a :class:`pyop2.types.dat.Dat` that maps from a cell index to the local
+        """Returns a :class:`pyop3.Dat` that maps from a cell index to the local
         facet types on each cell, including the relevant subdomain markers.
 
         The `i`-th local facet on a cell with index `c` has data
@@ -2499,7 +2514,7 @@ class MeshTopology(AbstractMeshTopology):
              ``"otherwise"`` is all entities except those marked by
              subdomains 1 and 2.
 
-         :returns: A :class:`pyop2.types.set.Subset` for iteration.
+         :returns: The subdomain ID.
         """
         # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
         return subdomain_id
@@ -3618,7 +3633,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
     @cached_property_until_topology_changes
     def cell_parent_cell_map(self):
-        """Return the :class:`pyop3.types.map.Map` from vertex only mesh cells to
+        """Return the :class:`pyop3.ScalarMap` from vertex only mesh cells to
         parent mesh cells.
         """
         dest_axis = self._parent_mesh._uid
@@ -3805,7 +3820,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._topology_step_sfs.clear()
         self._composed_topology_migration_sfs.clear()
 
-    def _update_parent_cells(self, parent_cells: np.ndarray) -> None:
+    def update_parent_cells(self, parent_cells: np.ndarray) -> None:
         """Update the parent cell of each locally owned point.
 
         Parameters
@@ -3817,6 +3832,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         self._check_mutation_support()
         parent_cells = np.asarray(parent_cells, dtype=IntType)
         n_owned = self.cells.owned.local_size
+        if parent_cells.shape != (n_owned,):
+            raise ValueError("Expected the parent cells to be supplied as a 1D array of shape (n_owned,)")
         self.cell_parent_cell_dat.data_wo[:n_owned] = parent_cells
 
     def _migrate_swarm_and_recompute_point_numbering(self, coordinates: np.ndarray, reference_coordinates: np.ndarray, absorbed: ArrayLike | None = None) -> None:
@@ -3834,7 +3851,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         absorbed_vom_indices : array_like of int, optional
             Local VOM indices of the particles to remove. By default, no particles are removed.
         """
-        swarm = self._topology_dm
+        swarm = self.topology_dm
         n_owned = self.cells.owned.local_size
 
         # Read data from the current topology
@@ -3913,6 +3930,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # Redistribute particles across ranks
         # TODO: change the swarm's migration type to ``DMSWARM_MIGRATE_BASIC``
         # so that particles are sent to the destination ranks set in ``DMSwarm_rank``.
+        # See https://github.com/firedrakeproject/firedrake/issues/5592.
         swarm.migrate(remove_sent_points=True)
 
         # Convert the received plex cell numbers to Firedrake cell numbers
@@ -4091,7 +4109,7 @@ values from f.)"""
 
     @cached_property
     def cell_sizes(self):
-        """A :class:`~.Function` in the :math:`P^1` space containing the local mesh size.
+        """A :class:`firedrake.function.Function` in the :math:`P^1` space containing the local mesh size.
 
         This is computed by the :math:`L^2` projection of the local mesh element size."""
         from firedrake.ufl_expr import CellSize
@@ -4158,7 +4176,7 @@ values from f.)"""
 
     @cached_property_until(lambda self: self.coordinates.dat.dat_version)
     @PETSc.Log.EventDecorator()
-    def bounding_box_coords(self) -> Tuple[np.ndarray, np.ndarray]:
+    def bounding_box_coords(self) -> tuple:
         """Calculates bounding boxes of owned cells for the mesh rtree.
 
         Returns
@@ -4660,7 +4678,7 @@ values from f.)"""
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
 
-        :arg f: The :class:`.Function` object that marks
+        :arg f: The :class:`firedrake.function.Function` object that marks
             selected entities as 1. f.function_space().ufl_element()
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
@@ -4808,48 +4826,37 @@ values from f.)"""
         new_coordinates.dat.data_wo_with_halos[broken_indices] = own_curved_points
         return new_coordinates
 
-    def update_parent_cells_and_ref_coords(self, parent_cells: np.ndarray, reference_coordinates: np.ndarray | None) -> None:
-        """Update the parent cell and the reference coordinates of each locally owned point.
+    @collective
+    def _rebuild(self, absorbed: ArrayLike | None = None) -> None:
+        """Rebuild the topology of this mesh in-place.
 
-        Parameters
-        ----------
-        parent_cells
-            The parent-mesh cell number of each locally owned point, in the current point ordering.
-        reference_coordinates
-            The reference coordinates of each point in its parent cell, in the current point ordering.
+        This method is currently only supported for vertex-only meshes where the topology is rebuilt
+        following a change in the point set and/or a redistribution of points across ranks.
 
-        Raises
-        ------
-        NotImplementedError
-            If this mesh is not a vertex-only mesh.
+        Rebuilding the topology of a VOM is done via the following steps:
+            1. Updating the underlying DMSwam
+                - Removing the points listed in ``absorbed`` (if any).
+                - Migrating the DMSwarm i.e., sending each remaining point to its new destination rank.
+            2. Recomputing the point numbering at the level of the `MeshTopology`.
+            3. Eagerly migrating the coordinate fields over to the new topology.
+                Every other function on the mesh keeps its values and migrates lazily the next time its data is accessed.
 
-        Notes
-        -----
-        This operation is local. It does not change the topology, so the points stay
-        on the same rank until :meth:`rebuild` is called.
-        """
-        if not isinstance(self.topology, VertexOnlyMeshTopology):
-            raise NotImplementedError("In-place mutation is currently supported only for vertex-only meshes.")
-
-        self.topology._update_parent_cells(parent_cells)
-        self.reference_coordinates.dat.data_wo[:] = reference_coordinates
-
-    def rebuild(self, absorbed: ArrayLike | None = None) -> None:
-        """Rebuild the vertex-only mesh in place.
+        This method does not locate points and/or update the coordinates of the mesh.
+        If the points of a vertex-only mesh have moved, do these steps before you call this method:
+            1. Write the new positions of the points into :attr:`coordinates`.
+            2. Locate the points in the parent mesh, e.g., by calling :meth:`locate_cells_ref_coords_and_dists`.
+            3. Call :meth:`VertexOnlyMeshTopology.update_parent_cells` with the parent cells that step 2 gives.
+            4. Write the reference coordinates that step 2 gives into :attr:`reference_coordinates`.
 
         Parameters
         ----------
         absorbed
-            The local indices of the points to remove, in the current VOM ordering.
+            The local indices of the points to remove, in the current point ordering.
 
         Raises
         ------
         NotImplementedError
             If this mesh is not a vertex-only mesh.
-
-        Notes
-        -----
-        This is a collective operation.
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise NotImplementedError("In-place mutation is currently supported only for vertex-only meshes.")
@@ -5265,7 +5272,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
                          Can be used with any "extrusion_type" to make annulus, torus, etc.
     :arg kernel:         a ``pyop2.Kernel`` to produce coordinates for
-                         the extruded mesh. See :func:`~.make_extruded_coords`
+                         the extruded mesh. See :func:`firedrake.extrusion_utils.make_extruded_coords`
                          for more details.
     :arg gdim:           number of spatial dimensions of the
                          resulting mesh (this is only used if a
@@ -5302,7 +5309,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
     ``"custom"``
         use a custom kernel to generate the extruded coordinates
 
-    For more details see the :doc:`manual section on extruded meshes <extruded-meshes>`.
+    For more details see the :doc:`manual section on extruded meshes </extruded-meshes>`.
     """
     import firedrake.functionspace as functionspace
     import firedrake.function as function

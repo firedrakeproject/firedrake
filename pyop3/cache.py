@@ -15,7 +15,6 @@ import itertools
 import os
 import pickle
 import re
-import sys
 import weakref
 from collections import defaultdict
 from collections.abc import Callable, Hashable, Mapping, MutableMapping
@@ -31,8 +30,8 @@ from petsc4py import PETSc
 
 import pyop3.collections
 import pyop3.config
+import pyop3.constants
 from pyop3 import utils
-from pyop3.constants import _nothing
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
 _CACHE_CIDX = itertools.count()
@@ -61,15 +60,24 @@ class gc_disabled(contextlib.ContextDecorator):
             gc.enable()
 
 
-def _get_refcounts(lifetime_objs):
-    return [sys.getrefcount(obj) for obj in lifetime_objs]
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False, make_cache: Callable[[], Mapping] = dict,
+              get_version: Callable = lambda obj: None):
+    """Decorator that caches function results on an object.
 
-
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False):
-    """
     Parameters
     ----------
-    TODO
+    get_obj : Callable
+        Function returning the object that holds the cache.
+    get_key : Callable
+        Function returning the cache key.
+    multi : bool
+        Does ``get_obj`` return multiple objects? Default is `False`.
+    make_cache : Callable
+        Function called to create a new cache.
+    get_version : Callable
+        Function returning the cache 'version'. If this changes then previous
+        caches are discarded. Default is to return `None`.
+
     """
     def decorator(func):
         @functools.wraps(func)
@@ -80,29 +88,40 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
             else:
                 objs = (obj,)
 
+            # Handle the case where we have multiple objects: a cached value is only
+            # valid for the versions of all the objects that is cached on
+            # Need to make versions part of the key so that values computed for different combinations
+            # of versions don't collide
+            versions = tuple(get_version(obj) for obj in objs)
+            key = (versions, get_key(*args, **kwargs))
+
+            caches = []
+
             # Create any missing caches
-            for obj in objs:
+            for obj, version in zip(objs, versions):
                 if not hasattr(obj, "_pyop3_cache"):
                     # Use object.__setattr__ to get around frozen dataclasses
                     object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
+                stored_version, cache = obj._pyop3_cache.get(func.__qualname__, (pyop3.constants.NOTHING, None))
+                if stored_version != version:
+                    # Invalidate the cache stored on this object only
+                    # TODO: need to think about the case where we can have multiple meshes hence multiple versions
+                    # how do we avoid retaining stale cached values?
+                    cache = make_cache()
+                    obj._pyop3_cache[func.__qualname__] = (version, cache)
+                caches.append(cache)
 
-            key = get_key(*args, **kwargs)
-
-            value = _nothing
-            for obj in objs:
-                cache = obj._pyop3_cache[func.__qualname__]
-                try:
+            value = pyop3.constants.NOTHING
+            for cache in caches:
+                if key in cache:
                     value = cache[key]
-                except KeyError:
-                    pass
-            if value is _nothing:
+                    break
+
+            if value is pyop3.constants.NOTHING:
                 value = func(*args, **kwargs)
 
-            # Store in all of the caches
-            for obj in objs:
-                cache = obj._pyop3_cache[func.__qualname__]
-                if key not in cache:
-                    cache[key] = value
+            for cache in caches:
+                cache.setdefault(key, value)
 
             return value
         return wrapper
@@ -559,14 +578,6 @@ def default_parallel_hashkey(*args, **kwargs) -> Hashable:
 
 class DEFAULT_CACHE(dict):
     pass
-
-
-# Turn on cache measurements if printing cache info is enabled
-# FIXME: make a function, not global config
-# if configuration["print_cache_info"]:
-
-
-execs = weakref.WeakSet()
 
 
 # TODO: One day should use the compilation comm to do the bcast

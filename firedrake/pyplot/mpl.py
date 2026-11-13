@@ -183,8 +183,8 @@ def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes
     Parameters
     ----------
     vom_or_function
-        A :func:`.VertexOnlyMesh` or a scalar-valued :class:`~.Function` defined on one.
-        If a :class:`~.Function` is provided, its values are used to colour the points.
+        A :func:`.VertexOnlyMesh` or a scalar-valued :class:`firedrake.function.Function` defined on one.
+        If a :class:`firedrake.function.Function` is provided, its values are used to colour the points.
     axes
         The axes on which to plot. If not provided, the current active axes are used.
     **kwargs
@@ -414,11 +414,11 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
 
 @PETSc.Log.EventDecorator()
 def tricontourf(function, *args, complex_component="real", **kwargs):
-    r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a filled contour plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :func:`tricontourf <matplotlib.pyplot.tricontourf>`
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
@@ -430,11 +430,11 @@ def tricontourf(function, *args, complex_component="real", **kwargs):
 
 @PETSc.Log.EventDecorator()
 def tricontour(function, *args, complex_component="real", **kwargs):
-    r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a contour plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :func:`tricontour <matplotlib.pyplot.tricontour>`
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
@@ -446,7 +446,7 @@ def tricontour(function, *args, complex_component="real", **kwargs):
 
 @PETSc.Log.EventDecorator()
 def tripcolor(function, *args, complex_component="real", **kwargs):
-    r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a pseudo-color plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
@@ -484,11 +484,11 @@ def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax
 
 @PETSc.Log.EventDecorator()
 def trisurf(function, *args, complex_component="real", **kwargs):
-    r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a 3D surface plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :meth:`plot_trisurf <mpl_toolkits.mplot3d.axes3d.Axes3D.plot_trisurf>`
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
@@ -527,7 +527,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
 @PETSc.Log.EventDecorator()
 def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> matplotlib.quiver.Quiver:
-    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`.
+    r"""Make a quiver plot of a 2D vector Firedrake :class:`firedrake.function.Function`.
 
     Parameters
     ----------
@@ -585,7 +585,7 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
                complex_component="real"):
     r"""Generate a streamline of a vector field starting from a point
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg point: the starting point of the streamline
     :arg direction: either +1 or -1 to integrate forward or backward
     :arg tolerance: dimensionless tolerance for the RK12 adaptive integration
@@ -807,7 +807,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
 
     Similar to matplotlib :func:`streamplot <matplotlib.pyplot.streamplot>`
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg resolution: minimum spacing between streamlines (defaults to domain size / 20)
     :arg min_length: minimum length of a streamline (defaults to 4x resolution)
     :arg max_time: maximum time to integrate a streamline
@@ -942,9 +942,9 @@ matplotlib.legend.Legend.update_default_handler_map(
 
 @PETSc.Log.EventDecorator()
 def plot(function, *args, num_sample_points=10, complex_component="real", **kwargs):
-    r"""Plot a 1D Firedrake :class:`~.Function`
+    r"""Plot a 1D Firedrake :class:`firedrake.function.Function`
 
-    :arg function: The :class:`~.Function` to plot
+    :arg function: The :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
     :arg num_sample_points: number of sample points for high-degree functions
     :kwarg complex_component: If plotting complex data, which
@@ -1023,7 +1023,7 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
     Bezier curves within each cell
 
-    :arg function: 1D :class:`~.Function` to plot
+    :arg function: 1D :class:`firedrake.function.Function` to plot
     :arg axes: :class:`Axes <matplotlib.axes.Axes>` for plotting
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.

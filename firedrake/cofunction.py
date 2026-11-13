@@ -246,9 +246,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         Parameters
         ----------
-        subset : pyop2.types.set.Subset
-                 A subset of the domain indicating the nodes to zero.
-                 If `None` then the whole function is zeroed.
+        subset
+             A subset of the domain indicating the nodes to zero.
+             If `None` then the whole function is zeroed.
 
         Returns
         -------
@@ -266,9 +266,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         ----------
         expr : ufl.form.BaseForm
             Expression to be assigned.
-        subset : pyop2.types.set.Set or pyop2.types.set.Subset or pyop2.types.set.MixedSet
-            ``self.node_set`` or `pyop2.types.set.Subset` of ``self.node_set`` or
-            `pyop2.types.set.MixedSet` composed of them if `self` is a mixed cofunction.
+        subset
+            Subset of values to assign to.
         expr_from_assemble : bool
             Flag indicating whether the expression results from an assemble operation
             performed within the current method. Required for the `CofunctionAssignBlock`.
@@ -477,7 +476,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
     @property
     def cell_set(self):
-        r"""The :class:`pyop2.types.set.Set` of cells for the mesh on which this
+        r"""The :class:`pyop3.axis_tree.tree.IndexedAxisTree` of cells for the mesh on which this
         :class:`Cofunction` is defined."""
         return self.function_space()._mesh.cell_set
 

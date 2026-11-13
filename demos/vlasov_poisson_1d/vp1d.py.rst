@@ -189,7 +189,7 @@ specified through the ``vfamily``.
 
   Wbar = FunctionSpace(mesh, 'CG', 1, vfamily='R', vdegree=0)
 
-We create a :class:`~.Function` to store the solution at the current
+We create a :class:`Function <firedrake.function.Function>` to store the solution at the current
 time, and then set its initial condition,
 
 .. math::
@@ -212,7 +212,7 @@ equation.
   One = Function(V).assign(1.0)
   fbar = assemble(fn*dx)/assemble(One*dx)
 
-We create a :class:`~.Function` to store the electrostatic potential.
+We create a :class:`Function <firedrake.function.Function>` to store the electrostatic potential.
 
 .. code-block:: python
 
@@ -221,9 +221,9 @@ We create a :class:`~.Function` to store the electrostatic potential.
 The next task is to create the solver for the electrostatic potential, which
 will be called every timestep. 
   
-We create a :class:`~.Function` to store the intermediate densities at each
+We create a :class:`Function <firedrake.function.Function>` to store the intermediate densities at each
 Runge-Kutta stage. The right hand side of the Poisson equation will be
-evaluated using this :class:`~.Function` to obtain the potential at each
+evaluated using this :class:`Function <firedrake.function.Function>` to obtain the potential at each
 stage. Defining this beforehand will enable us to reuse the solver.
 
 .. code-block:: python
@@ -346,7 +346,7 @@ parameters.
   dt = T/nsteps
   dtc.assign(dt)
 
-We set up some :class:`~.Function`\s to store Runge-Kutta stage variables.
+We set up some :class:`Function <firedrake.function.Function>`\s to store Runge-Kutta stage variables.
 
 .. code-block:: python
 
