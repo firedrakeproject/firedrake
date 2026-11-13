@@ -330,23 +330,6 @@ class _SNESContext:
             snes = weakref.proxy(snes)
         self.snes = snes
 
-    @contextmanager
-    def problem_hooks(self, solution_dm: PETSc.DM, *, include_coefficient_dms: bool):
-        problem_dms = [solution_dm]
-        if include_coefficient_dms:
-            problem = self._problem
-            objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
-            coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
-            for coefficient in coefficients:
-                dm = coefficient.function_space().dm
-                if dm not in problem_dms:
-                    problem_dms.append(dm)
-
-        with ExitStack() as stack:
-            for dm in problem_dms:
-                stack.enter_context(dmhooks.add_hooks(dm, self, appctx=self))
-            yield
-
     def reconstruct(self,
                     problem: "NonlinearVariationalProblem | None" = None,
                     mat_type: str | None = None,
@@ -392,6 +375,23 @@ class _SNESContext:
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    @contextmanager
+    def problem_hooks(self, solution_dm: PETSc.DM, *, include_coefficient_dms: bool):
+        problem_dms = [solution_dm]
+        if include_coefficient_dms:
+            problem = self._problem
+            objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
+            coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
+            for coefficient in coefficients:
+                dm = coefficient.function_space().dm
+                if dm not in problem_dms:
+                    problem_dms.append(dm)
+
+        with ExitStack() as stack:
+            for dm in problem_dms:
+                stack.enter_context(dmhooks.add_hooks(dm, self, appctx=self))
+            yield
 
     def solve_jacobian(self, b: Cofunction, x: Function, *,
                        transpose: bool = False) -> None:
