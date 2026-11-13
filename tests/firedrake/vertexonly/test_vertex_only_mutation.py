@@ -613,7 +613,7 @@ def test_rebuild_vom_step_sf_maps_cross_rank_particles(parent_mesh):
     global_indices = swarm.getField("globalindex").ravel().copy()
     swarm.restoreField("globalindex")
 
-    vom_to_swarm = vom.topology._new_to_old_point_renumbering  # Firedrake cell point -> swarm point
+    vom_to_swarm = vom.topology._new_to_old_point_numbering  # Firedrake cell point -> swarm point
     global_indices_in_new_vom_order = global_indices[vom_to_swarm]
 
     parallel_assert(
