@@ -536,10 +536,6 @@ def _refine_adaptive(dm):
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
-    # DMAdaptorAdapt() destroys its input DM after refining, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    # Increase the reference count so the coarse DM survives.
-    dm.incRef()
     if hierarchy is None:
         hierarchy = MeshHierarchy(mesh)
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))

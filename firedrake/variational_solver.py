@@ -601,15 +601,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with problem.u_restrict.dat.vec_ro as u:
             u.copy(work)
 
+        solution_dm = self.snes.getDM()
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
-            stack.enter_context(self._ctx.problem_hooks(self.snes.getDM(), include_coefficient_dms=True))
+            stack.enter_context(self._ctx.problem_hooks(solution_dm, include_coefficient_dms=True))
 
             self.snes.solve(None, work)
             if self.snes.getSolution().handle != work.handle:
-                # DMAdaptorAdapt() consumed a reference to work, but the
-                # DMShell of the coarse DM still holds it as its global
-                # vector, alongside this petsc4py object.
+                # DMAdaptorAdapt() consumes a reference to each input object
+                # when adaptation replaces them. Restore the references
+                # that Firedrake owns.
+                solution_dm.incRef()
                 work.incRef()
 
             # Adaptivity changes the DM, keep the _SNESContext up to date

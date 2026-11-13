@@ -202,7 +202,7 @@ def test_goal_oriented_marker_effectivity_index(snes_type):
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("refine", [False, True], ids=["noop", "refine"])
-def test_adaptive_refine_vector_references(refine: bool) -> None:
+def test_adaptive_refine_references(refine: bool) -> None:
     problem = poisson_problem(2)
     mesh = problem.u.function_space().mesh()
     markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1) if refine else None
@@ -211,16 +211,21 @@ def test_adaptive_refine_vector_references(refine: bool) -> None:
         marking_callback=lambda ctx, u: None,
     )
     solver.solve()
+    dm = solver.snes.getDM()
     work = solver.snes.getSolution()
     gc.collect()
-    references = work.getRefCount()
+    dm_references = dm.getRefCount()
+    vector_references = work.getRefCount()
     solver.set_marking_callback(lambda ctx, u: markers)
 
     result = solver.solve()
     gc.collect()
 
+    # The SNES, KSP and PC release their DM references, and the refined
+    # context retains a reference to the parent DM.
+    assert dm.getRefCount() == dm_references - 2 * int(refine)
     # Refinement releases the SNES reference to the original vector.
-    assert work.getRefCount() == references - int(refine)
+    assert work.getRefCount() == vector_references - int(refine)
     assert (result.function_space().mesh() is mesh) == (not refine)
 
 
