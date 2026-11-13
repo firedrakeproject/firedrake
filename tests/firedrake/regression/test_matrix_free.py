@@ -187,9 +187,7 @@ def test_matrixfree_action_transpose_blocks(case):
     Mmf = assemble(a, bcs=bcs, mat_type="matfree").petscmat
     Maij = assemble(a, bcs=bcs, mat_type="aij").petscmat
     assert_matfree_matches_aij(Mmf, Maij)
-    # TODO: use V.field_ises once release is merged into main, where
-    # V._ises is deprecated.
-    ises = V._ises
+    ises = V.field_ises
     for isrow, iscol in product(ises, ises):
         assert_matfree_matches_aij(Mmf.createSubMatrix(isrow, iscol),
                                    Maij.createSubMatrix(isrow, iscol))
