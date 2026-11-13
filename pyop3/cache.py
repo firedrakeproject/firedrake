@@ -15,10 +15,10 @@ import itertools
 import os
 import pickle
 import re
-import sys
 import weakref
 from collections import defaultdict
 from collections.abc import Callable, Hashable, Mapping, MutableMapping
+from typing import Self
 from pathlib import Path
 from tempfile import mkstemp
 from typing import Any
@@ -60,17 +60,27 @@ class gc_disabled(contextlib.ContextDecorator):
             gc.enable()
 
 
-def _get_refcounts(lifetime_objs):
-    return [sys.getrefcount(obj) for obj in lifetime_objs]
+def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False, make_cache: Callable[[], Mapping] = dict,
+              get_version: Callable = lambda obj: None):
+    """Decorator that caches function results on an object.
 
-
-def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bool = False, make_cache: Callable[[], Mapping] = dict):
-    """
     Parameters
     ----------
-    TODO
+    get_obj : Callable
+        Function returning the object that holds the cache.
+    get_key : Callable
+        Function returning the cache key.
+    multi : bool
+        Does ``get_obj`` return multiple objects? Default is `False`.
+    make_cache : Callable
+        Function called to create a new cache.
+    get_version : Callable
+        Function returning the cache 'version'. If this changes then previous
+        caches are discarded. Default is to return `None`.
+
     """
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             obj = get_obj(*args, **kwargs)
             if multi:
@@ -78,31 +88,40 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
             else:
                 objs = (obj,)
 
+            # Handle the case where we have multiple objects: a cached value is only
+            # valid for the versions of all the objects that is cached on
+            # Need to make versions part of the key so that values computed for different combinations
+            # of versions don't collide
+            versions = tuple(get_version(obj) for obj in objs)
+            key = (versions, get_key(*args, **kwargs))
+
+            caches = []
+
             # Create any missing caches
-            for obj in objs:
+            for obj, version in zip(objs, versions):
                 if not hasattr(obj, "_pyop3_cache"):
                     # Use object.__setattr__ to get around frozen dataclasses
                     object.__setattr__(obj, "_pyop3_cache", collections.defaultdict(dict))
-                if func.__qualname__ not in obj._pyop3_cache:
-                    obj._pyop3_cache[func.__qualname__] = make_cache()
-
-            key = get_key(*args, **kwargs)
+                stored_version, cache = obj._pyop3_cache.get(func.__qualname__, (pyop3.constants.NOTHING, None))
+                if stored_version != version:
+                    # Invalidate the cache stored on this object only
+                    # TODO: need to think about the case where we can have multiple meshes hence multiple versions
+                    # how do we avoid retaining stale cached values?
+                    cache = make_cache()
+                    obj._pyop3_cache[func.__qualname__] = (version, cache)
+                caches.append(cache)
 
             value = pyop3.constants.NOTHING
-            for obj in objs:
-                cache = obj._pyop3_cache[func.__qualname__]
-                try:
+            for cache in caches:
+                if key in cache:
                     value = cache[key]
-                except KeyError:
-                    pass
+                    break
+
             if value is pyop3.constants.NOTHING:
                 value = func(*args, **kwargs)
 
-            # Store in all of the caches
-            for obj in objs:
-                cache = obj._pyop3_cache[func.__qualname__]
-                if key not in cache:
-                    cache[key] = value
+            for cache in caches:
+                cache.setdefault(key, value)
 
             return value
         return wrapper
@@ -192,6 +211,66 @@ def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
         comm_caches = {}
         comm.Set_attr(comm_cache_keyval, comm_caches)
     return comm_caches
+
+
+def cached_property_until(key: Callable[[Self], Hashable]):
+    """Decorator for a property that is cached until some value changes.
+
+    For example, the ``expensive_property`` below will be cached until
+    ``self.value`` changes, and will be recomputed with the new ``self.value``
+    and cached when accessed again.
+
+    .. code-block:: python
+
+        class MyClass:
+
+            def __init__(self, value):
+                self.value = value
+
+            @cached_property_until(lambda self: self.value)
+            def expensive_property(self):
+                # Some expensive computation that depends on self.value
+                ...
+    """
+    def decorator(func):
+        @property
+        @functools.wraps(func)
+        def wrapper(self):
+            cache_attribute = f"_{func.__name__}_cache"
+            current_value = key(self)
+            cached_value = getattr(self, cache_attribute, None)
+            if cached_value is None or cached_value[0] != current_value:
+                result = func(self)
+                setattr(self, cache_attribute, (current_value, result))
+                return result
+            return cached_value[1]
+        return wrapper
+    return decorator
+
+
+def cached_method_until(key: Callable[[Self], Hashable]):
+    """Decorator for a method whose results are cached until some value changes.
+
+    This is the counterpart of `cached_property_until` but for methods.
+    When a decorated method is called, its results are cached against the set of arguments
+    it was called with. All cached results are discarded when the value of the key changes.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            cache_attribute = f"_{func.__qualname__}_cache"
+            current_key_value = key(self)
+            cached_state = getattr(self, cache_attribute, None)
+            if cached_state is None or cached_state[0] != current_key_value:
+                cached_state = (current_key_value, {})
+                setattr(self, cache_attribute, cached_state)
+            results = cached_state[1]
+            args_key = default_hashkey(*args, **kwargs)
+            if args_key not in results:
+                results[args_key] = func(self, *args, **kwargs)
+            return results[args_key]
+        return wrapper
+    return decorator
 
 
 class _AbstractInstrumentedCache(abc.ABC):
