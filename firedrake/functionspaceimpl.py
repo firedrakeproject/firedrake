@@ -1168,13 +1168,10 @@ class FunctionSpace(AbstractFunctionSpace):
     boundary_set = frozenset()
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None, *, layout=None, permutation=None, backend: Literal["fiat", "petsc"] = "fiat"):
+    def __init__(self, mesh, element, name=None, *, layout=None, renumber: bool = True, backend: Literal["fiat", "petsc"] = "fiat"):
         super().__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-
-        if permutation is None:
-            permutation = mesh._new_to_old_point_renumbering
 
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
@@ -1216,7 +1213,7 @@ class FunctionSpace(AbstractFunctionSpace):
         self.element = element
         self.finat_element = create_element(element)
 
-        self.permutation = permutation
+        self.renumber = renumber
         self.backend = backend
 
         if layout is None:
@@ -1301,8 +1298,9 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             base_mesh = self._mesh
 
-        if self.permutation is not None...
-            mesh_axis = base_mesh.flat_points
+        # if self.permutation is not None...
+        #     mesh_axis = base_mesh.dm_axis(renumber=???)
+        mesh_axis = base_mesh.dm_axis()
         num_points = mesh_axis.local_size
 
         constraints = [AxisConstraint(mesh_axis)]
@@ -1397,7 +1395,7 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @_with_mesh_heavy_cache
     def _make_plex_axes_default(self) -> op3.IndexedAxisTree:
-        strata_slice = self._mesh._strata_slice
+        strata_slice = self._mesh._dim_slice(renumber=self.renumber)
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.components:
             path = {strata_slice.label: slice_component.label}
@@ -1463,7 +1461,7 @@ class FunctionSpace(AbstractFunctionSpace):
                         # hacky way to get the right entities
                         base_selector = utils.just_one(
                             sc.array.buffer
-                            for sc in self.mesh()._base_mesh._strata_slice.components
+                            for sc in self.mesh()._base_mesh._dim_slice.components
                             if sc.label == base_dim
                         )
 
@@ -1521,7 +1519,6 @@ class FunctionSpace(AbstractFunctionSpace):
 
     @cached_property
     def _nodes_axis(self) -> op3.Axis:
-        raise NotImplementedError
         scalar_axis_tree = self.dm_axes.blocked(self.shape)
 
         if self.boundary_set:
@@ -1719,7 +1716,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return dmcommon.restrict_section(
             self.function_space.section,
             self.mesh().topology_dm,
-            self.mesh().points.owned.local_size,
+            self.mesh().dim_axis.owned.local_size,
             self.boundary_set,
             self.extruded,
         )

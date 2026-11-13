@@ -80,7 +80,8 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_sc
 
 @PETSc.Log.EventDecorator("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None,
-                  vfamily=None, vdegree=None, variant=None, quad_scheme=None, _labels=None):
+                  vfamily=None, vdegree=None, variant=None, quad_scheme=None,
+                  _labels=None, renumber=True, backend="fiat"):
     """Create a :class:`.FunctionSpace`.
 
     Parameters
@@ -115,7 +116,7 @@ def FunctionSpace(mesh, family, degree=None, name=None,
 
     """
     element = make_scalar_element(mesh, family, degree, vfamily, vdegree, variant, quad_scheme)
-    return impl.WithGeometry.make_function_space(mesh, element, name=name, _labels=_labels)
+    return impl.WithGeometry.make_function_space(mesh, element, name=name, _labels=_labels, renumber=renumber, backend=backend)
 
 
 @PETSc.Log.EventDecorator()
