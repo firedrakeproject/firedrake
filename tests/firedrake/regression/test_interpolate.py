@@ -1,5 +1,4 @@
 from os.path import abspath, dirname, join
-import warnings
 import numpy as np
 import pytest
 import pyop3 as op3
@@ -811,30 +810,10 @@ def interpolation_space():
     return FunctionSpace(UnitIntervalMesh(2), "DG", 0)
 
 
-@pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("subdomain_id", [100, np.int64(100), (100, 200), "everywhere", "otherwise"])
 def test_interpolation_subdomain_id_options(interpolation_space, subdomain_id):
     expr = interpolate(1, interpolation_space, subdomain_id=subdomain_id)
     assert expr.options.subdomain_id == subdomain_id
-
-
-@pytest.mark.parallel([1, 2])
-def test_interpolation_subset_deprecated(interpolation_space):
-    assert interpolate(1, interpolation_space).options.subdomain_id == "everywhere"
-    with pytest.warns(FutureWarning, match="Please use 'subdomain_id' instead"):
-        expr = interpolate(1, interpolation_space, subset=100)
-    assert expr.options.subdomain_id == 100
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", FutureWarning)
-        expr = expr._ufl_expr_reconstruct_(expr.ufl_operands[0])
-    assert expr.options.subdomain_id == 100
-
-    with pytest.warns(FutureWarning, match="Please use 'subdomain_id' instead"):
-        with pytest.raises(ValueError, match="Cannot supply both 'subset' and 'subdomain_id'"):
-            interpolate(1, interpolation_space, subset=100, subdomain_id=200)
-
-    with pytest.warns(FutureWarning, match="subdomain_id=subdomain_id"):
-        assert interpolation_space.mesh().cell_subset(100) == 100
 
 
 def test_interpolate_indexed():

@@ -2485,8 +2485,6 @@ class MeshTopology(AbstractMeshTopology):
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
-    @utils.deprecated("the subdomain ID directly in interpolate(..., subdomain_id=subdomain_id) "
-                      "or mesh.iter('cell', subdomain_id)")
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None) -> op3.Slice:
         """Return the subdomain ID unchanged.
 
@@ -2506,6 +2504,12 @@ class MeshTopology(AbstractMeshTopology):
         int, tuple of int, or str
             The subdomain ID.
         """
+        warnings.warn(
+            "MeshTopology.cell_subset is deprecated and will be removed, please pass "
+            "the subdomain ID directly to interpolate(..., subdomain_id=subdomain_id) "
+            "or mesh.iter('cell', subdomain_id) instead",
+            FutureWarning,
+        )
         return subdomain_id
 
     @staticmethod

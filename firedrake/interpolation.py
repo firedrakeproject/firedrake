@@ -147,7 +147,7 @@ class Interpolate(UFLInterpolate):
         if subset is not None:
             warnings.warn(
                 "The 'subset' argument is deprecated and will be removed in a future release. "
-                "Please use 'subdomain_id' instead.", FutureWarning,
+                "Please pass 'subdomain_id' instead.", FutureWarning,
             )
             if "subdomain_id" in kwargs:
                 raise ValueError("Cannot supply both 'subset' and 'subdomain_id'.")
