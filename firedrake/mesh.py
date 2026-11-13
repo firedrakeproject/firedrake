@@ -2485,24 +2485,31 @@ class MeshTopology(AbstractMeshTopology):
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
-    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None) -> op3.Slice:
-        """Return a subset over cells with the given subdomain_id.
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
+        """Return the subdomain ID unchanged.
 
-        :arg subdomain_id: The subdomain of the mesh to iterate over.
-             Either an integer, an iterable of integers or the special
-             subdomains ``"everywhere"`` or ``"otherwise"``.
-        :arg all_integer_subdomain_ids: Information to interpret the
-             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
-             entities not explicitly enumerated by the integer
-             subdomains provided here.  For example, if
-             all_integer_subdomain_ids is empty, then ``"otherwise" ==
-             "everywhere"``.  If it contains ``(1, 2)``, then
-             ``"otherwise"`` is all entities except those marked by
-             subdomains 1 and 2.
+        This method is deprecated and will be removed. Pass the subdomain ID
+        directly to ``interpolate(..., subdomain_id=subdomain_id)`` for
+        interpolation, or use ``mesh.iter('cell', subdomain_id)`` for iteration.
 
-         :returns: The subdomain ID.
+        Parameters
+        ----------
+        subdomain_id : int, tuple of int, or str
+            The subdomain ID to return.
+        all_integer_subdomain_ids : iterable of int or None
+            This argument is ignored.
+
+        Returns
+        -------
+        int, tuple of int, or str
+            The subdomain ID.
         """
-        # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
+        warnings.warn(
+            "MeshTopology.cell_subset is deprecated and will be removed, please pass "
+            "the subdomain ID directly to interpolate(..., subdomain_id=subdomain_id) "
+            "or mesh.iter('cell', subdomain_id) instead",
+            FutureWarning,
+        )
         return subdomain_id
 
     @staticmethod

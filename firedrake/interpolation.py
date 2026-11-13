@@ -4,6 +4,7 @@ import numpy
 import os
 import tempfile
 import abc
+import warnings
 
 import dataclasses
 from functools import cached_property, partial
@@ -72,8 +73,9 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : pyop3.Index or None
-        An optional subset to apply the interpolation over.
+    subdomain_id : int, tuple of int, or {"everywhere", "otherwise"}
+        The subdomain IDs of the target cells over which to interpolate.
+        The default is "everywhere", which selects all target cells.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
     access : pyop3.Intent or None
@@ -101,7 +103,7 @@ class InterpolateOptions:
         the :meth:`interpolate` method or (b) set to zero.
         Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
     """
-    subset: op3.Slice | None = None
+    subdomain_id: int | tuple[int, ...] | Literal["everywhere", "otherwise"] = "everywhere"
     access: Literal[op3.WRITE, op3.MIN_WRITE, op3.MAX_WRITE, op3.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
@@ -141,6 +143,15 @@ class Interpolate(UFLInterpolate):
 
         super().__init__(expr, V)
 
+        subset = kwargs.pop("subset", None)
+        if subset is not None:
+            warnings.warn(
+                "The 'subset' argument is deprecated and will be removed in a future release. "
+                "Please pass 'subdomain_id' instead.", FutureWarning,
+            )
+            if "subdomain_id" in kwargs:
+                raise ValueError("Cannot supply both 'subset' and 'subdomain_id'.")
+            kwargs["subdomain_id"] = subset
         self._options = InterpolateOptions(**kwargs)
 
     function_space = UFLInterpolate.ufl_function_space
@@ -272,7 +283,7 @@ class Interpolator(abc.ABC):
         """The primal space we are interpolating into."""
 
         # Interpolation options
-        self.subset = expr.options.subset
+        self.subdomain_id = expr.options.subdomain_id
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
         self.access = expr.options.access
@@ -831,7 +842,7 @@ class SameMeshInterpolator(Interpolator):
             else:
                 sub_op2_tensor = op2_tensor
             loops.extend(_build_interpolation_callables(
-                sub_expr, sub_op2_tensor, self.access, self.subset, bcs, pyop3_compiler_parameters=pyop3_compiler_parameters))
+                sub_expr, sub_op2_tensor, self.access, self.subdomain_id, bcs, pyop3_compiler_parameters=pyop3_compiler_parameters))
 
         if bcs and self.rank == 1:
             loops.extend(partial(bc.apply, f) for bc in bcs)
@@ -1004,7 +1015,7 @@ def _build_interpolation_callables(
     expr: Interpolate | ZeroBaseForm,
     tensor: op3.Scalar | op3.Dat | op3.Mat,
     access: Literal[op3.WRITE, op3.MIN, op3.MAX, op3.INC],
-    subset: op3.Slice | None = None,
+    subdomain_id: int | tuple[int, ...] | Literal["everywhere", "otherwise"] = "everywhere",
     bcs: Iterable[DirichletBC] | None = None,
     pyop3_compiler_parameters=None,
 ) -> tuple[Callable, ...]:
@@ -1019,8 +1030,9 @@ def _build_interpolation_callables(
         Object to hold the result of the interpolation.
     access : Literal[op3.WRITE, op3.MIN, op3.MAX, op3.INC]
         pyop3 access descriptor
-    subset : op3.Slice | None
-        An optional subset to apply the interpolation over, by default None.
+    subdomain_id : int, tuple of int, or {"everywhere", "otherwise"}
+        The subdomain IDs of the target cells over which to interpolate.
+        The default is "everywhere", which selects all target cells.
     bcs : Iterable[DirichletBC] | None
         An optional list of boundary conditions to zero-out in the
         output function space. Interpolator rows or columns which are
@@ -1040,7 +1052,7 @@ def _build_interpolation_callables(
         if access is op3.INC:
             return ()
         elif access is op3.WRITE:
-            return (partial(tensor.zero, subset=subset),)
+            return (partial(tensor.zero, subset=subdomain_id),)
         # Unclear how to avoid codegen for MIN and MAX
         # Reconstruct the expression as an Interpolate
         V = expr.arguments()[-1].function_space().dual()
@@ -1065,15 +1077,12 @@ def _build_interpolation_callables(
         source_mesh is not target_mesh
         and source_mesh.submesh_youngest_common_ancestor(target_mesh)
     ):
-        if subset is not None:
-            raise NotImplementedError("TODO")
+        if subdomain_id != "everywhere":
+            raise NotImplementedError("Interpolation across submeshes with a subdomain ID is not implemented")
 
         loop_index = target_mesh.iter("cell", intersect_meshes=[source_mesh])
     else:
-        if subset is not None:
-            loop_index = target_mesh.iter("cell", subdomain_id=subset)
-        else:
-            loop_index = target_mesh.iter("cell")
+        loop_index = target_mesh.iter("cell", subdomain_id=subdomain_id)
 
     target_element = V.ufl_element()
     if isinstance(target_mesh.topology, VertexOnlyMeshTopology):

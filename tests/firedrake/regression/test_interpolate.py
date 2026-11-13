@@ -800,9 +800,20 @@ def test_interpolation_cell_subset():
     mesh = RelabeledMesh(mesh, [ind], [100])
 
     a = Constant(1)
-    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subset=mesh.cell_subset(100))
+    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subdomain_id=100)
 
     assert assemble((u-a/2)*dx) < 1e-14
+
+
+@pytest.fixture
+def interpolation_space():
+    return FunctionSpace(UnitIntervalMesh(2), "DG", 0)
+
+
+@pytest.mark.parametrize("subdomain_id", [100, np.int64(100), (100, 200), "everywhere", "otherwise"])
+def test_interpolation_subdomain_id_options(interpolation_space, subdomain_id):
+    expr = interpolate(1, interpolation_space, subdomain_id=subdomain_id)
+    assert expr.options.subdomain_id == subdomain_id
 
 
 def test_interpolate_indexed():
