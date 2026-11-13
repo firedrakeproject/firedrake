@@ -43,6 +43,37 @@ def test_linear_problem(rg):
 
 
 @pytest.mark.skipcomplex
+def test_assembled_problem(rg):
+    assert len(get_working_tape()._blocks) == 0
+    mesh = IntervalMesh(10, 0, 1)
+    V = FunctionSpace(mesh, "Lagrange", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    f = Function(V).assign(1.)
+
+    u = TrialFunction(V)
+    u_ = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, Function(R, val=1), "on_boundary")
+
+    def J(f):
+        a = inner(grad(u), grad(v))*dx
+        L = f*v*dx
+
+        A = assemble(a, bcs=bc)
+        b = assemble(L)
+
+        solve(A, u_, b)
+        return assemble(u_**2*dx)
+
+    # this tests a bug in recompute() if bcs= keyword argument is provided in solve
+    J0 = J(f)
+    rf = ReducedFunctional(J0, Control(f))
+    assert_approx_equal(rf(f), J0)
+    assert rf.tape.recompute_count == 1
+    _test_adjoint(J, f, rg)
+
+
+@pytest.mark.skipcomplex
 def test_singular_linear_problem(rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""
     mesh = UnitSquareMesh(10, 10)
