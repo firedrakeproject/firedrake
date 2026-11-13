@@ -167,6 +167,10 @@ runs:
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
+        : # DROP BEFORE MERGE
+        pip install -v --ignore-installed --no-deps \
+          git+https://github.com/FEniCS/ufl.git@pbrubeck/inline-form-derivative
+
         firedrake-clean
         pip list
 
