@@ -119,17 +119,12 @@ class Coargument(ufl.argument.Coargument):
     def make_dat(self):
         return self.function_space().make_dat()
 
-    def _analyze_form_arguments(self, outer_form=None):
+    def _analyze_form_arguments(self):
         # Returns the argument found in the Coargument object
         self._coefficients = ()
         # Coarguments map from V* to V*, i.e. V* -> V*, or equivalently V* x V -> R.
         # So they have one argument in the primal space and one in the dual space.
-        # However, when they are composed with linear forms with dual arguments, such as BaseFormOperators,
-        # the primal argument is discarded when analysing the argument as Coarguments.
-        if not outer_form:
-            self._arguments = (Argument(self.function_space().dual(), 0), self)
-        else:
-            self._arguments = (self,)
+        self._arguments = (Argument(self.function_space().dual(), 0), self)
 
     def reconstruct(self, function_space=None,
                     number=None, part=None):
@@ -386,6 +381,8 @@ def extract_domains(f):
             return list(set(mesh._meshes))
         else:
             return [mesh]
+    elif isinstance(f, ufl.core.base_form_operator.BaseFormOperator):
+        return f.ufl_domains()
     elif isinstance(f, (ufl.form.FormSum, ufl.Action)):
         # ufl.domain.extract_domains does not work.
         if f._domains is None:
