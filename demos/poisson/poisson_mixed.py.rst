@@ -82,7 +82,9 @@ For the remaining functions and boundaries we choose:
 To produce a numerical solution to this PDE in Firedrake we procede as
 follows:
 
-The mesh is chosen as a :math:`32\times32` element unit square. ::
+The mesh is chosen as a :math:`32\times32` element unit square.
+
+.. code-block:: python
 
   from firedrake import *
   mesh = UnitSquareMesh(32, 32)
@@ -90,33 +92,43 @@ The mesh is chosen as a :math:`32\times32` element unit square. ::
 As argued above, a stable choice of function spaces for our problem is the
 combination of order :math:`k` Brezzi-Douglas-Marini (BDM) elements and order
 :math:`k - 1` discontinuous Galerkin elements (DG). We use :math:`k = 1` and
-combine the BDM and DG spaces into a mixed function space ``W``. ::
+combine the BDM and DG spaces into a mixed function space ``W``.
+
+.. code-block:: python
 
   BDM = FunctionSpace(mesh, "BDM", 1)
   DG = FunctionSpace(mesh, "DG", 0)
   W = BDM * DG
 
 We obtain test and trial functions on the subspaces of the mixed function
-spaces as follows: ::
+spaces as follows:
+
+.. code-block:: python
 
   sigma, u = TrialFunctions(W)
   tau, v = TestFunctions(W)
 
 Next we declare our source function ``f`` over the DG space and initialise it
-with our chosen right hand side function value. ::
+with our chosen right hand side function value.
+
+.. code-block:: python
 
   x, y = SpatialCoordinate(mesh)
   f = Function(DG).interpolate(
       10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
 
 After dropping the vanishing boundary term on the right hand side, the
-bilinear and linear forms of the variational problem are defined as: ::
+bilinear and linear forms of the variational problem are defined as:
+
+.. code-block:: python
 
   a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
   L = - f*v*dx
 
 The strongly enforced boundary conditions on the BDM space on the top and
-bottom of the domain are declared as: ::
+bottom of the domain are declared as:
+
+.. code-block:: python
 
   bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 3)
   bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*x)]), 4)
@@ -128,27 +140,35 @@ directly is *not* the same and would in fact cause the application of the
 boundary condition during the later solve to fail.
 
 Now we're ready to solve the variational problem. We define `w` to be a function
-to hold the solution on the mixed space. ::
+to hold the solution on the mixed space.
+
+.. code-block:: python
 
   w = Function(W)
 
 Then we solve the linear variational problem ``a == L`` for ``w`` under the
 given boundary conditions ``bc0`` and ``bc1`` using Firedrake's default
 solver parameters. Afterwards we extract the components ``sigma`` and ``u``
-on each of the subspaces with ``split``. ::
+on each of the subspaces with ``split``.
+
+.. code-block:: python
 
   solve(a == L, w, bcs=[bc0, bc1])
   sigma, u = w.subfunctions
 
 Lastly we write the component of the solution corresponding to the primal
 variable on the DG space to a file in VTK format for later inspection with a
-visualisation tool such as `ParaView <http://www.paraview.org/>`__ ::
+visualisation tool such as `ParaView <http://www.paraview.org/>`__:
+
+.. code-block:: python
 
   VTKFile("poisson_mixed.pvd").write(u)
 
 We could use the built in plot function of firedrake by calling
 :func:`plot <firedrake.pyplot.tripcolor>` to plot a surface graph. Before that,
-matplotlib.pyplot should be installed and imported::
+matplotlib.pyplot should be installed and imported:
+
+.. code-block:: python
 
   try:
     import matplotlib.pyplot as plt
@@ -163,7 +183,9 @@ matplotlib.pyplot should be installed and imported::
   except Exception as e:
     warning("Cannot plot figure. Error msg '%s'" % e)
 
-Don't forget to show the image::
+Don't forget to show the image:
+
+.. code-block:: python
 
   try:
     plt.show()

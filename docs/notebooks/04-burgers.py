@@ -26,7 +26,7 @@
 #
 # ## Spatial discretisation
 #
-# We first discretise in space, mulitplying by a test function $v \in V$ and integrating the viscosity term by parts to obtain the semi-discrete problem. Find $u(x, t) \in V$ such that
+# We first discretise in space, multiplying by a test function $v \in V$ and integrating the viscosity term by parts to obtain the semi-discrete problem. Find $u(x, t) \in V$ such that
 #
 # $$
 # \int_\Omega \frac{\partial u}{\partial t} v + u \frac{\partial u}{\partial x} v + \nu \frac{\partial u}{\partial x}\frac{\partial v}{\partial x} \, \mathrm{d}x = 0 \quad \forall v \in V.

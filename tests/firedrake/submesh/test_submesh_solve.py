@@ -695,7 +695,11 @@ def test_submesh_solve_3d_2d_poisson_convergence(simplex, direction, degree):
 
 
 @pytest.mark.parallel(nprocs=7)
-def test_submesh_solve_2d_1d_poisson_hermite():
+@pytest.mark.parametrize("R", [
+    np.eye(3),
+    np.array([[0, -5, 0], [3, 0, -4], [4, 0, 3]]) / 5,
+], ids=["axis-aligned", "oblique"])
+def test_submesh_solve_2d_1d_poisson_hermite(R):
     distribution_parameters_noop = {
         "partition": True,
         "overlap_type": (DistributedMeshOverlapType.NONE, 0),
@@ -710,8 +714,12 @@ def test_submesh_solve_2d_1d_poisson_hermite():
     plex.removeLabel("pyop2_core")
     plex.removeLabel("pyop2_owned")
     plex.removeLabel("pyop2_ghost")
+    # Rotate the cube so that the 1D submesh is not parallel to any axis.
+    coords = plex.getCoordinatesLocal()
+    coords.array[:] = (coords.array.reshape(-1, 3) @ R.T).ravel()
+    plex.setCoordinatesLocal(coords)
     mesh3d = Mesh(plex, distribution_parameters=distribution_parameters)
-    xyz = SpatialCoordinate(mesh3d)
+    xyz = dot(as_matrix(R.T), SpatialCoordinate(mesh3d))
     HDivTrace0 = FunctionSpace(mesh3d, "Q", 2)
     f1 = Function(HDivTrace0).interpolate(conditional(xyz[0] < .001, 1, 0))
     f2 = Function(HDivTrace0).interpolate(conditional(xyz[0] > .999, 1, 0))
@@ -722,8 +730,9 @@ def test_submesh_solve_2d_1d_poisson_hermite():
     mesh3d = RelabeledMesh(mesh3d, [f1, f2, f3, f4, f5, f6], [1, 2, 3, 4, 5, 6])
     mesh2d = Submesh(mesh3d, mesh3d.topological_dimension - 1, 6)
     mesh1d = Submesh(mesh2d, mesh2d.topological_dimension - 1, 4)
-    x2d = SpatialCoordinate(mesh2d)
-    x1d = SpatialCoordinate(mesh1d)
+    mesh1d.init_cell_orientations(as_vector(R[:, 0]))
+    x2d = dot(as_matrix(R.T), SpatialCoordinate(mesh2d))
+    x1d = dot(as_matrix(R.T), SpatialCoordinate(mesh1d))
     g2d = sin(2 * pi * x2d[0]) * sin(2 * pi * x2d[1])
     f2d = 2 * (2 * pi)**2 * g2d
     g1d = sin(2 * pi * x1d[0])

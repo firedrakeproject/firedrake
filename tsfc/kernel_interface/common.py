@@ -284,7 +284,7 @@ class KernelBuilderMixin(object):
         are eventually used to construct the kernel.
         The following is a typical calling sequence:
 
-        .. code-block:: python3
+        .. code-block:: python
 
             builder = KernelBuilder(...)
             params = {"mode": "spectral"}

@@ -175,6 +175,23 @@ def test_compound_expression():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
+def test_restricted_extruded_interval():
+    mesh = ExtrudedMesh(UnitIntervalMesh(1), 1)
+    element = FiniteElement("Q", degree=4)
+    VF = FunctionSpace(mesh, element["facet"])
+    VI = FunctionSpace(mesh, element["interior"])
+    uf = Function(VF)
+    ui = Function(VI)
+
+    x = SpatialCoordinate(mesh)
+    exprs = [Constant(1), x[0], x[1], x[0]*x[1]]
+
+    for expr in exprs:
+        uf.interpolate(expr)
+        ui.interpolate(expr)
+        assert norm(expr - (uf + ui)) < 1E-12
+
+
 def test_hdiv_extruded_interval():
     mesh = ExtrudedMesh(UnitIntervalMesh(10), 10, 0.1)
     x = SpatialCoordinate(mesh)
@@ -209,8 +226,6 @@ def test_dpc_into_dq_extruded_interval():
     assert errornorm(u2, u1) < 1E-12
 
 
-# Requires the relevant FInAT or FIAT duals to be defined
-@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hdiv_2d():
     mesh = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(mesh)
@@ -230,7 +245,6 @@ def test_hdiv_2d():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, reason="Requires the relevant FInAT or FIAT duals to be defined")
 def test_hcurl_2d():
     mesh = UnitCubedSphereMesh(2)
     x = SpatialCoordinate(mesh)
@@ -771,3 +785,46 @@ def test_interpolate_indexed():
     I1 = assemble(interpolate(u2, U), mat_type="nest")
     I1_block = assemble(interpolate(TrialFunction(U), U))
     assert np.allclose(I1.petscmat.getNestSubMatrix(0, 1)[:, :], I1_block.petscmat[:, :])
+
+
+@pytest.fixture
+def hexmesh():
+    return ExtrudedMesh(UnitSquareMesh(1, 1, quadrilateral=True), 1)
+
+
+@pytest.mark.parametrize("source,target,expr,expected", [
+    (FunctionSpace, FunctionSpace,
+     lambda f: f * f * f,
+     lambda f: f ** 3),
+    (FunctionSpace, FunctionSpace,
+     lambda f: f * f * f * f,
+     lambda f: f ** 4),
+    (VectorFunctionSpace, VectorFunctionSpace,
+     lambda f: dot(f, f) * f,
+     lambda f: np.einsum("...i,...i,...j->...j", f, f, f)),
+    (TensorFunctionSpace, TensorFunctionSpace,
+     lambda f: dot(f, f),
+     lambda f: np.einsum("...ij,...jk->...ik", f, f)),
+    (TensorFunctionSpace, FunctionSpace,
+     lambda f: inner(f, f),
+     lambda f: np.einsum("...ij,...ij->...", f, f)),
+], ids=["cube", "quartic", "vector", "tensor", "inner"])
+def test_interpolate_too_many_indices(hexmesh, source, target, expr, expected):
+    """Test that products of several coefficient evaluations
+    do not exceed the sum-factorisation index limit.
+
+    Internally, sum_factorise breaks the contraction into
+    independent subproblems to avoid a monolithic contraction
+    with too many indices.
+
+    Evaluations that a value index contracts together do not split
+    into independent subproblems, and are instead kept whole.
+    """
+    V = source(hexmesh, "CG", 1)
+    W = target(hexmesh, "CG", 1)
+
+    w = Function(V)
+    w.dat.data[...] = np.arange(1, w.dat.data.size + 1).reshape(w.dat.data.shape)
+    u = Function(W).interpolate(expr(w))
+
+    assert np.allclose(u.dat.data_ro, expected(w.dat.data_ro))

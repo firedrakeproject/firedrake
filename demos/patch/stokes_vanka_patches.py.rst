@@ -21,7 +21,9 @@ operators are extracted from the globally assembled stiffness matrix.
 We start by importing firedrake and setting up a :func:`.MeshHierarchy` and the
 exact solution and forcing data. Crucially, the meshes must have an overlapping
 parallel domain decomposition that supports the Vanka patches. This is set
-via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
+via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.
+
+.. code-block:: python
 
   from firedrake import *
 
@@ -32,8 +34,9 @@ via the ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor. ::
 
 Next, this function solves the Stokes equation discretized with Taylor-Hood
 elements and user-provided solver parameters and returns the iteration count
-required for convergence.  Here, we use a driven cavity problem::
+required for convergence.  Here, we use a driven cavity problem:
 
+.. code-block:: python
 
   def run_solve(mesh, params):
       V = VectorFunctionSpace(mesh, "CG", 2)
@@ -61,7 +64,9 @@ required for convergence.  Here, we use a driven cavity problem::
 This function creates multigrid parameters using a given set of
 relaxation options and matrix assembly type.  On the coarsest level of the
 multigrid hierarchy, we force the matrix to be assembled and use a sparse direct
-solver. ::
+solver.
+
+.. code-block:: python
 
   def mg_params(relax, mat_type="aij"):
       return {
@@ -86,7 +91,9 @@ These options specify an additive Schwarz relaxation through :class:`~.PatchPC`.
 :class:`~.PatchPC` builds the patch operators by assembling the bilineary form over
 each subdomain.  Hence, it does not require the global stiffness
 matrix to be assembled.  These are quite similar to the options used in
-<poisson_mg_patches.py>::
+<poisson_mg_patches.py>:
+
+.. code-block:: python
 
   patch_relax = mg_params(
       {"pc_type": "python",
@@ -104,7 +111,9 @@ matrix to be assembled.  These are quite similar to the options used in
       mat_type="matfree")
 
 :class:`~.ASMStarPC`, on the other hand, does no re-discretization, but extracts the
-patch operators for each patch from the already-assembled global stiffness matrix. ::
+patch operators for each patch from the already-assembled global stiffness matrix.
+
+.. code-block:: python
 
   asm_relax = mg_params(
       {"pc_type": "python",
@@ -122,7 +131,9 @@ direct or Krylov method on each one.
 Now, for each parameter choice, we report the iteration count for the Poisson problem
 over a range of polynomial degrees.  We see that the Jacobi relaxation leads to growth
 in iteration count, while both :class:`~.PatchPC` and :class:`~.ASMStarPC` do not.  Mathematically, the two
-latter options do the same operations, just via different code paths. ::
+latter options do the same operations, just via different code paths.
+
+.. code-block:: python
 
   names = {"ASM Vanka": asm_relax,
            "Patch Vanka": patch_relax}

@@ -79,10 +79,15 @@ Firedrake's toolchain, in order:
 * **`petsc4py`/PETSc version skew:** Rebuild `petsc4py` (`pip install --no-build-isolation -e .`) after
   switching the PETSc branch/commit under an existing venv. A stale `petsc4py` fails `import firedrake`
   with an `undefined symbol: ...` error, not a Firedrake traceback.
-* **Caching:** TSFC kernels and PyOP2 code are cached under
-  `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`/`PYOP2_CACHE_DIR` (default `$VIRTUAL_ENV/.cache/{tsfc,pyop2}`), set
-  by `firedrake.configuration.setup_cache_dirs()` on `import firedrake`. Run `firedrake-clean` if a
-  change to the code generator does not take effect.
+* **Caching:** `import firedrake` sets `FIREDRAKE_TSFC_KERNEL_CACHE_DIR`, `PYOP2_CACHE_DIR`, and
+  `XDG_CACHE_HOME`, all derived from `FIREDRAKE_CACHE_DIR` (default `sys.prefix/.cache`, or `~/.cache`
+  if that isn't writable). Run `firedrake-clean` if a change to the code generator does not take
+  effect.
+* **Isolated cache:** Set `FIREDRAKE_CACHE_DIR` to a scratch directory before running Firedrake to keep
+  one variant's cached kernels from leaking into another's, e.g. for an A/B comparison.
+* **Scratch caches are yours to clean up:** `firedrake-clean` only clears the caches implied by the
+  *current* environment, so it can't find a `FIREDRAKE_CACHE_DIR` from an earlier, different run.
+  Delete a scratch cache directory yourself once you're done with it.
 * **Smoke test:** `firedrake-check` runs a process-count-grouped subset of the regression suite; use it
   before a full run.
 
@@ -132,7 +137,7 @@ Write as an expert technical writer addressing a peer (a mathematician or softwa
 Use ASD-STE100. Write clear, complete sentences rather than grammatically convoluted shortcuts.
 All comments, docstrings, and documentation must adhere to the following standards:
 
-* **Active Verbs Over Noun-Stacking:** Rephrase to avoid stacking words that double as nouns, verbs, or adjectives.
+* **Break Noun/Verb Stacks:** Rephrase to avoid stacking words that double as nouns, verbs, or adjectives.
    - **WRONG:** `# Process boundary facet normal orientation sign correction.`
    - **RIGHT:** `# Flips boundary facets so their normals point outside the mesh.`
 
@@ -144,6 +149,11 @@ All comments, docstrings, and documentation must adhere to the following standar
 subject of the main clause. Avoid dangling modifiers.
    - **WRONG**: `# Using the tangent linear model, $O(M)$ solves are needed.`
    - **RIGHT**: `# The tangent linear approach requires $O(M)$ solves.`
+
+* **Keep Modal Verbs:** When a docstring describes something that has not happened yet, keep the
+`can` and prefer passive voice to state the intent precisely.
+   - **WRONG**: `Whether one fused kernel assembles expr.`
+   - **RIGHT**: `Whether expr can be assembled in a single fused kernel.`
 
 ## Anti-Patterns
 

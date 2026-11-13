@@ -27,7 +27,7 @@ from pyadjoint.drivers import compute_gradient, compute_derivative, compute_hess
 from pyadjoint.adjfloat import AdjFloat  # noqa F401
 from pyadjoint.control import Control  # noqa F401
 from pyadjoint import (  # noqa: F401
-    IPOPTSolver, ROLSolver, MinimizationProblem, InequalityConstraint, minimize
+    TAOSolver, IPOPTSolver, ROLSolver, MinimizationProblem, InequalityConstraint, minimize
 )
 from firedrake.adjoint.ufl_constraints import (  # noqa: F401
     UFLInequalityConstraint, UFLEqualityConstraint

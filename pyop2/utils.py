@@ -220,10 +220,9 @@ def verify_reshape(data, dtype, shape, allow_none=False):
         except TypeError:
             raise DataTypeError("Invalid data type: %s" % dtype)
         try:
-            # Destructively modify shape.  Fails if data are not
+            # Reshape without copying.  Fails if data are not
             # contiguous, but that's what we want anyway.
-            a.shape = shape
-            return a
+            return np.reshape(a, shape, copy=False)
         except ValueError:
             raise DataValueError("Invalid data: expected %d values, got %d!" %
                                  (np.prod(shape), np.asarray(data).size))

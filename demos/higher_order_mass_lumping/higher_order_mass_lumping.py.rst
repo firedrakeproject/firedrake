@@ -46,18 +46,24 @@ We solve the above weak formulation using the finite element method.
 
 In the work of :cite:`Chin:1999` and later :cite:`Geevers:2018`, several triangular and tetrahedral elements were discovered that could produce convergent and stable mass lumping for :math:`p \ge 2`. These elements have enriched function spaces in the interior of the element that lead to more degree-of-freedom per element than the standard Lagrange element. However, this additional computational cost is offset by the fact that these elements produce diagonal matrices that are comparatively quick to solve, which improve simulation throughput especially at scale. Firedrake supports (through FInAT) these elements up to degree 5 on triangular, and degree 3 on tetrahedral meshes. They can be selected by choosing the "KMV" finite element.
 
-In addition to importing firedrake as usual, we will need to construct the correct quadrature rules for the mass-lumping by hand. FInAT is responsible for providing these quadrature rules, so we import it here too.::
+In addition to importing firedrake as usual, we will need to construct the correct quadrature rules for the mass-lumping by hand. FInAT is responsible for providing these quadrature rules, so we import it here too.
+
+.. code-block:: python
 
     from firedrake import *
     import finat
 
     import math
 
-A simple uniform triangular mesh is created::
+A simple uniform triangular mesh is created:
+
+.. code-block:: python
 
     mesh = UnitSquareMesh(50, 50)
 
-We choose a degree 2 `KMV` continuous function space, set it up and then create some functions used in time-stepping::
+We choose a degree 2 `KMV` continuous function space, set it up and then create some functions used in time-stepping:
+
+.. code-block:: python
 
     V = FunctionSpace(mesh, "KMV", 2)
 
@@ -71,11 +77,15 @@ We choose a degree 2 `KMV` continuous function space, set it up and then create 
 .. note::
     The user can select orders up to p=5 for triangles and up to p=3 for tetrahedra.
 
-We create an output file to hold the simulation results::
+We create an output file to hold the simulation results:
+
+.. code-block:: python
 
     outfile = VTKFile("out.pvd")
 
-Now we set the time-stepping variables performing a simulation for 1 second with a timestep of 0.001 seconds::
+Now we set the time-stepping variables performing a simulation for 1 second with a timestep of 0.001 seconds:
+
+.. code-block:: python
 
     T = 1.0
     dt = 0.001
@@ -84,13 +94,17 @@ Now we set the time-stepping variables performing a simulation for 1 second with
 
 Ricker wavelets are often used to excite the domain in seismology. They have one free parameter: a peak frequency :math:`\text{peak}`.
 
-Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For simplicity, we set the seismic velocity in the domain to be a constant::
+Here we inject a Ricker wavelet into the domain with a frequency of 6 Hz. For simplicity, we set the seismic velocity in the domain to be a constant:
+
+.. code-block:: python
 
     freq = 6
     c = Constant(1.5)
 
 The following two functions are used to inject the Ricker wavelet source into the domain. We
-create a time-varying function to model the time evolution of the Ricker wavelet::
+create a time-varying function to model the time evolution of the Ricker wavelet:
+
+.. code-block:: python
 
     def RickerWavelet(t, freq, amp=1.0):
         # Shift in time so the entire wavelet is injected
@@ -102,7 +116,9 @@ create a time-varying function to model the time evolution of the Ricker wavelet
         return amp * factor * envelope
 
 The spatial distribution of the source function is a Guassian kernel with a standard deviation
-of 2,000 so that it's sufficiently localized to emulate a Dirac delta function::
+of 2,000 so that it's sufficiently localized to emulate a Dirac delta function:
+
+.. code-block:: python
 
     def delta_expr(x0, x, y, sigma_x=2000.0):
         sigma_x = Constant(sigma_x)
@@ -110,11 +126,15 @@ of 2,000 so that it's sufficiently localized to emulate a Dirac delta function::
 
 To assemble the diagonal mass matrix, we need to create the matching colocated quadrature rule.
 FInAT implements custom "KMV" quadrature rules to do this. We obtain the appropriate cell from the function
-space, along with the degree of the element and construct the quadrature rule::
+space, along with the degree of the element and construct the quadrature rule:
+
+.. code-block:: python
 
     quad_rule = finat.quadrature.make_quadrature(V.finat_element.cell, V.ufl_element().degree(), "KMV")
 
-Then we make a new Measure object that uses this rule::
+Then we make a new Measure object that uses this rule:
+
+.. code-block:: python
 
     dxlump=dx(scheme=quad_rule)
 
@@ -130,29 +150,39 @@ Substituting the above into the time derivative term in the variational form lea
 
     \frac{u^{n+1} - 2*u^{n} + u^{n-1}}{\Delta t^2}), v> + a(u,v) = (f,w)
 
-Using Firedrake, we specify the mass matrix using the special quadrature rule with the Measure object we created above like so::
+Using Firedrake, we specify the mass matrix using the special quadrature rule with the Measure object we created above like so:
+
+.. code-block:: python
 
     m = (u - 2.0 * u_n + u_nm1) / Constant(dt * dt) * v * dxlump
 
 .. note::
     Mass lumping is a common technique in finite elements to produce a diagonal mass matrix that can be trivially inverted resulting in a very efficient explicit time integration scheme. It's usually done with nodal basis functions and an inexact quadrature rule for the mass matrix. A diagonal matrix is obtained when the integration points coincide with the nodes of the basis function. However, when using elements of :math:`p \ge 2`, this technique does not result in a stable and accurate finite element scheme and new elements must be found such as those detailed in :cite:Chin:1999 .
 
-The stiffness matrix :math:`a(u,v)` is formed using a standard quadrature rule and is treated explicitly::
+The stiffness matrix :math:`a(u,v)` is formed using a standard quadrature rule and is treated explicitly:
+
+.. code-block:: python
 
     a = c*c*dot(grad(u_n), grad(v)) * dx
 
-The source is injected at the center of the unit square::
+The source is injected at the center of the unit square:
+
+.. code-block:: python
 
     x, y = SpatialCoordinate(mesh)
     source = Constant([0.5, 0.5])
     ricker = Constant(0.0)
     ricker.assign(RickerWavelet(t, freq))
 
-We also create a cofunction ``R`` to save the assembled RHS vector::
+We also create a cofunction ``R`` to save the assembled RHS vector:
+
+.. code-block:: python
 
     R = Cofunction(V.dual())
 
-Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc ``LinearSolver`` object to efficiently timestep with::
+Finally, we define the whole variational form :math:`F`, assemble it, and then create a cached PETSc ``LinearSolver`` object to efficiently timestep with:
+
+.. code-block:: python
 
     F = m + a -  delta_expr(source, x, y)*ricker * v * dx
     a, r = lhs(F), rhs(F)
@@ -162,7 +192,9 @@ Finally, we define the whole variational form :math:`F`, assemble it, and then c
 .. note::
     Since we have arranged that the matrix A is diagonal, we can invert it with a single application of Jacobi iteration. We select this here using    appropriate solver parameters, which tell PETSc to construct a solver which just applies a single step of Jacobi preconditioning.
 
-Now we are ready to start the time-stepping loop::
+Now we are ready to start the time-stepping loop:
+
+.. code-block:: python
 
     step = 0
     while t < T:

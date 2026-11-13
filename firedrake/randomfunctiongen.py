@@ -15,7 +15,7 @@ and they can be used to generate a randomised :class:`.Function` by passing a :c
 
 Example:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
 
@@ -43,7 +43,7 @@ If ``seed`` keyword is not provided by the user, it is set using `numpy.random.S
 To make ``.PCG64`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
 
-.. code-block:: python3
+.. code-block:: python
 
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -54,7 +54,7 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
     ``inc`` is no longer a valid keyword for ``.PCG64`` constructor. However, one can reset the ``state`` after construction as:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         pcg = PCG64()
         state = pcg.state
@@ -69,7 +69,7 @@ If ``seed`` keyword is not provided by the user, it is set using `numpy.random.S
 To make ``.PCG64DXSM`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__:
 
-.. code-block:: python3
+.. code-block:: python
 
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -80,7 +80,7 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 
     ``inc`` is no longer a valid keyword for ``.PCG64DXSM`` constructor. However, one can reset the ``state`` after construction as:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         pcg = PCG64DXSM()
         state = pcg.state
@@ -93,7 +93,7 @@ Philox
 ``.Philox`` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
 If the ``key`` keyword is not provided by the user, ``.Philox`` computes a default key as:
 
-.. code-block:: python3
+.. code-block:: python
 
     key = np.zeros(2, dtype=np.uint64)
     key[0] = comm.Get_rank()

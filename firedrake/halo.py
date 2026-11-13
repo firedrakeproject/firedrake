@@ -101,7 +101,7 @@ class Halo(op2.Halo):
             raise ValueError("Communicator used to create `Halo` must be at least congruent to the communicator used to create the mesh")
         self.dm = PETSc.DMShell().create(self.comm)
         self.dm.setPointSF(dm.getPointSF())
-        self.dm.setDefaultSection(section)
+        self.dm.setLocalSection(section)
 
     @cached_property
     def sf(self):
@@ -117,8 +117,8 @@ class Halo(op2.Halo):
 
     @cached_property
     def local_to_global_numbering(self):
-        lsec = self.dm.getDefaultSection()
-        gsec = self.dm.getDefaultGlobalSection()
+        lsec = self.dm.getLocalSection()
+        gsec = self.dm.getGlobalSection()
         return dmcommon.make_global_numbering(lsec, gsec)
 
     @PETSc.Log.EventDecorator()
