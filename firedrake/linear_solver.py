@@ -45,9 +45,8 @@ class LinearSolver(LinearVariationalSolver):
 
         test, trial = A.arguments()
         self.x = Function(trial.function_space())
-        self.b = Cofunction(test.function_space().dual())
 
-        problem = LinearVariationalProblem(A, self.b, self.x, aP=P,
+        problem = LinearVariationalProblem(A, 0, self.x, aP=P,
                                            form_compiler_parameters=A.form_compiler_parameters,
                                            constant_jacobian=True)
         super().__init__(problem, **kwargs)
@@ -76,12 +75,10 @@ class LinearSolver(LinearVariationalSolver):
 
         # When solving `Ax = b`, with A: V x U -> R, or equivalently A: V -> U*,
         # we need to make sure that x and b belong to V and U*, respectively.
-        if x.function_space() != self.x.function_space():
-            raise ValueError(f"x must be a Function in {self.x.function_space()}.")
-        if b.function_space() != self.b.function_space():
-            raise ValueError(f"b must be a Cofunction in {self.b.function_space()}.")
+        test, trial = self.A.arguments()
+        if x.function_space() != test.function_space():
+            raise ValueError(f"x must be a Function in {test.function_space()}.")
+        if b.function_space() != trial.function_space().dual():
+            raise ValueError(f"b must be a Cofunction in {trial.function_space().dual()}.")
 
-        self.x.assign(x)
-        self.b.assign(b)
-        super().solve()
-        x.assign(self.x)
+        super().solve(x=x, b=b)

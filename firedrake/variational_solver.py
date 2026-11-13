@@ -12,6 +12,7 @@ from pyop3.cache import with_heavy_caches
 from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
 from firedrake.ufl_expr import extract_domains
+from firedrake.cofunction import Cofunction
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
@@ -494,6 +495,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         self._ctx = ctx
         self._work = problem.u_restrict.function_space().template_vec.duplicate()
+        self._work_cofunction = Function(problem.u_restrict.function_space().dual())
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -558,7 +560,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
     @with_heavy_caches(lambda self, *a, **kw: self._problem._mesh_topologies)
-    def solve(self, bounds=None):
+    def solve(self, bounds: tuple[Function, Function] | None = None, x: Function | None = None, b: Cofunction | None = None) -> Function:
         r"""Solve the variational problem.
 
         Parameters
@@ -566,6 +568,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         bounds : tuple of firedrake.function.Function
             Optional bounds on the solution, given as ``(lower, upper)``.
             ``lower`` and ``upper`` must both be :class:`firedrake.function.Function`\s.
+
+        x : firedrake.function.Function or None
+            Optional solution buffer that contains the initial guess on entry
+            and the converged solution on exit.
+        b : firedrake.cofunction.Cofunction or None
+            Optional right-hand side. Solve ``F == b`` when it is supplied.
 
         Returns
         -------
@@ -603,8 +611,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 problem_dms.append(dm)
         problem_dms.append(solution_dm)
 
-        if problem.restrict:
-            # Transfer the initial guess into the RestrictedFunctionSpace
+        # Transfer the rhs into the RestrictedFunctionSpace
+        if b is not None:
+            b = self._work_cofunction.assign(b)
+            # Zero bc nodes on the rhs
+            for bc in problem.dirichlet_bcs():
+                bc.zero(b)
+
+        # Transfer the initial guess into the RestrictedFunctionSpace
+        if x is not None:
+            problem.u_restrict.assign(x)
+        elif problem.restrict:
             problem.u_restrict.assign(problem.u)
 
         if self._ctx.pre_apply_bcs:
@@ -628,7 +645,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             for top in self._transfer_operators:
                 stack.enter_context(top)
 
-            self.snes.solve(None, work)
+            bvec = stack.enter_context(b.dat.vec_ro) if b is not None else None
+            self.snes.solve(bvec, work)
 
             # The appctx might have been refined
             self._ctx = dmhooks.get_appctx(self.snes.getDM())
@@ -640,6 +658,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
+        if x is not None:
+            x.assign(problem.u)
         solving_utils.check_snes_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
