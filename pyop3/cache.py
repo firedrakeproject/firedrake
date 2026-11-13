@@ -15,7 +15,6 @@ import itertools
 import os
 import pickle
 import re
-import sys
 import weakref
 from collections import defaultdict
 from collections.abc import Callable, Hashable, Mapping, MutableMapping
