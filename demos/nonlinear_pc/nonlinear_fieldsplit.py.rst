@@ -13,7 +13,7 @@ and then combines the updates. The sweep can apply the updates all at
 once (a nonlinear block Jacobi iteration) or one after another, so that
 each split sees the latest values of the fields that came before it (a
 nonlinear block Gauss-Seidel iteration). Firedrake provides this as the
-native PETSc SNES type ``fieldsplit``.
+PETSc SNES type ``fieldsplit``.
 
 This demo shows how to use ``fieldsplit`` as a solver by itself
 and as a nonlinear preconditioner for an accelerated nonlinear solver.
@@ -142,7 +142,7 @@ field order. The ``-snes_fieldsplit_%d_fields`` options change how the
 fields are grouped into splits and the order of the splits, in the
 same way as for the linear ``fieldsplit`` preconditioner.
 
-Each split is solved with its own native PETSc SNES. The
+Each split is solved with its own PETSc SNES. The
 options for split ``i`` have the prefix ``fieldsplit_i_``. The options
 with the prefix ``fieldsplit_`` are defaults for all of the splits, so
 here every split uses Newton's method with a direct linear solver. An
@@ -282,7 +282,7 @@ system needs fewer iterations still for this small problem. The
 fieldsplit methods are useful when the coupled problem is hard to solve
 but each field is easy to solve by itself, for example because a good
 solver is already available for each separate equation. Because each
-split uses a native PETSc SNES, the split solvers
+split uses a PETSc SNES, the split solvers
 can use any of the solver options that are available in Firedrake,
 including another ``fieldsplit`` for a split that contains more
 than one field.
