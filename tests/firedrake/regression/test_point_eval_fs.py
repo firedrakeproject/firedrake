@@ -16,26 +16,26 @@ def mesh_interval():
 @pytest.fixture
 def mesh_triangle():
     m = UnitTriangleMesh()
-    m.coordinates.dat.data[:] = [[0.1, 0.0], [1.2, 0.0], [0.0, 0.9]]
+    m.coordinates.dat.data_wo[...] = [[0.1, 0.0], [1.2, 0.0], [0.0, 0.9]]
     return m
 
 
 @pytest.fixture
 def mesh_quadrilateral():
     m = UnitSquareMesh(1, 1, quadrilateral=True)
-    for row in m.coordinates.dat.data:
-        row[:] = [1.1*row[0] - 0.1*row[1],
-                  0.1*row[0] + 1.0*row[1]]
+    for row in m.coordinates.dat.data_wo:
+        row[...] = [1.1*row[0] - 0.1*row[1],
+                    0.1*row[0] + 1.0*row[1]]
     return m
 
 
 @pytest.fixture
 def mesh_tetrahedron():
     m = UnitTetrahedronMesh()
-    m.coordinates.dat.data[:] = [[0.0, 0.0, 0.0],
-                                 [1.0, 0.0, 0.0],
-                                 [0.4, 1.0, 0.0],
-                                 [0.5, 0.6, 1.0]]
+    m.coordinates.dat.data_wo[...] = [[0.0, 0.0, 0.0],
+                                      [1.0, 0.0, 0.0],
+                                      [0.4, 1.0, 0.0],
+                                      [0.5, 0.6, 1.0]]
     return m
 
 
@@ -119,6 +119,7 @@ def test_triangle_mixed(mesh_triangle):
     f = Function(V)
     f1, f2 = f.subfunctions
     x = SpatialCoordinate(mesh_triangle)
+
     f1.interpolate(x[0] + 1.2*x[1])
     f2.project(as_vector((x[1], 0.8 + x[0])))
 
@@ -239,7 +240,31 @@ def test_point_reset_works():
 
 def test_changing_coordinates_invalidates_rtree():
     mesh = UnitSquareMesh(2, 2)
-
+    assert mesh.rtree is mesh.rtree
     saved_rtree = mesh.rtree
     mesh.coordinates.assign(mesh.coordinates * 2)
+    assert mesh.rtree != saved_rtree
+
+
+def test_changing_coordinates_invalidates_partition_rtree():
+    mesh = UnitSquareMesh(2, 2)
+
+    saved_rtree = mesh.partition_rtree
+    mesh.coordinates.assign(mesh.coordinates * 2)
+    assert mesh.partition_rtree != saved_rtree
+
+
+def test_changing_coordinates_invalidates_bounding_box():
+    mesh = UnitSquareMesh(2, 2)
+    assert mesh.bounding_box_coords is mesh.bounding_box_coords
+    saved_bounding_box_coords = mesh.bounding_box_coords
+    mesh.coordinates.assign(mesh.coordinates * 2)
+    assert not np.allclose(mesh.bounding_box_coords, saved_bounding_box_coords)
+
+
+def test_changing_tolerance_invalidates_rtree():
+    mesh = UnitSquareMesh(2, 2)
+    assert mesh.rtree is mesh.rtree
+    saved_rtree = mesh.rtree
+    mesh.tolerance = 1e-5
     assert mesh.rtree != saved_rtree

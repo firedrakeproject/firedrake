@@ -23,8 +23,8 @@ def pcpatch_set_compute_operator_exterior_facets(patch, function, ctx):
 
 def snespatch_set_compute_operator(patch, function, ctx):
     CHKERR(SNESPatchSetComputeOperator((<PETSc.SNES?>patch).snes,
-                                        <PetscPCPatchComputeOperator><uintptr_t>function,
-                                        <void *><uintptr_t>ctx))
+                                       <PetscPCPatchComputeOperator><uintptr_t>function,
+                                       <void *><uintptr_t>ctx))
 
 
 def snespatch_set_compute_function(patch, function, ctx):

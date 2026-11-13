@@ -56,8 +56,7 @@ continue_annotation()
 
 # %%
 n = 100
-with stop_annotating():
-    mesh = PeriodicIntervalMesh(n, length=2)
+mesh = PeriodicIntervalMesh(n, length=2)
 x = SpatialCoordinate(mesh)[0]
 nu = Constant(1e-2)
 V = FunctionSpace(mesh, "Lagrange", 2)
@@ -286,10 +285,10 @@ pause_annotation()
 # %% tags=["skip-execution", "nbval-skip"]
 # !pip install networkx pygraphviz pdf2image
 
-# %% tags=["skip-execution", "nbval-skip"]
+# %%
 tape.visualise("tape.pdf")
 
-# %% tags=["skip-execution", "nbval-skip"]
+# %%
 from pdf2image import convert_from_path
 
 images = convert_from_path("tape.pdf")

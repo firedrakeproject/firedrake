@@ -8,7 +8,7 @@ from firedrake.preconditioners.hypre_ams import chop
 from firedrake.interpolation import interpolate
 from finat.ufl import FiniteElement, TensorElement, VectorElement
 from ufl import grad, curl, SpatialCoordinate
-from pyop2.utils import as_tuple
+from pyop3.pyop2_utils import as_tuple
 
 __all__ = ("HypreADS",)
 
@@ -19,7 +19,7 @@ class HypreADS(PCBase):
         A, P = obj.getOperators()
         appctx = self.get_appctx(obj)
         prefix = obj.getOptionsPrefix() or ""
-        V = get_function_space(obj.getDM())
+        V = get_function_space(obj.getDM()).collapse()
         mesh = V.mesh()
 
         family = str(V.ufl_element().family())

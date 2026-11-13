@@ -11,16 +11,19 @@ except ModuleNotFoundError as e:
     ) from e
 import matplotlib.colors
 import matplotlib.patches
+import matplotlib.transforms
 import matplotlib.tri
 from matplotlib.path import Path
 from matplotlib.lines import Line2D
-from matplotlib.collections import LineCollection, PolyCollection
+from matplotlib.collections import LineCollection, PathCollection, PolyCollection
 import mpl_toolkits.mplot3d
-from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
+from mpl_toolkits.mplot3d.art3d import (Line3DCollection, Poly3DCollection,
+                                        patch_collection_2d_to_3d)
 from math import factorial
 from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
+from firedrake.cython import dmcommon
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
@@ -65,22 +68,112 @@ def _autoscale_view(axes, coords):
             setter(amin, amax)
 
 
-def _get_collection_types(gdim, tdim):
-    if gdim == 2:
-        if tdim == 1:
-            # Probably a CircleCollection?
-            raise NotImplementedError("Didn't get to this yet...")
-        elif tdim == 2:
-            return LineCollection, PolyCollection
-    elif gdim == 3:
-        if tdim == 1:
-            raise NotImplementedError("Didn't get to this one yet...")
-        elif tdim == 2:
-            return Line3DCollection, Poly3DCollection
-        elif tdim == 3:
-            return Poly3DCollection, Poly3DCollection
+def _point_collection(axes, vertices, colors=None, **kwargs):
+    r"""Draw a collection of round markers at the given points
 
-    raise ValueError("Geometric dimension must be either 2 or 3!")
+    The markers are sized in points like those of a scatter plot, so their
+    paths live in display space and only their offsets are in data
+    coordinates.
+
+    Parameters
+    ----------
+    axes : matplotlib.axes.Axes
+        Axes whose data transform positions the markers.
+    vertices : numpy.ndarray
+        Array of shape ``(num_points, gdim)`` of point coordinates.
+    colors : optional
+        Colour or array of colours for the markers. The colours arrive under
+        the same keyword that the line collections bounding a 2D mesh take
+        them under.
+    **kwargs
+        Additional keyword arguments for
+        :class:`~matplotlib.collections.PathCollection`.
+
+    Returns
+    -------
+    matplotlib.collections.PathCollection
+        The marker collection, converted to 3D if ``gdim`` is 3.
+    """
+    kwargs.setdefault("sizes", [plt.rcParams["lines.markersize"] ** 2])
+    collection = PathCollection(
+        [Path.unit_circle()],
+        offsets=vertices[:, :2],
+        offset_transform=axes.transData,
+        transform=matplotlib.transforms.IdentityTransform(),
+        facecolors=colors,
+        **kwargs
+    )
+    if vertices.shape[1] == 3:
+        # Shading the markers by depth would take them off the colour that
+        # names them in the legend.
+        patch_collection_2d_to_3d(collection, zs=vertices[:, 2], depthshade=False)
+    return collection
+
+
+def _add_collection(axes, vertices, **kwargs):
+    r"""Draw the mesh entities whose vertices are given and add them to the axes
+
+    The shape of ``vertices`` decides how each entity is drawn: entities with a
+    single vertex become round markers, those with two vertices become line
+    segments, and those with more become polygons. The facets of a 1D mesh are
+    points and those of a 2D mesh are segments, so this covers every entity
+    that a mesh of any dimension is drawn from.
+
+    Parameters
+    ----------
+    axes : matplotlib.axes.Axes
+        Axes to add the collection to.
+    vertices : numpy.ndarray
+        Array of shape ``(num_entities, num_vertices, gdim)``.
+    **kwargs
+        Additional keyword arguments for the collection type chosen.
+
+    Returns
+    -------
+    matplotlib.collections.Collection
+        The collection that was added to the axes.
+    """
+    num_vertices, gdim = vertices.shape[1:]
+    if num_vertices == 1:
+        collection = _point_collection(axes, vertices.reshape(-1, gdim), **kwargs)
+    elif num_vertices == 2:
+        segments = LineCollection if gdim == 2 else Line3DCollection
+        collection = segments(vertices, **kwargs)
+    else:
+        polygons = PolyCollection if gdim == 2 else Poly3DCollection
+        collection = polygons(vertices, **kwargs)
+
+    axes.add_collection(collection)
+    return collection
+
+
+def _entity_node_list(cell, dimension):
+    r"""Local node numbers of each entity of the given dimension of a cell
+
+    The vertices of each entity come out in a cycle around its perimeter. FInAT
+    numbers the vertices of a quadrilateral lexicographically, putting 1 and 2
+    diagonally opposite each other; exchanging the last two makes the polygon
+    simple. Entities with any other number of vertices are simplices, which are
+    already in order.
+
+    Parameters
+    ----------
+    cell : FIAT.reference_element.Cell
+        Reference cell whose topology is queried.
+    dimension : int or tuple of int
+        Dimension of the entities to look up. Tensor product cells index their
+        entities by a pair of horizontal and vertical dimensions.
+
+    Returns
+    -------
+    numpy.ndarray
+        Array of shape ``(num_entities, num_vertices_per_entity)``.
+    """
+    entities = cell.get_topology()[dimension]
+    nodes = np.array([entities[key] for key in sorted(entities)])
+    if nodes.shape[-1] == 4:
+        return nodes[:, [0, 1, 3, 2]]
+    return nodes
 
 
 @PETSc.Log.EventDecorator()
@@ -90,8 +183,8 @@ def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes
     Parameters
     ----------
     vom_or_function
-        A :func:`.VertexOnlyMesh` or a scalar-valued :class:`~.Function` defined on one.
-        If a :class:`~.Function` is provided, its values are used to colour the points.
+        A :func:`.VertexOnlyMesh` or a scalar-valued :class:`firedrake.function.Function` defined on one.
+        If a :class:`firedrake.function.Function` is provided, its values are used to colour the points.
     axes
         The axes on which to plot. If not provided, the current active axes are used.
     **kwargs
@@ -153,12 +246,16 @@ def scatter(vom_or_function: MeshGeometry | Function, axes: matplotlib.axes.Axes
 def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     r"""Plot a mesh colouring marked facet segments
 
-    Typically boundary segments will be marked and coloured, but
-    interior facets that are marked will also be coloured.
+    Only the exterior facets are coloured. Markers on interior facets are
+    ignored, so an internal boundary is drawn like the rest of the interior.
 
     The interior and boundary keyword arguments can be any keyword argument for
     :class:`LineCollection <matplotlib.collections.LineCollection>` and
     related types.
+
+    On an extruded mesh, the bottom and top of the mesh are coloured under
+    the markers ``"bottom"`` and ``"top"``. A periodic extrusion identifies
+    the bottom with the top, so neither is drawn.
 
     :arg mesh: mesh to be plotted
     :arg axes: matplotlib :class:`Axes <matplotlib.axes.Axes>` object on which to plot mesh
@@ -171,11 +268,8 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
     gdim = mesh.geometric_dimension
     tdim = mesh.topological_dimension
-    BoundaryCollection, InteriorCollection = _get_collection_types(gdim, tdim)
-    quad = mesh.ufl_cell().cellname == "quadrilateral"
-
-    if mesh.extruded:
-        raise NotImplementedError("Visualizing extruded meshes not implemented yet!")
+    if gdim not in {2, 3}:
+        raise ValueError("Geometric dimension must be either 2 or 3!")
 
     if axes is None:
         figure = plt.figure()
@@ -186,82 +280,100 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
 
     coordinates = mesh.coordinates
     element = coordinates.function_space().ufl_element()
-    if element.degree() != 1:
+    if coordinates.function_space().finat_element.space_dimension() != mesh.ufl_cell().num_vertices:
         # Interpolate to piecewise linear.
         V = VectorFunctionSpace(mesh, element.family(), 1)
         coordinates = assemble(interpolate(coordinates, V))
 
+    cell = coordinates.function_space().finat_element.cell
+    # Tensor product cells index their entities by a pair of horizontal and
+    # vertical dimensions. The horizontal facets bound the bottom and top of
+    # each column of cells, so there are none unless the mesh is extruded.
+    if mesh.extruded:
+        cell_dim, vert_facet_dim, horiz_facet_dim = (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
+    else:
+        cell_dim = tdim
+
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
+    cell_nodes = coordinates.function_space().cell_node_list
     result = []
     interior_kw = dict(interior_kw)
     # If the domain isn't a 3D volume, draw the interior.
     if tdim <= 2:
-        cell_node_map = coordinates.cell_node_map().values_with_halo
-        idx = (tuple(range(tdim + 1)) if not quad else (0, 1, 3, 2)) + (0,)
-        vertices = coords[cell_node_map[:, idx]]
+        idx = _entity_node_list(cell, cell_dim)[0]
+        cells = cell_nodes[:, idx]
+        vertices = coords[cells]
 
         interior_kw["edgecolors"] = interior_kw.get("edgecolors", "k")
         interior_kw["linewidths"] = interior_kw.get("linewidths", 1.0)
-        if gdim == 2:
+        if gdim == 2 and tdim == 2:
             interior_kw["facecolors"] = interior_kw.get("facecolors", "none")
 
-        interior_collection = InteriorCollection(vertices, **interior_kw)
-        axes.add_collection(interior_collection)
-        result.append(interior_collection)
+        result.append(_add_collection(axes, vertices, **interior_kw))
 
-    def facet_data(typ):
-        if typ == "interior":
-            facets = mesh.interior_facets
-            node_map = coordinates.interior_facet_node_map()
-            node_map = node_map.values_with_halo[:, :node_map.arity//2]
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos[:, :1].reshape(-1)
-        elif typ == "exterior":
-            facets = mesh.exterior_facets
-            local_facet_ids = facets.local_facet_dat.data_ro_with_halos
-            node_map = coordinates.exterior_facet_node_map().values_with_halo
+    # Add colored lines/polygons for the boundary facets. Each facet is drawn
+    # from the nodes of the cell it belongs to that lie on it.
+
+    markers = list(mesh.facet_markers)
+    if mesh.extruded and not mesh.extruded_periodic:
+        markers += ["bottom", "top"]
+
+    def marker_faces(marker):
+        if mesh.extruded:
+            if marker == "top":
+                facet_type = "exterior_facet_top"
+                local_exterior_facet_nums = np.full(mesh.exterior_facets_top.local_size, 1, dtype=int)
+                facet_dim = horiz_facet_dim
+            elif marker == "bottom":
+                facet_type = "exterior_facet_bottom"
+                local_exterior_facet_nums = np.full(mesh.exterior_facets_top.local_size, 0, dtype=int)
+                facet_dim = horiz_facet_dim
+            else:
+                facet_type = "exterior_facet_vert"
+                local_exterior_facet_nums = mesh.exterior_facet_vert_local_facet_indices.data_ro.ravel()
+                facet_dim = vert_facet_dim
         else:
-            raise ValueError("Unhandled facet type")
-        mask = np.zeros(node_map.shape, dtype=bool)
-        for facet_index, local_facet_index in enumerate(local_facet_ids):
-            mask[facet_index, topology[tdim - 1][local_facet_index]] = True
-        faces = node_map[mask].reshape(-1, tdim)
-        return facets, faces
+            facet_type = "exterior_facet"
+            local_exterior_facet_nums = mesh.exterior_facet_local_facet_indices.data_ro.ravel()
+            facet_dim = tdim - 1
 
-    # Add colored lines/polygons for the boundary facets
-    topology = coordinates.function_space().finat_element.cell.get_topology()
+        # Identify the nodes per exterior facet iteration entry (i.e. cell) that
+        # correspond to the exterior facets
+        node_map = coordinates.function_space()._iterset_to_node_map_dat(facet_type).data_ro
+        local_facet_selector = _entity_node_list(cell, facet_dim)
+        facet_selector = local_facet_selector[local_exterior_facet_nums]
+        exterior_facet_nodes_per_exterior_facet = np.take_along_axis(node_map, facet_selector, axis=1)
 
-    markers = mesh.exterior_facets.unique_markers
+        # Now filter to only have ones that match the marker
+        if marker in {"top", "bottom"}:
+            # these markers don't have subsets
+            subset_indices = Ellipsis
+        else:
+            subset_plex_indices_is = mesh.iter(facet_type, int(marker)).plex_indices_is
+            subset_indices = dmcommon.section_offsets(
+                mesh._plex_to_entity_numbering_sec(facet_type), subset_plex_indices_is
+            ).indices
+
+        return exterior_facet_nodes_per_exterior_facet[subset_indices]
+
     color_key = "colors" if tdim <= 2 else "facecolors"
+    boundary_kw = dict(boundary_kw)
     boundary_colors = boundary_kw.pop(color_key, None)
     if boundary_colors is None:
-        # matplotlib.cm.get_cmap was deprecated in Matplotlib 3.9, see:
-        # https://matplotlib.org/3.9.0/api/prev_api_changes/api_changes_3.9.0.html#top-level-cmap-registration-and-access-functions-in-mpl-cm
-        try:
-            cmap = matplotlib.cm.get_cmap("Dark2")
-        except AttributeError:
-            cmap = matplotlib.colormaps["Dark2"]
+        cmap = matplotlib.colormaps["Dark2"]
         num_markers = len(markers)
         colors = cmap([k / num_markers for k in range(num_markers)])
     else:
         colors = matplotlib.colors.to_rgba_array(boundary_colors)
 
-    boundary_kw = dict(boundary_kw)
     if tdim == 3:
         boundary_kw["edgecolors"] = boundary_kw.get("edgecolors", "k")
         boundary_kw["linewidths"] = boundary_kw.get("linewidths", 1.0)
 
     for marker, color in zip(markers, colors):
-        vertices = []
-        for typ in ["interior", "exterior"]:
-            facets, faces = facet_data(typ)
-            face_indices = facets.subset(int(marker)).indices
-            marker_faces = faces[face_indices, :]
-            vertices.append(coords[marker_faces])
-        vertices = np.concatenate(vertices)
+        vertices = coords[marker_faces(marker)]
         _boundary_kw = dict(**{color_key: color, "label": marker}, **boundary_kw)
-        marker_collection = BoundaryCollection(vertices, **_boundary_kw)
-        axes.add_collection(marker_collection)
-        result.append(marker_collection)
+        result.append(_add_collection(axes, vertices, **_boundary_kw))
 
     # Dirty hack to enable legends for 3D volume plots. See the function
     # `Poly3DCollection.set_3d_properties`.
@@ -302,11 +414,11 @@ def _plot_2d_field(method_name, function, *args, complex_component="real", **kwa
 
 @PETSc.Log.EventDecorator()
 def tricontourf(function, *args, complex_component="real", **kwargs):
-    r"""Create a filled contour plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a filled contour plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :func:`tricontourf <matplotlib.pyplot.tricontourf>`
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
@@ -318,11 +430,11 @@ def tricontourf(function, *args, complex_component="real", **kwargs):
 
 @PETSc.Log.EventDecorator()
 def tricontour(function, *args, complex_component="real", **kwargs):
-    r"""Create a contour plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a contour plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :func:`tricontour <matplotlib.pyplot.tricontour>`
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
@@ -334,7 +446,7 @@ def tricontour(function, *args, complex_component="real", **kwargs):
 
 @PETSc.Log.EventDecorator()
 def tripcolor(function, *args, complex_component="real", **kwargs):
-    r"""Create a pseudo-color plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a pseudo-color plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
@@ -372,11 +484,11 @@ def _trisurf_3d(axes, function, *args, complex_component="real", vmin=None, vmax
 
 @PETSc.Log.EventDecorator()
 def trisurf(function, *args, complex_component="real", **kwargs):
-    r"""Create a 3D surface plot of a 2D Firedrake :class:`~.Function`
+    r"""Create a 3D surface plot of a 2D Firedrake :class:`firedrake.function.Function`
 
     If the input function is a vector field, the magnitude will be plotted.
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :meth:`plot_trisurf <mpl_toolkits.mplot3d.axes3d.Axes3D.plot_trisurf>`
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
@@ -415,7 +527,7 @@ def trisurf(function, *args, complex_component="real", **kwargs):
 
 @PETSc.Log.EventDecorator()
 def quiver(function: Function, *, complex_component: str = "real", **kwargs) -> matplotlib.quiver.Quiver:
-    r"""Make a quiver plot of a 2D vector Firedrake :class:`~.Function`.
+    r"""Make a quiver plot of a 2D vector Firedrake :class:`firedrake.function.Function`.
 
     Parameters
     ----------
@@ -473,7 +585,7 @@ def streamline(function, point, direction=+1, tolerance=3e-3, loc_tolerance=1e-1
                complex_component="real"):
     r"""Generate a streamline of a vector field starting from a point
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg point: the starting point of the streamline
     :arg direction: either +1 or -1 to integrate forward or backward
     :arg tolerance: dimensionless tolerance for the RK12 adaptive integration
@@ -695,7 +807,7 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
 
     Similar to matplotlib :func:`streamplot <matplotlib.pyplot.streamplot>`
 
-    :arg function: the Firedrake :class:`~.Function` to plot
+    :arg function: the Firedrake :class:`firedrake.function.Function` to plot
     :arg resolution: minimum spacing between streamlines (defaults to domain size / 20)
     :arg min_length: minimum length of a streamline (defaults to 4x resolution)
     :arg max_time: maximum time to integrate a streamline
@@ -785,7 +897,8 @@ def streamplot(function, resolution=None, min_length=None, max_time=None,
 
     cmap = plt.get_cmap(kwargs.pop("cmap", None))
 
-    collection = LineCollection(points, cmap=cmap, norm=norm, linewidth=widths)
+    collection = LineCollection(points, cmap=cmap, norm=norm, linewidth=widths,
+                                **kwargs)
     collection.set_array(speeds)
     axes.add_collection(collection)
 
@@ -829,9 +942,9 @@ matplotlib.legend.Legend.update_default_handler_map(
 
 @PETSc.Log.EventDecorator()
 def plot(function, *args, num_sample_points=10, complex_component="real", **kwargs):
-    r"""Plot a 1D Firedrake :class:`~.Function`
+    r"""Plot a 1D Firedrake :class:`firedrake.function.Function`
 
-    :arg function: The :class:`~.Function` to plot
+    :arg function: The :class:`firedrake.function.Function` to plot
     :arg args: same as for matplotlib :func:`plot <matplotlib.pyplot.plot>`
     :arg num_sample_points: number of sample points for high-degree functions
     :kwarg complex_component: If plotting complex data, which
@@ -910,7 +1023,7 @@ def _bezier_plot(function, axes, complex_component="real", **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
     Bezier curves within each cell
 
-    :arg function: 1D :class:`~.Function` to plot
+    :arg function: 1D :class:`firedrake.function.Function` to plot
     :arg axes: :class:`Axes <matplotlib.axes.Axes>` for plotting
     :kwarg complex_component: If plotting complex data, which
         component? (``'real'`` or ``'imag'``). Default is ``'real'``.
@@ -1041,9 +1154,7 @@ class FunctionPlotter:
 
         # Now create a matching triangulation of the whole domain.
         num_vertices = self._reference_points.shape[0]
-        # TODO: What do we do with variable layers?
-        num_layers = 1 if mesh.layers is None else mesh.layers - 1
-        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0] * num_layers
+        num_cells = mesh.coordinates.function_space().cell_node_list.shape[0]
         add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_vertices
         all_triangles = (triangles + add_idx).reshape(-1, 3)
 
@@ -1069,15 +1180,11 @@ class FunctionPlotter:
         fiat_element = Q.finat_element.fiat_equivalent
         elem = fiat_element.tabulate(0, self._reference_points)[keys[dimension]]
         cell_node_list = Q.cell_node_list
-        if mesh.layers:
-            cell_node_list = np.vstack([cell_node_list + k for k in range(mesh.layers - 1)])
         data = function.dat.data_ro_with_halos[cell_node_list]
-        if function.ufl_shape == ():
-            vec_length = 1
-        else:
-            vec_length = function.ufl_shape[0]
 
-        if vec_length == 1:
+        # Match the indices of the einsum
+        if len(data.shape) == 2:
             data = np.reshape(data, data.shape + (1,))
+        assert len(data.shape) == 3
 
         return np.einsum("ijk, jl->ilk", data, elem).reshape(-1)

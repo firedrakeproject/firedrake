@@ -11,7 +11,6 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.domain import extract_unique_domain
 
 import gem
-import ufl
 
 import tsfc
 import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
@@ -151,36 +150,44 @@ def compile_element(expression, coordinates, parameters=None):
     kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
     # Fill the code template
-    extruded = isinstance(cell, ufl.TensorProductCell)
-
     code = {
         "geometric_dimension": domain.geometric_dimension,
-        "layers_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if extruded else "",
-        "layers": ", layers" if extruded else "",
-        "extruded_define": "1" if extruded else "0",
         "IntType": as_cstr(IntType),
         "scalar_type": utils.ScalarType_c,
+        "real_type": utils.RealType_c,
     }
-    # if maps are the same, only need to pass one of them
-    if coordinates.cell_node_map() == coefficient.cell_node_map():
-        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map" % code
-        code["map_args"] = "f->coords_map"
-    else:
-        code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
-        code["map_args"] = "f->coords_map, f->f_map"
+    code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
+    code["map_args"] = "f->coords_map, f->f_map"
 
     evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end%(layers_arg)s,
+static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end,
     %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
 
 
 int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
 {
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
-    double found_ref_cell_dist_l1 = DBL_MAX;
+    %(real_type)s found_ref_cell_dist_l1 = PETSC_MAX_REAL;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
-    int cells_ignore[1] = {-1};
-    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &to_reference_coords_xtr, &temp_reference_coords, &found_reference_coords, &found_ref_cell_dist_l1, 1, cells_ignore);
+    %(IntType)s cells_ignore[1] = {-1};
+    RTreeError err;
+    int64_t *ids = NULL;
+    size_t nids = 0;
+    err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
+    if (err != Success) {
+        fputs("ERROR: rtree_locate_all_at_point failed.\\n", stderr);
+        rtree_free_ids(ids, nids);
+        return -2;
+    }
+    %(IntType)s cell;
+    PetscErrorCode locate_err = locate_cell_from_candidates(
+            f, x, &to_reference_coords,
+            &temp_reference_coords, &found_reference_coords,
+            &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore, &cell);
+    rtree_free_ids(ids, nids);
+    if (locate_err != PETSC_SUCCESS) {
+        return locate_err;
+    }
     if (cell == -1) {
         return -1;
     }
@@ -188,14 +195,8 @@ int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
     if (!result) {
         return 0;
     }
-#if %(extruded_define)s
-    %(IntType)s layers[2] = {0, 0};
-    %(IntType)s nlayers = f->n_layers;
-    layers[1] = cell %% nlayers + 2;
-    cell = cell / nlayers;
-#endif
 
-    wrap_evaluate(result, found_reference_coords.X, cell, cell+1%(layers)s, f->coords, f->f, %(map_args)s);
+    wrap_evaluate(result, found_reference_coords.X, cell, cell+1, f->coords, f->f, %(map_args)s);
     return 0;
 }
 """

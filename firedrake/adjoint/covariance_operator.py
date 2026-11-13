@@ -3,13 +3,18 @@ from enum import Enum
 from functools import cached_property
 from typing import Iterable
 from textwrap import dedent
+import math
 from scipy.special import factorial
 import petsctools
 from loopy import generate_code_v2
-from pyop2 import op2
+import pyop3 as op3
+import firedrake
+from firedrake.mesh import extract_mesh_topologies
+from firedrake.pack import pack
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky
 from firedrake.functionspaceimpl import WithGeometry
+from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
@@ -22,6 +27,11 @@ from firedrake import (
     LinearVariationalSolver,
     VertexOnlyMeshTopology,
     PETSc
+)
+
+
+_with_mesh_heavy_cache = op3.cache.with_heavy_caches(
+    lambda self, *a, **kw: extract_mesh_topologies(self.function_space.mesh())
 )
 
 
@@ -61,7 +71,7 @@ class NoiseBackendBase:
 
     See Also
     --------
-    PyOP2NoiseBackend
+    Pyop3NoiseBackend
     PetscNoiseBackend
     VOMNoiseBackend
     WhiteNoiseGenerator
@@ -94,7 +104,7 @@ class NoiseBackendBase:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The white noise sample in :math:`V`
         """
         raise NotImplementedError
@@ -127,9 +137,9 @@ class NoiseBackendBase:
         return RieszMap(self.function_space, "L2", constant_jacobian=True)
 
 
-class PyOP2NoiseBackend(NoiseBackendBase):
+class Pyop3NoiseBackend(NoiseBackendBase):
     """
-    A PyOP2 based implementation of a mass matrix square root
+    A pyop3 based implementation of a mass matrix square root
     for generating white noise.
 
     See Also
@@ -140,9 +150,13 @@ class PyOP2NoiseBackend(NoiseBackendBase):
     def __init__(self, V: WithGeometry, rng=None,
                  seed: int | None = None):
         super().__init__(V, rng=rng, seed=seed)
+        self._z = Function(self.broken_space)
+        self._b = Cofunction(self.function_space.dual())
 
-        u = TrialFunction(V)
-        v = TestFunction(V)
+    @cached_property
+    def cholesky_kernel(self) -> op3.Function:
+        u = TrialFunction(self._V)
+        v = TestFunction(self._V)
         mass = inner(u, v)*dx
 
         # Create mass expression, assemble and extract kernel
@@ -157,7 +171,7 @@ class PyOP2NoiseBackend(NoiseBackendBase):
         name = mass_ker.kinfo.kernel.name
         blocksize = mass_ker.kinfo.kernel.code[name].args[0].shape[0]
 
-        cholesky_code = dedent(
+        preamble = dedent(
             f"""\
             extern void dpotrf_(char *UPLO,
                                 int *N,
@@ -178,74 +192,57 @@ class PyOP2NoiseBackend(NoiseBackendBase):
                                int *INCY);
 
             {mass_code}
+            """
+        )
+        cholesky_code = dedent(
+            f"""\
+            char uplo[1];
+            int32_t N = {blocksize}, LDA = {blocksize}, INFO = 0;
+            int32_t i=0, j=0;
+            uplo[0] = 'u';
+            double H[{blocksize}*{blocksize}] = {{{{ 0.0 }}}};
 
-            void apply_cholesky(double *__restrict__ z,
-                                double *__restrict__ b,
-                                double const *__restrict__ coords)
-            {{
-                char uplo[1];
-                int32_t N = {blocksize}, LDA = {blocksize}, INFO = 0;
-                int32_t i=0, j=0;
-                uplo[0] = 'u';
-                double H[{blocksize}*{blocksize}] = {{{{ 0.0 }}}};
+            char trans[1];
+            int32_t stride = 1;
+            double scale = 1.0;
+            double zero = 0.0;
 
-                char trans[1];
-                int32_t stride = 1;
-                double scale = 1.0;
-                double zero = 0.0;
+            {mass_ker.kinfo.kernel.name}(H, coords);
 
-                {mass_ker.kinfo.kernel.name}(H, coords);
+            uplo[0] = 'u';
+            dpotrf_(uplo, &N, H, &LDA, &INFO);
+            for (int i = 0; i < N; i++)
+                for (int j = 0; j < N; j++)
+                    if (j>i)
+                        H[i*N + j] = 0.0;
 
-                uplo[0] = 'u';
-                dpotrf_(uplo, &N, H, &LDA, &INFO);
-                for (int i = 0; i < N; i++)
-                    for (int j = 0; j < N; j++)
-                        if (j>i)
-                            H[i*N + j] = 0.0;
-
-                trans[0] = 'T';
-                dgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
-            }}
+            trans[0] = 'T';
+            dgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
             """
         )
 
-        # Get the BLAS and LAPACK compiler parameters to compile the kernel
-        comm = V.mesh().comm
-        if comm.rank == 0:
-            petsc_variables = petsctools.get_petscvariables()
-            BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
-            BLASLAPACK_LIB = comm.bcast(BLASLAPACK_LIB, root=0)
-            BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
-            BLASLAPACK_INCLUDE = comm.bcast(BLASLAPACK_INCLUDE, root=0)
-        else:
-            BLASLAPACK_LIB = comm.bcast(None, root=0)
-            BLASLAPACK_INCLUDE = comm.bcast(None, root=0)
-
-        self.cholesky_kernel = op2.Kernel(
-            cholesky_code, "apply_cholesky",
-            include_dirs=BLASLAPACK_INCLUDE.split(),
-            ldargs=BLASLAPACK_LIB.split())
+        return op3.Function.from_c_string(
+            "apply_cholesky",
+            cholesky_code,
+            [
+                ("z", "double", op3.READ),
+                ("b", "double", op3.INC),
+                ("coords", "double", op3.READ),
+            ],
+            preambles=[("20_preamble", preamble)],
+            include_dirs=BLASLAPACK_INCLUDE,
+            libs=BLASLAPACK_LIB,
+        )
 
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
         rng = rng or self.rng
 
-        z = rng.standard_normal(self.broken_space)
-        b = Cofunction(self.function_space.dual())
-
-        z_arg = z.dat(op2.READ, self.broken_space.cell_node_map())
-        b_arg = b.dat(op2.INC, self.function_space.cell_node_map())
-
-        mesh = self.function_space.mesh()
-        coords = mesh.coordinates
-        c_arg = coords.dat(op2.READ, coords.cell_node_map())
-
-        op2.par_loop(
-            self.cholesky_kernel,
-            mesh.cell_set,
-            z_arg, b_arg, c_arg
-        )
+        self._z.assign(rng.standard_normal(self.broken_space))
+        self._b.zero()
+        self._loop()
+        b = self._b
 
         if apply_riesz:
             b = b.riesz_representation(self.riesz_map)
@@ -256,6 +253,18 @@ class PyOP2NoiseBackend(NoiseBackendBase):
             tensor = b
 
         return tensor
+
+    @cached_property
+    def _loop(self) -> op3.Loop:
+        mesh = self.function_space.mesh()
+        return op3.loop(
+            c := mesh.iter("cell"),
+            self.cholesky_kernel(
+                pack(self._z, c),
+                pack(self._b, c),
+                pack(mesh.coordinates, c),
+            ),
+        )
 
 
 class PetscNoiseBackend(NoiseBackendBase):
@@ -274,23 +283,32 @@ class PetscNoiseBackend(NoiseBackendBase):
         self.cholesky = L2Cholesky(self.broken_space)
         self._zb = Function(self.broken_space)
         self.M = inner(self._zb, TestFunction(self.broken_space))*dx
+        self.Cz = Cofunction(self.broken_space.dual())
+        self.b = Cofunction(self.function_space.dual())
 
+    @cached_property
+    def interpolator(self):
+        return firedrake.get_interpolator(firedrake.interpolate(TestFunction(self.function_space), self.Cz))
+
+    @_with_mesh_heavy_cache
     def sample(self, *, rng=None,
                tensor: Function | Cofunction | None = None,
                apply_riesz: bool = False):
-        V = self.function_space
         rng = rng or self.rng
 
         # z
         z = rng.standard_normal(self.broken_space)
         # C z
         self._zb.assign(self.cholesky.C_T_inv_action(z))
-        Cz = assemble(self.M)
+        assemble(self.M, tensor=self.Cz)
         # L C z
-        b = Cofunction(V.dual()).interpolate(Cz)
+        # not sure about self.b
+        self.interpolator.assemble(tensor=self.b)
 
         if apply_riesz:
-            b = b.riesz_representation(self.riesz_map)
+            b = self.b.riesz_representation(self.riesz_map)
+        else:
+            b = self.b
 
         if tensor:
             tensor.assign(b)
@@ -365,7 +383,7 @@ class WhiteNoiseGenerator:
     See Also
     --------
     NoiseBackendBase
-    PyOP2NoiseBackend
+    Pyop3NoiseBackend
     PetscNoiseBackend
     VOMNoiseBackend
     CovarianceOperatorBase
@@ -383,7 +401,7 @@ class WhiteNoiseGenerator:
                     f"Cannot use white noise backend {type(backend).__name__}"
                     " with a VertexOnlyMesh. Please use a VOMNoiseBackend.")
         else:
-            backend = backend or PyOP2NoiseBackend(V, rng=rng, seed=seed)
+            backend = backend or Pyop3NoiseBackend(V, rng=rng, seed=seed)
 
         self.backend = backend
         self.function_space = backend.function_space
@@ -411,7 +429,7 @@ class WhiteNoiseGenerator:
 
         Returns
         -------
-        Function | Cofunction :
+        firedrake.function.Function | Cofunction :
             The white noise sample
         """
         return self.backend.sample(
@@ -420,7 +438,33 @@ class WhiteNoiseGenerator:
 
 # Auto-regressive function parameters
 
-def lengthscale_m(Lar: float, m: int):
+def _validate_ar_order(m: int, dim: int):
+    """Validate that the requested order of autoregressive covariance
+    approximation is well defined for the spatial dimension.
+
+    Parameters
+    ----------
+    m :
+        Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
+    """
+    # order restriction is different for even or odd dimensions
+    min_m = int((dim+2)/2 if ((dim % 2) == 0) else (dim+1)/2)
+    if m <= min_m:
+        raise ValueError(
+            f"Autoregressive covariance approximations in {dim}"
+            f" dimensions requires m>{min_m} ({m=} was received)."
+        )
+
+
+def lengthscale_m(Lar: float, m: int, dim: int):
     """Daley-equivalent lengthscale of m-th order autoregressive function.
 
     Parameters
@@ -429,16 +473,25 @@ def lengthscale_m(Lar: float, m: int):
         Target Daley correlation lengthscale.
     m :
         Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
 
     Returns
     -------
     L : float
         Lengthscale parameter for autoregressive function.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
     """
-    return Lar/sqrt(2*m - 3)
+    _validate_ar_order(m, dim)
+    return Lar/sqrt(2*m - dim - 2)
 
 
-def lambda_m(Lar: float, m: int):
+def lambda_m(Lar: float, m: int, dim: int):
     """Normalisation factor for autoregressive function.
 
     Parameters
@@ -447,19 +500,37 @@ def lambda_m(Lar: float, m: int):
         Target Daley correlation lengthscale.
     m :
         Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
 
     Returns
     -------
     lambda : float
         Normalisation coefficient for autoregressive correlation operator.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
     """
-    L = lengthscale_m(Lar, m)
-    num = (2**(2*m - 1))*factorial(m - 1)**2
-    den = factorial(2*m - 2)
-    return L*num/den
+    _validate_ar_order(m, dim)
+    L = lengthscale_m(Lar, m, dim)
+    if dim == 1:
+        num = (2**(2*m - 1))*factorial(m - 1)**2
+        den = factorial(2*m - 2)
+        return (num/den)*L
+    elif dim == 2:
+        return 4*math.pi*(m - 1)*(L**2)
+    elif dim == 3:
+        num = (2**(2*m - 1))*math.pi*(factorial(m - 2)**2)*(m - 1)
+        den = factorial(2*m - 4)
+        return (num/den)*(L**3)
+    else:
+        raise NotImplementedError(f"Not implemented for {dim=} yet")
 
 
-def kappa_m(Lar: float, m: int):
+def kappa_m(Lar: float, m: int, dim: int):
     """Diffusion coefficient for autoregressive function.
 
     Parameters
@@ -468,13 +539,21 @@ def kappa_m(Lar: float, m: int):
         Target Daley correlation lengthscale.
     m :
         Order of autoregressive function.
+    dim :
+        Topological dimension of the mesh.
 
     Returns
     -------
     kappa : float
         Diffusion coefficient for autoregressive covariance operator.
+
+    Raises
+    ------
+    ValueError
+        If the combination of (m, dim) will lead to divisions
+        by zero or square roots of negative numbers.
     """
-    return lengthscale_m(Lar, m)**2
+    return lengthscale_m(Lar, m, dim)**2
 
 
 class CovarianceOperatorBase:
@@ -767,10 +846,10 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
 
     References
     ----------
-    Mirouze, I. and Weaver, A. T., 2010: "Representation of correlation
-    functions in variational assimilation using an implicit diffusion
-    operator". Q. J. R. Meteorol. Soc. 136: 1421–1443, July 2010 Part B.
-    https://doi.org/10.1002/qj.643
+    Weaver, A. T. and Mirouze, I., 2013: "On the diffusion equation and its
+    application to isotropic and anisotropic correlation modelling in variational
+    assimilation". Q. J. R. Meteorol. Soc. 139: 242–260, January 2013 Part A.
+    https://doi.org/10.1002/qj.1955
 
     See Also
     --------
@@ -780,6 +859,7 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
     ~firedrake.preconditioners.covariance.CovariancePC
     diffusion_form
     """
+    petsctools.cite("Weaver2013")
 
     class DiffusionForm(Enum):
         """
@@ -827,8 +907,9 @@ class AutoregressiveCovariance(CovarianceOperatorBase):
             # setup diffusion solver
             u, v = TrialFunction(V), TestFunction(V)
             if isinstance(form, self.DiffusionForm):
-                self.kappa = Constant(kappa_m(L, m))
-                self.lambda_m = Constant(lambda_m(L, m))
+                dim = V.mesh().ufl_cell().topological_dimension
+                self.kappa = Constant(kappa_m(L, m, dim))
+                self.lambda_m = Constant(lambda_m(L, m, dim))
                 self._weight = Constant(sigma*sqrt(self.lambda_m))
                 K = diffusion_form(u, v, self.kappa, formulation=form)
             else:
@@ -984,7 +1065,8 @@ def diffusion_form(u, v, kappa: Constant | Function,
         n = FacetNormal(mesh)
         h = cell_size or CellSize(mesh)
         h_avg = 0.5*(h('+') + h('-'))
-        alpha_h = Constant(4.0)/h_avg
+        k = v.function_space().ufl_element().degree()
+        alpha_h = Constant(10 * (k+1)**2)/h_avg
         return (
             inner(u, v)*dx + kappa*(
                 inner(grad(u), grad(v))*dx
@@ -1152,7 +1234,7 @@ def CovarianceMat(covariance: CovarianceOperatorBase,
     """
     ctx = CovarianceMatCtx(covariance, operation=operation)
 
-    sizes = covariance.function_space().dof_dset.layout_vec.getSizes()
+    sizes = covariance.function_space().template_vec.getSizes()
 
     mat = PETSc.Mat().createPython(
         (sizes, sizes), ctx, comm=ctx.comm)

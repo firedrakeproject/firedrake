@@ -18,13 +18,14 @@
 
 # -- General configuration -----------------------------------------------
 
-# Disable warnings for missing options when running sphinx as PETSc does
-# not know what to do with the sphinx arguments.
+# Disable warnings for missing options when running Sphinx as PETSc does
+# not know what to do with the Sphinx arguments.
 import os
 os.environ["FIREDRAKE_DISABLE_OPTIONS_LEFT"] = "1"
 
-# If your documentation needs a minimal Sphinx version, state it here.
-#needs_sphinx = '1.0'
+# Import Firedrake to initialise PETSc and thus avoid warnings about multiple
+# initialisations
+import firedrake
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
@@ -73,13 +74,49 @@ mathjax3_config = {
     'tex': {'packages': {'[+]': ['mathtools']}}
 }
 
-# Both the class’ and the __init__ method’s docstring are concatenated and
-# inserted into the class definition
-autoclass_content = 'both'
+# -- sphinx.ext.autodoc config ---------------------------------------------
+
+# Do not include type hints in the API documentation. This is unfortunate
+# but necessary for two reasons:
+#
+#   1. Sphinx cannot parse type hints very well. This can be avoided with
+#      the sphinx_autodoc_typehints extension but then we hit:
+#   2. Napoleon (the Sphinx plugin parsing numpydoc to rst) resolves type
+#      information using the type declaration *string*. This means that
+#      for example '-> np.ndarray' will fail to correctly alias to
+#      numpy.ndarray because Napoleon only sees the string 'np.ndarray'
+#      and np is not recognised. The only solution is to use fully-qualified
+#      type hints throughout the codebase, which sucks.
+#      See https://github.com/sphinx-doc/sphinx/issues/10151 for more information.
+autodoc_typehints = 'none'
+
+# autodoc will try to infer the function signature of C modules from the first
+# line of the docstring. This is an issue for things like dicts, which we
+# inherit from in some places, where the docstring of dict.pop is:
+#
+#     """D.pop(k[,d]) -> v, remove specified key and return the corresponding value.
+#     ...
+#     """
+#
+# autodoc gets confused by this and tries to parse it as a function signature.
+# We don't want that.
+autodoc_docstring_signature = False
+
+# We cannot safely inherit docstrings from upstream libraries (e.g. loopy)
+# as Sphinx may struggle to resolve them.
+autodoc_inherit_docstrings = False
 
 # Document __call__ methods
 autodoc_default_options = {
-    'special-members': '__call__'
+    'special-members': '__call__,__getitem__',
+    # skip some entries that throw some erroneous warnings - these are just
+    # attributes that we import into our namespace and it is a Sphinx bug that
+    # they are even being parsed.
+    'exclude-members': """
+        CallInstruction,
+        MultiAssignmentBase,
+        simplify_via_aff,
+    """,
 }
 
 # Add any paths that contain templates here, relative to this directory.
@@ -131,7 +168,7 @@ version = ".".join(release.split(".")[:3])
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['old_pyop2']
+exclude_patterns = []
 
 # The reST default role (used for this markup: `text`) to use for all documents.
 #default_role = None
@@ -163,11 +200,10 @@ nitpick_ignore_regex = [
     (r'py:.*', r'ufl\..*'),
     (r'py:.*', r'PETSc\..*'),
     (r'py:.*', r'progress\..*'),
-    # Ignore undocumented PyOP2
-    ('py:class', 'pyop2.caching.Cached'),
-    ('py:class', 'pyop2.op2.Kernel'),
-    ('py:class', 'pyop2.types.mat.Mat'),
-    # Ignore mission docs from Firedrake internal "private" code
+    (r'py:.*', r'loopy.kernel\..*'),
+    (r'py:.*', r'loopy.symbolic\..*'),
+    (r'py:.*', r'loopy.types\..*'),
+    # Ignore missing docs from Firedrake internal "private" code
     # Any "Base" class eg:
     #   firedrake.adjoint.checkpointing.CheckpointBase
     #   firedrake.slate.slate.TensorBase
@@ -181,8 +217,6 @@ nitpick_ignore_regex = [
     # Cofunction.ufl_domains references FormArgument but it isn't picked
     # up by Sphinx (see https://github.com/sphinx-doc/sphinx/issues/11225)
     ('py:class', 'FormArgument'),
-    # Some complex type hints confuse Sphinx (https://github.com/sphinx-doc/sphinx/issues/14159)
-    ("py:obj", r"typing\.Literal\[.*"),
 ]
 
 # sphinxcontrib-bibtex reports duplicate citations as bibtex warnings,
@@ -193,6 +227,7 @@ suppress_warnings = [
 
 # Dodgy links
 linkcheck_ignore = [
+    # journals and institutions
     r'https://zenodo.org/.*',
     r'https://doi\.org/.*',
     r'https://epubs\.siam\.org/doi/.*',
@@ -201,17 +236,28 @@ linkcheck_ignore = [
     r'https://ieeexplore\.ieee\.org/document/1634311/',
     r'http://www.cs.virginia.edu/stream/',
     r'https://www.sciencedirect.com',
-    r'https://.*\.baylor\.edu.*',
-    r'https://www.crosscountrytrains.co.uk/',
     r'https://www.siam.org/',
+    r'https://.*\.baylor\.edu.*',
     r'https://aims.ac.rw',
     r'https://mpecdt.ac.uk',
+    r'https://www.ox.ac.uk',
+    r'https://le.ac.uk/people/',
+    r'https://gtr.ukri.org',
+    r'https://www.math.mun.ca',
+
+    # event links
+    r'https://www.crosscountrytrains.co.uk/',
     r'https://www.hilton.com/en/hotels/leehnhn-hilton-leeds-city/',
     r'https://www.radissonhotels.com/*',
     r'https://all.accor.com/hotel/*',
     r'https://fluids.leeds.ac.uk/',
-    r'https://www.ox.ac.uk',
     r'https://buy.crosscountrytrains.co.uk',
+
+    # people
+    r'https://mscroggs\.co\.uk/?$',
+
+    # other
+    r'https://firedrakeproject.slack.com',
     r'https://join.slack.com/t/firedrakeproject/*',
 ]
 linkcheck_timeout = 30
@@ -336,6 +382,7 @@ latex_elements = {
 \sphinxDUC{25A3}{$\boxdot$}
 \sphinxDUC{03BB}{$\lambda$}
 \sphinxDUC{0393}{$\Gamma$}
+\sphinxDUC{27A4}{}  % can be omitted
 % Sphinx equivalent of
 % \DeclareUnicodeCharacter{}{}
 
@@ -357,21 +404,21 @@ latex_elements = {
 f'''
 % Mark non-release versions with draft
 \\usepackage{{draftwatermark}}
-\DraftwatermarkOptions{{
+\\DraftwatermarkOptions{{
 stamp={str(not bool(watermark)).lower()},
 angle=90,
 scale=0.5,
-fontsize=0.1\paperwidth,
+fontsize=0.1\\paperwidth,
 text={{DRAFT {release}}},
-hpos=0.05\paperwidth
+hpos=0.05\\paperwidth
 }}
 
 % Hacky way to add all metadata, neither tool sets all fields
-\hypersetup{{pdfinfo={{
+\\hypersetup{{pdfinfo={{
 Title={{Firedrake User Manual}},
 Subject={{Mathematics}},
 }}}}
-\pdfinfo{{
+\\pdfinfo{{
 /Author ({author})
 /Keywords (Firedrake, Partial Differential Equations, PDEs, Finite Element, FEM, Code Generation)
 }}
@@ -453,20 +500,22 @@ texinfo_documents = [(
 # -- Options for intersphinx ---------------------------------------------
 
 intersphinx_mapping = {
-    'pyop2': ('https://op2.github.io/PyOP2', None),
     'ufl': ('https://docs.fenicsproject.org/ufl/main/', None),
-    'FIAT': ('https://firedrakeproject.org/fiat', None),
-    'petsctools': ('https://firedrakeproject.org/petsctools/', None),
+    'FIAT': ('https://www.firedrakeproject.org/fiat', None),
+    'petsctools': ('https://www.firedrakeproject.org/petsctools/', None),
     'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'mpi4py': ('https://mpi4py.readthedocs.io/en/stable/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'h5py.h5p': ('https://api.h5py.org/', None),
-    'matplotlib': ('https://matplotlib.org/', None),
+    'matplotlib': ('https://matplotlib.org/stable/', None),
     'petsc4py': ('https://petsc.org/release/petsc4py/', None),
     'python': ('https://docs.python.org/3/', None),
     'pyadjoint': ('https://pyadjoint.org/', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'loopy': ('https://documen.tician.de/loopy/', None),
+    'pytools': ('https://documen.tician.de/pytools/', None),
+    'pymbolic': ('https://documen.tician.de/pymbolic/', None),
+    'immutabledict': ('https://immutabledict.corenting.fr/', None),
     'torch': ('https://pytorch.org/docs/main/', None),
     'jax': ('https://jax.readthedocs.io/en/latest/', None)
 }

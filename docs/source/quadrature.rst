@@ -25,7 +25,7 @@ Specifying the quadrature rule in the variational formulation
 To manually override the default, the
 quadrature degree can be prescribed on each integral :py:class:`~ufl.measure.Measure`,
 
-.. code-block:: python3
+.. code-block:: python
 
    inner(sin(u)**4, v) * dx(degree=4)
 
@@ -39,7 +39,7 @@ degree.
 The maximum allowable degree can be set for a particular integral by
 adding the ``"max_quadrature_degree"`` entry to the ``metadata`` of the ``Measure``:
 
-.. code-block:: python3
+.. code-block:: python
 
    inner(sin(u)**4, v) * dx(metadata={"max_quadrature_degree": 4})
 
@@ -53,7 +53,7 @@ may be keyed as the ``"quadrature_degree"`` or ``"max_quadrature_degree"`` entry
 respectively in the ``form_compiler_parameters`` dictionary passed on to :py:func:`~.solve`,
 :py:func:`~.project`, :py:class:`~.NonlinearVariationalProblem`, or :py:func:`~.assemble`.
 
-.. code-block:: python3
+.. code-block:: python
 
    F = inner(grad(u), grad(v))*dx(degree=0) + inner(exp(u), v)*dx - inner(1, v)*dx
 
@@ -97,7 +97,7 @@ lumped quadrature schemes to produce a diagonal mass matrix.
 The Quadrature space
 --------------------
 
-It is possible to define a finite element :py:class:`~.Function` on a quadrature rule.
+It is possible to define a finite element :py:class:`Function <firedrake.function.Function>` on a quadrature rule.
 The ``"Quadrature"`` and ``"Boundary Quadrature"`` spaces are useful to
 interpolate data at quadrature points on cell interiors and cell boundaries,
 respectively.
@@ -110,7 +110,7 @@ respectively.
 
 The ``quad_scheme`` keyword argument again may be either
 :py:class:`~finat.quadrature.QuadratureRule` or a string.
-If a :py:class:`~.Function` in the ``"Quadrature"`` space appears within an
+If a :py:class:`Function <firedrake.function.Function>` in the ``"Quadrature"`` space appears within an
 integral, Firedrake will automatically select the quadrature rule that corresponds
 to ``dx(degree=quad_degree, scheme=quad_scheme)`` to match the one associated
 with the quadrature space.
@@ -128,7 +128,7 @@ the :py:class:`~finat.ufl.finiteelement.FiniteElement` or
 Crouzeix-Raviart space with degrees of freedom consisting of integrals along the edges
 computed from a 2-point average at the endpoints, one can set ``quad_scheme="KMV"``:
 
-.. code-block:: python3
+.. code-block:: python
 
     fe = FiniteElement("Crouzeix-Raviart", triangle, 1, variant="integral", quad_scheme="KMV")
 

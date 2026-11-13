@@ -8,7 +8,7 @@ from firedrake.tsfc_interface import compile_form as tsfc_compile
 from tsfc.ufl_utils import extract_firedrake_constants
 
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl import Form
+from ufl import Form, ZeroBaseForm
 
 
 ContextKernel = collections.namedtuple("ContextKernel",
@@ -33,23 +33,35 @@ particular integral type.
 
 
 def compile_terminal_form(tensor, prefix, *, tsfc_parameters=None):
-    """Compiles the TSFC form associated with a Slate :class:`~.Tensor`
+    """Compiles the TSFC form associated with a Slate :class:`firedrake.slate.slate.Tensor`
     object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types
     and the corresponding TSFC kernels.
 
-    :arg tensor: A Slate `~.Tensor`.
-    :arg prefix: An optional `string` indicating the prefix for the
-                 subkernel.
-    :arg tsfc_parameters: An optional `dict` of parameters to provide
-                          TSFC.
+    Parameters
+    ----------
+    tensor
+        A Slate `firedrake.slate.slate.Tensor`.
+    prefix
+        An optional `string` indicating the prefix for the
+        subkernel.
+    tsfc_parameters
+        An optional `dict` of parameters to provide
+        TSFC.
 
-    Returns: A `ContextKernel` containing all relevant information.
+    Returns
+    -------
+    ContextKernel
+        A `ContextKernel` containing all relevant information.
+
     """
 
     assert tensor.terminal, (
         "Only terminal tensors have forms associated with them!"
     )
+    if isinstance(tensor.form, ZeroBaseForm):
+        return ()
+
     # Sets a default name for the subkernel prefix.
     mapper = RemoveRestrictions()
     integrals = map(partial(map_integrand_dags, mapper),

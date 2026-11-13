@@ -275,11 +275,8 @@ class GenericSolveBlock(Block):
             return dFdm
 
         dFdm = -firedrake.derivative(F_form, c_rep, trial_function)
-        if isinstance(dFdm, ufl.Form):
-            dFdm = firedrake.adjoint(dFdm)
-            dFdm = firedrake.action(dFdm, adj_sol)
-        else:
-            dFdm = dFdm(adj_sol)
+        dFdm = firedrake.adjoint(dFdm)
+        dFdm = firedrake.action(dFdm, adj_sol)
         dFdm = firedrake.assemble(dFdm, **self.assemble_kwargs)
         return dFdm
 
@@ -352,7 +349,7 @@ class GenericSolveBlock(Block):
     def _assemble_soa_eq_rhs(self, dFdu_form, adj_sol, hessian_input, d2Fdu2):
         # Start piecing together the rhs of the soa equation
         b = hessian_input.copy()
-        if len(d2Fdu2.integrals()) > 0:
+        if not d2Fdu2.empty():
             b_form = firedrake.action(firedrake.adjoint(d2Fdu2), adj_sol)
         else:
             b_form = d2Fdu2
@@ -371,7 +368,7 @@ class GenericSolveBlock(Block):
                                             adj_sol)
                 d2Fdudm = ufl.algorithms.expand_derivatives(
                     firedrake.derivative(dFdu_adj, X, tlm_input))
-                if len(d2Fdudm.integrals()) > 0:
+                if not d2Fdudm.empty():
                     b_form += d2Fdudm
             elif not isinstance(c, firedrake.DirichletBC):
                 dFdu_adj = firedrake.action(firedrake.adjoint(dFdu_form),
@@ -379,7 +376,7 @@ class GenericSolveBlock(Block):
                 b_form += firedrake.derivative(dFdu_adj, c_rep, tlm_input)
 
         b_form = ufl.algorithms.expand_derivatives(b_form)
-        if len(b_form.integrals()) > 0:
+        if not b_form.empty():
             b -= firedrake.assemble(b_form)
 
         return b
@@ -720,11 +717,19 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         for coeff, value in assign_map.items():
             coeff.assign(value)
 
+    def _ad_assign_bcs(self, problem):
+        for block_variable in self.get_dependencies():
+            bc = block_variable.output
+            if bc in problem._ad_bc_map:
+                problem._ad_bc_map[bc].function_arg.assign(
+                    block_variable.saved_output.function_arg)
+
     def _ad_solver_replace_forms(self, solver=Solver.FORWARD):
         if solver == Solver.FORWARD:
             problem = self._ad_solvers["forward_nlvs"]._problem
             self._ad_assign_coefficients(problem.F, solver)
             self._ad_assign_coefficients(problem.J, solver)
+            self._ad_assign_bcs(problem)
         else:
             self._ad_assign_coefficients(
                 self._ad_solvers["adjoint_lvs"]._problem.J, solver)
@@ -842,7 +847,7 @@ class SupermeshProjectBlock(Block):
       * :math:`M_{AB}` is the mixed mass matrix for :math:`V_A` and
         :math:`V_B`,
       * :math:`v_A` and :math:`v_B` are vector representations of the source
-        and target :class:`.Function` s.
+        and target :class:`firedrake.function.Function` s.
 
     This can be broken into two steps:
       Step 1. form RHS, multiplying the source with the mixed mass matrix;

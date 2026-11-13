@@ -2,6 +2,7 @@
 # =========================
 
 import pytest
+import ufl
 
 from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
@@ -9,7 +10,6 @@ import math
 
 
 def nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=True):
-
     mesh = UnitSquareMesh(mesh_num, mesh_num)
 
     V = FunctionSpace(mesh, "CG", porder)
@@ -36,7 +36,6 @@ def nonlinear_poisson(solver_parameters, mesh_num, porder, pre_apply_bcs=True):
 
 
 def linear_poisson(solver_parameters, mesh_num, porder):
-
     mesh = UnitSquareMesh(mesh_num, mesh_num)
 
     V = FunctionSpace(mesh, "CG", porder)
@@ -269,6 +268,68 @@ def test_EquationBC_poisson_matfree(with_bbc):
                 err.append(nonlinear_poisson(solver_parameters, mesh_num, porder))
 
     assert abs(math.log2(err[0]) - math.log2(err[1]) - (porder+1)) < 0.05
+
+
+@pytest.mark.parametrize("mat_type", ["aij", "matfree"])
+@pytest.mark.parametrize("pre_apply_bcs", [False, True])
+def test_equationbc_with_dirichletbc(mat_type, pre_apply_bcs):
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 1)
+    u, v = TrialFunction(V), TestFunction(V)
+    w = Function(V)
+
+    dbc = DirichletBC(V, 1, 1)
+    ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
+    problem = LinearVariationalProblem(
+        inner(grad(u), grad(v)) * dx,
+        inner(Constant(0), v) * dx,
+        w,
+        bcs=[dbc, ebc],
+    )
+    solver = LinearVariationalSolver(
+        problem,
+        pre_apply_bcs=pre_apply_bcs,
+        solver_parameters={"mat_type": mat_type, "ksp_type": "gmres", "pc_type": "none"},
+    )
+    solver.solve()
+
+    error = sqrt(assemble(inner(w - 1, w - 1) * dx))
+    assert error < 1e-12
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("mesh_type,degree", [("interval", 1), ("interval", 2), ("square", 2)])
+def test_equationbc_with_dirichletbc_transpose(mesh_type, degree):
+    # The matrix-free operator and its transpose must match the aij matrix
+    # with the same form and bcs. With degree 2, or with more cells, there are
+    # interior rows that couple to the DirichletBC column, and on these
+    # meshes the EquationBC row also couples to the DirichletBC column.
+    if mesh_type == "interval":
+        mesh = UnitIntervalMesh(1)
+    else:
+        mesh = UnitSquareMesh(1, 4)
+    V = FunctionSpace(mesh, "CG", degree)
+    u, v = TrialFunction(V), TestFunction(V)
+    a = inner(grad(u), grad(v)) * dx
+
+    w = Function(V)
+    dbc = DirichletBC(V, 1, 1)
+    ebc = EquationBC(inner(u.dx(0), v) * ds(2) == inner(Constant(0), v) * ds(2), w, 2)
+    bcs = [dbc, ebc.extract_form("J")]
+    matrix = assemble(a, bcs=bcs, mat_type="matfree")
+    reference = assemble(a, bcs=bcs, mat_type="aij")
+
+    rg = RandomGenerator(PCG64(seed=1234))
+    x = rg.uniform(V)
+    y = rg.uniform(V)
+
+    for actual, expected in [
+        (assemble(action(matrix, x)), assemble(action(reference, x))),
+        (assemble(ufl.Action(y, matrix)), assemble(ufl.Action(y, reference))),
+    ]:
+        with actual.dat.vec_ro as actual_vec, expected.dat.vec_ro as expected_vec:
+            error = (actual_vec - expected_vec).norm() / expected_vec.norm()
+        assert error < 1e-12
 
 
 # This test is so sensitive it will not pass unless MUMPS is used

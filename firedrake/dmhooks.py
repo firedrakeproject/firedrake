@@ -54,14 +54,14 @@ def get_function_space(dm):
     :raises RuntimeError: if no function space was found.
     """
     info = dm.getAttr("__fs_info__")
-    meshref_tuple, element, indices, (name, names), boundary_sets = info
+    meshref_tuple, element, indices, (name, names), boundary_sets, labels = info
     if len(meshref_tuple) == 1:
         mesh = meshref_tuple[0]()
     else:
         mesh = MeshSequenceGeometry([meshref() for meshref in meshref_tuple])
     if mesh is None:
         raise RuntimeError("Somehow your mesh was collected, this should never happen")
-    V = firedrake.FunctionSpace(mesh, element, name=name)
+    V = firedrake.FunctionSpace(mesh, element, name=name, _labels=labels)
     if any(boundary_sets):
         V = firedrake.bcs.restricted_function_space(V, boundary_sets)
     if len(V) > 1:
@@ -97,9 +97,12 @@ def set_function_space(dm, V):
     mesh = V.mesh()
     if len(V) > 1:
         names = tuple(V_.name for V_ in V)
+        labels = V._labels
+    else:
+        labels = None
     element = V.ufl_element()
     boundary_sets = tuple(V_.boundary_set for V_ in V)
-    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names), boundary_sets)
+    info = (tuple(weakref.ref(m) for m in mesh), element, tuple(reversed(indices)), (V.name, names), boundary_sets, labels)
     dm.setAttr("__fs_info__", info)
 
 
@@ -349,13 +352,13 @@ def create_field_decomposition(dm, *args, **kwargs):
         add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
                  call_setup=True)
     if ctx is not None and len(W) > 1:
-        ctxs = ctx.split([(i, ) for i in range(len(W))])
+        ctxs = ctx.split([(i,) for i in range(len(W))])
         for d, c in zip(dms, ctxs):
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
                      call_setup=True)
-    return names, W._ises, dms
+    return names, W.field_ises, dms
 
 
 @PETSc.Log.EventDecorator()
@@ -373,7 +376,7 @@ def create_subdm(dm, fields, *args, **kwargs):
         # Subspace is just a single FunctionSpace.
         idx, = fields
         subdm = W[idx].dm
-        iset = W._ises[idx]
+        iset = W.field_ises[idx]
         add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
                  call_setup=True)
 
@@ -386,12 +389,13 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
-        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+        labels = [W._labels[f] for f in fields]
+        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields], _labels=labels)
 
         add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
                  call_setup=True)
         # Index set mapping from W into subspace.
-        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
+        iset = PETSc.IS().createGeneral(numpy.concatenate([W.field_ises[f].indices
                                                            for f in fields]),
                                         comm=W.comm)
         if ctx is not None:
@@ -403,6 +407,18 @@ def create_subdm(dm, fields, *args, **kwargs):
                      teardown=partial(pop_ctx_coarsener, subspace.dm, coarsen),
                      call_setup=True)
         return iset, subspace.dm
+
+
+def set_ksp_operators(dm: PETSc.DM) -> None:
+    """Make the KSPs on a DM assemble their operators from the application context.
+
+    Parameters
+    ----------
+    dm
+        The DM that receives the operator callbacks of :class:`~firedrake.solving_utils._SNESContext`.
+    """
+    dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
+    dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
 
 
 @PETSc.Log.EventDecorator()
@@ -420,6 +436,7 @@ def coarsen(dm, comm):
     mesh = V.mesh()
     hierarchy, level = get_level(mesh)
     if level < 1:
+        breakpoint()
         raise RuntimeError("Cannot coarsen coarsest DM")
     coarsen = get_ctx_coarsener(dm)
     Vc = coarsen(V, coarsen)
@@ -440,10 +457,89 @@ def coarsen(dm, comm):
         add_hook(parent, setup=partial(push_appctx, cdm, cctx),
                  teardown=partial(pop_appctx, cdm, cctx),
                  call_setup=True)
-        # Necessary for MG inside a fieldsplit in a SNES.
-        dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
-        cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+        # These callbacks tell the KSPs on the coarse level how to assemble
+        # their matrices. cdm inherits them from dm, and a different solver on
+        # this function space might overwrite them, so we set the callbacks on
+        # dm before each solve.
+        add_hook(parent, setup=partial(set_ksp_operators, dm), call_setup=True)
     return cdm
+
+
+def _refine_adaptive(dm):
+    """
+    Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
+    mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    """
+    from firedrake.mg.mesh import MeshHierarchy
+    from firedrake.mg.ufl_utils import refine
+    from firedrake.mg.utils import get_level
+
+    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
+    # adapted input DM remains a level in the mesh hierarchy.
+    # Increase the reference count so the coarse DM survives.
+    dm.incRef()
+
+    ctx = get_appctx(dm)
+    if ctx is None:
+        raise RuntimeError("No _SNESContext found on DM")
+    current_solution = ctx._x
+    mesh = current_solution.function_space().mesh()
+    hierarchy, level = get_level(mesh)
+    if hierarchy is None:
+        hierarchy = MeshHierarchy(mesh)
+        level = 0
+
+    if level+1 != len(hierarchy):
+        raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
+    if ctx._marking_callback is None:
+        raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
+
+    markers = ctx._marking_callback(ctx, current_solution)
+    if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
+        raise TypeError(
+            f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
+        )
+    M = markers.function_space()
+    if M.mesh() is not mesh:
+        raise ValueError("marking callback must return markers on the current solution mesh")
+    num_dofs_per_cell = M.finat_element.space_dimension()
+    if num_dofs_per_cell != 1:
+        raise ValueError("marking callback must return a DG0 Function or Cofunction")
+
+    hierarchy.add_mesh(mesh.refine_marked_elements(markers))
+    coefficient_mapping = {}
+    refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
+    parent = get_parent(dm)
+    coarsener = get_ctx_coarsener(dm)
+    # Get all DMs from the refined problem
+    dms = [refined_ctx._problem.u_restrict.function_space().dm]
+    for value in coefficient_mapping.values():
+        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
+            value_dm = value.function_space().dm
+            if value_dm not in dms:
+                dms.append(value_dm)
+    # Attach refined context
+    for refined_dm in dms:
+        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
+                 teardown=partial(pop_parent, refined_dm, parent),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
+                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
+                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
+                 call_setup=True)
+    return refined_ctx._problem.dm
+
+
+def _refine_from_hierarchy(dm):
+    """Return the DM of the refined function space."""
+    from firedrake.mg.ufl_utils import refine
+    Vcoarse = get_function_space(dm)
+    if Vcoarse is None:
+        raise RuntimeError("No FunctionSpace found on DM")
+    Vfine = refine(Vcoarse, refine)
+    return Vfine.dm
 
 
 @PETSc.Log.EventDecorator()
@@ -454,19 +550,11 @@ def refine(dm, comm):
     :arg comm: The communicator for the new DM (ignored)
     """
     from firedrake.mg.utils import get_level
-    V = get_function_space(dm)
-    if V is None:
-        raise RuntimeError("No functionspace found on DM")
-    hierarchy, level = get_level(V.mesh())
-    if level >= len(hierarchy) - 1:
-        raise RuntimeError("Cannot refine finest DM")
-    if hasattr(V, "_fine"):
-        fdm = V._fine.dm
+    hierarchy, level = get_level(get_function_space(dm).mesh())
+    if hierarchy is not None and level+1 < len(hierarchy):
+        return _refine_from_hierarchy(dm)
     else:
-        V._fine = V.reconstruct(mesh=hierarchy[level + 1])
-        fdm = V._fine.dm
-    V._fine._coarse = V
-    return fdm
+        return _refine_adaptive(dm)
 
 
 def attach_hooks(dm, level=None, sf=None, section=None):
@@ -475,7 +563,7 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     :arg DM: The DM to attach callbacks to.
     :arg level: Optional refinement level.
     :arg sf: Optional PETSc SF object describing the DM's ``points``.
-    :arg section: Optional PETSc Section object describing the DM's
+    :arg section: Optional (local) PETSc Section object describing the DM's
         data layout.
     """
     from firedrake.mg.ufl_utils import create_interpolation, create_injection
@@ -483,7 +571,7 @@ def attach_hooks(dm, level=None, sf=None, section=None):
     if sf is not None:
         dm.setPointSF(sf)
     if section is not None:
-        dm.setDefaultSection(section)
+        dm.setLocalSection(section)
 
     # Multilevel hierarchies
     dm.setRefine(refine)
