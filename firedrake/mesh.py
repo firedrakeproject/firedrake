@@ -2485,7 +2485,7 @@ class MeshTopology(AbstractMeshTopology):
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
-    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None) -> op3.Slice:
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return the subdomain ID unchanged.
 
         This method is deprecated and will be removed. Pass the subdomain ID
