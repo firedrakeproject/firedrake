@@ -9,7 +9,6 @@ from firedrake.bcs import DirichletBC
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
-from firedrake.nullspace import MixedVectorSpaceBasis, VectorSpaceBasis
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS
 from functools import cached_property
@@ -19,7 +18,6 @@ from firedrake.logging import warning
 from ufl import as_vector, replace, split, zero
 
 if typing.TYPE_CHECKING:
-    from firedrake.functionspaceimpl import WithGeometry
     from firedrake.variational_solver import NonlinearVariationalProblem
 
 
@@ -138,36 +136,6 @@ def check_snes_convergence(snes):
         raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
 Reason:
    %s""" % (snes.getIterationNumber(), msg))
-
-
-def _get_split_nullspace(nullspace: VectorSpaceBasis | MixedVectorSpaceBasis | None,
-                         V: "WithGeometry",
-                         fields: tuple[int, ...]) -> VectorSpaceBasis | MixedVectorSpaceBasis | None:
-    """Restrict a nullspace to a group of fields.
-
-    Parameters
-    ----------
-    nullspace
-        A nullspace of the full space, or ``None``.
-    V
-        The space of the fields in `fields`.
-    fields
-        The fields of the full space that `V` contains.
-
-    Returns
-    -------
-    VectorSpaceBasis | MixedVectorSpaceBasis | None
-        The basis of `nullspace` on `fields`, or ``None`` if `nullspace`
-        has no basis on them.
-    """
-    if not isinstance(nullspace, MixedVectorSpaceBasis):
-        return nullspace
-    bases = [nullspace._bases[i] for i in fields]
-    if len(fields) == 1:
-        base, = bases
-        return base if isinstance(base, VectorSpaceBasis) else None
-    return MixedVectorSpaceBasis(V, [base if isinstance(base, VectorSpaceBasis) else V.sub(k)
-                                     for k, base in enumerate(bases)])
 
 
 class _SNESContext:
@@ -609,9 +577,9 @@ class _SNESContext:
                 options_prefix=options_prefix,
             )
             split_ctx._xparent = self._x
-            split_ctx._nullspace = _get_split_nullspace(self._nullspace, V, field)
-            split_ctx._nullspace_T = _get_split_nullspace(self._nullspace_T, V, field)
-            split_ctx._near_nullspace = _get_split_nullspace(self._near_nullspace, V, field)
+            split_ctx._nullspace = self._nullspace.split(field) if self._nullspace is not None else None
+            split_ctx._nullspace_T = self._nullspace_T.split(field) if self._nullspace_T is not None else None
+            split_ctx._near_nullspace = self._near_nullspace.split(field) if self._near_nullspace is not None else None
             splits.append(split_ctx)
         return self._splits.setdefault(fields, splits)
 
