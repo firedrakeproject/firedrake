@@ -179,3 +179,14 @@ def test_project_to_function_space():
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
     assert taylor_test(rf, Function(R, val=1.), Constant(0.1)) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_project_blocks():
+    mesh = UnitSquareMesh(12, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    u = Function(V)
+    c = Function(R, val=1.)
+    project(u+c, u)
+    assert len(get_solve_blocks()) == 0

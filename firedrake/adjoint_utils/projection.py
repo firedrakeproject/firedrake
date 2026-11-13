@@ -109,5 +109,9 @@ class ProjectorMixin(NonlinearVariationalSolverMixin):
         return
 
     @staticmethod
+    def _ad_block_type():
+        return ProjectBlock
+
+    @staticmethod
     def _ad_annotate_project(project):
         return NonlinearVariationalSolverMixin._ad_annotate_solve(project)
