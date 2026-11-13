@@ -111,7 +111,7 @@ runs:
         cd petsc
         : # DROP BEFORE MERGE
         git fetch --depth 1 origin refs/heads/pbrubeck/snes-fieldsplit
-        git checkout --detach bfbd62ab9eeb3db22cd52a6d7c72f4380ab26a66
+        git checkout --detach f4d7936265e4fe83e3cb704ebcd20d97e61d11c3
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
