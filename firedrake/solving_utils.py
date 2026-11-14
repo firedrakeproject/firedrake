@@ -617,8 +617,9 @@ class _SNESContext:
         # NOTE: I think we may have to set 'leaves_valid' to false here, as I
         # don't think ctx._x.dat knows enough about changes. This could be
         # done according to the vec state.
-        if ctx._x.dat._work_vec.handle != X.handle:
-            ctx._x.dat.data_wo[...] = X.array_r.reshape((-1, *ctx._x.dat.axes.block_shape))
+        with ctx._x.dat.vec_wo as x:
+            if x.handle != X.handle:
+                X.copy(x)
 
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
@@ -634,13 +635,10 @@ class _SNESContext:
             with ctx._F.dat.vec_rw as F_:
                 ctx._post_function_callback(X, F_)
 
-        # Make sure all owned values are fully updated before yielding to PETSc
-        ctx._F.dat.buffer.sync_roots()
-
-        # F may not be the same vector as self._F, so copy
-        # residual out to F.
-        if ctx._F.dat._work_vec.handle != F.handle:
-            F.array_w[...] = ctx._F.dat.data_ro.flatten()
+        # Copy the residual into the vector layout, even when PETSc holds the work Vec.
+        with ctx._F.dat.vec_ro as f:
+            if f.handle != F.handle:
+                f.copy(F)
 
     @staticmethod
     def form_jacobian(snes, X, J, P):

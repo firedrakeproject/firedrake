@@ -84,6 +84,64 @@ def test_axpy(dat):
     assert np.allclose(dat.data_ro, 3*2)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_reordered_view_axpy_uses_buffer_order() -> None:
+    axis = op3.Axis(
+        [op3.AxisComponent(2, label="a"), op3.AxisComponent(2, label="b")],
+        label="field",
+    )
+    dat = op3.Dat(axis, data=np.array([10, 20, 30, 40], dtype=op3.ScalarType))
+    other = op3.Dat(axis, data=np.array([1, 2, 3, 4], dtype=op3.ScalarType))
+
+    dat[["b", "a"]].axpy(1, other)
+
+    assert np.array_equal(dat.data_ro, [11, 22, 33, 44])
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize(
+    ("sizes", "selected"),
+    [((1, 1), ("b", "a")),
+     ((2, 3), ("b", "a")),
+     ((1, 2, 3), ("c", "a"))],
+)
+def test_reordered_view_vec(sizes: tuple[int, ...], selected: tuple[str, ...]) -> None:
+    labels = ("a", "b", "c")[:len(sizes)]
+    axis = op3.Axis(
+        [op3.AxisComponent(size, label=label) for label, size in zip(labels, sizes)],
+        label="field",
+    )
+    dat = op3.Dat(axis, data=np.arange(sum(sizes), dtype=op3.ScalarType))
+    view = dat[list(selected)]
+    offsets = dict(zip(labels, np.cumsum((0, *sizes[:-1]))))
+    ordered = np.concatenate([
+        np.arange(offsets[label], offsets[label] + sizes[labels.index(label)])
+        for label in selected
+    ])
+    original = dat.data_ro.copy()
+
+    assert view.buffer is dat.buffer
+    assert np.array_equal(view.data_ro, original[np.sort(ordered)])
+    with dat.vec_ro as vec:
+        assert np.shares_memory(vec.array_r, dat.data_ro)
+    with view.vec_ro as vec:
+        assert np.array_equal(vec.array_r, original[ordered])
+
+    with view.vec_wo as vec:
+        vec.array_w[...] = np.arange(ordered.size) + 10
+    expected = original.copy()
+    expected[ordered] = np.arange(ordered.size) + 10
+    assert np.array_equal(dat.data_ro, expected)
+
+    with view.vec_rw as vec:
+        assert np.array_equal(vec.array_r, expected[ordered])
+        vec.array_w[...] += 1
+    expected[ordered] += 1
+    assert np.array_equal(dat.data_ro, expected)
+    with view.vec_ro as vec:
+        assert np.array_equal(vec.array_r, expected[ordered])
+
+
 def test_maxpy(dat):
     dat2 = dat.copy()
     dat3 = dat.copy()
