@@ -443,12 +443,15 @@ def test_fieldsplit_snes_split_options(named, npc):
         assert snes.ksp.pc.getType() == "lu"
 
 
-@pytest.mark.parametrize("auxiliary", [False, True])
-def test_fieldsplit_snes_nested(auxiliary):
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize(('auxiliary', 'group', 'late_type'),
+                         [(False, '0,1', False), (False, '1,0', False),
+                          (True, '0,1', False), (False, '1,0', True)])
+def test_fieldsplit_snes_nested(auxiliary, group, late_type):
     """Check that a native fieldsplit can be used as the solver for a split
     of another native fieldsplit. One multiplicative sweep over fields 0
-    and 1 inside a multiplicative sweep over [0, 1] and [2] is the same
-    as a multiplicative sweep over [0], [1] and [2]. This is checked
+    and 1 inside a multiplicative sweep over [0, 1] or [1, 0] and [2]
+    is the same as a flat sweep in the corresponding order. This is checked
     for a full solve, and for a single step with a nonzero forcing.
     """
     mesh = UnitIntervalMesh(10)
@@ -484,6 +487,12 @@ def test_fieldsplit_snes_nested(auxiliary):
         }
 
     flat_params = fieldsplit(3)
+    if group == '1,0':
+        flat_params.update({
+            'snes_fieldsplit_0_fields': '1',
+            'snes_fieldsplit_1_fields': '0',
+            'snes_fieldsplit_2_fields': '2',
+        })
     flat_solver = make_solver(flat_params)
 
     # The defaults for the outer splits are not used by the inner
@@ -497,13 +506,25 @@ def test_fieldsplit_snes_nested(auxiliary):
             'snes_convergence_test': 'skip',
             **{f'aux_{key}': value for key, value in inner_options.items()},
         }
+    if late_type:
+        inner_options.pop('snes_type')
     nested_params = {
         **fieldsplit(3),
-        'snes_fieldsplit_0_fields': '0,1',
+        'snes_fieldsplit_0_fields': group,
         'snes_fieldsplit_1_fields': '2',
         **{f'fieldsplit_0_{key}': value for key, value in inner_options.items()},
     }
     nested_solver = make_solver(nested_params)
+    if late_type:
+        from firedrake import dmhooks
+
+        with nested_solver.inserted_options(), \
+                dmhooks.add_hooks(nested_solver.snes.dm, nested_solver, appctx=nested_solver._ctx):
+            nested_solver.snes.setUp()
+            inner_fs = nested_solver.snes.getFieldSplitSubSNES()[0]
+            assert inner_fs.getType() != 'fieldsplit'
+            inner_fs.setType('fieldsplit')
+            inner_fs.setFieldSplitType(PETSc.SNES.CompositeType.MULTIPLICATIVE)
 
     flat_solver.solve()
     nested_solver.solve()
@@ -868,3 +889,59 @@ def test_fieldsplit_snes_objective():
     u, p = w.subfunctions
     assert errornorm(Constant(0.8), u) < 1e-12
     assert errornorm(Constant(1.9), p) < 1e-12
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("fs_type", ["additive", "multiplicative"])
+def test_fieldsplit_snes_independent_jacobian(fs_type):
+    """Evaluate child Jacobians at new trials with refreshed frozen fields."""
+    mesh = UnitIntervalMesh(3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    w = Function(W)
+    u, p = split(w)
+    v, q = TestFunctions(W)
+    F = (u**3*(1 + p**2) - 20)*v*dx + (p**3*(1 + u**2) - 50)*q*dx
+    problem = NonlinearVariationalProblem(F, w)
+    solver = NonlinearVariationalSolver(problem, solver_parameters={
+        'snes_type': 'fieldsplit',
+        'snes_fieldsplit_type': fs_type,
+        'snes_max_it': 1,
+        'snes_convergence_test': 'skip',
+        'fieldsplit_snes_rtol': 1e-12,
+        'fieldsplit_ksp_type': 'preonly',
+        'fieldsplit_pc_type': 'lu',
+    })
+    children = _get_split_solvers(solver)
+
+    for initial in [(1, 2), (2, 3)]:
+        first = (20/(1 + initial[1]**2))**(1 / 3)
+        frozen = [initial[1], initial[0] if fs_type == 'additive' else first]
+        checked = []
+
+        def monitor(child, iteration, rnorm):
+            if iteration != 0:
+                return
+            field = children.index(child)
+            J, P, _ = child.getJacobian()
+            trial = child.getSolution().duplicate()
+            for value in [1.5, 2.5]:
+                trial.set(value)
+                child.computeJacobian(trial, J, P)
+                expected = assemble(3*value**2*(1 + frozen[field]**2)
+                                    * TrialFunction(V)*TestFunction(V)*dx)
+                difference = J.copy()
+                difference.axpy(-1, expected.petscmat)
+                assert difference.norm() < 1e-10
+            checked.append(field)
+
+        for child in children:
+            child.monitorCancel()
+            child.setMonitor(monitor)
+        for wi, value in zip(w.subfunctions, initial):
+            wi.assign(value)
+        solver.solve()
+        assert checked == [0, 1]
+        assert errornorm(Constant(first), w.subfunctions[0]) < 1e-10
+        second = (50/(1 + frozen[1]**2))**(1 / 3)
+        assert errornorm(Constant(second), w.subfunctions[1]) < 1e-10

@@ -383,7 +383,7 @@ def create_field_decomposition(dm, *args, **kwargs):
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
                      call_setup=True)
-            add_hook(parent, setup=partial(set_snes_callbacks, d), call_setup=True)
+            set_snes_callbacks(d)
     return names, W.field_ises, dms
 
 
@@ -412,7 +412,7 @@ def create_subdm(dm, fields, *args, **kwargs):
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen), teardown=partial(pop_ctx_coarsener, subdm, coarsen),
                      call_setup=True)
-            add_hook(parent, setup=partial(set_snes_callbacks, subdm), call_setup=True)
+            set_snes_callbacks(subdm)
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
@@ -436,7 +436,7 @@ def create_subdm(dm, fields, *args, **kwargs):
             add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen),
                      teardown=partial(pop_ctx_coarsener, subdm, coarsen),
                      call_setup=True)
-            add_hook(parent, setup=partial(set_snes_callbacks, subdm), call_setup=True)
+            set_snes_callbacks(subdm)
         return iset, subdm
 
 
@@ -472,6 +472,7 @@ def set_snes_callbacks(dm: PETSc.DM) -> None:
     dm.setSNESFunction(firedrake.solving_utils._SNESContext.form_function)
     dm.setSNESJacobian(firedrake.solving_utils._SNESContext.form_jacobian)
     dm.setSNESObjective(firedrake.solving_utils._SNESContext.form_objective if ctx._problem.E else None)
+    dm.setSNESFieldSplitPreSolve(firedrake.solving_utils._SNESContext.fieldsplit_presolve)
     dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
 
 

@@ -294,9 +294,6 @@ class _SNESContext:
 
         self._jacobian_assembled = False
         self._splits = {}
-        # The solution of the parent equation when this context is a split
-        # of it. Its fields outside the split are coefficients of this equation.
-        self._xparent = None
         self._coarse = None
         self._fine = None
 
@@ -451,6 +448,7 @@ class _SNESContext:
         # setting state flags does not make sense (we call this function
         # before we do any compute).
         snes.setFunction(self.form_function, self._F.dat._work_vec)
+        snes.getDM().setSNESFieldSplitPreSolve(self.fieldsplit_presolve)
 
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
@@ -576,33 +574,11 @@ class _SNESContext:
                 sub_pmat_type=sub_pmat_type,
                 options_prefix=options_prefix,
             )
-            split_ctx._xparent = self._x
             split_ctx._nullspace = self._nullspace.split(field) if self._nullspace is not None else None
             split_ctx._nullspace_T = self._nullspace_T.split(field) if self._nullspace_T is not None else None
             split_ctx._near_nullspace = self._near_nullspace.split(field) if self._near_nullspace is not None else None
             splits.append(split_ctx)
         return self._splits.setdefault(fields, splits)
-
-    def _update_xparent(self, dm: PETSc.DM) -> None:
-        """Copy the parent iterate of a nonlinear field split into the parent solution.
-
-        Parameters
-        ----------
-        dm
-            The DM of the SNES that solves the equation of this context.
-
-        Notes
-        -----
-        During a child solve of ``SNESFIELDSPLIT``, the auxiliary vector of
-        the child DM holds a snapshot of the parent iterate. The equation of
-        a split reads its other fields from the parent solution, so they must
-        hold that snapshot when the equation is evaluated.
-        """
-        xparent = dm.getAuxiliaryVec()
-        # An unsplit context has no other fields to read from the parent.
-        if xparent and self._xparent is not None:
-            with self._xparent.dat.vec_wo as v:
-                xparent.copy(v)
 
     @staticmethod
     def form_objective(snes, X):
@@ -613,7 +589,6 @@ class _SNESContext:
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
-        ctx._update_xparent(dm)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
@@ -636,7 +611,6 @@ class _SNESContext:
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
-        ctx._update_xparent(dm)
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
@@ -708,6 +682,18 @@ class _SNESContext:
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
+
+    @staticmethod
+    def fieldsplit_presolve(snes, child, X):
+        r"""Load the state from which a child of a nonlinear field split starts
+
+        :arg snes: a PETSc SNES of type fieldsplit
+        :arg child: the child SNES about to be solved
+        :arg X: the state of ``snes`` (a Vec)
+        """
+        ctx = dmhooks.get_appctx(snes.getDM())
+        with ctx._x.dat.vec_wo as v:
+            X.copy(v)
 
     @staticmethod
     def create_operators(ksp):
