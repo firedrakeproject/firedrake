@@ -138,11 +138,8 @@ class TSFCKernel:
                 ast = ast.with_kernel(ep)
             ast = ast.with_entrypoints(kernel.name)
 
-            # pyop3_kernel = as_pyop3_local_kernel(ast, kernel.name,
-            #                                      len(kernel.arguments),
-            #                                      flop_count=kernel.flop_count,
-            #                                      events=events)
-            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments))
+            libraries = (op3.cc.LIBPETSC,) if kernel.needs_petsc else ()
+            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments), libraries=libraries)
             kernels.append(KernelInfo(kernel=pyop3_kernel,
                                       integral_type=kernel.integral_type,
                                       subdomain_id=kernel.subdomain_id,
@@ -326,7 +323,13 @@ def gather_integer_subdomain_ids(knls):
     return all_integer_subdomain_ids
 
 
-def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Function:
+def as_pyop3_local_kernel(
+    ast,
+    nargs: int,
+    access: Intent = op3.INC,
+    *,
+    libraries: tuple[op3.cc.Library, ...] = (),
+) -> op3.Function:
     """Convert a TSFC kernel to a pyop3 function.
 
     Parameters
@@ -338,6 +341,8 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
     access
         The access descriptor of the first kernel argument. The other
         arguments are read-only.
+    libraries
+        The libraries that the kernel is compiled and linked against.
 
     Returns
     -------
@@ -346,7 +351,7 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
 
     """
     accesses = tuple([access] + [op3.READ]*(nargs-1))
-    return op3.Function(ast, accesses)
+    return op3.Function(ast, accesses, libraries=libraries)
 
 
 def extract_numbered_coefficients(expr, numbers):

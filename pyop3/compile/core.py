@@ -11,6 +11,7 @@ from immutabledict import immutabledict as idict
 import pyop3.axis_tree
 import pyop3.buffer
 import pyop3.cache
+import pyop3.cc
 import pyop3.config
 import pyop3.constants
 import pyop3.dtypes
@@ -35,6 +36,7 @@ from pyop3.insn.base import (
     StandaloneCalledFunction,
     assignment_type_as_intent,
 )
+from pyop3.insn.visitors import collect_compiler_options
 
 from .context import CodegenContext
 
@@ -60,9 +62,16 @@ def _compile_static(op, compiler_parameters: ParsedCompilerParameters) -> tuple:
     -------
     TU
     datamap
+    compiler_options
+        The libraries that are needed to compile and link the code.
 
     """
     insn = op.preprocess()
+
+    compiler_options = collect_compiler_options(insn)
+    # Recording a PETSc log event and attaching the debugger both call PETSc.
+    if compiler_parameters.add_petsc_event or compiler_parameters.attach_debugger:
+        compiler_options += pyop3.cc.CompilerOptions(libraries=(pyop3.cc.LIBPETSC,))
     function_name = "pyop3_loop"  # TODO: Provide as kwarg
 
     if isinstance(insn, InstructionList):
@@ -93,7 +102,7 @@ def _compile_static(op, compiler_parameters: ParsedCompilerParameters) -> tuple:
             context.set_temporary_shapes(_collect_temporary_shapes(e))
             _compile(e, loop_indices, context)
 
-    translation_unit = context.finalize_kernel(function_name, compiler_parameters)
+    translation_unit = context.finalize_kernel(function_name, compiler_parameters, compiler_options)
 
     # Extra information needed by the code executor
     kernel_name_to_buffer_view = utils.invert_mapping(context.kernel_names)
@@ -109,7 +118,7 @@ def _compile_static(op, compiler_parameters: ParsedCompilerParameters) -> tuple:
         kernel_name_to_buffer_info[kernel_arg.name] = (buf_index, buf_view.nest_indices)
         buffer_intents_by_index[buf_index] = context.buffer_intents[buf_view.buffer]
 
-    return translation_unit, kernel_name_to_buffer_info, buffer_intents_by_index
+    return translation_unit, kernel_name_to_buffer_info, buffer_intents_by_index, compiler_options
 
 
 @functools.singledispatch
@@ -156,7 +165,7 @@ def _(call, loop_indices, codegen_context):
 
 @_compile.register(NonEmptyArrayAssignment)
 def parse_assignment(assignment: NonEmptyArrayAssignment, loop_indices, codegen_context: CodegenContext):
-    if any(isinstance(arg, pyop3.expr.MatPetscMatBufferExpression) for arg in assignment.arguments):
+    if assignment.is_mat_assignment:
         _compile_petsc_mat(assignment, loop_indices, codegen_context)
     else:
         _compile_array_assignment(
