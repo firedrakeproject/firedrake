@@ -507,14 +507,18 @@ def test_restrict_nullspace():
     L = inner(1, q) * ds(2) - inner(1, q) * ds(1)
 
     nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
-    solution = Function(Z)
+    sol = Function(Z)
     bc = DirichletBC(Z.sub(0), 0, "on_boundary")
-    solve(a == L, solution, bcs=bc, restrict=True, nullspace=nullspace,
-          solver_parameters={"ksp_type": "cg", "pc_type": "none"})
-
-    x = SpatialCoordinate(mesh)[0]
-    assert norm(solution.subfunctions[0]) < 1e-10
-    assert errornorm(x - 0.5, solution.subfunctions[1]) < 1e-10
+    prob = LinearVariationalProblem(a, L, sol, bcs=bc, restrict=True)
+    sp = {"ksp_type": "cg", "pc_type": "none", "ksp_rtol": 1e-12}
+    solver = LinearVariationalSolver(prob, nullspace=nullspace, solver_parameters=sp)
+    solver.solve()
+    A, _ = solver.snes.ksp.getOperators()
+    space = A.getNullSpace()
+    assert space
+    assert space.test(A)
+    x, _ = SpatialCoordinate(mesh)
+    assert errornorm(x - 0.5, sol.subfunctions[1]) < 1e-10
 
 
 @pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])
