@@ -297,32 +297,40 @@ class WithGeometryBase:
 
     @PETSc.Log.EventDecorator()
     def sub(self, indices: int | Sequence[int]) -> WithGeometryBase:
-        """Select a subspace of a mixed space, or components of a vector or tensor space.
+        """Select subspaces of a mixed space, or components of a vector or tensor space.
 
         Parameters
         ----------
         indices : int or collections.abc.Sequence of int
-            For a mixed space, the index of the subspace to extract. For a
-            vector or tensor space, the flat index of the component to
-            extract, or a tuple, list or range of flat indices. Flat indices
-            count the components in the storage order of the space, in which a
-            symmetric tensor only stores its independent components.
+            For a mixed space, an integer selects an indexed subspace and a
+            nonempty tuple or list selects distinct subspaces in the given
+            order. For a vector or tensor space, the flat index of the
+            component to extract, or a tuple, list or range of flat indices.
+            Flat indices count the components in the storage order of the
+            space, in which a symmetric tensor only stores its independent
+            components.
 
         Returns
         -------
         WithGeometryBase
-            The selected space, retaining this space as its parent. If a
-            sequence selects every component in order, the result will be this
-            space. Repeated calls with the same indices will return the same
-            space.
+            The selected space. Sequence selection from a mixed space returns
+            a collapsed space; a single selected subspace is unmixed. A
+            component space retains this space as its parent, and a sequence
+            that selects every component in order returns this space.
 
         Raises
         ------
         NotImplementedError
-            If a sequence selects more than one component, but not every
-            component in order.
+            If a sequence selects more than one component of a vector or
+            tensor space, but not every component in order.
         """
         if type(self.ufl_element()) is finat.ufl.MixedElement:
+            if isinstance(indices, (tuple, list)):
+                indices = tuple(indices)
+                W = self.topological.sub(indices)
+                meshes = [self.mesh()[i] for i in indices]
+                mesh = meshes[0] if len(meshes) == 1 else MeshSequenceGeometry(meshes)
+                return type(self)(W, mesh)
             return self.subspaces[indices]
         W = self.topological.sub(indices)
         return self if W is self.topological else self._components[W.component]
@@ -2151,9 +2159,33 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
 
-    def sub(self, i):
-        r"""Return the `i`th :class:`FunctionSpace` in this
-        :class:`MixedFunctionSpace`."""
+    def sub(self, i: Sequence[int] | int) -> FunctionSpace | MixedFunctionSpace:
+        """Select subspaces of this mixed space.
+
+        Parameters
+        ----------
+        i : int or collections.abc.Sequence of int
+            An integer selects an indexed subspace. A nonempty tuple or list
+            selects distinct subspaces in the given order.
+
+        Returns
+        -------
+        FunctionSpace or MixedFunctionSpace
+            The selected space. Sequence selection returns a collapsed space;
+            a single selected subspace is unmixed.
+        """
+        if isinstance(i, (tuple, list)):
+            i = tuple(i)
+            if not i:
+                raise ValueError("At least one subspace must be selected.")
+            if len(set(range(len(self))[j] for j in i)) != len(i):
+                raise ValueError(f"Each subspace can be selected only once, not {i}.")
+            if len(i) == 1:
+                return self._spaces[i[0]].collapse()
+            spaces = [self._spaces[j] for j in i]
+            mesh = MeshSequenceTopology([self.mesh()[j] for j in i])
+            labels = [self._labels[j] for j in i]
+            return type(self)(spaces, mesh, _labels=labels)
         return self._spaces[i]
 
     def num_sub_spaces(self):

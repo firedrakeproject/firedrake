@@ -115,6 +115,32 @@ def test_tensor_function_space_sub(tensor, dual, topological):
         V.sub(n)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("indices", [(), (1,), (1, 0), (0, 1), [1, 0]])
+@pytest.mark.parametrize("topological", [False, True])
+def test_mixed_function_space_sub_tuple(fs, dual, indices, topological):
+    if dual:
+        fs = fs.dual()
+    if topological:
+        fs = fs.topological
+    if not indices:
+        with pytest.raises(ValueError, match="At least one subspace"):
+            fs.sub(indices)
+        return
+    with pytest.raises(ValueError, match="only once"):
+        fs.sub((*indices, indices[0] - len(fs)))
+    W = fs.sub(indices)
+    assert W.parent is None
+    if len(indices) == 1:
+        assert W == fs[indices[0]].collapse()
+    else:
+        assert W == fs.sub(tuple(indices))
+        assert W._labels == tuple(fs._labels[i] for i in indices)
+        assert tuple(W) == tuple(fs[i] for i in indices)
+    if not topological:
+        assert is_dual(W) == dual
+
+
 def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
 

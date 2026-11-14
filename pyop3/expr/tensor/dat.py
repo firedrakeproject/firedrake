@@ -144,6 +144,7 @@ class Dat(Tensor):
         self._lazy_work_vec = None
         self._work_vec_buffer_state = None
         self._vec_context_is_active = False
+        self._vec_buffer_indices = None
 
     def __str__(self) -> str:
         return f"Dat({self.name})"
@@ -436,7 +437,7 @@ class Dat(Tensor):
         if include_ghosts:  # TODO: this is now unclear, really is all constrained DoFs
             indices = self.axes.buffer_slice(include_ghosts=True)
         else:
-            indices = self.axes.free.buffer_slice(include_ghosts=False)
+            indices = self._owned_buffer_indices
 
         # We have to work hard to get around numpy indexing semantics. If we
         # index the buffer array using an integer array (which we often do)
@@ -485,6 +486,21 @@ class Dat(Tensor):
         mode: Literal["ro", "rw", "wo"],
         block_shape: collections.abc.Iterable[int, ...] | int | None = None,
     ) -> GeneratorType[PETSc.Vec]:
+        """Expose the owned entries as a PETSc vector.
+
+        Parameters
+        ----------
+        mode : str
+            ``"ro"``, ``"rw"`` or ``"wo"`` for read-only, read-write, or
+            write-only access to the vector.
+        block_shape : collections.abc.Iterable[int] | int | types.NoneType
+            Shape of each vector block. The axis block shape is the default.
+
+        Yields
+        ------
+        petsc4py.PETSc.Vec
+            The vector for the selected owned entries.
+        """
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
                 f"Cannot create a PETSc Vec with data type '{self.dtype}', "
@@ -535,6 +551,9 @@ class Dat(Tensor):
         #             case _:
         #                 raise AssertionError
 
+        if self._vec_buffer_indices is not None and mode != "wo":
+            self._work_vec.array_w[...] = self.buffer._current_device_array[self._vec_buffer_indices]
+
         initial_state = self.buffer.state
         self._work_vec.stateSet(initial_state)
 
@@ -547,6 +566,8 @@ class Dat(Tensor):
 
         self._vec_context_is_active = False
         self.buffer.unfreeze()
+        if self._vec_buffer_indices is not None and mode != "ro":
+            self.buffer._current_device_array[self._vec_buffer_indices] = self._work_vec.array_r
 
         # TODO: It would be nice to somehow disable the work vec, so it cannot be used from now
         # We could use VecPlaceArray/VecResetArray for this?
@@ -564,25 +585,59 @@ class Dat(Tensor):
         if self._lazy_work_vec is None:
             # Don't use 'self.data_ro' etc because we want control over the parallel
             # correctness flags and such
-            indices = self.axes.buffer_slice(include_ghosts=False)
+            indices = self._owned_buffer_indices
             array = self.buffer._current_device_array[indices]
-            contiguous = isinstance(indices, slice)
-
             block_size = np.prod(self.axes.block_shape, dtype=int)
 
-            if contiguous:
+            if isinstance(indices, slice) and indices.step == 1:
                 vec = PETSc.Vec().createWithArray(
                     array, (array.size, None), block_size, self.comm
                 )
             else:
-                raise NotImplementedError
-                # vec = PETSc.Vec().create(self.comm)
-                # vec_type = PETSc.Vec.Type.SEQ if self.comm.size == 1 else PETSc.Vec.Type.MPI
-                # vec.setType(vec_type)
-                # vec.setSizes(sizes, block_size)
+                # The entries are not contiguous in the buffer, so the vector
+                # holds a copy that is gathered and scattered by 'as_vec'.
+                self._vec_buffer_indices = indices
+                vec = PETSc.Vec().createMPI(
+                    (array.size, None), block_size, comm=self.comm
+                )
             self._lazy_work_vec = vec
 
         return self._lazy_work_vec
+
+    @cached_property
+    def _owned_buffer_indices(self) -> slice | np.ndarray:
+        """Return the buffer entries of the owned data of this dat.
+
+        Returns
+        -------
+        slice or numpy.ndarray
+            The buffer entries. The entries of each root component are in
+            buffer order, and the root components are in the order of the axes
+            of this dat.
+        """
+        indices = self.axes.free.buffer_slice(include_ghosts=False)
+        tree = self.axes.trees[0]
+        root = tree.root
+        unindexed_root = tree.unindexed.root
+        if root is None or unindexed_root is None or root.label != unindexed_root.label:
+            return indices
+
+        labels = root.component_labels
+        positions = [unindexed_root.component_labels.index(label) for label in labels]
+        if positions == sorted(positions):
+            return indices
+
+        # We select the root components in a different order from their storage
+        # order, so we concatenate the sorted entries of each component.
+        free = self.axes.free.trees[0]
+        component_indices = {label: [] for label in labels}
+        for leaf_path in free.leaf_paths:
+            leaf_indices = free.linearize(leaf_path)._buffer_indices(include_ghosts=False)
+            component_indices[leaf_path[root.label]].append(leaf_indices)
+        return np.concatenate([
+            np.unique(np.concatenate(component_indices[label], dtype=IntType))
+            for label in labels
+        ])
 
     @property
     def norm(self) -> numbers.Real:

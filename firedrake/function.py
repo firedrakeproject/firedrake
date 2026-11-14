@@ -379,8 +379,9 @@ class Function(ufl.Coefficient, FunctionMixin):
         return tuple(type(self)(V.sub(k), self.topological.sub(k)) for k in range(V.block_size))
 
     @PETSc.Log.EventDecorator()
+    @FunctionMixin._ad_annotate_sub
     def sub(self, indices: int | Sequence[int]) -> "Function":
-        """Extract a subfunction of a mixed function, or components of a vector or tensor function.
+        """Extract a view of selected subfunctions, or components of a vector or tensor function.
 
         For a vector or tensor function, the component view can be used to
         apply boundary conditions.
@@ -388,17 +389,19 @@ class Function(ufl.Coefficient, FunctionMixin):
         Parameters
         ----------
         indices : int or collections.abc.Sequence of int
-            For a mixed function, the index of the subfunction to extract. For
-            a vector or tensor function, the flat index of the component to
-            extract, or a tuple, list or range of flat indices, as described
-            in :meth:`~.WithGeometryBase.sub`.
+            For a mixed function, an integer selects one subfunction and a
+            tuple or list selects subfunctions in the given order. A sequence
+            with one index returns an unmixed function. For a vector or tensor
+            function, the flat index of the component to extract, or a tuple,
+            list or range of flat indices, as described in
+            :meth:`~.WithGeometryBase.sub`.
 
         Returns
         -------
         firedrake.function.Function
-            A function that shares data with this function. The function will
-            be defined on ``self.function_space().sub(indices)``. If a sequence
-            selects every component in order, the result will be this function.
+            A function that shares data with the selected subfunctions or
+            components. The function will be defined on
+            ``self.function_space().sub(indices)``.
 
         See Also
         --------
@@ -406,6 +409,13 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         """
         if is_mixed(self.function_space()):
+            if isinstance(indices, (tuple, list)):
+                indices = tuple(indices)
+                V = self.function_space()
+                W = V.sub(indices)
+                labels = [V._labels[j] for j in indices]
+                slice_ = labels[0] if len(labels) == 1 else labels
+                return type(self)(W, val=self.dat[slice_])
             return self.subfunctions[indices]
         elif not self.function_space().shape:
             # TODO: Decide if this is acceptable usage

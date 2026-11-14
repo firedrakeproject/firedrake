@@ -48,6 +48,43 @@ def test_firedrake_scalar_function(V):
     assert (g.dat.data_ro == 1.0).all()
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("dual", [False, True])
+@pytest.mark.parametrize("indices", [(2, 0), (1,), (0, 1, 2), (1, 0), [2, 1]])
+def test_mixed_sub_tuple(V, dual, indices):
+    mesh = V.mesh()
+    W = MixedFunctionSpace([V, VectorFunctionSpace(mesh, "CG", 2), FunctionSpace(mesh, "CG", 2)])
+    f = Function(W)
+    if dual:
+        f = f.riesz_representation("l2")
+    for j, sub in enumerate(f.subfunctions):
+        values = Function(sub.function_space().dual() if dual else sub.function_space())
+        values.dat.data_wo[...] = np.arange(values.dat.data_ro.size).reshape(values.dat.data_ro.shape) + 100 * j
+        sub.assign(values)
+    original = [f.sub(j).dat.data_ro.copy() for j in range(len(W))]
+
+    g = f.sub(indices)
+    assert len(g.function_space()) == len(indices)
+    expected = np.concatenate([original[j].reshape(-1) for j in indices])
+    assert np.array_equal(g.dat.data_ro.reshape(-1), expected)
+    with g.dat.vec_ro as vec:
+        assert np.array_equal(vec.array_r, expected)
+    with g.dat.vec_rw as vec:
+        vec.scale(2)
+    for j in indices:
+        assert np.allclose(f.sub(j).dat.data_ro, 2 * original[j])
+    with g.dat.vec_wo as vec:
+        vec.set(5)
+    for j in indices:
+        assert np.allclose(f.sub(j).dat.data_ro, 5)
+    for i, j in enumerate(indices):
+        assert g.subfunctions[i].function_space().ufl_element() == W.sub(j).ufl_element()
+        g.subfunctions[i].assign(i + 2)
+        assert np.allclose(f.sub(j).dat.data_ro, i + 2)
+    for j in set(range(len(W))) - set(indices):
+        assert np.allclose(f.sub(j).dat.data_ro, original[j])
+
+
 def test_firedrake_tensor_function(W):
     f = Function(W)
     vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)

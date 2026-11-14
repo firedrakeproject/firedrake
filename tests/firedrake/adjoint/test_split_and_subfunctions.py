@@ -224,3 +224,40 @@ def test_writing_to_subfunctions():
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
     assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("dual", [False, True])
+@pytest.mark.parametrize("indices", [(2, 0), (1,)])
+def test_tuple_subfunctions(V1, V2, dual, indices):
+    W = V1 * V2 * V1
+    with stop_annotating():
+        kappa = Function(W).assign(2)
+        h = Function(W).assign(0.1)
+        if dual:
+            kappa = kappa.riesz_representation("l2")
+            h = h.riesz_representation("l2")
+            initial = kappa.copy(deepcopy=True).assign(5)
+        u = type(kappa)(kappa.function_space())
+        usub = u.sub(indices)
+        weights = Function(W).assign(1)
+
+    u.assign(initial if dual else kappa)
+    if dual:
+        usub.assign(kappa.sub(indices))
+        rf = ReducedFunctional(u, Control(kappa))
+        output = rf(h)
+        derivative = rf.derivative(adj_input=weights)
+        hessian = rf.hessian(h)
+        for j, sub in enumerate(derivative.subfunctions):
+            assert np.allclose(sub.dat.data_ro, 1 if j in indices else 0)
+            assert np.allclose(output.sub(j).dat.data_ro, 0.1 if j in indices else 5)
+            assert np.allclose(hessian.sub(j).dat.data_ro, 0)
+        return
+    usub.assign(3 * usub)
+    J = assemble(inner(u, u)**2 * dx)
+    rf = ReducedFunctional(J, Control(kappa))
+    taylor = taylor_to_dict(rf, kappa, h)
+    assert min(taylor['R1']['Rate']) > 1.95
+    assert min(taylor['R2']['Rate']) > 2.95

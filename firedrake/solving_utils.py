@@ -471,22 +471,7 @@ class _SNESContext:
             F = splitter.split(problem.F, argument_indices=(field,))
             J = splitter.split(problem.J, argument_indices=(field, field))
             V = J.arguments()[-1].function_space()
-            # Exposition:
-            # We are going to make a new solution Function on the sub
-            # mixed space defined by the relevant fields.
-            # But the form may refer to the rest of the solution
-            # anyway.
-            # So we pull it apart and will make a new function on the
-            # subspace that shares data.
-            if len(field) == 1:
-                # result unmixed
-                i, = field
-                slice_ = problem.u_restrict.function_space()._labels[i]
-            else:
-                # result remains mixed
-                slice_ = [problem.u_restrict.function_space()._labels[i] for i in field]
-            val = problem.u_restrict.dat[slice_]
-            subu = Function(V, val=val)
+            subu = problem.u_restrict.sub(field)
             if len(field) == 1:
                 subsplit = (subu,)
             else:
@@ -601,11 +586,9 @@ class _SNESContext:
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        # NOTE: I think we may have to set 'leaves_valid' to false here, as I
-        # don't think ctx._x.dat knows enough about changes. This could be
-        # done according to the vec state.
         if ctx._x.dat._work_vec.handle != X.handle:
-            ctx._x.dat.data_wo[...] = X.array_r.reshape((-1, *ctx._x.dat.axes.block_shape))
+            with ctx._x.dat.vec_wo as v:
+                X.copy(v)
 
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
@@ -627,7 +610,8 @@ class _SNESContext:
         # F may not be the same vector as self._F, so copy
         # residual out to F.
         if ctx._F.dat._work_vec.handle != F.handle:
-            F.array_w[...] = ctx._F.dat.data_ro.flatten()
+            with ctx._F.dat.vec_ro as v:
+                v.copy(F)
 
     @staticmethod
     def form_jacobian(snes, X, J, P):

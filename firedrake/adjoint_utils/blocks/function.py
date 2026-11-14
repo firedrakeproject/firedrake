@@ -201,7 +201,7 @@ class SubfunctionBlock(Block):
 
     def evaluate_adj_component(self, inputs, adj_inputs, block_variable, idx,
                                prepared=None):
-        eval_adj = firedrake.Cofunction(block_variable.output.function_space().dual())
+        eval_adj = firedrake.Function(block_variable.output.function_space().dual())
         eval_adj.sub(self.sub_idx).assign(adj_inputs[0])
         return eval_adj
 
@@ -212,7 +212,7 @@ class SubfunctionBlock(Block):
     def evaluate_hessian_component(self, inputs, hessian_inputs, adj_inputs,
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
-        eval_hessian = firedrake.Cofunction(block_variable.output.function_space().dual())
+        eval_hessian = firedrake.Function(block_variable.output.function_space().dual())
         eval_hessian.sub(self.sub_idx).assign(hessian_inputs[0])
         return eval_hessian
 
@@ -254,9 +254,9 @@ class FunctionMergeBlock(Block):
         # detail and for diagrams of the tape produced when accessing subfunctions.
 
         if idx == 0:
-            return adj_inputs[0].subfunctions[self.sub_idx].copy(deepcopy=True)
+            return adj_inputs[0].sub(self.sub_idx).copy(deepcopy=True)
         else:
-            adj_inputs[0].subfunctions[self.sub_idx].zero()
+            adj_inputs[0].sub(self.sub_idx).zero()
             return adj_inputs[0]
 
     def evaluate_tlm_component(self, inputs, tlm_inputs, block_variable, idx, prepared=None):
@@ -280,9 +280,9 @@ class FunctionMergeBlock(Block):
                                    block_variable, idx,
                                    relevant_dependencies, prepared=None):
         if idx == 0:
-            return hessian_inputs[0].subfunctions[self.sub_idx].copy(deepcopy=True)
+            return hessian_inputs[0].sub(self.sub_idx).copy(deepcopy=True)
         else:
-            hessian_inputs[0].subfunctions[self.sub_idx].zero()
+            hessian_inputs[0].sub(self.sub_idx).zero()
             return hessian_inputs[0]
 
     def recompute_component(self, inputs, block_variable, idx, prepared):
@@ -305,16 +305,13 @@ class CofunctionAssignBlock(Block):
 
     Parameters
     ----------
-    lhs:
-        The target of the assignment.
     rhs:
         The cofunction being assigned.
     """
 
-    def __init__(self, lhs: firedrake.Cofunction, rhs: firedrake.Cofunction,
+    def __init__(self, rhs: firedrake.Cofunction,
                  ad_block_tag=None, rhs_from_assemble=False):
         super().__init__(ad_block_tag=ad_block_tag)
-        self.add_output(lhs.block_variable)
         self.add_dependency(rhs)
         if rhs_from_assemble:
             # The `rhs_from_assemble` flag is set to `True` only when the

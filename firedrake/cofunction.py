@@ -204,8 +204,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         )
 
     @PETSc.Log.EventDecorator()
+    @CofunctionMixin._ad_annotate_sub
     def sub(self, i: int | Sequence[int]) -> "Cofunction":
-        """Extract a subfunction of a mixed cofunction, or components of a vector or tensor cofunction.
+        """Extract a view of selected subfunctions, or components of a vector or tensor cofunction.
 
         For a vector or tensor cofunction, the component view can be used to
         apply boundary conditions.
@@ -213,24 +214,32 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         Parameters
         ----------
         i : int or collections.abc.Sequence of int
-            For a mixed cofunction, the index of the subfunction to extract.
-            For a vector or tensor cofunction, the flat index of the component
-            to extract, or a tuple, list or range of flat indices, as
-            described in :meth:`~.WithGeometryBase.sub`.
+            For a mixed cofunction, an integer selects one subfunction and a
+            tuple or list selects subfunctions in the given order. A sequence
+            with one index returns an unmixed cofunction. For a vector or
+            tensor cofunction, the flat index of the component to extract, or
+            a tuple, list or range of flat indices, as described in
+            :meth:`~.WithGeometryBase.sub`.
 
         Returns
         -------
         Cofunction
-            A cofunction that shares data with this cofunction. The cofunction
-            will be defined on ``self.function_space().sub(i)``. If a sequence
-            selects every component in order, the result will be this
-            cofunction.
+            A cofunction that shares data with the selected subfunctions or
+            components. The cofunction will be defined on
+            ``self.function_space().sub(i)``.
 
         See Also
         --------
         subfunctions
         """
         if type(self.function_space().ufl_element()) is MixedElement:
+            if isinstance(i, (tuple, list)):
+                i = tuple(i)
+                V = self.function_space()
+                W = V.sub(i)
+                labels = [V._labels[j] for j in i]
+                slice_ = labels[0] if len(labels) == 1 else labels
+                return type(self)(W, val=self.dat[slice_])
             return self.subfunctions[i]
         elif not self.function_space().shape:
             # TODO: Decide if this is acceptable usage
@@ -332,6 +341,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
+            block = None
             if annotate_tape() and self != expr:
                 if subset is not Ellipsis:
                     raise NotImplementedError("Cofunction subset assignment "
@@ -343,16 +353,16 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 # so that we do not annotate the recursive call to assign
                 # within Cofunction.assign(BaseForm, subset=...).
                 # But we currently do not implement annotation for subset != None.
-                get_working_tape().add_block(
-                    CofunctionAssignBlock(
-                        self, expr, rhs_from_assemble=expr_from_assemble)
-                )
+                block = CofunctionAssignBlock(expr, rhs_from_assemble=expr_from_assemble)
+                get_working_tape().add_block(block)
 
             # TODO: Shouldn't need to cast the axes
             # self.dat[subset].assign(expr.dat[subset], eager=True)
             lhs = self.dat[subset]
             rhs = expr.dat[subset]
             lhs.assign(rhs, eager=True)
+            if block is not None:
+                block.add_output(self.block_variable)
             return self
         elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate

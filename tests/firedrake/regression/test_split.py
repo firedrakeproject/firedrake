@@ -25,6 +25,29 @@ def test_tensor_function_sub(shape, symmetry, dual):
         f.sub((0, n - 1))
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("indices", [(0,), (1,), (1, 0)])
+def test_split_cofunction_view(indices):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    c = Cofunction((V * V * V).dual())
+    for i, sub in enumerate(c.subfunctions):
+        sub.assign(i + 1)
+
+    splitter = ExtractSubBlock()
+    view = splitter.split(c, ((2, 0),))
+    result = splitter.split(view, (indices,))
+    fields = tuple((2, 0)[i] for i in indices)
+    expected = np.concatenate([c.sub(i).dat.data_ro for i in fields])
+    with result.dat.vec_ro as vec:
+        assert np.array_equal(vec.array_r, expected)
+    assert result.function_space() == c.function_space().sub(fields)
+
+    result.assign(7)
+    for i, sub in enumerate(c.subfunctions):
+        assert np.allclose(sub.dat.data_ro, 7 if i in fields else i + 1)
+
+
 def test_assemble_split_derivative():
     """Assemble the derivative of a form with a zero block."""
     mesh = UnitSquareMesh(1, 1)
