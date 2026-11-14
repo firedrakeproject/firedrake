@@ -484,6 +484,10 @@ class NonlinearVariationalSolverMixin:
         )
 
     @staticmethod
+    def _ad_block_type():
+        return CachedSolverBlock
+
+    @staticmethod
     def _ad_annotate_solve(solve):
         @wraps(solve)
         def wrapper(self, **kwargs):
@@ -497,7 +501,7 @@ class NonlinearVariationalSolverMixin:
                     raise ValueError(
                         "MissingMathsError: we do not know how to differentiate through a variational inequality")
 
-                block = CachedSolverBlock(
+                block = self._ad_block_type()(
                     self._ad_forward_cache,
                     self._ad_tangent_cache,
                     self._ad_adjoint_cache,
