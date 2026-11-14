@@ -144,6 +144,8 @@ class Dat(Tensor):
         self._lazy_work_vec = None
         self._work_vec_buffer_state = None
         self._vec_context_is_active = False
+        self._vec_transfer_dat = None
+        self._vec_transfer_source = None
 
     def __str__(self) -> str:
         return f"Dat({self.name})"
@@ -485,6 +487,20 @@ class Dat(Tensor):
         mode: Literal["ro", "rw", "wo"],
         block_shape: collections.abc.Iterable[int, ...] | int | None = None,
     ) -> GeneratorType[PETSc.Vec]:
+        """Expose the owned entries as a PETSc vector.
+
+        Parameters
+        ----------
+        mode : {"ro", "rw", "wo"}
+            Read-only, read-write, or write-only access to the vector.
+        block_shape : iterable of int or int, optional
+            Shape of each vector block. The axis block shape is the default.
+
+        Yields
+        ------
+        petsc4py.PETSc.Vec
+            The vector for the selected owned entries.
+        """
         if self.dtype != PETSc.ScalarType:
             raise RuntimeError(
                 f"Cannot create a PETSc Vec with data type '{self.dtype}', "
@@ -535,6 +551,11 @@ class Dat(Tensor):
         #             case _:
         #                 raise AssertionError
 
+        if self._vec_transfer_dat is not None and mode != "wo":
+            self._vec_transfer_dat.assign(
+                self._vec_transfer_source, eager=True, eager_strategy="compile"
+            )
+
         initial_state = self.buffer.state
         self._work_vec.stateSet(initial_state)
 
@@ -547,6 +568,10 @@ class Dat(Tensor):
 
         self._vec_context_is_active = False
         self.buffer.unfreeze()
+        if self._vec_transfer_dat is not None and mode != "ro":
+            self._vec_transfer_source.assign(
+                self._vec_transfer_dat, eager=True, eager_strategy="compile"
+            )
 
         # TODO: It would be nice to somehow disable the work vec, so it cannot be used from now
         # We could use VecPlaceArray/VecResetArray for this?
@@ -565,21 +590,42 @@ class Dat(Tensor):
             # Don't use 'self.data_ro' etc because we want control over the parallel
             # correctness flags and such
             indices = self.axes.buffer_slice(include_ghosts=False)
-            array = self.buffer._current_device_array[indices]
-            contiguous = isinstance(indices, slice)
+            layout_axes = self.axes.trees[0]
+            root = layout_axes.root
+            unindexed_root = layout_axes.unindexed.root
+            # A view can occupy one contiguous slice while its root components
+            # appear in a different order from their storage order.
+            if root is None or unindexed_root is None or root.label != unindexed_root.label:
+                reordered = False
+            else:
+                selected = [component.label for component in root.components]
+                original = [component.label for component in unindexed_root.components]
+                selected_set = set(selected)
+                reordered = selected != [label for label in original if label in selected_set]
+            shares_buffer = (
+                isinstance(indices, slice)
+                and indices.step == 1
+                and not reordered
+            )
 
             block_size = np.prod(self.axes.block_shape, dtype=int)
 
-            if contiguous:
+            if shares_buffer:
+                array = self.buffer._current_device_array[indices]
                 vec = PETSc.Vec().createWithArray(
                     array, (array.size, None), block_size, self.comm
                 )
             else:
-                raise NotImplementedError
-                # vec = PETSc.Vec().create(self.comm)
-                # vec_type = PETSc.Vec.Type.SEQ if self.comm.size == 1 else PETSc.Vec.Type.MPI
-                # vec.setType(vec_type)
-                # vec.setSizes(sizes, block_size)
+                axes = self.axes.free
+                layout_axes = axes.trees[0]
+                self._vec_transfer_source = self.record_new(axes=layout_axes)
+                self._vec_transfer_dat = Dat.empty(
+                    layout_axes.materialize(), dtype=self.dtype
+                )
+                array = self._vec_transfer_dat.buffer._current_device_array
+                vec = PETSc.Vec().createWithArray(
+                    array, (array.size, None), block_size, self.comm
+                )
             self._lazy_work_vec = vec
 
         return self._lazy_work_vec

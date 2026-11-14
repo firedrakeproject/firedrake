@@ -118,6 +118,21 @@ class VectorSpaceBasis:
         new_basis.orthonormalize()
         return new_basis
 
+    def split(self, fields: tuple[int, ...]) -> VectorSpaceBasis:
+        """Split off the basis for the selected fields.
+
+        Parameters
+        ----------
+        fields
+            The indices of the selected fields in the original space.
+
+        Returns
+        -------
+        VectorSpaceBasis
+            This basis, which has no separate component bases to select.
+        """
+        return self
+
     @PETSc.Log.EventDecorator()
     def orthogonalize(self, b):
         r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
@@ -280,6 +295,33 @@ class MixedVectorSpaceBasis:
             else:
                 bases.append(function_space.sub(basis.index))
         return MixedVectorSpaceBasis(function_space, bases)
+
+    def split(self, fields: tuple[int, ...]) -> VectorSpaceBasis | MixedVectorSpaceBasis | None:
+        """Split off the basis for the selected fields.
+
+        Parameters
+        ----------
+        fields
+            The indices of the fields in the original mixed space, in the
+            order that they must appear in the result.
+
+        Returns
+        -------
+        VectorSpaceBasis | MixedVectorSpaceBasis | None
+            For a single field, return its basis, or ``None`` if it has no
+            basis. For multiple fields, return a mixed basis with placeholders
+            indexed in the selected space. Reuse the component bases.
+        """
+        from firedrake.formmanipulation import subspace
+
+        bases = [self._bases[i] for i in fields]
+        if len(fields) == 1:
+            basis, = bases
+            return basis if isinstance(basis, VectorSpaceBasis) else None
+        function_space = subspace(self._function_space, fields)
+        return MixedVectorSpaceBasis(
+            function_space, [basis if isinstance(basis, VectorSpaceBasis) else function_space.sub(i)
+                             for i, basis in enumerate(bases)])
 
     def _build_monolithic_basis(self):
         r"""Build a basis for the complete mixed space.

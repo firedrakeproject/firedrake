@@ -355,7 +355,7 @@ class _SNESContext:
             sub_pmat_type=self.sub_pmat_type,
             appctx=self.appctx,
             options_prefix=self.options_prefix,
-            transfer_manager=self.transfer_manager,
+            transfer_manager=self._transfer_manager,
             pre_jacobian_callback=self._pre_jacobian_callback,
             pre_function_callback=self._pre_function_callback,
             post_jacobian_callback=self._post_jacobian_callback,
@@ -367,6 +367,11 @@ class _SNESContext:
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    def invalidate_jacobian(self) -> None:
+        self._jacobian_assembled = False
+        for ctx in chain.from_iterable(self._splits.values()):
+            ctx.invalidate_jacobian()
 
     @property
     def transfer_manager(self):
@@ -428,6 +433,8 @@ class _SNESContext:
         if self._transfer_manager is not None:
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
+        for ctx in chain.from_iterable(self._splits.values()):
+            ctx.transfer_manager = manager
 
     def set_objective(self, snes):
         if self._problem.E:
@@ -441,6 +448,7 @@ class _SNESContext:
         # setting state flags does not make sense (we call this function
         # before we do any compute).
         snes.setFunction(self.form_function, self._F.dat._work_vec)
+        snes.getDM().setSNESFieldSplitPreSolve(self.fieldsplit_presolve)
 
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
@@ -536,7 +544,8 @@ class _SNESContext:
                     bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
                 if bc_temp is not None:
                     bcs.append(bc_temp)
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
+            E = replace(problem.E, {problem.u_restrict: u}) if problem.E is not None else None
+            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, objective=E, is_linear=problem.is_linear,
                                form_compiler_parameters=problem.form_compiler_parameters)
             new_problem._constant_jacobian = problem._constant_jacobian
             name = V.name if len(V) == 1 else None
@@ -557,14 +566,18 @@ class _SNESContext:
                 pmat_type = self.pmat_type
                 sub_pmat_type = self.sub_pmat_type
 
-            splits.append(self.reconstruct(
+            split_ctx = self.reconstruct(
                 new_problem,
                 mat_type=mat_type,
                 sub_mat_type=sub_mat_type,
                 pmat_type=pmat_type,
                 sub_pmat_type=sub_pmat_type,
                 options_prefix=options_prefix,
-            ))
+            )
+            split_ctx._nullspace = self._nullspace.split(field) if self._nullspace is not None else None
+            split_ctx._nullspace_T = self._nullspace_T.split(field) if self._nullspace_T is not None else None
+            split_ctx._near_nullspace = self._near_nullspace.split(field) if self._near_nullspace is not None else None
+            splits.append(split_ctx)
         return self._splits.setdefault(fields, splits)
 
     @staticmethod
@@ -604,8 +617,9 @@ class _SNESContext:
         # NOTE: I think we may have to set 'leaves_valid' to false here, as I
         # don't think ctx._x.dat knows enough about changes. This could be
         # done according to the vec state.
-        if ctx._x.dat._work_vec.handle != X.handle:
-            ctx._x.dat.data_wo[...] = X.array_r.reshape((-1, *ctx._x.dat.axes.block_shape))
+        with ctx._x.dat.vec_wo as x:
+            if x.handle != X.handle:
+                X.copy(x)
 
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
@@ -621,13 +635,10 @@ class _SNESContext:
             with ctx._F.dat.vec_rw as F_:
                 ctx._post_function_callback(X, F_)
 
-        # Make sure all owned values are fully updated before yielding to PETSc
-        ctx._F.dat.buffer.sync_roots()
-
-        # F may not be the same vector as self._F, so copy
-        # residual out to F.
-        if ctx._F.dat._work_vec.handle != F.handle:
-            F.array_w[...] = ctx._F.dat.data_ro.flatten()
+        # Copy the residual into the vector layout, even when PETSc holds the work Vec.
+        with ctx._F.dat.vec_ro as f:
+            if f.handle != F.handle:
+                f.copy(F)
 
     @staticmethod
     def form_jacobian(snes, X, J, P):
@@ -669,6 +680,18 @@ class _SNESContext:
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
+
+    @staticmethod
+    def fieldsplit_presolve(snes, child, X):
+        r"""Load the state from which a child of a nonlinear field split starts
+
+        :arg snes: a PETSc SNES of type fieldsplit
+        :arg child: the child SNES about to be solved
+        :arg X: the state of ``snes`` (a Vec)
+        """
+        ctx = dmhooks.get_appctx(snes.getDM())
+        with ctx._x.dat.vec_wo as v:
+            X.copy(v)
 
     @staticmethod
     def create_operators(ksp):

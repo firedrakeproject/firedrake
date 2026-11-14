@@ -622,7 +622,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
-            dmctxs = [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]
+            dmctxs = [dmhooks.add_hooks(dm, self if dm == solution_dm else self._ctx,
+                                        appctx=self._ctx, save=(dm == solution_dm))
+                      for dm in problem_dms]
             for dmctx in dmctxs:
                 stack.enter_context(dmctx)
             for top in self._transfer_operators:
@@ -731,4 +733,4 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         r"""
         Forces the matrix to be reassembled next time it is required.
         """
-        self._ctx._jacobian_assembled = False
+        self._ctx.invalidate_jacobian()
