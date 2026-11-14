@@ -1,4 +1,5 @@
 from functools import cached_property
+import cachetools
 import numpy as np
 import ufl
 
@@ -193,6 +194,13 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             return (self,)
 
     @cached_property
+    def _assign_op_cache(self) -> cachetools.LRUCache:
+        """Cache of the assignment operations that `.Assigner` builds for this cofunction."""
+        from firedrake.assign import ASSIGN_OP_CACHE_SIZE
+
+        return cachetools.LRUCache(maxsize=ASSIGN_OP_CACHE_SIZE)
+
+    @cached_property
     def _components(self):
         shape = self.function_space().shape
         assert len(shape) > 0
@@ -334,11 +342,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                         self, expr, rhs_from_assemble=expr_from_assemble)
                 )
 
-            # TODO: Shouldn't need to cast the axes
-            # self.dat[subset].assign(expr.dat[subset], eager=True)
-            lhs = self.dat[subset]
-            rhs = expr.dat[subset]
-            lhs.assign(rhs, eager=True)
+            with stop_annotating():
+                Assigner(self, expr, subset).assign()
             return self
         elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
