@@ -252,7 +252,52 @@ class InstructionExecutionContext:
         heavy=True,
         make_cache=lambda: cachetools.LRUCache(100),
     )
-    def _compile(self) -> CompiledCodeExecutor:
+    def _compile(self) -> tuple[CompiledCodeExecutor, dict[int, tuple[pyop3.buffer.AbstractBuffer, ...]]]:
+        if self.compiler_parameters.compress_indirection_maps:
+            # Compressing indirection maps tabulates new maps from the data in
+            # the buffers (e.g. 'dat[map1[map2[i]]]' becomes 'dat[map3[i]]'), so
+            # the compiled code is only valid for these exact buffers and we
+            # cannot use a template.
+            executor = self._build_executor()
+        else:
+            template = self._compile_template()
+            if template is None:
+                executor = self._build_executor()
+            else:
+                _, buffers = self._structural_cache_key
+                executor = template.bind(buffers, self.comm)
+
+        arg_index_to_buffer_map = {
+            i: self._extract_buffers(arg)
+            for i, arg in enumerate(self.root_insn.named_terminals)
+        }
+        return executor, arg_index_to_buffer_map
+
+    @memory_cache(
+        hashkey=lambda self: (self._structural_cache_key[0], self.compiler_parameters),
+        get_comm=lambda self: self.comm,
+    )
+    def _compile_template(self) -> CompiledCodeTemplate | None:
+        """Compile a template for the instruction.
+
+        Templates are shared between all instructions with the same structural
+        cache key (see `pyop3.visitors.get_structural_cache_key`). This means
+        that, for example, executing the same loop on two different meshes
+        only preprocesses it once.
+
+        Returns
+        -------
+        CompiledCodeTemplate or None
+            The template, or `None` if a template cannot be made (see
+            `CompiledCodeTemplate.from_executor`).
+
+        """
+        _, buffers = self._structural_cache_key
+        return CompiledCodeTemplate.from_executor(self._build_executor(), buffers)
+
+    @cached_method()
+    def _build_executor(self) -> CompiledCodeExecutor:
+        """Build an executor by preprocessing and compiling the instruction."""
         from pyop3.compile.core import _compile_static
         from pyop3.insn.visitors import collect_compiler_options
 
@@ -309,14 +354,7 @@ class InstructionExecutionContext:
             self.preprocessed_buffers[buffer_index]: intent
             for buffer_index, intent in buffer_intents.items()
         })
-        executor = CompiledCodeExecutor(executable, kernel_name_to_buffer_views, buffer_intents, self.comm)
-
-        arg_index_to_buffer_map = {
-            i: self._extract_buffers(arg)
-            for i, arg in enumerate(self.root_insn.named_terminals)
-        }
-
-        return executor, arg_index_to_buffer_map
+        return CompiledCodeExecutor(executable, kernel_name_to_buffer_views, buffer_intents, self.comm)
 
     def preprocess(self) -> pyop3.insn.base.Instruction:
         import pyop3.visitors
@@ -413,6 +451,12 @@ class InstructionExecutionContext:
         from pyop3.visitors import get_instruction_executor_cache_key
 
         return (get_instruction_executor_cache_key(self.root_insn), self.compiler_parameters)
+
+    @cached_property
+    def _structural_cache_key(self) -> tuple[Hashable, tuple[pyop3.buffer.AbstractBuffer, ...]]:
+        from pyop3.visitors import get_structural_cache_key
+
+        return get_structural_cache_key(self.root_insn)
 
     @functools.singledispatchmethod
     def _extract_buffers(self, arg: Any, /) -> tuple[pyop3.buffer.AbstractBuffer, ...]:
@@ -895,6 +939,101 @@ class CompiledCodeExecutor:
         # TODO: We need all communication to happen before we begin computing, but if
         # we have multiple matrices we can at least overlap their communication.
         return begin_insns+end_insns, (), (), finalizers
+
+
+@dataclasses.dataclass(frozen=True)
+class CompiledCodeTemplate:
+    """Compiled code that is not bound to any buffers.
+
+    Notes
+    -----
+    This class is intentionally distinct from `CompiledCodeExecutor` because it
+    stores the visit order positions of buffers instead of the buffers
+    themselves. This means that templates hold no data and can be bound to any
+    instruction with the same structural cache key (see
+    `pyop3.visitors.get_structural_cache_key`).
+
+    Parameters
+    ----------
+    executable
+        The compiled operation.
+    kernel_name_to_buffer_index
+        Mapping from local kernel argument names to the visit order position
+        of the buffer and the nest indices.
+    buffer_intents
+        Pairs of buffer visit order positions and intents.
+
+    """
+    executable: Executable
+    kernel_name_to_buffer_index: idict
+    buffer_intents: tuple
+
+    @classmethod
+    def from_executor(
+        cls,
+        executor: CompiledCodeExecutor,
+        buffers: tuple[pyop3.buffer.AbstractBuffer, ...],
+    ) -> CompiledCodeTemplate | None:
+        """Return a template for an executor.
+
+        Parameters
+        ----------
+        executor
+            The executor.
+        buffers
+            The buffers of the instruction of ``executor`` visited by
+            `StructuralCacheKeyGetter`, in visit order.
+
+        Returns
+        -------
+        CompiledCodeTemplate or None
+            The template, or `None` if a buffer of ``executor`` is not a
+            visited buffer. This happens if preprocessing creates new buffers,
+            for instance when compressing indirection maps.
+
+        """
+        indices = {buf: i for i, buf in enumerate(buffers)}
+        if not indices.keys() >= executor.buffer_intents.keys():
+            return None
+
+        kernel_name_to_buffer_index = idict({
+            name: (indices[buf_view.buffer], buf_view.nest_indices)
+            for name, buf_view in executor.kernel_name_to_buffer_info.items()
+        })
+        buffer_intents = tuple(
+            (indices[buf], intent) for buf, intent in executor.buffer_intents.items()
+        )
+        return cls(executor.executable, kernel_name_to_buffer_index, buffer_intents)
+
+    def bind(
+        self,
+        buffers: tuple[pyop3.buffer.AbstractBuffer, ...],
+        comm: MPI.Comm,
+    ) -> CompiledCodeExecutor:
+        """Bind the template to the buffers of an instruction.
+
+        Parameters
+        ----------
+        buffers
+            The buffers of the instruction visited by `StructuralCacheKeyGetter`,
+            in visit order.
+        comm
+            The communicator.
+
+        Returns
+        -------
+        CompiledCodeExecutor
+            The executor.
+
+        """
+        kernel_name_to_buffer_views = idict({
+            name: pyop3.buffer.IndexedBuffer(buffers[index], nest_indices)
+            for name, (index, nest_indices) in self.kernel_name_to_buffer_index.items()
+        })
+        buffer_intents = idict({
+            buffers[index]: intent for index, intent in self.buffer_intents
+        })
+        return CompiledCodeExecutor(self.executable, kernel_name_to_buffer_views, buffer_intents, comm)
 
 
 @functools.singledispatch
