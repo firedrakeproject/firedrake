@@ -12,10 +12,23 @@ from firedrake.adjoint_utils.checkpointing import maybe_disk_checkpoint
 
 
 def extract_subfunction(u, V):
-    """If V is a subspace of the function-space of u, return the component of u that is in that subspace."""
+    """Extract the subfunction of u on the subspace V.
+
+    Parameters
+    ----------
+    u : Function or Cofunction
+        The function from which to extract the subfunction.
+    V : FunctionSpace
+        A subspace of ``u.function_space()``.
+
+    Returns
+    -------
+    Function or Cofunction
+        The subfunction of ``u`` that is defined on ``V``.
+    """
     if V.index is not None:
         # V is an indexed subspace of a MixedFunctionSpace
-        return u.sub(V.index)
+        return extract_subfunction(u, V.parent).sub(V.index)
     elif V.component is not None:
         # V is a vector component subspace.
         # The vector functionspace V.parent may itself be a subspace

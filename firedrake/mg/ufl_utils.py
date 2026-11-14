@@ -230,9 +230,11 @@ def reconstruct_function_space(V, self, coefficient_mapping=None):
     if V_new is not None:
         return V_new
 
-    # Handle MixedFunctionSpace : V.reconstruct requires MeshSequence.
-    mesh = V.mesh() if V.index is None else V.parent.mesh()
-    new_mesh = self(mesh, self)
+    # Reconstruct the full parent space on the new mesh.
+    V_root = V
+    while V_root.parent is not None:
+        V_root = V_root.parent
+    new_mesh = self(V_root.mesh(), self)
 
     V_parent = V
     while get_relative(self, V_parent, reverse=True) is not None:

@@ -36,6 +36,7 @@ def test_split_cofunction_view(indices):
 
     splitter = ExtractSubBlock()
     view = splitter.split(c, ((2, 0),))
+    assert view.function_space() is c.function_space().sub((2, 0))
     result = splitter.split(view, (indices,))
     fields = tuple((2, 0)[i] for i in indices)
     expected = np.concatenate([c.sub(i).dat.data_ro for i in fields])

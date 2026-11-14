@@ -79,20 +79,27 @@ class FunctionMixin(FloatingType):
         @wraps(sub)
         def wrapper(self, *args, **kwargs):
             ad_block_tag = kwargs.pop("ad_block_tag", None)
-            with stop_annotating():
-                output = sub(self, *args, **kwargs)
             indices = args[0] if args else kwargs.get("indices", kwargs.get("i"))
-            if isinstance(indices, (tuple, list)) and firedrake.functionspaceimpl.is_mixed(self.function_space()):
-                indices = tuple(indices)
-                output = type(self)(output.function_space(), output,
-                                    block_class=SubfunctionBlock,
-                                    _ad_floating_active=True,
-                                    _ad_args=[self, indices],
-                                    _ad_output_args=[indices],
-                                    output_block_class=FunctionMergeBlock,
-                                    _ad_outputs=[self],
-                                    ad_block_tag=ad_block_tag)
-            return output
+            if not (isinstance(indices, (tuple, list)) and firedrake.functionspaceimpl.is_mixed(self.function_space())):
+                with stop_annotating():
+                    return sub(self, *args, **kwargs)
+
+            # Like `subfunctions`, we cache the annotated view, so repeated
+            # selection of the same subfunctions returns the same object.
+            indices = tuple(indices)
+            if indices not in self._subfunctions:
+                with stop_annotating():
+                    output = sub(self, indices)
+                self._subfunctions[indices] = type(self)(
+                    output.function_space(), output,
+                    block_class=SubfunctionBlock,
+                    _ad_floating_active=True,
+                    _ad_args=[self, indices],
+                    _ad_output_args=[indices],
+                    output_block_class=FunctionMergeBlock,
+                    _ad_outputs=[self],
+                    ad_block_tag=ad_block_tag)
+            return self._subfunctions[indices]
         return wrapper
 
     @staticmethod

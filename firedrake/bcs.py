@@ -9,7 +9,6 @@ from mpi4py import MPI
 import ufl
 from ufl import as_ufl, as_tensor
 from ufl.algorithms import extract_coefficients
-from finat.ufl import VectorElement
 import finat
 from immutabledict import immutabledict as idict
 
@@ -84,11 +83,23 @@ class BCBase:
 
         return self._function_space
 
-    def function_space_index(self):
+    def function_space_index(self) -> int | None:
+        """Return the field index in the top-level parent space.
+
+        Returns
+        -------
+        int or None
+            The field index, or ``None`` if the parent space is not mixed.
+        """
         fs = self._function_space
         if fs.component is not None:
             fs = fs.parent
-        return fs.index
+        index = fs.index
+        while fs.parent is not None:
+            fs = fs.parent
+            if fs.index is not None:
+                index = fs.index[index]
+        return index
 
     @property
     def parent_function_space(self):
@@ -97,27 +108,6 @@ class BCBase:
         while V.parent is not None:
             V = V.parent
         return V
-
-    @cached_property
-    def _indices(self):
-        # If this BC is defined on a subspace (IndexedFunctionSpace or
-        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
-        # indices.
-        indices = []
-        fs = self._function_space
-        while True:
-            # Add index to indices if found
-            if fs.index is not None:
-                indices.append(fs.index)
-            if fs.component is not None:
-                indices.append(fs.component)
-            # Now try the parent
-            if fs.parent is not None:
-                fs = fs.parent
-            else:
-                # All done
-                break
-        return tuple(reversed(indices))
 
     @cached_property
     def nodes(self) -> np.ndarray:
@@ -235,10 +225,13 @@ class BCBase:
 
     @PETSc.Log.EventDecorator()
     def zero(self, r):
-        r"""Zero the boundary condition nodes on ``r``.
+        """Zero the boundary condition nodes on a function or cofunction.
 
-        :arg r: a :class:`firedrake.function.Function` to which the
-            boundary condition should be applied.
+        Parameters
+        ----------
+        r : Function or Cofunction
+            The function or cofunction to which the boundary condition should
+            be applied.
 
         """
         if not isinstance(r, Function | Cofunction):
@@ -277,11 +270,24 @@ class BCBase:
 
     @PETSc.Log.EventDecorator()
     def as_subspace(self, field, V, use_split):
+        """Find the boundary condition's space within selected fields.
+
+        Parameters
+        ----------
+        field : collections.abc.Sequence of int
+            The field indices in the original parent space.
+        V : FunctionSpace or MixedFunctionSpace
+            The space of the selected fields.
+        use_split : bool
+            Whether to extract a subspace through ``subspaces``.
+
+        Returns
+        -------
+        FunctionSpace or None
+            The corresponding space, or ``None`` if its field is not selected.
+        """
         fs = self._function_space
-        if fs.parent is not None and isinstance(fs.parent.ufl_element(), VectorElement):
-            index = fs.parent.index
-        else:
-            index = fs.index
+        index = self.function_space_index()
         if index is None:
             index = 0
         cmpt = fs.component
@@ -375,11 +381,14 @@ class DirichletBC(BCBase, DirichletBCMixin):
             V = self.as_subspace(field, V, use_split)
             if V is None:
                 return
-        if V == fs and \
-           V.parent == fs.parent and \
-           V.index == fs.index and \
-           (V.parent is None or V.parent.parent == fs.parent.parent) and \
-           (V.parent is None or V.parent.index == fs.parent.index) and \
+        # Compare every level of the subspace chain up to the top-level space.
+        W = V
+        same_space = True
+        while same_space and W is not None and fs is not None:
+            same_space = W == fs and W.index == fs.index
+            W = W.parent
+            fs = fs.parent
+        if same_space and W is fs and \
            g == self._original_arg and \
            sub_domain == self.sub_domain:
             return self
@@ -768,7 +777,9 @@ def extract_subdomain_ids(bcs):
 
     Returns
     -------
-    A tuple of subdomain ids for each component of a MixedFunctionSpace.
+    tuple of tuple or None
+        The subdomain identifiers for each component of the mixed space, or
+        ``None`` if no boundary conditions are given.
 
     """
     if isinstance(bcs, DirichletBC):
@@ -784,7 +795,7 @@ def extract_subdomain_ids(bcs):
     _to_tuple = lambda s: (s,) if isinstance(s, (int, str)) else s
     subdomain_ids = tuple(tuple(_chain(_to_tuple(bc.sub_domain)
                                 for bc in bcs if bc.function_space() == Vsub
-                                and bc.function_space().index == Vsub.index))
+                                and bc.function_space_index() == Vsub.index))
                           for Vsub in V)
     return subdomain_ids
 

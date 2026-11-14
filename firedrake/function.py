@@ -185,12 +185,15 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @cached_property
     def subfunctions(self):
-        r"""Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        """Extract the subfunctions on the indexed subspaces of a mixed space.
+
+        Returns
+        -------
+        tuple of CoordinatelessFunction
+            Subfunctions sharing data with this function, or this function
+            itself if its space is not mixed.
+        """
         if is_mixed(self.function_space()):
-            # NOTE: This is quite tricky for fieldsplit. Previously the fields would
-            # be renumbered when split, but now we retain the labels in the dat but
-            # not the function space.
             subfuncs = []
             for subspace in self.function_space():
                 subfunc = CoordinatelessFunction(
@@ -212,16 +215,22 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
-        r"""Extract the ith sub :class:`Function` of this :class:`Function`.
+        """Extract a subfunction or tensor component.
 
-        :arg i: the index to extract
+        Parameters
+        ----------
+        i : int or tuple of int
+            The index of the subfunction or the indices of the tensor component.
 
-        See also :attr:`subfunctions`.
+        Returns
+        -------
+        CoordinatelessFunction
+            A function sharing data with the selected subfunction or component.
 
-        If the :class:`Function` is defined on a
-        rank-n :class:`~.FunctionSpace`, this returns a proxy object
-        indexing the ith component of the space, suitable for use in
-        boundary condition application."""
+        See Also
+        --------
+        subfunctions
+        """
         mixed = type(self.function_space().ufl_element()) is MixedElement
         data = self.subfunctions if mixed else self._components
         return data[i]
@@ -325,6 +334,7 @@ class Function(ufl.Coefficient, FunctionMixin):
                                                 val=val, name=name, dtype=dtype)
 
         self._function_space = V
+        self._subfunctions = {}
         ufl.Coefficient.__init__(
             self, self.function_space().ufl_function_space(), count=count
         )
@@ -364,8 +374,14 @@ class Function(ufl.Coefficient, FunctionMixin):
     @cached_property
     @FunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
-        r"""Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        """Extract the subfunctions on the indexed subspaces of a mixed space.
+
+        Returns
+        -------
+        tuple of Function
+            Subfunctions sharing data with this function, or this function
+            itself if its space is not mixed.
+        """
         if is_mixed(self.function_space()):
             return tuple(
                 type(self)(self.function_space().sub(i), val)
@@ -389,19 +405,20 @@ class Function(ufl.Coefficient, FunctionMixin):
         Parameters
         ----------
         indices : int or collections.abc.Sequence of int
-            For a mixed function, an integer selects one subfunction and a
-            tuple or list selects subfunctions in the given order. A sequence
-            with one index returns an unmixed function. For a vector or tensor
-            function, the flat index of the component to extract, or a tuple,
-            list or range of flat indices, as described in
+            For a mixed function, use an integer to extract one subfunction,
+            or a nonempty tuple or list of distinct indices to extract
+            subfunctions in the given order. For a vector or tensor function, the flat index of the component to extract,
+            or a tuple, list or range of flat indices, as described in
             :meth:`~.WithGeometryBase.sub`.
 
         Returns
         -------
         firedrake.function.Function
-            A function that shares data with the selected subfunctions or
-            components. The function will be defined on
-            ``self.function_space().sub(indices)``.
+            A function sharing data with the selected subfunctions or component.
+            The function will be defined on ``self.function_space().sub(indices)``.
+            If the sequence contains only one index, the result will be an
+            unmixed function. Repeated calls with the same sequence of indices
+            will return the same function.
 
         See Also
         --------
@@ -625,14 +642,9 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @cached_property
     def _cell_dof_map_array(self):
-        # This is a cached property to make sure it isn't cleaned up
-        if self.function_space().index:
-            # component of a mixed space
-            label = self.function_space().parent._labels[self.function_space().index]
-            map_dat = self.function_space().parent.cell_dof_map_dat[:, label]
-        else:
-            map_dat = self.function_space().cell_dof_map_dat
-        return map_dat.data_ro
+        map_array = self.function_space().cell_dof_map_dat.data_ro
+        indices = self.dat.axes.buffer_slice(include_ghosts=True)
+        return np.arange(self.dat.buffer.size, dtype=IntType)[indices][map_array]
 
     @property
     @PETSc.Log.EventDecorator()

@@ -2,6 +2,7 @@ import pytest
 
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.adjoint_utils.blocks.solving import extract_subfunction
 import numpy as np
 
 
@@ -261,3 +262,16 @@ def test_tuple_subfunctions(V1, V2, dual, indices):
     taylor = taylor_to_dict(rf, kappa, h)
     assert min(taylor['R1']['Rate']) > 1.95
     assert min(taylor['R2']['Rate']) > 2.95
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_extract_selected_subfunction(V1, V2):
+    with stop_annotating():
+        W = V1 * V2 * V1
+        f = Function(W)
+        for i, sub in enumerate(f.subfunctions):
+            sub.assign(i + 1)
+        selected = W.sub((2, 0)).sub(0)
+        g = extract_subfunction(f, selected)
+        assert g.function_space() is selected
+        assert np.allclose(g.dat.data_ro, 3)

@@ -334,6 +334,38 @@ def test_mixed_bcs(diagonal):
     assert np.allclose(data[bc.nodes], 1.0)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("indices", [(1,), (1, 0), (0, 1)])
+def test_selected_subspace_bcs(V, indices):
+    W = V * V
+    selected = W.sub(indices)
+    Vbc = selected if len(indices) == 1 else selected.sub(0)
+    bc = DirichletBC(Vbc, 0, "on_boundary")
+    reference = DirichletBC(W.sub(indices[0]), 0, "on_boundary")
+
+    f = Function(W).assign(1)
+    expected = f.copy(deepcopy=True)
+    reference.apply(expected)
+    bc.apply(f)
+    assert np.array_equal(f.dat.data_ro, expected.dat.data_ro)
+    assert bc.function_space_index() == indices[0]
+    assert extract_subdomain_ids((bc,)) == extract_subdomain_ids((reference,))
+
+    a = inner(TrialFunction(W), TestFunction(W)) * dx
+    A = assemble(a, bcs=bc, mat_type="aij")
+    B = assemble(a, bcs=reference, mat_type="aij")
+    assert A.petscmat.equal(B.petscmat)
+
+
+def test_reconstruct_selected_subspace_bc():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    W = V * V
+    bc = DirichletBC(W.sub((1, 0)).sub(0).sub(1), 0, "on_boundary")
+    assert bc.reconstruct() is bc
+    assert bc.reconstruct(V=W.sub((0, 1)).sub(0).sub(1)) is not bc
+
+
 def test_bcs_rhs_assemble(a, V):
     bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
     b1 = assemble(a)

@@ -147,6 +147,21 @@ def test_nascent_parallel_support():
     assert np.allclose([0.2176, 0.2822], f._at([0.12, 0.68], [0.63, 0.34]))
 
 
+@pytest.mark.parallel([1, 3])
+def test_mixed_subfunction_at():
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    W = V * Q
+    f = Function(W)
+    x = SpatialCoordinate(mesh)
+    f.sub(0).interpolate(x[0])
+    f.sub(1).interpolate((x[0] + 0.2)*x[1])
+
+    assert np.allclose([0.12, 0.98], f.sub(0)._at([0.12, 0.18], [0.98, 0.87]))
+    assert np.allclose([0.0576, 1.0266], f.sub(1)._at([0.12, 0.18], [0.98, 0.87]))
+
+
 def test_tolerance():
     mesh = UnitSquareMesh(1, 1)
     old_tol = mesh.tolerance

@@ -1465,6 +1465,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         component = V.component
         if component is not None:
             V = V.parent
+        space = bc.parent_function_space
+        if V.index is not None:
+            V = space.sub(bc.function_space_index())
         component_idx = () if component is None else numpy.unravel_index(component, V.shape)
         if V.index is None:
             index = Ellipsis
@@ -1474,7 +1477,6 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 axes.trees[0].root.component_labels[V.index]
                 for axes in [tensor.M.row_axes, tensor.M.column_axes]
             )
-        space = V if V.parent is None else V.parent
         if isinstance(bc, DirichletBC):
             # if fs.topological != self.topological:
             #     raise RuntimeError("Dirichlet BC defined on a different function space")

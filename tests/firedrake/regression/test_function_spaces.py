@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake import dmhooks
 from firedrake.bcs import restricted_function_space
 from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual, is_primal
@@ -116,7 +117,7 @@ def test_tensor_function_space_sub(tensor, dual, topological):
 
 
 @pytest.mark.parallel(nprocs=[1, 2])
-@pytest.mark.parametrize("indices", [(), (1,), (1, 0), (0, 1), [1, 0]])
+@pytest.mark.parametrize("indices", [(), (1,), (1, 0), (0, 1), [1, 0], (-1, 0)])
 @pytest.mark.parametrize("topological", [False, True])
 def test_mixed_function_space_sub_tuple(fs, dual, indices, topological):
     if dual:
@@ -128,21 +129,46 @@ def test_mixed_function_space_sub_tuple(fs, dual, indices, topological):
             fs.sub(indices)
         return
     with pytest.raises(ValueError, match="only once"):
-        fs.sub((*indices, indices[0] - len(fs)))
+        fs.sub((*indices, indices[0] % len(fs) - len(fs)))
     W = fs.sub(indices)
-    assert W.parent is None
+    assert fs.sub(tuple(indices)) is W
+    assert W.parent is fs
+    assert W.index == (indices[0] % len(fs) if len(indices) == 1 else tuple(i % len(fs) for i in indices))
+    collapsed = W.collapse()
+    assert collapsed.parent is None
+    assert collapsed.index is None
+    assert collapsed == W
     if len(indices) == 1:
-        assert W == fs[indices[0]].collapse()
+        assert W is fs.sub(indices[0])
     else:
-        assert W == fs.sub(tuple(indices))
         assert W._labels == tuple(fs._labels[i] for i in indices)
         assert tuple(W) == tuple(fs[i] for i in indices)
     if not topological:
         assert is_dual(W) == dual
+        assert W.dual().parent == fs.dual()
+        assert W.reconstruct().parent == fs
+        restored = dmhooks.get_function_space(W.dm)
+        assert restored.topological == W.topological
+        assert restored.parent.topological == fs.topological
+        assert restored.index == W.index
 
 
 def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_coarsen_selected_subspace():
+    from firedrake.mg.ufl_utils import coarsen
+
+    meshes = MeshHierarchy(UnitSquareMesh(1, 1), 1)
+    V = FunctionSpace(meshes[-1], "CG", 1)
+    W = V * V * V
+    selected = W.sub((2, 0)).sub(0)
+    coarse = coarsen(selected, coarsen)
+    assert coarse.index == 0
+    assert coarse.parent.index == (2, 0)
+    assert coarse.parent.parent.mesh()[0] is meshes[0]
 
 
 @pytest.mark.parametrize("restrict", [False, True])

@@ -66,7 +66,7 @@ class SCPC(SCBase):
         bcs = []
         cxt_bcs = self.cxt.row_bcs
         for bc in cxt_bcs:
-            if bc.function_space().index != c_field:
+            if bc.function_space_index() != c_field:
                 raise NotImplementedError("Strong BC set on unsupported space")
             bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
 

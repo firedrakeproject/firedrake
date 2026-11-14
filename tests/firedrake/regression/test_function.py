@@ -62,8 +62,12 @@ def test_mixed_sub_tuple(V, dual, indices):
         values.dat.data_wo[...] = np.arange(values.dat.data_ro.size).reshape(values.dat.data_ro.shape) + 100 * j
         sub.assign(values)
     original = [f.sub(j).dat.data_ro.copy() for j in range(len(W))]
+    for j, sub in enumerate(f.subfunctions):
+        assert sub.function_space() is f.function_space().sub(j)
 
     g = f.sub(indices)
+    assert f.sub(tuple(indices)) is g
+    assert g.function_space() is f.function_space().sub(indices)
     assert len(g.function_space()) == len(indices)
     expected = np.concatenate([original[j].reshape(-1) for j in indices])
     assert np.array_equal(g.dat.data_ro.reshape(-1), expected)
@@ -244,14 +248,19 @@ def test_tensor_function_zero_with_subset(W):
     assert np.allclose(f.dat.data_ro[3:], 1.0)
 
 
-def test_component_function_zero(W):
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("dual", [False, True])
+def test_component_function_zero(W, dual):
     f = Function(W)
 
     f.assign(1)
+    if dual:
+        f = f.riesz_representation("l2")
     assert np.allclose(f.dat.data_ro, 1.0)
 
     g = f.sub(0).zero()
     assert f.sub(0) is g
+    assert g.function_space() is f.function_space().sub(0)
 
     for i, j in np.ndindex(W.shape):
         expected = 0.0 if i == 0 and j == 0 else 1.0

@@ -237,6 +237,7 @@ class WithGeometryBase:
         self.parent = parent
         self.component = function_space.component
         self.comm = mesh.comm
+        self._subspaces = {}
         super().__init__(mesh, element, label=function_space._label or "")
 
     @classmethod
@@ -302,21 +303,23 @@ class WithGeometryBase:
         Parameters
         ----------
         indices : int or collections.abc.Sequence of int
-            For a mixed space, an integer selects an indexed subspace and a
-            nonempty tuple or list selects distinct subspaces in the given
-            order. For a vector or tensor space, the flat index of the
-            component to extract, or a tuple, list or range of flat indices.
-            Flat indices count the components in the storage order of the
-            space, in which a symmetric tensor only stores its independent
-            components.
+            For a mixed space, use an integer to extract an indexed subspace,
+            or a nonempty tuple or list of distinct indices to extract
+            subspaces in the given order. For a vector or tensor space, the
+            flat index of the component to extract, or a tuple, list or range
+            of flat indices. Flat indices count the components in the storage
+            order of the space, in which a symmetric tensor only stores its
+            independent components.
 
         Returns
         -------
         WithGeometryBase
-            The selected space. Sequence selection from a mixed space returns
-            a collapsed space; a single selected subspace is unmixed. A
-            component space retains this space as its parent, and a sequence
-            that selects every component in order returns this space.
+            The selected space, retaining this space as its parent. If a
+            sequence contains only one index, the result will be an unmixed
+            space. If a sequence selects every component of a vector or tensor
+            space in order, the result will be this space. Use ``collapse()``
+            to obtain an independent space. Repeated calls with the same
+            sequence of indices will return the same space.
 
         Raises
         ------
@@ -327,10 +330,14 @@ class WithGeometryBase:
         if type(self.ufl_element()) is finat.ufl.MixedElement:
             if isinstance(indices, (tuple, list)):
                 indices = tuple(indices)
-                W = self.topological.sub(indices)
-                meshes = [self.mesh()[i] for i in indices]
-                mesh = meshes[0] if len(meshes) == 1 else MeshSequenceGeometry(meshes)
-                return type(self)(W, mesh)
+                if indices not in self._subspaces:
+                    W = self.topological.sub(indices)
+                    if len(indices) == 1:
+                        self._subspaces[indices] = self.subspaces[indices[0]]
+                    else:
+                        mesh = MeshSequenceGeometry([self.mesh()[i] for i in indices])
+                        self._subspaces[indices] = type(self)(W, mesh, parent=self)
+                return self._subspaces[indices]
             return self.subspaces[indices]
         W = self.topological.sub(indices)
         return self if W is self.topological else self._components[W.component]
@@ -534,7 +541,16 @@ class WithGeometryBase:
                                   f"Valid markers are '{valid}'")
         return dmcommon.facet_closure_nodes(self, sub_domain)
 
-    def collapse(self):
+    @cached_method()
+    def collapse(self) -> Self:
+        """Return an independent space with the same finite element.
+
+        Returns
+        -------
+        WithGeometryBase
+            A space without parent or component metadata. Repeated calls will
+            return the same space.
+        """
         return type(self)(self.topological.collapse(), self.mesh())
 
     @classmethod
@@ -2165,27 +2181,33 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Parameters
         ----------
         i : int or collections.abc.Sequence of int
-            An integer selects an indexed subspace. A nonempty tuple or list
-            selects distinct subspaces in the given order.
+            Use an integer to extract an indexed subspace, or a nonempty tuple
+            or list of distinct indices to extract subspaces in the given order.
 
         Returns
         -------
         FunctionSpace or MixedFunctionSpace
-            The selected space. Sequence selection returns a collapsed space;
-            a single selected subspace is unmixed.
+            The selected space, retaining this space as its parent. If a
+            sequence contains only one index, the result will be an unmixed
+            space. Use ``collapse()`` to obtain an independent space. Repeated
+            calls with the same sequence of indices will return the same space.
         """
         if isinstance(i, (tuple, list)):
-            i = tuple(i)
+            i = tuple(range(len(self))[j] for j in i)
             if not i:
                 raise ValueError("At least one subspace must be selected.")
-            if len(set(range(len(self))[j] for j in i)) != len(i):
+            if len(set(i)) != len(i):
                 raise ValueError(f"Each subspace can be selected only once, not {i}.")
-            if len(i) == 1:
-                return self._spaces[i[0]].collapse()
-            spaces = [self._spaces[j] for j in i]
-            mesh = MeshSequenceTopology([self.mesh()[j] for j in i])
-            labels = [self._labels[j] for j in i]
-            return type(self)(spaces, mesh, _labels=labels)
+            if i not in self._subspaces:
+                if len(i) == 1:
+                    self._subspaces[i] = self._spaces[i[0]]
+                else:
+                    spaces = [self._spaces[j] for j in i]
+                    mesh = MeshSequenceTopology([self.mesh()[j] for j in i])
+                    labels = [self._labels[j] for j in i]
+                    W = type(self)(spaces, mesh, _labels=labels)
+                    self._subspaces[i] = IndexedFunctionSpace(i, W, self)
+            return self._subspaces[i]
         return self._spaces[i]
 
     def num_sub_spaces(self):
@@ -2430,25 +2452,36 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
         return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
 
 
-def IndexedFunctionSpace(index, space, parent):
-    r"""Build a new FunctionSpace that remembers it is a particular
-    subspace of a :class:`MixedFunctionSpace`.
+def IndexedFunctionSpace(index: int | tuple[int, ...], space: FunctionSpace | MixedFunctionSpace,
+                         parent: MixedFunctionSpace) -> FunctionSpace | MixedFunctionSpace:
+    """Build a space that retains its indices in a parent mixed space.
 
-    :arg index: The index into the parent space.
-    :arg space: The subspace to represent
-    :arg parent: The parent mixed space.
-    :returns: A new :class:`ProxyFunctionSpace` with index and parent
-        set.
+    Parameters
+    ----------
+    index : int or tuple of int
+        The indices of the subspaces in the parent.
+    space : FunctionSpace or MixedFunctionSpace
+        The space to represent.
+    parent : MixedFunctionSpace
+        The parent mixed space.
+
+    Returns
+    -------
+    FunctionSpace or MixedFunctionSpace
+        An indexed space with the given parent.
     """
-    if space.ufl_element().family() == "Real":
-        new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
-    elif len(space.boundary_set) > 0:
-        new = ProxyRestrictedFunctionSpace(space.function_space, name=space.name, boundary_set=space.boundary_set)
+    if is_mixed(space):
+        new = space.collapse()
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        if space.ufl_element().family() == "Real":
+            new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        elif len(space.boundary_set) > 0:
+            new = ProxyRestrictedFunctionSpace(space.function_space, name=space.name, boundary_set=space.boundary_set)
+        else:
+            new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        new.identifier = "indexed"
     new.index = index
     new.parent = parent
-    new.identifier = "indexed"
 
     return new
 
