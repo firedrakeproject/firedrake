@@ -496,6 +496,27 @@ def test_restrict_python_pc():
     assert errornorm(u_exact, u) < 1E-10
 
 
+@pytest.mark.parallel([1, 3])
+def test_restrict_nullspace():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = V * V
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+    a = (inner(grad(u), grad(v)) + inner(grad(p), grad(q))) * dx
+    L = inner(1, q) * ds(2) - inner(1, q) * ds(1)
+
+    nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
+    solution = Function(Z)
+    bc = DirichletBC(Z.sub(0), 0, "on_boundary")
+    solve(a == L, solution, bcs=bc, restrict=True, nullspace=nullspace,
+          solver_parameters={"ksp_type": "cg", "pc_type": "none"})
+
+    x = SpatialCoordinate(mesh)[0]
+    assert norm(solution.subfunctions[0]) < 1e-10
+    assert errornorm(x - 0.5, solution.subfunctions[1]) < 1e-10
+
+
 @pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])
 def test_restrict_multigrid(degree, relax):
     if relax == "asm":
