@@ -535,6 +535,11 @@ class Dat(Tensor):
         #             case _:
         #                 raise AssertionError
 
+        # A view whose entries are not a contiguous slice of the buffer needs its own storage
+        contiguous = isinstance(self.axes.buffer_slice(include_ghosts=False), slice)
+        if not contiguous and mode != "wo":
+            self._work_vec.array_w[...] = self.data_ro.reshape(-1)
+
         initial_state = self.buffer.state
         self._work_vec.stateSet(initial_state)
 
@@ -547,6 +552,8 @@ class Dat(Tensor):
 
         self._vec_context_is_active = False
         self.buffer.unfreeze()
+        if not contiguous and mode != "ro":
+            self.data_wo[...] = self._work_vec.array_r.reshape((-1, *self.axes.block_shape))
 
         # TODO: It would be nice to somehow disable the work vec, so it cannot be used from now
         # We could use VecPlaceArray/VecResetArray for this?
@@ -575,11 +582,7 @@ class Dat(Tensor):
                     array, (array.size, None), block_size, self.comm
                 )
             else:
-                raise NotImplementedError
-                # vec = PETSc.Vec().create(self.comm)
-                # vec_type = PETSc.Vec.Type.SEQ if self.comm.size == 1 else PETSc.Vec.Type.MPI
-                # vec.setType(vec_type)
-                # vec.setSizes(sizes, block_size)
+                vec = PETSc.Vec().createMPI((array.size, None), block_size, comm=self.comm)
             self._lazy_work_vec = vec
 
         return self._lazy_work_vec

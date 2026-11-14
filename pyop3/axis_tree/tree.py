@@ -1922,17 +1922,25 @@ class IndexedAxisTree(AbstractNonUnitAxisTree, AbstractIndexedAxisTree):
         get_comm=lambda s, **kw: s.comm,
     )
     def _buffer_indices(self, *, include_ghosts: bool) -> np.ndarray:
-        mask_dat = pyop3.Dat(self, data=np.zeros(self.unindexed.local_size, dtype=np.uint8))
-        for leaf_path in self.leaf_paths:
-            iterset = self.linearize(leaf_path)
-            if iterset.size != 0:
-                pyop3.loop(p := iterset.iter(), mask_dat[p].assign(1, _weakref=False), eager=True)
-        indices = np.flatnonzero(mask_dat.buffer.data_ro).astype(IntType, copy=False)
+        # Mark the entries under each root component separately. The buffer order is kept within
+        # each component, but this tree may reorder components that are stored separately.
+        groups = []
+        for component in self.root.components:
+            mask_dat = pyop3.Dat(self, data=np.zeros(self.unindexed.local_size, dtype=np.uint8))
+            for leaf_path in self.leaf_paths:
+                iterset = self.linearize(leaf_path)
+                if leaf_path[self.root.label] == component.label and iterset.size != 0:
+                    pyop3.loop(p := iterset.iter(), mask_dat[p].assign(1, _weakref=False), eager=True)
+            indices = np.flatnonzero(mask_dat.buffer.data_ro).astype(IntType, copy=False)
+            if not include_ghosts:
+                indices = indices[indices < self.unindexed.buffer_size(include_ghosts=False)]
+            groups.append(indices)
 
-        if not include_ghosts:
-            owned_mask = indices < self.unindexed.buffer_size(include_ghosts=False)
-            indices = indices[owned_mask]
-
+        indices = np.concatenate(groups) if groups else np.empty(0, dtype=IntType)
+        ranges = sorted((group.min(), group.max()) for group in groups if group.size)
+        if any(prev[1] >= next[0] for prev, next in itertools.pairwise(ranges)):
+            # Interleaved components, such as mesh strata, have no separate order
+            indices = np.unique(indices)
         return indices
 
     @cached_method()
