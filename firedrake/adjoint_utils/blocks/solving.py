@@ -1073,22 +1073,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         return dFdm
 
 
-class ProjectBlock(SolveVarFormBlock):
-    def __init__(self, v, V, output, bcs=[], *args, **kwargs):
-        mesh = kwargs.pop("mesh", None)
-        if mesh is None:
-            mesh = V.mesh()
-        dx = firedrake.dx(mesh)
-        w = firedrake.TestFunction(V)
-        Pv = firedrake.TrialFunction(V)
-        a = firedrake.inner(Pv, w) * dx
-        L = firedrake.inner(v, w) * dx
-
-        super().__init__(a == L, output, bcs, *args, **kwargs)
-
-    def _init_solver_parameters(self, args, kwargs):
-        super()._init_solver_parameters(args, kwargs)
-        solve_init_params(self, args, kwargs, varform=True)
+class ProjectBlock(CachedSolverBlock):
+    pass
 
 
 class SupermeshProjectBlock(Block):
