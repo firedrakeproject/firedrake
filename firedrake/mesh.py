@@ -3931,6 +3931,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         # TODO: change the swarm's migration type to ``DMSWARM_MIGRATE_BASIC``
         # so that particles are sent to the destination ranks set in ``DMSwarm_rank``.
         # See https://github.com/firedrakeproject/firedrake/issues/5592.
+        dmcommon.set_swarm_migrate_type_basic(swarm)
         swarm.migrate(remove_sent_points=True)
 
         # Convert the received plex cell numbers to Firedrake cell numbers

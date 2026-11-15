@@ -122,12 +122,17 @@ cdef extern from "petscdm.h" nogil:
     PetscErrorCode DMSetSparseLocalize(PETSc.PetscDM, PetscBool)
 
 cdef extern from "petscdmswarm.h" nogil:
+    ctypedef enum DMSwarmMigrateType:
+        DMSWARM_MIGRATE_BASIC
+        DMSWARM_MIGRATE_DMCELLNSCATTER
     PetscErrorCode DMSwarmGetLocalSize(PETSc.PetscDM, PetscInt*)
     PetscErrorCode DMSwarmGetCellDM(PETSc.PetscDM, PETSc.PetscDM*)
     PetscErrorCode DMSwarmGetCellDMActive(PETSc.PetscDM, PETSc.PetscDMSwarmCellDM*)
     PetscErrorCode DMSwarmCellDMGetCellID(PETSc.PetscDMSwarmCellDM, const char*[])
     PetscErrorCode DMSwarmGetField(PETSc.PetscDM, const char[], PetscInt*, PetscDataType*, void**)
     PetscErrorCode DMSwarmRestoreField(PETSc.PetscDM, const char[], PetscInt*, PetscDataType*, void**)
+    PetscErrorCode DMSwarmSetMigrateType(PETSc.PetscDM, DMSwarmMigrateType)
+
 
 cdef extern from "petscvec.h" nogil:
     PetscErrorCode VecGetArray(PETSc.PetscVec, PetscScalar**)

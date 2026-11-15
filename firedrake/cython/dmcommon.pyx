@@ -4017,3 +4017,6 @@ def get_preallocation(PETSc.Mat preallocator, PetscInt nrow):
     else:
         onz = np.zeros(0, dtype=IntType)
     return dnz, onz
+
+def set_swarm_migrate_type_basic(PETSc.DM swarm):
+    CHKERR(DMSwarmSetMigrateType(swarm.dm, DMSWARM_MIGRATE_BASIC))
