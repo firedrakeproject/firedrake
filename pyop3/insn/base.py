@@ -29,7 +29,7 @@ from pyop3.cache import (
 )
 from pyop3.collections import OrderedFrozenSet
 from pyop3.constants import Intent
-from pyop3.exceptions import Pyop3Exception
+from pyop3.exceptions import InvalidScalarTypeException, Pyop3Exception
 from pyop3.expr import Tensor
 from pyop3.node import Node, Operator, Terminal
 
@@ -175,10 +175,11 @@ _DEFAULT_LOOP_NAME = "pyop3_loop"
 
 @pyop3.record.frozenrecord()
 class Loop(NonTerminalInstruction):
+    """A loop."""
 
     # {{{ instance attrs
 
-    index: LoopIndex
+    index: pyop3.LoopIndex
     statements: tuple[Instruction, ...]
 
     def collect_buffers(self, visitor):
@@ -363,7 +364,6 @@ class NonEmptyTerminal(TerminalInstruction, metaclass=abc.ABCMeta):
 class ArgumentSpec:
     intent: Intent
     dtype: np.dtype
-    space: tuple[int]  # TODO: definitely am not using this...
 
 
 class FunctionArgument(abc.ABC):
@@ -372,7 +372,21 @@ class FunctionArgument(abc.ABC):
 
 @pyop3.record.frozenrecord()
 class Function(pyop3.obj.Object):
-    """A callable function."""
+    """A callable function.
+
+    Parameters
+    ----------
+    loopy_kernel
+        The loopy kernel that implements the function.
+    access_descrs
+        The access descriptor of each kernel argument.
+    include_dirs
+        The include directories that are needed to compile the kernel.
+    lib_dirs
+        The library directories that are needed to link the kernel.
+    libs
+        The libraries that are needed to link the kernel.
+    """
 
     # {{{ instance attrs
 
@@ -435,7 +449,7 @@ class Function(pyop3.obj.Object):
         /,
         name: str,
         c_code: str,
-        args: Iterable[tuple[str, DTypeT, Intent]],
+        args: Iterable[tuple[str, np.dtype, Intent]],
         *,
         preambles=(),
         **kwargs,
@@ -509,8 +523,7 @@ class Function(pyop3.obj.Object):
         for access, arg in zip(
             self._access_descrs, self.code.default_entrypoint.args, strict=True
         ):
-            shape = arg.shape if not isinstance(arg, lp.ValueArg) else ()
-            spec.append(ArgumentSpec(access, arg.dtype, shape))
+            spec.append(ArgumentSpec(access, arg.dtype))
         return tuple(spec)
 
     @property
@@ -718,21 +731,32 @@ class AbstractAssignment(AbstractAssignmentLike):
 
     __abstract_record_attrs = ("assignment_type",)
 
+    def __record_post_init(self) -> None:
+        # Complex numbers are not ordered, so min and max reductions are not defined for them.
+        if self.assignment_type in (AssignmentType.MAX, AssignmentType.MIN):
+            if np.issubdtype(self.assignee.dtype, np.complexfloating):
+                raise InvalidScalarTypeException(
+                    f"'{self.assignment_type.value}' assignment is not supported "
+                    f"for complex data (dtype '{self.assignee.dtype}')"
+                )
+
     @cached_property
     def argument_intents(self) -> dict:
-        if self.assignment_type == AssignmentType.WRITE:
-            assignee_intent = Intent.WRITE
-        else:
-            assert self.assignment_type == AssignmentType.INC
-            assignee_intent = Intent.INC
+        assignee_intent = assignment_type_as_intent(self.assignment_type)
         return ((self._assignee, assignee_intent), (self.expression, Intent.READ))
 
     def __str__(self) -> str:
-        if self.assignment_type == AssignmentType.WRITE:
-            operator = "="
-        else:
-            assert self.assignment_type == AssignmentType.INC
-            operator = "+="
+        match self.assignment_type:
+            case AssignmentType.WRITE:
+                operator = "="
+            case AssignmentType.INC:
+                operator = "+="
+            case AssignmentType.MAX:
+                operator = "max="
+            case AssignmentType.MIN:
+                operator = "min="
+            case _:
+                raise AssertionError(f"{self.assignment_type} not recognised")
 
         # 'assignee' and 'expression' might be multi-component and thus have
         # multi-line representations. We want to line these up.
@@ -818,6 +842,7 @@ class Assignment(AbstractAssignment):
 # TODO: rename NonEmptyAssignment, is this even needed?
 @pyop3.record.frozenrecord()
 class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
+    """Assignment type."""
 
     _assignee: Any
     expression: Any
@@ -835,7 +860,7 @@ class NonEmptyArrayAssignment(AbstractAssignment, NonEmptyTerminal):
             self.assignment_type,
         )
 
-    def collect_buffers(self, visitor) -> OrderedFrozenSet[ConcreteBuffer]:
+    def collect_buffers(self, visitor) -> OrderedFrozenSet[pyop3.buffer.ConcreteBuffer]:
         return OrderedFrozenSet().union(
             visitor(self.assignee),
             visitor(self.expression),
@@ -882,9 +907,9 @@ class Exscan(AbstractAssignmentLike):
     # {{{ instance attrs
 
     _assignee: Any
-    expression: Any
+    expression: ExpressionT
     scan_type: Any
-    scan_axis: Axis
+    scan_axis: pyop3.Axis
     _comm: MPI.Comm = dataclasses.field(hash=False)
 
     def collect_buffers(self, visitor):

@@ -9,6 +9,7 @@ import loopy as lp
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.constants
 import pyop3.obj
 import pyop3.sf
 from pyop3 import utils
@@ -50,7 +51,7 @@ def _(obj: pyop3.obj.Object, /) -> MPI.Comm:
 @get_comm.register(types.NoneType)
 @get_comm.register(lp.TranslationUnit)
 @get_comm.register(pyop3.constants.Intent)
-@get_comm.register(pyop3.constants._Decide)  # pyop3.DECIDE
+@get_comm.register(pyop3.constants.DecideType)  # pyop3.DECIDE
 def _(_, /) -> MPI.Comm:
     return MPI.COMM_SELF
 
@@ -85,7 +86,7 @@ def common_comm(objects: Iterable[Any], **kwargs) -> MPI.Comm:
 
     Returns
     -------
-    MPI.Comm
+    mpi4py.MPI.Comm
         A communicator that the provided objects are safely collective over.
 
     """

@@ -9,6 +9,7 @@ from mpi4py import MPI
 
 import ufl
 from ufl import as_ufl, as_tensor
+from ufl.algorithms import extract_coefficients
 from finat.ufl import VectorElement
 import finat
 from immutabledict import immutabledict as idict
@@ -18,6 +19,7 @@ from pyop3.pyop2_utils import as_tuple
 from pyop3.mpi import temp_internal_comm
 
 import firedrake
+import firedrake.utils as utils
 from firedrake import ufl_expr, slate, solving
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import logger
@@ -236,7 +238,7 @@ class BCBase:
     def zero(self, r):
         r"""Zero the boundary condition nodes on ``r``.
 
-        :arg r: a :class:`.Function` to which the
+        :arg r: a :class:`firedrake.function.Function` to which the
             boundary condition should be applied.
 
         """
@@ -259,10 +261,12 @@ class BCBase:
         Parameters
         ----------
         r
-            The :class:`.Function` or :class:`.Cofunction` to which the value is applied.
+            The :class:`firedrake.function.Function` or :class:`.Cofunction`
+            to which the value is applied.
         val
-            The prescribed value. This is either a scalar, or a :class:`.Function`
-            or :class:`.Cofunction` that holds the values to copy onto the boundary nodes.
+            The prescribed value. This is either a scalar, or a
+            :class:`firedrake.function.Function` or :class:`.Cofunction`
+            that holds the values to copy onto the boundary nodes.
         """
 
         for idx in self._indices:
@@ -277,6 +281,9 @@ class BCBase:
     def integrals(self):
         raise NotImplementedError("integrals() method has to be overwritten")
 
+    def coefficients(self):
+        raise NotImplementedError("coefficients() method has to be overwritten")
+
     @PETSc.Log.EventDecorator()
     def as_subspace(self, field, V, use_split):
         fs = self._function_space
@@ -284,6 +291,8 @@ class BCBase:
             index = fs.parent.index
         else:
             index = fs.index
+        if index is None:
+            index = 0
         cmpt = fs.component
         # TODO: need to test this logic
         field_renumbering = dict([f, i] for i, f in enumerate(field))
@@ -322,8 +331,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, or a UFL expression that can be interpolated into
+    :arg g: the boundary condition values. This can be a :class:`firedrake.function.Function` on
+        ``V``, or a :class:`firedrake.function.Function` on a different space or UFL expression that can be interpolated into
         ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a
         literal constant which can be pointwise evaluated at the nodes
@@ -368,8 +377,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
             V = V.sub(index)
         if g is None:
             g = self._original_arg
-            if isinstance(g, firedrake.Function) and g.function_space() != V:
-                g = firedrake.Function(V).interpolate(g)
         if sub_domain is None:
             sub_domain = self.sub_domain
         if field is not None:
@@ -388,6 +395,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return type(self)(V, g, sub_domain)
 
     @function_arg.setter
+    @DirichletBCMixin._ad_annotate_function_arg
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
         try:
@@ -395,11 +403,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
             del self._function_arg_update
         except AttributeError:
             pass
+        self._coefficients = ()
         V = self.function_space()
-        if isinstance(g, firedrake.Function) and g.ufl_element().family() != "Real":
-            if g.function_space() != V:
-                raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
+        if isinstance(g, firedrake.Function) and g.function_space() == V:
             self._function_arg = g
+            self._coefficients = (g,)
         elif isinstance(g, ufl.classes.Zero):
             if g.ufl_shape and g.ufl_shape != V.value_shape:
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
@@ -409,16 +417,21 @@ class DirichletBC(BCBase, DirichletBCMixin):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
-                self._function_arg = firedrake.Function(V)
-                interpolator = firedrake.get_interpolator(firedrake.interpolate(g, V))
-                # Call this here to check if the element supports interpolation
-                # TODO: It's probably better to have a more explicit way of checking this
-                interpolator._get_callable()
-                self._function_arg_update = partial(interpolator.assemble, tensor=self._function_arg)
-            except (NotImplementedError, AttributeError):
+                # Probe the dual basis before choosing interpolation over projection.
+                _ = V.finat_element.dual_basis
+                can_interpolate = True
+            except NotImplementedError:
+                can_interpolate = False
+
+            self._function_arg = firedrake.Function(V)
+            if can_interpolate:
+                interp = firedrake.interpolate(g, V)
+                self._function_arg_update = partial(firedrake.assemble, interp, tensor=self._function_arg)
+            else:
                 # Element doesn't implement interpolation
-                self._function_arg = firedrake.Function(V).project(g)
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
+            self._function_arg_update()
+            self._coefficients = tuple(extract_coefficients(g))
         else:
             try:
                 g = as_ufl(g)
@@ -458,14 +471,14 @@ class DirichletBC(BCBase, DirichletBCMixin):
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
 
-        :arg r: a :class:`.Function` or :class:`.Matrix` to which the
+        :arg r: a :class:`firedrake.function.Function` or :class:`.Matrix` to which the
             boundary condition should be applied.
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
             no effect if ``r`` is a :class:`.Matrix` rather than a
-            :class:`.Function` . If ``u`` is absent, then the boundary
+            :class:`firedrake.function.Function` . If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
 
@@ -513,6 +526,9 @@ class DirichletBC(BCBase, DirichletBCMixin):
     def integrals(self):
         return []
 
+    def coefficients(self):
+        return self._coefficients
+
     def extract_form(self, form_type):
         # DirichletBC is directly used in assembly.
         return self
@@ -521,11 +537,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self
 
 
-class EquationBC(object):
+class EquationBC:
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
 
     :param eq: the linear/nonlinear form equation
-    :param u: the :class:`.Function` to solve for
+    :param u: the :class:`firedrake.function.Function` to solve for
     :arg sub_domain: see :class:`.DirichletBC` .
     :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)
@@ -620,6 +636,10 @@ class EquationBC(object):
     def _as_nonlinear_variational_problem_arg(self, is_linear=False):
         return self
 
+    def coefficients(self):
+        splits = (self._F, self._J, self._Jp)
+        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in splits))
+
 
 class EquationBCSplit(BCBase):
     r'''Class for a BC tree that stores/manipulates either `F`, `J`, or `Jp`.
@@ -665,6 +685,10 @@ class EquationBCSplit(BCBase):
 
     def integrals(self):
         return self.f.integrals()
+
+    def coefficients(self):
+        objs = (self.f, *self.bcs)
+        return utils.unique(itertools.chain.from_iterable(f.coefficients() for f in objs))
 
     def add(self, bc):
         if not isinstance(bc, (DirichletBC, EquationBCSplit)):
@@ -768,7 +792,8 @@ def extract_subdomain_ids(bcs):
     _chain = itertools.chain.from_iterable
     _to_tuple = lambda s: (s,) if isinstance(s, (int, str)) else s
     subdomain_ids = tuple(tuple(_chain(_to_tuple(bc.sub_domain)
-                                for bc in bcs if bc.function_space() == Vsub))
+                                for bc in bcs if bc.function_space() == Vsub
+                                and bc.function_space().index == Vsub.index))
                           for Vsub in V)
     return subdomain_ids
 

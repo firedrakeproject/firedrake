@@ -2,18 +2,22 @@
 
 # Utility functions common to all DMs used in Firedrake
 import enum
+from collections.abc import Sequence, Iterable
+from numbers import Integral
+
 import cython
 import numpy as np
+from mpi4py import MPI
+
 import firedrake
 from firedrake.petsc import PETSc
-from mpi4py import MPI
 from firedrake.utils import IntType, ScalarType
-from libc.string cimport memset
-from libc.stdlib cimport qsort
 from finat.element_factory import as_fiat_cell
 
-from numbers import Integral
-from collections.abc import Sequence, Iterable
+# ---
+
+from libc.string cimport memset
+from libc.stdlib cimport qsort
 
 cimport numpy as np
 cimport mpi4py.MPI as MPI
@@ -22,6 +26,7 @@ cimport petsc4py.PETSc as PETSc
 np.import_array()
 
 include "petschdr.pxi"
+
 
 FACE_SETS_LABEL = "Face Sets"
 CELL_SETS_LABEL = "Cell Sets"
@@ -290,7 +295,7 @@ def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: 
     return offsets_is
 
 
-def section_permute(section: PETSc.Section, perm: PetscInt[::1]) -> PETSc.Section:
+def section_permute(section: PETSc.Section, PetscInt[::1] perm) -> PETSc.Section:
     cdef:
         PetscInt p, pnew, n
 
@@ -572,12 +577,12 @@ def closure_ordering(mesh, closure_data_plex):
     ----------
     mesh : MeshTopology
         The mesh providing the closures.
-    closure_data_plex : np.ndarray
+    closure_data_plex : numpy.ndarray
         Array storing cell closure information.
 
     Returns
     -------
-    np.ndarray :
+    numpy.ndarray
         Array storing the reordered cell closures.
 
     Notes
@@ -2042,7 +2047,7 @@ def validate_mesh(PETSc.DM dm):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def compute_dm_renumbering(
-    mesh: "MeshGeometry",
+    mesh,
     new_to_old_cell_numbering_is: PETSc.IS | None = None,
     # boundary_set=None,
 ) -> PETSc.IS:
@@ -3925,25 +3930,31 @@ def extrude_point_renumbering(dm, base_dm, base_renumbering, nlayers, periodic, 
     """
     Consider
 
-          x-----x-----x
-          2  0  3  1  4
-         (1  0  2  3  4)   going to
+    .. code-block:: text
+
+        x-----x-----x
+        2  0  3  1  4
+       (1  0  2  3  4)   going to
 
     When we extrude it will have the following numbering:
 
-          5--2--8-11-14
-          |     |     |
-          4  1  7 10 13
-          |     |     |
-          3--0--6--9-12
+    .. code-block:: text
+
+       5--2--8-11-14
+       |     |     |
+       4  1  7 10 13
+       |     |     |
+       3--0--6--9-12
 
     whilst the DMPlex will think it is:
 
-          3--9--5-11--7
-          |     |     |
-         12  0 13  1 14
-          |     |     |
-          2--8--4-10--6
+    .. code-block:: text
+
+       3--9--5-11--7
+       |     |     |
+       12  0 13  1 14
+       |     |     |
+       2--8--4-10--6
 
     (To see this recall that points are numbered cells then vertices then edges.)
 

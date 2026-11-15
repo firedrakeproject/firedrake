@@ -4,10 +4,9 @@ import abc
 import dataclasses
 import functools
 import numbers
-import typing
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Set
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -45,6 +44,13 @@ class Index(MultiComponentLabeledNode):
 # to matching index (instead of label).
 @pyop3.record.frozenrecord()
 class IndexTree(MutableLabeledTreeMixin, LabeledTree):
+    """A tree of indices.
+
+    Index trees describe the mapping between axis trees. They are necessary for
+    complex indexing operations like packing multi-field dats (for which simple
+    maps and slices are insufficient).
+
+    """
 
     # {{{ instance attrs
 
@@ -53,7 +59,7 @@ class IndexTree(MutableLabeledTreeMixin, LabeledTree):
 
     def __init__(
         self,
-        node_map: Mapping[PathT, Node] | None = None,
+        node_map: Mapping[PathT, Index] | None = None,
         *,
         comm: MPI.Comm | None = None,
     ) -> None:
@@ -109,22 +115,23 @@ class SliceComponent(LabeledNodeComponent, abc.ABC):
 
 @pyop3.record.frozenrecord()
 class AffineSliceComponent(SliceComponent):
+    """Slice component selecting indices of the form ``a*i + b``."""
 
     # {{{ instance attrs
 
-    _component: ComponentLabelT
+    _component: NodeComponentLabelT
     start: numbers.Integral
     stop: numbers.Integral | None
     step: numbers.Integral
-    label: ComponentLabelT
+    label: NodeComponentLabelT
 
     def __init__(
         self,
-        component: ComponentLabelT,
+        component: AxisComponentLabelT,
         start: numbers.Integral = 0,
         stop: numbers.Integral | None = None,
         step: numbers.Integral = 1,
-        label: ComponentLabelT = DECIDE,
+        label: NodeComponentLabelT = DECIDE,
     ) -> None:
         object.__setattr__(self, "_component", component)
         object.__setattr__(self, "start", start)
@@ -137,7 +144,7 @@ class AffineSliceComponent(SliceComponent):
     # {{{ factory methods
 
     @classmethod
-    def from_slice(cls, component: ComponentLabelT, slice_: slice) -> Self:
+    def from_slice(cls, component: AxisComponentLabelT, slice_: slice) -> Self:
         start = slice_.start if slice_.start is not None else 0
         stop = slice_.stop
         step = slice_.step if slice_.step is not None else 1
@@ -160,7 +167,7 @@ class AffineSliceComponent(SliceComponent):
     # as_range?
     # to_range?
     # should imply the returned type is different!
-    def with_size(self, size: numbers.Integral | Dat | None = None) -> tuple:
+    def with_size(self, size: numbers.Integral | pyop3.Dat | None = None) -> tuple:
         if size is None and self.stop is None:
             raise ValueError()
 
@@ -172,6 +179,7 @@ class AffineSliceComponent(SliceComponent):
 
 @pyop3.record.frozenrecord()
 class SubsetSliceComponent(SliceComponent):
+    """A slice component that maps indices using an array."""
 
     _component: Any
     label: Any
@@ -249,6 +257,7 @@ class MapComponent(pyop3.obj.Object):
 # TODO: Implement AffineMapComponent
 @pyop3.record.frozenrecord()
 class TabulatedMapComponent(MapComponent):
+    """A map component that maps indices using an array."""
 
     target_axis: Any
     target_component: Any
@@ -293,7 +302,7 @@ class TabulatedMapComponent(MapComponent):
 class AxisIndependentIndex(Index):
     @property
     @abc.abstractmethod
-    def axes(self) -> AbstractIndexedAxisTree:
+    def axes(self) -> pyop3.axis_tree.AbstractIndexedAxisTree:
         pass
 
     @property
@@ -363,13 +372,6 @@ class LoopIndex(AbstractLoopIndex):
 
 @pyop3.record.frozenrecord()
 class LoopContextFreeLoopIndex(AbstractLoopIndex, UnitIndex):
-    """
-    Parameters
-    ----------
-    iterset: AxisTree or ContextSensitiveAxisTree (!!!)
-        Only add context later on
-
-    """
 
     # {{{ instance attrs
 
@@ -469,15 +471,6 @@ class ScalarIndex(UnitIndex):
         return ("0",)
 
 
-if typing.TYPE_CHECKING:
-    SliceComponentsT = (
-        Sequence[SliceComponent]
-        | SliceComponent
-        | Mapping[ComponentLabelT, Any]
-        | ComponentLabelT
-    )
-
-
 @pyop3.record.frozenrecord()
 class Slice(Index):
     """
@@ -492,8 +485,8 @@ class Slice(Index):
     # {{{ instance attrs
 
     axis: AxisLabelT
-    components: SliceComponentsT
-    label: AxisLabelT
+    components: tuple
+    label: NodeLabelT
 
     def __init__(
         self,
@@ -595,35 +588,34 @@ class AbstractMap(pyop3.obj.Object):
 
 @pyop3.record.frozenrecord()
 class Map(AbstractMap):
-    """
+    """A map between indices.
 
-    Parameters
-    ----------
-    connectivity :
-        The mappings from input to output for the map. This must be provided as
-        an iterable of mappings because the map can both map from *entirely different*
-        indices (e.g. multi-component loops that expand to different
-        context-free indices) and *semantically equivalent* indices (e.g. a loop
-        over ``axes[subset].index()`` has two possible sets of paths and index
-        expressions and the map may map from one or both of these but the
-        result should be the same). Accordingly, the ``connectivity`` argument
-        should provide the different indices as different entries in the iterable,
-        and the equivalent indices as different entries in each mapping.
+    Maps are principly defined by their ``connectivity`` attribute, which
+    describes the individual mappings between input and output index types.
+    This must be provided as an iterable of mappings because the map can both
+    map from *entirely different* indices (e.g. multi-component loops that
+    expand to different context-free indices, think looping over mesh.points)
+    and *semantically equivalent* indices (e.g. a loop over ``axes[subset].index()``
+    has two possible sets of paths and index expressions and the map may map from
+    one or both of these but the result should be the same, think looping over
+    mesh.cells and mesh.points[cell_subset]). Accordingly, the ``connectivity``
+    argument should provide the different indices as different entries in the
+    iterable, and the equivalent indices as different entries in each mapping.
 
-        NOTE: I think this is dead now
+    In fact I think to understand the situation we need to consider the following:
 
-        In fact I think to understand the situation we need to consider the following:
+    closure(mesh.cells.index()) is hard because mesh.cells is an indexed view of mesh.points,
+    and so the loop index carries information on both about. We can feasibly have
+    closure(point) AND closure(cell) being separately valid mappings and we don't know
+    which we want until we have a target set of axes to make a choice. We therefore want
+    to propagate both for as long as possible.
+    We could similarly imagine a scenario where closure(cell) yields POINTS, not cells,
+    edges and vertices. That is similar in that we get different
+    axis trees that we want to propagate to the end!
 
-        closure(mesh.cells.index()) is hard because mesh.cells is an indexed view of mesh.points,
-        and so the loop index carries information on both about. We can feasibly have
-        closure(point) AND closure(cell) being separately valid mappings and we don't know
-        which we want until we have a target set of axes to make a choice. We therefore want
-        to propagate both for as long as possible.
-        We could similarly imagine a scenario where closure(cell) yields POINTS, not cells,
-        edges and vertices. What do we do then??? That is similar in that we get different
-        axis trees that we want to propagate to the end!
+    With this in mind, connectivity is therefore the map:
 
-        With this in mind, connectivity is therefore the map:
+    .. code-block:: text
 
         {
             input_index_label: [
@@ -648,8 +640,8 @@ class Map(AbstractMap):
             ...
         }
 
-        but this is really hard because indexing things now gives different AXIS TREES,
-        not just different expressions! Indexing therefore must produce an axis forest...
+    As a result, indexing things now gives different axis tree, not just
+    different expressions! Indexing therefore must produce an axis forest.
 
     """
 
@@ -732,6 +724,11 @@ class AbstractCalledMap(AxisIndependentIndex):
 
 @pyop3.record.frozenrecord()
 class CalledMap(AbstractCalledMap):
+    """A map that has been called against some index.
+
+    It represents the object f(i), where f is a `Map` and i some other `Index`.
+
+    """
 
     # {{{ instance attrs
 
@@ -844,9 +841,15 @@ class CalledMap(AbstractCalledMap):
 
 @pyop3.record.frozenrecord()
 class UnitCalledMap(UnitIndex, AbstractCalledMap):
+    """A called map with a single output.
 
-    map: UnitMap
-    index: UnitMap | LoopIndex
+    Compared to a typical `CalledMap`, unit maps do not produce an axis in
+    the resulting tree.
+
+    """
+
+    map: ScalarMap
+    index: ScalarMap | LoopIndex
     label: Any
 
     def __init__(self, map, index, *, label=DECIDE):

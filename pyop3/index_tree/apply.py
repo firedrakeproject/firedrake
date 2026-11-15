@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import itertools
 import numbers
+import types
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 
 
 def index_axes(
-    index_tree: pyop3.index_tree.tree.IndexTree | Ellipsis,
+    index_tree: pyop3.index_tree.tree.IndexTree | types.EllipsisType,
     loop_context: Mapping | None = None,
     orig_axes: pyop3.axis_tree.AxisTree | pyop3.axis_tree.AxisForest | None = None,
 ):
@@ -53,7 +54,7 @@ def index_axes(
 
     Returns
     -------
-    AxisTree :
+    AxisTree
         The new axis tree.
 
     plus target paths and target exprs
@@ -946,7 +947,8 @@ def collect_leaf_targets(axes):
     """
     Returns
     -------
-    An iterable of generators, one per leaf.
+    tuple
+        An iterable of generators, one per leaf.
 
     Notes
     -----

@@ -19,7 +19,7 @@ class VectorSpaceBasis:
 
     You can use this basis to express the null space of a singular operator.
 
-    :arg vecs: a list of :class:`.Function`\s spanning the space.
+    :arg vecs: a list of :class:`firedrake.function.Function`\s spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
@@ -122,7 +122,7 @@ class VectorSpaceBasis:
     def orthogonalize(self, b):
         r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
-        :arg b: a :class:`.Function`
+        :arg b: a :class:`firedrake.function.Function`
 
         .. note::
 
