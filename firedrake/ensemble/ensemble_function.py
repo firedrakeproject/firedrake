@@ -1,6 +1,7 @@
 from functools import cached_property
 from contextlib import contextmanager
 
+import ufl
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
@@ -56,7 +57,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         # function as the storage, if the data in the Function Vec
         # is valid then the data in the EnsembleFunction Vec is valid.
 
-        with self._full_local_function.dat.vec as fvec:
+        with self._full_local_function.dat.vec_rw as fvec:
             n = function_space.nlocal_rank_dofs
             N = function_space.nglobal_dofs
             sizes = (n, N)
@@ -101,13 +102,13 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
                      for i in range(self._fs.nlocal_spaces))
 
     @PETSc.Log.EventDecorator()
-    def riesz_representation(self, **kwargs):
+    def riesz_representation(self, riesz_map='L2', **kwargs):
         """
         Return the Riesz representation of this ``EnsembleFunction``
         or ``EnsembleCofunction``.
 
         The default behaviour is to delegate to a
-        :class:`firedrake.cofunction.RieszMap` for each subfunction.
+        :class:`~firedrake.cofunction.RieszMap` for each subfunction.
         Any ``kwargs`` will be forwarded on, for example to specify
         the particular ``riesz_map``.
 
@@ -117,22 +118,21 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
         Parameters
         ----------
-        riesz_map
+        riesz_map: str or ufl.sobolevspace.SobolevSpace
             The Riesz map to use for each subfunction (e.g. ``"l2"``,
             ``"L2"``, or ``"H1"``), or a callable acting on the entire
             ``EnsembleFunction`` (or ``EnsembleCofunction``).
 
         kwargs
             Other arguments to be forwarded to the
-            :class:`firedrake.cofunction.RieszMap`.
+            :class:`~firedrake.cofunction.RieszMap`.
         """
-        riesz_map = kwargs.get('riesz_map', None)
-        if riesz_map and not isinstance(riesz_map, (str, ufl.sobolevspace.SobolevSpace)):
+        if not isinstance(riesz_map, (str, ufl.sobolevspace.SobolevSpace)):
             return riesz_map(self)
 
         riesz = EnsembleFunction(self.function_space().dual())
         for uself, uriesz in zip(self.subfunctions, riesz.subfunctions):
-            uriesz.assign(uself.riesz_representation(**kwargs))
+            uriesz.assign(uself.riesz_representation(riesz_map=riesz_map, **kwargs))
         return riesz
 
     @PETSc.Log.EventDecorator()
@@ -256,7 +256,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         # However, because the copies in the _full_local_function.dat.vec
         # context manager are done without _vec knowing, we have to manually
         # increment the state to make sure its still in sync.
-        with self._full_local_function.dat.vec:
+        with self._full_local_function.dat.vec_rw:
             self._vec.stateIncrease()
             yield self._vec
 
