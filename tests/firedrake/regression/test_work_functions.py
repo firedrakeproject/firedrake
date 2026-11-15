@@ -35,6 +35,17 @@ def test_get_work_function(V):
     assert V.num_work_functions == 0
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_reused_work_function_is_zeroed(V):
+    f = V.get_work_function()
+    f.assign(1)
+    V.restore_work_function(f)
+
+    g = V.get_work_function(zero=True)
+    assert norm(g) == 0
+    V.restore_work_function(g)
+
+
 def test_get_work_function_valueerror(V):
     V.max_work_functions = 2
 

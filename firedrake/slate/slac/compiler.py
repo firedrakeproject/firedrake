@@ -92,13 +92,20 @@ def _compile_expression_comm(*args, **kwargs):
 @PETSc.Log.EventDecorator()
 def compile_expression(slate_expr, compiler_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
-    ``pyop2.op2.Kernel`` object representing the Slate expression.
+    `pyop3.insn.base.Function` object representing the Slate expression.
 
-    :arg slate_expr: a :class:`~.Tensor` expression.
-    :arg tsfc_parameters: an optional `dict` of form compiler parameters to
+    Parameters
+    ----------
+    slate_expr
+        A :class:`firedrake.slate.slate.Tensor` expression.
+    tsfc_parameters
+        an optional `dict` of form compiler parameters to
         be passed to TSFC during the compilation of ufl forms.
 
-    Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
+    Returns
+    -------
+    tuple
+        A `tuple` containing a ``SplitKernel(idx, kinfo)``
     """
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))

@@ -251,8 +251,8 @@ class TransferManager(object):
     def op(self, source, target, transfer_op):
         """Primal transfer (either prolongation or injection).
 
-        :arg source: The source :class:`.Function`.
-        :arg target: The target :class:`.Function`.
+        :arg source: The source :class:`firedrake.function.Function`.
+        :arg target: The target :class:`firedrake.function.Function`.
         :arg transfer_op: The transfer operation for the DG space.
         """
         Vs = source.function_space()
@@ -422,9 +422,9 @@ class TransferManager(object):
 
         Parameters
         ----------
-        uc : Function
+        uc : firedrake.function.Function
             The source (coarse grid) function.
-        uf : Function
+        uf : firedrake.function.Function
             The target (fine grid) function.
 
         """
