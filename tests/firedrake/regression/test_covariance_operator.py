@@ -469,19 +469,19 @@ def test_covariance_mat_shift(operation):
         # shift by weighted identity
         mat.shift(shift)
         mat.mult(xv, yshift)
-        yshift.array -= shift*xv.array_r
-        assert np.allclose(yv.array_r, yshift.array_r)
+        yshift.axpy(-shift, xv)
+        assert (yshift - yv).norm() < 1e-14
 
         # shift should be cumulative
         mat.shift(shift)
         mat.mult(xv, yshift)
-        yshift.array -= 2*shift*xv.array_r
-        assert np.allclose(yv.array_r, yshift.array_r)
+        yshift.axpy(-2*shift, xv)
+        assert (yshift - yv).norm() < 1e-14
 
         # reset shift to zero
         mat.getPythonContext().update()
         mat.mult(xv, yshift)
-        assert np.allclose(yv.array_r, yshift.array_r)
+        assert (yshift - yv).norm() < 1e-14
 
 
 @pytest.mark.skipcomplex
