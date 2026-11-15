@@ -202,6 +202,39 @@ def test_poisson_inhomogeneous_bcs_high_level_interface(assembled_rhs):
     assert errornorm(SpatialCoordinate(mesh)[0]**2, u) < 1.e-12
 
 
+@pytest.mark.parametrize("preassembled", [False, True])
+def test_restrict_action(preassembled):
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+
+    u, v = TrialFunction(V), TestFunction(V)
+    q, _ = TrialFunction(Q), TestFunction(Q)
+
+    M = inner(q, v) * dx  # Q x V -> R
+    I = interpolate(u, Q)  # V x Q^* -> R
+    if preassembled:
+        M = assemble(M)
+        I = assemble(I)
+    A = action(M, I)  # V x V^* -> R
+
+    solution = Function(V)
+    bc = DirichletBC(V, 0, "on_boundary")
+    L = inner(1, v) * dx
+
+    problem = LinearVariationalProblem(A, L, solution, bcs=bc, restrict=True)
+
+    V_res = problem.restricted_space
+    assert problem.F.arguments()[0].function_space() == V_res
+    assert all(arg.function_space() == V_res for arg in problem.J.arguments())
+
+    matrix = assemble(A).petscmat[:, :]
+    matrix = np.delete(matrix, bc.nodes, axis=0)
+    matrix = np.delete(matrix, bc.nodes, axis=1)
+    restricted_matrix = assemble(problem.J).petscmat[:, :]
+    assert np.allclose(matrix, restricted_matrix)
+
+
 @pytest.mark.parametrize("j", [1, 2, 5])
 def test_restricted_function_space_coord_change(j):
     mesh = UnitSquareMesh(1, 2)
@@ -213,6 +246,24 @@ def test_restricted_function_space_coord_change(j):
     new_V_restricted = RestrictedFunctionSpace(new_V, boundary_set=[1], name="Restricted")
 
     compare_function_space_assembly(new_V, new_V_restricted, [bc])
+
+
+@pytest.mark.parametrize("order", [(1, 2), (2, 1)])
+def test_restricted_function_spaces_on_one_mesh(order):
+    # Two restricted spaces with different boundary sets on one mesh must give
+    # the same results as each space on a mesh of its own.
+    def solve_on(V, b):
+        R = RestrictedFunctionSpace(V, boundary_set=[b])
+        u, v = TrialFunction(R), TestFunction(R)
+        x = SpatialCoordinate(V.mesh())[0]
+        uh = Function(R)
+        solve(inner(grad(u), grad(v))*dx == x*v*dx, uh, bcs=DirichletBC(R, 0, b))
+        return assemble(uh*dx)
+
+    V = FunctionSpace(UnitSquareMesh(4, 4), "CG", 1)
+    one_mesh = [solve_on(V, b) for b in order]
+    separate = [solve_on(FunctionSpace(UnitSquareMesh(4, 4), "CG", 1), b) for b in order]
+    assert np.allclose(one_mesh, separate)
 
 
 @pytest.mark.parametrize("assembled_rhs", [False, True], ids=("Form", "Cofunction"))
@@ -443,6 +494,31 @@ def test_restrict_python_pc():
     solver.solve()
 
     assert errornorm(u_exact, u) < 1E-10
+
+
+@pytest.mark.parallel([1, 3])
+def test_restrict_nullspace():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = V * V
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+    a = (inner(grad(u), grad(v)) + inner(grad(p), grad(q))) * dx
+    L = inner(1, q) * ds(2) - inner(1, q) * ds(1)
+
+    nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
+    sol = Function(Z)
+    bc = DirichletBC(Z.sub(0), 0, "on_boundary")
+    prob = LinearVariationalProblem(a, L, sol, bcs=bc, restrict=True)
+    sp = {"ksp_type": "cg", "pc_type": "none", "ksp_rtol": 1e-12}
+    solver = LinearVariationalSolver(prob, nullspace=nullspace, solver_parameters=sp)
+    solver.solve()
+    A, _ = solver.snes.ksp.getOperators()
+    space = A.getNullSpace()
+    assert space
+    assert space.test(A)
+    x, _ = SpatialCoordinate(mesh)
+    assert errornorm(x - 0.5, sol.subfunctions[1]) < 1e-10
 
 
 @pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])

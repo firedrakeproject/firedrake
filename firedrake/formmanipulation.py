@@ -44,7 +44,7 @@ class ExtractSubBlock(DAGTraverser):
         indices = self.select_block(blocks, a.number())
         if indices is None or len(a.function_space()) == 1:
             return a
-        return Argument.reconstruct(a, function_space=subspace(a.function_space(), indices))
+        return a.reconstruct(function_space=subspace(a.function_space(), indices))
 
     @staticmethod
     def select_block(blocks: tuple, number: int) -> tuple | None:

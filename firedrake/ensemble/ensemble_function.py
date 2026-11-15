@@ -146,7 +146,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         other : :class:`EnsembleFunction`
             The value to assign from.
 
-        subsets : Collection[Optional[:class:`pyop2.types.set.Subset`]]
+        subsets : Collection[Optional[:class:`pyop3.Index`]]
             One subset for each local :class:`firedrake.function.Function`.
             None elements will be ignored. The values of each local function
             will only be assigned on the nodes on the corresponding subset.
@@ -177,7 +177,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         Parameters
         ----------
 
-        subsets : Collection[Optional[:class:`pyop2.types.set.Subset`]]
+        subsets : Collection[:class:`pyop3.Index` | None]
             One subset for each local :class:`firedrake.function.Function`.
             None elements will be ignored.  The values of each local function
             will only be zeroed on the nodes on the corresponding subset.
@@ -315,8 +315,8 @@ class EnsembleFunction(EnsembleFunctionBase):
     to ``EnsembleFunction`` will return an instance of :class:`EnsembleCofunction`.
 
     This class does not carry UFL symbolic information, unlike a
-    :class:`~firedrake.function.Function`. UFL expressions can only be defined
-    locally on each ensemble member using a :class:`~firedrake.function.Function`
+    :class:`firedrake.function.Function`. UFL expressions can only be defined
+    locally on each ensemble member using a :class:`firedrake.function.Function`
     from ``EnsembleFunction.subfunctions``.
 
     See Also

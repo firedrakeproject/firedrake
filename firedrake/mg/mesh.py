@@ -406,7 +406,7 @@ def ExtrudedMeshHierarchy(base_hierarchy: HierarchyBase,
         extruded hierarchy. Do not combine this option with ``base_layer`` and
         ``refinement_ratio``. The ratio of successive entries must be an
         integer for the multigrid transfer operators to work.
-    kernel : pyop2.op2.Kernel or None
+    kernel : pyop3.Function or None
         An optional kernel that computes the coordinates of the extruded mesh.
     extrusion_type : str
         The algorithm that computes the extruded coordinates. Supported

@@ -7,7 +7,7 @@ should be exposed inside 'pyop3.utils'.
 from petsctools cimport cpetsc
 
 
-def try_cast_slice(indices: cpetsc.PetscInt[::1]):
+def try_cast_slice(cpetsc.PetscInt[::1] indices):
     """Try to cast an array of integers to a Python `slice`."""
     cdef:
         cpetsc.PetscInt step, i
