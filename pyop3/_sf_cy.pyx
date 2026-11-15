@@ -21,11 +21,11 @@ from petsctools.cpetsc cimport CHKERR as CHKERR_c
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def filter_petsc_sf(
-    sf: cpetsc.PetscSF_py,
+    cpetsc.PetscSF_py sf,
     const cpetsc.PetscInt[::1] selected_points,
-    p_start: cpetsc.PetscInt,
-    p_end: cpetsc.PetscInt,
-) -> cpetsc.PetscSF_py:
+    cpetsc.PetscInt p_start,
+    cpetsc.PetscInt p_end,
+):
     """
     neednt be ordered
 
@@ -49,7 +49,7 @@ def filter_petsc_sf(
     return create_petsc_section_sf(sf, section)
 
 
-def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_py) -> PETSc.SF:
+def create_petsc_section_sf(cpetsc.PetscSF_py sf, cpetsc.PetscSection_py section) -> PETSc.SF:
     """Create the halo exchange sf.
 
     Parameters
@@ -92,12 +92,15 @@ def create_petsc_section_sf(sf: cpetsc.PetscSF_py, section: cpetsc.PetscSection_
     CHKERR_c(cpetsc.PetscSFBcastBegin(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
     CHKERR_c(cpetsc.PetscSFBcastEnd(point_sf.sf, <cmpi.MPI_Datatype>unit.ob_mpi, local_offsets, remote_offsets, cmpi.MPI_REPLACE))
 
-    halo_exchange_sf = PETSc.SF().create(comm=point_sf.comm)
+    # PetscSFCreateSectionSF() creates the SF, so the wrapper must be empty
+    halo_exchange_sf = PETSc.SF()
     CHKERR_c(cpetsc.PetscSFCreateSectionSF(sf.sf, section.sec, remote_offsets, section.sec, &halo_exchange_sf.sf))
+    CHKERR_c(cpetsc.PetscFree(local_offsets))
+    CHKERR_c(cpetsc.PetscFree(remote_offsets))
     return halo_exchange_sf
 
 
-def renumber_petsc_sf(sf: cpetsc.PetscSF_py, renumbering: cpetsc.PetscInt[::1]) -> cpetsc.PetscSF_py:
+def renumber_petsc_sf(cpetsc.PetscSF_py sf, cpetsc.PetscInt[::1] renumbering):
     """Renumber an SF.
 
     Parameters

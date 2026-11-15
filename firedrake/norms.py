@@ -12,8 +12,8 @@ __all__ = ['errornorm', 'norm']
 def errornorm(u, uh, norm_type="L2", degree_rise=None, mesh=None):
     """Compute the error :math:`e = u - u_h` in the specified norm.
 
-    :arg u: a :class:`.Function` or UFL expression containing an "exact" solution
-    :arg uh: a :class:`.Function` containing the approximate solution
+    :arg u: a :class:`firedrake.function.Function` or UFL expression containing an "exact" solution
+    :arg uh: a :class:`firedrake.function.Function` containing the approximate solution
     :arg norm_type: the type of norm to compute, see :func:`.norm` for
          details of supported norm types.
     :arg degree_rise: ignored.

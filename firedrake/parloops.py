@@ -1,5 +1,5 @@
 r"""This module implements parallel loops reading and writing
-:class:`.Function`\s. This provides a mechanism for implementing
+:class:`firedrake.function.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) ->
 @PETSc.Log.EventDecorator()
 def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
-    writes :class:`.Function`\s by looping over the mesh cells or facets
+    writes :class:`firedrake.function.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
     :arg kernel: A 2-tuple of (domains, instructions) to create
@@ -131,8 +131,8 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         manner in which the iteration over the mesh is to occur.
         Alternatively, you can pass :data:`direct` to designate a direct loop.
     :arg args: is a dictionary mapping variable names in the kernel to
-        :class:`.Function`\s or components of mixed :class:`.Function`\s and
-        indicates how these :class:`.Function`\s are to be accessed.
+        :class:`firedrake.function.Function`\s or components of mixed :class:`firedrake.function.Function`\s and
+        indicates how these :class:`firedrake.function.Function`\s are to be accessed.
     :arg kernel_kwargs: keyword arguments to be passed to the
         ``pyop3.Function`` constructor
     :arg kwargs: additional keyword arguments are passed to the underlying
@@ -140,8 +140,8 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
 
     **Example**
 
-    Assume that `A` is a :class:`.Function` in CG1 and `B` is a
-    :class:`.Function` in DG0. Then the following code sets each DoF in
+    Assume that `A` is a :class:`firedrake.function.Function` in CG1 and `B` is a
+    :class:`firedrake.function.Function` in DG0. Then the following code sets each DoF in
     `A` to the maximum value that `B` attains in the cells adjacent to
     that DoF::
 
@@ -158,7 +158,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     **Argument definitions**
 
     Each item in the `args` dictionary maps a string to a tuple
-    containing a :class:`.Function` or :class:`.Constant` and an
+    containing a :class:`firedrake.function.Function` or :class:`.Constant` and an
     argument intent. The string is the c language variable name by
     which this function will be accessed in the kernel. The argument
     intent indicates how the kernel will access this variable:
@@ -202,19 +202,19 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     local DoFs order. For facet measures, the DoFs will be in sorted
     first by the cell to which they are adjacent. Within each cell,
     they will be in FInAT order. Note that if a continuous
-    :class:`.Function` is accessed via an internal facet measure, the
+    :class:`firedrake.function.Function` is accessed via an internal facet measure, the
     DoFs on the interface between the two facets will be accessible
     twice: once via each cell. The orientation of the cell(s) relative
     to the current facet is currently arbitrary.
 
     A direct loop over nodes without any indirections can be specified
     by passing :data:`direct` as the measure. In this case, all of the
-    arguments must be :class:`.Function`\s in the same
+    arguments must be :class:`firedrake.function.Function`\s in the same
     :class:`.FunctionSpace`.
 
     **The kernel code**
 
-    Indirect free variables referencing :class:`.Function`\s are all
+    Indirect free variables referencing :class:`firedrake.function.Function`\s are all
     of type `double*`. For spaces with rank greater than zero (Vector
     or TensorElement), the data are laid out XYZ... XYZ... XYZ....
     With the vector/tensor component moving fastest.

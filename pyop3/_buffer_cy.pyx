@@ -15,7 +15,7 @@ cdef extern from "<petsc4py/pyscalar.h>":
     cpetsc.PetscScalar PyPetscScalar_AsPetscScalar(object) except? <cpetsc.PetscScalar>-1.0
 
 
-def set_petsc_mat_diagonal(mat: cpetsc.Mat_py, value: cpetsc.PetscScalar[::1] | cpetsc.PetscScalar) -> None:
+def set_petsc_mat_diagonal(cpetsc.Mat_py mat, value) -> None:
     if mat.type == "nest":
         assert isinstance(value, numbers.Number)
         num_rows, num_columns = mat.getNestSize()
@@ -28,7 +28,7 @@ def set_petsc_mat_diagonal(mat: cpetsc.Mat_py, value: cpetsc.PetscScalar[::1] | 
         _set_non_nested_petsc_mat_diagonal(mat, value)
 
 
-def _set_non_nested_petsc_mat_diagonal(petscmat: cpetsc.Mat_py, value: cpetsc.PetscScalar[::1] | cpetsc.PetscScalar) -> None:
+def _set_non_nested_petsc_mat_diagonal(cpetsc.Mat_py petscmat, value) -> None:
     if isinstance(value, numbers.Number):
         _set_non_nested_petsc_mat_diagonal_scalar(petscmat, value)
     else:
