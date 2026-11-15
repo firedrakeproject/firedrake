@@ -120,5 +120,9 @@ class ProjectorMixin(NonlinearVariationalSolverMixin):
         return ProjectBlock
 
     @staticmethod
+    def _ad_forward_solver_type(self):
+        return firedrake.LinearVariationalSolver
+
+    @staticmethod
     def _ad_annotate_project(project):
         return NonlinearVariationalSolverMixin._ad_annotate_solve(project)
