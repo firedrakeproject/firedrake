@@ -3,7 +3,6 @@
 PetscErrorCode locate_cell_from_candidates(struct Function *f,
         double *x,
         ref_cell_l1_dist try_candidate,
-        ref_cell_l1_dist_xtr try_candidate_xtr,
         void *temp_ref_coords,
         void *found_ref_coords,
         PetscReal *found_ref_cell_dist_l1,
@@ -48,15 +47,7 @@ PetscErrorCode locate_cell_from_candidates(struct Function *f,
         }
 
         PetscReal distance;
-        if (f->extruded) {
-            PetscInt nlayers = f->n_layers;
-            PetscInt c = candidate / nlayers;
-            PetscInt l = candidate % nlayers;
-            distance = (*try_candidate_xtr)(temp_ref_coords, f, c, l, x);
-        }
-        else {
-            distance = (*try_candidate)(temp_ref_coords, f, candidate, x);
-        }
+        distance = (*try_candidate)(temp_ref_coords, f, candidate, x);
         /* Select a cell by minimum L1 distance. */
         if (distance < best_distance) {
             best_distance = distance;

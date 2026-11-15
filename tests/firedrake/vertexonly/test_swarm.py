@@ -24,7 +24,7 @@ def cell_midpoints(m):
     # may not be the same on all ranks (note we exclude ghost cells
     # hence using num_cells_local = m.cell_set.size). Below local means
     # MPI rank local.
-    num_cells_local = len(f.dat.data_ro)
+    num_cells_local = m.cells.owned.local_size
     num_cells = MPI.COMM_WORLD.allreduce(num_cells_local, op=MPI.SUM)
     # reshape is for 1D case where f.dat.data_ro has shape (num_cells_local,)
     local_midpoints = f.dat.data_ro.reshape(num_cells_local, m.geometric_dimension)
@@ -92,7 +92,6 @@ def point_ownership(m, points, localpoints):
                         "square",
                         "squarequads",
                         "extruded",
-                        pytest.param("extrudedvariablelayers", marks=pytest.mark.skip(reason="Extruded meshes with variable layers not supported and will hang when created in parallel")),
                         "cube",
                         "tetrahedron",
                         "immersedsphere",
@@ -108,8 +107,6 @@ def parentmesh(request):
         return UnitSquareMesh(2, 2, quadrilateral=True)
     elif request.param == "extruded":
         return ExtrudedMesh(UnitSquareMesh(2, 2), 3)
-    elif request.param == "extrudedvariablelayers":
-        return ExtrudedMesh(UnitIntervalMesh(3), np.array([[0, 3], [0, 3], [0, 2]]), np.array([3, 3, 2]))
     elif request.param == "cube":
         return UnitCubeMesh(1, 1, 1)
     elif request.param == "tetrahedron":
@@ -141,6 +138,7 @@ def redundant(request):
 
 # pic swarm tests
 
+@pytest.mark.parallel([1, 3])
 def test_pic_swarm_in_mesh(parentmesh, redundant):
     """Generate points in cell midpoints of mesh `parentmesh` and check correct
     swarm is created in plex."""
@@ -230,24 +228,16 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
                        np.sort(localpointcoords, axis=0))
     # Check methods for checking number of points on current MPI rank
     assert len(localpointcoords) == swarm.getLocalSize()
-    if not parentmesh.extruded:
-        # This won't be true for extruded meshes as cell_set.size is the
-        # number of base mesh cells.
-        assert len(localpointcoords) == parentmesh.cell_set.size
-    else:
-        if parentmesh.variable_layers:
-            pytest.skip("Don't know how to calculate number of cells for variable layers")
-        ncells = parentmesh.cell_set.size * (parentmesh.layers - 1)
-        assert len(localpointcoords) == ncells
+    assert len(localpointcoords) == parentmesh.cells.owned.local_size
     assert nptsglobal == len(inputpointcoords)
     assert nptsglobal == swarm.getSize()
 
     # Check the parent cell indexes match those in the parent mesh
-    cell_indexes = parentmesh.cell_closure[:, -1]
+    cell_indexes = parentmesh._new_to_old_cell_numbering
     for index in localparentcellindices:
         assert np.any(index == cell_indexes)
 
-    # since we know all points are in the mesh, we can check that the global
+    # since we know all points are in the mesh, we can check thahttps://defelement.org/elements/discontinuous-lagrange.htmlt the global
     # indices are correct (i.e. they should be in rank order)
     allglobalindices = np.concatenate(parentmesh.comm.allgather(globalindices))
     assert np.array_equal(inputcoordindices, allglobalindices)
@@ -297,19 +287,8 @@ def test_pic_swarm_in_mesh(parentmesh, redundant):
     assert original_swarm.getCellDM() == swarm
 
 
-@pytest.mark.parallel
-def test_pic_swarm_in_mesh_parallel(parentmesh, redundant):
-    test_pic_swarm_in_mesh(parentmesh, redundant)
-
-
-@pytest.mark.parallel(nprocs=2)  # nprocs == total number of mesh cells
+@pytest.mark.parallel([2, 3])  # nprocs >= total number of mesh cells
 def test_pic_swarm_in_mesh_2d_2procs():
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
-    test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True)
-
-
-@pytest.mark.parallel(nprocs=3)  # nprocs > total number of mesh cells
-def test_pic_swarm_in_mesh_2d_3procs():
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=False)
     test_pic_swarm_in_mesh(UnitSquareMesh(1, 1), redundant=True)
 

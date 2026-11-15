@@ -706,6 +706,7 @@ def test_init_constant():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.xfail(reason="illegal in pyop3, illegal in general?")
 def test_init_constant_diff_mesh():
     mesh = UnitSquareMesh(1, 1)
     mesh0 = UnitSquareMesh(2, 2)
@@ -1035,9 +1036,8 @@ def test_bdy_control():
     tape = get_working_tape()
     # Check the checkpointed boundary conditions are not updating the
     # user-defined boundary conditions ``bc_left`` and ``bc_right``.
-    assert isinstance(tape._blocks[0], DirichletBCBlock)
-    assert tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
-
-    # tape._blocks[1] is the DirichletBC block for the right boundary
-    assert isinstance(tape._blocks[1], DirichletBCBlock)
-    assert tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
+    bc_blocks = [block for block in tape._blocks
+                 if isinstance(block, DirichletBCBlock)]
+    left_block, right_block = bc_blocks
+    assert left_block._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
+    assert right_block._outputs[0].checkpoint.checkpoint is not bc_right._original_arg

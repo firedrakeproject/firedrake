@@ -98,7 +98,7 @@ class ConstantMixin(OverloadedType):
         return self._constant_from_values()
 
     def _ad_dim(self):
-        return self.dat.cdim
+        return numpy.prod(self.ufl_shape, dtype=int)
 
     def _ad_imul(self, other):
         self.assign(self._constant_from_values(self.dat.data_ro.reshape(-1) * other))

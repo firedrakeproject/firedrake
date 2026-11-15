@@ -51,7 +51,7 @@ def test_refine_square_ncell():
     assert mh[1].num_cells() == 4 * mh[0].num_cells()
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 def test_refine_square_ncell_parallel():
     m = UnitSquareMesh(4, 4)
 

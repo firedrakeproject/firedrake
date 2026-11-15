@@ -119,7 +119,7 @@ def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     expr = Constant(1.)
     f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
+    assert np.allclose(f.dat.data_ro[f.function_space().cell_node_list],
                        [node(expr) for node in dual_basis])
     expr = x[0]
     # Account for cell and corresponding expression being flipped onto
@@ -127,11 +127,11 @@ def test_basic_dual_eval_p3intmoments(add_p3intmoments_tsfc):
     expr_fiat = 1-x[0]
     f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
+    assert np.allclose(f.dat.data_ro[f.function_space().cell_node_list],
                        [node(expr_fiat) for node in dual_basis])
     expr = x[0]**2
     expr_fiat = (1-x[0])**2
     f = assemble(interpolate(expr, V))
     dual_basis = f.function_space().finat_element.fiat_equivalent.dual_basis()
-    assert np.allclose(f.dat.data_ro[f.cell_node_map().values],
+    assert np.allclose(f.dat.data_ro[f.function_space().cell_node_list],
                        [node(expr_fiat) for node in dual_basis])

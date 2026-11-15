@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 
 import firedrake
 from firedrake import function
@@ -14,12 +14,12 @@ from firedrake.petsc import PETSc
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
 
 
-class VectorSpaceBasis(object):
+class VectorSpaceBasis:
     r"""Build a basis for a vector space.
 
     You can use this basis to express the null space of a singular operator.
 
-    :arg vecs: a list of :class:`.Function`\s spanning the space.
+    :arg vecs: a list of :class:`firedrake.function.Function`\s spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
@@ -69,7 +69,7 @@ class VectorSpaceBasis(object):
         if hasattr(self, "_nullspace"):
             return self._nullspace
         if comm:
-            warning("Specifiy comm when initialising VectorSpaceBasis, ignoring comm argument")
+            warning("Specify comm when initialising VectorSpaceBasis, ignoring comm argument")
         self._nullspace = PETSc.NullSpace().create(constant=self._constant,
                                                    vectors=self._petsc_vecs,
                                                    comm=self.comm)
@@ -122,13 +122,13 @@ class VectorSpaceBasis(object):
     def orthogonalize(self, b):
         r"""Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
-        :arg b: a :class:`.Function`
+        :arg b: a :class:`firedrake.function.Function`
 
         .. note::
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.dat.vec as v:
+        with b.dat.vec_ro as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
@@ -203,7 +203,7 @@ class VectorSpaceBasis(object):
         yield self
 
 
-class MixedVectorSpaceBasis(object):
+class MixedVectorSpaceBasis:
     r"""A basis for a mixed vector space
 
     :arg function_space: the :class:`~.MixedFunctionSpace` this vector

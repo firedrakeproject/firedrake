@@ -12,7 +12,7 @@ from functools import cached_property
 
 from firedrake import functionspaceimpl
 from firedrake import function
-from firedrake.adjoint_utils import annotate_project
+from firedrake.adjoint_utils import annotate_project, annotate_super_project, ProjectorMixin
 
 
 __all__ = ['project', 'Projector']
@@ -69,7 +69,7 @@ def project(
     v
         The :class:`ufl.core.expr.Expr` to project.
     V
-        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+        The :class:`.FunctionSpace` or :class:`firedrake.function.Function` to project into.
     bcs
         Boundary conditions to apply in the projection.
     solver_parameters
@@ -82,14 +82,14 @@ def project(
     quadrature_degree
         Quadrature degree to use when approximating integrands.
     name
-        The name of the resulting :class:`.Function`.
+        The name of the resulting :class:`firedrake.function.Function`.
     ad_block_tag
         String for tagging the resulting block on the Pyadjoint tape.
 
     Returns
     -------
     firedrake.function.Function
-        The :class:`.Function` on the new :class:`.FunctionSpace`.
+        The :class:`firedrake.function.Function` on the new :class:`.FunctionSpace`.
 
     Notes
     -----
@@ -97,10 +97,10 @@ def project(
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
 
-    If ``V`` is a :class:`.Function` then ``v`` is projected into ``V``
+    If ``V`` is a :class:`firedrake.function.Function` then ``v`` is projected into ``V``
     and ``V`` is returned. If `V` is a :class:`.FunctionSpace` then
-    ``v`` is projected into a new :class:`.Function` and that
-    :class:`.Function` is returned.
+    ``v`` is projected into a new :class:`firedrake.function.Function` and that
+    :class:`firedrake.function.Function` is returned.
 
     """
     val = Projector(
@@ -110,19 +110,21 @@ def project(
         solver_parameters=solver_parameters,
         form_compiler_parameters=form_compiler_parameters,
         use_slate_for_inverse=use_slate_for_inverse,
-        quadrature_degree=quadrature_degree
+        quadrature_degree=quadrature_degree,
+        ad_block_tag=ad_block_tag,
     ).project()
     val.rename(name)
     return val
 
 
 class Assigner:
-    def __init__(self, source, target):
+    def __init__(self, source, target, **kwargs):
         self.source = source
         self.target = target
+        self._kwargs = kwargs
 
     def project(self):
-        self.target.assign(self.source)
+        self.target.assign(self.source, **self._kwargs)
         return self.target
 
 
@@ -208,8 +210,7 @@ class ProjectorBase(metaclass=abc.ABCMeta):
     def solver(self):
         return firedrake.LinearSolver(self.A, solver_parameters=self.solver_parameters)
 
-    @property
-    def apply_massinv(self):
+    def apply_massinv(self, target, rhs):
         if not self.constant_jacobian:
             firedrake.assemble(self.A.a, tensor=self.A, bcs=self.bcs,
                                form_compiler_parameters=self.form_compiler_parameters)
@@ -217,9 +218,9 @@ class ProjectorBase(metaclass=abc.ABCMeta):
             def solve(x, b):
                 with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
                     self.A.petscmat.mult(b_, x_)
-            return solve
+            return solve(target, rhs)
         else:
-            return self.solver.solve
+            return self.solver.solve(target, rhs)
 
     @cached_property
     def residual(self):
@@ -234,7 +235,7 @@ class ProjectorBase(metaclass=abc.ABCMeta):
         return self.target
 
 
-class BasicProjector(ProjectorBase):
+class BasicProjector(ProjectorBase, ProjectorMixin):
     """
     A basic projector projects a UFL expression into a function space
     and places the result in a function from that function space,
@@ -242,6 +243,10 @@ class BasicProjector(ProjectorBase):
     :class:`.SupermeshProjector` is that both function spaces are
     defined on the same mesh.
     """
+
+    def __init__(self, *args, ad_block_tag=None, **kwargs):
+        ProjectorBase.__init__(self, *args, **kwargs)
+        ProjectorMixin.__init__(self, ad_block_tag=ad_block_tag)
 
     @cached_property
     def rhs_form(self):
@@ -270,6 +275,10 @@ class BasicProjector(ProjectorBase):
             form = firedrake.inner(self.source, v)*firedrake.dx
         return form
 
+    @ProjectorMixin._ad_annotate_project
+    def project(self):
+        return super().project()
+
     @cached_property
     def assembler(self):
         from firedrake.assemble import get_assembler
@@ -283,6 +292,11 @@ class BasicProjector(ProjectorBase):
 
 
 class SupermeshProjector(ProjectorBase):
+    def __init__(self, *args, **kwargs):
+        self._target_is_function = kwargs.pop("target_is_function", True)
+        self.ad_block_tag = kwargs.pop("ad_block_tag", None)
+        super().__init__(*args, **kwargs)
+
     @cached_property
     def mixed_mass(self):
         from firedrake.supermeshing import assemble_mixed_mass_matrix
@@ -295,6 +309,10 @@ class SupermeshProjector(ProjectorBase):
             self.mixed_mass.mult(u, v)
         return self.residual
 
+    @annotate_super_project
+    def project(self):
+        return super().project()
+
 
 @PETSc.Log.EventDecorator()
 def Projector(
@@ -305,14 +323,15 @@ def Projector(
     form_compiler_parameters: Optional[dict] = None,
     constant_jacobian: Optional[bool] = True,
     use_slate_for_inverse: Optional[bool] = False,
-    quadrature_degree: Optional[Union[int, tuple[int]]] = None
+    quadrature_degree: Optional[Union[int, tuple[int]]] = None,
+    ad_block_tag: Optional[str] = None,
 ):
     """ Projection class.
 
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
     allowing the solver to be reused. Projection reverts to an assign
-    operation if ``v`` is a :class:`.Function` and belongs to the same
+    operation if ``v`` is a :class:`firedrake.function.Function` and belongs to the same
     function space as ``v_out``.
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
@@ -322,7 +341,7 @@ def Projector(
     v
         The :class:`ufl.core.expr.Expr` to project.
     v_out
-        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+        The :class:`.FunctionSpace` or :class:`firedrake.function.Function` to project into.
     bcs
         Boundary conditions to apply in the projection.
     solver_parameters
@@ -337,6 +356,8 @@ def Projector(
         function spaces)(only valid for DG function spaces).
     quadrature_degree
         Quadrature degree to use when approximating integrands.
+    ad_block_tag
+        String for tagging the resulting block on the Pyadjoint tape.
     """
     target = create_output(v_out)
     source = sanitise_input(v, target.function_space())
@@ -345,14 +366,15 @@ def Projector(
         raise ValueError("Shape mismatch between source %s and target %s in project" %
                          (source.ufl_shape, target.ufl_shape))
     if isinstance(v, function.Function) and not bcs and v.function_space() == target.function_space():
-        return Assigner(source, target)
+        return Assigner(source, target, ad_block_tag=ad_block_tag)
     elif source_mesh == target_mesh:
         return BasicProjector(
             source, target, bcs=bcs, solver_parameters=solver_parameters,
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
             use_slate_for_inverse=use_slate_for_inverse,
-            quadrature_degree=quadrature_degree
+            quadrature_degree=quadrature_degree,
+            ad_block_tag=ad_block_tag,
         )
     else:
         if bcs is not None:
@@ -364,5 +386,7 @@ def Projector(
             form_compiler_parameters=form_compiler_parameters,
             constant_jacobian=constant_jacobian,
             use_slate_for_inverse=use_slate_for_inverse,
-            quadrature_degree=quadrature_degree
+            quadrature_degree=quadrature_degree,
+            target_is_function=isinstance(v_out, firedrake.Function),
+            ad_block_tag=ad_block_tag,
         )

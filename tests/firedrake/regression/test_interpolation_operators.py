@@ -55,12 +55,10 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
 
     I_mat = assemble(interp, mat_type=mat_type)
     assert isinstance(I_mat, ImplicitMatrix if mat_type == "matfree" else Matrix)
+    assert I_mat.ufl_domains() == {mesh}
 
     if mat_type == "matfree":
         assert I_mat.petscmat.type == "python"
-    elif value_shape == "scalar":
-        # Always seqaij for scalar
-        assert I_mat.petscmat.type == prefix + "aij"
     else:
         # Defaults to seqaij
         assert I_mat.petscmat.type == prefix + (mat_type if mat_type else "aij")
@@ -102,6 +100,7 @@ def test_cross_mesh_mattype(value_shape, mat_type):
     I_mat = assemble(interp, mat_type=mat_type)
     assert isinstance(I_mat, ImplicitMatrix if mat_type == "matfree" else Matrix)
     assert I_mat.petscmat.type == "python" if mat_type == "matfree" else "seqaij"
+    assert I_mat.ufl_domains() == {mesh1, mesh2}
 
     f = Function(V1).interpolate(expr1)
     res = assemble(action(I_mat, f))
@@ -158,8 +157,6 @@ def test_point_eval_mattype(value_shape, mat_type):
 
     if mat_type == "matfree":
         assert res.petscmat.type == "python"
-    elif value_shape == "scalar":
-        assert res.petscmat.type == "seqaij"
     else:
         # Defaults to seqaij
         assert res.petscmat.type == "seq" + (mat_type if mat_type else "aij")
@@ -203,9 +200,6 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
             if i != j:
                 assert not sub_mat
                 continue
-            if value_shape == "scalar":
-                # Always seqaij for scalar
-                assert sub_mat.type == "seqaij"
             else:
                 # matnest sub_mat_type defaults to aij
                 assert sub_mat.type == "seq" + (sub_mat_type if sub_mat_type else "aij")

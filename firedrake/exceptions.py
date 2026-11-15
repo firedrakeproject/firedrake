@@ -55,6 +55,11 @@ class UnrecognisedDeviceError(FiredrakeException):
     """
 
 
+class CommMismatchError(FiredrakeException):
+    """Raised when MPI communicators do not include identical sets of ranks.
+    """
+
+
 class SerialExecutionOnlyError(FiredrakeException):
     """Raised when calling any Firedrake method that only runs in serial.
     """
@@ -73,3 +78,7 @@ class PointNotInDomainError(FiredrakeException):
 
     def __str__(self):
         return f"Domain {self.domain} does not contain point {self.point}"
+
+
+class FunctionMigrationError(FiredrakeException):
+    """Raised when automatic migration of Function data between mesh topology versions fails."""

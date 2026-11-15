@@ -122,7 +122,7 @@ source/team.rst: source/team2.py source/team.ini
 
 source/apt_deps.txt:
 	python3 ../scripts/firedrake-configure \
-		--os ubuntu24.04-x86_64 \
+		--os ubuntu26.04-x86_64 \
 		--show-system-packages > source/apt_deps.tmp
 	mv source/apt_deps.tmp source/apt_deps.txt
 
@@ -139,11 +139,13 @@ source/petsc_configure_options.txt:
 	mv source/petsc_configure_options.tmp source/petsc_configure_options.txt
 
 apidoc: $(GENERATED_FILES) copy_demos
-	sphinx-apidoc -f -T -o source/ ../firedrake ../firedrake/cython/*.so
+	sphinx-apidoc -f -T -o source/apidoc ../firedrake ../firedrake/**.so
+	sphinx-apidoc -f -T -o source/apidoc ../pyop3 ../pyop3/**.so
 
 clean:
 	-rm -rf $(BUILDDIR)/*
 	-rm -rf $(GENERATED_FILES)
+	-rm -rf source/apidoc
 
 buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html

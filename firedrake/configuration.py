@@ -13,8 +13,8 @@ def setup_cache_dirs():
         root = str(base.joinpath(".cache"))
 
     root = Path(root)
-    if "PYOP2_CACHE_DIR" not in os.environ:
-        os.environ["PYOP2_CACHE_DIR"] = str(root.joinpath("pyop2"))
+    if "PYOP3_CACHE_DIR" not in os.environ:
+        os.environ["PYOP3_CACHE_DIR"] = str(root.joinpath("pyop3"))
     if "FIREDRAKE_TSFC_KERNEL_CACHE_DIR" not in os.environ:
         os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"] = str(root.joinpath("tsfc"))
     # loopy's persistent caches go through pytools, which only listens to

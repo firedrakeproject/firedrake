@@ -9,7 +9,9 @@ from firedrake.adjoint_utils.function import (  # noqa F401
     FunctionMixin, CofunctionMixin
 )
 from firedrake.adjoint_utils.assembly import annotate_assemble  # noqa F401
-from firedrake.adjoint_utils.projection import annotate_project  # noqa F401
+from firedrake.adjoint_utils.projection import (  # noqa F401
+    annotate_project, annotate_super_project, ProjectorMixin
+)
 from firedrake.adjoint_utils.variational_solver import (  # noqa F401
     NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
 )

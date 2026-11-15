@@ -49,3 +49,14 @@ def test_solve_with_assembled_matrix(a):
     solve(A == L, solution)
 
     assert norm(assemble(f - solution)) < 1e-15
+
+
+def test_solve_with_assembled_action(a):
+    v, _ = a.arguments()
+    V = v.function_space()
+    x, = SpatialCoordinate(V.mesh())
+    sol = Function(V)
+    A = assemble(a)
+    F = action(A, sol) - inner(1 + x, v) * dx
+    solve(F == 0, sol)
+    assert errornorm(1+x, sol) < 1e-12

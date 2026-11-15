@@ -21,7 +21,7 @@ ADAPT_LABEL = "_adaptive_dmplex_adapt"
 def _adapt_marked_cells(mesh, cell_marker):
     """Refine the cells of ``mesh`` marked by ``cell_marker`` and return the refined DMPlex."""
     dm = mesh.topology_dm
-    ncoarse = mesh.cell_set.size
+    ncoarse = mesh.cells.owned.local_size
 
     # Save the transform, so that the refined DMPlex can tell which of its
     # points came from which point of ``dm``.
@@ -48,11 +48,11 @@ def _adapt_marked_cells(mesh, cell_marker):
         dm.removeLabel(ADAPT_LABEL)
 
     # The transform propagates every label, including the temporary adapt
-    # label and the coarse mesh's stale pyop2_core/owned/ghost point
+    # label and the coarse mesh's stale ghost point
     # classification. Mesh() skips recomputing that classification if it's
     # already present, so it must be dropped here to force a fresh one for
     # the new mesh's own point count and distribution.
-    for label in ("pyop2_core", "pyop2_owned", "pyop2_ghost", ADAPT_LABEL):
+    for label in ("firedrake_is_ghost", ADAPT_LABEL):
         if new_dm.hasLabel(label):
             new_dm.removeLabel(label)
 

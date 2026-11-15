@@ -158,13 +158,13 @@ class EnsembleFunctionSpaceBase:
     def nlocal_rank_dofs(self):
         """The total number of dofs across all subspaces on the local MPI rank.
         """
-        return self._full_local_space.dof_dset.layout_vec.getLocalSize()
+        return self._full_local_space.template_vec.getLocalSize()
 
     @cached_property
     def nlocal_comm_dofs(self):
         """The total number of dofs across all subspaces on the local ensemble.comm.
         """
-        return self._full_local_space.dof_dset.layout_vec.getSize()
+        return self._full_local_space.template_vec.getSize()
 
     @cached_property
     def nglobal_dofs(self):
@@ -183,8 +183,15 @@ class EnsembleFunctionSpaceBase:
         Return the indices into the local mixed function storage
         corresponding to the i-th local function space.
         """
-        offset = sum(len(V) for V in self.local_spaces[:i])
-        return tuple(offset + j for j in range(len(self.local_spaces[i])))
+        # Map between local space indices and indices in the full local space.
+        # These are different because the local space can include mixed components.
+        offset = 0
+        full_local_space_indices = []
+        for local_space in self.local_spaces:
+            size = len(local_space)
+            full_local_space_indices.append((offset, offset+size))
+            offset += size
+        return full_local_space_indices[i]
 
     def create_vec(self):
         """Return a PETSc Vec on the ``Ensemble.global_comm`` with the same layout

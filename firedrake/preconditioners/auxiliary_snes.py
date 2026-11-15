@@ -51,7 +51,7 @@ class AuxiliaryOperatorSNES(SNESBase):
 
     More details, including how to use this class as a nonlinear
     preconditioner with methods like Anderson acceleration, can
-    be found in the manual page on :doc:`preconditioning`.
+    be found in the manual page on :doc:`/preconditioning`.
 
     Notes
     -----

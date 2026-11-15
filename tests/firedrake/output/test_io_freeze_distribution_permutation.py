@@ -1,15 +1,17 @@
+"""Test that writing then reading functions in parallel will preserve the distribution."""
 import pytest
 from firedrake import *
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 import numpy as np
 import os
+
 
 cwd = os.path.abspath(os.path.dirname(__file__))
 mesh_name = "m"
 func_name = "f"
 
 
-@pytest.mark.parallel(nprocs=7)
+@pytest.mark.parallel(7)
 @pytest.mark.parametrize('case', ["interval",
                                   "interval_small",
                                   "interval_periodic",
