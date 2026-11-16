@@ -702,7 +702,7 @@ class MixedCovarianceOperator(CovarianceOperatorBase):
                    for cov in subcovariances):
             raise TypeError(
                 "All covariance operators must be a CovarianceOperatorBase")
-        if not all(cov.function_space() == Wsub
+        if not all(cov.function_space().topological == Wsub.topological
                    for cov, Wsub in zip(subcovariances, W.subspaces)):
             raise ValueError(
                 "Covariance function spaces must match W subspaces")

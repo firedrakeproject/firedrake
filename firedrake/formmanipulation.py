@@ -208,7 +208,7 @@ class ExtractSubBlock(DAGTraverser):
             argument_indices.append(fields)
 
         if isinstance(o.a, Form):
-            form = self.split(o.a, argument_indices=argument_indices)
+            form = self(o.a, blocks=blocks)
             if isinstance(form, ZeroBaseForm):
                 return form
         else:

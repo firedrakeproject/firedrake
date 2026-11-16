@@ -92,6 +92,14 @@ def test_indexed_function_space_index(fs):
     assert fs0.index == 0 and fs1.index == 1
 
 
+def test_indexed_function_space_equality(fs):
+    fs0, fs1 = fs.subspaces
+    assert fs0 != fs1
+    assert fs0 != fs0.collapse()
+    assert fs0.topological == fs0.collapse().topological
+    assert fs0.dual() == fs.dual().sub(0)
+
+
 def test_mixed_function_space_split(fs):
     assert fs.subspaces == tuple(fs)
 
@@ -137,12 +145,12 @@ def test_mixed_function_space_sub_tuple(fs, dual, indices, topological):
     collapsed = W.collapse()
     assert collapsed.parent is None
     assert collapsed.index is None
-    assert collapsed == W
+    assert collapsed.topological == W.topological
     if len(indices) == 1:
         assert W is fs.sub(indices[0])
     else:
         assert W._labels == tuple(fs._labels[i] for i in indices)
-        assert tuple(W) == tuple(fs[i] for i in indices)
+        assert tuple(V.topological for V in W) == tuple(fs[i].topological for i in indices)
     if not topological:
         assert is_dual(W) == dual
         assert W.dual().parent == fs.dual()

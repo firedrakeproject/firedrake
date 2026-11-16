@@ -449,8 +449,10 @@ class WithGeometryBase:
         if is_primal(self) != is_primal(other) or \
                 is_dual(self) != is_dual(other):
             return False
+        # Topological equality ignores indices, so compare them here.
         try:
             return self.topological == other.topological and \
+                self.index == other.index and \
                 self.mesh() == other.mesh()
         except AttributeError:
             return False

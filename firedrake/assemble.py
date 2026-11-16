@@ -269,7 +269,10 @@ class ExprAssembler:
             if tensor is None:
                 try:
                     coefficients = ufl.algorithms.extract_coefficients(expr)
-                    V, = set(c.function_space() for c in coefficients) - {None}
+                    # Subfunctions are compatible with their collapsed spaces.
+                    spaces = {c.function_space().topological: c.function_space()
+                              for c in coefficients if c.function_space() is not None}
+                    V, = spaces.values()
                 except ValueError:
                     raise ValueError("Cannot deduce correct target space from pointwise expression")
                 tensor = firedrake.Function(V)
