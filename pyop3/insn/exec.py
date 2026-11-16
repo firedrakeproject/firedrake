@@ -45,6 +45,9 @@ class CompilerParameters:
     shared_tables: bool = False
     """ With thread transposition, copy the tensor-valued literals into the shared memory of each block """
 
+    cutile: bool = False
+    """ On a GPU, lower the GEM instructions to a cuTile kernel instead of MLIR, see `pyop3.compile.tile` """
+
     # }}}
 
     # {{{ profiling options

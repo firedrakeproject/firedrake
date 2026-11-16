@@ -548,7 +548,10 @@ class GemCompiler(Pyop3Compiler):
 
     def finalize_kernel(self, function_name, compiler_parameters, cc_options):
         buffer_arguments = utils.invert_mapping(self.kernel_names)
-        executable = GemExecutable(
+        executable_type = GemExecutable
+        if compiler_parameters.cutile and get_current_device() != HOST_DEVICE:
+            from pyop3.compile.tile import TileExecutable as executable_type
+        executable = executable_type(
             self.instructions,
             buffer_arguments,
             compiler_parameters,
