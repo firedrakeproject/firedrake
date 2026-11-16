@@ -232,7 +232,7 @@ Installing TAU
 
      $ export MY_TAU_SRC=tau-2.35.2
 
-#. Download the third-party library package. This needs to be untarred in ``${MY_TAU_DIR}/${MY_TAU_SRC}``:
+#. Download the TAU package providing third-party extensions. This needs to be untarred in ``${MY_TAU_DIR}/${MY_TAU_SRC}``:
 
    .. code-block:: console
 
