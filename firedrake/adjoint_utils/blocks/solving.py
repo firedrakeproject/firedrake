@@ -61,8 +61,6 @@ class GenericSolveBlock(Block):
         if bcs is not None:
             self.bcs = Enlist(bcs)
 
-        # A linear problem has a bilinear lhs. The rhs can be any 1-form,
-        # for example a Form, a Cofunction, or an Interpolate.
         self.linear = isinstance(self.lhs, ufl.BaseForm) and len(self.lhs.arguments()) == 2
         if isinstance(self.rhs, ufl.BaseForm):
             for c in self.rhs.coefficients():
