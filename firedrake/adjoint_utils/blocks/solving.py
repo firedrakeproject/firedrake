@@ -1,6 +1,5 @@
 import numpy
 import ufl
-from ufl.algorithms import extract_coefficients
 from ufl.domain import extract_domains, extract_unique_domain
 from ufl import replace
 from ufl.formatting.ufl2unicode import ufl2unicode
@@ -66,7 +65,7 @@ class GenericSolveBlock(Block):
         # for example a Form, a Cofunction, or an Interpolate.
         self.linear = isinstance(self.lhs, ufl.BaseForm) and len(self.lhs.arguments()) == 2
         if isinstance(self.rhs, ufl.BaseForm):
-            for c in extract_coefficients(self.rhs):
+            for c in self.rhs.coefficients():
                 self.add_dependency(c, no_duplicates=True)
 
         for c in self.lhs.coefficients():
