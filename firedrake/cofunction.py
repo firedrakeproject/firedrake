@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from functools import cached_property
+from types import EllipsisType
 import numpy as np
 import ufl
 
@@ -212,7 +213,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @CofunctionMixin._ad_annotate_sub
-    def sub(self, i: int | Sequence[int]) -> "Cofunction":
+    def sub(self, i: int | Sequence[int] | EllipsisType) -> "Cofunction":
         """Extract a view of selected subfunctions, or components of a vector or tensor cofunction.
 
         For a vector or tensor cofunction, the component view can be used to
@@ -220,12 +221,14 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         Parameters
         ----------
-        i : int or collections.abc.Sequence of int
+        i : int, collections.abc.Sequence of int, or types.EllipsisType
             For a mixed cofunction, use an integer to extract one subfunction,
             or a nonempty tuple or list of distinct indices to extract
-            subfunctions in the given order. For a vector or tensor cofunction, the flat index of the component to extract,
-            or a tuple, list or range of flat indices, as described in
-            :meth:`~.WithGeometryBase.sub`.
+            subfunctions in the given order. For a vector or tensor cofunction,
+            use the flat index of the component to extract, or a tuple, list or
+            range of flat indices, as described in
+            :meth:`~.WithGeometryBase.sub`. Use ``Ellipsis`` to select the
+            whole cofunction.
 
         Returns
         -------
@@ -240,6 +243,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         --------
         subfunctions
         """
+        if i is Ellipsis:
+            return self
         if type(self.function_space().ufl_element()) is MixedElement:
             if isinstance(i, (tuple, list)):
                 i = tuple(i)

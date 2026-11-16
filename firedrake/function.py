@@ -15,6 +15,7 @@ from collections.abc import Collection, Sequence
 from numbers import Number
 from functools import partial
 from typing import Tuple
+from types import EllipsisType
 from mpi4py import MPI
 
 import pyop3 as op3
@@ -214,13 +215,14 @@ class CoordinatelessFunction(ufl.Coefficient):
         )
 
     @PETSc.Log.EventDecorator()
-    def sub(self, i):
+    def sub(self, i: int | tuple[int, ...] | EllipsisType) -> "CoordinatelessFunction":
         """Extract a subfunction or tensor component.
 
         Parameters
         ----------
-        i : int or tuple of int
+        i : int, tuple of int, or types.EllipsisType
             The index of the subfunction or the indices of the tensor component.
+            Use ``Ellipsis`` to select the whole function.
 
         Returns
         -------
@@ -231,6 +233,8 @@ class CoordinatelessFunction(ufl.Coefficient):
         --------
         subfunctions
         """
+        if i is Ellipsis:
+            return self
         mixed = type(self.function_space().ufl_element()) is MixedElement
         data = self.subfunctions if mixed else self._components
         return data[i]
@@ -396,7 +400,7 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_sub
-    def sub(self, indices: int | Sequence[int]) -> "Function":
+    def sub(self, indices: int | Sequence[int] | EllipsisType) -> "Function":
         """Extract a view of selected subfunctions, or components of a vector or tensor function.
 
         For a vector or tensor function, the component view can be used to
@@ -404,12 +408,14 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         Parameters
         ----------
-        indices : int or collections.abc.Sequence of int
+        indices : int, collections.abc.Sequence of int, or types.EllipsisType
             For a mixed function, use an integer to extract one subfunction,
             or a nonempty tuple or list of distinct indices to extract
-            subfunctions in the given order. For a vector or tensor function, the flat index of the component to extract,
-            or a tuple, list or range of flat indices, as described in
-            :meth:`~.WithGeometryBase.sub`.
+            subfunctions in the given order. For a vector or tensor function,
+            use the flat index of the component to extract, or a tuple, list or
+            range of flat indices, as described in
+            :meth:`~.WithGeometryBase.sub`. Use ``Ellipsis`` to select the
+            whole function.
 
         Returns
         -------
@@ -425,6 +431,8 @@ class Function(ufl.Coefficient, FunctionMixin):
         subfunctions
 
         """
+        if indices is Ellipsis:
+            return self
         if is_mixed(self.function_space()):
             if isinstance(indices, (tuple, list)):
                 indices = tuple(indices)

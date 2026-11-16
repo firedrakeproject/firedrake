@@ -50,6 +50,24 @@ def test_firedrake_scalar_function(V):
 
 @pytest.mark.parallel(nprocs=[1, 2])
 @pytest.mark.parametrize("dual", [False, True])
+@pytest.mark.parametrize("shape", [(), (2,), (2, 2)])
+@pytest.mark.parametrize("mixed", [False, True])
+def test_sub_ellipsis(V, dual: bool, shape: tuple[int, ...], mixed: bool) -> None:
+    W = TensorFunctionSpace(V.mesh(), "CG", 1, shape=shape)
+    if mixed:
+        W = V * W
+    f = Function(W)
+    assert W.topological.sub(...) is W.topological
+    assert f.topological.sub(...) is f.topological
+    if dual:
+        W = W.dual()
+        f = Cofunction(W)
+    assert W.sub(...) is W
+    assert f.sub(...) is f
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("dual", [False, True])
 @pytest.mark.parametrize("indices", [(2, 0), (1,), (0, 1, 2), (1, 0), [2, 1]])
 def test_mixed_sub_tuple(V, dual, indices):
     mesh = V.mesh()

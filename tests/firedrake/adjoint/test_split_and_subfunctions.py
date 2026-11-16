@@ -162,6 +162,29 @@ def test_merge_blocks():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("component", [0, 1])
+@pytest.mark.parametrize("use_subfunctions", [False, True])
+def test_interpolate_vector_component(V1, component: int, use_subfunctions: bool) -> None:
+    mesh = V1.mesh()
+    V = VectorFunctionSpace(mesh, "CG", 1, dim=2)
+    x, y = SpatialCoordinate(mesh)
+    with stop_annotating():
+        kappa = Function(V1).interpolate(1 + x + 2 * y)
+        h = Function(V1).interpolate(0.1 + 0.2 * x - 0.1 * y)
+
+    u = Function(V).interpolate(as_vector((kappa, 2 * kappa + 1)))
+    u.sub(component).interpolate(kappa**2 + x * y)
+    v = u.subfunctions[0] if use_subfunctions else u
+    J = assemble(inner(v, v)**2 * dx)
+    rf = ReducedFunctional(J, Control(kappa))
+
+    # Check that replay preserves the component write before testing its derivative.
+    assert rf(kappa) == pytest.approx(J)
+    assert taylor_test(rf, kappa, h) > 1.9
+
+
+@pytest.mark.skipcomplex
 def test_subfunctions_always_create_blocks():
     """
     Function.subfunctions use pyadjoint.FloatingType to create Blocks on the fly when

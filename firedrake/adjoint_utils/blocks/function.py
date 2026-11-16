@@ -194,6 +194,8 @@ class FunctionAssignBlock(Block):
 
 
 class SubfunctionBlock(Block):
+    """Record a ``sub(idx)`` selection, including lowered ``subfunctions`` access."""
+
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
@@ -224,6 +226,8 @@ class SubfunctionBlock(Block):
 
 
 class FunctionMergeBlock(Block):
+    """Merge a write through a view selected by ``sub(idx)``."""
+
     def __init__(self, func, idx, ad_block_tag=None):
         super().__init__(ad_block_tag=ad_block_tag)
         self.add_dependency(func)
