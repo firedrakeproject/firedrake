@@ -45,7 +45,10 @@ class ArrayReference:
         elif value.size == self._block_size:
             for ib in range(self._block_size):
                 self.base[self.indices[get_indices(ib)]] = value[ib]
-        elif value.size == len(indices) * self._block_size:
+        elif (
+            indices is Ellipsis and value.size == self.indices.size
+            or value.size == len(indices) * self._block_size
+        ):
             value = value.reshape((-1, self._block_size))
             for ib in range(self._block_size):
                 self.base[self.indices[get_indices(ib)]] = value[:, ib]
