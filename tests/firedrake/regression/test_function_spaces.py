@@ -100,6 +100,15 @@ def test_indexed_function_space_equality(fs):
     assert fs0.dual() == fs.dual().sub(0)
 
 
+def test_indexed_function_space_dm(cg1):
+    W = cg1 * cg1 * cg1
+    subspaces = [W.sub(1), W.sub(2), W.sub((0, 1)).sub(1)]
+    assert len(set(id(V.dm) for V in subspaces)) == len(subspaces)
+    for V in subspaces:
+        assert dmhooks.get_function_space(V.dm) == V
+        assert dmhooks.get_function_space(V.dm).parent.index == V.parent.index
+
+
 def test_mixed_function_space_split(fs):
     assert fs.subspaces == tuple(fs)
 

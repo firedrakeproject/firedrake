@@ -183,6 +183,15 @@ def _dof_dset_cached(func):
     return _mesh_cached(hashkey)(func)
 
 
+def _indexed_space_key(V):
+    """Return a cache key that distinguishes equal subspaces at different indices in their parent spaces."""
+    key = []
+    while V is not None:
+        key.append((V, V.index))
+        V = V.parent
+    return tuple(key)
+
+
 _with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.mesh()))
 
 
@@ -892,7 +901,9 @@ class AbstractFunctionSpace:
         dmhooks.set_function_space(dm, self)
         return dm
 
-    @_dof_dset_cached
+    # The DM records the indices of the space in its parent spaces, so equal
+    # subspaces at different indices must not share a DM.
+    @_mesh_cached(_indexed_space_key)
     def _cached_dm(self):
         dm = PETSc.DMShell().create(comm=self.comm)
         dm.setGlobalVector(self.template_vec)
