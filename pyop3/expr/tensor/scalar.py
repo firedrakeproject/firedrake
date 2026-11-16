@@ -136,8 +136,6 @@ class Scalar(Tensor):
             case _:
                 raise ValueError(f"Unknown array access mode '{mode}'")
 
-    # Return the views above, since a scalar has no ghost entries, because
-    # Tensor._array_assign reads these accessors
     @property
     def data_ro_with_halos(self) -> np.ndarray:
         """Return a read-only view of the scalar's buffer."""
