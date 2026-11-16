@@ -1608,7 +1608,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return base_section
 
     @cached_property
-    @utils.deprecated("field_ises")
+    @utils.deprecated_rename("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -2172,7 +2172,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return tuple(ises)
 
     @property
-    @utils.deprecated("field_ises")
+    @utils.deprecated_rename("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.

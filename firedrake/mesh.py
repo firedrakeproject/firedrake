@@ -2480,11 +2480,15 @@ class MeshTopology(AbstractMeshTopology):
         return 0
 
     @property
-    @utils.deprecated("cells.owned")
+    @utils.deprecated_rename("cells.owned")
     def cell_set(self):
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
+    @utils.deprecated(
+        "Pass the subdomain ID directly to interpolate(..., subdomain_id=subdomain_id) "
+        "or mesh.iter('cell', subdomain_id) instead."
+    )
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return the subdomain ID unchanged.
 
@@ -2504,12 +2508,6 @@ class MeshTopology(AbstractMeshTopology):
         int, tuple of int, or str
             The subdomain ID.
         """
-        warnings.warn(
-            "MeshTopology.cell_subset is deprecated and will be removed, please pass "
-            "the subdomain ID directly to interpolate(..., subdomain_id=subdomain_id) "
-            "or mesh.iter('cell', subdomain_id) instead",
-            FutureWarning,
-        )
         return subdomain_id
 
     @staticmethod
@@ -3447,7 +3445,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return 0
 
     @cached_property  # TODO: Recalculate if mesh moves
-    @utils.deprecated("cells.owned")
+    @utils.deprecated_rename("cells.owned")
     def cell_set(self):
         return self.cells.owned
 
