@@ -1215,8 +1215,9 @@ except KeyError:
 
 def _compile_expression_key(comm, expr, ufl_element, domain, parameters) -> tuple[Hashable, ...]:
     """Generate a cache key suitable for :func:`tsfc.compile_expression_dual_evaluation`."""
-    dual_arg, operand = expr.argument_slots()
-    return (hash_expr(operand), type(dual_arg), hash(ufl_element), tuplify(parameters))
+    # Hash the dual argument with the operand, because a Cofunction dual
+    # argument is numbered with the coefficients of the operand.
+    return (hash_expr(expr), hash(ufl_element), tuplify(parameters))
 
 
 @memory_and_disk_cache(

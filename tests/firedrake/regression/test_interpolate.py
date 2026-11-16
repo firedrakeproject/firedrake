@@ -441,6 +441,20 @@ def test_zeroform(degree, cofunc):
     assert np.allclose(norm_i, norm)
 
 
+def test_zeroform_cofunction_numbering():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    # The cofunctions are created before and after the coefficients of the operand.
+    c_before = Cofunction(Q.dual())
+    f = Function(V).assign(2)
+    g = Function(V).assign(3)
+    c_after = Cofunction(Q.dual())
+    for c in (c_before, c_after):
+        c.dat.data[:] = 1
+        assert np.isclose(assemble(interpolate(f**2 * g, c)), 12 * Q.dim())
+
+
 @pytest.mark.skipcomplex  # complex numbers are not orderable
 @pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("access,seam", [(MAX, 1), (MIN, 0), (op3.MAX_WRITE, 1), (op3.MIN_WRITE, 0)])
