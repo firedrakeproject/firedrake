@@ -89,7 +89,7 @@ def multi_field_problem(request: pytest.FixtureRequest) -> tuple:
     a += sum((inner(div(trial[i]), test[j]) - inner(trial[j], div(test[i])))
              for i in hdiv_fields for j in l2_fields) * dx
     x, y = SpatialCoordinate(mesh)
-    L = sum((i + 1) * (1 + x + y) * test[i] for i in l2_fields) * dx
+    L = sum(inner((i + 1) * (1 + x + y), test[i]) for i in l2_fields) * dx
     return a, L, W, hdiv_fields
 
 
