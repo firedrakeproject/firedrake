@@ -694,6 +694,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         """
         self.sf.reduce_end(self._current_device_array, op)
+        self._update_device_arrays()
         self._unlock_current_device()
 
     def sync_leaves(self) -> None:
@@ -761,6 +762,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
         """
         self.sf.broadcast_end(self._current_device_array, MPI.REPLACE)
+        self._update_device_arrays()
         self._unlock_current_device()
 
     def assemble(self) -> None:
@@ -838,6 +840,20 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
            self._state[current_device] = self.state
 
         return self._device_arrays_private[current_device]
+
+    def _update_device_arrays(self) -> None:
+        """Copy the host array into each device array that is up to date.
+
+        Current halo exchange does not update state of the buffer. 
+        This is a temporary solution until we have device-side starforest. 
+
+        For now, we have to copy the whole array
+        """
+        host_array = self._device_arrays_private[pyop3.device.HOST_DEVICE]
+        for device, array in self._device_arrays_private.items():
+            if device != pyop3.device.HOST_DEVICE and self._state[device] == self.state:
+                # shortcut: copies the whole array, copy only sf.iroot / sf.ileaf if the transfer shows up in profiles
+                array[...] = device.asarray(host_array)
 
     def _lock_current_device(self):
         """Raise an error if we try to change the current device."""
