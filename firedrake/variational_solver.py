@@ -277,7 +277,13 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         def _reconstruct_bc(bc):
             if isinstance(bc, DirichletBC):
                 g = 0 if homogenize_bcs else replace(as_ufl(bc._original_arg), coefficient_mapping)
-                return bc.reconstruct(V=function_space, indices=bc._indices, g=g)
+                # Select the subspace of the boundary condition relative to the
+                # solution space of this problem.
+                V = function_space.sub(bc.function_space_index(self.u_restrict.function_space()))
+                component = bc.function_space().component
+                if component is not None:
+                    V = V.sub(component)
+                return bc.reconstruct(V=V, g=g)
             elif isinstance(bc, EquationBC):
                 sub_domain = bc._F.sub_domain
                 J = _reconstruct_form(bc._J.f)

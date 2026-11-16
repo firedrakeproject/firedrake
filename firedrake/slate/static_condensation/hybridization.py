@@ -147,9 +147,9 @@ class HybridizationPC(SCBase):
             # These are Dirichlet BCs on the vidx space
             neumann_subdomains = set()
             for bc in self.ctx.row_bcs:
-                if bc.function_space_index() == self.pidx:
+                if bc.function_space_index(V) == self.pidx:
                     raise NotImplementedError("Dirichlet conditions for scalar variable not supported. Use a weak bc")
-                if bc.function_space_index() != self.vidx:
+                if bc.function_space_index(V) != self.vidx:
                     raise NotImplementedError("Dirichlet bc set on unsupported space.")
                 # append the set of sub domains
                 neumann_subdomains |= set(bc.sub_domain)

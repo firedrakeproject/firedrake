@@ -1,4 +1,5 @@
 import abc
+import contextlib
 import functools
 import itertools
 import numbers
@@ -1464,30 +1465,17 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         mat = tensor.M
 
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
-        V = bc.function_space()
-        component = V.component
-        if component is not None:
-            V = V.parent
-        space = bc.parent_function_space
-        if V.index is not None:
-            V = space.sub(bc.function_space_index())
+        component = bc.function_space().component
+        # Find the subspace of the boundary condition in the test and trial spaces.
+        row_index, col_index = (bc.function_space_index(space) for space in spaces)
+        V = spaces[0].sub(row_index)
         component_idx = () if component is None else numpy.unravel_index(component, V.shape)
-        if V.index is None:
-            index = Ellipsis
-        else:
-            # TODO: use field_axis instead
-            index = utils.single_valued(
-                axes.trees[0].root.component_labels[V.index]
-                for axes in [tensor.M.row_axes, tensor.M.column_axes]
-            )
+        # TODO: use field_axis instead
+        index = utils.single_valued(
+            i if i is Ellipsis else axes.trees[0].root.component_labels[i]
+            for i, axes in zip((row_index, col_index), (tensor.M.row_axes, tensor.M.column_axes))
+        )
         if isinstance(bc, DirichletBC):
-            # if fs.topological != self.topological:
-            #     raise RuntimeError("Dirichlet BC defined on a different function space")
-            if space.topological != spaces[0].topological:
-                raise RuntimeError("bc space does not match the test function space")
-            elif space.topological != spaces[1].topological:
-                raise RuntimeError("bc space does not match the trial function space")
-
             # NOTE: This is only OK in parallel with mixed spaces because we
             # apply the BC to local submat, where DoF interleaving is not
             # applicable.
@@ -1501,19 +1489,22 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     rows = numpy.dstack([rbs*rows + i for i in range(rbs)]).flatten()
             rows = numpy.asarray(rows, dtype=utils.IntType)
 
-            # unpack MATNESTs
+            # Select the block of the boundary condition, unpacking MATNESTs.
             petscmat = mat.buffer.mat
-            row_index = V.index
             if petscmat.type == PETSc.Mat.Type.NEST:
-                petscmat = petscmat.getNestSubMatrix(row_index or 0, row_index or 0)
-                row_index = None
-            myspace = space if row_index is None else space[row_index]
+                petscmat = petscmat.getNestSubMatrix(0 if row_index is Ellipsis else row_index,
+                                                     0 if col_index is Ellipsis else col_index)
+                block = contextlib.nullcontext(petscmat)
+            elif row_index is Ellipsis:
+                block = contextlib.nullcontext(petscmat)
+            else:
+                block = local_submat(petscmat, V, spaces[1].sub(col_index))
 
             if petscmat.type == PETSc.Mat.Type.IS:
                 # We have to fully assemble (MAT_FINAL_ASSEMBLY not MAT_FLUSH_ASSEMBLY)
                 # a MATIS in order for the following routine to work.
                 mat.buffer.assemble()
-                with local_submat(petscmat, myspace, myspace) as submat:
+                with block as submat:
                     # For MATIS we handle boundary conditions by masking out
                     # rows and columns after the fact because we can't change
                     # lgmaps on the fly.
@@ -1524,7 +1515,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
                 mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
-                with local_submat(petscmat, myspace, myspace) as submat:
+                with block as submat:
                     submat.setValuesLocalRCV(
                         rows, rows, values, addv=PETSc.InsertMode.INSERT_VALUES
                     )
@@ -1533,9 +1524,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # "lgmaps" is correctly constructed in _matrix_arg, but
             # is ignored by PyOP2 in this case.
             # Walk through row blocks associated with index.
-            for j, s in enumerate(space):
-                if j != V.index and _is_real_space(s):
-                    j = spaces[0]._labels[j]
+            for j, s in enumerate(spaces[1]):
+                if j != col_index and _is_real_space(s):
+                    j = spaces[1]._labels[j]
                     self._apply_bcs_mat_real_block(
                         mat,
                         index,
@@ -1545,9 +1536,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                         "row",
                     )
             # Walk through col blocks associated with index.
-            for i, s in enumerate(space):
-                if i != V.index and _is_real_space(s):
-                    i = spaces[1]._labels[i]
+            for i, s in enumerate(spaces[0]):
+                if i != row_index and _is_real_space(s):
+                    i = spaces[0]._labels[i]
                     self._apply_bcs_mat_real_block(
                         mat, i, index, component_idx, bc.node_set, "column")
 
@@ -1699,7 +1690,7 @@ class ParloopBuilder:
 
     def _filter_bcs(self, function_space, bcs, index: int | None):
         if index is not None:
-            return tuple(bc for bc in bcs if bc.function_space_index() == index)
+            return tuple(bc for bc in bcs if bc.function_space_index(function_space) == index)
         else:
             return bcs
 
@@ -1720,7 +1711,7 @@ class ParloopBuilder:
 
         row_arg, column_arg = matrix.arguments()
         row_space = row_arg.function_space()
-        column_space = column_arg.function_space()
+        col_space = column_arg.function_space()
         i, j = indices
 
         row_bcs = self._bcs
@@ -1728,7 +1719,7 @@ class ParloopBuilder:
 
         if matrix.petscmat.type == PETSc.Mat.Type.NEST:
             ii = list(range(len(row_space))) if i is None else [i]
-            jj = list(range(len(column_space))) if j is None else [j]
+            jj = list(range(len(col_space))) if j is None else [j]
 
             # For MATNESTS return an lgmap pair for each block in the form,
             # keyed by nest indices.
@@ -1739,9 +1730,9 @@ class ParloopBuilder:
                 else:
                     # MATNESTS require lgmaps that only address the current block
                     row_subspace = row_space[i]
-                    col_subspace = column_space[j]
-                    row_bcs_ = self._filter_bcs(row_subspace, row_bcs, i)
-                    col_bcs_ = self._filter_bcs(col_subspace, col_bcs, j)
+                    col_subspace = col_space[j]
+                    row_bcs_ = self._filter_bcs(row_space, row_bcs, i)
+                    col_bcs_ = self._filter_bcs(col_space, col_bcs, j)
                     row_lgmap = row_subspace.lgmap(row_bcs_)
                     col_lgmap = col_subspace.lgmap(col_bcs_)
                     lgmaps[i, j] = (row_lgmap, col_lgmap)
@@ -1753,8 +1744,8 @@ class ParloopBuilder:
         else:
             # Not a MATNEST, only a single lgmap pair to consider
             row_bcs = self._filter_bcs(row_space, row_bcs, i)
-            col_bcs = self._filter_bcs(column_space, col_bcs, j)
-            return (row_space.lgmap(row_bcs), column_space.lgmap(col_bcs))
+            col_bcs = self._filter_bcs(col_space, col_bcs, j)
+            return (row_space.lgmap(row_bcs), col_space.lgmap(col_bcs))
 
     @property
     def _indices(self):

@@ -1520,12 +1520,9 @@ class MixedInterpolator(Interpolator):
             sub_bcs = []
             for space, index in zip(spaces, indices):
                 subspace = space.sub(index) if index is not None else space
-                # filter the bcs and drop index information because the sub interpolate
-                # doesn't know that it's part of a bigger expression
-                sub_bcs.extend(
-                    bc.reconstruct(V=subspace.collapse())
-                    for bc in bcs if space_equals(bc.function_space(), subspace)
-                )
+                # The arguments of the block are defined on the subspace, so
+                # keep the boundary conditions on the subspace.
+                sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             if needs_action:
                 # Take the action of each sub-cofunction against each block
                 form = restructure_base_form(action(form, dual_split[indices[-1:]]))

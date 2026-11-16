@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.bcs import extract_subdomain_ids
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
@@ -364,6 +365,33 @@ def test_reconstruct_selected_subspace_bc():
     bc = DirichletBC(W.sub((1, 0)).sub(0).sub(1), 0, "on_boundary")
     assert bc.reconstruct() is bc
     assert bc.reconstruct(V=W.sub((0, 1)).sub(0).sub(1)) is not bc
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("indices, mat_type", [((1,), "aij"), ((1, 0), "aij"),
+                                               ((1, 0), "nest"), ((2, 1), "nest")])
+def test_reconstruct_subspace_bcs(V, indices, mat_type):
+    W = V * V * V
+    reference = DirichletBC(W.sub(1), 0, "on_boundary")
+    selected = W.sub(indices)
+    bc = reference.reconstruct(field=indices, V=selected)
+    with pytest.raises(RuntimeError):
+        reference.apply(Function(W.sub(0)))
+
+    f = Function(selected).assign(1)
+    expected = Function(W).assign(1)
+    reference.apply(expected)
+    bc.apply(f)
+    assert np.array_equal(f.dat.data_ro, expected.sub(indices).dat.data_ro)
+
+    a = inner(sum(TrialFunctions(W)), sum(TestFunctions(W))) * dx
+    subform = ExtractSubBlock().split(a, (indices, indices))
+    A = assemble(subform, bcs=bc, mat_type=mat_type).petscmat.convert("aij")
+    B = assemble(a, bcs=reference, mat_type="aij").petscmat
+    iset = PETSc.IS().createGeneral(np.concatenate([W.field_ises[i].indices for i in indices]), comm=W.comm)
+    B = B.createSubMatrix(iset, iset)
+    B.axpy(-1, A)
+    assert B.norm() < 1.e-14
 
 
 def test_bcs_rhs_assemble(a, V):

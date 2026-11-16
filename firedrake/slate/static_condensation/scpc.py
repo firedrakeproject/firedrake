@@ -29,10 +29,8 @@ class SCPC(SCBase):
         """
 
         from firedrake.assemble import get_assembler
-        from firedrake.bcs import DirichletBC
         from firedrake.function import Function
         from firedrake.cofunction import Cofunction
-        from firedrake.functionspace import FunctionSpace
         from firedrake.parloops import par_loop, INC
         from ufl import dx
 
@@ -60,15 +58,14 @@ class SCPC(SCBase):
 
         c_field, = condensed_fields
 
-        # Need to duplicate a space which is NOT
-        # associated with a subspace of a mixed space.
-        Vc = FunctionSpace(W.mesh()[c_field], W[c_field].ufl_element())
+        # The condensed operator is defined on the subspace of the condensed field.
+        Vc = W.sub(c_field)
         bcs = []
         cxt_bcs = self.cxt.row_bcs
         for bc in cxt_bcs:
-            if bc.function_space_index() != c_field:
+            if bc.function_space_index(W) != c_field:
                 raise NotImplementedError("Strong BC set on unsupported space")
-            bcs.append(DirichletBC(Vc, 0, bc.sub_domain))
+            bcs.append(bc.reconstruct(V=Vc, g=0))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 

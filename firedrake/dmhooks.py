@@ -388,9 +388,7 @@ def create_subdm(dm, fields, *args, **kwargs):
                      call_setup=True)
         return iset, subdm
     else:
-        # Need to build an MFS for the subspace
-        labels = [W._labels[f] for f in fields]
-        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields], _labels=labels)
+        subspace = W.sub(tuple(fields))
 
         add_hook(parent, setup=partial(push_parent, subspace.dm, parent), teardown=partial(pop_parent, subspace.dm, parent),
                  call_setup=True)

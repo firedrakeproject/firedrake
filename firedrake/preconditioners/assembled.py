@@ -25,7 +25,7 @@ class AssembledPC(PCBase):
         appctx = self.get_appctx(pc)
         fcp = appctx.get("form_compiler_parameters")
 
-        V = get_function_space(pc.getDM()).collapse()
+        V = get_function_space(pc.getDM())
         test = TestFunction(V)
         trial = TrialFunction(V)
 

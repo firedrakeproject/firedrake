@@ -942,19 +942,10 @@ class AbstractFunctionSpace:
             The local-to-global mapping.
 
         """
-        # Partition the boundary conditions by which element of the mixed
-        # space they correspond to.
-        # TODO: we should check that the function spaces are compatible
+        # Partition the boundary conditions by their subspaces in this space.
         split_bcs = collections.defaultdict(list)
-        if self.index is not None:
-            # We are an indexed component of a mixed space. The lgmap is therefore
-            # only for the current block and thus we don't need a field index here.
-            for bc in bcs:
-                assert bc.function_space_index() == self.index
-                split_bcs[None].append(bc)
-        else:
-            for bc in bcs:
-                split_bcs[bc.function_space_index()].append(bc)
+        for bc in bcs:
+            split_bcs[bc.function_space_index(self)].append(bc)
 
         lgmap_axes = self.axes
         if is_mixed(self) or any(bc.function_space().component is not None for bc in bcs):
@@ -965,7 +956,7 @@ class AbstractFunctionSpace:
         lgmap_dat = lgmap_axes.global_numbering.copy(constant=False)
 
         for field_idx, bcs_per_field in split_bcs.items():
-            if field_idx is not None:
+            if field_idx is not Ellipsis:
                 field_label = (self._labels[field_idx],)
             else:
                 field_label = ()
