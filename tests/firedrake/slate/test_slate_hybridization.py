@@ -82,7 +82,7 @@ def multi_field_problem(request: pytest.FixtureRequest) -> tuple:
     test = TestFunctions(W)
     hdiv_fields = tuple(i for i, family in enumerate(families) if family != "DG")
     l2_fields = tuple(i for i, family in enumerate(families) if family == "DG")
-    a = sum(inner(u, v) for u, v in zip(trial, test)) * dx
+    a = sum(inner(trial[i], test[i]) for i in range(len(W))) * dx
     for fields in (hdiv_fields, l2_fields):
         a += sum(0.1 * inner(trial[i], test[j]) * dx
                  for i in fields for j in fields if i != j)
@@ -114,8 +114,8 @@ def test_slate_hybridization_multi_field(multi_field_problem: tuple, strong_bcs:
     solve(a == L, reference, bcs=bcs,
           solver_parameters={"mat_type": "aij", "ksp_type": "preonly", "pc_type": "lu",
                              "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER})
-    for actual, expected in zip(solution.subfunctions, reference.subfunctions):
-        assert errornorm(actual, expected) < 1.e-11
+    for i in range(len(W)):
+        assert errornorm(solution.sub(i), reference.sub(i)) < 1.e-11
 
 
 def options_check(builder, expected):
