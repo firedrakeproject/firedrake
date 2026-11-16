@@ -32,7 +32,7 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization': {'ksp_type': 'preonly',
                                 'pc_type': 'lu'}}
-    bcs = [DirichletBC(W.sub((1, 0)).sub(1), zero(), "on_boundary")]
+    bcs = [DirichletBC(W[0], zero(), "on_boundary")]
 
     solve(a == L, w, solver_parameters=params, bcs=bcs)
     sigma_h, u_h = w.subfunctions
