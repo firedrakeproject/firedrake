@@ -14,7 +14,6 @@ from firedrake.pack import pack
 from firedrake.tsfc_interface import compile_form
 from firedrake.adjoint.transformed_functional import L2Cholesky
 from firedrake.functionspaceimpl import WithGeometry
-from firedrake.slate.slac.compiler import BLASLAPACK_LIB, BLASLAPACK_INCLUDE
 from firedrake.bcs import BCBase
 from firedrake import (
     grad, inner, avg, action, outer,
@@ -171,53 +170,30 @@ class Pyop3NoiseBackend(NoiseBackendBase):
         name = mass_ker.kinfo.kernel.name
         blocksize = mass_ker.kinfo.kernel.code[name].args[0].shape[0]
 
-        preamble = dedent(
-            f"""\
-            extern void dpotrf_(char *UPLO,
-                                int *N,
-                                double *A,
-                                int *LDA,
-                                int *INFO);
-
-            extern void dgemv_(char *TRANS,
-                               int *M,
-                               int *N,
-                               double *ALPHA,
-                               double *A,
-                               int *LDA,
-                               double *X,
-                               int *INCX,
-                               double *BETA,
-                               double *Y,
-                               int *INCY);
-
-            {mass_code}
-            """
-        )
         cholesky_code = dedent(
             f"""\
             char uplo[1];
-            int32_t N = {blocksize}, LDA = {blocksize}, INFO = 0;
+            PetscBLASInt N = {blocksize}, LDA = {blocksize}, INFO = 0;
             int32_t i=0, j=0;
             uplo[0] = 'u';
             double H[{blocksize}*{blocksize}] = {{{{ 0.0 }}}};
 
             char trans[1];
-            int32_t stride = 1;
+            PetscBLASInt stride = 1;
             double scale = 1.0;
             double zero = 0.0;
 
             {mass_ker.kinfo.kernel.name}(H, coords);
 
             uplo[0] = 'u';
-            dpotrf_(uplo, &N, H, &LDA, &INFO);
+            LAPACKpotrf_(uplo, &N, H, &LDA, &INFO);
             for (int i = 0; i < N; i++)
                 for (int j = 0; j < N; j++)
                     if (j>i)
                         H[i*N + j] = 0.0;
 
             trans[0] = 'T';
-            dgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
+            BLASgemv_(trans, &N, &N, &scale, H, &LDA, z, &stride, &zero, b, &stride);
             """
         )
 
@@ -229,9 +205,8 @@ class Pyop3NoiseBackend(NoiseBackendBase):
                 ("b", "double", op3.INC),
                 ("coords", "double", op3.READ),
             ],
-            preambles=[("20_preamble", preamble)],
-            include_dirs=BLASLAPACK_INCLUDE,
-            libs=BLASLAPACK_LIB,
+            preambles=[("20_mass", mass_code)],
+            libraries=(*mass_ker.kinfo.kernel.compiler_options.libraries, op3.cc.LIBBLASLAPACK),
         )
 
     def sample(self, *, rng=None,
