@@ -240,7 +240,7 @@ Installing TAU
      $ cd ${MY_TAU_SRC}
      $ tar zxvf ../ext.tgz
 
-#. Start the Firedrake venv so that you have the same python as used by Firedrake. Use the path to your firedrake installation in the following command:
+#. Start the Firedrake virtualenv so that you have the same python as used by Firedrake. Use the path to your Firedrake installation in the following command:
 
    .. code-block:: console
 
