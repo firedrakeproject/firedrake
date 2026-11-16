@@ -273,6 +273,8 @@ class Interpolator(abc.ABC):
         self.default_missing_val = expr.options.default_missing_val
         # An interpolation kernel never reads the output, it only reduces its
         # results into it. Therefore, MIN and MAX are the WRITE reductions.
+        # FIXME: Clarify the public MIN/MAX access modes for interpolation.
+        # https://github.com/firedrakeproject/firedrake/issues/5647
         access = expr.options.access
         if access is op3.MIN_RW:
             access = op3.MIN_WRITE
