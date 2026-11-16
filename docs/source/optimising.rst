@@ -296,12 +296,6 @@ Using TAU: sampling
 
      $ wget https://firedrakeproject.org/demos/burgers.py
 
-#. Make sure threading is not used. Firedrake complains if this is not done:
-
-   .. code-block:: console
-
-     $ export OMP_NUM_THREADS=1
-
 #. Run the example without TAU to make sure that all the JIT compilation has been done
 
    .. code-block:: console
