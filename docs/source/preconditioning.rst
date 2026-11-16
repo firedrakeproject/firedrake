@@ -171,11 +171,11 @@ Firedrake has a number of preconditioners that use the :mod:`Slate
 assembled tensors. These are described in detail in :cite:`Gibson2018`.
 
 :class:`.HybridizationPC`
-   A preconditioner for hybridisable H(div) mixed methods that breaks
-   the vector-valued space, and enforces continuity through
-   introduction of a trace variable. The (now-broken) problem is
-   eliminated element-wise onto the trace space to leave a
-   single-variable global problem, whose solver can be configured.
+   A preconditioner for hybridisable mixed methods with one or more
+   H(div) fields and one or more L2 fields. It breaks the H(div) spaces
+   and enforces continuity through a trace variable for each H(div) field.
+   The mixed problem is eliminated element-wise onto the trace spaces
+   to leave a global problem whose solver can be configured.
 :class:`.SCPC`
    A preconditioner that performs element-wise static condensation
    onto a single field.

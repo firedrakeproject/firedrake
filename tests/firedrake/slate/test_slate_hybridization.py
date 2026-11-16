@@ -23,6 +23,7 @@ which appears in the variational form as the term: -<42*tau, n>
 import pytest
 
 from firedrake import *
+from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
 @pytest.fixture(scope="module")
@@ -66,6 +67,55 @@ def setup_poisson_3D():
     a = inner(sigma, tau) * dx(degree=8) + (inner(u, div(tau)) + inner(div(sigma), v)) * dx(degree=6)
     L = -inner(f, v)*dx(degree=8)
     return a, L, W
+
+
+@pytest.fixture(params=[("RT", "DG", "DG"),
+                        ("DG", "RT", "BDM"),
+                        ("RT", "DG", "BDM", "DG"),
+                        ("DG", "BDM", "DG", "RT")])
+def multi_field_problem(request: pytest.FixtureRequest) -> tuple:
+    mesh = UnitSquareMesh(2, 2)
+    families = request.param
+    W = MixedFunctionSpace([FunctionSpace(mesh, family, 0 if family == "DG" else 1)
+                            for family in families])
+    trial = TrialFunctions(W)
+    test = TestFunctions(W)
+    hdiv_fields = tuple(i for i, family in enumerate(families) if family != "DG")
+    l2_fields = tuple(i for i, family in enumerate(families) if family == "DG")
+    a = sum(inner(u, v) for u, v in zip(trial, test)) * dx
+    for fields in (hdiv_fields, l2_fields):
+        a += sum(0.1 * inner(trial[i], test[j]) * dx
+                 for i in fields for j in fields if i != j)
+    a += sum((inner(div(trial[i]), test[j]) - inner(trial[j], div(test[i])))
+             for i in hdiv_fields for j in l2_fields) * dx
+    x, y = SpatialCoordinate(mesh)
+    L = sum((i + 1) * (1 + x + y) * test[i] for i in l2_fields) * dx
+    return a, L, W, hdiv_fields
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("strong_bcs", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+def test_slate_hybridization_multi_field(multi_field_problem: tuple, strong_bcs: bool, nested: bool) -> None:
+    a, L, W, hdiv_fields = multi_field_problem
+    bcs = [DirichletBC(W.sub(i), 0, j + 1)
+           for j, i in enumerate(hdiv_fields)] if strong_bcs else []
+    hybridization = {"ksp_type": "preonly", "pc_type": "lu",
+                     "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER}
+    if nested:
+        hybridization["localsolve"] = {"ksp_type": "preonly", "pc_type": "fieldsplit",
+                                       "pc_fieldsplit_type": "schur"}
+    solution = Function(W)
+    solve(a == L, solution, bcs=bcs,
+          solver_parameters={"mat_type": "matfree", "ksp_type": "preonly",
+                             "pc_type": "python", "pc_python_type": "firedrake.HybridizationPC",
+                             "hybridization": hybridization})
+    reference = Function(W)
+    solve(a == L, reference, bcs=bcs,
+          solver_parameters={"mat_type": "aij", "ksp_type": "preonly", "pc_type": "lu",
+                             "pc_factor_mat_solver_type": DEFAULT_DIRECT_SOLVER})
+    for actual, expected in zip(solution.subfunctions, reference.subfunctions):
+        assert errornorm(actual, expected) < 1.e-11
 
 
 def options_check(builder, expected):

@@ -1,9 +1,8 @@
 from collections import namedtuple
 from pyop3.pyop2_utils import as_tuple
 
-from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters
-from firedrake.slate.slate import DiagonalTensor, Tensor, AssembledVector
+from firedrake.slate.slate import Block, DiagonalTensor, Tensor, AssembledVector
 from firedrake.petsc import PETSc
 
 
@@ -293,11 +292,14 @@ class SchurComplementBuilder(object):
         self.Atilde = Atilde
         self.K = K
         self.KT = KT
-        self.vidx = vidx
-        self.pidx = pidx
 
         # prefixes
         self.prefix = prefix + "localsolve_"
+
+        # Get the subspaces of Atilde in each split of the nested Schur complement.
+        opts = PETSc.Options(self.prefix)
+        self.vidx = tuple(map(int, opts.getIntArray("pc_fieldsplit_0_fields", as_tuple(vidx))))
+        self.pidx = tuple(map(int, opts.getIntArray("pc_fieldsplit_1_fields", as_tuple(pidx))))
         self._retrieve_options(pc)
 
         self.non_zero_saddle_mat = non_zero_saddle_mat
@@ -316,29 +318,26 @@ class SchurComplementBuilder(object):
             self.inner_S_inv_hat = self.build_inner_S_inv()
 
     def _split_mixed_operator(self):
-        split_mixed_op = dict(split_form(self.Atilde.form))
-
         if self.nfields > 1:
-            id0, id1 = (self.vidx, self.pidx)
-            A00 = Tensor(split_mixed_op[(id0, id0)])
+            id0, id1 = map(as_tuple, (self.vidx, self.pidx))
+            A00 = Block(self.Atilde, (id0, id0))
         else:
-            A00 = Tensor(split_mixed_op[(None, None)])
+            A00 = self.Atilde
         self.list_split_mixed_ops = [A00, None, None, None]
 
         if self.nfields > 1:
-            A01 = Tensor(split_mixed_op[(id0, id1)])
-            A10 = Tensor(split_mixed_op[(id1, id0)])
-            A11 = Tensor(split_mixed_op[(id1, id1)])
+            A01 = Block(self.Atilde, (id0, id1))
+            A10 = Block(self.Atilde, (id1, id0))
+            A11 = Block(self.Atilde, (id1, id1))
             self.list_split_mixed_ops = [A00, A01, A10, A11]
 
-            split_trace_op = dict(split_form(self.K.form))
-            K0 = Tensor(split_trace_op[(None, id0)])
-            K1 = Tensor(split_trace_op[(None, id1)])
+            trace_fields = tuple(range(len(self.K.arg_function_spaces[0])))
+            K0 = Block(self.K, (trace_fields, id0))
+            K1 = Block(self.K, (trace_fields, id1))
             self.list_split_trace_ops = [K0, K1]
 
-            split_trace_op_transpose = dict(split_form(self.KT.form))
-            K0 = Tensor(split_trace_op_transpose[(id0, None)])
-            K1 = Tensor(split_trace_op_transpose[(id1, None)])
+            K0 = Block(self.KT, (id0, trace_fields))
+            K1 = Block(self.KT, (id1, trace_fields))
             self.list_split_trace_ops_transpose = [K0, K1]
 
     def _check_options(self, valid_options):
@@ -363,7 +362,7 @@ class SchurComplementBuilder(object):
                        and get_option("pc_fieldsplit_type") == "schur")
 
         # Get preconditioning options for A00
-        fs0, fs1 = ("fieldsplit_"+str(idx) for idx in (self.vidx, self.pidx))
+        fs0, fs1 = ("fieldsplit_0", "fieldsplit_1")
         self._check_options([(fs0+"ksp_type", {"preonly", "default"}), (fs0+"pc_type", {"jacobi"})])
         self.preonly_A00 = get_option(fs0+"_ksp_type") == "preonly"
         self.jacobi_A00 = get_option(fs0+"_pc_type") == "jacobi"
@@ -451,7 +450,26 @@ class SchurComplementBuilder(object):
             return None
 
     def build_schur(self, rhs, non_zero_saddle_rhs=None):
-        """The Schur complement in the operators of the trace solve contains
+        """Construct the Schur complement and its right-hand side.
+
+        Parameters
+        ----------
+        rhs : AssembledVector or Block
+            The residual on the fields that will be eliminated.
+        non_zero_saddle_rhs : AssembledVector or Block, optional
+            The residual on the retained fields of a system with a nonzero
+            diagonal block.
+
+        Returns
+        -------
+        schur_rhs : TensorBase
+            The right-hand side of the reduced system.
+        schur_comp : TensorBase
+            The operator of the reduced system.
+
+        Notes
+        -----
+        The Schur complement in the operators of the trace solve contains
         the inverse on a mixed system.  Users may want this inverse to be treated
         with another Schur complement.
 
@@ -472,8 +490,8 @@ class SchurComplementBuilder(object):
             _, A01, A10, _ = self.list_split_mixed_ops
             K0, K1 = self.list_split_trace_ops
             KT0, KT1 = self.list_split_trace_ops_transpose
-            R = [rhs.blocks[self.vidx],
-                 rhs.blocks[self.pidx]]
+            R = [Block(rhs, (as_tuple(self.vidx),)),
+                 Block(rhs, (as_tuple(self.pidx),))]
             # K * block1
             K_Ainv_block1 = [K0, -K0 * self.A00_inv_hat * A01 + K1]
             # K * block1 * block2
