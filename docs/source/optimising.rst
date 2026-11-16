@@ -265,8 +265,6 @@ Installing TAU
 
      $ export PATH=${PATH}:/path/to/TAU/tau/x86_64/bin
 
-   where ``/path/to/TAU`` will be the path to your TAU installation (i.e. the same as ``$MY_TAU_DIR``). The ``x86_64`` part of the part is platform dependent and may differ on your system.
-
    *You will need to add this entry to your path whenever you use TAU.*
 
    Now make and install TAU:
