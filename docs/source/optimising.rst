@@ -267,7 +267,7 @@ Installing TAU
 
    *You will need to add this entry to your path whenever you use TAU.*
 
-   Now make and install TAU:
+#. Now make and install TAU:
 
    .. code-block:: console
 
