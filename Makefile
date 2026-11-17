@@ -26,16 +26,14 @@ srclint:
 	@echo "    Linting firedrake scripts"
 	@python -m flake8 $(FLAKE8_FORMAT) firedrake/scripts --filename=*
 	@python -m flake8 $(FLAKE8_FORMAT) scripts --filename=*
-	@echo "    Linting firedrake tests"
-	@python -m flake8 $(FLAKE8_FORMAT) tests
-	@echo "    Linting PyOP2"
-	@python -m flake8 $(FLAKE8_FORMAT) pyop2
-	@echo "    Linting PyOP2 scripts"
-	@python -m flake8 $(FLAKE8_FORMAT) pyop2/scripts --filename=*
+	@echo "    Linting Cython code"
+	@cython-lint **/*.pyx
+	@echo "    Linting pyop3"
+	@python -m flake8 $(FLAKE8_FORMAT) pyop3
 	@echo "    Linting TSFC"
 	@python -m flake8 $(FLAKE8_FORMAT) tsfc
-	@echo "    Linting Cython code"
-	@cython-lint firedrake/cython
+	@echo "    Linting tests"
+	@python -m flake8 $(FLAKE8_FORMAT) tests
 
 .PHONY: actionlint
 actionlint:

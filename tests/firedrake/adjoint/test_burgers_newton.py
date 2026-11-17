@@ -66,33 +66,30 @@ def _check_forward(tape, controls=None):
 
 
 def _check_recompute(tape, controls=None):
-    skip = _control_bvs(controls)
-    for current_step in tape.timesteps[1:-1]:
-        for block in current_step:
-            for deps in block.get_dependencies():
-                if deps in skip:
-                    continue
-                if deps not in tape.timesteps[0].checkpointable_state:
-                    assert deps._checkpoint is None
-            for out in block.get_outputs():
-                if out in skip:
-                    continue
-                assert out._checkpoint is None
+    """Check working memory after a replay.
 
-    for block in tape.timesteps[0]:
-        for out in block.get_outputs():
-            if out in skip:
-                continue
-            assert out._checkpoint is None
-    for block in tape.timesteps[len(tape.timesteps)-1]:
-        for deps in block.get_dependencies():
-            if deps in skip:
-                continue
-            if (
-                deps not in tape.timesteps[0].checkpointable_state
-                and deps not in tape.timesteps[len(tape.timesteps)-1].adjoint_dependencies
-            ):
-                assert deps._checkpoint is None
+    The next action is the Reverse of the last step, so working memory may
+    only hold what that Reverse reads, the adjoint dependencies of the last
+    step, plus the state needed to replay again. A block variable is checked
+    wherever it appears, since it may be produced in one step and read in a
+    later one. Whether what is kept is enough is checked by comparing
+    gradients, in ``test_previous_state_deps``.
+    """
+    last = tape.timesteps[-1]
+    keep = (
+        _control_bvs(controls)
+        | set(tape.timesteps[0].checkpointable_state)
+        | set(last.adjoint_dependencies)
+    )
+    if not last._revised_adj_deps:
+        # Before the first Reverse, the adjoint dependencies of the last step
+        # only hold its outputs, so its inputs are kept as well.
+        keep |= set(last.checkpointable_state)
+    for current_step in tape.timesteps:
+        for block in current_step:
+            for bv in list(block.get_dependencies()) + list(block.get_outputs()):
+                if bv not in keep:
+                    assert bv._checkpoint is None
 
 
 def _check_reverse(tape, controls=None):
@@ -119,14 +116,18 @@ def _check_reverse(tape, controls=None):
                     assert out._checkpoint is None
 
 
-def J(ic, nu, solve_type, timestep, total_steps, V, nu_time_dependent=False):
+def J(ic, nu, solve_type, timestep, total_steps, V, nu_time_dependent=False,
+      explicit_advection=False):
     """Burgers equation solver."""
     u_ = Function(V, name="u_")
     u = Function(V, name="u")
     v = TestFunction(V)
     u_.assign(ic)
+    # With explicit advection, the adjoint of each step needs the value of
+    # ``u_`` from the previous step.
+    advection = u_*u_.dx(0) if explicit_advection else u*u.dx(0)
     F = ((u - u_)/timestep*v
-         + u*u.dx(0)*v + nu*u.dx(0)*v.dx(0))*dx
+         + advection*v + nu*u.dx(0)*v.dx(0))*dx
     bc = DirichletBC(V, 0.0, "on_boundary")
 
     if solve_type == "NLVS":
@@ -311,6 +312,48 @@ def test_checkpointing_validity(solve_type, checkpointing, basics):
     assert len(tape.timesteps) == steps
     assert np.allclose(val0, val1)
     assert np.allclose(dJ0.dat.data_ro[:], Jhat.derivative().dat.data_ro[:])
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("checkpointing", ["Revolve", "Mixed"])
+def test_previous_state_deps(checkpointing, basics):
+    """Gradients match a tape without checkpointing when the adjoint of each
+    step reads the previous state, before and after a replay.
+    """
+    mesh, timestep, steps = basics
+    ic_new = project(sin(pi*SpatialCoordinate(mesh)[0]), FunctionSpace(mesh, "CG", 2))
+
+    def reduced_functional(schedule):
+        tape = get_working_tape()
+        tape.clear_tape()
+        if schedule is not None:
+            tape.enable_checkpointing(schedule)
+        V, ic, nu = setup_test(mesh)
+        val = J(ic, nu, "NLVS", timestep, steps, V, explicit_advection=True)
+        return ReducedFunctional(val, Control(ic)), ic
+
+    def schedule():
+        if checkpointing == "Revolve":
+            return Revolve(steps, steps//3)
+        return MixedCheckpointSchedule(steps, steps//3, storage=StorageType.RAM)
+
+    Jhat, ic = reduced_functional(None)
+    dJ = Jhat.derivative().dat.data_ro.copy()
+    Jhat(ic_new)
+    dJ_new = Jhat.derivative().dat.data_ro.copy()
+
+    # First gradient.
+    Jhat, ic = reduced_functional(schedule())
+    assert np.allclose(Jhat.derivative().dat.data_ro, dJ)
+    # First gradient after a replay at the recorded control.
+    Jhat, ic = reduced_functional(schedule())
+    Jhat(ic)
+    _check_recompute(get_working_tape(), controls=[ic])
+    assert np.allclose(Jhat.derivative().dat.data_ro, dJ)
+    # First gradient after a replay at another control.
+    Jhat, ic = reduced_functional(schedule())
+    Jhat(ic_new)
+    assert np.allclose(Jhat.derivative().dat.data_ro, dJ_new)
 
 
 @pytest.mark.skipcomplex

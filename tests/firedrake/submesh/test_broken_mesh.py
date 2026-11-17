@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from firedrake import *
+from firedrake.pack import pack
 
 
 def broken_mesh():
@@ -22,24 +23,20 @@ def broken_mesh():
 @pytest.mark.parallel(nprocs=[1, 2])
 def test_broken_mesh_dof_section():
     parent, broken = broken_mesh()
-    entity_dofs = np.zeros(broken.topological_dimension + 1, dtype=np.int32)
-    entity_dofs[0] = 1
-    parent_section, _ = parent.create_section(entity_dofs)
-    broken_section, _ = broken.create_section(entity_dofs)
+    parent_section = FunctionSpace(parent, "CG", 1).local_section
+    broken_section = FunctionSpace(broken, "CG", 1).local_section
 
     assert broken.submesh_parent is parent
     assert broken_section.getStorageSize() > parent_section.getStorageSize()
     assert broken_section.getStorageSize() == broken.num_vertices()
 
-    parent_map = broken.submesh_child_exterior_facet_parent_interior_facet_map.values.ravel()
-    parent_map = parent_map[parent_map >= 0]
+    parent_map = broken.topology._submesh_to_parent_plex_index_map[
+        broken.topology._entity_indices("plex", "exterior_facet")]
+    parent_map = parent_map[np.isin(parent_map, parent.topology._entity_indices("plex", "interior_facet"))]
     assert len(parent_map) > len(np.unique(parent_map))
-    _, integral_type = broken.topology.trans_mesh_entity_map(parent.topology, "interior_facet", 1, None)
+    sides, integral_type = broken.topology.trans_mesh_entity_map(parent.iter("interior_facet", 1))
     assert integral_type == "broken_facet"
-    parent_side_map = broken.submesh_parent_interior_facet_child_exterior_facet_map
-    gamma_indices = parent.measure_set("interior_facet", 1).indices
-    assert parent_side_map.arity == 2
-    assert np.all(parent_side_map.values_with_halo[gamma_indices] >= 0)
+    assert sides.axes.local_size == 2
 
 
 @pytest.mark.parallel(nprocs=[1, 2])
@@ -59,17 +56,10 @@ def test_broken_mesh_standard_spaces_and_cross_mesh_trace():
     assert gamma.submesh_parent is parent
     assert broken_space.dim() > parent_space.dim()
     assert gamma_space.dim() > 0
-    parent_trace_map = broken_space.topological.entity_node_map(
-        parent.topology,
-        "interior_facet",
-        1,
-        None,
-    )
-    assert parent_trace_map.arity == 8
-
     u = Function(broken_space)
-    cell_nodes = broken_space.cell_node_map().values
-    coordinate_nodes = broken.coordinates.function_space().cell_node_map().values
+    assert pack(u, parent.iter("interior_facet", 1)).axes.local_size == 8
+    cell_nodes = broken_space.cell_node_list
+    coordinate_nodes = broken.coordinates.function_space().cell_node_list
     cell_y = broken.coordinates.dat.data_ro_with_halos[coordinate_nodes, 1].mean(axis=1)
     assert not np.any(np.isclose(cell_y, 0.5))
     u.dat.data_with_halos[:] = 0

@@ -29,97 +29,104 @@ def test_massVW0(V, W):
     u = TrialFunction(V)
     v = TestFunction(W)[0]
     A = assemble(inner(u, v)*dx)
-    assert A.M.sparsity.shape == (2, 1)
+
+    label0, label1 = W._labels
     # DGxDG block
-    assert not np.allclose(A.M[0, 0].values, 0.0)
+    assert not np.allclose(A.M[label0, ...].values, 0.0)
     # DGxRT block (0, since test function was restricted to DG block)
-    assert np.allclose(A.M[1, 0].values, 0.0)
+    assert np.allclose(A.M[label1, ...].values, 0.0)
 
 
 def test_massVW1(V, W):
     u = TrialFunction(V)
     v = TestFunction(W)[1]
     A = assemble(inner(u, v)*dx)
-    assert A.M.sparsity.shape == (2, 1)
+
+    label0, label1 = W._labels
     # DGxDG block (0, since test function was restricted to RT block)
-    assert np.allclose(A.M[0, 0].values, 0.0)
+    assert np.allclose(A.M[label0, ...].values, 0.0)
     # DGxRT block
-    assert not np.allclose(A.M[1, 0].values, 0.0)
+    assert not np.allclose(A.M[label1, ...].values, 0.0)
 
 
 def test_massW0W0(W):
     u = TrialFunction(W)[0]
     v = TestFunction(W)[0]
     A = assemble(inner(u, v)*dx)
-    assert A.M.sparsity.shape == (2, 2)
+
+    label0, label1 = W._labels
     # DGxDG block
-    assert not np.allclose(A.M[0, 0].values, 0.0)
+    assert not np.allclose(A.M[label0, label0].values, 0.0)
     # DGxRT block
-    assert np.allclose(A.M[1, 0].values, 0.0)
+    assert np.allclose(A.M[label1, label0].values, 0.0)
     # RTxDG block
-    assert np.allclose(A.M[0, 1].values, 0.0)
+    assert np.allclose(A.M[label0, label1].values, 0.0)
     # RTxRT block
-    assert np.allclose(A.M[1, 1].values, 0.0)
+    assert np.allclose(A.M[label1, label1].values, 0.0)
 
 
 def test_massW1W1(W):
     u = TrialFunction(W)[1]
     v = TestFunction(W)[1]
     A = assemble(inner(u, v)*dx)
-    assert A.M.sparsity.shape == (2, 2)
+
+    label0, label1 = W._labels
     # DGxDG block
-    assert np.allclose(A.M[0, 0].values, 0.0)
+    assert np.allclose(A.M[label0, label0].values, 0.0)
     # DGxRT block
-    assert np.allclose(A.M[1, 0].values, 0.0)
+    assert np.allclose(A.M[label1, label0].values, 0.0)
     # RTxDG block
-    assert np.allclose(A.M[0, 1].values, 0.0)
+    assert np.allclose(A.M[label0, label1].values, 0.0)
     # RTxRT block
-    assert not np.allclose(A.M[1, 1].values, 0.0)
+    assert not np.allclose(A.M[label1, label1].values, 0.0)
 
 
 def test_massW0W1(W):
     u = TrialFunction(W)[0]
     v = TestFunction(W)[1]
     A = assemble(inner(u, v)*dx)
-    assert A.M.sparsity.shape == (2, 2)
+
+    label0, label1 = W._labels
     # DGxDG block
-    assert np.allclose(A.M[0, 0].values, 0.0)
+    assert np.allclose(A.M[label0, label0].values, 0.0)
     # DGxRT block
-    assert not np.allclose(A.M[1, 0].values, 0.0)
+    assert not np.allclose(A.M[label1, label0].values, 0.0)
     # RTxDG block
-    assert np.allclose(A.M[0, 1].values, 0.0)
+    assert np.allclose(A.M[label0, label1].values, 0.0)
     # RTxRT block
-    assert np.allclose(A.M[1, 1].values, 0.0)
+    assert np.allclose(A.M[label1, label1].values, 0.0)
 
 
 def test_massW1W0(W):
     u = TrialFunction(W)[1]
     v = TestFunction(W)[0]
     A = assemble(inner(u, v)*dx)
-    assert A.M.sparsity.shape == (2, 2)
+
+    label0, label1 = W._labels
     # DGxDG block
-    assert np.allclose(A.M[0, 0].values, 0.0)
+    assert np.allclose(A.M[label0, label0].values, 0.0)
     # DGxRT block
-    assert np.allclose(A.M[1, 0].values, 0.0)
+    assert np.allclose(A.M[label1, label0].values, 0.0)
     # RTxDG block
-    assert not np.allclose(A.M[0, 1].values, 0.0)
+    assert not np.allclose(A.M[label0, label1].values, 0.0)
     # RTxRT block
-    assert np.allclose(A.M[1, 1].values, 0.0)
+    assert np.allclose(A.M[label1, label1].values, 0.0)
 
 
 def test_massWW(W):
     u = TrialFunction(W)
     v = TestFunction(W)
     A = assemble(inner(u, v)*dx)
-    assert A.M.sparsity.shape == (2, 2)
+
+    label0, label1 = W._labels
     # DGxDG block
-    assert not np.allclose(A.M[0, 0].values, 0.0)
+    assert not np.allclose(A.M[label0, label0].values, 0.0)
     # DGxRT block
-    assert np.allclose(A.M[1, 0].values, 0.0)
+    assert np.allclose(A.M[label1, label0].values, 0.0)
     # RTxDG block
-    assert np.allclose(A.M[0, 1].values, 0.0)
+    assert np.allclose(A.M[label0, label1].values, 0.0)
     # RTxRT block
-    assert not np.allclose(A.M[1, 1].values, 0.0)
+    assert not np.allclose(A.M[label1, label1].values, 0.0)
 
 
 def test_bcs_ordering():
@@ -142,9 +149,10 @@ def test_bcs_ordering():
 
     A = assemble(a, bcs=[bc1, bc2])
 
-    assert np.allclose(A.M[0, 0].values.diagonal()[bc1.nodes], 1.0)
-    assert np.allclose(A.M[1, 1].values.diagonal()[bc2.nodes], 1.0)
-    assert np.allclose(A.M[0, 1].values[bc1.nodes, :], 0.0)
-    assert np.allclose(A.M[1, 0].values[:, bc1.nodes], 0.0)
-    assert np.allclose(A.M[1, 0].values[bc2.nodes, :], 0.0)
-    assert np.allclose(A.M[0, 1].values[:, bc2.nodes], 0.0)
+    label0, label1 = W._labels
+    assert np.allclose(A.M[label0, label0].values.diagonal()[bc1.nodes], 1.0)
+    assert np.allclose(A.M[label1, label1].values.diagonal()[bc2.nodes], 1.0)
+    assert np.allclose(A.M[label0, label1].values[bc1.nodes, :], 0.0)
+    assert np.allclose(A.M[label1, label0].values[:, bc1.nodes], 0.0)
+    assert np.allclose(A.M[label1, label0].values[bc2.nodes, :], 0.0)
+    assert np.allclose(A.M[label0, label1].values[:, bc2.nodes], 0.0)

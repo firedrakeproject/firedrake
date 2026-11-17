@@ -29,13 +29,13 @@ def profile_insns(kernel_name, instructions, log=False):
         event_name = "Log_Event_" + kernel_name
         event_id_var_name = "ID_" + event_name
         # Logging registration
-        # The events are registered in PyOP2 and the event id is passed onto the dll
-        preamble = "PetscLogEvent "+event_id_var_name+" = -1;"
+        # The events are registered in pyop3 and the event id is passed onto the dll
+        preamble = "#include <petsclog.h>\nPetscLogEvent "+event_id_var_name+" = -1;"
         # Profiling
         prepend = [lp.CInstruction("", "PetscLogEventBegin("+event_id_var_name+",0,0,0,0);")]
         append = [lp.CInstruction("", "PetscLogEventEnd("+event_id_var_name+",0,0,0,0);")]
         instructions = prepend + instructions + append
-        return instructions, event_name, [(str(2**31-1)+"_"+kernel_name, preamble)]
+        return instructions, event_name, [("99"+"_"+kernel_name, preamble)]
     else:
         return instructions, None, None
 
@@ -338,7 +338,19 @@ def statement_return(leaf, ctx):
     rhs = expression(leaf.expression, ctx)
     if ctx.return_increments:
         rhs = lhs + rhs
-    return [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
+
+    insns = [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
+
+    # GCC has a race condition bug for non-increment returns which result
+    # in numerical nonsense. We add a '__sync_synchronize()' call to
+    # prevent it.
+    # TODO: set this with an attribute: we don't want it for clang
+    if not ctx.return_increments:
+        insns.append(
+            lp.CInstruction((), "__sync_synchronize();", within_inames=ctx.active_inames())
+        )
+
+    return insns
 
 
 @statement.register(imp.ReturnAccumulate)

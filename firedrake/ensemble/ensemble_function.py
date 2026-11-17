@@ -1,12 +1,14 @@
 from functools import cached_property
 from contextlib import contextmanager
 
-from pyop2 import MixedDat
+import ufl
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
 from firedrake.adjoint_utils import EnsembleFunctionMixin
 from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometry, FiredrakeDualSpace, MixedFunctionSpace
+from firedrake.mesh import MeshSequenceGeometry
 from firedrake.norms import norm
 
 
@@ -55,7 +57,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         # function as the storage, if the data in the Function Vec
         # is valid then the data in the EnsembleFunction Vec is valid.
 
-        with self._full_local_function.dat.vec as fvec:
+        with self._full_local_function.dat.vec_rw as fvec:
             n = function_space.nlocal_rank_dofs
             N = function_space.nglobal_dofs
             sizes = (n, N)
@@ -73,54 +75,64 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         The (co)functions on the local ensemble member.
         """
         def local_function(i):
-            V = self._fs.local_spaces[i]
-            usubs = self._subcomponents(i)
-            if len(usubs) == 1:
-                dat = usubs[0].dat
+            subspaces = []
+            labels = []
+            for j in range(*self._fs._component_indices(i)):
+                subspaces.append(self._fs._full_local_space._orig_spaces[j])
+                labels.append(self._fs._full_local_space._labels[j])
+
+            # Here we have to do a bit of a dance to create a new non-topological
+            # function space
+            if len(subspaces) == 1:
+                mesh = self._fs.mesh().unique()
+                tV = subspaces[0]
+                subdat = self._full_local_function.dat[labels[0]]
             else:
-                dat = MixedDat((u.dat for u in usubs))
-            return Function(V, val=dat)
+                mesh = MeshSequenceGeometry([self._fs.mesh().unique()] * len(subspaces))
+                tV = MixedFunctionSpace(subspaces, mesh.topological, _labels=labels)
+                subdat = self._full_local_function.dat[labels]
+            if isinstance(self, EnsembleFunction):
+                V = WithGeometry(tV, mesh)
+            else:
+                assert isinstance(self, EnsembleCofunction)
+                V = FiredrakeDualSpace(tV, mesh)
+            return Function(V, val=subdat)
 
         return tuple(local_function(i)
                      for i in range(self._fs.nlocal_spaces))
 
-    def _subcomponents(self, i):
-        """
-        Return the subfunctions of the local mixed function storage
-        corresponding to the i-th local function.
-
-        Firedrake doesn't support nested ``MixedFunctionSpace``, so internally
-        :class:`~firedrake.ensemble.ensemble_functionspace.EnsembleFunctionSpace` flattens all the
-        local :class:`~firedrake.functionspaceimpl.FunctionSpace` into a
-        single ``MixedFunctionSpace``. This method retrieves the components of
-        the flattened MixedFunction corresponding to the i-th local
-        :class:`~firedrake.function.Function`.
-        """
-        return tuple(self._full_local_function.subfunctions[j]
-                     for j in self._fs._component_indices(i))
-
     @PETSc.Log.EventDecorator()
-    def riesz_representation(self, **kwargs):
+    def riesz_representation(self, riesz_map='L2', **kwargs):
         """
-        Return the Riesz representation of this :class:`EnsembleFunction`
-        with respect to the given Riesz map.
+        Return the Riesz representation of this ``EnsembleFunction``
+        or ``EnsembleCofunction``.
 
-        Internally delegates to the
-        :meth:`firedrake.function.Function.riesz_representation()`
-        of each component.
+        The default behaviour is to delegate to a
+        :class:`~firedrake.cofunction.RieszMap` for each subfunction.
+        Any ``kwargs`` will be forwarded on, for example to specify
+        the particular ``riesz_map``.
+
+        A custom Riesz map can also be provided as a callable via the
+        ``riesz_map`` kwarg. The callable should act on the entire
+        ``EnsembleFunction`` or ``EnsembleCofunction``.
 
         Parameters
         ----------
-        riesz_map
-            The Riesz map to use (`l2`, `L2`, or `H1`). This can also be a callable.
+        riesz_map: str or ufl.sobolevspace.SobolevSpace
+            The Riesz map to use for each subfunction (e.g. ``"l2"``,
+            ``"L2"``, or ``"H1"``), or a callable acting on the entire
+            ``EnsembleFunction`` (or ``EnsembleCofunction``).
 
         kwargs
-            other arguments to be passed to the firedrake.riesz_map.
+            Other arguments to be forwarded to the
+            :class:`~firedrake.cofunction.RieszMap`.
         """
+        if not isinstance(riesz_map, (str, ufl.sobolevspace.SobolevSpace)):
+            return riesz_map(self)
+
         riesz = EnsembleFunction(self.function_space().dual())
         for uself, uriesz in zip(self.subfunctions, riesz.subfunctions):
-            uriesz.assign(
-                uself.riesz_representation(**kwargs))
+            uriesz.assign(uself.riesz_representation(riesz_map=riesz_map, **kwargs))
         return riesz
 
     @PETSc.Log.EventDecorator()
@@ -134,7 +146,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         other : :class:`EnsembleFunction`
             The value to assign from.
 
-        subsets : Collection[Optional[:class:`pyop2.types.set.Subset`]]
+        subsets : Collection[Optional[:class:`pyop3.Index`]]
             One subset for each local :class:`firedrake.function.Function`.
             None elements will be ignored. The values of each local function
             will only be assigned on the nodes on the corresponding subset.
@@ -165,7 +177,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         Parameters
         ----------
 
-        subsets : Collection[Optional[:class:`pyop2.types.set.Subset`]]
+        subsets : Collection[:class:`pyop3.Index` | None]
             One subset for each local :class:`firedrake.function.Function`.
             None elements will be ignored.  The values of each local function
             will only be zeroed on the nodes on the corresponding subset.
@@ -244,7 +256,7 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
         # However, because the copies in the _full_local_function.dat.vec
         # context manager are done without _vec knowing, we have to manually
         # increment the state to make sure its still in sync.
-        with self._full_local_function.dat.vec:
+        with self._full_local_function.dat.vec_rw:
             self._vec.stateIncrease()
             yield self._vec
 
@@ -303,8 +315,8 @@ class EnsembleFunction(EnsembleFunctionBase):
     to ``EnsembleFunction`` will return an instance of :class:`EnsembleCofunction`.
 
     This class does not carry UFL symbolic information, unlike a
-    :class:`~firedrake.function.Function`. UFL expressions can only be defined
-    locally on each ensemble member using a :class:`~firedrake.function.Function`
+    :class:`firedrake.function.Function`. UFL expressions can only be defined
+    locally on each ensemble member using a :class:`firedrake.function.Function`
     from ``EnsembleFunction.subfunctions``.
 
     See Also

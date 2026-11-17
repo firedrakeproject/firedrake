@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_meshes_volume_annulusmesh():
     R = 4
     r = 3
@@ -12,7 +12,7 @@ def test_meshes_volume_annulusmesh():
     assert abs(vol - exact) / exact < .0005
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_meshes_volume_solidtorusmesh():
     R = 7  # major radius
     r = 3  # minor radius

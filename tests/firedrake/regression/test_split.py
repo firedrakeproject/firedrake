@@ -158,7 +158,7 @@ def test_split_action_composition():
     mass = inner(TrialFunction(W), TestFunction(W))*dx
     A = action(adjoint(I), action(mass, I))
     matrix = assemble(A, mat_type="aij").petscmat
-    ises = W.dof_dset.field_ises
+    ises = W.field_ises
     splitter = ExtractSubBlock()
 
     for i, j in np.ndindex(2, 2):

@@ -6,7 +6,7 @@ from firedrake.petsc import PETSc
 
 def assert_local_equality(A, Asub, V, Vsub):
     u = Function(V)
-    u.dat.data[:] = np.arange(*V.dof_dset.layout_vec.getOwnershipRange())
+    u.dat.data[:] = np.arange(*V.template_vec.getOwnershipRange())
     usub = Function(Vsub).assign(u)
     indices = usub.dat.data_ro.astype(PETSc.IntType)
     rmap = PETSc.LGMap().create(indices, comm=A.getComm())
@@ -34,14 +34,32 @@ def test_create_submesh_comm_self(reorder, ignore_halo):
     assert submesh.submesh_parent is mesh
     assert submesh.comm.size == 1
     # Submesh on COMM_SELF should not have halo
-    assert submesh.cell_set.total_size == submesh.cell_set.size
+    assert submesh.cells.local_size == submesh.cells.owned.local_size
     # Submesh on COMM_SELF should exclude the halo from the parent mesh if ignore_halo = True
-    expected_size = mesh.cell_set.size if ignore_halo else mesh.cell_set.total_size
-    assert submesh.cell_set.size == expected_size
+    expected_size = mesh.cells.owned.local_size if ignore_halo else mesh.cells.local_size
+    assert submesh.cells.owned.local_size == expected_size
 
     x = Function(submesh.coordinates.function_space())
     x.assign(mesh.coordinates)
     assert np.allclose(submesh.coordinates.dat.data_ro, x.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_submesh_comm_self_distinct_from_parent():
+    comm = COMM_WORLD.Dup()
+    subcomm = COMM_WORLD.Split(color=COMM_WORLD.rank, key=0)
+    mesh = UnitSquareMesh(4, 4, comm=comm)
+    submesh = Submesh(mesh, ignore_halo=True, comm=subcomm)
+    assert submesh != mesh
+
+    V = FunctionSpace(mesh, "CG", 1)
+    Vsub = FunctionSpace(submesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+    xsub, ysub = SpatialCoordinate(submesh)
+    u = Function(V).interpolate(x + 10*y)
+    usub = Function(Vsub).assign(u)
+    expected = Function(Vsub).interpolate(xsub + 10*ysub)
+    assert np.allclose(usub.dat.data_ro, expected.dat.data_ro)
 
 
 @pytest.mark.parallel([1, 3])
@@ -60,9 +78,7 @@ def test_submesh_comm_self_entity_classes(ignore_halo):
 
     plex = submesh.topology_dm
     pStart, pEnd = plex.getChart()
-    assert plex.getStratumSize("pyop2_core", 1) == pEnd - pStart
-    assert plex.getStratumSize("pyop2_owned", 1) == 0
-    assert plex.getStratumSize("pyop2_ghost", 1) == 0
+    assert plex.getStratumSize("firedrake_is_ghost", 1) == 0
 
 
 @pytest.mark.parallel([1, 3])

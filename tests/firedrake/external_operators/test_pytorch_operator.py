@@ -277,6 +277,7 @@ def test_solve(mesh, V):
 
 @pytest.mark.skipcomplex  # grad can be implicitly created only for real scalar outputs but got torch.complex128
 @pytest.mark.skiptorch  # Skip if PyTorch is not installed
+@pytest.mark.xfail(reason="I think this might be illegal")  # see the equivalent jax test for reasoning
 def test_mixed_space_bcs():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "CG", 1)

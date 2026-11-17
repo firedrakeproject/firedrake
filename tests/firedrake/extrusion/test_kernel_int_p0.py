@@ -28,8 +28,7 @@ def integrate_p0(family, degree):
     A[0] = A[0] + 0.5*abs(area)*(real(x[1,2])-real(x[0,2]))*real(y[0,0])
     """.format(RealType)
 
-    par_loop((domain, instructions), dx, {"A": (g, INC), "x": (coords, READ), "y": (f, READ)},
-             kernel_kwargs={"requires_zeroed_output_arguments": True})
+    par_loop((domain, instructions), dx, {"A": (g, INC), "x": (coords, READ), "y": (f, READ)})
 
     return np.abs(g.dat.data[0] - 3.0)
 

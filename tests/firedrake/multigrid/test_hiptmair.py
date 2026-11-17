@@ -16,8 +16,9 @@ def gmg_parameters(V, mat_type, max_it):
         relax = {
             "ksp_type": "preonly",
             "pc_type": "python",
-            "pc_python_type": "firedrake.ASMExtrudedStarPC",
+            "pc_python_type": "firedrake.ASMStarPC",
             "pc_star_construct_dim": formdegree,
+            "pc_star_column": 0,
             "pc_star_sub_sub_ksp_type": "preonly",
             "pc_star_sub_sub_pc_type": "jacobi",
         }
@@ -60,8 +61,9 @@ def asm(k):
     return {
         "ksp_type": "preonly",
         "pc_type": "python",
-        "pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pc_python_type": "firedrake.ASMStarPC",
         "pc_star_construct_dim": k,
+        "pc_star_column": 0,
     }
 
 
@@ -147,6 +149,8 @@ def test_gmg_hiptmair_hcurl(mesh_hierarchy, mat_type):
 
 @pytest.mark.parametrize("mat_type", ["aij", "matfree"])
 def test_gmg_hiptmair_hdiv(mesh_hierarchy, mat_type):
+    if mat_type == "aij":
+        pytest.xfail(reason="Extruded mesh bug, see https://gitlab.com/petsc/petsc/-/work_items/1946")
     mesh = mesh_hierarchy[-1]
     if mesh.ufl_cell().is_simplex:
         family = "N1div"

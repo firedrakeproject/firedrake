@@ -4,7 +4,7 @@ from scipy.sparse import csr_array
 import petsctools
 from firedrake import *
 from firedrake.adjoint import (
-    WhiteNoiseGenerator, PyOP2NoiseBackend, PetscNoiseBackend,
+    WhiteNoiseGenerator, Pyop3NoiseBackend, PetscNoiseBackend,
     VOMNoiseBackend, AutoregressiveCovariance, MixedCovarianceOperator,
     CovarianceMat)
 
@@ -39,7 +39,7 @@ def rng():
 @pytest.mark.parametrize("dim", (0, 2, (2, 2)), ids=["scalar", "vec2", "tensor22"])
 @pytest.mark.parametrize("family", ("CG", "DG"))
 @pytest.mark.parametrize("mesh_type", ("interval", "square"))
-@pytest.mark.parametrize("backend_type", (PyOP2NoiseBackend, PetscNoiseBackend), ids=("pyop2", "petsc"))
+@pytest.mark.parametrize("backend_type", (Pyop3NoiseBackend, PetscNoiseBackend), ids=("pyop3", "petsc"))
 def test_white_noise(family, degree, mesh_type, dim, backend_type, rng, garbage_cleanup):
     """Test that white noise generator converges to a mass matrix covariance.
     """
@@ -284,7 +284,7 @@ def test_covariance_mat(m, family, operation):
 
         B.apply_inverse(xcheck, tensor=ycheck)
 
-    with x.dat.vec as xv, y.dat.vec as yv:
+    with x.dat.vec as xv, y.dat.vec_wo as yv:
         mat.mult(xv, yv)
 
     # flip to primal space to calculate norms
@@ -429,6 +429,59 @@ def test_mixed_covariance(operation):
         xcheck = xcheck.riesz_representation()
 
     assert errornorm(xcheck, x)/norm(xcheck) < 10*tol
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("operation", ("action", "inverse"))
+def test_covariance_mat_shift(operation):
+    """Test that covariance mat uses a shift when set.
+    """
+    nx = 4
+    L = 0.1
+    sigma = 0.9
+    m = 0
+
+    mesh = UnitIntervalMesh(nx)
+    coords, = SpatialCoordinate(mesh)
+
+    V = FunctionSpace(mesh, "CG", 1)
+
+    B = AutoregressiveCovariance(V, L, sigma, m)
+
+    mat = CovarianceMat(B, operation=operation)
+
+    expr = 2*pi*coords
+    x = Function(V).project(expr)
+
+    if operation == 'action':
+        # B: V* -> V
+        x = x.riesz_representation()
+    Vx = x.function_space()
+
+    # original unshifted multiplication
+    y = Function(Vx.dual())
+    with x.dat.vec_ro as xv, y.dat.vec_wo as yv:
+        mat.mult(xv, yv)
+
+    shift = 10.
+    y_shift = Function(Vx.dual())
+    with x.dat.vec_ro as xv, y.dat.vec_ro as yv, y_shift.dat.vec_wo as yshift:
+        # shift by weighted identity
+        mat.shift(shift)
+        mat.mult(xv, yshift)
+        yshift.axpy(-shift, xv)
+        assert (yshift - yv).norm() < 1e-14
+
+        # shift should be cumulative
+        mat.shift(shift)
+        mat.mult(xv, yshift)
+        yshift.axpy(-2*shift, xv)
+        assert (yshift - yv).norm() < 1e-14
+
+        # reset shift to zero
+        mat.getPythonContext().update()
+        mat.mult(xv, yshift)
+        assert (yshift - yv).norm() < 1e-14
 
 
 @pytest.mark.skipcomplex
