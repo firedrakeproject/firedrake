@@ -1010,13 +1010,15 @@ class PetscMatAxisSpec(pyop3.obj.Object):
 
 
 @pyop3.record.record()
-class PetscObjectBuffer(ConcreteBuffer):
-    """A buffer that passes a PETSc object directly to a local kernel.
+class OpaqueObject(ConcreteBuffer):
+    """A buffer that passes an opaque object directly to a local kernel.
 
     Parameters
     ----------
     obj
-        The PETSc object that the local kernel receives.
+        The object that the local kernel receives.
+    dtype
+        The opaque C type of the object.
     comm
         The communicator on which the object is used.
     name, prefix
@@ -1024,14 +1026,16 @@ class PetscObjectBuffer(ConcreteBuffer):
 
     Notes
     -----
-    The buffer does not inspect or modify the PETSc object. It only keeps the
-    object alive and supplies its C pointer to generated code.
+    The buffer keeps the object alive and supplies its C pointer to generated
+    code. Its state counts modifications that are reported through the buffer.
+    Changes made directly to the object are not tracked.
     """
 
-    _obj: PETSc.Object
+    _obj: Any
     _name: str
     _dtype: pyop3.dtypes.OpaqueType
     _comm: MPI.Comm
+    _state: int
 
     def collect_buffers(self, visitor):
         return OrderedFrozenSet([self])
@@ -1043,20 +1047,20 @@ class PetscObjectBuffer(ConcreteBuffer):
 
     def __init__(
         self,
-        obj: PETSc.Object,
+        obj: Any,
+        dtype: pyop3.dtypes.OpaqueType,
         *,
         comm: MPI.Comm,
         name: str | None = None,
         prefix: str | None = None,
-    ) -> None:
-        if not isinstance(obj, PETSc.Object):
-            raise TypeError(f"'obj' must be a PETSc object, not {type(obj).__name__}.")
+    ):
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._obj = obj
         self._name = name
-        self._dtype = pyop3.dtypes.OpaqueType(obj.klass)
+        self._dtype = dtype
         self._comm = comm
+        self._state = 0
 
     name: ClassVar[property] = pyop3.record.attr("_name")
     dtype: ClassVar[property] = pyop3.record.attr("_dtype")
@@ -1067,25 +1071,26 @@ class PetscObjectBuffer(ConcreteBuffer):
 
     @property
     def constant(self) -> bool:
-        return True
+        return False
 
     @property
     def state(self) -> int:
-        return 0
+        return self._state
 
     def inc_state(self) -> None:
-        pass
+        """Increment the counter that tracks modifications to the object."""
+        self._state += 1
 
     def duplicate(
         self,
         *,
         copy: bool = False,
         constant: bool | None = None,
-    ) -> PetscObjectBuffer:
-        raise NotImplementedError("PETSc object buffers cannot be duplicated")
+    ) -> OpaqueObject:
+        raise NotImplementedError("Opaque objects cannot be duplicated")
 
     def zero(self) -> None:
-        raise NotImplementedError("PETSc object buffers cannot be zeroed")
+        raise NotImplementedError("Opaque objects cannot be zeroed")
 
     def nest_shape(
         self,
@@ -1094,7 +1099,7 @@ class PetscObjectBuffer(ConcreteBuffer):
         assert not nest_indices
         return None
 
-    DEFAULT_PREFIX = "petscobject"
+    DEFAULT_PREFIX = "opaque"
 
 
 @pyop3.record.record()
@@ -1731,7 +1736,7 @@ def _(mat_buf: PetscMatBuffer, nest_indices):
 
 
 @_denest.register
-def _(obj_buf: PetscObjectBuffer, nest_indices):
+def _(obj_buf: OpaqueObject, nest_indices):
     assert not nest_indices
     return obj_buf._obj
 

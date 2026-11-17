@@ -57,7 +57,7 @@ from pyop3.buffer import (
     NestedPetscMatInitBufferSpec,
     NullBuffer,
     PetscMatBuffer,
-    PetscObjectBuffer,
+    OpaqueObject,
 )
 __all__ += [
     "ArrayBuffer",
@@ -71,7 +71,7 @@ __all__ += [
     "NestedPetscMatInitBufferSpec",
     "NullBuffer",
     "PetscMatBuffer",
-    "PetscObjectBuffer",
+    "OpaqueObject",
 ]
 from pyop3.constants import (
     DECIDE,

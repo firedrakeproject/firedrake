@@ -409,22 +409,50 @@ MatSetValues(mat, 3, idxs, 3, idxs, values, ADD_VALUES);
     )
 
 
+@pytest.mark.parallel([1, 2])
 def test_passthrough_petsc_object():
     kernel = op3.Function.from_c_string(
-        "ksp_get_tolerances",
+        "ksp_set_tolerances",
         """
         PetscCallVoid(KSPSetTolerances(K, PETSC_DEFAULT, PETSC_DEFAULT,
                                        PETSC_DEFAULT, 8));
         """,
-        [("K", op3.dtypes.OpaqueType("KSP"), op3.READ)],
+        [("K", op3.dtypes.OpaqueType("KSP"), op3.RW)],
     )
 
     ksp = PETSc.KSP().create(comm=PETSc.COMM_WORLD)
     ksp.setTolerances(max_it=7)
-    arg = op3.OpaqueTerminal(op3.PetscObjectBuffer(ksp, comm=MPI.COMM_WORLD))
+    buffer = op3.OpaqueObject(ksp, op3.dtypes.OpaqueType("KSP"), comm=MPI.COMM_WORLD)
+    arg = op3.OpaqueTerminal(buffer)
 
     op3.loop(op3.Axis(10).iter(), kernel(arg), eager=True)
     assert ksp.getTolerances()[-1] == 8
+    assert buffer.state == 1
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("intent", [op3.READ, op3.WRITE, op3.RW])
+def test_passthrough_opaque_object(intent):
+    dtype = op3.dtypes.OpaqueType("Counter")
+    kernel = op3.Function.from_c_string(
+        "counter_access",
+        "(void)*counter;" if intent == op3.READ else "*counter = 8;",
+        [("counter", dtype, intent)],
+        preambles=[("30_counter", "typedef double *Counter;")],
+    )
+    counter = np.zeros(1, dtype=np.double)
+    buffer = op3.OpaqueObject(counter, dtype, comm=MPI.COMM_WORLD)
+    assert not buffer.constant
+    assert buffer.state == 0
+    arg = op3.OpaqueTerminal(buffer)
+    loop = op3.loop(op3.Axis(10).iter(), kernel(arg))
+
+    loop()
+    assert counter[0] == (0 if intent == op3.READ else 8)
+    assert buffer.state == (0 if intent == op3.READ else 1)
+
+    loop()
+    assert buffer.state == (0 if intent == op3.READ else 2)
 
 
 def test_transpose(factory):

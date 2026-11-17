@@ -276,8 +276,8 @@ class InstructionExecutionContext:
         array_pattern = \
             r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \w+, \w+, \w+\)"
         petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \w+\)"
-        petscobject_pattern = r"\(<class 'pyop3.buffer.PetscObjectBuffer'>, 'PetscObjectBuffer_\d+', \w+\)"
-        for pattern in [array_pattern, petscmat_pattern, petscobject_pattern]:
+        opaque_pattern = r"\(<class 'pyop3.buffer.OpaqueObject'>, 'OpaqueObject_\d+', \w+\)"
+        for pattern in [array_pattern, petscmat_pattern, opaque_pattern]:
             num_buffers += len(utils.unique(re.findall(pattern, cache_key_str)))
         assert num_buffers == len(self.preprocessed_buffers)
 
@@ -730,8 +730,8 @@ class CompiledCodeExecutor:
         return "", "<PetscMat>"
 
     @_buffer_str.register
-    def _(self, buffer: pyop3.buffer.PetscObjectBuffer) -> str:
-        return "", "<PetscObject>"
+    def _(self, buffer: pyop3.buffer.OpaqueObject) -> str:
+        return "", "<OpaqueObject>"
 
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
@@ -906,8 +906,11 @@ class CompiledCodeExecutor:
         return begin_insns+end_insns, (), (), finalizers
 
     @_buffer_exchanges_by_type.register
-    def _(self, buffer: pyop3.buffer.PetscObjectBuffer, intent):
-        return (), (), (), ()
+    def _(self, buffer: pyop3.buffer.OpaqueObject, intent):
+        finalizers = []
+        if intent != READ:
+            finalizers.append(buffer.inc_state)
+        return (), (), (), finalizers
 
 
 @functools.singledispatch

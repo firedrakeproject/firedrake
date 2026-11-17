@@ -821,7 +821,7 @@ class ElementKernel:
             op3.OpaqueTerminal(
                 op3.PetscMatBuffer(mat, comm=comm)
                 if isinstance(mat, PETSc.Mat)
-                else op3.PetscObjectBuffer(mat, comm=comm)
+                else op3.OpaqueObject(mat, op3.dtypes.OpaqueType(mat.klass), comm=comm)
             )
             for mat in chain(mats, self.mats)
         )
