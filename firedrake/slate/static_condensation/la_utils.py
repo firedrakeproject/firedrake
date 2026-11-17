@@ -73,22 +73,19 @@ def condense_and_forward_eliminate(A, b, elim_fields, prefix, pc):
     return LAContext(lhs=S, rhs=r, field_idx=c), schur_builder
 
 
-def backward_solve(A, b, x, schur_builder, reconstruct_fields):
+def backward_solve(b, x, schur_builder, reconstruct_fields):
     """Return the Slate expressions that recover the eliminated subspaces.
 
     Parameters
     ----------
-    A : firedrake.slate.slate.Tensor
-        The operator on the mixed space.
     b : firedrake.cofunction.Cofunction
         The right-hand side.
     x : firedrake.function.Function
         The solution, whose retained subspaces are known.
     schur_builder : SchurComplementBuilder
-        The builder returned by :func:`condense_and_forward_eliminate`.
+        The builder of the local inverses.
     reconstruct_fields : collections.abc.Sequence of int
-        The indices of the eliminated subspaces, as given to
-        :func:`condense_and_forward_eliminate`.
+        The indices of the eliminated subspaces in the space of ``x``.
 
     Returns
     -------
@@ -97,15 +94,13 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
 
     Notes
     -----
-    The eliminated subspaces solve :math:`A_{ee} x_e = b_e - A_{ec} x_c`. A
-    nested local Schur complement solves for ``fieldsplit_1`` first, and then
-    for ``fieldsplit_0``.
+    The eliminated subspaces solve :math:`A_{ee} x_e = b_e - A_{ec} x_c`,
+    where :math:`A_{ee}` is ``schur_builder.Atilde`` and :math:`A_{ec}` is
+    ``schur_builder.KT``. A nested local Schur complement solves for
+    ``fieldsplit_1`` first, and then for ``fieldsplit_0``.
     """
-    if not isinstance(A, Tensor):
-        raise ValueError("Left-hand operator must be a Slate Tensor")
-
     e = tuple(reconstruct_fields)
-    c = tuple(i for i in range(len(A.arg_function_spaces[0])) if i not in e)
+    c = tuple(i for i in range(len(x.function_space())) if i not in e)
 
     r = AssembledVector(b.sub(e)) - schur_builder.KT * AssembledVector(x.sub(c))
     if not schur_builder.nested:
