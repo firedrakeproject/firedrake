@@ -7,13 +7,13 @@ import pyop3 as op3
 @pytest.fixture
 def scalar_arrayref():
     base = np.arange(10)
-    return op3.arrayref.ArrayReference(base, [0, 2, 4, 6, 8])
+    return op3.arrayref.ArrayReference(base, ([0, 2, 4, 6, 8],))
 
 
 @pytest.fixture
 def vector_arrayref():
     base = np.arange(20)
-    return op3.arrayref.ArrayReference(base, [0, 1, 4, 5, 8, 9, 12, 13, 16, 17], block_shape=(2,))
+    return op3.arrayref.ArrayReference(base, ([0, 1, 4, 5, 8, 9, 12, 13, 16, 17],), block_shape=(2,))
 
 
 def test_scalar_arrayref_sizes(scalar_arrayref):

@@ -454,7 +454,7 @@ class Dat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
-            return pyop3.arrayref.ArrayReference(array, indices, block_shape)
+            return pyop3.arrayref.ArrayReference(array, (indices,), block_shape)
 
     @property
     def dat_version(self):
