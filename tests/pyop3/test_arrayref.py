@@ -68,3 +68,13 @@ def test_vector_arrayref_assign_single_block(vector_arrayref):
     vector_arrayref[2] = [666, 777]
     expected = [0, 1, 2, 3, 4, 5, 6, 7, 666, 777, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     assert (vector_arrayref.base == expected).all()
+
+
+@pytest.mark.parametrize("shape", [(5, 1), (1, 5)])
+def test_dense_mat_array_view_assign(shape):
+    array = np.zeros(shape)
+    indices = [1, 3]
+    row_indices, column_indices = (indices, slice(None)) if shape[1] == 1 else (slice(None), indices)
+    arrayref = op3.Mat._array_view(array, row_indices, column_indices, "wo")
+    arrayref[...] = 666
+    assert (array.reshape(-1) == [0, 666, 0, 666, 0]).all()

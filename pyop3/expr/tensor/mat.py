@@ -386,7 +386,11 @@ class Mat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
-            return pyop3.arrayref.ArrayReference(array, (row_indices, column_indices), block_shape)
+            # ArrayReference takes integer indices into a flat array, so turn
+            # the row and column indices into indices of the flattened array
+            flat_indices = np.arange(array.size, dtype=pyop3.dtypes.IntType).reshape(array.shape)
+            flat_indices = flat_indices[row_indices, column_indices].reshape(-1)
+            return pyop3.arrayref.ArrayReference(array.reshape(-1, copy=False), flat_indices, block_shape)
 
     # For PyOP2 compatibility
     @property
