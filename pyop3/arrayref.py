@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import numbers
 from collections.abc import Sequence
 from typing import Any
@@ -26,32 +27,21 @@ class ArrayReference:
         return self.base[self.indices[indices*self._block_size]]
 
     def __setitem__(self, indices: Any, value: Any, /) -> None:
-        if not (indices is Ellipsis or isinstance(indices, numbers.Integral)):
+        if indices is Ellipsis:
+            target = self.indices
+        elif isinstance(indices, numbers.Integral):
+            target = self.indices.reshape((-1, self._block_size))[indices]
+        else:
             raise NotImplementedError("Only '...' and integer assignment supported for arrayrefs")
 
         # 'value' can be a scalar, a block-sized vector, or a vector with the same
-        # size as 'indices'.
+        # size as 'target'. Each case is a single write into 'base' because this
+        # is called for every eager assignment to an indexed tensor.
         value = np.asarray(value, dtype=self.base.dtype)
-
-        def get_indices(ib):
-            if indices is Ellipsis:
-                return slice(ib, None, self._block_size)
-            else:
-                return indices*self._block_size+ib
-
-        if value.size == 1:
-            for ib in range(self._block_size):
-                self.base[self.indices[get_indices(ib)]] = value
+        if value.size == 1 or value.size == target.size:
+            self.base[target] = value.reshape(-1)
         elif value.size == self._block_size:
-            for ib in range(self._block_size):
-                self.base[self.indices[get_indices(ib)]] = value[ib]
-        elif (
-            indices is Ellipsis and value.size == self.indices.size
-            or value.size == len(indices) * self._block_size
-        ):
-            value = value.reshape((-1, self._block_size))
-            for ib in range(self._block_size):
-                self.base[self.indices[get_indices(ib)]] = value[:, ib]
+            self.base[target.reshape((-1, self._block_size))] = value.reshape(-1)
         else:
             raise NotImplementedError(f"Cannot assign something with shape {value.shape}")
 
@@ -72,4 +62,4 @@ class ArrayReference:
 
     @property
     def _block_size(self) -> int:
-        return np.prod(self.block_shape, dtype=int)
+        return math.prod(self.block_shape)
