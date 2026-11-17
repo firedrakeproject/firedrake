@@ -89,7 +89,7 @@ class FunctionMixin(FloatingType):
             indices = args[0] if args else kwargs.get("indices", kwargs.get("i"))
             V = self.function_space()
             mixed = firedrake.functionspaceimpl.is_mixed(V)
-            if indices is Ellipsis or (mixed and not isinstance(indices, (tuple, list))) or (not mixed and not V.shape):
+            if indices is Ellipsis or (mixed and not isinstance(indices, (tuple, list, range))) or (not mixed and not V.shape):
                 with stop_annotating():
                     return sub(self, *args, **kwargs)
 

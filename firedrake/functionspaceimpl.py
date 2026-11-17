@@ -314,7 +314,7 @@ class WithGeometryBase:
         ----------
         indices : int, collections.abc.Sequence of int, or types.EllipsisType
             For a mixed space, use an integer to extract an indexed subspace,
-            or a nonempty tuple or list of distinct indices to extract
+            or a nonempty tuple, list or range of distinct indices to extract
             subspaces in the given order. For a vector or tensor space, use the
             flat index of the component to extract, or a tuple, list or range
             of flat indices. Flat indices count the components in the storage
@@ -326,10 +326,11 @@ class WithGeometryBase:
         WithGeometryBase
             The selected space, retaining this space as its parent. If a
             sequence contains only one index, the result will be an unmixed
-            space. If a sequence selects every component of a vector or tensor
-            space in order, the result will be this space. Use ``collapse()``
-            to obtain an independent space. Repeated calls with the same
-            sequence of indices will return the same space.
+            space. If a sequence selects every subspace of a mixed space, or
+            every component of a vector or tensor space, in order, the result
+            will be this space. Use ``collapse()`` to obtain an independent
+            space. Repeated calls with the same sequence of indices will return
+            the same space.
 
         Raises
         ------
@@ -340,11 +341,13 @@ class WithGeometryBase:
         if indices is Ellipsis:
             return self
         if type(self.ufl_element()) is finat.ufl.MixedElement:
-            if isinstance(indices, (tuple, list)):
+            if isinstance(indices, (tuple, list, range)):
                 indices = tuple(indices)
                 if indices not in self._subspaces:
                     W = self.topological.sub(indices)
-                    if len(indices) == 1:
+                    if W is self.topological:
+                        self._subspaces[indices] = self
+                    elif len(indices) == 1:
                         self._subspaces[indices] = self.subspaces[indices[0]]
                     else:
                         mesh = MeshSequenceGeometry([self.mesh()[i] for i in indices])
@@ -2191,8 +2194,9 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         Parameters
         ----------
         i : int, collections.abc.Sequence of int, or types.EllipsisType
-            Use an integer to extract an indexed subspace, or a nonempty tuple
-            or list of distinct indices to extract subspaces in the given order.
+            Use an integer to extract an indexed subspace, or a nonempty tuple,
+            list or range of distinct indices to extract subspaces in the given
+            order.
             Use ``Ellipsis`` to select the whole space.
 
         Returns
@@ -2200,19 +2204,23 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         FunctionSpace or MixedFunctionSpace
             The selected space, retaining this space as its parent. If a
             sequence contains only one index, the result will be an unmixed
-            space. Use ``collapse()`` to obtain an independent space. Repeated
-            calls with the same sequence of indices will return the same space.
+            space. If a sequence selects every subspace in order, the result
+            will be this space. Use ``collapse()`` to obtain an independent
+            space. Repeated calls with the same sequence of indices will return
+            the same space.
         """
         if i is Ellipsis:
             return self
-        if isinstance(i, (tuple, list)):
+        if isinstance(i, (tuple, list, range)):
             i = tuple(range(len(self))[j] for j in i)
             if not i:
                 raise ValueError("At least one subspace must be selected.")
             if len(set(i)) != len(i):
                 raise ValueError(f"Each subspace can be selected only once, not {i}.")
             if i not in self._subspaces:
-                if len(i) == 1:
+                if i == tuple(range(len(self))):
+                    self._subspaces[i] = self
+                elif len(i) == 1:
                     self._subspaces[i] = self._spaces[i[0]]
                 else:
                     spaces = [self._spaces[j] for j in i]

@@ -223,7 +223,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         ----------
         i : int, collections.abc.Sequence of int, or types.EllipsisType
             For a mixed cofunction, use an integer to extract one subfunction,
-            or a nonempty tuple or list of distinct indices to extract
+            or a nonempty tuple, list or range of distinct indices to extract
             subfunctions in the given order. For a vector or tensor cofunction,
             use the flat index of the component to extract, or a tuple, list or
             range of flat indices, as described in
@@ -246,7 +246,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         if i is Ellipsis:
             return self
         if type(self.function_space().ufl_element()) is MixedElement:
-            if isinstance(i, (tuple, list)):
+            if isinstance(i, (tuple, list, range)):
                 i = tuple(i)
                 V = self.function_space()
                 W = V.sub(i)

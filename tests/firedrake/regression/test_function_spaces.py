@@ -134,7 +134,7 @@ def test_tensor_function_space_sub(tensor, dual, topological):
 
 
 @pytest.mark.parallel(nprocs=[1, 2])
-@pytest.mark.parametrize("indices", [(), (1,), (1, 0), (0, 1), [1, 0], (-1, 0)])
+@pytest.mark.parametrize("indices", [(), (1,), (1, 0), [1, 0], range(1, -1, -1), (-1, 0)])
 @pytest.mark.parametrize("topological", [False, True])
 def test_mixed_function_space_sub_tuple(fs, dual, indices, topological):
     if dual:
@@ -168,6 +168,16 @@ def test_mixed_function_space_sub_tuple(fs, dual, indices, topological):
         assert restored.topological == W.topological
         assert restored.parent.topological == fs.topological
         assert restored.index == W.index
+
+
+@pytest.mark.parametrize("indices", [(0, 1), [0, 1], range(2), (-2, -1)])
+@pytest.mark.parametrize("topological", [False, True])
+def test_mixed_function_space_sub_all(fs, dual, indices, topological):
+    if dual:
+        fs = fs.dual()
+    if topological:
+        fs = fs.topological
+    assert fs.sub(indices) is fs
 
 
 def test_function_space_collapse(cg1):

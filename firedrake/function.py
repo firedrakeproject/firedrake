@@ -410,7 +410,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         ----------
         indices : int, collections.abc.Sequence of int, or types.EllipsisType
             For a mixed function, use an integer to extract one subfunction,
-            or a nonempty tuple or list of distinct indices to extract
+            or a nonempty tuple, list or range of distinct indices to extract
             subfunctions in the given order. For a vector or tensor function,
             use the flat index of the component to extract, or a tuple, list or
             range of flat indices, as described in
@@ -434,7 +434,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         if indices is Ellipsis:
             return self
         if is_mixed(self.function_space()):
-            if isinstance(indices, (tuple, list)):
+            if isinstance(indices, (tuple, list, range)):
                 indices = tuple(indices)
                 V = self.function_space()
                 W = V.sub(indices)
