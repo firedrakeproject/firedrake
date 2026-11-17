@@ -69,7 +69,7 @@ The model cannot separate pairs with the same threads per item, such as
 """
 
 # Generalised cost weights from Nvidia GPUs from literature
-# Other method would be fitting a model but this would obviously not be feasible
+# Other method would be fitting a model but this would obviously not be realistic for users 
 # (Microbenchmarking on Volta and Pascal Jia et al. 2018 and Abdelkhalik et al. 2022) 
 FP64_LATENCY = 8  # cycles of an FP64 FMA on Volta to Ada
 SHARED_LATENCY = 30  # cycles of a shared load on Volta to Ada 
@@ -395,7 +395,7 @@ def choose_parameters(
     batch_size: int | None = None,
     block_size: int | None = None,
 ) -> Parameters:
-    """The cheapest pair, among every N_c up to :data:`MAX_BATCH_SIZE` and every T a multiple of the warp size.
+    """The cheapest pair, among every N_c up to `MAX_BATCH_SIZE` and every T a multiple of the warp size.
 
     `shared_bytes(N_c)` is the shared memory of a block, as `pyop3.compile.mlir` lays it out.
 
@@ -411,19 +411,23 @@ def choose_parameters(
         if block_size is None else (block_size,)
     )
     w, fp64 = target.warp_size, target.fp64_per_cycle
-    op_latency = max(FP64_LATENCY, w * 4 / fp64)  # a warp's FP64 operation on one quarter of the SM
 
     def cost_per_item(n: int, t: int) -> float | None:
         """The estimated SM cycles of one item, or `None` if the pair does not fit the target.
 
-            Σ_k max(B ⌈N_c n_k / W⌉ W r_k,  ⌈N_c n_k / T⌉ l_k) / (B N_c)
+        With w_k = B ceil(N_c n_k / W) W r_k (the work of phase k) and p_k = ceil(N_c n_k / T) l_k
+        (the critical path of a block through phase k), the cost is
+
+            sum_k max(w_k, p_k) / N_c          if B = 1,
+            max(sum_k w_k, sum_k p_k) / (B N_c)  if B > 1,
 
         with n_k the width of phase k, W the warp size and B the resident blocks
         per SM. r_k is the cycles of a point on the busiest unit of the SM:
         FP64 (operations), load/store (global and shared accesses) or issue
-        (all of them). l_k is the latency of a point. A barrier ends each phase, so a
-        phase lasts as long as the work of the SM or the critical path of a block,
-        whichever is longer. Every SM is assumed to hold B blocks.
+        (all of them). l_k is the latency of a point. A barrier ends each phase, so
+        one block runs its phases one after the other. Blocks do not share barriers, so
+        when an SM holds more than one block, the latency of the phases of one block is hidden by
+        the work of the others. Every SM is assumed to hold B blocks.
         """
         shared = shared_per_batch[n]
         if shared > target.shared_memory_per_block or t > target.max_threads_per_block:
@@ -434,13 +438,13 @@ def choose_parameters(
         if blocks == 0:
             return None
 
-        cycles = 0.0
-        for phase, (ops, glob, sh) in zip(phases, counts, strict=True):
+        work, path = np.zeros(len(phases)), np.zeros(len(phases))
+        for k, (phase, (ops, glob, sh)) in enumerate(zip(phases, counts, strict=True)):
             points = n * phase.width
             rate = max(ops / fp64, (glob + sh) / LSU_ACCESSES_PER_CYCLE, (ops + glob + sh) / ISSUE_PER_CYCLE)
-            work = blocks * utils.ceildiv(points, w) * w * rate
-            path = utils.ceildiv(points, t) * (ops * op_latency + sh * SHARED_LATENCY + glob * GLOBAL_LATENCY)
-            cycles += max(work, path)
+            work[k] = blocks * utils.ceildiv(points, w) * w * rate
+            path[k] = utils.ceildiv(points, t) * (ops * FP64_LATENCY + sh * SHARED_LATENCY + glob * GLOBAL_LATENCY)
+        cycles = np.maximum(work, path).sum() if blocks == 1 else max(work.sum(), path.sum())
         return cycles / (blocks * n)
 
     pairs = {(n, t): cost for n in batch_sizes for t in block_sizes if (cost := cost_per_item(n, t)) is not None}
@@ -454,8 +458,10 @@ def choose_parameters(
     return Parameters(*pair, pairs[pair])
 
 
+# TODO: I would love to use `gem.count_flops` here but it does not support counting FMAs (fuse-multiply-adds) 
+# which have a real impact on the parameter model 
 def _phase_counts(phase: Phase, temporaries: Mapping[str, Temporary]) -> np.ndarray:
-    """The operations, global accesses and shared accesses of one point of `phase`, times the reductions.
+    """The floating-point operations, global accesses and shared accesses of one point of `phase`, times the reductions.
 
     An atomic is a global access, as only kernel arguments are atomic. Register accesses are not counted.
     """
@@ -466,14 +472,28 @@ def _phase_counts(phase: Phase, temporaries: Mapping[str, Temporary]) -> np.ndar
     total = np.zeros(3)
     for nest in phase.nests:
         s = nest.statement
-        counts = np.array(access(nest.write.aggregate))
+        counts = np.array([_floating_point_operations(s), 0, 0]) + access(nest.write.aggregate)
         for node in pre_traversal((s.expression, *s.assignee.indirect_children)):
-            if isinstance(node, (gem.Operator, gem.MathFunction, gem.Comparison, gem.Conditional)):
-                counts[0] += 1
-            elif isinstance(node, gem.Indexed) and isinstance(node.aggregate, gem.Variable):
+            if isinstance(node, gem.Indexed) and isinstance(node.aggregate, gem.Variable):
                 counts += access(node.aggregate)
         total += counts * num_points(nest.reductions)
     return total
+
+
+def _floating_point_operations(statement: imp.Assignment) -> int:
+    """The floating-point operations of `statement`, where a multiply-add is one operation
+    """
+    operators = [
+        node for node in pre_traversal([statement.expression])
+        if isinstance(node, (gem.Operator, gem.MathFunction, gem.Comparison, gem.Conditional))
+        and np.issubdtype(node.dtype, np.floating)
+    ]
+    others = [node for node in operators if not isinstance(node, gem.Sum)]
+    add_operands = [node.children for node in operators if isinstance(node, gem.Sum)]
+    if statement.mode == "inc":
+        add_operands.append((statement.expression,))
+    unfused_adds = [operands for operands in add_operands if not any(isinstance(o, gem.Product) for o in operands)]
+    return len(others) + len(unfused_adds)
 
 # }}}
 
