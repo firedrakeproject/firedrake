@@ -38,6 +38,19 @@ def f1(mesh, V1):
     return Function(V1).interpolate(expr)
 
 
+@pytest.mark.parallel([1, 3])
+def test_restructure_adjoint_interpolation(V2, f1):
+    vstar = Coargument(V2.dual(), 0)
+    assert vstar.arguments() == (vstar, Argument(V2, 0))
+    form = inner(TrialFunction(V2), TestFunction(V2)) * dx
+    expression = ufl.Action(ufl.Adjoint(form), interpolate(f1, vstar))
+
+    actual = restructure_base_form(expression)
+
+    assert isinstance(actual, ufl.Form)
+    assert actual == action(adjoint(form), interpolate(f1, V2))
+
+
 def test_interp_self(V1):
     a = assemble(conj(TestFunction(V1)) * dx)
     b = assemble(conj(TestFunction(V1)) * dx)
