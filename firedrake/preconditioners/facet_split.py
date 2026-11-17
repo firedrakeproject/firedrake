@@ -266,6 +266,7 @@ for (PetscInt i=0; i<{wsize}; i++)
         "copy",
         c_code,
         [("w", PETSc.IntType, op3.WRITE), ("v", PETSc.IntType, op3.READ)],
+        libraries=(op3.cc.LIBPETSC,),
     )
 
     op3.loop(

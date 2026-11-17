@@ -1,6 +1,8 @@
 import pytest
 from firedrake import *
 import loopy
+import numpy as np
+import pyop3 as op3
 
 
 @pytest.fixture(scope='module')
@@ -94,3 +96,13 @@ def test_tsfc_cell_exterior_facet_kernel(rhs2):
     kernel_name = sorted(k_[1][0].name for k_ in k)
     assert len(k) == 2 and 'cell_integral' in kernel_name[0] and \
         'exterior_facet_integral' in kernel_name[1]
+
+
+@pytest.mark.parametrize("add_petsc_events", [False, True])
+@pytest.mark.parallel([1, 2])
+def test_tsfc_kernel_links_petsc_for_log_events(mass, add_petsc_events):
+    k, = tsfc_interface.compile_form(mass, 'mass', parameters={"add_petsc_events": add_petsc_events})
+    libraries = k.kinfo.kernel.compiler_options.libraries
+    assert (op3.cc.LIBPETSC in libraries) == add_petsc_events
+    A = assemble(mass, form_compiler_parameters={"add_petsc_events": add_petsc_events})
+    assert np.isclose(A.petscmat.norm(), assemble(mass).petscmat.norm())
