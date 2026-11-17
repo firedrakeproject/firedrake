@@ -854,7 +854,8 @@ class ElementKernel:
                 *self._kernel_args(addv),
                 *((iname, IntType, op3.READ) for iname in indices),
             ],
-            preambles=[("20_petscblaslapack", "#include <petscblaslapack.h>"), ("50_preambles", "\n".join(preambles))],
+            preambles=[("50_preambles", "\n".join(preambles))],
+            libraries=(op3.cc.LIBPETSC, op3.cc.LIBBLASLAPACK),
         )
 
     def _kernel_args(self, addv):

@@ -56,7 +56,7 @@ We can then start our Python script and load this mesh:
 
 We choose a degree 1 continuous function space, and set up the
 function space and functions. Setting the ``name`` parameter when
-constructing :class:`.Function` objects will set the name used in the
+constructing :class:`Function <firedrake.function.Function>` objects will set the name used in the
 output file:
 
 .. code-block:: python

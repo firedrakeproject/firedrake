@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 @pyop3.record.record()
 class Scalar(Tensor):
+    """A scalar value."""
 
     # {{{ instance attrs
 

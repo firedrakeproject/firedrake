@@ -48,7 +48,8 @@ def solve(*args, **kwargs):
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
-    where ``A`` is a :class:`.Matrix` and ``x`` and ``b`` are :class:`.Function`\s.
+    where ``A`` is a :class:`.Matrix` and ``x`` and ``b`` are
+    :class:`firedrake.function.Function`\s.
     If present, ``bcs`` should be a list of :class:`.DirichletBC`\s and
     :class:`.EquationBC`\s specifying, respectively, the strong boundary conditions
     to apply and PDEs to solve on the boundaries.
@@ -73,7 +74,7 @@ def solve(*args, **kwargs):
 
     A linear variational problem a(u, v) = L(v) for all v may be
     solved by calling solve(a == L, u, ...), where a is a bilinear
-    form, L is a linear form, u is a :class:`.Function` (the
+    form, L is a linear form, u is a :class:`firedrake.function.Function` (the
     solution). Optional arguments may be supplied to specify boundary
     conditions or solver parameters. Some examples are given below:
 
@@ -100,7 +101,7 @@ def solve(*args, **kwargs):
     A nonlinear variational problem F(u; v) = 0 for all v may be
     solved by calling solve(F == 0, u, ...), where the residual F is a
     linear form (linear in the test function v but possibly nonlinear
-    in the unknown u) and u is a :class:`.Function` (the
+    in the unknown u) and u is a :class:`firedrake.function.Function` (the
     solution). Optional arguments may be supplied to specify boundary
     conditions, the Jacobian form or solver parameters. If the
     Jacobian is not supplied, it will be computed by automatic
@@ -148,7 +149,7 @@ def solve(*args, **kwargs):
     -------
     firedrake.function.Function or None
         For a variational problem (cases 2 and 3 above), the (possibly
-        adapted) solution :class:`~.Function`. This may differ from the
+        adapted) solution :class:`firedrake.function.Function`. This may differ from the
         ``u`` that was passed in if the solver performed mesh adaptation
         during the solve. `None` is returned when solving a pre-assembled
         linear system (case 1 above).
