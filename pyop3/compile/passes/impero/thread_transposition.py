@@ -17,9 +17,10 @@ example one thread per quadrature point, then one per basis function.
 3. Each phase becomes a `gem.impero.ThreadLoop` in a `gem.impero.ItemBatch` (`lower`).
 4. Memory (`place_temporaries`). A temporary is kept in registers when
    one phase uses it and each thread accesses only its own entries. Otherwise
-   it is in shared memory, with one copy per item of the batch. A shared
-   temporary reuses the buffer of temporaries whose last phase is before its
-   first phase. A shared buffer is a `temporary(..., shared=True)`.
+   it is in shared memory, with one copy per item of the batch. The shared
+   temporaries of one dtype are packed into one buffer, where temporaries whose
+   lifetimes do not overlap can take the same entries. A shared buffer is a
+   `temporary(..., shared=True)`.
 5. An increment of a kernel argument is `"atomic"` unless it is injective
    (`pyop3.compile.passes.impero.item_loop.needs_atomic`).
 6. Barriers are inserted on the MLIR, by `pyop3.compile.passes.mlir.thread_loops`.
@@ -37,7 +38,7 @@ hoists it out of the item loop.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from functools import cached_property
 
 import numpy as np
@@ -50,8 +51,8 @@ from pyop3.compile.passes.impero.copy_propagation import propagate_copies
 from pyop3.compile.passes.impero.item_loop import needs_atomic, terminals, value_temporaries
 from pyop3.compile.passes.impero.linear import LinearIndex, flat_entry, linear
 from pyop3.compile.passes.impero.utils import (
-    as_index, assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, num_points, static_extent,
-    temporary,
+    as_index, assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, num_points, shared_layout,
+    static_extent, temporary,
 )
 from pyop3.device import GPUTarget
 from pyop3.dtypes import ScalarType
@@ -155,19 +156,21 @@ class Temporary:
     """A temporary in the registers of its only `phase`, or in shared memory if `phase` is `None`.
 
     `size` is the number of entries per thread in registers, or per item in shared memory.
-    The `variable` and `size` of a shared temporary are those of its buffer, which other temporaries can share.
+    The `variable` of a shared temporary is the buffer of its dtype, which all shared temporaries
+    of that dtype share. `offset` is where its `size` entries per item start in that buffer.
     """
 
     variable: gem.Variable
     phase: int | None
     size: int
+    offset: int = 0
 
     @property
     def in_registers(self) -> bool:
         return self.phase is not None
 
     def placed(self, batch_size: int) -> gem.Variable:
-        size = self.size if self.in_registers else batch_size * self.size
+        size = self.size if self.in_registers else batch_size * self.variable.shape[0]
         return temporary(self.variable.name, (size,), self.variable.dtype or ScalarType, shared=not self.in_registers)
 
 
@@ -180,13 +183,11 @@ def thread_transpose(
     target: GPUTarget,
     batch_size: int | None = None,
     block_size: int | None = None,
-    extra_shared_bytes: int = 0,
 ) -> imp.Block:
     """Return `tree` with its item loop replaced by an `ItemBatch`.
 
     `batch_size` (N_c) and `block_size` (T) fix the parameters instead of
     the choice of the cost model. `target` gives the limits and the FP64 rate of the device.
-    `extra_shared_bytes` is the shared memory per batch that is allocated outside this pass.
 
     Raises
     ------
@@ -199,9 +200,10 @@ def thread_transpose(
         _check(tree, loop, phases)
         temporaries = place_temporaries(phases, loop.index)
         counts = tuple(_phase_counts(phase, temporaries) for phase in phases)
-        shared = sum(map(_bytes, {t.variable for t in temporaries.values() if not t.in_registers}))
+        buffers = {t.variable.name: t for t in temporaries.values() if not t.in_registers}.values()
         parameters = choose_parameters(
-            phases, counts, shared, extra_shared_bytes, target, batch_size=batch_size, block_size=block_size
+            phases, counts, lambda n: shared_layout(t.placed(n) for t in buffers)[1], target,
+            batch_size=batch_size, block_size=block_size,
         )
         return lower(tree, loop, phases, temporaries, parameters)
     except NotImplementedError as e:
@@ -297,8 +299,8 @@ def _check(tree: imp.Block, loop: imp.For, phases: tuple[Phase, ...]) -> None:
 def place_temporaries(phases: tuple[Phase, ...], item: gem.Index) -> dict[str, Temporary]:
     """Keep a temporary in registers if one phase uses it and each thread accesses only its own entries.
 
-    Each other temporary takes over the shared buffer of the same dtype that fits it best, among the
-    buffers whose temporaries are no longer used, or else a new buffer.
+    Each other temporary goes into the shared buffer of its dtype, largest first, at the lowest
+    offset that no temporary with an overlapping lifetime (in phases) occupies.
     """
     variables = {a.aggregate.name: a.aggregate for phase in phases for a in phase.accesses if is_temporary(a.aggregate)}
     temporaries, lifetimes = {}, {}
@@ -310,21 +312,19 @@ def place_temporaries(phases: tuple[Phase, ...], item: gem.Index) -> dict[str, T
         else:
             lifetimes[name] = (uses[0], uses[-1])
 
-    buffers = []  # [names, size, last phase, dtype]
-    for name, (first, last) in sorted(lifetimes.items(), key=lambda item: item[1]):
+    placed = {}  # dtype -> {name: (offset, size, first phase, last phase)}
+    for name, (first, last) in sorted(lifetimes.items(), key=lambda item: (-variables[item[0]].shape[0], item[1])):
         (size,), dtype = variables[name].shape, variables[name].dtype
-        free = [b for b in buffers if b[2] < first and b[3] == dtype]
-        fitting = [b for b in free if b[1] >= size]
-        if fitting or free:
-            buffer = min(fitting, key=lambda b: b[1]) if fitting else max(free, key=lambda b: b[1])
-        else:
-            buffer = [[], 0, last, dtype]
-            buffers.append(buffer)
-        buffer[0].append(name)
-        buffer[1:3] = max(buffer[1], size), last
-    for names, size, _, dtype in buffers:
-        variable = temporary(names[0], (size,), dtype)
-        temporaries |= dict.fromkeys(names, Temporary(variable, None, size))
+        buffer = placed.setdefault(dtype, {})
+        offset = 0
+        for start, end in sorted((o, o + s) for o, s, f, l in buffer.values() if f <= last and first <= l):
+            if offset + size <= start:
+                break
+            offset = max(offset, end)
+        buffer[name] = (offset, size, first, last)
+    for dtype, buffer in placed.items():
+        variable = temporary(next(iter(buffer)), (max(o + s for o, s, _, _ in buffer.values()),), dtype)
+        temporaries |= {name: Temporary(variable, None, s, o) for name, (o, s, _, _) in buffer.items()}
     return temporaries
 
 
@@ -356,6 +356,8 @@ def lower(
         else:
             offset = local * gem.as_gem_uint(t.size) if t.size != 1 else local
             index = offset + gem.as_gem_uint(flat_entry(access.multiindex))
+            if t.offset:  # the temporary takes entries [offset * N_c, (offset + size) * N_c) of its buffer
+                index = gem.as_gem_uint(t.offset * parameters.batch_size) + index
         return gem.Indexed(placed[access.aggregate.name], (as_index(index),))
 
     # shortcut: a relocated access keeps any temporary in its own index unrelocated, rewrite bottom-up if one appears
@@ -387,15 +389,23 @@ def lower(
 def choose_parameters(
     phases: tuple[Phase, ...],
     counts: tuple[np.ndarray, ...],
-    shared_per_item: int,
-    shared_per_batch: int,
+    shared_bytes: Callable[[int], int],
     target: GPUTarget,
     *,
     batch_size: int | None = None,
     block_size: int | None = None,
 ) -> Parameters:
-    """The cheapest pair, among every N_c up to :data:`MAX_BATCH_SIZE` and every T a multiple of the warp size."""
+    """The cheapest pair, among every N_c up to :data:`MAX_BATCH_SIZE` and every T a multiple of the warp size.
+
+    `shared_bytes(N_c)` is the shared memory of a block, as `pyop3.compile.mlir` lays it out.
+
+    Raises
+    ------
+    NotImplementedError
+        If no pair fits the target.
+    """
     batch_sizes = range(1, MAX_BATCH_SIZE + 1) if batch_size is None else (batch_size,)
+    shared_per_batch = {n: shared_bytes(n) for n in batch_sizes}
     block_sizes = (
         range(target.warp_size, target.max_threads_per_block + 1, target.warp_size)
         if block_size is None else (block_size,)
@@ -415,12 +425,12 @@ def choose_parameters(
         phase lasts as long as the work of the SM or the critical path of a block,
         whichever is longer. Every SM is assumed to hold B blocks.
         """
-        shared = n * shared_per_item + shared_per_batch
+        shared = shared_per_batch[n]
         if shared > target.shared_memory_per_block or t > target.max_threads_per_block:
             return None
         blocks = min(target.max_blocks_per_sm, target.max_threads_per_sm // t)
-        if shared:
-            blocks = min(blocks, target.shared_memory_per_sm // shared)
+        if per_block := shared + target.reserved_shared_memory_per_block:
+            blocks = min(blocks, target.shared_memory_per_sm // per_block)
         if blocks == 0:
             return None
 
@@ -435,7 +445,10 @@ def choose_parameters(
 
     pairs = {(n, t): cost for n in batch_sizes for t in block_sizes if (cost := cost_per_item(n, t)) is not None}
     if not pairs:
-        raise ValueError(f"No batch size and block size fit the target with {shared_per_item} bytes of shared memory per item")
+        raise NotImplementedError(
+            f"No batch size and block size fit the target: the smallest batch needs {min(shared_per_batch.values())} "
+            f"bytes of shared memory, and a block can have {target.shared_memory_per_block}"
+        )
     lowest = min(pairs.values())
     pair = min(pair for pair, cost in pairs.items() if cost <= (1 + COST_TOLERANCE) * lowest)
     return Parameters(*pair, pairs[pair])
@@ -573,9 +586,5 @@ def _loops_around(statement: imp.Node, indices: tuple[gem.Index, ...]) -> imp.No
     for index in reversed(indices):
         statement = imp.For(index, imp.Block([statement]))
     return statement
-
-
-def _bytes(variable: gem.Variable) -> int:
-    return int(np.prod(variable.shape)) * np.dtype(variable.dtype or ScalarType).itemsize
 
 # }}}

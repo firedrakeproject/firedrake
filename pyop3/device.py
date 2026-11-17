@@ -135,7 +135,10 @@ class GPUTarget:
     """The limits and the FP64 rate of a GPU"""
 
     shared_memory_per_block: int
+    """The dynamic shared memory that one block can use, with the opt-in of the launch."""
     shared_memory_per_sm: int
+    reserved_shared_memory_per_block: int
+    """The shared memory that the driver takes on the SM for each resident block."""
     max_threads_per_block: int
     max_threads_per_sm: int
     max_blocks_per_sm: int
@@ -214,8 +217,9 @@ class GPU(Device):
         """The limits and the FP64 rate of the GPU."""
         attributes = self.cp.cuda.Device(self.device_id).attributes
         return GPUTarget(
-            shared_memory_per_block=attributes["MaxSharedMemoryPerBlock"],
+            shared_memory_per_block=attributes.get("MaxSharedMemoryPerBlockOptin", attributes["MaxSharedMemoryPerBlock"]),
             shared_memory_per_sm=attributes["MaxSharedMemoryPerMultiprocessor"],
+            reserved_shared_memory_per_block=attributes.get("ReservedSharedMemoryPerBlock", 0),
             max_threads_per_block=attributes["MaxThreadsPerBlock"],
             max_threads_per_sm=attributes["MaxThreadsPerMultiProcessor"],
             max_blocks_per_sm=attributes["MaxBlocksPerMultiprocessor"],

@@ -80,6 +80,24 @@ def is_shared(variable: gem.Node) -> bool:
     return is_temporary(variable) and variable.data == SHARED_DATA
 
 
+SHARED_ALIGNMENT = 16
+"""The bytes that each shared variable is aligned to, so that LLVM can combine adjacent loads into 16-byte vector loads"""
+
+
+def shared_layout(variables) -> tuple[dict[str, int], int]:
+    """The byte offset of each shared variable, by name, in the shared memory of a block, and the bytes in total.
+
+    The variables do not overlap, and each starts on a `SHARED_ALIGNMENT` boundary.
+    """
+    offsets, total = {}, 0
+    for variable in variables:
+        if variable.name not in offsets:
+            offsets[variable.name] = total
+            nbytes = int(np.prod(variable.shape)) * np.dtype(variable.dtype or ScalarType).itemsize
+            total += utils.ceildiv(nbytes, SHARED_ALIGNMENT) * SHARED_ALIGNMENT
+    return offsets, total
+
+
 def is_item_loop(node: imp.Node) -> bool:
     """Whether `node` is a loop over the items of a pyop3 loop, as `GemCompiler` marks them"""
     return isinstance(node, imp.For) and node.is_parallel

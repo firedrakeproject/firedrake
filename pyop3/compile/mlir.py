@@ -13,8 +13,9 @@ from pyop3 import utils
 from pyop3.buffer import NullBuffer, ArrayBuffer, IndexedBuffer
 from pyop3.device import Device, HOST_DEVICE, get_current_device
 from pyop3.compile.passes.mlir.atomics import ATOMIC_RMW_KIND_ADDF, ATOMIC_RMW_KIND_ADDI
-from pyop3.compile.passes.impero.utils import gem_nodes, is_shared, is_temporary, static_extent, temporary
-from pyop3.compile.passes.mlir.thread_loops import THREAD_LOOP, WORKGROUP_ADDRESS_SPACE
+from pyop3.compile.passes.impero.utils import gem_nodes, is_shared, is_temporary, shared_layout, static_extent
+from pyop3.compile.passes.mlir.gpu_ext import WORKGROUP_ADDRESS_SPACE, DynamicSharedMemoryOp
+from pyop3.compile.passes.mlir.thread_loops import THREAD_LOOP
 
 from gem import gem, impero as imp
 from gem.node import pre_traversal
@@ -31,7 +32,7 @@ from xdsl.dialects.builtin import (
     IndexType,
     IntegerAttr,
     FloatAttr,
-    i1, i64, f32, f64,
+    i1, i32, i64, f32, f64,
     MemRefType,
     ModuleOp,
     NoneAttr,
@@ -45,19 +46,6 @@ FLOAT_TYPES = (f32, f64)
 
 # ffast-math flag. No MLIR pass can apply this so has to be done at codegen.
 FP_FAST = arith.FastMathFlagsAttr("fast")
-
-# LLVM combines adjacent shared-memory loads into 16-byte vector loads, so each
-# shared temporary must start on a 16-byte boundary.
-SHARED_ALIGNMENT = 16
-
-def tables(node: imp.Node) -> list[gem.Literal]:
-    """The tensor-valued literals below `node`, without repetition."""
-    return list(dict.fromkeys(n for n in gem_nodes(node) if isinstance(n, gem.Literal) and n.shape))
-
-
-def shared_table_bytes(node: imp.Node) -> int:
-    """The shared memory that the tables below `node` take when a builder has `shared_tables`."""
-    return sum(utils.ceildiv(t.array.nbytes, SHARED_ALIGNMENT) * SHARED_ALIGNMENT for t in tables(node))
 
 
 def get_mlir_type(dtype):
@@ -130,8 +118,6 @@ class MLIRBuilder:
         root,
         arguments: Mapping[str, IndexedBuffer],
         name: str = "imp_kernel",
-        *,
-        shared_tables: bool = False,
     ) -> None:
         """Create the kernel FuncOp, with one memref argument for each buffer in `arguments`.
 
@@ -141,12 +127,9 @@ class MLIRBuilder:
         :arg arguments: Map from the kernel name of each buffer to its buffer view.
             Temporaries (views of a `NullBuffer`) are not function arguments and are dropped.
         :arg name: The name of the generated MLIR kernel
-        :arg shared_tables: Whether each block of an `ItemBatch` copies the tables into its shared memory.
-            The caller checks that they fit, see `shared_table_bytes`.
 
         """
         self._root = root
-        self._shared_tables = shared_tables
 
         # Kernel name -> buffer view, for the buffers that are function arguments
         # Excluding NullBuffers that are not function arguments 
@@ -385,20 +368,9 @@ class MLIRBuilder:
         private address space of the device. The allocation is not initialised,
         so each entry must be written before it is read.
 
-        A shared temporary is a `memref.global` in the workgroup address space,
-        which `gpu-kernel-outlining` copies into the GPU module.
+        Shared temporaries are declared by `process_item_batch`.
         """
-        # Place node in shared memory if possible 
-        if is_shared(node):
-            # Memory space assigns location on the GPU (i.e. L1 shared memory vs global memory (per-batch vs per-kernel))
-            memref_type = MemRefType(get_mlir_type(node.dtype), node.shape, memory_space=WORKGROUP_ADDRESS_SPACE)
-            name = self.unique_name(f"shared_{node.name}")
-            self.global_ops.append(memref.GlobalOp.get(
-                StringAttr(name), memref_type, UnitAttr(), sym_visibility=StringAttr("private"), alignment=SHARED_ALIGNMENT,
-            ))
-
-            return self.insert_at_entry(memref.GetGlobalOp(name, memref_type))
-
+        assert not is_shared(node), f"Shared temporary {node.name!r} outside an ItemBatch"
         if not is_temporary(node):
             raise ValueError(f"{node.name!r} is neither a temporary nor a kernel argument")
 
@@ -582,7 +554,13 @@ class MLIRBuilder:
         At least one block is launched, so that the grid is valid when there are no items.
         Each ThreadLoop of the batch runs over the items of the
         batch and its domain, and skips the items past the end.
+
+        The shared temporaries are views of the dynamic shared memory of the launch, laid out by
+        `shared_layout`. They do not overlap, so the barriers of
+        `pyop3.compile.passes.mlir.thread_loops`, which track each memref, see every dependence.
         """
+        shared = {v.name: v for v in gem_nodes(batch) if is_shared(v)}
+        offsets, shared_bytes = shared_layout(shared.values())
 
         extent = batch.index.extent
         self.declare_runtime_expr_on_host(extent)
@@ -595,17 +573,18 @@ class MLIRBuilder:
 
         # The arguments are the block ids, thread ids, grid sizes and block sizes, each (x, y, z)
         body = Block(arg_types=[INDEX_TYPE] * 12)
-        self.insert(gpu.LaunchOp(Region(body), [num_blocks, one, one], [block_size, one, one]))
+        self.insert(gpu.LaunchOp(
+            Region(body), [num_blocks, one, one], [block_size, one, one],
+            dynamicSharedMemorySize=self._const(shared_bytes, i32),
+        ))
 
         block_id = body.args[0]
         with self._item_loop(body):
-            # One thread per entry copies each table, so that the phases read it from shared memory
-            for table in tables(batch) if self._shared_tables else ():
-                source = self._declare_buffer(table)
-                shared = self.buffer_for(temporary(self.unique_name("table"), (table.array.size,), table.dtype, shared=True))
-                with self.thread_loop([table.array.size]) as (entry,):
-                    self.insert(memref.StoreOp.get(self.insert(memref.LoadOp.get(source, [entry])), shared, [entry]))
-                self._buffers[self._entry, table] = shared
+            dynamic = self.insert(DynamicSharedMemoryOp()) if shared else None
+            for name, v in shared.items():
+                view_type = MemRefType(get_mlir_type(v.dtype), v.shape, memory_space=WORKGROUP_ADDRESS_SPACE)
+                offset = self._const(offsets[name], INDEX_TYPE)
+                self._buffers[self._entry, name] = self.insert(memref.ViewOp(dynamic, offset, [], view_type))
 
             # Each child of ItemBatch is a ThreadLoop. Each loop does not iterate but assigns steps to threads
             for loop in batch.statement.children:

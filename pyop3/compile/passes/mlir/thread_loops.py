@@ -29,11 +29,10 @@ from xdsl.passes import ModulePass
 from xdsl.rewriter import InsertPoint, Rewriter
 from xdsl.transforms.canonicalization_patterns.utils import const_evaluate_operand
 
+from pyop3.compile.passes.mlir.gpu_ext import WORKGROUP_ADDRESS_SPACE
+
 THREAD_LOOP = "pyop3.thread_loop"
 """The attribute that marks an `scf.parallel` as a thread loop."""
-
-WORKGROUP_ADDRESS_SPACE = IntegerAttr(3, i64)
-"""The address space of shared (workgroup) memory, in both NVVM and ROCDL."""
 
 
 def thread_loops(launch: gpu.LaunchOp) -> list[scf.ParallelOp]:
