@@ -15,13 +15,13 @@ class SCPC(SCBase):
     needs_python_pmat = True
 
     """A Slate-based python preconditioner implementation of
-    static condensation for problems with up to three fields.
+    static condensation for problems with any number of subspaces.
     """
 
     @PETSc.Log.EventDecorator("SCPCInit")
     def initialize(self, pc):
         """Set up the problem context. This takes the incoming
-        three-field system and constructs the static
+        mixed system and constructs the static
         condensation operators using Slate expressions.
 
         A KSP is created for the reduced system. The eliminated
@@ -44,46 +44,40 @@ class SCPC(SCBase):
 
         # Retrieve the mixed function space
         W = self.bilinear_form.arguments()[0].function_space()
-        if len(W) > 3:
-            raise NotImplementedError("Only supports up to three function spaces.")
 
         elim_option = (pc.getOptionsPrefix() or "") + "pc_sc_eliminate_fields"
         # By default, we condense down to the last field in the mixed space.
         elim_fields = PETSc.Options().getIntArray(elim_option, range(len(W)-1))
         elim_fields = list(map(int, elim_fields))
 
-        condensed_fields = list(set(range(len(W))) - set(elim_fields))
-        if len(condensed_fields) != 1:
-            raise NotImplementedError("Cannot condense to more than one field")
+        c = tuple(i for i in range(len(W)) if i not in elim_fields)
 
-        c_field, = condensed_fields
-
-        # The condensed operator is defined on the subspace of the condensed field.
-        Vc = W.sub(c_field)
+        # The condensed operator is defined on the retained subspaces.
+        Vc = W.sub(c)
         bcs = []
-        cxt_bcs = self.cxt.row_bcs
-        for bc in cxt_bcs:
-            if bc.function_space_index(W) != c_field:
+        for bc in self.cxt.row_bcs:
+            if bc.function_space_index(W) not in c:
                 raise NotImplementedError("Strong BC set on unsupported space")
-            bcs.append(bc.reconstruct(V=Vc, g=0))
+            bcs.append(bc.reconstruct(field=c, V=Vc, g=0))
 
         mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
 
-        self.c_field = c_field
+        self.c = c
         self.condensed_rhs = Cofunction(Vc.dual())
         self.residual = Cofunction(W.dual())
         self.solution = Function(W)
 
-        shapes = (Vc.finat_element.space_dimension(),
-                  np.prod(Vc.shape))
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+        # Count the cells that share each degree of freedom of the retained subspaces.
+        self.weight = Function(Vc)
         instructions = """
         for i, j
             w[i,j] = w[i,j] + 1
         end
         """
-        self.weight = Function(Vc)
-        par_loop((domain, instructions), dx, {"w": (self.weight, INC)})
+        for Vi, wi in zip(Vc, self.weight.subfunctions):
+            shapes = (Vi.finat_element.space_dimension(), np.prod(Vi.shape))
+            domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
+            par_loop((domain, instructions), dx, {"w": (wi, INC)})
         with self.weight.dat.vec_rw as wc:
             wc.reciprocal()
 
@@ -197,16 +191,12 @@ class SCPC(SCBase):
         from firedrake.assemble import get_assembler
         from firedrake.slate.static_condensation.la_utils import backward_solve
 
-        fields = x.subfunctions
         systems = backward_solve(A, rhs, x, schur_builder, reconstruct_fields=elim_fields)
 
         local_solvers = []
         for local_system in systems:
-            Aeinv = local_system.lhs
-            be = local_system.rhs
-            i, = local_system.field_idx
-            local_solve = Aeinv * be
-            solve_call = functools.partial(get_assembler(local_solve, form_compiler_parameters=self.cxt.fc_params).assemble, tensor=fields[i])
+            local_solve = local_system.lhs * local_system.rhs
+            solve_call = functools.partial(get_assembler(local_solve, form_compiler_parameters=self.cxt.fc_params).assemble, tensor=x.sub(local_system.field_idx))
             local_solvers.append(solve_call)
 
         return local_solvers
@@ -237,7 +227,7 @@ class SCPC(SCBase):
             x.copy(v)
 
         # Disassemble the incoming right-hand side
-        with self.residual.subfunctions[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
+        with self.residual.sub(self.c).dat.vec as vc, self.weight.dat.vec_ro as wc:
             vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
@@ -256,9 +246,9 @@ class SCPC(SCBase):
 
             with self.condensed_rhs.dat.vec_ro as rhs:
                 if self.condensed_ksp.getInitialGuessNonzero():
-                    acc = self.solution.subfunctions[self.c_field].dat.vec
+                    acc = self.solution.sub(self.c).dat.vec
                 else:
-                    acc = self.solution.subfunctions[self.c_field].dat.vec_wo
+                    acc = self.solution.sub(self.c).dat.vec_wo
                 with acc as sol:
                     self.condensed_ksp.solve(rhs, sol)
 

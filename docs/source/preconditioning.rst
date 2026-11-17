@@ -178,7 +178,7 @@ assembled tensors. These are described in detail in :cite:`Gibson2018`.
    to leave a global problem whose solver can be configured.
 :class:`.SCPC`
    A preconditioner that performs element-wise static condensation
-   onto a single field.
+   onto any group of subspaces.
 
 Nonlinear preconditioning
 =========================

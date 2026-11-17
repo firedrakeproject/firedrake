@@ -26,186 +26,101 @@ for the transformed linear system of equations.
 
 
 def condense_and_forward_eliminate(A, b, elim_fields, prefix, pc):
-    """Returns Slate expressions for the operator and
-    right-hand side vector after eliminating specified
-    unknowns.
+    """Return the Slate expressions of the statically condensed system.
 
-    :arg A: a `slate.Tensor` corresponding to the
-            mixed UFL operator.
-    :arg b: a `firedrake.Function` corresponding
-            to the right-hand side.
-    :arg elim_fields: a `tuple` of indices denoting
-                      which fields to eliminate.
-    :arg prefix: an option prefix for the condensed field.
-    :arg pc: a Preconditioner instance.
-    :returns: a tuple of `LAContext` and `SchurComplementBuilder`
+    Parameters
+    ----------
+    A : firedrake.slate.slate.Tensor
+        The operator on the mixed space.
+    b : firedrake.cofunction.Cofunction
+        The right-hand side.
+    elim_fields : collections.abc.Sequence of int
+        The indices of the subspaces to eliminate.
+    prefix : str
+        The options prefix of the condensed system.
+    pc : petsc4py.PETSc.PC
+        The preconditioner of the mixed system.
+
+    Returns
+    -------
+    LAContext
+        The Schur complement on the retained subspaces and its right-hand side.
+    SchurComplementBuilder
+        The builder of the local inverses.
+
+    Notes
+    -----
+    By default, a nested local Schur complement puts the first subspace of
+    ``elim_fields`` in ``fieldsplit_0`` and the other subspaces in
+    ``fieldsplit_1``.
     """
-
     if not isinstance(A, Tensor):
         raise ValueError("Left-hand operator must be a Slate Tensor")
 
-    # Ensures field indices are in increasing order
-    id_0, id_1 = elim_fields[0], elim_fields[-1]
-    elim_fields = list(as_tuple(elim_fields))
-    elim_fields.sort()
+    e = tuple(elim_fields)
+    c = tuple(i for i in range(len(A.arg_function_spaces[0])) if i not in e)
 
-    all_fields = list(range(len(A.arg_function_spaces[0])))
+    A_ee = Block(A, (e, e))
+    A_ec = Block(A, (e, c))
+    A_ce = Block(A, (c, e))
+    A_cc = Block(A, (c, c))
+    b_e = AssembledVector(b.sub(e))
+    b_c = AssembledVector(b.sub(c))
 
-    condensed_fields = list(set(all_fields) - set(elim_fields))
-    condensed_fields.sort()
-
-    _A = A.blocks
-    _b = AssembledVector(b).blocks
-
-    # NOTE: Does not support non-contiguous field elimination
-    e_idx0 = elim_fields[0]
-    e_idx1 = elim_fields[-1]
-    f_idx0 = condensed_fields[0]
-    f_idx1 = condensed_fields[-1]
-
-    # Finite element systems where static condensation
-    # is possible have the general form:
-    #
-    #  | A_ee A_ef || x_e |   | b_e |
-    #  |           ||     | = |     |
-    #  | A_fe A_ff || x_f |   | b_f |
-    #
-    # where subscript `e` denotes the coupling with fields
-    # that will be eliminated, and `f` denotes the condensed
-    # fields.
-    outer_id_0 = slice(e_idx0, e_idx1 + 1)
-    outer_id_1 = slice(f_idx0, f_idx1 + 1)
-    Aff = _A[outer_id_1, outer_id_1]
-    Aef = _A[outer_id_0, outer_id_1]
-    Afe = _A[outer_id_1, outer_id_0]
-    Aee = _A[outer_id_0, outer_id_0]
-
-    bf = _b[outer_id_1]
-    be = _b[outer_id_0]
-
-    # The reduced operator and right-hand side are:
-    #  S = A_ff - A_fe * A_ee.inv * A_ef
-    #  r = b_f - A_fe * A_ee.inv * b_e
-    # TODO check the vidx and pidx indices are correct
-    schur_builder = SchurComplementBuilder(prefix, Aee, Afe, Aef, pc, id_0, id_1, non_zero_saddle_mat=Aff)
-    r, S = schur_builder.build_schur(be, non_zero_saddle_rhs=bf)
-
-    field_idx = [idx for idx in range(f_idx0, f_idx1)]
-
-    return LAContext(lhs=S, rhs=r, field_idx=field_idx), schur_builder
+    schur_builder = SchurComplementBuilder(prefix, A_ee, A_ce, A_ec, pc, 0, tuple(range(1, len(e))),
+                                           non_zero_saddle_mat=A_cc)
+    r, S = schur_builder.build_schur(b_e, non_zero_saddle_rhs=b_c)
+    return LAContext(lhs=S, rhs=r, field_idx=c), schur_builder
 
 
 def backward_solve(A, b, x, schur_builder, reconstruct_fields):
-    """Returns a sequence of linear algebra contexts containing
-    Slate expressions for backwards substitution.
+    """Return the Slate expressions that recover the eliminated subspaces.
 
-    :arg A: a `slate.Tensor` corresponding to the
-            mixed UFL operator.
-    :arg b: a `firedrake.Function` corresponding
-            to the right-hand side.
-    :arg x: a `firedrake.Function` corresponding
-            to the solution.
-    :arg schur_builder: a `SchurComplementBuilder`
-    :arg reconstruct_fields: a `tuple` of indices denoting
-                             which fields to reconstruct.
-    :returns: a list of `LAContext` for the reconstruction
+    Parameters
+    ----------
+    A : firedrake.slate.slate.Tensor
+        The operator on the mixed space.
+    b : firedrake.cofunction.Cofunction
+        The right-hand side.
+    x : firedrake.function.Function
+        The solution, whose retained subspaces are known.
+    schur_builder : SchurComplementBuilder
+        The builder returned by :func:`condense_and_forward_eliminate`.
+    reconstruct_fields : collections.abc.Sequence of int
+        The indices of the eliminated subspaces, as given to
+        :func:`condense_and_forward_eliminate`.
+
+    Returns
+    -------
+    list of LAContext
+        The local systems, in the order in which they are solved.
+
+    Notes
+    -----
+    The eliminated subspaces solve :math:`A_{ee} x_e = b_e - A_{ec} x_c`. A
+    nested local Schur complement solves for ``fieldsplit_1`` first, and then
+    for ``fieldsplit_0``.
     """
-
     if not isinstance(A, Tensor):
         raise ValueError("Left-hand operator must be a Slate Tensor")
 
-    all_fields = list(range(len(A.arg_function_spaces[0])))
-    nfields = len(all_fields)
-    reconstruct_fields = as_tuple(reconstruct_fields)
+    e = tuple(reconstruct_fields)
+    c = tuple(i for i in range(len(A.arg_function_spaces[0])) if i not in e)
 
-    _b = b.subfunctions
-    _x = x.subfunctions
+    r = AssembledVector(b.sub(e)) - schur_builder.KT * AssembledVector(x.sub(c))
+    if not schur_builder.nested:
+        return [LAContext(lhs=schur_builder.Atilde_inv_hat, rhs=r, field_idx=e)]
 
-    # Ordering matters
-    systems = []
-
-    # Reconstruct one unknown from one determined field:
-    #
-    # | A_ee  A_ef || x_e |   | b_e |
-    # |            ||     | = |     |
-    # | A_fe  A_ff || x_f |   | b_f |
-    #
-    # where x_f is known from a previous computation.
-    # Returns the system:
-    #
-    # A_ee x_e = b_e - A_ef * x_f.
-    if nfields == 2:
-        id_e, = reconstruct_fields
-        id_f, = [idx for idx in all_fields if idx != id_e]
-
-        A_eeinv = schur_builder.A00_inv_hat
-        A_ef = schur_builder.KT
-        b_e = AssembledVector(_b[id_e])
-        x_f = AssembledVector(_x[id_f])
-
-        r_e = b_e - A_ef * x_f
-        local_system = LAContext(lhs=A_eeinv, rhs=r_e, field_idx=(id_e,))
-
-        systems.append(local_system)
-
-    # Reconstruct two unknowns from one determined field:
-    #
-    # | A_e0e0  A_e0e1  A_e0f || x_e0 |   | b_e0 |
-    # | A_e1e0  A_e1e1  A_e1f || x_e1 | = | b_e1 |
-    # | A_fe0   A_fe1   A_ff  || x_f  |   | b_f  |
-    #
-    # where x_f is the known field. Returns two systems to be
-    # solved in order (determined from the reverse order of indices
-    # e0 and e1):
-    #
-    # Solve for e1 first (obtained from eliminating x_e0):
-    #
-    # S_e1 x_e1 = r_e1
-    #
-    # where
-    #
-    # S_e1 = A_e1e1 - A_e1e0 * A_e0e0.inv * A_e0e1, and
-    # r_e1 = b_e1 - A_e1e0 * A_e0e0.inv * b_e0
-    #      - (A_e1f - A_e1e0 * A_e0e0.inv * A_e0f) * x_f,
-    #
-    # And then solve for x_e0 given x_f and x_e1:
-    #
-    # A_e0e0 x_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f.
-    elif nfields == 3:
-        if len(reconstruct_fields) != nfields - 1:
-            raise NotImplementedError("Implemented for 1 determined field")
-
-        # Order of reconstruction doesn't need to be in order
-        # of increasing indices
-        id_e0, id_e1 = reconstruct_fields
-        id_f, = [idx for idx in all_fields if idx not in reconstruct_fields]
-
-        _, A_e0e1, A_e1e0, _ = schur_builder.list_split_mixed_ops
-        A_e0f, A_e1f = schur_builder.list_split_trace_ops_transpose
-        A_e0e0inv = schur_builder.A00_inv_hat
-
-        x_e1 = AssembledVector(_x[id_e1])
-        x_f = AssembledVector(_x[id_f])
-
-        b_e0 = AssembledVector(_b[id_e0])
-        b_e1 = AssembledVector(_b[id_e1])
-
-        # Solve for e1
-        Sf = A_e1f - A_e1e0 * A_e0e0inv * A_e0f
-        r_e1 = b_e1 - A_e1e0 * A_e0e0inv * b_e0 - Sf * x_f
-
-        Sinv = schur_builder.inner_S_inv_hat
-        systems.append(LAContext(lhs=Sinv, rhs=r_e1, field_idx=(id_e1,)))
-
-        # Solve for e0
-        r_e0 = b_e0 - A_e0e1 * x_e1 - A_e0f * x_f
-        systems.append(LAContext(lhs=A_e0e0inv, rhs=r_e0, field_idx=(id_e0,)))
-
-    else:
-        msg = "Not implemented for systems with %s fields" % nfields
-        raise NotImplementedError(msg)
-
-    return systems
+    # Solve S x_1 = r_1 - A_10 A_00^{-1} r_0, and then A_00 x_0 = r_0 - A_01 x_1.
+    id0, id1 = map(as_tuple, (schur_builder.vidx, schur_builder.pidx))
+    e0 = tuple(e[i] for i in id0)
+    e1 = tuple(e[i] for i in id1)
+    _, A01, A10, _ = schur_builder.list_split_mixed_ops
+    r0 = Block(r, (id0,))
+    r1 = Block(r, (id1,))
+    x1 = AssembledVector(x.sub(e1))
+    return [LAContext(lhs=schur_builder.inner_S_inv_hat, rhs=r1 - A10 * schur_builder.A00_inv_hat * r0, field_idx=e1),
+            LAContext(lhs=schur_builder.A00_inv_hat, rhs=r0 - A01 * x1, field_idx=e0)]
 
 
 class SchurComplementBuilder(object):
@@ -310,6 +225,8 @@ class SchurComplementBuilder(object):
         self._split_mixed_operator()
 
         # build all inverses
+        P = DiagonalTensor(self.Atilde).inv
+        self.Atilde_inv_hat = self.inv(self.Atilde, P, self.jacobi_A00, self.preonly_A00)
         self.A00_inv_hat = self.build_A00_inv()
         if self.nfields > 1:
             self.schur_approx = self.retrieve_user_S_approx(pc, self.schur_approx) if self.schur_approx else None
@@ -505,10 +422,8 @@ class SchurComplementBuilder(object):
             # K * block1 * block2 * block3 * K.T
             schur_comp = K_Ainv_block3[0] * KT0 + K_Ainv_block3[1] * KT1
         else:
-            P = DiagonalTensor(self.Atilde).inv
-            Atildeinv = self.inv(self.Atilde, P, self.jacobi_A00, self.preonly_A00)
-            schur_rhs = self.K * Atildeinv * rhs
-            schur_comp = self.K * Atildeinv * self.KT
+            schur_rhs = self.K * self.Atilde_inv_hat * rhs
+            schur_comp = self.K * self.Atilde_inv_hat * self.KT
         if self.non_zero_saddle_mat or non_zero_saddle_rhs:
             assert self.non_zero_saddle_mat and non_zero_saddle_rhs, "The problem is not a saddle point system and you missed to pass either A11 or the corresponding part in the rhs."
             # problem is not a saddle point problem
