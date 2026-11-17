@@ -50,11 +50,11 @@ from pyop3.insn.base import (
     assignment_type_as_intent,
 )
 
-from pyop3.device import HOST_DEVICE, get_current_device, offloading
+from pyop3.device import get_current_device, offloading
 
 from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
 from pyop3.compile.mlir import MLIRBuilder
-from pyop3.compile.passes.impero.item_loop import assign_crossing_values, batch_items, mark_atomics
+from pyop3.compile.passes.impero import apply_passes
 from pyop3.compile.passes.impero.utils import temporary
 from pyop3.insn.exec import ParsedCompilerParameters
 
@@ -111,9 +111,7 @@ class GemExecutable(Executable):
 
     @cached_property
     def _impero(self) -> gem.impero_utils.ImperoC:
-        """The Impero code of the instructions, with one copy of each temporary per item."""
-        from pyop3.compile.passes.impero.item_loop import flatten_item_temporaries
-
+        """The Impero code of the instructions."""
         insns = []
         for insn in self.instructions:
             # TODO: Can't put these together atm as it causes bug. Should investigate 
@@ -128,36 +126,12 @@ class GemExecutable(Executable):
                 mode=insn.mode,
             )
             insns.append(new_insn)
-        impero = gem.impero_utils.compile_gem_new(insns, (), parallel_indices=self.parallel_indices)
-
-        # NOTE: Temporary compiler pass for removing the cell-level index on temporaries 
-        # Indices are required for constructing the impero tree but
-        # causing bugs when lowering 
-        flattened_items_impero = flatten_item_temporaries(impero)
-        return flattened_items_impero 
+        return gem.impero_utils.compile_gem_new(insns, (), parallel_indices=self.parallel_indices)
 
     @cached_property
     def _mlir_build(self) -> tuple[str, list, str, idict]:
-        """Generate the MLIR module from the instructions.
-        
-        Compiler passes are also applied over the Impero tree before lowering to MLIR.
-
-        - Thread transposition is an optimisation for high-order assembly on GPU
-            - Without it, a GPU kernel runs one thread per item, see `batch_items`
-
-        - assign_crossing_values marks all GEM values that silently require access in sibling loops
-            - This means that they need to be initialised before the loop. 
-            - As such, "crossing values" are marked to be temporary buffers  
-
-        """
-        on_device = get_current_device() != HOST_DEVICE
-        if on_device and self.compiler_parameters.thread_transposition:
-            from pyop3.compile.passes.impero.thread_transposition import thread_transpose
-            tree = thread_transpose(self._impero.tree, target=get_current_device().target)
-        else:
-            tree = assign_crossing_values(self._impero)
-            if on_device:
-                tree = batch_items(mark_atomics(tree))
+        """Generate the MLIR module from the instructions, after the Impero passes of `apply_passes`."""
+        tree = apply_passes(self._impero, get_current_device(), self.compiler_parameters)
         builder = MLIRBuilder(tree, self.arguments)
         module_code, kernel_args, func_name = builder.build()
 

@@ -13,11 +13,12 @@ from pyop3 import utils
 from pyop3.buffer import NullBuffer, ArrayBuffer, IndexedBuffer
 from pyop3.device import Device, HOST_DEVICE, get_current_device
 from pyop3.compile.passes.mlir.atomics import ATOMIC_RMW_KIND_ADDF, ATOMIC_RMW_KIND_ADDI
-from pyop3.compile.passes.impero.utils import gem_nodes, is_shared, is_temporary, shared_layout, static_extent
+from pyop3.compile.passes.impero.utils import is_shared, is_temporary, shared_layout, static_extent
 from pyop3.compile.passes.mlir.gpu_ext import WORKGROUP_ADDRESS_SPACE, DynamicSharedMemoryOp
 from pyop3.compile.passes.mlir.thread_loops import THREAD_LOOP
 
 from gem import gem, impero as imp
+from gem.impero_utils import gem_nodes
 from gem.node import pre_traversal
 
 from xdsl.dialects import arith, func, gpu, memref, scf

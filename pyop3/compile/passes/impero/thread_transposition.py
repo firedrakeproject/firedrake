@@ -22,7 +22,7 @@ example one thread per quadrature point, then one per basis function.
    lifetimes do not overlap can take the same entries. A shared buffer is a
    `temporary(..., shared=True)`.
 5. An increment of a kernel argument is `"atomic"` unless it is injective
-   (`pyop3.compile.passes.impero.item_loop.needs_atomic`).
+   (`pyop3.compile.passes.impero.linear.needs_atomic`).
 6. Barriers are inserted on the MLIR, by `pyop3.compile.passes.mlir.thread_loops`.
 7. The batch size and block size are chosen with a cost model (`choose_parameters`).
 
@@ -44,15 +44,15 @@ from functools import cached_property
 import numpy as np
 
 from gem import gem, impero as imp, replace
+from gem.impero_utils import gem_nodes, terminals
 from gem.node import pre_traversal
 
 from pyop3 import utils
 from pyop3.compile.passes.impero.copy_propagation import propagate_copies
-from pyop3.compile.passes.impero.item_loop import needs_atomic, terminals, value_temporaries
-from pyop3.compile.passes.impero.linear import LinearIndex, flat_entry, linear
+from pyop3.compile.passes.impero.linear import LinearIndex, flat_entry, linear, needs_atomic
 from pyop3.compile.passes.impero.utils import (
-    as_index, assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, num_points, shared_layout,
-    static_extent, temporary,
+    as_index, assign_value, is_item_loop, is_temporary, name_generator, num_points, shared_layout,
+    static_extent, temporary, value_temporaries,
 )
 from pyop3.device import GPUTarget
 from pyop3.dtypes import ScalarType
@@ -463,10 +463,11 @@ def choose_parameters(
 def _phase_counts(phase: Phase, temporaries: Mapping[str, Temporary]) -> np.ndarray:
     """The floating-point operations, global accesses and shared accesses of one point of `phase`, times the reductions.
 
-    An atomic is a global access, as only kernel arguments are atomic. Register accesses are not counted.
+    An atomic is a global access, as only kernel arguments are atomic. A table (a `gem.Literal`) is a global
+    access, because it is a global constant. Register accesses are not counted.
     """
-    def access(variable: gem.Variable) -> tuple[int, int, int]:
-        t = temporaries.get(variable.name)
+    def access(aggregate: gem.Variable | gem.Literal) -> tuple[int, int, int]:
+        t = temporaries.get(aggregate.name) if isinstance(aggregate, gem.Variable) else None
         return (0, 1, 0) if t is None else (0, 0, 0) if t.in_registers else (0, 0, 1)
 
     total = np.zeros(3)
@@ -474,7 +475,7 @@ def _phase_counts(phase: Phase, temporaries: Mapping[str, Temporary]) -> np.ndar
         s = nest.statement
         counts = np.array([_floating_point_operations(s), 0, 0]) + access(nest.write.aggregate)
         for node in pre_traversal((s.expression, *s.assignee.indirect_children)):
-            if isinstance(node, gem.Indexed) and isinstance(node.aggregate, gem.Variable):
+            if isinstance(node, gem.Indexed) and isinstance(node.aggregate, (gem.Variable, gem.Literal)):
                 counts += access(node.aggregate)
         total += counts * num_points(nest.reductions)
     return total

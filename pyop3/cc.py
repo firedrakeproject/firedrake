@@ -35,7 +35,6 @@
 import ctypes
 import dataclasses
 import os
-import re
 import platform
 import shlex
 import shutil
@@ -46,7 +45,6 @@ from collections.abc import Hashable
 from contextlib import contextmanager
 from functools import partial
 from hashlib import md5
-from io import StringIO
 from pathlib import Path
 from random import randint
 from tempfile import gettempdir, mkstemp
@@ -72,7 +70,7 @@ from pyop3.log import INFO, debug, progress, warning
 
 import time
 
-from pyop3.device import AMDGPU, CPU, CUDAGPU, GPU, get_current_device
+from pyop3.device import GPU, get_current_device
 
 def _check_hashes(x, y, datatype):
     """MPI reduction op to check if code hashes differ across ranks."""
@@ -88,78 +86,6 @@ _compiler = None
 _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
-
-def _gpu_mlir_opt_passes(attach_target: str, *convert_gpu: str) -> tuple[str, ...]:
-    """Return the mlir-opt passes of a GPU, given the passes of its vendor.
-
-    :arg attach_target
-        The pass that attaches the target (the chip) to the GPU modules.
-    :arg convert_gpu
-        The passes that lower the `gpu` dialect to the vendor's LLVM dialect.
-
-    """
-    return (
-        "--canonicalize",
-        "--cse",
-        "--gpu-launch-sink-index-computations",
-        "--gpu-kernel-outlining",
-        attach_target,
-        "--convert-scf-to-cf",
-        "--expand-strided-metadata",
-        "--lower-affine",
-        *convert_gpu,
-        "--convert-index-to-llvm",
-        "--convert-arith-to-llvm",
-        "--convert-cf-to-llvm",
-        "--finalize-memref-to-llvm",
-        "--convert-func-to-llvm",
-        "--gpu-to-llvm",
-        "--reconcile-unrealized-casts",
-        "--gpu-module-to-binary",
-    )
-
-
-# NOTE: Basic mlir-opt passes. Further optimisations can be made in future.
-# MLIRCompiler.mlir_opt_flags replaces {arch} with the architecture of the current device.
-MLIR_OPT_PASSES = {
-    CPU: (
-        "--canonicalize",
-        "--cse",
-        "--symbol-dce",
-        "--buffer-deallocation-pipeline",
-        "--scf-parallel-for-to-nested-fors",
-        "--buffer-loop-hoisting",
-        "--convert-scf-to-cf",
-        "--canonicalize",
-        "--convert-math-to-llvm",
-        "--convert-math-to-libm",
-        "--convert-cf-to-llvm",
-        "--convert-func-to-llvm",
-        "--finalize-memref-to-llvm",
-        "--convert-arith-to-llvm",
-        "--convert-index-to-llvm",
-        "--reconcile-unrealized-casts",
-    ),
-    CUDAGPU: _gpu_mlir_opt_passes(
-        "--nvvm-attach-target=chip={arch} features=+ptx80 O=3", "--convert-gpu-to-nvvm", "--convert-nvvm-to-llvm",
-    ),
-    AMDGPU: _gpu_mlir_opt_passes(
-        "--rocdl-attach-target=chip={arch} O=3", "--convert-gpu-to-rocdl=chipset={arch} runtime=HIP",
-    ),
-}
-
-# The CPU pass list runs --buffer-deallocation-pipeline, which rejects
-# llvm.atomicrmw because that op does not declare its memory effects. So the CPU kernels keep
-# the standard lowering of their atomics.
-DEVICE_XDSL_PASSES = {
-    CPU: "",
-    CUDAGPU: "pyop3-lower-thread-loops,pyop3-relax-atomicrmw",
-    AMDGPU: (
-        "pyop3-lower-thread-loops,"
-        "pyop3-relax-atomicrmw{syncscope=agent no_fine_grained_memory=true}"
-    ),
-}
-"""The pyop3 xDSL passes of each device, as an xDSL pass pipeline."""
 
 # TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -576,41 +502,11 @@ class MLIRCompiler(Compiler):
         return self._cc or shutil.which("clang++") or "clang++"
 
     @property
-    def mlir_opt_flags(self) -> tuple[str, ...]:
-        device = get_current_device()
-        flags = (flag.format(arch=device.arch) for flag in MLIR_OPT_PASSES[type(device)])
-        if pyop3.config.ptxas_verbose:
-            # mlir-opt then stores the output of the PTX compiler in the binary, where _lower_mlir finds it
-            flags = (
-                f"{flag} collect-compiler-diagnostics ptxas-cmd-options=-v" if flag.startswith("--nvvm-attach-target") else flag
-                for flag in flags
-            )
-        return (*flags, *getattr(pyop3.config, "extra_mlir_opt_flags", ()))
-
-    @property
     def xdsl_pipeline(self):
-        """The xDSL pass pipeline that lowers the generated MLIR to the LLVM dialect.
+        """The pass pipeline that lowers the generated MLIR to the LLVM dialect for the current device."""
+        from pyop3.compile.passes import build_lowering_pipeline
 
-        The pyop3 passes in DEVICE_XDSL_PASSES for the current device run first. Then
-        `mlir-opt` runs the passes in mlir_opt_flags. It prints its output in the
-        generic form, so that xDSL can parse it again.
-
-        xDSL pipeline is good because we can develop custom compiler passes and ship without compiling 
-        """
-        from xdsl.passes import PassPipeline
-        from xdsl.transforms.mlir_opt import MLIROptPass
-        from xdsl.utils.arg_spec import parse_pipeline
-
-        from pyop3.compile.passes.mlir import PYOP3_PASSES as PASSES
-
-        specs = parse_pipeline(DEVICE_XDSL_PASSES[type(get_current_device())])
-        return PassPipeline((
-            *(PASSES[spec.name].from_pass_spec(spec) for spec in specs),
-            MLIROptPass(
-                executable=self.mlir_opt,
-                arguments=(*self.mlir_opt_flags, "--mlir-print-op-generic"),
-            ),
-        ))
+        return build_lowering_pipeline(get_current_device(), self.mlir_opt)
 
     @property
     def cflags(self) -> tuple[str, ...]:
@@ -861,52 +757,39 @@ def make_so(compiler, code, extension, comm):
 
 
 def _lower_mlir(compiler, code: str, lowered_name: Path, logfile: Path, errfile: Path) -> None:
-    """Lower MLIR source to the LLVM dialect with the xDSL pass pipeline of a compiler.
+    """Lower MLIR source to the LLVM dialect with the pass pipeline of a compiler.
 
+    Raises
+    ------
     subprocess.CalledProcessError
         If `mlir-opt` fails. Its error output is in `errfile`.
     CompilationException
         If xDSL cannot parse or rewrite the module. The error is in `errfile`.
     """
-    from xdsl.parser import Parser
-    from xdsl.printer import Printer
-    from xdsl.utils.exceptions import DiagnosticException, ParseError
+    from pyop3.compile.passes import lower, ptxas_logs
 
-    from pyop3.compile.passes.mlir import mlir_context
-
-    pipeline = compiler.xdsl_pipeline
-
-    ctx = mlir_context()
     try:
-        module = Parser(ctx, code).parse_module()
-        pipeline.apply(ctx, module)
-
-    except (DiagnosticException, ParseError) as e:
-        if isinstance(e.__cause__, subprocess.CalledProcessError):
-            # mlir-opt failed. The error handler of make_so reports its exit status.
-            with open(errfile, "w") as err:
-                err.write(e.__cause__.stderr or "")
-            raise e.__cause__
-
+        lowered = lower(code, compiler.xdsl_pipeline)
+    except subprocess.CalledProcessError as e:
+        # mlir-opt failed. The error handler of make_so reports its exit status.
+        with open(errfile, "w") as err:
+            err.write(e.stderr or "")
+        raise
+    except CompilationException as e:
         with open(errfile, "w") as err:
             err.write(str(e))
-
         raise CompilationException(dedent(f"""
             Unable to lower MLIR code with xDSL
             Compile log in {logfile!s}
             Compile errors in {errfile!s}
         """)) from e
 
-    lowered = StringIO()
-    Printer(print_generic_format=True, stream=lowered).print_op(module)
     with open(lowered_name, "w") as fh:
-        fh.write(lowered.getvalue())
+        fh.write(lowered)
 
-    # The output of the PTX compiler, which mlir-opt stores if pyop3.config.ptxas_verbose is set
-    if ptx_logs := re.findall(r'ISACompilerLog = "((?:[^"\\]|\\.)*)"', lowered.getvalue()):
+    if logs := ptxas_logs(lowered):
         with open(logfile, "w") as log:
-            for ptx_log in ptx_logs:
-                log.write(re.sub(r"\\([0-9A-Fa-f]{2})", lambda m: chr(int(m[1], 16)), ptx_log) + "\n")
+            log.writelines(f"{ptx_log}\n" for ptx_log in logs)
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):

@@ -7,19 +7,16 @@ items concurrently, as in `pyop3.compile.mlir.MLIRBuilder`.
 
 from __future__ import annotations
 
-import functools
 import itertools
 import numbers
-from collections.abc import Callable, Mapping
 
 from gem import gem, impero as imp, replace
-from gem.impero_utils import ImperoC
+from gem.impero_utils import ImperoC, gem_nodes, map_terminals, rewrite_terminal, terminals
 from gem.node import pre_traversal
 
-from pyop3 import utils
-from pyop3.compile.passes.impero.linear import linear
+from pyop3.compile.passes.impero.linear import needs_atomic
 from pyop3.compile.passes.impero.utils import (
-    assign_value, gem_nodes, is_item_loop, is_temporary, name_generator, new_temporary, temporary,
+    assign_value, is_item_loop, is_temporary, name_generator, temporary, value_temporaries,
 )
 
 ITEMS_PER_BLOCK = 128
@@ -95,34 +92,6 @@ def assign_crossing_values(impero: ImperoC) -> imp.Block:
     return map_terminals(impero.tree, assign)
 
 
-def value_temporaries(statements, names: utils.UniqueNameGenerator, prefix: str, indices: Callable) -> dict[gem.Node, gem.Indexed]:
-    """Map each value that a terminal of `statements` evaluates or sums to a load from a new temporary.
-
-    `statements` are pairs of loops and a terminal. `indices(loops, value)` gives the loop indices
-    of the temporary, or `None` if the value is not stored.
-    """
-    temporaries = {}
-    for loops, terminal in statements:
-        match terminal:
-            case imp.Evaluate(expression=value) | imp.Initialise(indexsum=value) | imp.Accumulate(indexsum=value):
-                if value not in temporaries and (value_indices := indices(loops, value)) is not None:
-                    temporaries[value] = new_temporary(names(prefix), value_indices, value.dtype)
-    return temporaries
-
-
-def needs_atomic(assignment: imp.Assignment, threads: tuple[gem.Index, ...]) -> bool:
-    """Whether `assignment` increments a kernel argument at an entry that another thread may increment.
-
-    `threads` are the indices whose points run on different threads. A
-    `"write"` to a kernel argument stays a plain store: concurrent writers
-    either store the same value or write through an injective map.
-    """
-    if assignment.mode != "inc" or is_temporary(assignment.assignee.aggregate):
-        return False
-    index = linear(assignment.assignee)
-    return index is None or not index.is_injective(threads)
-
-
 def mark_atomics(tree: imp.Block) -> imp.Block:
     """Make each increment `"atomic"` if another item of its parallel loop may increment the same kernel argument"""
 
@@ -158,44 +127,3 @@ def batch_items(tree: imp.Block) -> imp.Block:
         return imp.ItemBatch(node.index, local, batch_size=ITEMS_PER_BLOCK, block_size=ITEMS_PER_BLOCK, statement=imp.Block([loop]))
 
     return imp.Block(map(batch, tree.children))
-
-
-def rewrite_terminal(terminal: imp.Terminal, mapping: Mapping) -> imp.Terminal:
-    """Return `terminal` with `gem.replace` by `mapping` applied to each of its GEM expressions"""
-    def rewrite(value):
-        return replace(value, mapping) if isinstance(value, gem.Node) else value
-
-    return type(terminal)(*(rewrite(getattr(terminal, slot)) for slot in terminal.__slots__))
-
-
-def terminals(node: imp.Node) -> list[tuple[tuple[imp.For, ...], imp.Terminal]]:
-    """Each terminal below `node` with its enclosing loops, in execution order"""
-    found = []
-
-    def visit(loops, terminal):
-        found.append((loops, terminal))
-        return terminal
-
-    map_terminals(node, visit)
-    return found
-
-
-@functools.singledispatch
-def map_terminals(node: imp.Node, function: Callable, loops: tuple[imp.For, ...] = ()) -> imp.Node:
-    """Rebuild `node` with `function(loops, terminal)` in place of each terminal, with `loops` the enclosing loops"""
-    utils.raise_missing_dispatch_handler(node)
-
-
-@map_terminals.register
-def _(node: imp.Block, function: Callable, loops: tuple[imp.For, ...] = ()) -> imp.Node:
-    return imp.Block(map_terminals(child, function, loops) for child in node.children)
-
-
-@map_terminals.register
-def _(node: imp.For, function: Callable, loops: tuple[imp.For, ...] = ()) -> imp.Node:
-    return imp.For(node.index, map_terminals(node.statement, function, (*loops, node)), node.is_parallel)
-
-
-@map_terminals.register
-def _(node: imp.Terminal, function: Callable, loops: tuple[imp.For, ...] = ()) -> imp.Node:
-    return function(loops, node)

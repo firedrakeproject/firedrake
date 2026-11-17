@@ -5,13 +5,13 @@ from __future__ import annotations
 import functools
 import numbers
 import operator
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import numpy as np
 
 from gem import gem, impero as imp, replace
-from gem.node import pre_traversal
+from gem.impero_utils import gem_nodes
 
 from pyop3 import utils
 from pyop3.dtypes import ScalarType
@@ -61,13 +61,25 @@ def as_index(index: Any) -> int | gem.IndexBase:
     return gem.VariableIndex(index)
 
 
-def new_temporary(name: str, indices: tuple[gem.Index, ...], dtype) -> gem.Indexed:
-    """The entry of a new row-major temporary, with one entry per point of `indices`, that stores and loads a value."""
-    strides = utils.row_major_strides([static_extent(index) for index in indices])
-    terms = [i if s == 1 else i * gem.as_gem_uint(s) for i, s in zip(indices, strides)]
-    index = functools.reduce(operator.add, terms) if terms else 0
-    variable = temporary(name, (num_points(indices),), dtype or ScalarType)
-    return gem.Indexed(variable, (as_index(index),))
+def value_temporaries(statements, names: utils.UniqueNameGenerator, prefix: str, indices: Callable) -> dict[gem.Node, gem.Indexed]:
+    """Map each value that a terminal of `statements` evaluates or sums to a load from a new temporary.
+
+    `statements` are pairs of loops and a terminal. `indices(loops, value)` gives the loop indices
+    of the temporary, or `None` if the value is not stored. The temporary is row-major, with one
+    entry per point of those indices.
+    """
+    temporaries = {}
+    for loops, terminal in statements:
+        match terminal:
+            case imp.Evaluate(expression=value) | imp.Initialise(indexsum=value) | imp.Accumulate(indexsum=value):
+                if value in temporaries or (value_indices := indices(loops, value)) is None:
+                    continue
+                strides = utils.row_major_strides([static_extent(index) for index in value_indices])
+                terms = [i if s == 1 else i * gem.as_gem_uint(s) for i, s in zip(value_indices, strides)]
+                index = functools.reduce(operator.add, terms) if terms else 0
+                variable = temporary(names(prefix), (num_points(value_indices),), value.dtype or ScalarType)
+                temporaries[value] = gem.Indexed(variable, (as_index(index),))
+    return temporaries
 
 
 def is_temporary(variable: gem.Node) -> bool:
@@ -106,13 +118,6 @@ def is_item_loop(node: imp.Node) -> bool:
 def name_generator(tree: imp.Node) -> utils.UniqueNameGenerator:
     """Names for new temporaries that no variable of `tree` already has"""
     return utils.UniqueNameGenerator(existing_names={e.name for e in gem_nodes(tree) if isinstance(e, gem.Variable)})
-
-
-def gem_nodes(*nodes: imp.Node):
-    """Every GEM node that the terminals below `nodes` refer to"""
-    terminals = (n for n in pre_traversal(nodes) if isinstance(n, imp.Terminal))
-    values = (getattr(t, slot) for t in terminals for slot in t.__slots__)
-    return pre_traversal([v for v in values if isinstance(v, gem.Node)])
 
 
 @functools.singledispatch

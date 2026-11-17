@@ -10,9 +10,9 @@ from typing import Any
 
 from immutabledict import immutabledict as idict
 
-from gem import gem
+from gem import gem, impero as imp
 
-from pyop3.compile.passes.impero.utils import is_static, static_extent
+from pyop3.compile.passes.impero.utils import is_static, is_temporary, static_extent
 
 
 @dataclasses.dataclass(frozen=True)
@@ -122,6 +122,19 @@ def linear(access: gem.Indexed) -> LinearIndex | None:
         return None
 
     return LinearIndex(idict(terms), constant)
+
+
+def needs_atomic(assignment: imp.Assignment, threads: tuple[gem.Index, ...]) -> bool:
+    """Whether `assignment` increments a kernel argument at an entry that another thread may increment.
+
+    `threads` are the indices whose points run on different threads. A
+    `"write"` to a kernel argument stays a plain store: concurrent writers
+    either store the same value or write through an injective map.
+    """
+    if assignment.mode != "inc" or is_temporary(assignment.assignee.aggregate):
+        return False
+    index = linear(assignment.assignee)
+    return index is None or not index.is_injective(threads)
 
 
 # }}}
