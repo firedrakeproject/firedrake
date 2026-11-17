@@ -89,6 +89,11 @@ class Kernel:
         """Whether the kernel expects cell sizes from the caller."""
         return self._has_argument(kernel_args.CellSizesKernelArg)
 
+    @property
+    def needs_petsc(self) -> bool:
+        """Whether the kernel requires PETSc to record a log event."""
+        return self.event is not None
+
 
 class KernelBuilderBase(_KernelBuilderBase):
 
