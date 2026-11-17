@@ -231,7 +231,7 @@ class WithGeometryBase:
         if type(element) is finat.ufl.MixedElement:
             if not isinstance(mesh, MeshSequenceGeometry):
                 raise TypeError(f"Can only use MixedElement with MeshSequenceGeometry: got {type(mesh)}")
-        assert function_space.component is None or isinstance(function_space.component, tuple)
+        assert function_space.component is None or isinstance(function_space.component, int)
 
         self.topological = function_space
         self.parent = parent
@@ -293,18 +293,39 @@ class WithGeometryBase:
 
     @cached_property
     def _components(self):
-        components = numpy.empty(self.shape, dtype=object)
-        for ix in numpy.ndindex(self.shape):
-            components[ix] = type(self)(self.topological.sub(ix), self.mesh(), parent=self)
-        return utils.readonly(components)
+        return tuple(type(self)(self.topological.sub(k), self.mesh(), parent=self) for k in range(self.block_size))
 
     @PETSc.Log.EventDecorator()
-    def sub(self, indices):
+    def sub(self, indices: int | Sequence[int]) -> WithGeometryBase:
+        """Select a subspace of a mixed space, or components of a vector or tensor space.
+
+        Parameters
+        ----------
+        indices : int or collections.abc.Sequence of int
+            For a mixed space, the index of the subspace to extract. For a
+            vector or tensor space, the flat index of the component to
+            extract, or a tuple, list or range of flat indices. Flat indices
+            count the components in the storage order of the space, in which a
+            symmetric tensor only stores its independent components.
+
+        Returns
+        -------
+        WithGeometryBase
+            The selected space, retaining this space as its parent. If a
+            sequence selects every component in order, the result will be this
+            space. Repeated calls with the same indices will return the same
+            space.
+
+        Raises
+        ------
+        NotImplementedError
+            If a sequence selects more than one component, but not every
+            component in order.
+        """
         if type(self.ufl_element()) is finat.ufl.MixedElement:
             return self.subspaces[indices]
-        else:
-            indices = parse_component_indices(indices, self.shape)
-            return self._components[indices]
+        W = self.topological.sub(indices)
+        return self if W is self.topological else self._components[W.component]
 
     @cached_property_until_mesh_topology_changes
     def dm(self):
@@ -909,7 +930,8 @@ class AbstractFunctionSpace:
             else:
                 field_label = ()
             for bc in bcs_per_field:
-                component_idx = bc.function_space().component or ()
+                V = bc.function_space()
+                component_idx = () if V.component is None else numpy.unravel_index(V.component, V.parent.shape)
                 lgmap_dat[*field_label, bc.node_set, *component_idx].assign(-1, eager=True)
 
         return PETSc.LGMap().create(lgmap_dat.data_ro_with_halos, bsize=block_size, comm=self.comm)
@@ -1573,8 +1595,8 @@ class FunctionSpace(AbstractFunctionSpace):
     r"""The parent space if this space was extracted from one, or ``None``."""
 
     component = None
-    r"""The component of this space in its parent VectorElement space, or
-    ``None``."""
+    r"""The flat index of this component in its parent vector or tensor
+    space, or ``None``."""
 
     def __eq__(self, other):
         # NOTE: For equality checks we consider indexed subspaces to be
@@ -1782,15 +1804,41 @@ class FunctionSpace(AbstractFunctionSpace):
         if self.rank == 0:
             return self.subspaces
         else:
-            components = numpy.empty(self.shape, dtype=object)
-            for ix in numpy.ndindex(self.shape):
-                components[ix] = ComponentFunctionSpace(self, ix)
-            return utils.readonly(components)
+            return tuple(ComponentFunctionSpace(self, k) for k in range(self.block_size))
 
-    def sub(self, indices):
-        r"""Return a view into the ith component."""
-        indices = parse_component_indices(indices, self.shape)
-        return self._components[indices or 0]
+    def sub(self, indices: int | Sequence[int]) -> FunctionSpace:
+        """Select components of a vector or tensor space.
+
+        Parameters
+        ----------
+        indices : int or collections.abc.Sequence of int
+            The flat index of the component to extract, or a tuple, list or
+            range of flat indices. Flat indices count the components in the
+            storage order of the space, in which a symmetric tensor only stores
+            its independent components. A scalar space has the single
+            component ``0``.
+
+        Returns
+        -------
+        FunctionSpace
+            The selected component space. If a sequence selects every
+            component in order, the result will be this space.
+
+        Raises
+        ------
+        NotImplementedError
+            If a sequence selects more than one component, but not every
+            component in order.
+        """
+        if isinstance(indices, (tuple, list, range)):
+            components = range(len(self._components))
+            indices = tuple(components[i] for i in indices)
+            if indices == tuple(components):
+                return self
+            if len(indices) != 1:
+                raise NotImplementedError(f"Cannot select the components {indices} of a space with {len(components)} components")
+            indices, = indices
+        return self._components[indices]
 
     def __mul__(self, other):
         r"""Create a :class:`.MixedFunctionSpace` composed of this
@@ -2380,13 +2428,11 @@ def ComponentFunctionSpace(parent, component):
 
     :arg parent: The parent space (a FunctionSpace with a
         VectorElement or TensorElement).
-    :arg component: The component to represent.
+    :arg component: The flat index of the component to represent.
     :returns: A new :class:`ProxyFunctionSpace` with the component set.
     """
     element = parent.ufl_element()
     assert type(element) in frozenset([finat.ufl.VectorElement, finat.ufl.TensorElement])
-    if component not in numpy.ndindex(parent.shape):
-        raise IndexError(f"Invalid component 'component' not in '{parent.shape}'")
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements[0], name=parent.name)
     new.identifier = "component"
     new.component = component
@@ -2700,31 +2746,6 @@ def merge_axis_constraints(root_axis: op3.Axis, axis_constraintss: Sequence[Sequ
                 within_axes = orig_within_axes | {root_axis.label: component_label}
                 constraints.append(AxisConstraint(axis, within_axes))
     return tuple(constraints)
-
-
-@functools.singledispatch
-def parse_component_indices(indices: Any, shape: tuple[int, ...]) -> tuple[int, ...]:
-    raise TypeError
-
-
-@parse_component_indices.register(tuple)
-def _(indices: tuple[int, ...], shape: tuple[int, ...]) -> tuple[int, ...]:
-    return indices
-
-
-@parse_component_indices.register(int)
-def _(index: int, shape: tuple[int, ...]) -> tuple[int, ...]:
-    # Historically tensor-valued spaces would be addressed using a flat index
-    # instead of a tuple. Here we convert the old-style flat index to a
-    # nested one. Eventually we should be able to remove this and simply cast
-    # an integer index to a tuple (e.g. '3' to '(3,)').
-    if len(shape) > 1:
-        warnings.warn(
-            "Scalar indexing of a tensor-valued space is no longer recommended "
-            "practice, please pass a tuple instead",
-            FutureWarning,
-        )
-    return list(numpy.ndindex(shape))[index]
 
 
 @functools.singledispatch

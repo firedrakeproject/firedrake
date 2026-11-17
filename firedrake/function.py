@@ -11,7 +11,7 @@ from ufl.domain import extract_unique_domain
 from pyadjoint import annotate_tape
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from numbers import Number
 from functools import partial
 from typing import Tuple
@@ -23,13 +23,13 @@ from pyop3.cache import with_heavy_caches, cached_property_until
 import petsctools
 
 from finat.ufl import MixedElement
-from firedrake.utils import ScalarType, IntType, as_ctypes, _new_uid, complex_mode, ScalarType_c, IntType_c, readonly
+from firedrake.utils import ScalarType, IntType, as_ctypes, _new_uid, complex_mode, ScalarType_c, IntType_c
 
 from firedrake import functionspaceimpl, utils
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake.adjoint_utils import FunctionMixin
 from firedrake.petsc import PETSc
-from firedrake.functionspaceimpl import parse_component_indices, is_mixed
+from firedrake.functionspaceimpl import is_mixed
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh, VertexOnlyMeshTopology, extract_mesh_topologies
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace, TensorFunctionSpace
 from firedrake.exceptions import PointNotInDomainError
@@ -106,10 +106,11 @@ class CoordinatelessFunction(ufl.Coefficient):
                 # This is a subfunction where the field label is fetched from the parent's mixed space
                 self._parent_index = parent.function_space().field_axis.component_labels[self._function_space.index]
             elif self._function_space.component is not None:
-                # This is a component of a vector- or tensor-valued function
-                # This has one ScalarIndex per dimension
+                # This is a component of a vector- or tensor-valued function.
+                # The flat component index is converted to one ScalarIndex per dimension.
+                component = np.unravel_index(self._function_space.component, parent.function_space().shape)
                 self._parent_index = op3.IndexTree.from_iterable(
-                    op3.ScalarIndex(f"dim{i}", None, j) for i, j in enumerate(self._function_space.component)
+                    op3.ScalarIndex(f"dim{i}", None, j) for i, j in enumerate(component)
                 )
             val = parent.dat[self._parent_index]
 
@@ -201,18 +202,13 @@ class CoordinatelessFunction(ufl.Coefficient):
             return (self,)
 
     @cached_property
-    def _components(self) -> np.ndarray["CoordinatelessFunction"]:
-        shape = self.function_space().shape
-        assert len(shape) > 0
-        components = np.empty(shape, dtype=object)
-        for ix in np.ndindex(shape):
-            component = type(self)(
-                self.function_space().sub(ix),
-                parent=self,
-                name=f"view[{','.join(map(str, ix))}]({self.name()})"
-            )
-            components[ix] = component
-        return readonly(components)
+    def _components(self) -> tuple["CoordinatelessFunction", ...]:
+        V = self.function_space()
+        assert len(V.shape) > 0
+        return tuple(
+            type(self)(V.sub(k), parent=self, name=f"view[{k}]({self.name()})")
+            for k in range(V.block_size)
+        )
 
     @PETSc.Log.EventDecorator()
     def sub(self, i):
@@ -379,30 +375,30 @@ class Function(ufl.Coefficient, FunctionMixin):
 
     @cached_property
     def _components(self):
-        shape = self.function_space().shape
-        components = np.empty(shape, dtype=object)
-        for ix in np.ndindex(shape):
-            components[ix] = type(self)(self.function_space().sub(ix), self.topological.sub(ix))
-        return readonly(components)
+        V = self.function_space()
+        return tuple(type(self)(V.sub(k), self.topological.sub(k)) for k in range(V.block_size))
 
     @PETSc.Log.EventDecorator()
-    def sub(self, indices: tuple[int] | int) -> "Function":
-        """Extract the i-th sub function of this function.
+    def sub(self, indices: int | Sequence[int]) -> "Function":
+        """Extract a subfunction of a mixed function, or components of a vector or tensor function.
 
-        If the `Function` is defined on a `~.VectorFunctionSpace` or
-        `~.TensorFunctionSpace` this returns a proxy object indexing the 'i'th
-        component of the space, suitable for use in boundary condition application.
+        For a vector or tensor function, the component view can be used to
+        apply boundary conditions.
 
         Parameters
         ----------
-        indices
-            Indices indicating the sub function to extract. If an `int` is
-            used then this is converted into a `tuple`.
+        indices : int or collections.abc.Sequence of int
+            For a mixed function, the index of the subfunction to extract. For
+            a vector or tensor function, the flat index of the component to
+            extract, or a tuple, list or range of flat indices, as described
+            in :meth:`~.WithGeometryBase.sub`.
 
         Returns
         -------
         firedrake.function.Function
-            The sub function.
+            A function that shares data with this function. The function will
+            be defined on ``self.function_space().sub(indices)``. If a sequence
+            selects every component in order, the result will be this function.
 
         See Also
         --------
@@ -417,8 +413,9 @@ class Function(ufl.Coefficient, FunctionMixin):
                 raise ValueError("Only allowed to index a scalar, non-mixed function using '0'.")
             return self
         else:
-            indices = parse_component_indices(indices, self.function_space().shape)
-            return self._components[indices]
+            V = self.function_space()
+            W = V.sub(indices)
+            return self if W is V else self._components[W.component]
 
     @PETSc.Log.EventDecorator()
     @FunctionMixin._ad_annotate_project

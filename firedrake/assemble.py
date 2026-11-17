@@ -1465,6 +1465,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         component = V.component
         if component is not None:
             V = V.parent
+        component_idx = () if component is None else numpy.unravel_index(component, V.shape)
         if V.index is None:
             index = Ellipsis
         else:
@@ -1534,7 +1535,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                         mat,
                         index,
                         j,
-                        component,
+                        component_idx,
                         bc.node_set,
                         "row",
                     )
@@ -1543,22 +1544,20 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 if i != V.index and _is_real_space(s):
                     i = spaces[1]._labels[i]
                     self._apply_bcs_mat_real_block(
-                        mat, i, index, component, bc.node_set, "column")
+                        mat, i, index, component_idx, bc.node_set, "column")
 
         elif isinstance(bc, EquationBCSplit):
             for j, s in enumerate(spaces[1]):
                 if _is_real_space(s):
                     j = spaces[1]._labels[j]
-                    self._apply_bcs_mat_real_block(mat, index, j, component, bc.node_set, "row")
+                    self._apply_bcs_mat_real_block(mat, index, j, component_idx, bc.node_set, "row")
             type(self)(bc.f, bcs=bc.bcs, form_compiler_parameters=self._form_compiler_params, needs_zeroing=False).assemble(tensor=tensor)
         else:
             raise AssertionError
 
     @staticmethod
-    def _apply_bcs_mat_real_block(mat, i, j, component, node_set, mode):
-        real_idx = (node_set,)
-        if component is not None:
-            real_idx += component
+    def _apply_bcs_mat_real_block(mat, i, j, component_idx, node_set, mode):
+        real_idx = (node_set, *component_idx)
 
         match mode:
             case "row":

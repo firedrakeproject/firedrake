@@ -35,6 +35,14 @@ def rt1(mesh):
     return VectorFunctionSpace(mesh, "RT", 1)
 
 
+@pytest.fixture(scope="module", params=["unsymmetric", "symmetric", "rank3"])
+def tensor(request, mesh):
+    shape, symmetry = {"unsymmetric": ((2, 2), None),
+                       "symmetric": ((2, 2), True),
+                       "rank3": ((2, 2, 2), None)}[request.param]
+    return TensorFunctionSpace(mesh, "CG", 1, shape=shape, symmetry=symmetry)
+
+
 @pytest.fixture(scope='module', params=['cg1cg1', 'cg1cg2', 'cg1dg0', 'cg2dg0'])
 def fs(request, cg1, cg2, dg0):
     return {'cg1cg1': cg1*cg1,
@@ -85,6 +93,26 @@ def test_indexed_function_space_index(fs):
 
 def test_mixed_function_space_split(fs):
     assert fs.subspaces == tuple(fs)
+
+
+@pytest.mark.parametrize("topological", [False, True])
+def test_tensor_function_space_sub(tensor, dual, topological):
+    V = tensor
+    if dual:
+        V = V.dual()
+    if topological:
+        V = V.topological
+    n = V.block_size
+    for k in range(n):
+        assert V.sub(k).parent is V
+        assert V.sub(k).component == k
+        assert V.sub((k,)) is V.sub(k)
+        assert V.sub([k - n]) is V.sub(k)
+    assert V.sub(range(n)) is V
+    with pytest.raises(NotImplementedError):
+        V.sub((0, n - 1))
+    with pytest.raises(IndexError):
+        V.sub(n)
 
 
 def test_function_space_collapse(cg1):
@@ -299,7 +327,7 @@ def test_reconstruct_component(space, dg0, rt1, mesh, mesh2, dual):
         assert V2.mesh() == mesh2
         assert V1.ufl_element() == V2.ufl_element()
         assert V1.index == V2.index
-        assert V1.component == V2.component == (component,)
+        assert V1.component == V2.component == component
 
 
 def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
@@ -315,7 +343,7 @@ def test_reconstruct_sub_component(dg0, rt1, mesh, mesh2, dual):
             assert V1.mesh() == mesh
             assert V2.mesh() == mesh2
             assert V1.ufl_element() == V2.ufl_element()
-            assert V1.component == V2.component == (component,)
+            assert V1.component == V2.component == component
             assert V1.parent is not None and V2.parent is not None
             assert is_dual(V1.parent) == is_dual(V2.parent) == dual
             assert is_primal(V1.parent) == is_primal(V2.parent) != dual
