@@ -30,8 +30,13 @@ from pyop3.compile.passes.impero.item_loop import needs_atomic
 from pyop3.compile.passes.impero.utils import is_temporary, static_extent
 from pyop3.device import HOST_DEVICE, get_current_device, offloading
 
-ITEMS_PER_BLOCK = 128
-"""The number of items that each block handles. Tile shapes must be powers of two."""
+MAX_ITEMS_PER_BLOCK = 128
+"""The largest number of items that a block handles. Tile shapes must be powers of two."""
+
+# shortcut: measured with tileiras 13.4 on sm_89 only, where kernels with a tile of 2**16 entries
+# can fail to compile; measure again for another compiler or device.
+MAX_TILE_SIZE = 2**15
+"""The largest number of entries of a tile"""
 
 
 def ct(name: str, *args: ast.expr, **kwargs: ast.expr) -> ast.expr:
@@ -72,14 +77,16 @@ class Tile:
 class TileBuilder:
     """Translate GEM assignments over the items of one parallel loop into a cuTile kernel"""
 
-    def __init__(self, instructions, item: gem.Index, name: str = "tile_kernel") -> None:
+    def __init__(self, instructions, item: gem.Index, items_per_block: int, name: str = "tile_kernel") -> None:
         """
         :arg instructions: The `gem.impero.Assignment`s, which run in order for each item.
-        :arg item: The index of the parallel loop. Each block handles `ITEMS_PER_BLOCK` items.
+        :arg item: The index of the parallel loop.
+        :arg items_per_block: The number of items that each block handles, a power of two.
         :arg name: The name of the generated kernel.
         """
         self._instructions = instructions
         self._item = item
+        self._items_per_block = items_per_block
         self._name = name
 
         self._body: list[ast.stmt] = []
@@ -90,9 +97,9 @@ class TileBuilder:
         # Free index -> position in the axis order of every tile
         self._order: dict[gem.Index, int] = {item: 0}
         # Free index -> tile of its values. The items of a block are the first axis.
-        first = ast.BinOp(ct("bid", ast.Constant(0)), ast.Mult(), ast.Constant(ITEMS_PER_BLOCK))
+        first = ast.BinOp(ct("bid", ast.Constant(0)), ast.Mult(), ast.Constant(items_per_block))
         self._axes: dict[gem.Index, Tile] = {
-            item: self.bind("item", ast.BinOp(first, ast.Add(), self.arange(ITEMS_PER_BLOCK)), (item,))
+            item: self.bind("item", ast.BinOp(first, ast.Add(), self.arange(items_per_block)), (item,))
         }
         # GEM node -> tile, for the instruction that is being translated
         self._values: dict[gem.Node, Tile] = {}
@@ -130,7 +137,7 @@ class TileBuilder:
 
     def size(self, index: gem.Index) -> int:
         """The length of the axis of `index`"""
-        return ITEMS_PER_BLOCK if index == self._item else padded(static_extent(index))
+        return self._items_per_block if index == self._item else padded(static_extent(index))
 
     def union(self, *tiles: Tile) -> tuple[gem.Index, ...]:
         """The axes of the tile that `tiles` broadcast to"""
@@ -378,7 +385,13 @@ class TileExecutable(GemExecutable):
         temporaries = {name: v for name, v in variables(*exprs).items() if is_temporary(v)}
         on_device = [name for name in self._argument_names if name not in self._extent_variables]
 
-        builder = TileBuilder(self._assignments, self._item)
+        # The largest tile has one entry per item of the block and per point of the other free indices of a node
+        points = max(
+            np.prod([padded(static_extent(i)) for i in node.free_indices if i != self._item], dtype=int)
+            for node in pre_traversal(exprs)
+        )
+        items_per_block = int(min(MAX_ITEMS_PER_BLOCK, max(MAX_TILE_SIZE // points, 1)))
+        builder = TileBuilder(self._assignments, self._item, items_per_block)
         source = builder.build([*on_device, *temporaries])
 
         # cuTile reads the source of the kernel through `inspect`, which looks in `linecache`
@@ -398,7 +411,7 @@ class TileExecutable(GemExecutable):
             extent, = interpreter.evaluate([gem.as_gem(self._item.extent)], bindings)
             num_items = int(extent.arr)
 
-            grid = (max(utils.ceildiv(num_items, ITEMS_PER_BLOCK), 1), 1, 1)
+            grid = (max(utils.ceildiv(num_items, items_per_block), 1), 1, 1)
             kernel_args = (num_items, *(arrays[name] for name in on_device), *scratch(num_items))
             ct.launch(cp.cuda.get_current_stream(), grid, kernel, kernel_args)
 
