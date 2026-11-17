@@ -51,6 +51,7 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
     iter_mesh = loop_index.mesh
     mesh = mesh.topology
+
     if iter_mesh.topology is mesh:
         target_integral_type = loop_index.integral_type
     elif (
@@ -58,10 +59,15 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         and iter_mesh.topology._base_mesh is mesh
     ):
         if loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}:
-            loop_index = iter_mesh.support(loop_index)
+            raise NotImplementedError("TODO")
+            loop_index = iter_mesh.support(
+                loop_index, src_path={owned_axis_label: mesh.horiz_facet_label}
+            )
         else:
             assert loop_index.integral_type == "cell"
-        loop_index = iter_mesh.extr_cell_to_base_cell_map(loop_index, label="extr_cell_base_cell")
+        loop_index = iter_mesh.extr_cell_to_base_cell_map(
+            loop_index, label="extr_cell_base_cell"
+        )
         target_integral_type = "cell"
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
         loop_index, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
@@ -71,9 +77,21 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         target_integral_type = "cell"
 
     if target_integral_type == "cell":
-        return mesh.closure(loop_index)
+        if mesh.comm.size > 1:
+            src_label = f"{mesh._uid}_owned"
+        else:
+            src_label = mesh._uid
+        return mesh.closure(
+            loop_index, src_path={src_label: mesh.cell_label}
+        )
     elif "facet" in target_integral_type:
-        return mesh.closure(mesh.support(loop_index))
+        if mesh.comm.size > 1:
+            src_label = f"{target_integral_type}_owned"
+        else:
+            src_label = target_integral_type
+        return mesh.closure(mesh.support(
+            loop_index, src_path={src_label: None}
+        ))
     else:
         raise ValueError(f"Unknown integral_type: {target_integral_type}")
 
@@ -136,15 +154,7 @@ def _pack_dat_nonmixed_topological(axes, loop_index, space):
     cell_index = map_.index
     packed_axes = axes[map_]
 
-    # bit of a hack, find the depth of the axis labelled 'closure', this relies
-    # on the fact that the tree is always linear at the top
-    if isinstance(packed_axes, op3.AxisForest):
-        depth = utils.single_valued(
-            [ax.label for ax in tree.axes].index("closure")
-            for tree in packed_axes.trees
-        )
-    else:
-        depth = [ax.label for ax in packed_axes.axes].index("closure")
+    depth = [ax.label for ax in packed_axes.axes].index("closure")
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
@@ -203,13 +213,7 @@ def _pack_mat_nonmixed(
 
     depths = []
     for axes in [packed_mat.row_axes, packed_mat.column_axes]:
-        if isinstance(axes, op3.AxisForest):
-            depth = utils.single_valued(
-                [axis.label for axis in tree.axes].index("closure")
-                for tree in axes.trees
-            )
-        else:
-            depth = [axis.label for axis in axes.axes].index("closure")
+        depth = [axis.label for axis in axes.axes].index("closure")
         depths.append(depth)
     row_depth, column_depth = depths
 
@@ -321,18 +325,6 @@ def _orient_mat_dofs(packed_mat: op3.Mat, row_space: WithGeometry, column_space:
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
-    # If we have an axis forest then we have different interpretations of the data.
-    # We only want the most natural one here and want to drop the others. This is
-    # complicated by the fact that we can have maps from both all points and only
-    # owned points. We can also get maps from the nodal axes that we probably want
-    # to discard.
-    # For the moment we restrict ourself to selecting the first available choice.
-    # This seems to work for most things.
-    # TODO: this is fairly gross and should be rethought - perhaps we need to
-    # propagate axis forest information further in.
-    if isinstance(axes, op3.AxisForest):
-        axes = axes.trees[0]
-
     outer_axes = []
     outer_path = idict()
     for _ in range(depth):

@@ -1420,13 +1420,13 @@ class AbstractMeshTopology(abc.ABC):
 
         return MeshLoopIndex(iterset, mesh_ref, integral_type, plex_indices_is)
 
-    def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
+    def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT, **kwargs):
         # Adding the 'closure' label here is a bit of a hack to make sure we
         # can detect which axis is generated in the packed axis trees.
         if ordering == ClosureOrdering.PLEX:
-            return self._plex_closure(index, label="closure")
+            return self._plex_closure(index, label="closure", **kwargs)
         elif ordering == ClosureOrdering.FIAT:
-            return self._fiat_closure(index, label="closure")
+            return self._fiat_closure(index, label="closure", **kwargs)
 
     @cached_property
     def _closure_sizes(self) -> idict[idict]:
@@ -1589,8 +1589,8 @@ class AbstractMeshTopology(abc.ABC):
         #
         # return readonly(map_pts_renum), readonly(sizes_renum)
 
-    def support(self, index: MeshLoopIndex) -> op3.CalledMap:
-        return self._support(index, label="support")
+    def support(self, index: MeshLoopIndex, **kwargs) -> op3.CalledMap:
+        return self._support(index, label="support", **kwargs)
 
     @cached_property
     def _support(self) -> op3.Map:

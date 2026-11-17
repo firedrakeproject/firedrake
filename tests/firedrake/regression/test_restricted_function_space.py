@@ -435,6 +435,25 @@ def test_reconstruct_mixed_restricted():
         assert W.collapse().boundary_set == boundary_set
 
 
+@pytest.mark.parallel([1, 2])
+def test_restricted_solve_equivalence_hdiv():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "RT", 2)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    uh = Function(V)
+    uh_restrict = Function(V)
+
+    a = inner(u, v) * dx
+    L = inner(Constant((1, 0)), v) * dx
+    bc = DirichletBC(V, Constant((0, 0)), "on_boundary")
+
+    solve(a == L, uh, bcs=bc, restrict=False)
+    solve(a == L, uh_restrict, bcs=bc, restrict=True)
+    assert errornorm(uh, uh_restrict) < 1e-14
+
+
 @pytest.mark.parametrize("names", [(None, None), (None, "name1"), ("name0", "name1")])
 def test_restrict_fieldsplit(names):
     mesh = UnitSquareMesh(2, 2)

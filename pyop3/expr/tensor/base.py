@@ -10,6 +10,7 @@ import numpy as np
 from mpi4py import MPI
 from petsc4py import PETSc
 
+import pyop3.axis_tree
 import pyop3.cache
 import pyop3.record
 from pyop3.axis_tree.tree import AbstractNonUnitAxisTree
@@ -361,4 +362,10 @@ class ReshapeTensorTransform(IdentityTensorTransform):
             type(self),
             axis_trees_key,
             visitor(self.prev),
+        )
+
+    def __record_post_init(self):
+        assert not any(
+            isinstance(t, pyop3.axis_tree.AxisForest)
+            for t in self.axis_trees
         )
