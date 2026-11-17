@@ -52,6 +52,9 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     iter_mesh = loop_index.mesh
     mesh = mesh.topology
 
+    # are we iterating over owned entities only?
+    iter_owned = not loop_index.include_ghosts
+
     if iter_mesh.topology is mesh:
         target_integral_type = loop_index.integral_type
     elif (
@@ -61,23 +64,26 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         if loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}:
             raise NotImplementedError("TODO")
             loop_index = iter_mesh.support(
-                loop_index, src_path={owned_axis_label: mesh.horiz_facet_label}
+                loop_index, src_path={"TODO": "TODO"}
             )
         else:
             assert loop_index.integral_type == "cell"
         loop_index = iter_mesh.extr_cell_to_base_cell_map(
             loop_index, label="extr_cell_base_cell"
         )
+        iter_owned = False
         target_integral_type = "cell"
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
         loop_index, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
+        iter_owned = False
     else:
         # No shared topology, must be using a vertex-only mesh
         loop_index = loop_index.mesh.cell_parent_cell_map(loop_index)
         target_integral_type = "cell"
+        iter_owned = False
 
     if target_integral_type == "cell":
-        if mesh.comm.size > 1:
+        if iter_owned and mesh.comm.size > 1:
             src_label = f"{mesh._uid}_owned"
         else:
             src_label = mesh._uid
@@ -85,7 +91,7 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
             loop_index, src_path={src_label: mesh.cell_label}
         )
     elif "facet" in target_integral_type:
-        if mesh.comm.size > 1:
+        if iter_owned and mesh.comm.size > 1:
             src_label = f"{target_integral_type}_owned"
         else:
             src_label = target_integral_type

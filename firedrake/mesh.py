@@ -333,7 +333,23 @@ class ClosureOrdering(enum.Enum):
 # TODO: The interface isn't quite right here. These attributes are codependent.
 # @op3.record.frozenrecord()
 class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
-    """Object representing a loop over mesh entities."""
+    """Object representing a loop over mesh entities.
+
+    Users are not expected to instantiate this class directly. Instead they
+    should use :meth:`firedrake.mesh.AbstractMeshTopology.iter`.
+
+    Parameters
+    ----------
+    iterset : pyop3.IndexedAxisTree
+        The pyop3 iteration set.
+    integral_type : str
+        The integral type (e.g. ``"cell"`` or ``"interior_facet_horiz"``).
+    plex_indices_is : PETSc.IS
+        The DMPlex indices represented by the iteration
+    include_ghosts : bool
+        Is the iteration also over ghost points?
+
+    """
 
     def __init__(
         self,
@@ -341,10 +357,12 @@ class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
         mesh: MeshGeometry,
         integral_type: str,
         plex_indices_is: PETSc.IS | None,
+        include_ghosts: bool,
     ) -> None:
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "integral_type", integral_type)
         object.__setattr__(self, "plex_indices_is", plex_indices_is)
+        object.__setattr__(self, "include_ghosts", include_ghosts)
         super().__init__(iterset)
 
     def __str__(self) -> str:
@@ -1418,7 +1436,7 @@ class AbstractMeshTopology(abc.ABC):
         # is tied to the mesh, things will never be cleaned up.
         mesh_ref = weakref.proxy(self.topology)
 
-        return MeshLoopIndex(iterset, mesh_ref, integral_type, plex_indices_is)
+        return MeshLoopIndex(iterset, mesh_ref, integral_type, plex_indices_is, include_ghosts=include_ghosts)
 
     def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT, **kwargs):
         # Adding the 'closure' label here is a bit of a hack to make sure we
