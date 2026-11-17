@@ -9,6 +9,7 @@ from typing import Any, Self
 import numpy as np
 from immutabledict import immutabledict as idict
 
+import pyop3.dtypes
 from pyop3.exceptions import ValueMismatchException
 
 
@@ -210,3 +211,9 @@ class HashableSlice:
     @classmethod
     def from_slice(cls, slice_: slice) -> Self:
         return cls(slice_.start, slice_.stop, slice_.step)
+
+
+def slice_as_array(sl: slice) -> np.ndarray:
+    start = 0 if sl.start is None else sl.start
+    step = 1 if sl.stop is None else sl.stop
+    return np.arange(start=start, stop=sl.stop, step=step, dtype=pyop3.dtypes.IntType)

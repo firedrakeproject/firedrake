@@ -12,28 +12,37 @@ from pyop3 import utils
 
 # NOTE: This class should be sufficiently generic to work with non-numpy arrays
 class ArrayReference:
-    """Class representing an array that has been indexed."""
+    """Class representing an array that has been indexed.
+
+    Parameters
+    ----------
+    base : numpy.ndarray
+        The underlying array. This must be a flat view.
+    indices : collections.abc.Sequence[numbers.Integral]
+        The indices from the underlying array. This is also flat.
+    shape : tuple[int, ...]
+        The shape of the array view.
+
+    """
     def __init__(
         self,
         base: np.ndarray,
-        indices: Sequence[Sequence | slice],
-        block_shape: tuple[int, ...] = (),
+        indices: Sequence[numbers.Integral],
+        shape: tuple[int, ...],
     ) -> None:
-        if len(indices) != len(base.shape):
-            raise ValueError("Expect index values for each axis of 'base'")
+        indices = np.asarray(indices, dtype=pyop3.dtypes.IntType)
+
+        assert indices.size == np.prod(shape, dtype=int)
 
         self.base = base
-        try:
-            self.indices = tuple(
-                self._as_array_or_slice(idxs) for idxs in indices
-            )
-        except:
-            breakpoint()
-        self.block_shape = block_shape
+        self.indices = indices
+        self.shape = shape
 
     def __getitem__(self, indices: Any, /) -> Any:
-        if len(self.indices) > 1:
-            raise NotImplementedError
+        if isinstance(indices, tuple):
+            raise NotImplementedError(
+                "__getitem__ not implemented for multiple indices"
+            )
 
         if indices is Ellipsis:
             return self
@@ -42,34 +51,51 @@ class ArrayReference:
         return self.base[utils.just_one(self.indices)[indices*self._block_size]]
 
     def __setitem__(self, indices: Any, value: Any, /) -> None:
-        print(indices)
-        breakpoint()
-        if len(self.base.shape) == 1:
-            indices = (indices,)
-
-        # if indices is Ellipsis and len(self.base.shape
-        if len(self.indices) > 1:
-            breakpoint()
-            raise NotImplementedError
-        else:
-            base_indices = utils.just_one(self.indices)
-
         if not (indices is Ellipsis or isinstance(indices, numbers.Integral)):
             raise NotImplementedError("Only '...' and integer assignment supported for arrayrefs")
+
+        if not isinstance(indices, tuple):
+            indices = (indices,)
+
+        indices_ = []
+        for axis in range(self.ndim):
+            try:
+                idx = indices[axis]
+            except IndexError:
+                idx = slice(None)
+        indices = tuple(indices_)
 
         # 'value' can be a scalar, a block-sized vector, or a vector with the same
         # size as 'indices'.
         value = np.asarray(value, dtype=self.base.dtype)
 
-        def get_indices(ib):
-            if indices is Ellipsis:
-                return slice(ib, None, self._block_size)
-            else:
-                return indices*self._block_size+ib
+        def get_indices():
+            return self.indices.reshape(self.shape)[indices].ravel()
+            idxs = get_indices_per_axis(0) * self._axis_strides[0]
+            for axis in range(1, self.ndim):
+                # This magic method turns ([0, 10, 20], [0, 1]) into
+                # [0, 1, 10, 11, 20, 21]
+                idxs = np.add.outer(
+                    idxs,
+                    get_indices_per_axis(axis) * self._axis_strides[axis],
+                )
+            breakpoint()
+            return idxs
+
+        def get_indices_per_axis(axis: int):
+            sl = indices[axis]
+            return self.indices[axis][sl]
+
+        self.base[get_indices()] = value
+        return
+
+        iii = get_indices()
+        breakpoint()
 
         if value.size == 1:
-            for ib in range(self._block_size):
-                self.base[base_indices[get_indices(ib)]] = value
+            self.base[get_indices()] = value
+            # for ib in range(self._block_size):
+            #     self.base[base_indices[get_indices(ib)]] = value
         elif value.size == self._block_size:
             for ib in range(self._block_size):
                 self.base[base_indices[get_indices(ib)]] = value[ib]
@@ -95,14 +121,11 @@ class ArrayReference:
 
     @property
     def size(self) -> int:
-        return np.prod((idxs.size for idxs in self.indices), dtype=int)
+        return np.prod(self.shape, dtype=int)
 
     @property
-    def shape(self) -> tuple[int, ...]:
-        if len(self.indices) > 1:
-            raise NotImplementedError
-        ni = utils.strict_floordiv(utils.just_one(self.indices).size, self._block_size)
-        return (ni, *self.block_shape)
+    def ndim(self) -> int:
+        return len(self.shape)
 
     @property
     def _block_size(self) -> int:

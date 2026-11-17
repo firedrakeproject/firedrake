@@ -14,6 +14,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.buffer
+import pyop3.collections
 import pyop3.dtypes
 import pyop3.index_tree
 import pyop3.record
@@ -386,7 +387,13 @@ class Mat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
-            return pyop3.arrayref.ArrayReference(array, (row_indices, column_indices), block_shape)
+            if isinstance(row_indices, slice):
+                row_indices = pyop3.collections.slice_as_array(row_indices)
+            if isinstance(column_indices, slice):
+                column_indices = pyop3.collections.slice_as_array(column_indices)
+            indices = np.add.outer(row_indices*column_indices.size, column_indices)
+            shape = (row_indices.size, column_indices.size)
+            return pyop3.arrayref.ArrayReference(array, indices, shape)
 
     # For PyOP2 compatibility
     @property
