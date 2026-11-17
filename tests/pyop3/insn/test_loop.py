@@ -463,6 +463,8 @@ def test_passthrough_petsc_object():
                                        PETSC_DEFAULT, 8));
         """,
         [("K", op3.dtypes.OpaqueType("KSP"), op3.RW)],
+        preambles=[("20_petscksp", "#include <petscksp.h>")],
+        libraries=(op3.cc.LIBPETSC,),
     )
 
     ksp = PETSc.KSP().create(comm=PETSc.COMM_WORLD)

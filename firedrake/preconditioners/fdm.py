@@ -1384,10 +1384,13 @@ class InteriorSolveKernel(ElementKernel):
             ("x", ScalarType, op3.INC),
         ]
         preambles = [
+            ("20_petscksp", "#include <petscksp.h>"),
             ("50_preambles", MAT_SET_VALUES_ARRAY),
             ("60_matmult", self.matmult_struct),
         ]
-        return op3.Function.from_c_string(self.name, code, args, preambles=preambles)
+        return op3.Function.from_c_string(
+            self.name, code, args, preambles=preambles, libraries=(op3.cc.LIBPETSC,),
+        )
 
 
 class ImplicitSchurComplementKernel(ElementKernel):
@@ -1475,10 +1478,13 @@ class ImplicitSchurComplementKernel(ElementKernel):
             ("yf", ScalarType, op3.INC),
         ]
         preambles = [
+            ("20_petscksp", "#include <petscksp.h>"),
             ("50_preambles", MAT_SET_VALUES_ARRAY),
             ("60_matmult", self.matmult_struct),
         ]
-        return op3.Function.from_c_string(self.name, code, args, preambles=preambles)
+        return op3.Function.from_c_string(
+            self.name, code, args, preambles=preambles, libraries=(op3.cc.LIBPETSC,),
+        )
 
 
 class PythonMatrixContext:
