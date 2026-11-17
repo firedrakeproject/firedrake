@@ -279,8 +279,6 @@ class ExtractSubBlock(DAGTraverser):
 
     @process.register(Transpose)
     def _(self, o, blocks):
-        if not blocks:
-            return o
         return Transpose(*(self(child, blocks=blocks[::-1]) for child in o.children))
 
     @process.register(Add)

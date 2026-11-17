@@ -1,7 +1,9 @@
 import pytest
 from firedrake import *
 import numpy as np
+from firedrake.slate.slate import Block
 from firedrake.slate.slac.optimise import optimise
+from firedrake.slate.slac.utils import traverse_dags
 from firedrake.parameters import parameters
 
 
@@ -176,6 +178,14 @@ def test_push_tensor_blocks_on_blocks(T_hyb):
     # test for blocks with too few indices too
     expressions += [(T_hyb+T_hyb).blocks[:2].blocks[0, 0]]
     compare_tensor_expressions(expressions)
+
+
+def test_push_tensor_blocks_under_transpose(T_hyb):
+    """Test Optimisers's ability to push blocks of Tensors that sit under a transpose."""
+    B = T_hyb.blocks[::2, ::2]
+    x = AssembledVector(Function(B.arg_function_spaces[0]))
+    opt = optimise(B.T * x, parameters["slate_compiler"])
+    assert not any(isinstance(node, Block) for node in traverse_dags([opt]))
 
 
 def test_push_vector_block_individual(KF):
