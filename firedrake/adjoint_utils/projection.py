@@ -38,7 +38,9 @@ def annotate_super_project(project):
         V = self.target.function_space()
         if annotate:
             bcs = kwargs.get("bcs", [])
-            sb_kwargs = ProjectBlock.pop_kwargs(kwargs)
+            sb_kwargs = {
+                "solver_parameters": self.solver_parameters,
+            }
             if self._target_is_function:
                 # block should be created before project because output
                 # might also be an input that needs checkpointing
@@ -90,7 +92,11 @@ class ProjectorMixin(NonlinearVariationalSolverMixin):
         a = firedrake.inner(Pv, w) * dx
         L = firedrake.inner(self.source, w) * dx
         p = firedrake.LinearVariationalProblem(
-            a, L, ad_target, bcs=self.bcs,
+            a,
+            L,
+            ad_target,
+            bcs=self.bcs,
+            form_compiler_parameters=self.form_compiler_parameters,
         )
 
         # If we project from an expression containing u (e.g. u + c) onto u, the

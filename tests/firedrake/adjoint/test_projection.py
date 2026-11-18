@@ -216,3 +216,47 @@ def test_project_bcs():
         J_exp, rel=1e-12, abs=1e-12,
     )
     assert taylor_test(rf, m_new, Constant(0.1)) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_project_quadrature_replay():
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x)
+    u = project(f**4, V, form_compiler_parameters={"quadrature_degree": 2})
+    J = assemble(u*dx)
+    J0 = float(J)
+    rf = ReducedFunctional(J, Control(f))
+
+    assert rf(f) == pytest.approx(J0)
+
+    # choose h for the Taylor test so that
+    # 4*f**3*h and 12*f**2*h**2 are degree 4
+    h = Function(V).interpolate(x)
+    dJdm_tlm = rf.tlm(h)
+    dJdm = rf.derivative()._ad_dot(h)
+    Hm = rf.hessian(h)._ad_dot(h)
+
+    assert dJdm_tlm == pytest.approx(dJdm)
+    assert taylor_test(rf, f, h, dJdm=dJdm, Hm=Hm) > 2.9
+
+
+@pytest.mark.skipcomplex
+def test_supermesh_project_solver_parameters_replay():
+    V = FunctionSpace(UnitSquareMesh(2, 2), "CG", 1)
+    W = FunctionSpace(UnitSquareMesh(1, 1), "CG", 1)
+    f = Function(V).assign(1.0)
+    # deliberate incomplete solve to test the application of solver parameters
+    solver_parameters = {
+        "ksp_type": "richardson",
+        "pc_type": "none",
+        "ksp_max_it": 1,
+        "ksp_convergence_test": "skip",
+    }
+    u = project(f, W, solver_parameters=solver_parameters)
+    J = assemble(u*dx)
+    J0 = float(J)
+    rf = ReducedFunctional(J, Control(f))
+
+    assert rf(f) == pytest.approx(J0)

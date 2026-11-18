@@ -20,6 +20,7 @@ ForwardSolveRecomputeCache = namedtuple(
         "meshes",
         "solver",
         "replaced_deps",
+        "assemble_params",
     ]
 )
 
@@ -192,7 +193,14 @@ class NonlinearVariationalSolverMixin:
 
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
-        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_fwd)
+        nlvp = NonlinearVariationalProblem(
+            Fnew,
+            unew,
+            J=Jnew,
+            Jp=Jpnew,
+            bcs=bcs_fwd,
+            form_compiler_parameters=problem.form_compiler_parameters,
+        )
         nlvs = NonlinearVariationalSolver(
             nlvp,
             *self._ad_args_kwargs.forward_args,
@@ -210,6 +218,9 @@ class NonlinearVariationalSolverMixin:
             meshes=meshes,
             solver=nlvs,
             replaced_deps=tuple(replace_map.values()),
+            assemble_params={
+                "form_compiler_parameters": problem.form_compiler_parameters,
+            },
         )
 
     @cached_property
@@ -242,7 +253,11 @@ class NonlinearVariationalSolverMixin:
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
-        lvp = LinearVariationalProblem(dFdu, dFdm, dudm, bcs=self._ad_forward_cache.bcs)
+        lvp = LinearVariationalProblem(
+            dFdu, dFdm, dudm,
+            bcs=self._ad_forward_cache.bcs,
+            form_compiler_parameters=nlvp.form_compiler_parameters,
+        )
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.tlm_args,
@@ -321,7 +336,11 @@ class NonlinearVariationalSolverMixin:
         # Reuse the same bcs as the forward problem.
         # TODO: Think about if we should use new bcs.
         # TODO: solver_parameters
-        lvp = LinearVariationalProblem(dFdu_adj, dJdu, adj_sol, bcs=self._ad_forward_cache.bcs)
+        lvp = LinearVariationalProblem(
+            dFdu_adj, dJdu, adj_sol,
+            bcs=self._ad_forward_cache.bcs,
+            form_compiler_parameters=nlvp.form_compiler_parameters,
+        )
         lvs = LinearVariationalSolver(
             lvp,
             *self._ad_args_kwargs.adj_args,
