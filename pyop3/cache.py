@@ -309,6 +309,9 @@ class _InstrumentedCache(_AbstractInstrumentedCache):
         self.hit = 0
         self.miss = 0
 
+        # Record the version of the lifetime object that this cache was created for
+        self.version = None
+
         super().__init__(cidx, comm_name, func)
 
     def __str__(self) -> str:
@@ -643,6 +646,15 @@ def parallel_cache(
                     if pyop3.mpi.comm_is_subset(c.comm, comm)
                 ]
 
+                if heavy:
+                    versioned = [
+                        c for c in valid_heavy_caches
+                        if getattr(c, "_pyop3_heavy_cache_version", None) is not None
+                    ]
+                    if versioned:
+                        # Use only versioned objects
+                        valid_heavy_caches = versioned
+
                 if heavy and not valid_heavy_caches:
                     caches = (pyop3.collections.AlwaysEmptyDict(),)
                     cache_type = pyop3.collections.AlwaysEmptyDict
@@ -667,12 +679,17 @@ def parallel_cache(
                                 # cache access must be collective over lifetime objects
                                 lifetime_obj.comm.barrier()
 
+                            obj_version = getattr(lifetime_obj, "_pyop3_heavy_cache_version", None)
                             try:
                                 cache = comm_caches[cache_id][lifetime_obj]
                             except KeyError:
+                                # cache = make_instrumented_cache()
+                                # comm_caches[cache_id][lifetime_obj] = cache
+                                cache = None
+                            if cache is None or cache.version != obj_version:
                                 cache = make_instrumented_cache()
+                                cache.version = obj_version
                                 comm_caches[cache_id][lifetime_obj] = cache
-
                             if cache_type is None:
                                 cache_type = type(cache.cache)
                             caches.append(cache)
@@ -710,7 +727,7 @@ def parallel_cache(
                         if not utils.is_single_valued(comm.allgather(check_val)):
                             raise ValueError("Inconsistent cache hit behaviour")
 
-                    if value is CACHE_MISS:
+                    if value is CACHE_MISS:                    
                         value = func(*args, **kwargs)
 
                     # Insert the result into all of the caches
@@ -912,10 +929,11 @@ class WeakHeavyObjectCacheStore:
         assert hasattr(obj, "_pyop3_heavy_cache_id")
         obj_id = obj._pyop3_heavy_cache_id
 
-        self._data[obj_id] = value
+        if obj_id not in self._data:
+            # When obj dies remove the corresponding cache entry
+            weakref.finalize(obj, self._drop, obj_id)
 
-        # When obj dies remove the corresponding cache entry
-        weakref.finalize(obj, self._drop, obj_id)
+        self._data[obj_id] = value
 
     def _drop(self, obj_id):
         self._data.pop(obj_id, None)

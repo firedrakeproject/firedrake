@@ -505,11 +505,6 @@ class AbstractMeshTopology(abc.ABC):
     variable_layers = False
     """No variable layers on unstructured mesh"""
 
-    @cached_property_until_topology_changes
-    def _pyop3_cache(self) -> defaultdict:
-        """Stores the results that pyop3 caches on this topology with `pyop3.cache.cached_on`."""
-        return defaultdict(dict)
-
     @property
     @abc.abstractmethod
     def dimension(self):
@@ -3448,6 +3443,12 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._init_particle_ids()
+
+    @property
+    def _pyop3_heavy_cache_version(self):
+        """Version checked by pyop3 heavy caches stashed on this object.
+        Cached entries are discarded when this version changes i.e., when the mesh topology is rebuilt."""
+        return self._topology_version
 
     @property
     def dimension(self):
