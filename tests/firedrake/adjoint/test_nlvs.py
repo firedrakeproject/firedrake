@@ -177,6 +177,51 @@ def test_nlvs_adjoint(control_type, bc_type):
         PETSc.Sys.Print(f"Hessian time: {etime - stime:.4f}")
 
 
+@pytest.mark.skipcomplex
+def test_nlvs_adj_tlm_kwargs():
+    """Check that adj_kwargs and tlm_kwargs given to the solver reach the
+    cached adjoint and tangent linear solvers.
+    """
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    m = Function(V).interpolate(x)
+
+    lu = {"ksp_type": "preonly", "pc_type": "lu"}
+    # The adjoint and tangent linear solvers get Krylov methods that
+    # differ from each other and from the forward solver, so we can
+    # see which parameters each cached solver was built with.
+    adj_params = {"ksp_type": "gmres", "pc_type": "lu"}
+    tlm_params = {"ksp_type": "cg", "pc_type": "lu"}
+
+    continue_annotation()
+    with set_working_tape() as tape:
+        u = Function(V)
+        v = TestFunction(V)
+        F = (inner(grad(u), grad(v)) + u*v + u**3*v - m*v)*dx
+        solver = NonlinearVariationalSolver(
+            NonlinearVariationalProblem(F, u),
+            solver_parameters=lu,
+            adj_kwargs={"solver_parameters": adj_params},
+            tlm_kwargs={"solver_parameters": tlm_params})
+        solver.solve()
+        J = assemble(u*u*dx)
+        Jhat = ReducedFunctional(J, Control(m), tape=tape)
+    pause_annotation()
+
+    h = Function(V).interpolate(y)
+    Jhat(m)
+    Jhat.derivative()
+    Jhat.tlm(h)
+
+    adj_solver = solver._ad_adjoint_cache.solver
+    tlm_solver = solver._ad_tangent_cache.solver
+    assert adj_solver.snes.ksp.getType() == "gmres"
+    assert tlm_solver.snes.ksp.getType() == "cg"
+
+    assert taylor_test(Jhat, m, h) > 1.95
+
+
 def _checkpointed_adjoint_growth(nt):
     """Return how many Functions in V a checkpointed gradient leaves alive.
 
