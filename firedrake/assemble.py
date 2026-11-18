@@ -1353,18 +1353,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         if any(is_mixed(a) for a in [test, trial]) and mat_spec.mat_type == "baij":
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
-        sparsity = op3.Mat.sparsity(
-            test.function_space().axes,
-            trial.function_space().axes,
-            buffer_spec=mat_spec,
-        )
-
-        # not really sure about this
-        if sparsity.row_axes == sparsity.column_axes:
-            sparsity.buffer.set_diagonal(666)
-
         # Pretend that we are doing assembly by looping over the right
         # iteration sets and using the right maps.
+        loops = []
         for (mesh, integral_type, subdomain_id), (test_index, trial_index) in maps_and_regions:
             loop_index = mesh.iter(integral_type, subdomain_id)
             # If indices are 'None' then this means all to allocate for all spaces
@@ -1391,9 +1382,69 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 trial_index = trial.function_space().field_axis.component_labels[trial_index]
                 trial_indices = (trial_index,)
 
-            for (test_index_, test_space), (trial_index_, trial_space) in itertools.product(
-                zip(test_indices, test_spaces), zip(trial_indices, trial_spaces)
-            ):
+            blocks = list(itertools.product(zip(test_indices, test_spaces), zip(trial_indices, trial_spaces)))
+            loops.append((loop_index, blocks))
+
+        on_diagonal = test.function_space().axes == trial.function_space().axes
+        if isinstance(mat_spec, op3.NestedPetscMatInitBufferSpec):
+            submat_specs = dict(mat_spec.submat_specs.flat)
+            matis_loops = []
+            for loop_index, blocks in loops:
+                matis_blocks = [(test_item, trial_item) for test_item, trial_item in blocks if submat_specs[test_item[0], trial_item[0]].mat_type == "is"]
+                if matis_blocks:
+                    matis_loops.append((loop_index, matis_blocks))
+        elif mat_spec.mat_type == "is":
+            matis_loops = loops
+        else:
+            matis_loops = []
+
+        # The local numbering of a MATIS includes ghost degrees of freedom
+        # that are not indexed by any loop on this rank. These degrees of
+        # freedom would give empty rows and columns in the local matrix. We
+        # mark the degrees of freedom indexed by the MATIS loops so that
+        # Mat.sparsity can remove the others from the local matrix.
+        row_mask = None
+        column_mask = None
+        if matis_loops:
+            masks = []
+            for V in (test.function_space(), trial.function_space()):
+                size = V.axes.unindexed.local_max_size
+                buffer = op3.ArrayBuffer.zeros(size, dtype=utils.IntType, sf=op3.local_sf(size, V.comm))
+                masks.append(op3.Dat(V.axes, buffer=buffer))
+            row_mask, column_mask = masks
+
+            # We need the masks to be 1 at every owned degree of freedom
+            # because set_diagonal below inserts a value into the diagonal
+            # entry of each owned row.
+            if on_diagonal:
+                row_mask.data_wo[...] = 1
+                column_mask.data_wo[...] = 1
+            for loop_index, blocks in matis_loops:
+                items = []
+                for (test_index_, test_space), (trial_index_, trial_space) in blocks:
+                    items.append((row_mask, test_index_, test_space))
+                    items.append((column_mask, trial_index_, trial_space))
+                assignments = [pack(mask[i], loop_index, V).assign(1) for mask, i, V in utils.unique(items)]
+                op3.loop(loop_index, assignments, eager=True)
+
+        sparsity = op3.Mat.sparsity(
+            test.function_space().axes,
+            trial.function_space().axes,
+            buffer_spec=mat_spec,
+            row_mask=row_mask,
+            column_mask=column_mask,
+        )
+
+        # We need to set the diagonal of a square sparsity explicitly because
+        # PETSc solvers and Dirichlet boundary conditions need every diagonal
+        # entry. The loops do not insert into the diagonal entry of a degree of
+        # freedom that is outside every integration domain. For example, a
+        # node of a Dirichlet boundary condition can be outside every
+        # integration domain.
+        if on_diagonal:
+            sparsity.buffer.set_diagonal(666)
+        for loop_index, blocks in loops:
+            for (test_index_, test_space), (trial_index_, trial_space) in blocks:
                 op3.loop(
                     loop_index,
                     pack(sparsity[test_index_, trial_index_], loop_index, test_space, trial_space).assign(666, _weakref=False),

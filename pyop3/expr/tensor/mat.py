@@ -126,9 +126,53 @@ class Mat(Tensor):
         *,
         buffer_spec: pyop3.buffer.PetscMatInitBufferSpec | None = None,
         preallocator: bool = False,
+        row_mask: pyop3.Dat | None = None,
+        column_mask: pyop3.Dat | None = None,
         buffer_kwargs: KwargsT = idict(),
         **kwargs,
     ) -> Mat:
+        """Create a matrix that is stored in a PETSc Mat.
+
+        Parameters
+        ----------
+        row_axes
+            The axes of the rows.
+        column_axes
+            The axes of the columns.
+        buffer_spec
+            The specification of the PETSc Mat type. The default is AIJ.
+        preallocator
+            Whether the matrix records a sparsity pattern instead of values.
+        row_mask
+            A rank-local integer `pyop3.Dat` on ``row_axes``, or ``None``. A
+            MATIS leaves out of its local matrix each block of rows at which
+            the mask is 0 for every entry of the block. Only the MATIS blocks
+            of ``buffer_spec`` use the mask.
+        column_mask
+            A rank-local integer `pyop3.Dat` on ``column_axes``, or ``None``,
+            with the same meaning for the columns as ``row_mask`` for the rows.
+        buffer_kwargs
+            The keyword arguments for the `pyop3.buffer.PetscMatBuffer`.
+        kwargs
+            The keyword arguments for the `Mat`.
+
+        Returns
+        -------
+        Mat
+            The new matrix.
+
+        Raises
+        ------
+        ValueError
+            If only one of ``row_mask`` and ``column_mask`` is given.
+
+        Notes
+        -----
+        The masks must have a local star forest, for example from
+        `pyop3.local_sf`. A halo exchange would otherwise replace the ghost
+        entries with the values of the owning rank.
+
+        """
         if isinstance(row_axes, pyop3.axis_tree.Axis):
             row_axes = row_axes.as_tree()
         if isinstance(column_axes, pyop3.axis_tree.Axis):
@@ -138,12 +182,13 @@ class Mat(Tensor):
             buffer_spec = cls.DEFAULT_MAT_INIT_BUFFER_SPEC
 
         comm = pyop3.mpi.common_comm([row_axes.comm, column_axes.comm])
-        full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes)
+        full_spec = make_full_mat_buffer_spec(buffer_spec, row_axes, column_axes, row_mask, column_mask)
         buffer = pyop3.buffer.PetscMatBuffer.empty(full_spec, preallocator=preallocator, comm=comm, **buffer_kwargs)
         return cls(row_axes, column_axes, buffer=buffer, **kwargs)
 
     @classmethod
     def sparsity(cls, row_axes, column_axes, **kwargs) -> Mat:
+        """Create a matrix that records a sparsity pattern. See `Mat.empty` for the parameters."""
         return cls.empty(row_axes, column_axes, preallocator=True, **kwargs)
 
     @classmethod
@@ -417,8 +462,14 @@ def make_full_mat_buffer_spec(
     partial_spec: pyop3.buffer.PetscMatInitBufferSpec,
     row_axes: AbstractNonUnitAxisTree,
     column_axes: AbstractNonUnitAxisTree,
+    row_mask: pyop3.Dat | None = None,
+    column_mask: pyop3.Dat | None = None,
 ) -> pyop3.buffer.PetscMatBufferSpec:
+    """Make the full specification of a PETSc Mat from the axes. See `Mat.empty` for the masks."""
     import pyop3.visitors
+
+    if (row_mask is None) != (column_mask is None):
+        raise ValueError("Expected both row_mask and column_mask, or neither")
 
     if isinstance(partial_spec, pyop3.buffer.MonolithicPetscMatInitBufferSpec):
         comm = pyop3.visitors.common_comm([row_axes, column_axes])
@@ -443,8 +494,18 @@ def make_full_mat_buffer_spec(
             row_block_size = np.prod(row_block_shape, dtype=pyop3.dtypes.IntType)
             column_block_size = np.prod(column_block_shape, dtype=pyop3.dtypes.IntType)
 
-            row_lgmap = PETSc.LGMap().create(blocked_row_axes.global_numbering.data_ro_with_halos.copy(), bsize=row_block_size, comm=comm)
-            column_lgmap = PETSc.LGMap().create(blocked_column_axes.global_numbering.data_ro_with_halos.copy(), bsize=column_block_size, comm=comm)
+            row_indices = blocked_row_axes.global_numbering.data_ro_with_halos.flatten()
+            column_indices = blocked_column_axes.global_numbering.data_ro_with_halos.flatten()
+            if row_mask is not None and partial_spec.mat_type == PETSc.Mat.Type.IS:
+                # PETSc leaves the blocks with a global index of -1 out of the
+                # local matrix of a MATIS. We keep a block if its mask is 1 at
+                # one or more of its entries.
+                row_block_mask = row_mask.data_ro_with_halos.reshape(row_indices.size, -1).any(axis=1)
+                column_block_mask = column_mask.data_ro_with_halos.reshape(column_indices.size, -1).any(axis=1)
+                row_indices[~row_block_mask] = -1
+                column_indices[~column_block_mask] = -1
+            row_lgmap = PETSc.LGMap().create(row_indices, bsize=row_block_size, comm=comm)
+            column_lgmap = PETSc.LGMap().create(column_indices, bsize=column_block_size, comm=comm)
 
             row_spec = pyop3.buffer.PetscMatAxisSpec(nrows, row_lgmap, row_block_shape)
             column_spec = pyop3.buffer.PetscMatAxisSpec(ncolumns, column_lgmap, column_block_shape)
@@ -455,16 +516,22 @@ def make_full_mat_buffer_spec(
         for i, (index_key, sub_partial_spec) in np.ndenumerate(partial_spec.submat_specs):
             row_index, column_index = index_key
 
+            sub_row_mask = row_mask
+            sub_column_mask = column_mask
             if row_index is not Ellipsis:
                 sub_row_axes = row_axes[row_index].restrict_nest(row_index)
+                if row_mask is not None:
+                    sub_row_mask = row_mask[row_index]
             else:
                 sub_row_axes = row_axes
             if column_index is not Ellipsis:
                 sub_column_axes = column_axes[column_index].restrict_nest(column_index)
+                if column_mask is not None:
+                    sub_column_mask = column_mask[column_index]
             else:
                 sub_column_axes = column_axes
 
-            sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes)
+            sub_spec = make_full_mat_buffer_spec(sub_partial_spec, sub_row_axes, sub_column_axes, sub_row_mask, sub_column_mask)
             full_spec[i] = sub_spec
         full_spec = pyop3.buffer.NestedPetscMatBufferSpec(full_spec)
 

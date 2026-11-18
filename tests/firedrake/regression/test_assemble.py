@@ -194,6 +194,42 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
     assert np.allclose(values, 0)
 
 
+@pytest.mark.parallel
+def test_assemble_matis_nest_local_rows(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = V * V
+    u0, u1 = TrialFunctions(Z)
+    v0, v1 = TestFunctions(Z)
+    # The integrals of the off-diagonal blocks cover more degrees of freedom
+    # than the integrals of the diagonal blocks.
+    a = inner(u0, v0) * ds(1) + inner(u1, v1) * ds(1) + inner(u1, v0) * dx + inner(u0, v1) * dx
+    A = assemble(a, mat_type="nest", sub_mat_type="is").petscmat
+    # Each row of the local matrix of each diagonal block must contain one or
+    # more nonzero entries.
+    for i in range(len(Z)):
+        local_mat = A.getNestSubMatrix(i, i).getISLocalMat()
+        indptr, _ = local_mat.getRowIJ()
+        assert np.all(np.diff(indptr) > 0)
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("mat_type", ["aij", "is"])
+def test_assemble_bcs_outside_integral(mesh, mat_type):
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    # The integral is only over boundary 1. Thus it does not cover most of the
+    # nodes of the boundary condition on boundary 3.
+    bc = DirichletBC(V, 0, 3)
+    A = assemble(inner(u, v) * ds(1), bcs=bc, mat_type=mat_type).petscmat
+    aij = PETSc.Mat()
+    A.convert("aij", aij)
+    diagonal = aij.getDiagonal().array_r
+    # The owned nodes come before the ghost nodes in the local numbering.
+    owned_nodes = bc.nodes[bc.nodes < diagonal.size]
+    assert np.allclose(diagonal[owned_nodes], 1)
+
+
 def test_assemble_diagonal(mesh):
     V = FunctionSpace(mesh, "P", 3)
     u = TrialFunction(V)

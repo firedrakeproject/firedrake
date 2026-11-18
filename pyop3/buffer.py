@@ -1438,37 +1438,11 @@ class PetscMatBuffer(ConcreteBuffer):
                 submat = template.getNestSubMatrix(i, j)
                 self._preallocate(subpreallocator, submat)
         elif template.type == PETSc.Mat.Type.IS:
-            # As for a MATNEST, we preallocate the wrapped matrix, which is the
-            # local matrix of the MATIS.
+            # We preallocate the local matrix of the MATIS in the same way as
+            # the submatrices of a MATNEST.
             local_preallocator = preallocator.getISLocalMat()
             local_template = template.getISLocalMat()
             self._preallocate(local_preallocator, local_template)
-
-            # Some local degrees of freedom receive no insertions, for example
-            # those reached only by ghost cells. They would give empty rows and
-            # columns in the local matrix. We set them to -1 in the
-            # local-to-global maps. PETSc then removes them and creates a
-            # smaller local matrix. The local-to-global maps of this smaller
-            # matrix send each remaining degree of freedom to its original
-            # local index. We replace the smaller matrix with the preallocated
-            # rows and columns of the remaining degrees of freedom. The
-            # replacement gets the same local-to-global maps.
-            indptr, indices = local_template.getRowIJ()
-            nonzero_dofs = (np.flatnonzero(np.diff(indptr)), np.unique(indices))
-            lgmaps = []
-            subsets = []
-            for lgmap, dofs in zip(template.getLGMap(), nonzero_dofs):
-                bsize = lgmap.getBlockSize()
-                blocks = np.unique(dofs // bsize).astype(IntType)
-                block_indices = np.full_like(lgmap.getBlockIndices(), -1)
-                block_indices[blocks] = lgmap.getBlockIndices()[blocks]
-                lgmaps.append(PETSc.LGMap().create(block_indices, bsize=bsize, comm=lgmap.comm))
-                subsets.append(PETSc.IS().createBlock(bsize, blocks, comm=MPI.COMM_SELF))
-
-            submat = local_template.createSubMatrix(*subsets)
-            template.setLGMap(*lgmaps)
-            submat.setLGMap(*template.getISLocalMat().getLGMap())
-            template.setISLocalMat(submat)
         elif template.type == PETSc.Mat.Type.PYTHON:
             pass
         else:
