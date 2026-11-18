@@ -1,4 +1,5 @@
 import pytest
+import ufl
 from firedrake import *
 import loopy
 import numpy as np
@@ -45,6 +46,19 @@ def rhs2(fs):
     f = Function(fs)
     g = Function(fs)
     return inner(f, v) * dx + inner(g, v) * ds
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("form_type", [ufl.Form, ufl.ZeroBaseForm])
+def test_tsfc_empty_form_comm(form_type):
+    assert tsfc_interface._compile_form_comm(form_type(())) == tsfc_interface.COMM_SELF
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("zero", [False, True])
+def test_tsfc_form_comm(mass, zero):
+    form = ufl.ZeroBaseForm(mass.arguments()) if zero else mass
+    assert tsfc_interface._compile_form_comm(form) == mass.ufl_domains()[0].comm
 
 
 def test_tsfc_same_form(mass):
