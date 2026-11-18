@@ -18,11 +18,14 @@ meshes = [
     partial(Mesh, join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh")),
 ]
 
+# Checks the DoF permutations on a hexahedral mesh whose neighbouring cells
+# are oriented differently
+hex_mesh = partial(Mesh, join(cwd, "..", "meshes", "cube_hex.msh"))
 
-def run_consistent_facet_orientation(mesh_thunk, variant="equispaced", **kwargs):
+
+def run_consistent_facet_orientation(mesh_thunk, degree=3, variant="equispaced", **kwargs):
     mesh = mesh_thunk(**kwargs)
     x = SpatialCoordinate(mesh)
-    degree = 3
     V = FunctionSpace(mesh, "CG", degree, variant=variant)  # continuous space
     if variant == "equispaced":
         W = FunctionSpace(mesh, "DG", degree, variant=variant)  # discontinuous space
@@ -48,9 +51,10 @@ def run_consistent_facet_orientation(mesh_thunk, variant="equispaced", **kwargs)
     assert np.allclose(q.dat.data_ro, 0.0)
 
 
-@pytest.mark.parametrize('mesh_thunk', meshes)
-def test_consistent_facet_orientation(mesh_thunk):
-    run_consistent_facet_orientation(mesh_thunk)
+@pytest.mark.parametrize('degree', (2, 3))
+@pytest.mark.parametrize('mesh_thunk', meshes + [hex_mesh])
+def test_consistent_facet_orientation(mesh_thunk, degree):
+    run_consistent_facet_orientation(mesh_thunk, degree=degree)
 
 
 @pytest.mark.parallel(nprocs=2)
