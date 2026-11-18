@@ -52,6 +52,14 @@ def test_lazy_assign(mymat):
     assert np.allclose(mymat.values, 1)
 
 
+def test_petsc_mat_assignment_uses_petsc():
+    expr = petsc_mat().assign(1)
+    executable = expr._get_execution_context(None).compile().executable
+    assert op3.cc.LIBPETSC in executable.extra_compiler_options.libraries
+    assert "#include <petscmat.h>" in executable._device_code
+    assert "#include <petsc.h>" not in executable._device_code
+
+
 # Data type
 valuetype = op3.ScalarType
 
