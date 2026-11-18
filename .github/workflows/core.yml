@@ -255,7 +255,7 @@ jobs:
         if: success() || steps.install.conclusion == 'success'
         run: |
           . venv/bin/activate
-          git clone --depth 1 https://github.com/connorjward/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
+          git clone --depth 1 https://github.com/g-adopt/g-adopt.git g-adopt-repo --branch ${{ inputs.base_ref }}
           pip install --verbose ./g-adopt-repo
           make -C g-adopt-repo/demos/mantle_convection/base_case check
         timeout-minutes: 5
@@ -590,6 +590,7 @@ jobs:
         run: |
           : # DROP BEFORE MERGE
           pip install -v --no-deps --ignore-installed git+https://github.com/firedrakeproject/fiat.git@pbrubeck/fix/dual-enriched-again
+          pip install -v --no-deps --ignore-installed git+https://github.com/FEniCS/ufl.git@pbrubeck/join-domains-mesh-sequence
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'

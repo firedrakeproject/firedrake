@@ -259,7 +259,10 @@ def extensions():
     ))
     cython_options.extra_warnings = True
     cython_options.warning_errors = True
-    return cythonize(cython_list) + pybind11_list
+    return cythonize(
+        cython_list,
+        include_path=[str(Path(petsctools.__file__).resolve().parent.parent)],
+    ) + pybind11_list
 
 
 FIREDRAKE_CHECK_FILES = (

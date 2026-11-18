@@ -16,7 +16,6 @@ import cachetools
 import loopy as lp
 import loopy.tools
 import numpy as np
-import petsctools
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -33,9 +32,20 @@ from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
 
+# Intent groups for CompiledCodeExecutor._buffer_exchanges_by_type, which runs
+# on every kernel call
+_INTENTS_NEEDING_VALID_DATA = frozenset({READ, RW, MAX_RW, MIN_RW})
+_REDUCTION_INTENTS = frozenset({INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE})
+_RW_REDUCTION_INTENTS = frozenset({MAX_RW, MIN_RW})
+
+# Return value of CompiledCodeExecutor._buffer_exchanges for a buffer that
+# needs no exchange
+_NO_EXCHANGES = ((), (), (), ())
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CompilerParameters:
+    """Parameters processed by the pyop3 compiler."""
 
     # {{{ optimisation options
 
@@ -161,14 +171,20 @@ class InstructionExecutionContext:
     def __call__(self, **kwargs) -> None:
         executable = self.compile()
 
+        # Each access of a singledispatchmethod builds a new function, so bind it once
+        extract_buffers = self._extract_buffers
+
         # unpack instruction arguments into buffers, as these are what are
         # actually passed to the compiled code
         new_buffers = {}
         for arg_name, new_arg in kwargs.items():
             orig_arg_buffers = self._argument_name_to_buffer_map[arg_name]
-            new_arg_buffers = self._extract_buffers(new_arg)
+            new_arg_buffers = extract_buffers(new_arg)
             for orig_buffer, new_buffer in zip(orig_arg_buffers, new_arg_buffers, strict=True):
-                new_buffers[orig_buffer] = new_buffer
+                # Only add replaced buffers, so that a call with the loop's own
+                # buffers uses the cached pointers of the executor
+                if new_buffer is not orig_buffer:
+                    new_buffers[orig_buffer] = new_buffer
 
         # We shouldn't be calling preprocess() if we are hitting cache, this is
         # an important performance check. Perform the check at the last second
@@ -237,7 +253,6 @@ class InstructionExecutionContext:
     )
     def _compile(self) -> CompiledCodeExecutor:
         from pyop3.compile.core import _compile_static
-        from pyop3.insn.visitors import collect_compiler_options
 
         # Preprocess the instruction. This is an expensive operation so we
         # want to avoid doing it if at all possible.
@@ -264,10 +279,8 @@ class InstructionExecutionContext:
         assert num_buffers == len(self.preprocessed_buffers)
 
         compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
-        loopy_code, kernel_name_to_buffer_info, buffer_intents = \
+        loopy_code, kernel_name_to_buffer_info, buffer_intents, extra_compiler_options = \
             _compile_static(self, compiler_parameters)
-
-        extra_compiler_options = collect_compiler_options(self._preprocessed)
 
         if compiler_parameters.add_petsc_event:
             petsc_events = (loopy_code.default_entrypoint.name,)
@@ -447,6 +460,10 @@ class Executable:
         The computation to be performed.
     comm
         The communicator.
+    extra_compiler_options
+        The libraries that are needed to compile and link the code.
+    petsc_events
+        The names of the PETSc log events that the code records.
 
     Notes
     -----
@@ -470,17 +487,12 @@ class Executable:
     def _callable(self) -> collections.abc.Callable[[int, ...], None]:
         """Compile the code and return a function pointer."""
         # ideally move this logic somewhere else
-        cppargs = (
-            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-            *(f"-I{incdir}" for incdir in self.extra_compiler_options.include_dirs),
-        )
+        cppargs = tuple(f"-I{incdir}" for incdir in self.extra_compiler_options.include_dirs)
         ldargs = (
-            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
-            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
-            "-lpetsc",
-            "-lm",
             *(f"-L{libdir}" for libdir in self.extra_compiler_options.lib_dirs),
+            *(f"-Wl,-rpath,{libdir}" for libdir in self.extra_compiler_options.lib_dirs),
             *(f"-l{lib}" for lib in self.extra_compiler_options.libs),
+            "-lm",
         )
 
         # NOTE: no - instead of this inspect the compiler parameters!!!
@@ -574,23 +586,18 @@ class CompiledCodeExecutor:
             }
             assert not new_buffers_for_intents
 
+            # Only replaced buffers need a new view
             new_buffers_for_exec_args = dict(new_buffers)
-            exec_arguments = [
-                self._handle_to_pointer(
-                    buf_view.record_new(
-                        buffer=new_buffers_for_exec_args.pop(buf_view.buffer, buf_view.buffer)
-                    ).handle
-                )
-                for buf_view in self.kernel_name_to_buffer_info.values()
-            ]
+            buffer_views = self.kernel_name_to_buffer_info.values()
+            # Each access of a singledispatchmethod builds a new function, so bind it once
+            handle_to_pointer = self._handle_to_pointer
+            exec_arguments = []
+            for buf_view, pointer in zip(buffer_views, self._default_exec_arguments, strict=True):
+                new_buffer = new_buffers_for_exec_args.pop(buf_view.buffer, None)
+                if new_buffer is not None:
+                    pointer = handle_to_pointer(buf_view.record_new(buffer=new_buffer).handle)
+                exec_arguments.append(pointer)
             assert not new_buffers_for_exec_args
-
-        # if "MatSetValues" in str(self) and "slate_wrapper" in str(self):
-        #     if "subkernel0_interior_facet_horiz_top_to__exterior_facet_top_integral_otherwise" in str(self):
-        #         breakpoint()
-        # if "slate_wrapper" in str(self):
-        #     import pyop3.debug
-        #     pyop3.debug.maybe_breakpoint()
 
         utils.debug_assert(
             lambda: all(arg is not None for arg in exec_arguments),
@@ -718,6 +725,12 @@ class CompiledCodeExecutor:
 
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
+        """Pointers to the data of the buffers, in kernel argument order.
+
+        A buffer keeps the same array or Mat for its whole life, so these
+        pointers are computed once and reused on every call.
+
+        """
         return tuple(
             self._handle_to_pointer(buffer_view.handle)
             for buffer_view in self.kernel_name_to_buffer_info.values()
@@ -766,11 +779,24 @@ class CompiledCodeExecutor:
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
-    @functools.singledispatchmethod
     def _buffer_exchanges(self, buffer: pyop3.buffer.ConcreteBuffer, intent):
+        # A read-only array buffer with valid roots and leaves needs no
+        # exchange. Most buffers of a loop are like this, so check it before
+        # the dispatch on the buffer type, which is slow.
+        if (
+            intent == READ
+            and isinstance(buffer, pyop3.buffer.ArrayBuffer)
+            and buffer._roots_valid
+            and buffer._leaves_valid
+        ):
+            return _NO_EXCHANGES
+        return self._buffer_exchanges_by_type(buffer, intent)
+
+    @functools.singledispatchmethod
+    def _buffer_exchanges_by_type(self, buffer: pyop3.buffer.ConcreteBuffer, intent):
         utils.raise_missing_dispatch_handler(buffer)
 
-    @_buffer_exchanges.register
+    @_buffer_exchanges_by_type.register
     def _(self, buffer: pyop3.buffer.ArrayBuffer, intent):
         initializers, reductions, bcasts, finalizers = [], [], [], []
 
@@ -778,7 +804,7 @@ class CompiledCodeExecutor:
         # leaf points then we don't need to do a reduction. Along similar lines we could
         # also create custom SFs for different parloops depending on the access pattern.
 
-        if intent in {READ, RW, MAX_RW, MIN_RW}:
+        if intent in _INTENTS_NEEDING_VALID_DATA:
             # Make sure everything is up-to-date before we compute
             if not buffer._roots_valid:
                 initializers.append(buffer.sync_roots_begin)
@@ -799,12 +825,12 @@ class CompiledCodeExecutor:
             initializers.append(lambda: setattr(buffer, "_pending_reduction", None))
 
         # reductions
-        if intent in {INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE}:
+        if intent in _REDUCTION_INTENTS:
             # We don't need to update roots if performing the same reduction
             # again. For example we can increment into a buffer as many times
             # as we want. The reduction only needs to be done when the
             # data is read. This only applies to non-RW reductions.
-            if intent not in {MAX_RW, MIN_RW} and buffer._pending_reduction == intent:
+            if intent not in _RW_REDUCTION_INTENTS and buffer._pending_reduction == intent:
                 pass
             else:
                 # We assume that all points are visited, and therefore that
@@ -839,7 +865,7 @@ class CompiledCodeExecutor:
 
         return initializers, reductions, bcasts, finalizers
 
-    @_buffer_exchanges.register
+    @_buffer_exchanges_by_type.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer, intent):
         begin_insns = []
         end_insns = []

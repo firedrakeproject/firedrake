@@ -55,6 +55,7 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
 
     I_mat = assemble(interp, mat_type=mat_type)
     assert isinstance(I_mat, ImplicitMatrix if mat_type == "matfree" else Matrix)
+    assert I_mat.ufl_domains() == {mesh}
 
     if mat_type == "matfree":
         assert I_mat.petscmat.type == "python"
@@ -103,6 +104,7 @@ def test_cross_mesh_mattype(value_shape, mat_type):
     I_mat = assemble(interp, mat_type=mat_type)
     assert isinstance(I_mat, ImplicitMatrix if mat_type == "matfree" else Matrix)
     assert I_mat.petscmat.type == "python" if mat_type == "matfree" else "seqaij"
+    assert I_mat.ufl_domains() == {mesh1, mesh2}
 
     f = Function(V1).interpolate(expr1)
     res = assemble(action(I_mat, f))

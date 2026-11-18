@@ -10,8 +10,10 @@ from dataclasses import dataclass
 from numbers import Number
 
 from ufl.algorithms import extract_arguments, replace
+from ufl.algorithms.restructure_base_form import restructure_base_form
 from ufl.domain import extract_unique_domain
 from ufl.classes import Expr
+from ufl.duals import is_dual
 from ufl.constantvalue import as_ufl
 from ufl.form import ZeroBaseForm, BaseForm
 from ufl.core.interpolate import Interpolate as UFLInterpolate
@@ -19,7 +21,6 @@ from ufl.core.interpolate import Interpolate as UFLInterpolate
 import pyop3 as op3
 from pyop3.cache import cached_on, with_heavy_caches
 from pyop3.dtypes import get_mpi_dtype
-from pyop3.mpi import temp_internal_comm
 
 from finat.ufl import TensorElement, VectorElement, MixedElement, FiniteElementBase
 
@@ -63,11 +64,12 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : pyop3.Slice or None
-        An optional subset to apply the interpolation over.
+    subset : int, tuple of int, {"everywhere", "otherwise"}, or None
+        The subdomain IDs of the target cells over which to interpolate.
+        If None, interpolate over all target cells.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
-    access : pyop3.constants.Intent or None
+    access : pyop3.Intent or None
         The pyop3 access descriptor for combining updates to shared
         DoFs. Possible values include ``WRITE``, ``MIN``, ``MAX``, and ``INC``.
         ``WRITE``, ``MIN``, and ``MAX`` are supported when interpolating across
@@ -92,7 +94,7 @@ class InterpolateOptions:
         the :meth:`interpolate` method or (b) set to zero.
         Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
     """
-    subset: op3.Slice | None = None
+    subset: int | tuple[int, ...] | Literal["everywhere", "otherwise"] | None = None
     access: Literal[op3.WRITE, op3.MIN_WRITE, op3.MAX_WRITE, op3.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
@@ -122,7 +124,11 @@ class Interpolate(UFLInterpolate):
             # Need to create a Firedrake Argument so that it has a .function_space() method
             V = Argument(V.dual(), 1 if self.is_adjoint else 0)
 
-        self.target_space = V.arguments()[0].function_space()
+        # Argument 0 of the expression replaces Argument 0 of the dual slot.
+        # Otherwise the dual slot contracts its highest-numbered primal argument.
+        *_, highest = primal_args = [a for a in V.arguments() if not is_dual(a)]
+        contracted = next((a for a in primal_args if a.number() == 0 and 0 in expr_arg_numbers), highest)
+        self.target_space = contracted.function_space()
         if expr.ufl_shape != self.target_space.value_shape:
             raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
@@ -267,6 +273,8 @@ class Interpolator(abc.ABC):
         self.default_missing_val = expr.options.default_missing_val
         # An interpolation kernel never reads the output, it only reduces its
         # results into it. Therefore, MIN and MAX are the WRITE reductions.
+        # FIXME: Clarify the public MIN/MAX access modes for interpolation.
+        # https://github.com/firedrakeproject/firedrake/issues/5647
         access = expr.options.access
         if access is op3.MIN_RW:
             access = op3.MIN_WRITE
@@ -363,7 +371,7 @@ class Interpolator(abc.ABC):
             are supported.
         Returns
         -------
-        Function | Cofunction | MatrixBase | numbers.Number
+        firedrake.function.Function | Cofunction | MatrixBase | numbers.Number
             The function, cofunction, matrix, or scalar resulting from the
             interpolation.
         """
@@ -590,9 +598,6 @@ class CrossMeshInterpolator(Interpolator):
             f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
         else:
             f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
-        # Each target DoF receives a single value. Therefore, MIN and MAX only
-        # combine that value with the current values of a supplied output.
-        reduction = {op3.MIN_WRITE: numpy.minimum, op3.MAX_WRITE: numpy.maximum}.get(self.access) if f is tensor else None
 
         point_eval, point_eval_input_ordering = self._symbolic_expressions
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
@@ -669,7 +674,8 @@ class CrossMeshInterpolator(Interpolator):
                 else:
                     indices = slice(None)
                 values = f_point_eval_input_ordering.dat.data_ro[indices]
-                if reduction is not None:
+                if f is tensor and self.access in {op3.MIN_WRITE, op3.MAX_WRITE}:
+                    reduction = numpy.minimum if self.access is op3.MIN_WRITE else numpy.maximum
                     values = reduction(f.dat.data_ro[indices], values)
                 f.dat.data_wo[indices] = values
 
@@ -731,9 +737,8 @@ class SameMeshInterpolator(Interpolator):
         source_mesh = self.source_mesh.unique()
         if source_mesh is not target_mesh and source_mesh.submesh_youngest_common_ancestor(target_mesh):
             # Only the target cells that the source mesh covers are reached.
-            if self.subset is not None:
-                raise NotImplementedError("Interpolation between submeshes over a subset is not supported")
-            return target_mesh.iter("cell", intersect_meshes=[source_mesh])
+            subdomain_id = "everywhere" if self.subset is None else self.subset
+            return target_mesh.iter("cell", subdomain_id=subdomain_id, intersect_meshes=[source_mesh])
         elif self.subset is not None:
             return target_mesh.iter("cell", subdomain_id=self.subset)
         else:
@@ -741,12 +746,17 @@ class SameMeshInterpolator(Interpolator):
 
     @cached_property
     def covers_target(self) -> bool:
-        """Whether the interpolation reaches every target cell."""
-        target_mesh = self.target_mesh.unique()
-        reached = self._loop_index.plex_indices.size
-        total = target_mesh.iter("cell").plex_indices.size
-        with temp_internal_comm(target_mesh.comm) as icomm:
-            return icomm.allreduce(reached == total, op=MPI.LAND)
+        """Whether the interpolation reaches every target cell.
+
+        An interpolation from a submesh that is not an ancestor of the target
+        mesh can miss some target cells. This check does not count the cells,
+        so it does not need an MPI reduction.
+        """
+        if self.subset is not None:
+            return False
+        source = self.source_mesh.unique().topology
+        common = source.submesh_youngest_common_ancestor(self.target_mesh.unique().topology)
+        return common is None or common is source
 
     def _loop_target_nodes(self, f: Function | Cofunction, value: float,
                            mode: Literal["inc", "min", "max"]) -> None:
@@ -774,21 +784,23 @@ class SameMeshInterpolator(Interpolator):
 
         The other nodes keep the zero of a newly allocated tensor.
         """
+        finfo = numpy.finfo(tensor.dat.dtype)
+        identity = finfo.max if self.access is op3.MIN_WRITE else finfo.min
+        if self.covers_target:
+            # The interpolation reaches every node, including the ghost nodes.
+            # Therefore, we set the identity directly and do not generate a loop.
+            tensor.dat.data_wo_with_halos[...] = identity
+            return
         # A node can be reached only from the halo cells of its owner. The
         # opposite reduction carries the identity from the halo copies to the
         # owner. Therefore, the MIN identity is written with a MAX reduction,
         # and the MAX identity with a MIN reduction.
-        finfo = numpy.finfo(tensor.dat.dtype)
-        if self.access is op3.MIN_WRITE:
-            value, mode = float(finfo.max), "max"
-        else:
-            value, mode = float(finfo.min), "min"
-        self._loop_target_nodes(tensor, value, mode)
+        mode = "max" if self.access is op3.MIN_WRITE else "min"
+        self._loop_target_nodes(tensor, float(identity), mode)
 
     @cached_on(
-        get_obj=lambda self: get_mesh_topologies(self.ufl_interpolate),
+        get_obj=lambda self: self.source_mesh.unique().topology,
         get_key=lambda self: (self.dual_arg.function_space(), self.subset),
-        multi=True,
     )
     def _adjoint_weight(self) -> op3.Dat:
         """The reciprocal of the number of cells in the iteration set whose closure contains each node of the dual argument."""
@@ -805,8 +817,9 @@ class SameMeshInterpolator(Interpolator):
         This is the user's `Interpolate` carrying the assembly options, and the
         weighted copy of the dual argument when the adjoint needs one.
         """
-        dual_arg = self._weighted_dual_arg if self._needs_adjoint_weighting else self.dual_arg
-        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=dual_arg,
+        if not self._needs_adjoint_weighting:
+            return self.ufl_interpolate
+        return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=self._weighted_dual_arg,
                                                            subset=self.subset, access=self.access)
 
     def _update_weighted_dual_arg(self):
@@ -829,14 +842,12 @@ class SameMeshInterpolator(Interpolator):
             inputs.update(mesh.coordinates.dat.buffer for mesh in extract_domains(self._interpolate_to_assemble))
             if tensor.dat.buffer in inputs:
                 output = tensor
-                # MIN and MAX combine the result with the current output values.
-                # Therefore, we must copy the output into the temporary before assembly.
-                reads_output = self.access in {op3.MIN_WRITE, op3.MAX_WRITE}
+                reads_output = self.access in {op3.MIN_WRITE, op3.MAX_WRITE} or self.subset is not None
 
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
                                        pyop3_compiler_parameters=pyop3_compiler_parameters,
-                                       needs_zeroing=False, access=self.access)
+                                       needs_zeroing=(self.rank == 2), access=self.access)
 
         copy_input = None
         copy_output = None
@@ -1338,7 +1349,7 @@ class MixedInterpolator(Interpolator):
             block = splitter.split(jacobian, indices)
             if not isinstance(self.dual_arg, Coargument):
                 # Contract the block with the dual argument on the same target subspace
-                block = action(block, splitter.split(self.dual_arg, indices[target:target + 1]))
+                block = restructure_base_form(action(block, splitter.split(self.dual_arg, indices[target:target + 1])))
             if isinstance(block, ZeroBaseForm):
                 # Ensure block sparsity
                 continue

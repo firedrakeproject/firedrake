@@ -249,7 +249,7 @@ systems, a single step of Newton is employed.
 In the following we will use ``F`` for the residual :class:`~ufl.form.Form`
 and ``J`` for the Jacobian :class:`~ufl.form.Form`. In both cases these
 forms do not include the Dirichlet boundary conditions. Additionally
-``u`` will be the solution :class:`~.Function`.
+``u`` will be the solution :class:`Function <firedrake.function.Function>`.
 
 Strong boundary conditions are applied as follows:
 

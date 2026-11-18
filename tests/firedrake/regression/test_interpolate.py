@@ -15,8 +15,16 @@ def mat_equals(a, b):
 
 
 def test_constant():
-    cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
+    mesh = UnitSquareMesh(5, 5)
+    cg1 = FunctionSpace(mesh, "CG", 1)
     f = assemble(interpolate(Constant(1.0), cg1))
+    assert np.allclose(1.0, f.dat.data_ro)
+
+
+def test_domainless_constant():
+    mesh = UnitSquareMesh(5, 5)
+    cg1 = FunctionSpace(mesh, "CG", 1)
+    f = assemble(interpolate(1.0, cg1))
     assert np.allclose(1.0, f.dat.data_ro)
 
 
@@ -67,7 +75,8 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
 def test_subset_interpolation_reduction(access):
     mesh = UnitSquareMesh(2, 2)
     x, y = SpatialCoordinate(mesh)
-    indicator = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x < 0.5, 1, 0))
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    indicator = Function(DG0).interpolate(conditional(x < 0.5, 1, 0))
     mesh = RelabeledMesh(mesh, [indicator], [100])
     x, y = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
@@ -85,7 +94,8 @@ def test_subset_interpolation_reduction(access):
 def test_subset_adjoint_interpolation():
     mesh = UnitSquareMesh(2, 2)
     x, y = SpatialCoordinate(mesh)
-    indicator = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x < 0.5, 1, 0))
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    indicator = Function(DG0).interpolate(conditional(x < 0.5, 1, 0))
     mesh = RelabeledMesh(mesh, [indicator], [100])
     V = FunctionSpace(mesh, "CG", 1)
     u = Cofunction(V.dual()).assign(1)
@@ -140,7 +150,8 @@ def test_cross_mesh_interpolation_reduction(access):
     assert np.allclose(allocated.dat.data_ro, exact.dat.data_ro)
 
     # DoFs outside the source mesh receive no value, as they do with WRITE.
-    larger_space = FunctionSpace(RectangleMesh(2, 2, 2.0, 2.0), "CG", 1)
+    larger_mesh = RectangleMesh(2, 2, 2.0, 2.0)
+    larger_space = FunctionSpace(larger_mesh, "CG", 1)
     written = assemble(interpolate(source, larger_space, allow_missing_dofs=True))
     allocated = assemble(interpolate(source, larger_space, access=access, allow_missing_dofs=True))
     assert np.allclose(allocated.dat.data_ro, written.dat.data_ro)
@@ -725,16 +736,19 @@ def test_mixed_matrix(mode, mat_type):
         raise ValueError(f"Unrecognized mode {mode}")
 
     result_explicit = assemble(action(a, u))
-    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
-        assert np.allclose(x.dat.data, y.dat.data)
+    assert np.allclose(result_explicit.dat.data_ro, result_matfree.dat.data_ro)
 
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("mode", ["forward", "adjoint"])
 def test_mixed_matrix_q_rtce(mode):
     mesh = UnitSquareMesh(1, 1, quadrilateral=True)
-    source = FunctionSpace(mesh, "Q", 1) * FunctionSpace(mesh, "RTCE", 1)
-    target = FunctionSpace(mesh, "Q", 2) * FunctionSpace(mesh, "RTCE", 2)
+    Q1 = FunctionSpace(mesh, "Q", 1)
+    RTCE1 = FunctionSpace(mesh, "RTCE", 1)
+    Q2 = FunctionSpace(mesh, "Q", 2)
+    RTCE2 = FunctionSpace(mesh, "RTCE", 2)
+    source = Q1 * RTCE1
+    target = Q2 * RTCE2
 
     if mode == "forward":
         I = Interpolate(TrialFunction(source), TestFunction(target.dual()))
@@ -752,8 +766,7 @@ def test_mixed_matrix_q_rtce(mode):
         result_matfree = assemble(Interpolate(TestFunction(source), u))
 
     result_explicit = assemble(action(a, u))
-    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
-        assert np.allclose(x.dat.data, y.dat.data)
+    assert np.allclose(result_explicit.dat.data_ro, result_matfree.dat.data_ro)
 
 
 def test_mixed_matrix_direct_sum():
@@ -776,8 +789,7 @@ def test_mixed_matrix_direct_sum():
 
     result_explicit = assemble(action(a, u))
     result_matfree = assemble(Interpolate(TestFunction(Z), u))
-    for x, y in zip(result_explicit.subfunctions, result_matfree.subfunctions):
-        assert np.allclose(x.dat.data, y.dat.data)
+    assert np.allclose(result_explicit.dat.data_ro, result_matfree.dat.data_ro)
 
 
 @pytest.mark.parallel(2)
@@ -949,7 +961,10 @@ def test_interpolate_form():
     V2_dual_trial = TrialFunction(V2.dual())
 
     two_form = inner(V3_trial, V2_test) * dx  # V3 x V2 -> R, equiv V3 -> V2^*
-    interp = interpolate(V1_test, two_form)  # V3 x V1 -> R, equiv V3 -> V1^*
+    # Argument 0 of the expression replaces Argument 0 of the form, which is on V2,
+    # so the target is V2: V3 x V1 -> R, equiv V3 -> V1^*
+    interp = interpolate(V1_test, two_form)
+    assert interp.target_space == V2
     assert interp.arguments() == (V1_test, V3_trial)
     res1 = assemble(interp)
 
@@ -961,6 +976,25 @@ def test_interpolate_form():
 
     res3 = assemble(inner(V3_trial, V1_test) * dx)  # V3 x V1 -> R
     assert mat_equals(res1, res3)
+
+
+@pytest.mark.parallel([1, 3])
+def test_interpolate_form_different_shapes():
+    mesh = UnitSquareMesh(3, 3)
+    V1 = VectorFunctionSpace(mesh, "CG", 1)
+    V2 = VectorFunctionSpace(mesh, "CG", 2)
+    V3 = FunctionSpace(mesh, "CG", 3)
+
+    q = TestFunction(V1)
+    u = TrialFunction(V3)
+    form = inner(as_vector([u, u]), TestFunction(V2)) * dx  # V3 x V2 -> R
+
+    interp = interpolate(q, form)  # V3 x V1 -> R
+    assert interp.arguments() == (q, u)
+    res1 = assemble(interp)
+
+    res2 = assemble(action(interpolate(q, TrialFunction(V2.dual())), form))
+    assert mat_equals(res1, res2)
 
 
 @pytest.mark.parallel([1, 3])
@@ -996,7 +1030,8 @@ def test_interpolation_cell_subset():
     mesh = UnitIntervalMesh(2)
     x = SpatialCoordinate(mesh)
 
-    ind = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(x[0] > 0.5, 1, 0))
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    ind = Function(DG0).interpolate(conditional(x[0] > 0.5, 1, 0))
 
     mesh = RelabeledMesh(mesh, [ind], [100])
 
@@ -1004,6 +1039,23 @@ def test_interpolation_cell_subset():
     u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subset=mesh.cell_subset(100))
 
     assert assemble((u-a/2)*dx) < 1e-14
+
+
+def test_in_place_interpolation_cell_subset():
+    mesh = UnitIntervalMesh(2)
+    x = SpatialCoordinate(mesh)
+
+    DG0 = FunctionSpace(mesh, "DG", 0)
+    ind = Function(DG0).interpolate(conditional(x[0] > 0.5, 1, 0))
+
+    mesh = RelabeledMesh(mesh, [ind], [100])
+
+    # The cells outside the subset keep their values.
+    V = FunctionSpace(mesh, "DG", 0)
+    u = Function(V).assign(1)
+    u.interpolate(2*u, subset=mesh.cell_subset(100))
+
+    assert np.allclose(assemble(u*dx), 1.5)
 
 
 def test_interpolate_indexed():

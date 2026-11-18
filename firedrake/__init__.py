@@ -23,7 +23,7 @@ def init_petsc():
 # Ensure petsc is initialised right away
 init_petsc()
 
-# Set up the cache directories before importing PyOP2.
+# Set up the cache directories before importing pyop3.
 from firedrake.configuration import setup_cache_dirs
 
 setup_cache_dirs()

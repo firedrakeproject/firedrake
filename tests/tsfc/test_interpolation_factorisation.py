@@ -46,6 +46,15 @@ def interpolate_flop_count(domain, source, target, dual):
     return kernel.flop_count
 
 
+def test_domainless_interpolate_in_form():
+    mesh = Mesh(VectorElement("P", quadrilateral, 1))
+    element = FiniteElement("Q", quadrilateral, 1)
+    V = FunctionSpace(mesh, element)
+    form = ufl.Interpolate(1, V) * ufl.dx
+
+    compile_form(form, parameters={"mode": "spectral"})
+
+
 @pytest.mark.parametrize("dual", (False, True), ids=("primal", "dual"))
 def test_sum_factorisation(mesh, element, dual):
     # Interpolation between sum factorisable elements should cost

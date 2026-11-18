@@ -8,11 +8,11 @@ Interpolation
 =============
 
 Firedrake offers highly flexible capabilities for interpolating expressions
-(functions of space) into finite element :py:class:`~.Function`\s.
+(functions of space) into finite element :py:class:`Function <firedrake.function.Function>`\s.
 Interpolation is often used to set up initial conditions and/or boundary
 conditions. Mathematically, if :math:`e(x)` is a function of space and
 :math:`V` is a finite element function space then
-:math:`\operatorname{interpolate}(e, V)` is the :py:class:`~.Function`
+:math:`\operatorname{interpolate}(e, V)` is the :py:class:`Function <firedrake.function.Function>`
 :math:`v_i \phi_i\in V` such that:
 
 .. math::
@@ -50,7 +50,7 @@ Here, the :py:func:`~.interpolate` function returned a **symbolic** UFL_ :py:cla
 expression. To calculate a concrete numerical result, we need to call :py:func:`~.assemble` on this expression.
 
 It is also possible to interpolate an expression directly into an existing
-:py:class:`~.Function`:
+:py:class:`Function <firedrake.function.Function>`:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
@@ -77,8 +77,8 @@ including:
 * The coordinates: in physical space as
   :py:class:`~ufl.SpatialCoordinate`, and in reference space as
   :py:class:`ufl.geometry.CellCoordinate`.
-* Firedrake :py:class:`~.Function`\s, derivatives of
-  :py:class:`~.Function`\s, and :py:class:`~.Constant`\s.
+* Firedrake :py:class:`Function <firedrake.function.Function>`\s, derivatives of
+  :py:class:`Function <firedrake.function.Function>`\s, and :py:class:`~.Constant`\s.
 * Literal numbers, basic arithmetic operations, and also mathematical
   functions such as ``sin``, ``cos``, ``sqrt``, ``abs``, etc.
 * Conditional expressions using UFL :py:mod:`~ufl.conditional`.
@@ -156,7 +156,7 @@ assemble this matrix by doing
 Passing a :py:class:`~.FunctionSpace` into the dual slot of :py:func:`~.interpolate` is
 syntactic sugar for ``TestFunction(V.dual())``.
 
-If :math:`g\in U` is a :py:class:`~.Function`, then we can write it as :math:`g = g_j \psi_j` for
+If :math:`g\in U` is a :py:class:`Function <firedrake.function.Function>`, then we can write it as :math:`g = g_j \psi_j` for
 some coefficients :math:`g_j`. Interpolating :math:`g` into :math:`V` gives
 
 .. math::
@@ -172,11 +172,11 @@ coefficients of the interpolated function. In Firedrake, we can do this by
    :start-after: [test_interpolate_operator 12]
    :end-before: [test_interpolate_operator 13]
 
-:math:`h` is a :py:class:`~.Function` in :math:`V` representing the interpolation of :math:`g` into :math:`V`.
+:math:`h` is a :py:class:`Function <firedrake.function.Function>` in :math:`V` representing the interpolation of :math:`g` into :math:`V`.
 
 .. note::
 
-   When interpolating a :py:class:`~.Function` directly, for example
+   When interpolating a :py:class:`Function <firedrake.function.Function>` directly, for example
 
    .. code-block:: python
 
@@ -242,7 +242,7 @@ we can take the :py:func:`~ufl.action` of the operator on the :py:class:`~.Cofun
    :start-after: [test_interpolate_operator 17]
    :end-before: [test_interpolate_operator 18]
 
-The final case is when we interpolate a :py:class:`~.Function` into :py:class:`~.Cofunction`:
+The final case is when we interpolate a :py:class:`Function <firedrake.function.Function>` into :py:class:`~.Cofunction`:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
    :language: python3
@@ -349,7 +349,7 @@ coefficients which could not be set) are, by default, set to zero:
    :start-after: [test_cross_mesh 9]
    :end-before: [test_cross_mesh 10]
 
-If we specify an output :py:class:`~.Function` then the missing DoFs are
+If we specify an output :py:class:`Function <firedrake.function.Function>` then the missing DoFs are
 unmodified.
 
 We can optionally specify a value to use for our missing DoFs. Here
@@ -361,7 +361,7 @@ we set them to be ``nan`` ('not a number') for easy identification:
    :start-after: [test_cross_mesh 11]
    :end-before: [test_cross_mesh 12]
 
-If we specify an output :py:class:`~.Function`, this overwrites the missing
+If we specify an output :py:class:`Function <firedrake.function.Function>`, this overwrites the missing
 DoFs.
 
 If we don't set ``default_missing_val`` then any missing DoFs are left as 
@@ -379,7 +379,7 @@ they were prior to interpolation:
    :start-after: [test_cross_mesh 15]
    :end-before: [test_cross_mesh 16]
 
-Similarly, using the :py:meth:`~.Function.interpolate` method on a :py:class:`~.Function` will not overwrite
+Similarly, using the :py:meth:`Function.interpolate <firedrake.function.Function.interpolate>` method on a :py:class:`Function <firedrake.function.Function>` will not overwrite
 the pre-existing values if ``default_missing_val`` is not set:
 
 .. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
@@ -394,7 +394,7 @@ Interpolation from external data
 --------------------------------
 
 Unfortunately, UFL interpolation is not applicable if some of the
-source data is not yet available as a Firedrake :py:class:`~.Function`
+source data is not yet available as a Firedrake :py:class:`Function <firedrake.function.Function>`
 or UFL expression.  Here we describe a recipe for moving external data to
 Firedrake fields.
 
@@ -490,7 +490,7 @@ which gives Firedrake users an easy access to many stochastically sound random n
 including :py:class:`~numpy.random.PCG64`, :py:class:`~numpy.random.Philox`, and :py:class:`~numpy.random.SFC64`, which are parallel-safe.
 All distribution methods defined in `numpy.random`_,
 are made available, and one can pass a :class:`.FunctionSpace` to most of these methods
-to generate a randomised :class:`.Function`.
+to generate a randomised :class:Function <firedrake.function.Function>`.
 
 .. code-block:: python
 

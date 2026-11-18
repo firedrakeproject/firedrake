@@ -22,7 +22,7 @@ from firedrake.parameters import parameters
 from gem import impero_utils
 from itertools import chain
 
-from pyop3.mpi import COMM_WORLD
+import pyop3 as op3
 from pyop3.compile import SolveCallable, INVCallable
 from pyop3.cache import memory_and_disk_cache
 
@@ -42,22 +42,6 @@ from petsc4py import PETSc
 __all__ = ['compile_expression']
 
 GREEN = "\033[1;37;32m%s\033[0m"
-
-BLASLAPACK_LIB = None
-BLASLAPACK_INCLUDE = None
-if COMM_WORLD.rank == 0:
-    petsc_variables = petsctools.get_petscvariables()
-    BLASLAPACK_LIB = petsc_variables.get("BLASLAPACK_LIB", "")
-    BLASLAPACK_LIB = COMM_WORLD.bcast(BLASLAPACK_LIB, root=0)
-    BLASLAPACK_INCLUDE = petsc_variables.get("BLASLAPACK_INCLUDE", "")
-    BLASLAPACK_INCLUDE = COMM_WORLD.bcast(BLASLAPACK_INCLUDE, root=0)
-else:
-    BLASLAPACK_LIB = COMM_WORLD.bcast(None, root=0)
-    BLASLAPACK_INCLUDE = COMM_WORLD.bcast(None, root=0)
-
-# Strip leading '-l' and '-I's
-BLASLAPACK_LIB = tuple(lib[2:] for lib in BLASLAPACK_LIB.split())
-BLASLAPACK_INCLUDE = tuple(incdir[2:] for incdir in BLASLAPACK_INCLUDE.split())
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -90,13 +74,20 @@ def _compile_expression_comm(*args, **kwargs):
 @PETSc.Log.EventDecorator()
 def compile_expression(slate_expr, compiler_parameters=None):
     """Takes a Slate expression `slate_expr` and returns the appropriate
-    ``pyop2.op2.Kernel`` object representing the Slate expression.
+    `pyop3.insn.base.Function` object representing the Slate expression.
 
-    :arg slate_expr: a :class:`~.Tensor` expression.
-    :arg tsfc_parameters: an optional `dict` of form compiler parameters to
+    Parameters
+    ----------
+    slate_expr
+        A :class:`firedrake.slate.slate.Tensor` expression.
+    tsfc_parameters
+        an optional `dict` of form compiler parameters to
         be passed to TSFC during the compilation of ufl forms.
 
-    Returns: A ``tuple`` containing a ``SplitKernel(idx, kinfo)``
+    Returns
+    -------
+    tuple
+        A `tuple` containing a ``SplitKernel(idx, kinfo)``
     """
     if not isinstance(slate_expr, slate.TensorBase):
         raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
@@ -163,7 +154,10 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     # set default_entrypoint
     loopy_merged = loopy_merged.with_entrypoints(name)
 
-    loopykernel = tsfc_interface.as_pyop3_local_kernel(loopy_merged, len(arguments))
+    # The inverse and solve callables call PETSc and LAPACK.
+    loopykernel = tsfc_interface.as_pyop3_local_kernel(
+        loopy_merged, len(arguments), libraries=(op3.cc.LIBPETSC, op3.cc.LIBBLASLAPACK)
+    )
 
     # map the coefficients in the order that pyop3 needs
     orig_coeffs = orig_expr.coefficients()

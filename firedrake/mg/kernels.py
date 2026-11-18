@@ -61,8 +61,7 @@ def to_reference_coordinates(ufl_coordinate_element, parameters=None):
     }
 
     evaluate_template_c = """#include <math.h>
-#include <stdio.h>
-#include <petsc.h>
+#include <petscsys.h>
 
 %(to_reference_coords_newton_step)s
 
@@ -269,6 +268,7 @@ def prolong_kernel(expression, Vf):
                 ("20_to_reference_kernel", str(to_reference_kernel)),
                 ("20_eval", evaluate_code),
             ],
+            libraries=(op3.cc.LIBPETSC,),
         )
 
         return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
@@ -286,10 +286,14 @@ def prolong_matrix_kernel(Vc, Vf):
 
     Returns
     -------
-    tsfc.kernel_interface.firedrake_loopy.Kernel
-        A kernel descriptor that fills in the local dense matrix of the point evaluation
+    kernel : pyop3.Function
+        A kernel that fills in the local dense matrix of the point evaluation
         prolongation operator, for each fine grid cell and its overlapping
         coarse grid cells.
+    oriented : bool
+        Whether the kernel requires cell orientations.
+    needs_cell_sizes : bool
+        Whether the kernel requires cell sizes.
 
     """
     hierarchy, levelf = utils.get_level(Vf.mesh())
@@ -401,6 +405,7 @@ def prolong_matrix_kernel(Vc, Vf):
                 ("20_to_reference_kernel", str(to_reference_kernel)),
                 ("20_eval", evaluate_code),
             ],
+            libraries=(op3.cc.LIBPETSC,),
         )
         return cache.setdefault(key, (transfer_kernel, kernel.oriented, kernel.needs_cell_sizes))
 
@@ -499,6 +504,7 @@ def restrict_kernel(Vf, Vc):
                 ("20_to_reference_kernel", str(to_reference_kernel)),
                 ("20_eval", evaluate_code),
             ],
+            libraries=(op3.cc.LIBPETSC,),
         )
 
         return cache.setdefault(key, (func, kernel.oriented, kernel.needs_cell_sizes))
@@ -805,11 +811,8 @@ def dg_injection_kernel(Vf, Vc, ncell):
         target=tsfc.parameters.target, lang_version=(2018, 2))
     kernel = lp.merge([kernel, *subkernels]).with_entrypoints(kernel_name)
 
-    # return op2.Kernel(
-    #     kernel, name=kernel_name, include_dirs=Ainv.include_dirs,
-    #     headers=Ainv.headers, events=Ainv.events)
     kernel_intents = [op3.INC] + [op3.READ] * (len(kernel.default_entrypoint.global_var_names()) - 1)
-    return op3.Function(kernel, kernel_intents)
+    return op3.Function(kernel, kernel_intents, libraries=Ainv.compiler_options.libraries)
 
 
 def _generate_call_insn(name, args, *, iname_prefix=None, **kwargs):

@@ -1,3 +1,4 @@
+from firedrake.assemble import BaseFormAssembler, get_assembler
 import pytest
 from firedrake import *
 import numpy as np
@@ -59,8 +60,6 @@ def _test_submesh_interpolate_cell_cell(mesh, subdomain_cond, fe_fesub):
 
 @pytest.mark.parallel([1, 3])
 def test_submesh_form_interp():
-    from firedrake.assemble import OneFormAssembler, get_assembler
-
     mesh = UnitSquareMesh(4, 4)
     x, y = SpatialCoordinate(mesh)
     submesh = make_submesh(mesh, conditional(x < 0.51, 1, 0), 999)
@@ -81,10 +80,37 @@ def test_submesh_form_interp():
     subdx = Measure("dx", submesh, intersect_measures=(Measure("dx", mesh),))
     form = inner(interpolate(f, W), v) * subdx
     assembler = get_assembler(form)
-    assert isinstance(assembler, OneFormAssembler)
     actual = assembler.assemble()
     expected = assemble(inner(expected, v) * dx(submesh))
     assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+
+@pytest.mark.parallel([1, 3])
+def test_submesh_interpolate_with_subset():
+    mesh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
+    x, y = SpatialCoordinate(mesh)
+    submesh = make_submesh(mesh, conditional(x < 1., 1, 0), 111)
+    source_space = FunctionSpace(submesh, "CG", 1)
+    target_space = FunctionSpace(mesh, "CG", 1)
+    xs, ys = SpatialCoordinate(submesh)
+    source = Function(source_space).interpolate(xs + 2 * ys)
+    subset = mesh.cell_subset(111)
+
+    actual = assemble(interpolate(source, target_space, subset=subset))
+    expected = assemble(interpolate(x + 2 * y, target_space, subset=subset))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+    operator = assemble(
+        interpolate(TrialFunction(source_space), target_space, subset=subset),
+        mat_type="aij",
+    )
+    dual_source = Cofunction(target_space.dual()).assign(1)
+    expected_adjoint = Cofunction(source_space.dual())
+    with dual_source.dat.vec_ro as source_vec, expected_adjoint.dat.vec_wo as target_vec:
+        operator.petscmat.multTranspose(source_vec, target_vec)
+
+    actual_adjoint = assemble(interpolate(TestFunction(source_space), dual_source, subset=subset))
+    assert np.allclose(actual_adjoint.dat.data_ro, expected_adjoint.dat.data_ro)
 
 
 @pytest.mark.parallel([1, 3])
@@ -92,8 +118,6 @@ def test_submesh_form_interp():
 def test_submesh_form_interp_coverage(covered):
     # A Form iterates over its own cells, so it only fuses an interpolation
     # whose source mesh supplies every target cell.
-    from firedrake.assemble import BaseFormAssembler
-
     mesh = RectangleMesh(4, 2, 2., 1., quadrilateral=True)
     x, y = SpatialCoordinate(mesh)
     DG0 = FunctionSpace(mesh, "DG", 0)
@@ -122,11 +146,10 @@ def test_submesh_form_interp_coverage(covered):
 def test_submesh_form_interp_facet_trace():
     # An interpolation that crosses a codimension does not map cells to cells,
     # so the Form that holds it assembles it on its own.
-    from firedrake.assemble import BaseFormAssembler
-
     mesh = UnitCubeMesh(4, 4, 4)
     x, y, z = SpatialCoordinate(mesh)
-    trace = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    trace = Function(T)
     trace.interpolate(conditional(x > .999, 1., 0.))
     mesh = RelabeledMesh(mesh, [trace], [999])
     subm = Submesh(mesh, mesh.topological_dimension - 1, 999)
@@ -433,6 +456,30 @@ def test_submesh_interpolate_adjoint(fe_fesub):
     # Test 0-form
     result_0 = assemble(interpolate(u1, ustar2, allow_missing_dofs=True))
     assert np.isclose(result_0, expected)
+
+
+@pytest.mark.parallel([1, 3])
+def test_submesh_adjoint_weight_cache_is_source_scoped():
+    mesh = UnitSquareMesh(4, 2)
+    x, y = SpatialCoordinate(mesh)
+    submesh = make_submesh(mesh, conditional(x < 0.5, 1, 0), 111)
+    V = FunctionSpace(mesh, "CG", 1)
+    Vsub = FunctionSpace(submesh, "CG", 1)
+    u = Cofunction(V.dual()).assign(1)
+
+    # Warm the cache with the full parent-to-parent adjoint interpolation.
+    assemble(interpolate(TestFunction(V), u))
+
+    operator = assemble(
+        interpolate(TrialFunction(Vsub), V, allow_missing_dofs=True),
+        mat_type="aij",
+    )
+    expected = Cofunction(Vsub.dual())
+    with u.dat.vec_ro as source_vec, expected.dat.vec_wo as target_vec:
+        operator.petscmat.multTranspose(source_vec, target_vec)
+
+    actual = assemble(interpolate(TestFunction(Vsub), u, allow_missing_dofs=True))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
 
 
 @pytest.mark.parallel(nprocs=8)

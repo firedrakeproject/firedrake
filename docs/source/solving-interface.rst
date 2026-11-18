@@ -44,7 +44,7 @@ Linear variational problems
 If the problem is linear, that is ``a`` is linear in both the test and
 trial functions and ``L`` is linear in the test function, we can use
 the linear variational problem interface to ``solve``.  To start, we
-need a :py:class:`~.Function` to hold the value of
+need a :py:class:`Function <firedrake.function.Function>` to hold the value of
 the solution:
 
 .. code-block:: python
@@ -80,7 +80,7 @@ solve a problem:
 
 where the *residual* :math:`F(u; v)` is linear in the test function
 :math:`v` but possibly non-linear in the unknown
-:py:class:`~.Function` :math:`u`.  To solve such a
+:py:class:`Function <firedrake.function.Function>` :math:`u`.  To solve such a
 problem we write, if ``F`` is the residual form:
 
 .. code-block:: python
@@ -144,7 +144,7 @@ pass in.  In the pre-assembled case, we are solving a linear system:
 Where :math:`A` is a known matrix, :math:`\vec{b}` is a known right
 hand side vector and :math:`\vec{x}` is the unknown solution vector.
 In Firedrake, :math:`A` is represented as a
-:py:class:`~.Matrix`, while :math:`\vec{x}` is a :py:class:`~.Function`, and
+:py:class:`~.Matrix`, while :math:`\vec{x}` is a :py:class:`Function <firedrake.function.Function>`, and
 :math:`\vec{b}` a :py:class:`~.Cofunction`.
 We build these values by calling ``assemble`` on the UFL forms that
 define our problem, which, as before are denoted ``a`` and ``L``.
@@ -801,7 +801,7 @@ in Firedrake, we first must define the null space, and then inform the
 solver of its existance.  We use a
 :class:`~firedrake.nullspace.VectorSpaceBasis` to hold the vectors
 which span the null space.  We must provide a list of
-:class:`~.Function`\s spanning the space.  Additionally,
+:class:`Function <firedrake.function.Function>`\s spanning the space.  Additionally,
 since removing a constant null space is such a common operation, we
 can pass ``constant=True`` to the constructor (rather than
 constructing the constant vector by hand).  Note that the vectors we

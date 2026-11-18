@@ -313,12 +313,15 @@ class FunctionMixin(FloatingType):
         return r0
 
     def _applyUnary(self, f):
-        for i in range(len(self.dat.data_ro)):
-            self.dat.data_wo[i] = f(self.dat.data_ro[i])
+        dat = self.dat.data_ro
+        for i in range(len(dat)):
+            self.dat.data_wo[i] = f(dat[i])
 
     def _applyBinary(self, f, y):
-        for i in range(len(self.dat.data_ro)):
-            self.dat.data_wo[i] = f(self.dat.data_ro[i], y.dat.data_ro[i])
+        dat_s = self.dat.data_ro
+        dat_y = y.dat.data_ro
+        for i in range(len(dat_s)):
+            self.dat.data_wo[i] = f(dat_s[i], dat_y[i])
 
     def _ad_from_petsc(self, vec):
         with self.dat.vec_wo as self_v:
