@@ -44,7 +44,8 @@ def condense_and_forward_eliminate(A, b, elim_fields, prefix, pc):
     Returns
     -------
     LAContext
-        The Schur complement on the retained subspaces and its right-hand side.
+        The Schur complement on the retained subspaces and the contribution
+        of the eliminated subspaces to its right-hand side.
     SchurComplementBuilder
         The builder of the local inverses.
 
@@ -65,11 +66,10 @@ def condense_and_forward_eliminate(A, b, elim_fields, prefix, pc):
     A_ce = Block(A, (c, e))
     A_cc = Block(A, (c, c))
     b_e = AssembledVector(b.sub(e))
-    b_c = AssembledVector(b.sub(c))
 
     schur_builder = SchurComplementBuilder(prefix, A_ee, A_ce, A_ec, pc, 0, tuple(range(1, len(e))),
                                            non_zero_saddle_mat=A_cc)
-    r, S = schur_builder.build_schur(b_e, non_zero_saddle_rhs=b_c)
+    r, S = schur_builder.build_schur(b_e)
     return LAContext(lhs=S, rhs=r, field_idx=c), schur_builder
 
 
@@ -361,21 +361,21 @@ class SchurComplementBuilder(object):
         else:
             return None
 
-    def build_schur(self, rhs, non_zero_saddle_rhs=None):
-        """Construct the Schur complement and its right-hand side.
+    def build_schur(self, rhs):
+        """Construct the Schur complement and the contribution of the eliminated fields to its right-hand side.
 
         Parameters
         ----------
         rhs : AssembledVector or Block
             The residual on the fields that will be eliminated.
-        non_zero_saddle_rhs : AssembledVector or Block, optional
-            The residual on the retained fields of a system with a nonzero
-            diagonal block.
 
         Returns
         -------
         schur_rhs : TensorBase
-            The right-hand side of the reduced system.
+            The contribution of the eliminated fields to the right-hand side
+            of the reduced system. For a system with a nonzero diagonal block,
+            the right-hand side of the reduced system is the residual on the
+            retained fields minus this contribution.
         schur_comp : TensorBase
             The operator of the reduced system.
 
@@ -419,9 +419,7 @@ class SchurComplementBuilder(object):
         else:
             schur_rhs = self.K * self.Atilde_inv_hat * rhs
             schur_comp = self.K * self.Atilde_inv_hat * self.KT
-        if self.non_zero_saddle_mat or non_zero_saddle_rhs:
-            assert self.non_zero_saddle_mat and non_zero_saddle_rhs, "The problem is not a saddle point system and you missed to pass either A11 or the corresponding part in the rhs."
+        if self.non_zero_saddle_mat:
             # problem is not a saddle point problem
-            schur_rhs = non_zero_saddle_rhs - schur_rhs
             schur_comp = self.non_zero_saddle_mat - schur_comp
         return schur_rhs, schur_comp

@@ -1,4 +1,3 @@
-import numpy as np
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
@@ -29,8 +28,6 @@ class SCPC(SCBase):
         from firedrake.assemble import get_assembler
         from firedrake.function import Function
         from firedrake.cofunction import Cofunction
-        from firedrake.parloops import par_loop, INC
-        from ufl import dx
 
         prefix = (pc.getOptionsPrefix() or "") + "condensed_field_"
         A, P = pc.getOperators()
@@ -59,23 +56,10 @@ class SCPC(SCBase):
             bcs.append(bc.reconstruct(field=c, V=Vc, g=0))
 
         self.c = c
+        self.bcs = bcs
         self.condensed_rhs = Cofunction(Vc.dual())
         self.residual = Cofunction(W.dual())
         self.solution = Function(W)
-
-        # Count the cells that share each degree of freedom of the retained subspaces.
-        self.weight = Function(Vc)
-        instructions = """
-        for i, j
-            w[i,j] = w[i,j] + 1
-        end
-        """
-        for Vi, wi in zip(Vc, self.weight.subfunctions):
-            shapes = (Vi.finat_element.space_dimension(), np.prod(Vi.shape))
-            domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
-            par_loop((domain, instructions), dx, {"w": (wi, INC)})
-        with self.weight.dat.vec_rw as wc:
-            wc.reciprocal()
 
         # Get expressions for the condensed linear system
         A_tensor = Tensor(self.bilinear_form)
@@ -84,7 +68,7 @@ class SCPC(SCBase):
         r_expr = reduced_sys.rhs
 
         # Construct the condensed right-hand side
-        self._assemble_Srhs = get_assembler(r_expr, bcs=bcs, form_compiler_parameters=self.ctx.fc_params).assemble
+        self._assemble_Srhs = get_assembler(r_expr, form_compiler_parameters=self.ctx.fc_params).assemble
 
         # If a different matrix is used for preconditioning, condense it as well.
         S_pc_expr = None
@@ -124,12 +108,12 @@ class SCPC(SCBase):
         with self.residual.dat.vec_wo as v:
             x.copy(v)
 
-        # Disassemble the incoming right-hand side
-        with self.residual.sub(self.c).dat.vec as vc, self.weight.dat.vec_ro as wc:
-            vc.pointwiseMult(vc, wc)
-
-        # Now assemble residual for the reduced problem
+        # Subtract the contribution of the eliminated subspaces from the residual on the retained subspaces.
         self._assemble_Srhs(tensor=self.condensed_rhs)
+        with self.condensed_rhs.dat.vec as s, self.residual.sub(self.c).dat.vec_ro as r:
+            s.aypx(-1, r)
+        for bc in self.bcs:
+            bc.zero(self.condensed_rhs)
 
     def backward_substitution(self, pc, y):
         """Perform the backwards recovery of eliminated fields.
