@@ -1015,13 +1015,13 @@ class OpaqueObject(ConcreteBuffer):
 
     Parameters
     ----------
-    obj
+    obj : Any
         The object that the local kernel receives.
-    dtype
+    dtype : pyop3.dtypes.OpaqueType
         The opaque C type of the object.
-    comm
+    comm : mpi4py.MPI.Comm
         The communicator on which the object is used.
-    name, prefix
+    name, prefix : str, optional
         The name for this buffer, or a prefix from which a name can be generated.
 
     Notes
@@ -1037,10 +1037,10 @@ class OpaqueObject(ConcreteBuffer):
     _comm: MPI.Comm
     _state: int
 
-    def collect_buffers(self, visitor):
+    def collect_buffers(self, visitor: Any) -> OrderedFrozenSet:
         return OrderedFrozenSet([self])
 
-    def get_disk_cache_key(self, visitor) -> Hashable:
+    def get_disk_cache_key(self, visitor: Any) -> Hashable:
         return (type(self), visitor.renamer.add_obj(self), self._dtype)
 
     get_instruction_executor_cache_key = get_disk_cache_key
@@ -1053,7 +1053,7 @@ class OpaqueObject(ConcreteBuffer):
         comm: MPI.Comm,
         name: str | None = None,
         prefix: str | None = None,
-    ):
+    ) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
 
         self._obj = obj
