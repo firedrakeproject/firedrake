@@ -102,6 +102,18 @@ class NonlinearVariationalSolverMixin:
         @wraps(init)
         def wrapper(self, problem, *args, **kwargs):
             self.ad_block_tag = kwargs.pop("ad_block_tag", None)
+            # Take the arguments for the cached forward, adjoint and
+            # tangent linear solvers out of kwargs before calling init,
+            # because the solver constructor does not accept them.
+            ad_args_kwargs = SimpleNamespace(
+                forward_args=kwargs.pop("forward_args", []),
+                forward_kwargs=kwargs.pop("forward_kwargs", {}),
+                adj_args=kwargs.pop("adj_args", []),
+                adj_kwargs=kwargs.pop("adj_kwargs", {}),
+                tlm_args=kwargs.pop("tlm_args", []),
+                tlm_kwargs=kwargs.pop("tlm_kwargs", {}),
+                assemble_kwargs={}
+            )
             init(self, problem, *args, **kwargs)
             self._ad_problem = problem
             self._ad_args = args
@@ -113,15 +125,7 @@ class NonlinearVariationalSolverMixin:
             self._ad_solver_cache = {}
 
             # process args/kwargs for cached solvers
-            self._ad_args_kwargs = SimpleNamespace(
-                forward_args=kwargs.pop("forward_args", []),
-                forward_kwargs=kwargs.pop("forward_kwargs", {}),
-                adj_args=kwargs.pop("adj_args", []),
-                adj_kwargs=kwargs.pop("adj_kwargs", {}),
-                tlm_args=kwargs.pop("tlm_args", []),
-                tlm_kwargs=kwargs.pop("tlm_kwargs", {}),
-                assemble_kwargs={}
-            )
+            self._ad_args_kwargs = ad_args_kwargs
             solve_init_params(self._ad_args_kwargs,
                               args, kwargs, varform=True)
 
