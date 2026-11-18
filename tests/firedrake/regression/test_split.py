@@ -173,8 +173,6 @@ def test_split_action_composition():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("cofunction", [True, False])
 def test_split_duplicate_mixed_spaces(cofunction):
-    from firedrake.solving_utils import _SNESContext
-
     mesh = UnitSquareMesh(2, 2)
     V = VectorFunctionSpace(mesh, "CG", 2)
     Q = FunctionSpace(mesh, "CG", 1)
@@ -193,11 +191,15 @@ def test_split_duplicate_mixed_spaces(cofunction):
         forcing = assemble(forcing)
     F -= forcing
 
-    problem = NonlinearVariationalProblem(F, w)
-    ctx = _SNESContext(problem, "aij", "aij")
-    split_ctxs = ctx.split(((0, 1), (2, 3)))
+    splitter = ExtractSubBlock()
+    blocks = [splitter.split(F, (fields,)) for fields in ((0, 1), (2, 3))]
+    first, second = [block.arguments()[0] for block in blocks]
+    assert first.function_space() != second.function_space()
+    assert len({first.function_space(), second.function_space()}) == 2
+    assert first != second
+
     w.assign(expected)
-    for split_ctx in split_ctxs:
-        residual = assemble(split_ctx.F)
+    for block in blocks:
+        residual = assemble(block)
         with residual.dat.vec_ro as vec:
             assert vec.norm() < 1e-10
