@@ -231,6 +231,16 @@ def test_project_quadrature_replay():
 
     assert rf(f) == pytest.approx(J0)
 
+    # choose h for the Taylor test so that
+    # 4*f**3*h and 12*f**2*h**2 are degree 4
+    h = Function(V).interpolate(x)
+    dJdm_tlm = rf.tlm(h)
+    dJdm = rf.derivative()._ad_dot(h)
+    Hm = rf.hessian(h)._ad_dot(h)
+
+    assert dJdm_tlm == pytest.approx(dJdm)
+    assert taylor_test(rf, f, h, dJdm=dJdm, Hm=Hm) > 2.9
+
 
 @pytest.mark.skipcomplex
 def test_supermesh_project_solver_parameters_replay():
