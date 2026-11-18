@@ -589,6 +589,12 @@ jobs:
         id: install
         run: |
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
+          : # DROP BEFORE MERGE: https://gitlab.com/petsc/petsc/-/merge_requests/9845
+          git -C "$PETSC_DIR" fetch --depth 1 origin f4aaf16e71ee4e7344a58469e75eb026d03ec2d6
+          git -C "$PETSC_DIR" checkout --detach f4aaf16e71ee4e7344a58469e75eb026d03ec2d6
+          make -C "$PETSC_DIR" PETSC_ARCH="$PETSC_ARCH" -j2 all
+          pip install --verbose --ignore-installed --no-deps --no-build-isolation \
+            "$PETSC_DIR/src/binding/petsc4py"
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
           firedrake-clean

@@ -109,6 +109,9 @@ runs:
         fi
 
         cd petsc
+        : # DROP BEFORE MERGE: https://gitlab.com/petsc/petsc/-/merge_requests/9845
+        git fetch --depth 1 origin f4aaf16e71ee4e7344a58469e75eb026d03ec2d6
+        git checkout --detach f4aaf16e71ee4e7344a58469e75eb026d03ec2d6
         python3 ../firedrake-repo/scripts/firedrake-configure \
           --scalar-type ${{ inputs.scalar_type }} \
           --int-type ${{ inputs.int_type }} \
