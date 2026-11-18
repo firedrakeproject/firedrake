@@ -6365,34 +6365,29 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
     # Each transform carries the cohesive labels of the next surfaces to its
     # output. For each transform, source_points maps its output points to
     # its input points.
-    transformed_plex = plex
-    transform = None
+    cell_type = mesh.topology.dm_cell_types[0]
+    broken_plex = plex
     source_points = []
     for cohesive_label_name in cohesive_label_names:
-        if transform is not None:
-            source_points.append(dmcommon.transform_source_points(transformed_plex, transform))
-            transform.destroy()
         transform = PETSc.DMPlexTransform().create(comm=plex.comm)
         petsctools.set_from_options(transform, {"dm_plex_transform_type": "cohesive_extrude"})
-        transform.setDM(transformed_plex)
-        transform.setActive(transformed_plex.getLabel(cohesive_label_name))
+        transform.setDM(broken_plex)
+        transform.setActive(broken_plex.getLabel(cohesive_label_name))
         transform.setUp()
         with petsctools.inserted_options(transform):
-            transformed_plex = transform.apply(transformed_plex)
+            transformed_plex = transform.apply(broken_plex)
+        # Keep only the split parent cells before opening the next surface.
+        broken_plex, _ = transformed_plex.filter(
+            label=transformed_plex.getCellTypeLabel(),
+            value=cell_type,
+            ignoreHalo=False,
+            sanitizeSubMesh=True,
+            comm=transformed_plex.comm,
+        )
+        source_points.append(dmcommon.transform_source_points(broken_plex, transform))
+        transform.destroy()
 
-    cell_type = mesh.topology.dm_cell_types[0]
-    cell_type_label = transformed_plex.getCellTypeLabel()
-    # The cohesive transform adds prism cells across broken facets. Filter
-    # them out so the BrokenMesh contains only the split parent cells.
-    broken_plex, _ = transformed_plex.filter(
-        label=cell_type_label,
-        value=cell_type,
-        ignoreHalo=False,
-        sanitizeSubMesh=True,
-        comm=transformed_plex.comm,
-    )
-    parent_point_map = dmcommon.transform_source_points(broken_plex, transform)
-    transform.destroy()
+    parent_point_map = source_points.pop()
     for points in reversed(source_points):
         parent_point_map = points[parent_point_map]
 

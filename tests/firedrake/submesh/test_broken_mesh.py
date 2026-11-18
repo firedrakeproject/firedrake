@@ -1,7 +1,10 @@
 import numpy as np
 import pytest
+from mpi4py import MPI
 from firedrake import *
+from firedrake.cython import dmcommon
 from firedrake.pack import pack
+from firedrake.utils import IntType
 
 
 def broken_mesh():
@@ -269,6 +272,65 @@ def test_broken_mesh_rejects_junction():
     mesh = t_junction_square()
     with pytest.raises(ValueError, match="junction"):
         BrokenMesh(mesh, (GAMMA, GAMMA + 1))
+
+
+@pytest.mark.parallel(nprocs=[1, 3])
+def test_broken_mesh_crossing_faults() -> None:
+    """Two crossing faults have independent displacement jumps."""
+    mesh = UnitCubeMesh(2, 2, 2, distribution_parameters={
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+    x, y, _ = SpatialCoordinate(mesh)
+    W = FunctionSpace(mesh, "HDiv Trace", 0)
+    markers = [Function(W).interpolate(conditional(lt(abs(c - 0.5), 1e-12), 1, 0))
+               for c in (x, y)]
+    mesh = RelabeledMesh(mesh, markers, [GAMMA, GAMMA + 1])
+    broken = BrokenMesh(mesh, (GAMMA, GAMMA + 1), junctions="split")
+
+    x, y, z = SpatialCoordinate(broken)
+    DG0 = FunctionSpace(broken, "DG", 0)
+    left = Function(DG0).interpolate(conditional(lt(x, 0.5), 1, 0))
+    below = Function(DG0).interpolate(conditional(lt(y, 0.5), 1, 0))
+    slip_x = as_vector((0, 1, 0))
+    slip_y = as_vector((1, 0, 0))
+    u = Function(VectorFunctionSpace(broken, "CG", 1))
+    u.interpolate(as_vector((x, y, z)) + left * slip_x + below * slip_y)
+
+    n = FacetNormal(mesh)
+    dS_fault = Measure("dS", domain=mesh, intersect_measures=(Measure("dS", broken),))
+    for subid, component, slip in ((GAMMA, 0, slip_x), (GAMMA + 1, 1, slip_y)):
+        error = jump(u) * n("+")[component] - slip
+        assert assemble(inner(error, error) * dS_fault(subid)) == pytest.approx(0, abs=1e-12)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_cohesive_labels_agree_across_ranks() -> None:
+    """Complete cohesive labels with the same values on owners and ghosts."""
+    mesh = UnitCubeMesh(4, 4, 4, distribution_parameters={
+        "partitioner_type": "simple",
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+    x, y, z = SpatialCoordinate(mesh)
+    on_fault = And(lt(abs(y - 0.5), 1e-12), And(lt(x, 0.75), gt(z, 0.25)))
+    marker = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+    marker.interpolate(conditional(on_fault, 1, 0))
+    mesh = RelabeledMesh(mesh, [marker], [GAMMA])
+    plex = mesh.topology_dm
+    label_name, = dmcommon.create_cohesive_labels(plex, "Face Sets", ((GAMMA,),), False)
+    label = plex.getLabel(label_name)
+
+    start, end = plex.getChart()
+    assert start == 0
+    values = np.full(end, -1, dtype=IntType)
+    for value in label.getValueIS().indices:
+        points = label.getStratumIS(value)
+        if points:
+            values[points.indices] = value
+    owner_values = values.copy()
+    sf = plex.getPointSF()
+    _, leaves, _ = sf.getGraph()
+    unit = MPI._typedict[np.dtype(IntType).char]
+    sf.bcastBegin(unit, values, owner_values, MPI.REPLACE)
+    sf.bcastEnd(unit, values, owner_values, MPI.REPLACE)
+    assert np.array_equal(values[leaves], owner_values[leaves])
 
 
 def polynomials(mesh, degree, shape):
