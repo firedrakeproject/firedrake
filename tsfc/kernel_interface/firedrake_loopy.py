@@ -79,6 +79,11 @@ class Kernel:
         self.name = name
         self.event = event
 
+    @property
+    def needs_petsc(self) -> bool:
+        """Whether the kernel requires PETSc to record a log event."""
+        return self.event is not None
+
 
 class KernelBuilderBase(_KernelBuilderBase):
 

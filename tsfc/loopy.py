@@ -29,8 +29,8 @@ def profile_insns(kernel_name, instructions, log=False):
         event_name = "Log_Event_" + kernel_name
         event_id_var_name = "ID_" + event_name
         # Logging registration
-        # The events are registered in PyOP2 and the event id is passed onto the dll
-        preamble = "PetscLogEvent "+event_id_var_name+" = -1;"
+        # The events are registered in pyop3 and the event id is passed onto the dll
+        preamble = "#include <petsclog.h>\nPetscLogEvent "+event_id_var_name+" = -1;"
         # Profiling
         prepend = [lp.CInstruction("", "PetscLogEventBegin("+event_id_var_name+",0,0,0,0);")]
         append = [lp.CInstruction("", "PetscLogEventEnd("+event_id_var_name+",0,0,0,0);")]
