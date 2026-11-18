@@ -216,3 +216,17 @@ def test_project_bcs():
         J_exp, rel=1e-12, abs=1e-12,
     )
     assert taylor_test(rf, m_new, Constant(0.1)) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_project_quadrature_replay():
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x)
+    u = project(f**4, V, form_compiler_parameters={"quadrature_degree": 2})
+    J = assemble(u*dx)
+    J0 = float(J)
+    rf = ReducedFunctional(J, Control(f))
+
+    assert rf(f) == pytest.approx(J0)

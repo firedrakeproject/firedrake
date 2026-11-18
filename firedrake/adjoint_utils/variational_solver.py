@@ -192,7 +192,14 @@ class NonlinearVariationalSolverMixin:
 
         # This NLVS will be used to recompute the solve.
         # TODO: solver_parameters
-        nlvp = NonlinearVariationalProblem(Fnew, unew, J=Jnew, Jp=Jpnew, bcs=bcs_fwd)
+        nlvp = NonlinearVariationalProblem(
+            Fnew,
+            unew,
+            J=Jnew,
+            Jp=Jpnew,
+            bcs=bcs_fwd,
+            form_compiler_parameters=problem.form_compiler_parameters,
+        )
         nlvs = NonlinearVariationalSolver(
             nlvp,
             *self._ad_args_kwargs.forward_args,

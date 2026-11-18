@@ -90,7 +90,11 @@ class ProjectorMixin(NonlinearVariationalSolverMixin):
         a = firedrake.inner(Pv, w) * dx
         L = firedrake.inner(self.source, w) * dx
         p = firedrake.LinearVariationalProblem(
-            a, L, ad_target, bcs=self.bcs,
+            a,
+            L,
+            ad_target,
+            bcs=self.bcs,
+            form_compiler_parameters=self.form_compiler_parameters,
         )
 
         # If we project from an expression containing u (e.g. u + c) onto u, the
