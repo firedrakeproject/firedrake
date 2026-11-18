@@ -812,18 +812,18 @@ class ElementKernel:
 
     def __init__(self, A, name=None):
         self.result = A
-        self.mats = [self.result]
+        self.petsc_args = [self.result]
         self.name = name or type(self).__name__
         self.rules = {}
 
-    def make_args(self, *mats: PETSc.Object, comm: MPI.Comm) -> tuple[op3.OpaqueTerminal, ...]:
+    def make_args(self, *petsc_args: PETSc.Object, comm: MPI.Comm) -> tuple[op3.OpaqueTerminal, ...]:
         return tuple(
             op3.OpaqueTerminal(
-                op3.PetscMatBuffer(mat, comm=comm)
-                if isinstance(mat, PETSc.Mat)
-                else op3.OpaqueObject(mat, op3.dtypes.OpaqueType(mat.klass), comm=comm)
+                op3.PetscMatBuffer(arg, comm=comm)
+                if isinstance(arg, PETSc.Mat)
+                else op3.OpaqueObject(arg, op3.dtypes.OpaqueType(arg.klass), comm=comm)
             )
-            for mat in chain(mats, self.mats)
+            for arg in chain(petsc_args, self.petsc_args)
         )
 
     def kernel(self, mat_type="aij", on_diag=False, addv=None):
@@ -941,7 +941,7 @@ class SchurComplementKernel(ElementKernel):
         result = self.condense()
         result.axpy(1.0, self.submats[0])
         super().__init__(result, name=name)
-        self.mats.extend(self.submats)
+        self.petsc_args.extend(self.submats)
         self.rules["condense"] = self.condense_code
 
     def condense(self, result=None):

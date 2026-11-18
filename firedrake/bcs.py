@@ -260,12 +260,10 @@ class BCBase:
 
         Parameters
         ----------
-        r
-            The :class:`firedrake.function.Function` or :class:`.Cofunction`
-            to which the value is applied.
-        val
-            The prescribed value. This is either a scalar, or a
-            :class:`firedrake.function.Function` or :class:`.Cofunction`
+        r : Function or Cofunction
+            The function or cofunction to which the value is applied.
+        val : Function or Cofunction or numbers.Number
+            The prescribed value. This is either a scalar, or a function or cofunction
             that holds the values to copy onto the boundary nodes.
         """
 
