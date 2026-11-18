@@ -193,10 +193,10 @@ def test_split_duplicate_mixed_spaces(cofunction):
 
     splitter = ExtractSubBlock()
     blocks = [splitter.split(F, (fields,)) for fields in ((0, 1), (2, 3))]
-    first, second = [block.arguments()[0] for block in blocks]
-    assert first.function_space() != second.function_space()
-    assert len({first.function_space(), second.function_space()}) == 2
-    assert first != second
+    W_01, W_23 = [block.arguments()[0].function_space() for block in blocks]
+    assert W_01 != W_23
+    assert len({W_01, W_23}) == 2
+    assert TestFunction(W_01) != TestFunction(W_23)
 
     w.assign(expected)
     for block in blocks:
