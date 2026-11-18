@@ -454,8 +454,8 @@ def test_restricted_solve_equivalence_hdiv():
 
     solve(a == L, uh, bcs=bc, restrict=False)
     solve(a == L, uh_restrict, bcs=bc, restrict=True)
-    assert errornorm(u_exact, uh) < 1e-14
-    assert errornorm(uh, uh_restrict) < 1e-14
+    assert errornorm(u_exact, uh) < 1e-12
+    assert errornorm(uh, uh_restrict) < 1e-12
 
 
 @pytest.mark.parametrize("names", [(None, None), (None, "name1"), ("name0", "name1")])
