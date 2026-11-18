@@ -444,14 +444,17 @@ def test_restricted_solve_equivalence_hdiv():
     v = TestFunction(V)
     uh = Function(V)
     uh_restrict = Function(V)
+    
+    rg = RandomGenerator(PCG64(seed=0))
+    u_exact = rg.uniform(V)
 
     a = inner(u, v) * dx + inner(div(u), div(v)) * dx
-    L = replace(a, {u: Constant(1, 2)})
-    bc = DirichletBC(V, Constant((1, 2)), "on_boundary")
+    L = replace(a, {u: u_exact})
+    bc = DirichletBC(V, u_exact, "on_boundary")
 
     solve(a == L, uh, bcs=bc, restrict=False)
     solve(a == L, uh_restrict, bcs=bc, restrict=True)
-    assert errornorm(Constant((1, 2)), uh) < 1e-14
+    assert errornorm(u_exact, uh) < 1e-14
     assert errornorm(uh, uh_restrict) < 1e-14
 
 
