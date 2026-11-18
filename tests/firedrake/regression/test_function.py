@@ -331,3 +331,19 @@ def test_function_assign_mixed_subset_3_quads_2_processes():
     assert abs(e - 14.) < 1.e-14
     e = sqrt(assemble(inner(f - xx, f - xx) * dx(right)))
     assert abs(e) < 1.e-15
+
+
+@pytest.mark.parametrize("obj_type", ["function", "cofunction"])
+@pytest.mark.parametrize("val_type", ["dat", "array"])
+def test_function_passing_val_does_not_copy(V, obj_type, val_type):
+    f = Function(V) if obj_type == "function" else Cofunction(V.dual())
+    if val_type == "dat":
+        val = f.dat
+    else:
+        # Note that this is technically unsafe. We should at least be passing
+        # pyop3.ArrayBuffer objects because that is where state tracking happens.
+        val = f.dat.data_ro
+    g = Function(V, val=val) if obj_type == "function" else Cofunction(V.dual(), val=val)
+
+    f.dat.data_wo[1] = 666
+    assert g.dat.data_ro[1] == 666

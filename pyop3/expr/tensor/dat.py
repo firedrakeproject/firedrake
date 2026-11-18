@@ -115,10 +115,11 @@ class Dat(Tensor):
         elif isinstance(buffer, NullBuffer):
             pass
         else:
-            # the shape of the underlying buffer for a dat should be 1D
-            data = data.flatten()
+            assert buffer is None and data is not None
 
-            sf = axes.unindexed.sf
+            # The shape of the underlying buffer for a dat should be 1D. Do
+            # ravel not flatten here because we don't want to do a copy.
+            data = data.ravel()
 
             if buffer_kwargs is None:
                 buffer_kwargs = {}
@@ -126,8 +127,7 @@ class Dat(Tensor):
                 buffer_kwargs["name"] = f"{name}_buffer"
             if constant not in buffer_kwargs:
                 buffer_kwargs["constant"] = constant
-            assert buffer is None and data is not None
-            buffer = ArrayBuffer(data, sf, **buffer_kwargs)
+            buffer = ArrayBuffer(data, axes.unindexed.sf, **buffer_kwargs)
 
         object.__setattr__(self, "axes", axes)
         object.__setattr__(self, "buffer", buffer)
