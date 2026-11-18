@@ -213,7 +213,8 @@ class HashableSlice:
         return cls(slice_.start, slice_.stop, slice_.step)
 
 
-def slice_as_array(sl: slice) -> np.ndarray:
+def slice_as_array(sl: slice, size: int) -> np.ndarray:
     start = 0 if sl.start is None else sl.start
-    step = 1 if sl.stop is None else sl.stop
-    return np.arange(start=start, stop=sl.stop, step=step, dtype=pyop3.dtypes.IntType)
+    stop = size if sl.stop is None else sl.stop
+    step = 1 if sl.step is None else sl.step
+    return np.arange(start=start, stop=stop, step=step, dtype=pyop3.dtypes.IntType)

@@ -37,11 +37,8 @@ class ArrayReference:
         The indices that address ``base``. This has shape.
 
     """
-    def __init__(
-        self,
-        base: np.ndarray,
-        indices: np.ndarray,
-    ) -> None:
+    def __init__(self, base: np.ndarray, indices: np.ndarray) -> None:
+        assert base.ndim == 1, "'base' must be flattened"
         assert isinstance(indices, np.ndarray)
 
         self.base = base

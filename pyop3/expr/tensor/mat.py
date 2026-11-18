@@ -387,12 +387,14 @@ class Mat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
+            nrows, ncols = array.shape
             if isinstance(row_indices, slice):
-                row_indices = pyop3.collections.slice_as_array(row_indices)
+                row_indices = pyop3.collections.slice_as_array(row_indices, nrows)
             if isinstance(column_indices, slice):
-                column_indices = pyop3.collections.slice_as_array(column_indices)
+                column_indices = pyop3.collections.slice_as_array(column_indices, ncols)
             indices = np.add.outer(row_indices*column_indices.size, column_indices)
-            return pyop3.arrayref.ArrayReference(array, indices)
+
+            return pyop3.arrayref.ArrayReference(array.ravel(), indices)
 
     # For PyOP2 compatibility
     @property
