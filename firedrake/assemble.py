@@ -1485,7 +1485,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # NOTE: This is only OK in parallel with mixed spaces because we
             # apply the BC to local submat, where DoF interleaving is not
             # applicable.
-            rows = bc._nodes
+            rows = bc.nodes
             rows = numpy.asarray(rows, dtype=utils.IntType)
             rbs = V.block_size
             if rbs > 1:

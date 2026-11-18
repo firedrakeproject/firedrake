@@ -559,7 +559,7 @@ mathematically valid to do this):
            super().__init__(V, g, bc_point)
 
        @functools.cached_property
-       def _nodes(self):
+       def nodes(self):
            V = self.function_space()
 
            point = [tuple(self.sub_domain)]
