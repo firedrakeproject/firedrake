@@ -445,12 +445,13 @@ def test_restricted_solve_equivalence_hdiv():
     uh = Function(V)
     uh_restrict = Function(V)
 
-    a = inner(u, v) * dx
-    L = inner(Constant((1, 0)), v) * dx
-    bc = DirichletBC(V, Constant((0, 0)), "on_boundary")
+    a = inner(u, v) * dx + inner(div(u), div(v)) * dx
+    L = replace(a, {u: Constant(1, 2)})
+    bc = DirichletBC(V, Constant((1, 2)), "on_boundary")
 
     solve(a == L, uh, bcs=bc, restrict=False)
     solve(a == L, uh_restrict, bcs=bc, restrict=True)
+    assert errornorm(Constant((1, 2)), uh) < 1e-14
     assert errornorm(uh, uh_restrict) < 1e-14
 
 
