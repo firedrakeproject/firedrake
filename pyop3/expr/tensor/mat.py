@@ -392,8 +392,7 @@ class Mat(Tensor):
             if isinstance(column_indices, slice):
                 column_indices = pyop3.collections.slice_as_array(column_indices)
             indices = np.add.outer(row_indices*column_indices.size, column_indices)
-            shape = (row_indices.size, column_indices.size)
-            return pyop3.arrayref.ArrayReference(array, indices, shape)
+            return pyop3.arrayref.ArrayReference(array, indices)
 
     # For PyOP2 compatibility
     @property
