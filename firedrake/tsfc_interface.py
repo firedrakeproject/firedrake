@@ -10,8 +10,8 @@ import collections
 
 import ufl
 import finat.ufl
-from ufl import conj, Form, ZeroBaseForm
-from .ufl_expr import TestFunction, extract_domains
+from ufl import Form, ZeroBaseForm
+from .ufl_expr import extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
@@ -244,7 +244,6 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             nargs = 1
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
-        f = _real_mangle(f)
         if isinstance(f, ZeroBaseForm) or f.empty():
             # If we're assembling the R space component of a mixed argument,
             # and that component doesn't actually appear in the form then we
@@ -278,24 +277,6 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
 
     kernels = tuple(kernels)
     return kernels
-
-
-def _real_mangle(form):
-    """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
-
-    a = form.arguments()
-    # Real Coarguments are not integrated against, they are only contracted in Interpolate.
-    reals = [x.ufl_element().family() == "Real" and not isinstance(x, ufl.Coargument) for x in a]
-    if not any(reals):
-        return form
-    replacements = {}
-    for arg, r in zip(a, reals):
-        if r:
-            replacements[arg] = 1
-    # If only the test space is Real, we need to turn the trial function into a test function.
-    if reals == [True, False]:
-        replacements[a[1]] = conj(TestFunction(a[1].function_space()))
-    return ufl.replace(form, replacements)
 
 
 def clear_cache(comm=None):
