@@ -38,7 +38,9 @@ def annotate_super_project(project):
         V = self.target.function_space()
         if annotate:
             bcs = kwargs.get("bcs", [])
-            sb_kwargs = ProjectBlock.pop_kwargs(kwargs)
+            sb_kwargs = {
+                "solver_parameters": self.solver_parameters,
+            }
             if self._target_is_function:
                 # block should be created before project because output
                 # might also be an input that needs checkpointing

@@ -230,3 +230,23 @@ def test_project_quadrature_replay():
     rf = ReducedFunctional(J, Control(f))
 
     assert rf(f) == pytest.approx(J0)
+
+
+@pytest.mark.skipcomplex
+def test_supermesh_project_solver_parameters_replay():
+    V = FunctionSpace(UnitSquareMesh(2, 2), "CG", 1)
+    W = FunctionSpace(UnitSquareMesh(1, 1), "CG", 1)
+    f = Function(V).assign(1.0)
+    # deliberate incomplete solve to test the application of solver parameters
+    solver_parameters = {
+        "ksp_type": "richardson",
+        "pc_type": "none",
+        "ksp_max_it": 1,
+        "ksp_convergence_test": "skip",
+    }
+    u = project(f, W, solver_parameters=solver_parameters)
+    J = assemble(u*dx)
+    J0 = float(J)
+    rf = ReducedFunctional(J, Control(f))
+
+    assert rf(f) == pytest.approx(J0)
