@@ -109,13 +109,13 @@ class InterpolateOptions:
 
 class Interpolate(UFLInterpolate):
 
-    def __init__(self, expr: Expr, V: WithGeometry | BaseForm, **kwargs):
+    def __init__(self, expr: Expr | BaseForm, V: WithGeometry | BaseForm, **kwargs):
         """Symbolic representation of the interpolation operator.
 
         Parameters
         ----------
-        expr : ufl.core.expr.Expr
-               The UFL expression to interpolate.
+        expr : ufl.core.expr.Expr or ufl.BaseForm
+            The UFL expression or primal-valued operator to interpolate.
         V : firedrake.functionspaceimpl.WithGeometry or ufl.BaseForm
             The function space to interpolate into or the coargument defined
             on the dual of the function space to interpolate into.
@@ -124,7 +124,8 @@ class Interpolate(UFLInterpolate):
             for available parameters and their descriptions.
         """
         expr = as_ufl(expr)
-        expr_args = expr.arguments()[1:] if isinstance(expr, BaseForm) else extract_arguments(expr)
+        expr_args = ([a for a in expr.arguments() if not is_dual(a)]
+                     if isinstance(expr, BaseForm) else extract_arguments(expr))
         expr_arg_numbers = {arg.number() for arg in expr_args}
         self.is_adjoint = expr_arg_numbers == {0}
         if isinstance(V, WithGeometry):
@@ -133,20 +134,22 @@ class Interpolate(UFLInterpolate):
 
         # Argument 0 of the expression replaces Argument 0 of the dual slot.
         # Otherwise the dual slot contracts its highest-numbered primal argument.
-        *_, highest = primal_args = [a for a in V.arguments() if not is_dual(a)]
-        contracted = next((a for a in primal_args if a.number() == 0 and 0 in expr_arg_numbers), highest)
-        self.target_space = contracted.function_space()
-        if expr.ufl_shape != self.target_space.value_shape:
-            raise ValueError(f"Shape mismatch: Expression shape {expr.ufl_shape}, FunctionSpace shape {self.target_space.value_shape}.")
-
         super().__init__(expr, V)
+        self.target_space = self._function_space
+        if isinstance(expr, BaseForm):
+            output_argument, = (a for a in expr.arguments() if is_dual(a))
+            expr_shape = output_argument.ufl_shape
+        else:
+            expr_shape = expr.ufl_shape
+        if expr_shape != self.target_space.value_shape:
+            raise ValueError(f"Shape mismatch: Expression shape {expr_shape}, FunctionSpace shape {self.target_space.value_shape}.")
 
         self._options = InterpolateOptions(**kwargs)
 
     function_space = UFLInterpolate.ufl_function_space
 
     def _ufl_expr_reconstruct_(
-            self, expr: Expr, v: WithGeometry | BaseForm | None = None, **interp_data
+            self, expr: Expr | BaseForm, v: WithGeometry | BaseForm | None = None, **interp_data
     ):
         # Note that we can't use dataclasses.asdict here because we can't deepcopy
         # PETSc objects, this is the recommended workaround.
@@ -224,13 +227,13 @@ class Interpolate(UFLInterpolate):
 
 @PETSc.Log.EventDecorator()
 @with_heavy_caches(lambda expr, *a, **kw: get_mesh_topologies(expr))
-def interpolate(expr: Expr, V: WithGeometry | BaseForm, **kwargs) -> Interpolate:
+def interpolate(expr: Expr | BaseForm, V: WithGeometry | BaseForm, **kwargs) -> Interpolate:
     """Returns a UFL expression for the interpolation operation of ``expr`` into ``V``.
 
     Parameters
     ----------
-    expr : ufl.core.expr.Expr
-        The UFL expression to interpolate.
+    expr : ufl.core.expr.Expr or ufl.BaseForm
+        The UFL expression or primal-valued operator to interpolate.
     V : firedrake.functionspaceimpl.WithGeometry or ufl.BaseForm
         The function space to interpolate into or the coargument defined
         on the dual of the function space to interpolate into.

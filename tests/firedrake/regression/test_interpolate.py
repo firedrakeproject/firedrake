@@ -3,6 +3,8 @@ import numpy as np
 import pytest
 import pyop3 as op3
 from firedrake import *
+from firedrake.utils import complex_mode
+import ufl
 
 cwd = abspath(dirname(__file__))
 
@@ -711,6 +713,49 @@ def test_interpolate_composition(mode):
         res_adj = assemble(u5)
         res_adj2 = assemble(interpolate(TestFunction(V5), conj(TestFunction(V1)) * dx))
         assert np.allclose(res_adj.dat.data_ro, res_adj2.dat.data_ro)
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("kind", ["operator", "action", "matrix"])
+@pytest.mark.parametrize("input_shape, output_shape", [
+    ("scalar", "scalar"), ("scalar", "vector"), ("vector", "scalar"),
+    ("scalar", "tensor"), ("tensor", "scalar"),
+], ids=["scalar_scalar", "scalar_vector", "vector_scalar", "scalar_tensor", "tensor_scalar"])
+def test_interpolate_base_form_output(kind: str, input_shape: str, output_shape: str) -> None:
+    """Interpolate the output of a linear map and check its adjoint action."""
+    mesh = UnitSquareMesh(2, 2)
+    space_types = {"scalar": FunctionSpace, "vector": VectorFunctionSpace,
+                   "tensor": TensorFunctionSpace}
+    V = space_types[input_shape](mesh, "CG", 1)
+    W = space_types[output_shape](mesh, "CG", 1)
+    weights = Constant(np.ones(V.value_shape))
+    factor = Constant((1 + 2j if complex_mode else 2) * np.ones(W.value_shape))
+    operator = interpolate(factor * inner(TrialFunction(V), weights), W)
+    source = operator
+    if kind == "action":
+        source = ufl.Action(interpolate(TrialFunction(W), W), operator)
+    elif kind == "matrix":
+        source = assemble(operator)
+    composed = interpolate(source, W)
+    assert composed.target_space == W
+
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(weights * (1 + x + 2*y))
+    expected = Function(W).interpolate(factor * inner(f, weights))
+    result = assemble(action(composed, f))
+    with assemble(result - expected).dat.vec_ro as error:
+        assert error.norm() < 1e-12
+
+    dual = assemble(inner(expected, TestFunction(W))*dx)
+    expected_adjoint = assemble(action(adjoint(operator), dual))
+    actual_adjoint = assemble(action(adjoint(composed), dual))
+    with assemble(actual_adjoint - expected_adjoint).dat.vec_ro as error:
+        assert error.norm() < 1e-12
+
+    invalid_shape = "vector" if output_shape == "scalar" else "scalar"
+    invalid_target = space_types[invalid_shape](mesh, "CG", 1)
+    with pytest.raises(ValueError, match="Shape mismatch"):
+        interpolate(source, invalid_target)
 
 
 @pytest.mark.parallel([1, 3])
