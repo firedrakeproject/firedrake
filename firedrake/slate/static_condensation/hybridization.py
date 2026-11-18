@@ -1,10 +1,11 @@
 import ufl
 import finat.ufl
+import pyop3 as op3
 
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
-from firedrake.parloops import par_loop, READ, INC
+from firedrake.pack import pack
 from firedrake.slate.slate import Tensor, AssembledVector
 from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
 from firedrake.ufl_expr import adjoint
@@ -84,24 +85,24 @@ class HybridizationPC(SCBase):
         self.unbroken_solution = Function(V)
         self.unbroken_residual = Cofunction(V.dual())
 
-        self.weight = Function(W)
-        self.average_kernels = []
-        for i, Wi in enumerate(W):
-            shapes = (Wi.finat_element.space_dimension(), Wi.block_size)
-            domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
-            instructions = """
-        for i, j
-            w[i,j] = w[i,j] + 1
-        end
-        """
-            par_loop((domain, instructions), ufl.dx, {"w": (self.weight.subfunctions[i], INC)})
+        # Weight each DOF by the reciprocal of its multiplicity.
+        # Create persistent loops that scatter the residual into the broken space and gather the broken solution.
+        self.weight = Function(V)
+        self.scatter_loops = []
+        self.gather_loops = []
+        for i in d:
+            c = mesh_unique.iter("cell")
+            op3.loop(c, pack(self.weight.sub(i), c).iassign(1), eager=True)
 
-            instructions = """
-        for i, j
-            vec_out[i,j] = vec_out[i,j] + vec_in[i,j]/w[i,j]
-        end
-        """
-            self.average_kernels.append((domain, instructions))
+            broken_residual = pack(self.residual.sub(i), c)
+            unbroken_residual = pack(self.unbroken_residual.sub(i), c)
+            self.scatter_loops.append(op3.loop(c, broken_residual.assign(unbroken_residual, _weakref=False)))
+
+            broken_solution = pack(self.solution.sub(i), c)
+            unbroken_solution = pack(self.unbroken_solution.sub(i), c)
+            self.gather_loops.append(op3.loop(c, unbroken_solution.iassign(broken_solution, _weakref=False)))
+        with self.weight.dat.vec_rw as w:
+            w.reciprocal()
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
@@ -215,28 +216,15 @@ class HybridizationPC(SCBase):
         """
 
         with PETSc.Log.Event("HybridBreak"):
-            with self.unbroken_residual.dat.vec_wo as v:
-                x.copy(v)
-
-            # Copy the residual on the L2 fields, which are already discontinuous.
-            unbroken_l2_residual = self.unbroken_residual.sub(self.pidx)
-            broken_l2_residual = self.residual.sub(self.pidx)
-            broken_l2_residual.dat.assign(unbroken_l2_residual.dat, eager=True, eager_strategy="array")
-
-            # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
             # gives R'[w] = R[w] when w is in the unbroken space.
             # We do this by splitting the residual equally between
             # basis functions that add together to give unbroken
             # basis functions.
-            for i, j in enumerate(self.vidx):
-                unbroken_res_hdiv = self.unbroken_residual.sub(j)
-                broken_res_hdiv = self.residual.sub(j)
-                broken_res_hdiv.assign(0)
-                par_loop(self.average_kernels[i], ufl.dx,
-                         {"w": (self.weight.subfunctions[i], READ),
-                          "vec_in": (unbroken_res_hdiv, READ),
-                          "vec_out": (broken_res_hdiv, INC)})
+            with self.unbroken_residual.dat.vec_wo as v, self.weight.dat.vec_ro as w:
+                v.pointwiseMult(x, w)
+            for loop in self.scatter_loops:
+                loop()
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
@@ -256,23 +244,12 @@ class HybridizationPC(SCBase):
             local_solver_call()
 
         with PETSc.Log.Event("HybridProject"):
-            # Project the broken solution into non-broken spaces
-            broken_l2_solution = self.solution.sub(self.pidx)
-            unbroken_l2_solution = self.unbroken_solution.sub(self.pidx)
-            unbroken_l2_solution.dat.assign(broken_l2_solution.dat, eager=True, eager_strategy="array")
-
-            # Compute the hdiv projection of the broken hdiv solution
-            for i, j in enumerate(self.vidx):
-                broken_hdiv = self.solution.sub(j)
-                unbroken_hdiv = self.unbroken_solution.sub(j)
-                unbroken_hdiv.assign(0)
-                par_loop(self.average_kernels[i], ufl.dx,
-                         {"w": (self.weight.subfunctions[i], READ),
-                          "vec_in": (broken_hdiv, READ),
-                          "vec_out": (unbroken_hdiv, INC)})
-
-        with self.unbroken_solution.dat.vec_ro as v:
-            v.copy(y)
+            # Average the broken solution into the unbroken space.
+            self.unbroken_solution.zero()
+            for loop in self.gather_loops:
+                loop()
+            with self.unbroken_solution.dat.vec_ro as u, self.weight.dat.vec_ro as w:
+                y.pointwiseMult(u, w)
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
