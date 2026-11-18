@@ -118,6 +118,23 @@ def test_local_solve(decomp):
     assert np.allclose(x.dat.data, f.dat.data, rtol=1.e-13)
 
 
+@pytest.mark.skipreal
+def test_complex_local_solve():
+    """Test that Slate solves a local system with complex-valued data."""
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "DG", 3)
+    f = Function(V).assign(1.0 + 2.0j)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    A = Tensor((2.0 + 1.0j) * inner(u, v) * dx)
+    b = Tensor(inner(f, v) * dx)
+    x = assemble(A.solve(b))
+
+    assert np.allclose(x.dat.data, f.dat.data / (2.0 + 1.0j), rtol=1.e-13)
+
+
 @pytest.mark.parametrize("mat_type, rhs_type", [
     ("slate", "slate"), ("slate", "form"), ("slate", "cofunction"),
     ("aij", "cofunction"), ("aij", "form"),

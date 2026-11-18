@@ -65,7 +65,9 @@ Instead, we have an integral constraint on** :math:`T` **even though
 the discretised Jacobians do not have a nullspace corresponding to the constant temperatures.**
 
 We build the mesh using :doc:`netgen <netgen_mesh.py>`, choosing a trapezoidal geometry
-to prevent hydrostatic equilibrium and allow for a non-trivial velocity solution. ::
+to prevent hydrostatic equilibrium and allow for a non-trivial velocity solution.
+
+.. code-block:: python
 
     from firedrake import *
     import netgen.occ as ngocc
@@ -92,7 +94,9 @@ to prevent hydrostatic equilibrium and allow for a non-trivial velocity solution
 Next we set up the discrete function spaces.
 We use lowest-order Taylor--Hood elements for the velocity and pressure,
 and continuous piecewise-linear elements for the temperature.
-We introduce a Lagrange multiplier to enforce the integral constraint on :math:`T`::
+We introduce a Lagrange multiplier to enforce the integral constraint on :math:`T`:
+
+.. code-block:: python
 
     U = VectorFunctionSpace(mesh, "CG", degree=2)
     V = FunctionSpace(mesh, "CG", degree=1)
@@ -101,7 +105,9 @@ We introduce a Lagrange multiplier to enforce the integral constraint on :math:`
 
     Z = U * V * W * R
 
-The trial and test functions are::
+The trial and test functions are:
+
+.. code-block:: python
 
     z = Function(Z)
     (u, p, T_aux, l) = split(z)
@@ -117,7 +123,9 @@ The value of :code:`l` will then be determined by the integral constraint on :co
 The remaining problem data to be specified is the Neumann data,
 viscosity, acceleration due to gravity and :math:`T_0`.
 For the Neumann data we choose a parabolic profile on the left and right edges,
-and zero data on the top and bottom. ::
+and zero data on the top and bottom.
+
+.. code-block:: python
 
     g_left = y*(y-2)                # Neumann data on the left
     g_right = -8*y*(y-1)            # Neumann data on the right
@@ -125,7 +133,9 @@ and zero data on the top and bottom. ::
     f = as_vector([0, -1])          # Acceleration due to gravity
     T0 = Constant(1)                # Mean of the temperature
 
-The nonlinear form for the problem is::
+The nonlinear form for the problem is:
+
+.. code-block:: python
 
     F = (mu * inner(sym(grad(u)), sym(grad(v))) * dx    # Viscous terms
      - inner(p, div(v)) * dx                            # Pressure gradient
@@ -138,7 +148,9 @@ The nonlinear form for the problem is::
      + inner(T - T0, s) * dx                            # Integral constraint on T
      )
 
-and the (strongly enforced) Dirichlet boundary conditions on :math:`u` are enforced by::
+and the (strongly enforced) Dirichlet boundary conditions on :math:`u` are enforced by:
+
+.. code-block:: python
 
     bc_u = DirichletBC(Z.sub(0), 0, "on_boundary")
 
@@ -158,7 +170,9 @@ cannot always be sure that the linear solver at hand is correctly utilising the 
 :code:`nullspace` and :code:`transpose_nullspace`.
 
 To directly eliminate the nullspace we introduce a class :code:`FixAtPointBC` which
-implements a boundary condition that fixes a field at a single point. ::
+implements a boundary condition that fixes a field at a single point.
+
+.. code-block:: python
 
     import functools
 
@@ -191,7 +205,9 @@ implements a boundary condition that fixes a field at a single point. ::
            nodes = nodes[nodes >= 0]
            return nodes
  
-We use this to fix the pressure and auxiliary temperature at the origin::
+We use this to fix the pressure and auxiliary temperature at the origin:
+
+.. code-block:: python
 
     aux_bcs = [FixAtPointBC(Z.sub(1), 0, (0, 0)), 
                FixAtPointBC(Z.sub(2), 0, as_vector([0, 0]))]
@@ -232,7 +248,9 @@ point if a mesh vertex then CG fields will be fixed at exactly the supplied poin
     although similar cautionary behaviour would also have to be taken if using 
     :code:`nullspace` and :code:`transpose_nullspace` instead.
     
-Finally, we form and solve the nonlinear variational problem for :math:`T_0 \in \{1, 10, 100, 1000, 10000 \}`::
+Finally, we form and solve the nonlinear variational problem for :math:`T_0 \in \{1, 10, 100, 1000, 10000 \}`:
+
+.. code-block:: python
 
     NLVP = NonlinearVariationalProblem(F, z, bcs=[bc_u]+aux_bcs)
     NLVS = NonlinearVariationalSolver(NLVP)

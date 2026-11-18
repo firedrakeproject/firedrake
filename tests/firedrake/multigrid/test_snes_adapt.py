@@ -13,7 +13,8 @@ def test_marking_callback_configures_refine_adaptor():
     V = FunctionSpace(mesh, "CG", 1)
     u = Function(V)
     v = TestFunction(V)
-    problem = NonlinearVariationalProblem((u - 1.0)*v*dx, u)
+    F = inner(u - 1.0, v) * dx
+    problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, marking_callback=mark_cells)
 
     assert solver.parameters["adaptor_criterion"] == "refine"
@@ -40,7 +41,8 @@ def test_marking_callback_refine_hook_reconstructs_problem():
     old_dim = V.dim()
     u = Function(V)
     v = TestFunction(V)
-    problem = NonlinearVariationalProblem((u - 1.0)*v*dx, u)
+    F = inner(u - 1.0, v) * dx
+    problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, marking_callback=mark_cells)
 
     dm = solver.snes.getDM()
@@ -107,7 +109,7 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
         with eta.dat.vec_ro as eta_vec:
             _, eta_max = eta_vec.max()
         markers = Function(eta.function_space())
-        markers.interpolate(conditional(gt(eta, 0.5 * eta_max), 1, 0))
+        markers.interpolate(conditional(gt(abs(eta), 0.5 * eta_max), 1, 0))
         return markers
 
     refinements = 5

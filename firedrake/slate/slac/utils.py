@@ -111,11 +111,11 @@ def _slate2gem_transpose(expr, self):
     return ComponentTensor(Indexed(child, indices), tuple(indices[::-1]))
 
 
-@_slate2gem.register(sl.Negative)
-def _slate2gem_negative(expr, self):
+@_slate2gem.register(sl.ScalarMul)
+def _slate2gem_scalar_mul(expr, self):
     child, = map(self, expr.children)
     indices = tuple(make_indices(len(child.shape)))
-    return ComponentTensor(Product(Literal(-1),
+    return ComponentTensor(Product(Literal(expr.scalar),
                            Indexed(child, indices)),
                            indices)
 

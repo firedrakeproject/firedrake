@@ -851,7 +851,7 @@ class FunctionSpace:
         return self._shared_data.boundary_nodes(self, sub_domain)
 
     @PETSc.Log.EventDecorator()
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         Parameters
@@ -860,16 +860,12 @@ class FunctionSpace:
             If provided, mask out those dofs which match the BC nodes.
         lgmap: PETSc.LGMap
             The base local-to-global map, which might be partially masked.
-        mat_type: str
-            The matrix assembly type. This is required as different matrix types
-            handle the LGMap differently for MixedFunctionSpace.
 
         Note
         ----
             For a :func:`.VectorFunctionSpace` or :func:`.TensorFunctionSpace` the returned
             LGMap will be the scalar one, unless the bcs are imposed on a particular component.
-            For a :class:`MixedFunctionSpace` the returned LGMap is unblocked,
-            unless mat_type == "is".
+            For a :class:`MixedFunctionSpace` the returned LGMap is unblocked.
 
         Returns
         -------
@@ -900,16 +896,11 @@ class FunctionSpace:
                 bsize = lgmap.getBlockSize()
                 assert bsize == self.block_size
         else:
-            # MatBlock case, the LGMap is implementation dependent
+            # MatBlock case, the LGMap is already unrolled
             bsize = lgmap.getBlockSize()
             assert bsize == self.block_size
-            if mat_type == "is":
-                indices = lgmap.indices.copy()
-                unblocked = False
-            else:
-                # LGMap is already unrolled
-                indices = lgmap.block_indices.copy()
-                unblocked = True
+            indices = lgmap.block_indices.copy()
+            unblocked = True
         nodes = []
         for bc in bcs:
             if bc.function_space().component is not None:
@@ -1020,7 +1011,7 @@ class RestrictedFunctionSpace(FunctionSpace):
         return hash((self.mesh(), self.dof_dset, self.ufl_element(),
                      self.boundary_set))
 
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         return lgmap or self.dof_dset.lgmap
 
     def collapse(self):
@@ -1219,7 +1210,7 @@ class MixedFunctionSpace(object):
         function space nodes."""
         return op2.MixedMap(s.exterior_facet_node_map() for s in self)
 
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         r"""Return a map from process local dof numbering to global dof numbering.
 
         If BCs is provided, mask out those dofs which match the BC nodes."""
@@ -1280,13 +1271,7 @@ class ProxyFunctionSpace(FunctionSpace):
             return self
 
     def __repr__(self):
-        return "%sProxyFunctionSpace(%r, %r, name=%r, index=%r, component=%r)" % \
-            (str(self.identifier).capitalize(),
-             self.mesh(),
-             self.ufl_element(),
-             self.name,
-             self.index,
-             self.component)
+        return FunctionSpace.__repr__(self)
 
     def __str__(self):
         return "%sProxyFunctionSpace(%s, %s, name=%s, index=%s, component=%s)" % \
@@ -1302,6 +1287,16 @@ class ProxyFunctionSpace(FunctionSpace):
 
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+
+    def collapse(self) -> "FunctionSpace":
+        """Drop the proxy metadata, returning a plain function space.
+
+        Returns
+        -------
+        FunctionSpace
+            An unindexed space equal to this one.
+        """
+        return FunctionSpace(self.mesh(), self.ufl_element(), name=self.name)
 
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.
@@ -1335,13 +1330,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
             return self
 
     def __repr__(self):
-        return "%sProxyRestrictedFunctionSpace(%r, name=%r,  boundary_set=%r, index=%r, component=%r)" % \
-            (str(self.identifier).capitalize(),
-             str(self.function_space),
-             self.name,
-             self.boundary_set,
-             self.index,
-             self.component)
+        return RestrictedFunctionSpace.__repr__(self)
 
     def __str__(self):
         return self.__repr__()
@@ -1351,6 +1340,21 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
 
     no_dats = False
     r"""Can this proxy make :class:`pyop2.types.dat.Dat` objects"""
+
+    def collapse(self) -> "RestrictedFunctionSpace":
+        """Drop the proxy metadata, returning a plain restricted space.
+
+        Returns
+        -------
+        RestrictedFunctionSpace
+            An unindexed space equal to this one.
+
+        See Also
+        --------
+        ProxyFunctionSpace.collapse
+        """
+        return RestrictedFunctionSpace(self.function_space.collapse(),
+                                       boundary_set=self.boundary_set)
 
     def make_dat(self, *args, **kwargs):
         r"""Create a :class:`pyop2.types.dat.Dat`.
@@ -1467,6 +1471,6 @@ class RealFunctionSpace(FunctionSpace):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
 
-    def local_to_global_map(self, bcs, lgmap=None, mat_type=None):
+    def local_to_global_map(self, bcs, lgmap=None):
         assert len(bcs) == 0
         return None

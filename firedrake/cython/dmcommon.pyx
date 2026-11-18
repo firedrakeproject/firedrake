@@ -1692,7 +1692,7 @@ def facet_closure_nodes(V, sub_domain):
         with the given marker.
     """
     cdef:
-        PETSc.Section sec = V.dm.getSection()
+        PETSc.Section sec = V.dm.getLocalSection()
         PETSc.DM dm = V.mesh().topology_dm
         PetscInt nnodes, p, i, dof, offset, n, j, d
         np.ndarray points

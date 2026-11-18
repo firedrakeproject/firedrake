@@ -18,7 +18,7 @@
 
 # %% [markdown]
 # ## Sum factorisation
-# Suppose we are assemblying the 2-form of the Laplace operator on a hexahedral element, e.g. the Q3 element:
+# Suppose we are assembling the 2-form of the Laplace operator on a hexahedral element, e.g. the Q3 element:
 
 # %% [markdown]
 # <figure>
@@ -102,7 +102,7 @@ kernel_spectral, = compile_form(a)
 print("Local assembly FLOPs with spectral mode is {0:.3g}".format(kernel_spectral.flop_count))
 
 # %% [markdown]
-# This is a 43x reduction in FLOPs. Not bad, but there's opportunity to do better. For spectral elements, if we use the Gauss–Lobatto–Legendre (GLL) quadrature scheme, which has quadrature points collated with the Lagrange basis function nodes, then we know that the basis function tabulation is an indentity matrix. TSFC and FInAT can further simplify the loop structure of the local assembly kernels. This reduces the complexity to $O(p^5)$.
+# This is a 43x reduction in FLOPs. Not bad, but there's opportunity to do better. For spectral elements, if we use the Gauss–Lobatto–Legendre (GLL) quadrature scheme, which has quadrature points collated with the Lagrange basis function nodes, then we know that the basis function tabulation is an identity matrix. TSFC and FInAT can further simplify the loop structure of the local assembly kernels. This reduces the complexity to $O(p^5)$.
 
 # %% [markdown]
 # We need to specify the GLL quadrature scheme for hexahedra. We can do this with FIAT, which defines GLL on intervals, and FInAT, which makes the tensor product scheme from the interval scheme.

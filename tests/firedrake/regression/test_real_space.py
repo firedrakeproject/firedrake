@@ -1,4 +1,5 @@
 import pytest
+import pytest_mpi
 import numpy as np
 
 from firedrake import *
@@ -428,3 +429,22 @@ def test_real_space_hex():
     assert np.allclose(val.dat.data_ro, [2.])
     val = assemble(inner(r, TestFunction(DG)) * dx)
     assert np.allclose(val.dat.data, [1., 1.])
+
+
+@pytest.mark.parallel
+def test_real_space_repeated_assembly():
+    """Test that repeated assembly of the same form works in parallel.
+
+    This test is of particular importance to the Real space because Real
+    functions are globals and this can lead to problems with halo
+    increments.
+
+    """
+    mesh = UnitSquareMesh(3, 3)
+    R = FunctionSpace(mesh, "R", 0)
+    q = TestFunction(R)
+
+    form = q*dx + q*ds  # area + perimeter of the unit square = 1 + 4 = 5
+    for i in range(3):
+        x = assemble(form)
+        pytest_mpi.parallel_assert(np.isclose(x.dat.data_ro.item(), 5))

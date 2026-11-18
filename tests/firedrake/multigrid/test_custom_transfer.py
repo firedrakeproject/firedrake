@@ -79,7 +79,6 @@ def test_repeated_custom_transfer_options():
     assert optcount == 2
 
 
-@pytest.mark.skipcomplexnoslate
 def test_multiple_custom_transfer_split():
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 2)
@@ -127,7 +126,6 @@ def test_multiple_custom_transfer_split():
     assert count_Q == -2
 
 
-@pytest.mark.skipcomplexnoslate
 def test_multiple_custom_transfer_monolithic():
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 2)
@@ -171,7 +169,7 @@ def test_multiple_custom_transfer_monolithic():
     assert count_Q == -2
 
 
-@pytest.mark.parametrize("mode", ("full", pytest.param("partial", marks=pytest.mark.skipcomplexnoslate)))
+@pytest.mark.parametrize("mode", ("full", "partial"))
 def test_custom_transfer_setting(mode):
     mesh = UnitIntervalMesh(2)
     mh = MeshHierarchy(mesh, 1)

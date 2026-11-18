@@ -26,7 +26,7 @@ for example if the provided filename is ``coastline.msh`` the mesh is
 assumed to be in Gmsh format, in which case you can construct a mesh
 object like so:
 
-.. code-block:: python3
+.. code-block:: python
 
    coastline = Mesh("coastline.msh")
 
@@ -48,7 +48,7 @@ reordering by passing ``reorder=False`` to the appropriate
 behaviour in reordering meshes with the ``"reorder_meshes"``
 parameter.  For example, to turn off mesh reordering globally:
 
-.. code-block:: python3
+.. code-block:: python
 
    from firedrake import *
    parameters["reorder_meshes"] = False
@@ -96,7 +96,7 @@ argument to the mesh constructor which specifies the geometric
 dimension.  For example, for the surface of a sphere embedded in 3D we
 use:
 
-.. code-block:: python3
+.. code-block:: python
 
    sphere_mesh = Mesh('sphere_mesh.node', dim=3)
 
@@ -113,7 +113,7 @@ build a sphere mesh that approximates the surface of the Earth (with a
 radius of 6371 km) that has subdivided the original icosahedron 7
 times we would write:
 
-.. code-block:: python3
+.. code-block:: python
 
    earth = IcosahedralSphereMesh(radius=6371, refinement_level=7)
 
@@ -130,13 +130,13 @@ is used by Firedrake to ensure that the cell normal on,
 say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
-``~.Mesh.init_cell_orientations``, which
+:py:meth:`~firedrake.mesh.MeshGeometry.init_cell_orientations`, which
 takes a UFL expression used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
 relative to vector pointing out from the origin:
 
-.. code-block:: python3
+.. code-block:: python
 
    earth.init_cell_orientations(SpatialCoordinate(earth))
 
@@ -168,7 +168,7 @@ To construct a function space, you must specify its family and
 polynomial degree. To build a scalar-valued function space of
 continuous piecewise-cubic polynomials, we write:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, "Lagrange", 3)
 
@@ -187,20 +187,20 @@ constructor).
 To build a vector-valued function space using the lowest-order
 ``Raviart-Thomas`` elements, we write
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, "Raviart-Thomas", 1)
 
 To build a vector-valued function space for which each component
 is a discontinuous piecewise-quadratic polynomial, we can write either
 
-.. code-block:: python3
+.. code-block:: python
 
    V = VectorFunctionSpace(mesh, "Discontinuous Lagrange", 2)
 
 or
 
-.. code-block:: python3
+.. code-block:: python
 
    Vele = VectorElement("Discontinuous Lagrange", cell=mesh.ufl_cell(), degree=2)
    V = FunctionSpace(mesh, Vele)
@@ -218,7 +218,7 @@ dimension of the mesh. We can do this by passing a value for the
 For example, if we wanted a vector-valued function space on the surface
 of a unit sphere mesh with only 2 components, we might write:
 
-.. code-block:: python3
+.. code-block:: python
 
    mesh = UnitIcosahedralSphereMesh(refinement_level=3)
    V = VectorFunctionSpace(mesh, "Lagrange", 1, dim=2)
@@ -236,7 +236,7 @@ build such a space by invoking the :py:func:`constructor directly
 spaces and multiplying them together using the ``*`` operator.  For
 example:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, 'RT', 1)
    Q = FunctionSpace(mesh, 'DG', 0)
@@ -244,7 +244,7 @@ example:
 
 is equivalent to:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, 'RT', 1)
    Q = FunctionSpace(mesh, 'DG', 0)
@@ -262,77 +262,12 @@ an extruded mesh.  We refer the reader to the :doc:`manual section on
 extrusion <extruded-meshes>` for details.
 
 
-.. _supported_elements:
-
 Supported finite elements
 -------------------------
 
-Firedrake supports the use of the following finite elements.
-
-.. csv-table::
-    :header: "Name", "Short name", "Value shape", "Valid cells"
-    :widths: 20, 10, 10, 40
-    :file: element_list.csv
-
-In addition, the
-:py:class:`~finat.ufl.tensorproductelement.TensorProductElement`
-operator can be used to create product elements on extruded meshes.
-
-.. _element_variants:
-
-Element variants
-~~~~~~~~~~~~~~~~
-
-Some finite element spaces offer more than one choice of nodes.  For Q, DQ, DQ
-L2, RTCE, RTCF, NCE, and NCF spaces on intervals, quadrilaterals and hexahedra,
-Firedrake offers both equispaced points and better conditioned Legendre points.
-For discontinuous elements these are the Gauss-Legendre points, and for
-continuous elements these are the Gauss-Lobatto-Legendre points.
-For CG and DG spaces on simplices, Firedrake offers both equispaced points and
-the better conditioned recursive Legendre points from :cite:`Isaac2020` via the
-`recursivenodes`_ module. These are selected by passing ``variant="equispaced"``
-or ``variant="spectral"`` to the :py:class:`~finat.ufl.finiteelement.FiniteElement` or
-:py:func:`~.FunctionSpace` constructors. For example:
-
-.. code-block:: python3
-
-    fe = FiniteElement("RTCE", quadrilateral, 2, variant="equispaced")
-
-For CG and DG spaces, and most tensor-product elements, the default is ``variant="spectral"``.
-
-Integral-type degrees of freedom are also available through ``variant="integral"``. These
-enable orthogonal bases for DG on any cell type:
-
-.. code-block:: python3
-
-    V = FunctionSpace(mesh, "DG", 1, variant="integral")
-
-In this case, the degrees of freedom are integral moments against a basis of polynomials,
-which need to be computed with a quadrature rule. The degree of accuracy of the quadrature
-can be increased also through the variant option. For instance, ``variant="integral(4)"``
-will use a quadrature that exactly evaluates the degrees of freedom on polynomials of
-4 degrees higher than that of the space.
-Furthermore, the quadrature rule can be specified via the ``"quad_scheme"`` keyword argument.
-For more details, see the manual section on :ref:`quadrature rules <element_quad_scheme>`.
-
-Integral-type degrees of freedom are useful to nearly preserve curl-free or
-divergence-free functions when interpolating into the finite element space.
-H(curl) and H(div) elements, such as Nédélec, Brezzi-Douglas-Marini, and Raviart-Thomas,
-have ``variant="integral"`` as default. These elements also support ``variant="point"``,
-where the degrees of freedom are vector components evaluated at equispaced points.
-
-Macroelements can be constructed by splitting each cell into subcells and tiling
-the element on each subcell, without refining the mesh. For example,
-the continuous Lagrange space where each simplex is subdivided
-by connecting each of its vertices to the barycenter is constructed as
-
-.. code-block:: python3
-
-    V = FunctionSpace(mesh, "CG", 1, variant="alfeld")
-
-The space P1-iso-P2 may be similarly constructed with ``variant="iso(2)"``.
-Macroelements also support integral-type degrees of freedom,
-for example ``variant="alfeld,integral(2)"``.
+The element families that Firedrake supports, and how to choose
+between them, are listed on the separate page
+:doc:`supported-elements`.
 
 
 Expressing a variational problem
@@ -353,7 +288,7 @@ space :math:`V`. The following section of the notes describes how such
 problems can be expressed in UFL and solved using Firedrake. We shall
 see that the solve is invoked by writing
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L, s)
 
@@ -367,7 +302,7 @@ problem seeks :math:`u\in V` such that :math:`F[u;v]=0\, \forall v\in
 V`. In UFL, the solution variable should be of type :py:class:`~.Function`
 instead of :py:class:`~firedrake.ufl_expr.TrialFunction`.
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(F == 0, s)
 
@@ -399,7 +334,7 @@ perhaps a trial function.  Test functions are obtained via a call to
 symbolic objects, the latter contains storage for the coefficients of
 the basis functions in the function space.  We use them as follows:
 
-.. code-block:: python3
+.. code-block:: python
 
    u = TrialFunction(V)
    v = TestFunction(V)
@@ -420,7 +355,7 @@ mixed space.  We can do this by asking for
 tuple of test and trial functions for the underlying spaces.  For
 example, if we write:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, 'RT', 1)
    Q = FunctionSpace(mesh, 'DG', 0)
@@ -457,7 +392,7 @@ where :math:`\Omega` is the unit square, using piecewise linear
 polynomials for our solution.  We start with a mesh and build a
 function space on it:
 
-.. code-block:: python3
+.. code-block:: python
 
    mesh = UnitSquareMesh(10, 10)
    V = FunctionSpace(mesh, "CG", 1)
@@ -465,7 +400,7 @@ function space on it:
 now we need a test function, and since ``u`` is unknown, a trial
 function:
 
-.. code-block:: python3
+.. code-block:: python
 
    u = TrialFunction(V)
    v = TestFunction(V)
@@ -473,7 +408,7 @@ function:
 finally we need a function to hold the right hand side :math:`f` which
 we will populate with the x component of the coordinate field.
 
-.. code-block:: python3
+.. code-block:: python
 
    f = Function(V)
    x = SpatialCoordinate(mesh)
@@ -490,7 +425,7 @@ variational problem is to find :math:`u \in V` such that
 
 we define the variational problem in UFL with:
 
-.. code-block:: python3
+.. code-block:: python
 
    a = u*v*dx
    L = f*v*dx
@@ -504,14 +439,14 @@ How to solve such variational problems is the subject of the
 :doc:`next section <solving-interface>`, but for completeness we show
 how to do it here.  First we define a function to hold the solution
 
-.. code-block:: python3
+.. code-block:: python
 
    s = Function(V)
 
 and call :py:func:`~.solve` to solve the variational
 problem:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L, s)
 
@@ -532,7 +467,7 @@ method.  As an example, let us consider a form which contains a time
 varying constant which we wish to assemble in a time loop.  We can use
 a :py:class:`~.Constant` to do this:
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    t = 0
@@ -571,7 +506,7 @@ boundary condition requires a function space (to impose the boundary
 condition in), a value and a subdomain to apply the boundary condition
 over:
 
-.. code-block:: python3
+.. code-block:: python
 
    bc = DirichletBC(V, value, subdomain_id)
 
@@ -585,14 +520,14 @@ more generally a UFL expression, for example a :class:`~.Function` or
 :py:class:`~.Constant`, of the appropriate shape.  You may also supply
 an iterable of literal constants:
 
-.. code-block:: python3
+.. code-block:: python
 
    bc = DirichletBC(V, (1.0, 2.0), 1)
 
 Strong boundary conditions are applied in the solve by passing a list
 of boundary condition objects:
 
-.. code-block:: python3
+.. code-block:: python
 
    solve(a == L, bcs=[bc])
 
@@ -616,7 +551,7 @@ Special subdomain ids
 As well as integer subdomain ids that come from marked portions of the
 mesh, Firedrake also supports the magic string ``"on_boundary"`` to
 apply a boundary condition to all exterior facets of the mesh.
-Further, on :doc`:extruded meshes <extruded-meshes>` the special
+Further, on :doc:`extruded meshes <extruded-meshes>` the special
 strings ``"top"`` and ``"bottom"`` can be used to apply a boundary
 condition on respectively the top and bottom of the extruded domain.
 
@@ -626,7 +561,7 @@ condition on respectively the top and bottom of the extruded domain.
    you want to apply boundary data on an extruded mesh on (say) ids
    ``1`` and ``2`` as well as the top of the domain you would write
 
-   .. code-block:: python3
+   .. code-block:: python
 
       bcs = [DirichletBC(V, ..., (1, 2)), DirichletBC(V, ..., "top")]
 
@@ -643,7 +578,7 @@ defining the :py:class:`~.DirichletBC` we must index the function space
 used.  For example, to specify that the third component of a
 :py:func:`~.VectorFunctionSpace` should take the boundary value 0, we write:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = VectorFunctionSpace(mesh, ...)
    bc = DirichletBC(V.sub(2), Constant(0), boundary_ids)
@@ -653,7 +588,7 @@ manner, one pulls out the indexed sub-space, rather than a component.
 For example, to specify the velocity values in a Taylor-Hood
 discretisation we write:
 
-.. code-block:: python3
+.. code-block:: python
 
    V = VectorFunctionSpace(mesh, "CG", 2)
    P = FunctionSpace(mesh, "CG", 1)
@@ -665,7 +600,7 @@ If we only wanted to specify a single component, we would have to
 index twice.  For example, specifying that the x-component of the
 velocity is zero, using the same function space definitions:
 
-.. code-block:: python3
+.. code-block:: python
 
    bcv_x = DirichletBC(W.sub(0).sub(0), Constant(0), boundary_ids)
 
@@ -692,7 +627,7 @@ or a UFL expression if it has both space and
 time-dependence.  For example, a purely time-varying boundary
 condition might be implemented as:
 
-.. code-block:: python3
+.. code-block:: python
 
    c = Constant(sin(t))
    bc = DirichletBC(V, c, 1)
@@ -704,7 +639,7 @@ condition might be implemented as:
 If the boundary condition instead has both space and time dependence
 we can write:
 
-.. code-block:: python3
+.. code-block:: python
 
    c = Constant(t)
    e = sin(x[0]*c)
@@ -739,4 +674,3 @@ problems.
 .. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: https://en.wikipedia.org/wiki/Submanifold
-.. _recursivenodes: https://tisaac.gitlab.io/recursivenodes/

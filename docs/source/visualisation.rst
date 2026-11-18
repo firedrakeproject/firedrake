@@ -17,11 +17,11 @@ Creating output files
 
 Output for visualisation purposes is managed with a
 :class:`~.vtk_output.VTKFile` object. To create one, first import the
-class from `firedrake.output`, then we just need to pass the name of the
+class from :py:mod:`firedrake.output`, then we just need to pass the name of the
 output file on disk. The file Firedrake creates is in PVD and
 therefore the requested file name must end in ``.pvd``.
 
-.. code-block:: python3
+.. code-block:: python
 
    outfile = VTKFile("output.pvd")
    # The following raises an error
@@ -30,7 +30,7 @@ therefore the requested file name must end in ``.pvd``.
 To save functions to the :class:`~.vtk_output.VTKFile` we use the
 :meth:`~.vtk_output.VTKFile.write` method.
 
-.. code-block:: python3
+.. code-block:: python
 
    mesh = UnitSquareMesh(1, 1)
    V = FunctionSpace(mesh, "DG", 0)
@@ -45,7 +45,7 @@ To save functions to the :class:`~.vtk_output.VTKFile` we use the
    Output created for visualisation purposes is
    not intended for purposes other than visualisation. If you need
    to save data for checkpointing purposes, you should
-   instead use Firedrake's :doc:`checkingpointing capabilities
+   instead use Firedrake's :doc:`checkpointing capabilities
    <checkpointing>`.
 
 Saving time-dependent data
@@ -56,7 +56,7 @@ same function at multiple timesteps.  This is straightforward, we must
 create the output :class:`~.vtk_output.VTKFile` outside the time loop
 and call :meth:`~.vtk_output.VTKFile.write` inside.
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    outfile = VTKFile("timesteps.pvd")
@@ -74,7 +74,7 @@ used that is incremented by 1 each time
 :meth:`~.vtk_output.VTKFile.write` is called.  It is possible to
 override this by passing the keyword argument ``time``.
 
-.. code-block:: python3
+.. code-block:: python
 
    ...
    outfile = VTKFile("timesteps.pvd")
@@ -106,7 +106,7 @@ use interpolation.  For example, assume we wish to output a
 vector-valued function that lives in an :math:`H(\operatorname{div})`
 space. If we want it to be interpolated in the output file we can use
 
-.. code-block:: python3
+.. code-block:: python
 
    V = FunctionSpace(mesh, "RT", 2)
    f = Function(V)
@@ -116,7 +116,7 @@ space. If we want it to be interpolated in the output file we can use
 
 If instead we want projection, we use
 
-.. code-block:: python3
+.. code-block:: python
 
    projected = VTKFile("proj_output.pvd", project_output=True)
    projected.write(f)
@@ -131,7 +131,7 @@ If instead we want projection, we use
    to manage this issue. For instance, we can force the output to be
    discontinuous piecewise linears via
 
-   .. code-block:: python3
+   .. code-block:: python
 
       projected = VTKFile("proj_output.pvd", target_degree=1, target_continuity=H1)
       projected.write(f)
@@ -140,7 +140,7 @@ If instead we want projection, we use
 Using Paraview on higher order data
 +++++++++++++++++++++++++++++++++++
 
-Paraview's visualisation algorithims are typically exact on piecewise linear data,
+Paraview's visualisation algorithms are typically exact on piecewise linear data,
 but if you write higher order data, Paraview will produce an approximate visualisation.
 This approximation can be controlled in at least two ways:
 
@@ -181,7 +181,7 @@ data can also be saved for future reference.
    the View menu). For instance, Field Error can be more clearly
    specified via an argument to the Tessellate_ filter constructor.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       from paraview.simple import *
       pvd = PVDReader(FileName="Example.pvd")
@@ -199,7 +199,7 @@ the same output file.  The latter may be more convenient for
 subsequent analysis.  To do this, we just need to pass multiple
 :class:`~.Function`\s to :meth:`~.vtk_output.VTKFile.write`.
 
-.. code-block:: python3
+.. code-block:: python
 
    u = Function(V, name="Velocity")
    p = Function(P, name="Pressure")
@@ -219,7 +219,7 @@ subsequent analysis.  To do this, we just need to pass multiple
    functions, and the functions must have the *same* names.  The
    following example results in an error.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       u = Function(V, name="Velocity")
       p = Function(P, name="Pressure")
@@ -269,7 +269,7 @@ would make a filled contour plot of the function ``u`` using the inferno
 colormap, with contours drawn at 0.0, 0.02, ..., 1.0, and add a colorbar to the
 figure.
 
-   .. code-block:: python3
+   .. code-block:: python
 
       import matplotlib.pyplot as plt
       import numpy as np
@@ -301,7 +301,7 @@ the boundary should have Dirichlet or Neumann boundary conditions is a common
 source of errors in applications. To see a legend explaining the colors, you can
 add a legend like so:
 
-   .. code-block:: python3
+   .. code-block:: python
 
       import matplotlib.pyplot as plt
       from firedrake import *
@@ -320,7 +320,7 @@ is the same.
 For 1D functions with degree less than 4, the plot of the function would be
 exact using Bezier curves. For higher order 1D functions, the plot would be the
 linear approximation by sampling points of the function. The number of sample
-points per element could be specfied to when calling :func:`plot
+points per element could be specified when calling :func:`plot
 <firedrake.pyplot.plot>`.
 
 To install matplotlib_, please look at the installation instructions of
@@ -334,7 +334,7 @@ Plotting vertex-only mesh data with matplotlib
 
 Firedrake supports the visualisation of point data, represented as a :func:`~.VertexOnlyMesh`, in much the same way as its other plotting routines.
 In particular, :func:`scatter <firedrake.pyplot.scatter>` wraps matplotlib's ``scatter`` method and uses the coordinates of the mesh's constituent points to produce a scatter plot.
-Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjuction with :func:`triplot <firedrake.pyplot.triplot>`
+Although separate from :func:`triplot <firedrake.pyplot.triplot>`, it makes most sense to use it in conjunction with :func:`triplot <firedrake.pyplot.triplot>`
 which makes apparent the embedding of the vertex-only mesh inside its parent mesh. As the below code demonstrates, :func:`scatter <firedrake.pyplot.scatter>` gives the user the freedom to pass 
 either a :func:`~.VertexOnlyMesh` object or a scalar :class:`~.Function` defined on it, in which case, the values of the function will be used to colour the points. 
 

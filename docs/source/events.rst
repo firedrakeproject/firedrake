@@ -8,6 +8,14 @@
 Firedrake events
 ----------------
 
+Firedrake online training
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Firedrake team will deliver a one-day online training course on
+11th November. The workshop will be aimed at users with a mathematical
+background but without any preexisting familiarity with Firedrake. For more
+details see `here <https://ccp-dcm.github.io/firedrake_training_26.html>`__.
+
 PETSc annual user meeting and Firedrake '26
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -121,7 +129,7 @@ Firedrake USA '20
 ~~~~~~~~~~~~~~~~~
 
 We held a Firedrake user and developer workshop for the first
-time in North America at the University of Washingon on 10 and 11
+time in North America at the University of Washington on 10 and 11
 February 2020. For more information, see the
 :doc:`the workshop page <firedrake_usa_20>`.
 

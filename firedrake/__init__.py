@@ -69,7 +69,7 @@ from firedrake.deflation import DeflatedSNES, Deflation  # noqa: F401
 from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
-    SerialExecutionOnlyError, PointNotInDomainError,
+    CommMismatchError, SerialExecutionOnlyError, PointNotInDomainError,
 )
 from firedrake.function import (  # noqa: F401
     Function, CoordinatelessFunction, PointEvaluator
@@ -118,7 +118,7 @@ from firedrake.projection import (  # noqa: F401
 )
 from firedrake.slate import (  # noqa: F401
     AssembledVector, Block, Factorization, Tensor, Inverse,
-    Transpose, Negative, Add, Mul, Solve, BlockAssembledVector,
+    Transpose, Add, Mul, Solve, BlockAssembledVector,
     DiagonalTensor, Reciprocal, HybridizationPC, SchurComplementBuilder,
     SCPC, TensorOp
 )

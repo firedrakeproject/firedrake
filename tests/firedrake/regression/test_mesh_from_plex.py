@@ -23,7 +23,7 @@ def get_plex_with_update_coordinates(mesh):
     remove_pyop2_label(plex)
 
     coord_dm = plex.getCoordinateDM()
-    coord_dm.setSection(coord_section)
+    coord_dm.setLocalSection(coord_section)
     coords_local = coord_dm.createLocalVec()
     coords_local.array[:] = np.reshape(
         mesh.coordinates.dat.data_ro_with_halos, coords_local.array.shape

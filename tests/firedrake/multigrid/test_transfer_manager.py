@@ -3,7 +3,6 @@ import numpy
 import warnings
 from firedrake import *
 from firedrake.mg.ufl_utils import coarsen
-from firedrake.utils import complex_mode
 
 
 @pytest.fixture(scope="module")
@@ -77,11 +76,6 @@ def test_transfer_manager_dat_version_cache(action, transfer_op, spaces):
 
     source = Function(Vsource)
     target = Function(Vtarget)
-    if complex_mode and Vsource.finat_element.is_dg() and transfer_op == "inject":
-        with pytest.raises(NotImplementedError):
-            op(source, target)
-        return
-
     # Test that the operator produces an output for an unrecognized input
     source.dat.data_wo[...] = 1
     op(source, target)

@@ -116,7 +116,8 @@ def test_mat_nest_real_block_assembler_correctly_reuses_tensor(mesh):
 
 
 @pytest.mark.parallel
-@pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"), ("mixed", "nest")])
+@pytest.mark.parametrize("shape,mat_type", [("scalar", "is"), ("vector", "is"), ("mixed", "is"),
+                                            ("mixed_blocks", "is"), ("mixed", "nest")])
 @pytest.mark.parametrize("dirichlet_bcs", [False, True])
 def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
     if shape == "scalar":
@@ -127,13 +128,20 @@ def test_assemble_matis(mesh, shape, mat_type, dirichlet_bcs):
         V = VectorFunctionSpace(mesh, "CG", 1)
         Q = FunctionSpace(mesh, "CG", 1)
         V = V * Q
+    elif shape == "mixed_blocks":
+        # The blocked subspace comes second, so that it starts at a degree of freedom
+        # of the mixed space that is not a multiple of its own block size.
+        V = FunctionSpace(mesh, "CG", 2)
+        Q = VectorFunctionSpace(mesh, "CG", 1, dim=3)
+        V = V * Q
     else:
         raise ValueError(f"Unrecognized shape {shape}.")
 
     if V.value_size == 1:
         A = 1
     else:
-        A = as_matrix([[2, -1, 0], [-1, 2, -1], [0, -1, 2]])
+        n = V.value_size
+        A = as_matrix((2*np.eye(n) - np.eye(n, k=1) - np.eye(n, k=-1)).tolist())
 
     u = TrialFunction(V)
     v = TestFunction(V)

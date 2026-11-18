@@ -36,6 +36,18 @@ class OffloadPC(PCBase):
             *args, **kwargs
         )
 
+    def _create_on_device_nullspace(self, ns: PETSc.NullSpace) -> PETSc.NullSpace:
+        if ns.handle == 0:
+            return ns
+        ns_dev_vecs = []
+        for v in ns.getVecs():
+            v_dev = PETSc.Vec()
+            self.call_device_vec_impl(v_dev, "createWithArrays", v.array_r, None)
+            ns_dev_vecs.append(v_dev)
+        ns_dev = PETSc.NullSpace()
+        ns_dev.create(ns.hasConstant(), ns_dev_vecs, comm=ns.comm)
+        return ns_dev
+
     def initialize(self, pc):
         A, P = pc.getOperators()
 
@@ -70,9 +82,10 @@ class OffloadPC(PCBase):
                 else:
                     A_dev = PETSc.Mat()
                     A_dev = A.convert(mat_type=self.device_mat, out=A_dev)
-            P_dev.setNullSpace(P.getNullSpace())
-            P_dev.setTransposeNullSpace(P.getTransposeNullSpace())
-            P_dev.setNearNullSpace(P.getNearNullSpace())
+
+            P_dev.setNullSpace(self._create_on_device_nullspace(P.getNullSpace()))
+            P_dev.setTransposeNullSpace(self._create_on_device_nullspace(P.getTransposeNullSpace()))
+            P_dev.setNearNullSpace(self._create_on_device_nullspace(P.getNearNullSpace()))
             pc.setOperators(A_dev, P_dev)
         else:
             pc.setOperators(A, P)

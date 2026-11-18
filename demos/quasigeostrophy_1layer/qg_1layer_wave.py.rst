@@ -103,32 +103,42 @@ compute the numerical approximation to the PV at the new time
 
 We now move on to the implementation of the QG model for the case of a
 freely propagating Rossby wave.  As ever, we begin by importing the
-Firedrake library. ::
+Firedrake library.
+
+.. code-block:: python
 
   from firedrake import *
 
 Next we define the domain we will solve the equations on, square
 domain with 50 cells in each direction that is periodic along the
-x-axis. ::
+x-axis.
+
+.. code-block:: python
 
   Lx = 2.0 * pi  # Zonal length
   Ly = 2.0 * pi  # Meridonal length
   n0 = 50  # Spatial resolution
   mesh = PeriodicRectangleMesh(n0, n0, Lx, Ly, direction="x", quadrilateral=True)
 
-We define function spaces::
+We define function spaces:
+
+.. code-block:: python
 
   Vdg = FunctionSpace(mesh, "DQ", 1)  # DQ elements for Potential Vorticity (PV)
   Vcg = FunctionSpace(mesh, "CG", 1)  # CG elements for Streamfunction
   Vu = VectorFunctionSpace(mesh, "DQ", 0)  # DQ elements for velocity
 
 and initial conditions for the potential vorticity, here we use
-Firedrake's ability to :doc:`interpolate UFL expressions <../interpolation>`. ::
+Firedrake's ability to :doc:`interpolate UFL expressions <../interpolation>`.
+
+.. code-block:: python
 
   x = SpatialCoordinate(mesh)
   q0 = Function(Vdg).interpolate(0.1 * sin(x[0]) * sin(x[1]))
 
-We define some :class:`~.Function`\s to store the fields::
+We define some :class:`~.Function`\s to store the fields:
+
+.. code-block:: python
 
   dq1 = Function(Vdg)  # PV fields for different time steps
   qh = Function(Vdg)
@@ -137,7 +147,9 @@ We define some :class:`~.Function`\s to store the fields::
   psi0 = Function(Vcg)  # Streamfunctions for different time steps
   psi1 = Function(Vcg)
 
-along with the physical parameters of the model. ::
+along with the physical parameters of the model.
+
+.. code-block:: python
 
   F = Constant(1.0)  # Rotational Froude number
   beta = Constant(0.1)  # beta plane coefficient
@@ -145,7 +157,9 @@ along with the physical parameters of the model. ::
   dt = Constant(Dt)
 
 Next, we define the variational problems.  First the elliptic problem
-for the stream function. ::
+for the stream function.
+
+.. code-block:: python
 
   psi = TrialFunction(Vcg)
   phi = TestFunction(Vcg)
@@ -155,7 +169,9 @@ for the stream function. ::
   Lpsi = -q1 * phi * dx
 
 We impose homogeneous dirichlet boundary conditions on the stream
-function at the top and bottom of the domain. ::
+function at the top and bottom of the domain.
+
+.. code-block:: python
 
   bc1 = DirichletBC(Vcg, 0.0, (1, 2))
 
@@ -164,17 +180,23 @@ function at the top and bottom of the domain. ::
 
 Next we'll set up the advection equation, for which we need an
 operator :math:`\vec\nabla^\perp`, defined as a python anonymouus
-function::
+function:
+
+.. code-block:: python
 
   gradperp = lambda u: as_vector((-u.dx(1), u.dx(0)))
 
 For upwinding, we'll need a representation of the normal to a facet,
-and a way of selecting the upwind side::
+and a way of selecting the upwind side:
+
+.. code-block:: python
 
   n = FacetNormal(mesh)
   un = 0.5 * (dot(gradperp(psi0), n) + abs(dot(gradperp(psi0), n)))
 
-Now the variational problem for the advection equation itself. ::
+Now the variational problem for the advection equation itself.
+
+.. code-block:: python
 
   q = TrialFunction(Vdg)
   p = TestFunction(Vdg)
@@ -187,7 +209,9 @@ Now the variational problem for the advection equation itself. ::
 
 Since the operator is a mass matrix in a discontinuous space, it can
 be inverted exactly using an incomplete LU factorisation with zero
-fill. ::
+fill.
+
+.. code-block:: python
 
   q_solver = LinearVariationalSolver(q_problem,
                                      solver_parameters={"ksp_type": "preonly",
@@ -197,7 +221,9 @@ fill. ::
 To visualise the output of the simulation, we create a
 :class:`~.vtk_output.VTKFile` object.  To which we can store multiple
 :class:`~.Function`\s.  So that we can distinguish between them we will
-give them descriptive names. ::
+give them descriptive names.
+
+.. code-block:: python
 
   q0.rename("Potential vorticity")
   psi0.rename("Stream function")
@@ -209,7 +235,9 @@ give them descriptive names. ::
   output.write(q0, psi0, v)
 
 Now all that is left is to define the timestepping parameters and
-execute the time loop. ::
+execute the time loop.
+
+.. code-block:: python
 
   t = 0.0
   T = 10.0

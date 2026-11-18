@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.exceptions import CommMismatchError
 from pyop2.mpi import MPI
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
@@ -124,13 +125,13 @@ def test_comm_manager_allreduce(blocking):
     f2 = Function(V2)
 
     # different function communicators
-    with pytest.raises(ValueError):
+    with pytest.raises(CommMismatchError):
         allreduce(f, f2)
 
     f3 = Function(V2)
 
     # same function communicators, but doesn't match ensembles spatial communicator
-    with pytest.raises(ValueError):
+    with pytest.raises(CommMismatchError):
         allreduce(f3, f2)
 
     # same function communicator but different function spaces
@@ -225,13 +226,13 @@ def test_comm_manager_reduce(blocking):
     f2 = Function(V2)
 
     # different function communicators
-    with pytest.raises(ValueError):
+    with pytest.raises(CommMismatchError):
         reduction(f, f2)
 
     f3 = Function(V2)
 
     # same function communicators, but doesn't match ensembles spatial communicator
-    with pytest.raises(ValueError):
+    with pytest.raises(CommMismatchError):
         reduction(f3, f2)
 
     # same function communicator but different function spaces
