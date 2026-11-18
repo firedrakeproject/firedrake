@@ -8,7 +8,7 @@ import ctypes
 from contextlib import contextmanager
 import os
 import sys
-from pyop3.cache import cached_on
+from pyop3.cache import cached_on, RebuiltInPlace
 import ufl
 import finat.ufl
 import FIAT
@@ -509,6 +509,12 @@ class AbstractMeshTopology(abc.ABC):
     @abc.abstractmethod
     def dimension(self):
         pass
+
+    @property
+    def _pyop3_heavy_cache_version(self):
+        """The version of this object against which pyop3 heavy caches are stashed.
+        Cached entries are discarded when this version changes i.e., when the mesh topology is rebuilt."""
+        return self._topology_version
 
     @abc.abstractmethod
     def _distribute(self):
@@ -3390,7 +3396,7 @@ class ExtrudedMeshTopology(MeshTopology):
 
 # TODO: Could this be merged with MeshTopology given that dmcommon.pyx
 # now covers DMSwarms and DMPlexes?
-class VertexOnlyMeshTopology(AbstractMeshTopology):
+class VertexOnlyMeshTopology(AbstractMeshTopology, RebuiltInPlace):
     """
     Representation of a vertex-only mesh topology immersed within
     another mesh.
@@ -3443,12 +3449,6 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         super().__init__(swarm, name, reorder, None, perm_is, distribution_name, permutation_name, parentmesh.comm)
         self._init_particle_ids()
-
-    @property
-    def _pyop3_heavy_cache_version(self):
-        """Version checked by pyop3 heavy caches stashed on this object.
-        Cached entries are discarded when this version changes i.e., when the mesh topology is rebuilt."""
-        return self._topology_version
 
     @property
     def dimension(self):

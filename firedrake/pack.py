@@ -127,7 +127,7 @@ def _pack_dat_nonmixed(
 
 
 @op3.cache.cached_on(
-    get_obj=lambda ax, idx, sp: extract_mesh_topologies(sp.mesh()),
+    get_obj=lambda ax, idx, sp: (*extract_mesh_topologies(sp.mesh()), idx.mesh.topology),
     multi=True,
     get_version=lambda mesh_topology: mesh_topology._topology_version
 )

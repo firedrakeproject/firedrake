@@ -88,6 +88,11 @@ def cached_on(get_obj, get_key: Callable = cachetools.keys.hashkey, *, multi: bo
             else:
                 objs = (obj,)
 
+            # Instead of stashing the cache on every object, store only on rebuilt objects (e.g., VoM)
+            rebuilt_objs = tuple(o for o in objs if isinstance(o, RebuiltInPlace))
+            if rebuilt_objs:
+                objs = rebuilt_objs
+
             # Handle the case where we have multiple objects: a cached value is only
             # valid for the versions of all the objects that is cached on
             # Need to make versions part of the key so that values computed for different combinations
@@ -647,13 +652,13 @@ def parallel_cache(
                 ]
 
                 if heavy:
-                    versioned = [
+                    rebuilt_heavy_caches = [
                         c for c in valid_heavy_caches
-                        if getattr(c, "_pyop3_heavy_cache_version", None) is not None
+                        if isinstance(c, RebuiltInPlace)
                     ]
-                    if versioned:
-                        # Use only versioned objects
-                        valid_heavy_caches = versioned
+                    if rebuilt_heavy_caches:
+                        # Use only objects that we expect to be rebuilt
+                        valid_heavy_caches = rebuilt_heavy_caches
 
                 if heavy and not valid_heavy_caches:
                     caches = (pyop3.collections.AlwaysEmptyDict(),)
@@ -937,3 +942,13 @@ class WeakHeavyObjectCacheStore:
 
     def _drop(self, obj_id):
         self._data.pop(obj_id, None)
+
+
+class RebuiltInPlace:
+    """Marker for heavy-cache lifetime objects that are mutated in place
+    (e.g. a VertexOnlyMes Topology after a rebuild).
+
+    When such an object is active, heavy-cached results are stored only under it,
+    preventing longer-lived lifetime objects from retaining stale values.
+    """
+    __slots__ = ()
