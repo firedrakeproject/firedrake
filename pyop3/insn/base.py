@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import enum
+import numbers
 import textwrap
 import typing
 import weakref
@@ -441,21 +442,46 @@ class Function(pyop3.obj.Object):
         /,
         name: str,
         c_code: str,
-        args: Iterable[tuple[str, np.dtype, Intent]],
+        args: Iterable[tuple[str, np.dtype, Intent] | tuple[str, np.dtype, Intent, tuple[int, ...]]],
         *,
         preambles=(),
         **kwargs,
     ) -> Function:
+        """Construct a function from C code.
+
+        Parameters
+        ----------
+        name : str
+            The function name.
+        c_code : str
+            The C code for the function body.
+        args : iterable of tuple
+            The name, dtype, access intent, and shape of each argument. If the
+            shape is omitted, it will be inferred from the size of the argument
+            when the function is called.
+        preambles : iterable of tuple, optional
+            The identifiers and C code for declarations before the function.
+        **kwargs
+            Additional keyword arguments for :class:`Function`.
+
+        Returns
+        -------
+        Function
+            The function that executes the C code.
+        """
         from pyop3.compile.loopy import LOOPY_LANG_VERSION, LOOPY_TARGET
 
+        args = tuple(args)
         loopy_insn = lp.CInstruction(
             (),
             c_code,
-            frozenset((name_ for name_, _, _ in args)),
-            tuple(name_ for name_, _, intent in args if intent != Intent.READ),
+            frozenset(name_ for name_, *_ in args),
+            tuple(name_ for name_, _, intent, *_ in args if intent != Intent.READ),
         )
         loopy_args = []
-        for name_, dtype, intent in args:
+        for arg in args:
+            name_, dtype, intent = arg[:3]
+            shape = arg[3] if len(arg) > 3 else None
             match intent:
                 case Intent.READ:
                     is_input = True
@@ -473,7 +499,7 @@ class Function(pyop3.obj.Object):
                 # no packing, passthrough arg
                 loopy_arg = lp.ValueArg(name_, dtype, is_input=True, is_output=False)
             else:
-                loopy_arg = lp.GlobalArg(name_, dtype, is_input=is_input, is_output=is_output)
+                loopy_arg = lp.GlobalArg(name_, dtype, shape=shape, is_input=is_input, is_output=is_output)
             loopy_args.append(loopy_arg)
         loopy_kernel = lp.make_kernel(
             [],  # no extra loops
@@ -485,7 +511,7 @@ class Function(pyop3.obj.Object):
             lang_version=LOOPY_LANG_VERSION,
         )
 
-        intents = [intent for _, _, intent in args]
+        intents = [intent for _, _, intent, *_ in args]
         return cls(loopy_kernel, intents, **kwargs)
 
     # }}}
@@ -623,14 +649,18 @@ class CalledFunction(AbstractCalledFunction):
         ):
             return function
 
-        from pyop3.expr.visitors import get_local_max
-
         new_loopy_args = []
         for loopy_arg, arg in zip(loopy_kernel.args, arguments, strict=True):
-            if isinstance(loopy_arg, lp.ArrayArg):
-                # The size of an argument that is not indexed by the loop (e.g. a global)
-                # can be a symbolic expression, but loopy needs an integer shape.
-                loopy_arg = loopy_arg.copy(shape=(get_local_max(arg.size),), dim_tags=None)
+            if isinstance(loopy_arg, lp.ArrayArg) and loopy_arg.shape is None:
+                # Infer the shape from the size of the argument. Reject a symbolic size
+                # (e.g. of a global that is not indexed by the loop), since its value can
+                # be different on each rank, and loopy needs the same integer shape on every rank.
+                if not isinstance(arg.size, numbers.Integral):
+                    raise ValueError(
+                        f"The size of argument '{loopy_arg.name}' is not an integer, "
+                        "so its shape must be passed to the function"
+                    )
+                loopy_arg = loopy_arg.copy(shape=(arg.size,), dim_tags=None)
             new_loopy_args.append(loopy_arg)
         new_loopy_args = tuple(new_loopy_args)
         return function.record_new(

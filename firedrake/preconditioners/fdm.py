@@ -1269,8 +1269,8 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         - ``x``: the pointer name of the input vector (`str`).
         - ``y``: the pointer name of the output vector (`str`).
         A lambda to generate the C code calling the matrix-vector product.
-    ctx_args : tuple[str, ...]
-        The names of the kernel arguments that hold the coordinates,
+    ctx_args : tuple[loopy.ArrayArg, ...]
+        The kernel arguments that hold the coordinates,
         the coefficients, and the constants of the form.
     ctx_pack : str
         Code to update the coefficient array pointers to be called before
@@ -1297,8 +1297,12 @@ def matmult_kernel_code(a, prefix="form", fcp=None, matshell=False):
         ctx_const = "".join(f", appctx[{i}]" for i in range(ncoef, nargs))
         matmult_call = lambda x, y: f"{kernel_name}({y}, {ctx_coeff}{x}{ctx_const});"
 
-        ctx_args = tuple(f"c{i}" for i in range(nargs))
-        ctx_pack = f"const PetscScalar *appctx[{nargs}] = {{ {', '.join(ctx_args)} }};"
+        loopy_args = kinfo.kernel.code.default_entrypoint.args
+        ctx_args = tuple(
+            arg.copy(name=f"c{i}")
+            for i, arg in enumerate(chain(loopy_args[1:ncoef + 1], loopy_args[ncoef + 2:]))
+        )
+        ctx_pack = f"const PetscScalar *appctx[{nargs}] = {{ {', '.join(arg.name for arg in ctx_args)} }};"
 
         cache[key] = (matmult_struct, matmult_call, ctx_args, ctx_pack)
 
@@ -1379,7 +1383,7 @@ class InteriorSolveKernel(ElementKernel):
         args = [
             ("ksp", op3.dtypes.OpaqueType("KSP"), op3.READ),
             ("coefficients", ScalarType, op3.READ),
-            *((c, ScalarType, op3.READ) for c in self.ctx_args),
+            *((arg.name, ScalarType, op3.READ, arg.shape) for arg in self.ctx_args),
             ("y", ScalarType, op3.READ),
             ("x", ScalarType, op3.INC),
         ]
@@ -1473,7 +1477,7 @@ class ImplicitSchurComplementKernel(ElementKernel):
         args = [
             ("ksp", op3.dtypes.OpaqueType("KSP"), op3.READ),
             ("coefficients", ScalarType, op3.READ),
-            *((c, ScalarType, op3.READ) for c in self.ctx_args),
+            *((arg.name, ScalarType, op3.READ, arg.shape) for arg in self.ctx_args),
             ("xf", ScalarType, op3.READ),
             ("yf", ScalarType, op3.INC),
         ]

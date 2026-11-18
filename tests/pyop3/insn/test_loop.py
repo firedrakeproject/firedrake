@@ -543,17 +543,30 @@ def test_nested_multi_component_loops(factory):
     assert np.allclose(dat1.data_ro, dat0.data_ro)
 
 
-def test_c_string_kernel_with_unindexed_global():
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("shape", [(1,), (2, 3)])
+@pytest.mark.parametrize("explicit_shape", [True, False])
+def test_c_string_kernel_with_unindexed_global(shape: tuple[int, ...], explicit_shape: bool) -> None:
     # The size of a global with a star forest is a symbolic expression
-    sf = op3.sf.single_star_sf(MPI.COMM_SELF)
-    glob = op3.Dat(op3.Axis(op3.AxisComponent(1, sf=sf)), data=np.array([2.0], dtype=op3.ScalarType))
+    size = np.prod(shape)
+    sf = op3.sf.single_star_sf(MPI.COMM_WORLD, size)
+    glob = op3.Dat(op3.Axis(op3.AxisComponent(size, sf=sf)), data=np.full(size, 2.0, dtype=op3.ScalarType))
     axis = op3.Axis(5)
     dat = op3.Dat.zeros(axis, dtype=op3.ScalarType)
 
+    glob_arg = ("g", op3.ScalarType, op3.READ, shape) if explicit_shape else ("g", op3.ScalarType, op3.READ)
     kernel = op3.Function.from_c_string(
         "assign_global",
         "y[0] = g[0];",
-        [("g", op3.ScalarType, op3.READ), ("y", op3.ScalarType, op3.WRITE)],
+        [glob_arg, ("y", op3.ScalarType, op3.WRITE)],
     )
-    op3.loop(p := axis.iter(), kernel(glob, dat[p]), eager=True)
+    p = axis.iter()
+    if not explicit_shape:
+        with pytest.raises(ValueError, match="'g'"):
+            kernel(glob, dat[p])
+        return
+
+    called_kernel = kernel(glob, dat[p])
+    assert called_kernel.argument_shapes[0] == shape
+    op3.loop(p, called_kernel, eager=True)
     assert np.allclose(dat.data_ro, 2.0)
