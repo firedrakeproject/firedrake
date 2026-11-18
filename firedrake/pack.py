@@ -52,30 +52,29 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     iter_mesh = loop_index.mesh
     mesh = mesh.topology
 
-    # are we iterating over owned entities only?
-    iter_owned = not loop_index.include_ghosts
-
     if iter_mesh.topology is mesh:
         target_integral_type = loop_index.integral_type
+        # Are we iterating over owned entities only? This is used to filter the
+        # maps to avoid ambiguity. Usually it is the case that the initial loop
+        # is over owned entities, but then as soon as it is hit with a map then
+        # entities may not necessarily be owned.
+        iter_owned = not loop_index.include_ghosts
+
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
         and iter_mesh.topology._base_mesh is mesh
     ):
-        if loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}:
-            raise NotImplementedError("TODO")
-            loop_index = iter_mesh.support(
-                loop_index, src_path={"TODO": "TODO"}
-            )
-        else:
-            assert loop_index.integral_type == "cell"
+        assert loop_index.integral_type == "cell"
         loop_index = iter_mesh.extr_cell_to_base_cell_map(
             loop_index, label="extr_cell_base_cell"
         )
-        iter_owned = False
         target_integral_type = "cell"
+        iter_owned = False
+
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
         loop_index, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
         iter_owned = False
+
     else:
         # No shared topology, must be using a vertex-only mesh
         loop_index = loop_index.mesh.cell_parent_cell_map(loop_index)
@@ -83,6 +82,7 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
         iter_owned = False
 
     if target_integral_type == "cell":
+        # In parallel, only-owned and all points have different axis labels
         if iter_owned and mesh.comm.size > 1:
             src_label = f"{mesh._uid}_owned"
         else:
