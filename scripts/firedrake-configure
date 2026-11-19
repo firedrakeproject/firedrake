@@ -931,7 +931,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         cxxoptflags=["-O3", "-march=native", "-mtune=native"],
         foptflags=["-O3"],
         extra_env_vars={
-            "HDF5_DIR": "/opt/homebrew"},
+            "HDF5_DIR": "/opt/homebrew",
             "PATH": "/opt/homebrew/opt/python@3.14/libexec/bin:$PATH",
         },
     ),
