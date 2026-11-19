@@ -836,7 +836,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "make",
             "ninja",
             "pkg-config",
-            "python",
+            "python@3.14",
 
             # PETSc external packages
             "cmake",
@@ -874,7 +874,10 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         coptflags=["-O3", "-march=native", "-mtune=native"],
         cxxoptflags=["-O3", "-march=native", "-mtune=native"],
         foptflags=["-O3"],
-        extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
+        extra_env_vars={
+            "HDF5_DIR": "/opt/homebrew",
+            "PATH": "/opt/homebrew/opt/python@3.14/libexec/bin:$PATH",
+        },
     ),
 
     (OS.MACOS_ARM64, ScalarType.COMPLEX, IntType.INT32, GPUPlatform.NO_GPU): Arch(
@@ -888,7 +891,7 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
             "make",
             "ninja",
             "pkg-config",
-            "python",
+            "python@3.14",
 
             # PETSc external packages
             "cmake",
@@ -927,7 +930,10 @@ OFFICIAL_ARCHS: Mapping[ArchKey, Arch] = {
         coptflags=["-O3", "-march=native", "-mtune=native"],
         cxxoptflags=["-O3", "-march=native", "-mtune=native"],
         foptflags=["-O3"],
-        extra_env_vars={"HDF5_DIR": "/opt/homebrew"},
+        extra_env_vars={
+            "HDF5_DIR": "/opt/homebrew"},
+            "PATH": "/opt/homebrew/opt/python@3.14/libexec/bin:$PATH",
+        },
     ),
 
     # Sane default configurations for unknown platforms
