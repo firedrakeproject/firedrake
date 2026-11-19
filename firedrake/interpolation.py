@@ -1053,11 +1053,14 @@ def _build_interpolation_callables(
 
     copyin = ()
     copyout = ()
+    family = target_element.family()
 
     # For the matfree adjoint 1-form and the 0-form, the cellwise kernel will add multiple
-    # contributions from the facet DOFs of the dual argument.
+    # contributions from DOFs of the dual argument that are shared between cells.
     # The incoming Cofunction needs to be weighted by the reciprocal of the DOF multiplicity.
-    if isinstance(dual_arg, Cofunction) and not create_element(target_element).is_dg():
+    if isinstance(dual_arg, Cofunction) and (
+        family == "Real" or not create_element(target_element).is_dg()
+    ):
         # Create a buffer for the weighted Cofunction
         W = dual_arg.function_space()
         v = Function(W)
@@ -1067,7 +1070,8 @@ def _build_interpolation_callables(
         # Compute the reciprocal of the DOF multiplicity
         wdat = W.make_dat()
         m_ = get_interp_node_map(source_mesh, target_mesh, W)
-        wsize = W.finat_element.space_dimension() * W.block_size
+        space_dimension = 1 if family == "Real" else W.finat_element.space_dimension()
+        wsize = space_dimension * W.block_size
         kernel_code = f"""
         void multiplicity(PetscScalar *restrict w) {{
             for (PetscInt i=0; i<{wsize}; i++) w[i] += 1;
@@ -1078,8 +1082,10 @@ def _build_interpolation_callables(
             w.reciprocal()
 
         # Create a callable to apply the weight
-        with wdat.vec_ro as w, v.dat.vec as y:
-            copyin += (partial(y.pointwiseMult, y, w),)
+        def apply_weight():
+            with wdat.vec_ro as w, v.dat.vec as y:
+                y.pointwiseMult(y, w)
+        copyin += (apply_weight,)
 
     kernel = compile_expression(cell_set.comm, expr, target_element,
                                 domain=source_mesh, parameters=parameters)
