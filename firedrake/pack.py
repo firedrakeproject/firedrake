@@ -601,6 +601,13 @@ def modified_lgmaps(mat: op3.Mat, indices, lgmaps):
 
 
 
+def _static_array(name: str, mat) -> str:
+    """C declaration of ``mat``, flattened, as a static array called ``name``."""
+    ctype = "double complex" if np.dtype(utils.ScalarType).kind == "c" else "double"
+    values = ", ".join(repr(float(np.real(x))) for x in np.ravel(mat))
+    return f"static {ctype} {name}[{np.size(mat)}] = {{{values}}};\n"
+
+
 class FuseMatrixApplyBuilder(object):
 
     build_id = itertools.count()
@@ -680,15 +687,18 @@ class FuseMatrixApplyBuilder(object):
     
 
     def construct_switch_statement(self, mats: dict, idx: int) -> str:
+        # The matrices are declared ``static`` inside the C code itself, so
+        # they live in the data segment, initialised once, not on the stack:
+        # a degree 4 hex needs ~16MB of them per switch. Loopy temporaries
+        # can't do this here: LOCAL/PRIVATE ones are stack arrays, and loopy
+        # only emits file-scope GLOBAL ones in entrypoint kernels.
         var_list = []
         args = []
         string = []
         pre_string = []
+        string += _static_array("iden", np.identity(self.ns[idx]))
         string += f"a{idx} = iden; \n "
         string += "\nswitch (dim) { \n"
-
-        var_list += ["iden"]
-        args += [lp.TemporaryVariable("iden", initializer=np.identity(self.ns[idx]), dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
 
         closure_sizes = self.spaces[idx]._mesh._closure_sizes[self.spaces[idx]._mesh.cell_dimension()]
         closure_size_acc = 0
@@ -712,11 +722,11 @@ class FuseMatrixApplyBuilder(object):
                     string += indent*"\t" + f"case {val}:\n "
                     indent += 1
                     matname = f"mat{dim_str}_{i}_{val}"
+                    string += indent*"\t" + "{\n"
+                    string += indent*"\t" + _static_array(matname, mats[dim][i][val])
                     string += indent*"\t" + f"a{idx} = {matname};\n"
+                    string += indent*"\t" + "}\n"
                     string += indent*"\t" + "break;\n"
-                    var_list += [matname]
-                    mat = np.array(mats[dim][i][val], dtype=utils.ScalarType)
-                    args += [lp.TemporaryVariable(matname, initializer=mat, dtype=utils.ScalarType, read_only=True, address_space=lp.AddressSpace(1))]
                     indent -= 1
                 indent -= 1
                 string += indent*"\t" + "default: break;}break;\n"
