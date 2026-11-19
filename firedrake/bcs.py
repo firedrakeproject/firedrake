@@ -26,7 +26,6 @@ from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.functionspaceimpl import is_mixed
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
