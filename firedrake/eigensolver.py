@@ -1,10 +1,14 @@
 """Specify and solve finite element eigenproblems."""
 from petsctools import OptionsManager, flatten_parameters
-from firedrake.assemble import assemble
+from firedrake import dmhooks
+from firedrake.assemble import assemble, _get_mat_type
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.exceptions import ConvergenceError
+from firedrake.petsc import PETSc
+from firedrake.solving_utils import _SNESContext
+from firedrake.variational_solver import LinearVariationalProblem
 from ufl import replace, inner, dx
 from functools import cached_property
 try:
@@ -151,6 +155,10 @@ class LinearEigensolver(OptionsManager):
                  solver_parameters=None, ncv=None, mpd=None):
 
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
+        # Give the problem DM to the KSP of the spectral transformation.
+        ksp = self.es.getST().getKSP()
+        ksp.setDM(problem.dm)
+        ksp.setDMActive(PETSc.KSP.DMActive.ALL, False)
         self._problem = problem
         self.n_evals = n_evals
         self.ncv = ncv
@@ -160,7 +168,18 @@ class LinearEigensolver(OptionsManager):
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
         super().__init__(solver_parameters, options_prefix)
-        self.set_from_options(self.es)
+
+        # Attach an appctx so we can use Python PCs.
+        A = problem.A
+        V = A.arguments()[1].function_space()
+        u = Function(V)
+        lvp = LinearVariationalProblem(A, 0, u, bcs=problem.bcs)
+        mat_type, _ = _get_mat_type(None, None, A.arguments())
+        st_prefix = {"options_prefix": self.options_prefix + "st_"}
+        mat_types = {"mat_type": mat_type, "pmat_type": mat_type}
+        self._ctx = _SNESContext(lvp, **mat_types, **st_prefix)
+        with dmhooks.add_hooks(problem.dm, self, save=False, appctx=self._ctx):
+            self.set_from_options(self.es)
 
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
@@ -193,7 +212,7 @@ class LinearEigensolver(OptionsManager):
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
-        with self.inserted_options():
+        with dmhooks.add_hooks(self._problem.dm, self, appctx=self._ctx), self.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
