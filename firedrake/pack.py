@@ -117,6 +117,13 @@ def _pack_dat_nonmixed(
     packed_topological_axes, depth = _pack_dat_nonmixed_topological(dat.axes, loop_index, space)
     packed_dat = dat.with_axes(packed_topological_axes)
 
+    # If the element numbers its nodes in entity order (for example P1, DG or RT)
+    # then the topological packing is already in nodal order and the node
+    # permutation below is the identity. Skip the reshape and the permutation so
+    # that the generated code does not copy the packed values once more.
+    if not _needs_static_permutation(space.finat_element):
+        return packed_dat
+
     # For high order elements the DoFs for the different topological entities are
     # interleaved. We therefore need to reshape the dat to a 'nodal' view in
     # order to permute the nodes.
