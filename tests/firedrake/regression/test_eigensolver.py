@@ -116,10 +116,25 @@ def test_no_bcs():
     assert np.allclose(im.dat.data[:], im.dat.data[0])
 
 
+class DGLaplacian(AuxiliaryOperatorPC):
+    def form(self, pc, q, p):
+        mesh = p.function_space().mesh()
+        n = FacetNormal(mesh)
+        h = CellSize(mesh)
+        dp, dq = grad(p), grad(q)
+        a_cells = inner(dp, dq) * dx
+        a_fflux = (inner(avg(dp), jump(q, n)) + inner(avg(dq), jump(p, n))) * dS
+        a_bflux = (q * inner(dp, n) + p * inner(dq, n)) * ds
+        a_fpenalty = Constant(4.0) / avg(h) * inner(jump(p, n), jump(q, n)) * dS
+        a_bpenalty = Constant(8.0) / h * inner(p, q) * ds
+        return (a_cells - a_fflux - a_bflux + a_fpenalty + a_bpenalty, None)
+
+
 @pytest.mark.skipslepc
 @pytest.mark.parallel(nprocs=[1, 3])
 @pytest.mark.parametrize("restrict", [True, False])
-def test_mixed_fieldsplit(restrict):
+@pytest.mark.parametrize("pc", ["plain_cg", "dg_laplace"])
+def test_mixed_fieldsplit(restrict, pc):
     """Solve the mixed Laplace eigenproblem with a fieldsplit PC.
     The BCs are `u . n = 0` on `x = 0` and `x = pi`, and `p = 0` on the other
     sides. The eigenfunctions are `p_mn = cos(m x) sin(n y)` with n >= 1."""
@@ -134,6 +149,17 @@ def test_mixed_fieldsplit(restrict):
     bc = DirichletBC(Z.sub(0), 0, (1, 2))
     ep = LinearEigenproblem(a, m, bcs=bc, bc_shift=666.0, restrict=restrict)
 
+    opts = {
+        "plain_cg": {"ksp_type": "cg", "ksp_rtol": 1e-12, "pc_type": "none"},
+        "dg_laplace": {
+            "ksp_type": "gmres",
+            "pc_type": "python",
+            "pc_python_type": __name__ + ".DGLaplacian",
+            "aux_pc_type": "lu",
+            "aux_pc_factor_mat_solver_type": "mumps",
+        },
+    }
+
     solver_parameters = {
         "eps_gen_hermitian": None,
         "eps_target": 0,
@@ -142,12 +168,12 @@ def test_mixed_fieldsplit(restrict):
         "st_pc_type": "fieldsplit",
         "st_pc_fieldsplit_type": "schur",
         "st_pc_fieldsplit_schur_fact_type": "full",
-        "st_fieldsplit_0_ksp_type": "preonly",
-        "st_fieldsplit_0_pc_type": "lu",
-        "st_fieldsplit_0_pc_factor_mat_solver_type": "mumps",
-        "st_fieldsplit_1_ksp_type": "cg",
-        "st_fieldsplit_1_ksp_rtol": 1e-12,
-        "st_fieldsplit_1_pc_type": "none",
+        "st_fieldsplit_0": {
+            "ksp_type": "preonly",
+            "pc_type": "lu",
+            "pc_factor_mat_solver_type": "mumps",
+        },
+        "st_fieldsplit_1": opts[pc],
     }
     es = LinearEigensolver(ep, 3, solver_parameters=solver_parameters)
     nconv = es.solve()
