@@ -1,10 +1,12 @@
 """Specify and solve finite element eigenproblems."""
 from petsctools import OptionsManager, flatten_parameters
+from firedrake import dmhooks
 from firedrake.assemble import assemble
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.exceptions import ConvergenceError
+from firedrake.petsc import PETSc
 from ufl import replace, inner, dx
 from functools import cached_property
 try:
@@ -151,6 +153,10 @@ class LinearEigensolver(OptionsManager):
                  solver_parameters=None, ncv=None, mpd=None):
 
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
+        # Give the problem DM to the KSP of the spectral transformation.
+        ksp = self.es.getST().getKSP()
+        ksp.setDM(problem.dm)
+        ksp.setDMActive(PETSc.KSP.DMActive.ALL, False)
         self._problem = problem
         self.n_evals = n_evals
         self.ncv = ncv
@@ -160,7 +166,8 @@ class LinearEigensolver(OptionsManager):
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
         super().__init__(solver_parameters, options_prefix)
-        self.set_from_options(self.es)
+        with dmhooks.add_hooks(problem.dm, self, save=False):
+            self.set_from_options(self.es)
 
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
@@ -193,7 +200,7 @@ class LinearEigensolver(OptionsManager):
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
-        with self.inserted_options():
+        with dmhooks.add_hooks(self._problem.dm, self), self.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:
