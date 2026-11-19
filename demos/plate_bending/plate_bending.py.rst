@@ -269,14 +269,12 @@ membrane problem. Thus
   Lagrange element. The reduction operator keeps the values at the vertices
   and ignores the normal derivatives.
 
-Strong boundary conditions on the Morley element are not implemented in
-Firedrake. Thus we apply both clamped conditions weakly. For the normal
-derivative :math:`\partial_n w`, we use Nitsche's method with the normal bending moment
-:math:`M_{nn}(w) = \boldsymbol{n} \cdot \boldsymbol{\sigma}(\nabla w)
-\boldsymbol{n}`. For the deflection, we apply a penalty to the interpolant
-:math:`\Pi_h^P w`. The penalty is scaled for the membrane term and for the
-bending term. With ``reduced=False``, the function omits :math:`\Pi_h^P` and
-gives the standard Morley discretisation, which we use below for comparison.
+The clamped boundary conditions fix the deflection and its normal derivative.
+On the boundary, these are the values at the vertices and the mean normal
+derivatives on the edges, which are exactly the Morley degrees of freedom on the
+boundary. Thus we apply both conditions strongly with a ``DirichletBC``. With
+``reduced=False``, the function omits :math:`\Pi_h^P` and gives the standard
+Morley discretisation, which we use below for comparison.
 
 .. code-block:: python
 
@@ -293,32 +291,18 @@ gives the standard Morley discretisation, which we use below for comparison.
           Pi_w = w
           Pi_v = v
 
-      n = FacetNormal(mesh)
-      h = CellDiameter(mesh)
-      alpha = Constant(20.0)
-
-      def M_nn(u):
-          return dot(dot(sigma(grad(u)), n), n)
-
-      def d_n(u):
-          return dot(grad(u), n)
-
       a_bending = bending(grad(w), grad(v))
       a_membrane = T * inner(grad(Pi_w), grad(Pi_v)) * dx
-      a_boundary = (- inner(M_nn(w), d_n(v)) * ds
-                    - inner(d_n(w), M_nn(v)) * ds
-                    + alpha * D / h * inner(d_n(w), d_n(v)) * ds
-                    + alpha * (T / h + D / h**3) * inner(Pi_w, Pi_v) * ds)
-      a = a_bending + a_membrane + a_boundary
+      a = a_bending + a_membrane
       L = inner(f, Pi_v) * dx
 
       w_h = Function(V)
-      solve(a == L, w_h)
+      solve(a == L, w_h, bcs=DirichletBC(V, 0, "on_boundary"))
       return w_h
 
 We check the membrane limit with a uniform load. We compare
 :math:`\Pi_h^P w_h` with the linear Lagrange solution of the membrane problem,
-which has the same weak boundary condition, and we decrease
+which has the same strong boundary condition, and we decrease
 :math:`\delta`.
 
 .. code-block:: python
@@ -327,8 +311,6 @@ which has the same weak boundary condition, and we decrease
   P = FunctionSpace(mesh, "Lagrange", 1)
   p = TrialFunction(P)
   q = TestFunction(P)
-  h = CellDiameter(mesh)
-  alpha = Constant(20.0)
   f = Constant(1.0)
 
   w_membrane = Function(P)
@@ -336,9 +318,9 @@ which has the same weak boundary condition, and we decrease
       T = D / Constant(delta)**2
       w_h = modified_morley(mesh, T, f)
 
-      a = T * inner(grad(p), grad(q)) * dx + T * alpha / h * inner(p, q) * ds
+      a = T * inner(grad(p), grad(q)) * dx
       L = inner(f, q) * dx
-      solve(a == L, w_membrane)
+      solve(a == L, w_membrane, bcs=DirichletBC(P, 0, "on_boundary"))
 
       Pi_w_h = assemble(interpolate(w_h, P))
       difference = errornorm(w_membrane, Pi_w_h) / norm(w_membrane)
@@ -397,13 +379,13 @@ The demo prints the following errors and rates:
    +    +-----------+------+-----------+------+
    | n  | error     | rate | error     | rate |
    +====+===========+======+===========+======+
-   | 4  | 6.311e-03 | --   | 3.659e-03 | --   |
+   | 4  | 6.055e-03 | --   | 3.782e-03 | --   |
    +----+-----------+------+-----------+------+
-   | 8  | 7.431e-03 | -0.24| 1.477e-03 | 1.31 |
+   | 8  | 7.400e-03 | -0.29| 1.526e-03 | 1.31 |
    +----+-----------+------+-----------+------+
-   | 16 | 7.870e-03 | -0.08| 4.512e-04 | 1.71 |
+   | 16 | 7.872e-03 | -0.09| 4.623e-04 | 1.72 |
    +----+-----------+------+-----------+------+
-   | 32 | 7.996e-03 | -0.02| 1.229e-04 | 1.88 |
+   | 32 | 7.999e-03 | -0.02| 1.246e-04 | 1.89 |
    +----+-----------+------+-----------+------+
 
 The error of the Morley method does not decrease as the mesh is refined. The
@@ -554,13 +536,13 @@ The demo prints the following errors and rates:
    +    +-----------+------+-----------+------+-----------+--------+
    | n  | error     | rate | error     | rate | error     | rate   |
    +====+===========+======+===========+======+===========+========+
-   | 4  | 4.260e-02 | --   | 4.344e-02 | --   | 2.453e-02 | --     |
+   | 4  | 4.260e-02 | --   | 4.519e-02 | --   | 2.453e-02 | --     |
    +----+-----------+------+-----------+------+-----------+--------+
-   | 8  | 3.002e-02 | 0.50 | 3.003e-02 | 0.53 | 1.290e-02 | 0.93   |
+   | 8  | 3.002e-02 | 0.50 | 3.127e-02 | 0.53 | 1.290e-02 | 0.93   |
    +----+-----------+------+-----------+------+-----------+--------+
-   | 16 | 1.711e-02 | 0.81 | 1.756e-02 | 0.77 | 6.516e-03 | 0.99   |
+   | 16 | 1.711e-02 | 0.81 | 1.808e-02 | 0.79 | 6.516e-03 | 0.99   |
    +----+-----------+------+-----------+------+-----------+--------+
-   | 32 | 8.992e-03 | 0.93 | 9.434e-03 | 0.90 | 3.261e-03 | 1.00   |
+   | 32 | 8.992e-03 | 0.93 | 9.602e-03 | 0.91 | 3.261e-03 | 1.00   |
    +----+-----------+------+-----------+------+-----------+--------+
 
 All three methods converge at first order in the rotation gradient. MITC

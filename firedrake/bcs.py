@@ -132,7 +132,7 @@ class BCBase:
         V = self._function_space
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
+        if isinstance(V.finat_element, (finat.Argyris, finat.Bell)) or \
            (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
             raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
 
