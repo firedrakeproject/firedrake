@@ -64,8 +64,9 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : int, tuple of int, {"everywhere", "otherwise"}, or None
+    subset : int, tuple of int, str, or None
         The subdomain IDs of the target cells over which to interpolate.
+        Strings must be ``"everywhere"`` or ``"otherwise"``.
         If None, interpolate over all target cells.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
