@@ -1200,7 +1200,7 @@ def make_mat_spec(mat_type, sub_mat_type, arguments):
         _is_real_space(V) for arg in arguments for V in arg.function_space()
     )
 
-    if has_real_subspace:
+    if has_real_subspace and mat_type != "matfree":
         if is_mixed(test_space) or is_mixed(trial_space):
             mat_type = "nest"
         else:

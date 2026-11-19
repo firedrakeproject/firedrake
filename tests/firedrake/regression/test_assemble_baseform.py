@@ -104,7 +104,8 @@ def test_assemble_adjoint_tensor(mat_type: str, degree: int, measure: ufl.Measur
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "CG", 1)
     W = FunctionSpace(mesh, "CG", degree)
-    u, v = TrialFunction(V), TestFunction(W)
+    u = TrialFunction(V)
+    v = TestFunction(W)
     value = 1 + 2j if complex_mode else 1
     coefficient = Constant(value)
     form = inner(coefficient * (u + u.dx(0)), v) * measure
