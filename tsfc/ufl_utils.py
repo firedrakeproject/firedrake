@@ -9,7 +9,6 @@ from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.algorithms.analysis import extract_arguments, extract_coefficients, extract_type
 from ufl.algorithms.apply_function_pullbacks import (
     apply_function_pullbacks,
-    apply_interpolate_pullbacks,
     apply_inverse_pullback,
 )
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
@@ -110,7 +109,7 @@ def preprocess_interpolate(ufl_interpolate: ufl.Interpolate,
     -----
     A standalone interpolation never reaches `compute_form_data`, so the operand
     gets the scalar preprocessing here.  Interpolations inside a form are lowered
-    by `ufl.algorithms.apply_interpolate_pullbacks`.
+    by `ufl.algorithms.apply_function_pullbacks`.
     """
     dual_arg, operand = ufl_interpolate.argument_slots()
     operand = apply_inverse_pullback(operand, element, domain)
@@ -220,7 +219,6 @@ def preprocess_expression(expression, complex_mode=False,
     Useful, for example, to preprocess non-scalar expressions, which
     are not and cannot be forms.
     """
-    expression = apply_interpolate_pullbacks(expression)
     if complex_mode:
         expression = do_comparison_check(expression)
     else:
