@@ -295,7 +295,7 @@ def _orient_dat_dofs(
     if space.mesh().dimension == 0:  # i.e. a VoM
         return packed_axes
     else:
-        return _orient_axis_tree(packed_axes, space, cell_index, depth=depth, skip_identity=True)
+        return _orient_axis_tree(packed_axes, space, cell_index, depth=depth)
 
 
 def _orient_mat_dofs(packed_mat: op3.Mat, row_space: WithGeometry, column_space: WithGeometry, row_cell_index: op3.Index, column_cell_index: op3.Index, *, row_depth: int, column_depth: int) -> op3.Mat:
@@ -320,7 +320,7 @@ def _orient_mat_dofs(packed_mat: op3.Mat, row_space: WithGeometry, column_space:
     return packed_mat.with_axes(permuted_row_axes, permuted_column_axes)
 
 
-def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int, skip_identity: bool = False) -> op3.IndexedAxisTree:
+def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
     # If we have an axis forest then we have different interpretations of the data.
     # We only want the most natural one here and want to drop the others. This is
     # complicated by the fact that we can have maps from both all points and only
@@ -358,7 +358,7 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         # Leave the DoFs of this entity dimension unpermuted if no orientation
         # permutes them, for example when each entity has a single DoF. This
         # removes the orientation lookups from the generated code.
-        if skip_identity and _entity_permutations_are_identity(space.finat_element, dim_label):
+        if _entity_permutations_are_identity(space.finat_element, dim_label):
             continue
 
         # First create an buffer expression for the permutations that looks like:
