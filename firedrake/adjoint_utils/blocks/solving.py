@@ -249,6 +249,13 @@ class GenericSolveBlock(Block):
         c = block_variable.output
         c_rep = block_variable.saved_output
 
+        if c is self.rhs:
+            # The residual F - b is affine in the rhs b, so the adjoint
+            # contribution is the adjoint solution itself (which already
+            # carries the homogeneous boundary conditions, consistent with
+            # the boundary nodes of b being zeroed in the forward solve).
+            return adj_sol.copy(deepcopy=True)
+
         if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
         elif isinstance(c, firedrake.DirichletBC):
@@ -325,6 +332,17 @@ class GenericSolveBlock(Block):
             if c == self.func and not self.linear:
                 continue
 
+            if c is self.rhs:
+                # The residual F - b is affine in the rhs b:
+                # d(b - F)/db in the direction tlm_value is tlm_value.
+                # Copy so that downstream assembly and boundary condition
+                # application cannot modify the upstream tlm value.
+                if isinstance(dFdm, float):
+                    dFdm = tlm_value.copy(deepcopy=True)
+                else:
+                    dFdm = dFdm + tlm_value
+                continue
+
             dFdm += firedrake.derivative(-F_form, c_rep, tlm_value)
 
         if isinstance(dFdm, float):
@@ -358,6 +376,11 @@ class GenericSolveBlock(Block):
             tlm_input = bo.tlm_value
 
             if (c == self.func and not self.linear) or tlm_input is None:
+                continue
+
+            if c is self.rhs:
+                # The residual F - b is affine in the rhs b: d2(F - b)/dudb
+                # vanishes, so b contributes nothing to the soa equation rhs.
                 continue
 
             if isinstance(c, firedrake.MeshGeometry):
@@ -453,6 +476,12 @@ class GenericSolveBlock(Block):
             )
             return [tmp_bc]
 
+        if c is self.rhs:
+            # The residual F - b is affine in the rhs b, so d2(F - b)/db2 = 0
+            # and d2(F - b)/dudb = 0: only the first-order term
+            # d(F - b)/db^* adj_sol2 survives.
+            return adj_sol2.copy(deepcopy=True)
+
         if isinstance(c, firedrake.MeshGeometry):
             X = firedrake.SpatialCoordinate(c)
             W = c._ad_function_space()
@@ -482,7 +511,8 @@ class GenericSolveBlock(Block):
             c2 = bv.output
             c2_rep = bv.saved_output
 
-            if isinstance(c2, firedrake.DirichletBC):
+            # DirichletBCs and the rhs b have no second derivative coupling.
+            if isinstance(c2, firedrake.DirichletBC) or c2 is self.rhs:
                 continue
 
             tlm_input = bv.tlm_value
@@ -522,7 +552,7 @@ class GenericSolveBlock(Block):
         bcs = self._recover_bcs()
         lhs = self._replace_form(self.lhs, func=func)
         rhs = 0
-        if self.linear:
+        if isinstance(self.rhs, ufl.BaseForm):
             rhs = self._replace_form(self.rhs)
 
         return lhs, rhs, func, bcs
@@ -644,7 +674,8 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
 
     def _forward_solve(self, lhs, rhs, func, bcs, **kwargs):
         self._ad_solver_replace_forms()
-        self._ad_solvers["forward_nlvs"].solve()
+        b = rhs if isinstance(rhs, firedrake.Cofunction) else None
+        self._ad_solvers["forward_nlvs"].solve(b=b)
         func.assign(self._ad_solvers["forward_nlvs"]._problem.u)
         return func
 
@@ -703,8 +734,11 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
             solver == Solver.ADJOINT
             and not self._ad_solvers["forward_nlvs"]._problem._constant_jacobian
         ):
+            # Linearize the adjoint equation around the solution, which the
+            # form holds in self.func (the block output may be a different
+            # solution buffer).
             block_variable = self.get_outputs()[0]
-            coeff_count = block_variable.output.count()
+            coeff_count = self.func.count()
             if coeff_count in form_ad_count_map:
                 assign_map[form_ad_count_map[coeff_count]] = \
                     block_variable.saved_output
@@ -759,6 +793,13 @@ class NonlinearVariationalSolveBlock(GenericSolveBlock):
         adj_sol_bdy = prepared["adj_sol_bdy"]
         c = block_variable.output
         c_rep = block_variable.saved_output
+
+        if c is self.rhs:
+            # The residual F - b is affine in the rhs b, so the adjoint
+            # contribution is the adjoint solution itself (which already
+            # carries the homogeneous boundary conditions, consistent with
+            # the boundary nodes of b being zeroed in the forward solve).
+            return adj_sol.copy(deepcopy=True)
 
         if isinstance(c, (firedrake.Function, firedrake.Cofunction)):
             trial_function = firedrake.TrialFunction(c.function_space())
