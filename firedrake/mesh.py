@@ -3216,27 +3216,29 @@ class ExtrudedMeshTopology(MeshTopology):
     def extr_cell_to_base_cell_map(self):
         """Return the map from extruded cells to cells of the base mesh."""
         base_cell_nums = np.arange(
-            self._base_mesh.cells.owned.local_size, dtype=IntType
+            self._base_mesh.cells.local_size, dtype=IntType
         )
         extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
-        src_axis = self.cells.owned.root
         dest_axis = self._base_mesh._uid
         dest_stratum = self._base_mesh.cell_label
 
         map_axes = op3.AxisTree.from_iterable([
-            self.cells.owned.root,
-            op3.Axis(1, "extr_cell_base_cell")
+            self.cells.root, op3.Axis(1, "extr_cell_base_cell")
         ])
         dat = op3.Dat(map_axes, data=extr_base_cell_nums)
+        map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None)
 
-        return op3.Map(
-            {
-                idict({src_axis.label: src_axis.component.label}): [[
-                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
-                ]]
-            },
-        )
+        owned_map_axes = op3.AxisTree.from_iterable([
+            self.cells.owned.root, op3.Axis(1, "extr_cell_base_cell")
+        ])
+        owned_dat = op3.Dat(owned_map_axes, data=dat.data_rw)
+        owned_map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, owned_dat, label=None)
+
+        return op3.Map({
+            idict({self._uid: self.cell_label}): [[map_cpt]],
+            idict({f"{self._uid}_owned": self.cell_label}): [[owned_map_cpt]],
+        })
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,

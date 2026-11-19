@@ -52,21 +52,34 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     iter_mesh = loop_index.mesh
     mesh = mesh.topology
 
+    # Are we iterating over owned entities only? This is used to filter the
+    # maps to avoid ambiguity. Usually it is the case that the initial loop
+    # is over owned entities, but then as soon as it is hit with a map then
+    # entities may not necessarily be owned.
+    iter_owned = not loop_index.include_ghosts
+
     if iter_mesh.topology is mesh:
         target_integral_type = loop_index.integral_type
-        # Are we iterating over owned entities only? This is used to filter the
-        # maps to avoid ambiguity. Usually it is the case that the initial loop
-        # is over owned entities, but then as soon as it is hit with a map then
-        # entities may not necessarily be owned.
-        iter_owned = not loop_index.include_ghosts
 
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
         and iter_mesh.topology._base_mesh is mesh
     ):
-        assert loop_index.integral_type == "cell"
+        if loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}:
+            if iter_owned and mesh.comm.size > 1:
+                src_label = f"{loop_index.integral_type}_owned"
+            else:
+                src_label = loop_index.integral_type
+            loop_index = iter_mesh.support(loop_index, src_path={src_label: None})
+            iter_owned = False
+        else:
+            assert loop_index.integral_type == "cell"
+        if iter_owned and mesh.comm.size > 1:
+            src_label = f"{iter_mesh._uid}_owned"
+        else:
+            src_label = iter_mesh._uid
         loop_index = iter_mesh.extr_cell_to_base_cell_map(
-            loop_index, label="extr_cell_base_cell"
+            loop_index, label="extr_cell_base_cell", src_path={src_label: iter_mesh.cell_label}
         )
         target_integral_type = "cell"
         iter_owned = False
