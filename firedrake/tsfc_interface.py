@@ -10,8 +10,8 @@ import collections
 
 import ufl
 import finat.ufl
-from ufl import conj, Form, ZeroBaseForm
-from .ufl_expr import TestFunction, extract_domains
+from ufl import Form, ZeroBaseForm
+from .ufl_expr import extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
 from tsfc.parameters import PARAMETERS as tsfc_default_parameters
@@ -52,13 +52,14 @@ _cachedir = environ.get(
 )
 
 
-def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal):
+def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diagonal, return_increments):
     return default_parallel_hashkey(
         form.signature(),
         prefix,
         utils.tuplify(parameters),
         dont_split_numbers,
         diagonal,
+        return_increments,
     )
 
 
@@ -84,6 +85,7 @@ class TSFCKernel:
         coefficient_numbers,
         constant_numbers,
         dont_split_numbers,
+        access=op3.INC,
         diagonal=False
     ):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
@@ -104,13 +106,16 @@ class TSFCKernel:
             Map from local constant numbers in the provided (split) form to constant numbers in the original form.
         dont_split_numbers : tuple
             Block-local coefficient numbers of coefficients that are not to be split into components by form compiler.
+        access : Intent
+            The access descriptor of the output tensor.
         diagonal : bool
             If assembling a matrix is it diagonal?
 
         """
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters,
                                  dont_split_numbers=dont_split_numbers,
-                                 diagonal=diagonal)
+                                 diagonal=diagonal,
+                                 return_increments=(access == op3.INC))
         kernels = []
         for kernel in tree:
             domain_number = domain_number_map[kernel.domain_number]
@@ -138,11 +143,8 @@ class TSFCKernel:
                 ast = ast.with_kernel(ep)
             ast = ast.with_entrypoints(kernel.name)
 
-            # pyop3_kernel = as_pyop3_local_kernel(ast, kernel.name,
-            #                                      len(kernel.arguments),
-            #                                      flop_count=kernel.flop_count,
-            #                                      events=events)
-            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments))
+            libraries = (op3.cc.LIBPETSC,) if kernel.needs_petsc else ()
+            pyop3_kernel = as_pyop3_local_kernel(ast, len(kernel.arguments), access=access, libraries=libraries)
             kernels.append(KernelInfo(kernel=pyop3_kernel,
                                       integral_type=kernel.integral_type,
                                       subdomain_id=kernel.subdomain_id,
@@ -159,7 +161,7 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     return (
         form.signature(),
         name,
@@ -167,6 +169,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
         split,
         _make_dont_split_numbers(dont_split, form),
         diagonal,
+        access,
     )
 
 
@@ -177,7 +180,7 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
     cachedir=_cachedir
 )
 @PETSc.Log.EventDecorator()
-def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False):
+def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     """Compile a form using TSFC.
 
     Parameters
@@ -197,12 +200,14 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
         Coefficients that are not to be split into components by form compiler.
     diagonal : bool
         If assembling a matrix is it diagonal?
+    access : Intent
+        The access descriptor of the output tensor.
 
     Returns
     -------
-    Tuple
-        A tuple of tuples of
-        (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, ``pyop2.op2.Kernel``).
+    tuple of SplitKernel
+        A tuple of split kernels, each of which contains the local indices and
+        the TSFC kernel information for one form component.
 
     Notes
     ----
@@ -216,7 +221,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     """
 
     # Check that we get a Form
-    if not isinstance(form, Form):
+    if not isinstance(form, (Form, ufl.Interpolate)):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
     if parameters is None:
@@ -239,7 +244,6 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             nargs = 1
         iterable = ([(None, )*nargs, form], )
     for idx, f in iterable:
-        f = _real_mangle(f)
         if isinstance(f, ZeroBaseForm) or f.empty():
             # If we're assembling the R space component of a mixed argument,
             # and that component doesn't actually appear in the form then we
@@ -265,6 +269,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
             coefficient_numbers,
             constant_numbers,
             dont_split_numbers,
+            access,
             diagonal,
         )
         for kinfo in tsfc_kernel.kernels:
@@ -272,23 +277,6 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
 
     kernels = tuple(kernels)
     return kernels
-
-
-def _real_mangle(form):
-    """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
-
-    a = form.arguments()
-    reals = [x.ufl_element().family() == "Real" for x in a]
-    if not any(reals):
-        return form
-    replacements = {}
-    for arg, r in zip(a, reals):
-        if r:
-            replacements[arg] = 1
-    # If only the test space is Real, we need to turn the trial function into a test function.
-    if reals == [True, False]:
-        replacements[a[1]] = conj(TestFunction(a[1].function_space()))
-    return ufl.replace(form, replacements)
 
 
 def clear_cache(comm=None):
@@ -326,7 +314,13 @@ def gather_integer_subdomain_ids(knls):
     return all_integer_subdomain_ids
 
 
-def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Function:
+def as_pyop3_local_kernel(
+    ast,
+    nargs: int,
+    access: Intent = op3.INC,
+    *,
+    libraries: tuple[op3.cc.Library, ...] = (),
+) -> op3.Function:
     """Convert a TSFC kernel to a pyop3 function.
 
     Parameters
@@ -335,9 +329,11 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
         The kernel code, for example a loopy kernel.
     nargs
         The number of arguments that the kernel expects.
-    access
+    access : Intent
         The access descriptor of the first kernel argument. The other
         arguments are read-only.
+    libraries
+        The libraries that the kernel is compiled and linked against.
 
     Returns
     -------
@@ -346,7 +342,7 @@ def as_pyop3_local_kernel(ast, nargs: int, access: Intent = op3.INC) -> op3.Func
 
     """
     accesses = tuple([access] + [op3.READ]*(nargs-1))
-    return op3.Function(ast, accesses)
+    return op3.Function(ast, accesses, libraries=libraries)
 
 
 def extract_numbered_coefficients(expr, numbers):

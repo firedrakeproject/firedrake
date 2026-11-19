@@ -80,6 +80,8 @@ class CoordinatelessFunction(ufl.Coefficient):
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
                                            functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
+        if isinstance(val, np.ndarray):
+            assert val.flags.writeable, "CoordinatelessFunction val expects a modifiable array"
 
         ufl.Coefficient.__init__(self, function_space.ufl_function_space())
 

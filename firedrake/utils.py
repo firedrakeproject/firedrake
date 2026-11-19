@@ -1,6 +1,8 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import functools
 import warnings
+from typing import Callable
 
 from petsc4py import PETSc
 

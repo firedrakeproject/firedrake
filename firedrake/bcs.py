@@ -26,7 +26,6 @@ from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.functionspaceimpl import is_mixed
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -127,20 +126,9 @@ class BCBase:
         -----
         For mixed spaces in parallel (and potentially other more funky layouts)
         we interleave the DoFs for performance reasons. This means that one
-        cannot compute offsets as ``node*block_size``. If you truly want the
-        node numbers in that case you should use ``bc._nodes`` instead.
+        cannot compute offsets as ``node*block_size``.
 
         """
-        V = self._function_space
-        if V.comm.size > 1 and (is_mixed(V) or V.parent):
-            raise TypeError(
-                "For mixed spaces in parallel we interleave the DoFs so the nodes "
-                "cannot be used to compute offsets. Use 'node_offsets' instead."
-            )
-        return self._nodes
-
-    @cached_property
-    def _nodes(self) -> np.ndarray:
         V = self._function_space
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
@@ -229,7 +217,7 @@ class BCBase:
     def node_set(self) -> op3.Slice:
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
-        subset_dat = op3.Dat.from_sequence(self._nodes, dtype=op3.dtypes.IntType)
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=op3.dtypes.IntType)
         subset = op3.SubsetSliceComponent(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
