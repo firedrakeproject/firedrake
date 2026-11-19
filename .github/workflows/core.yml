@@ -589,8 +589,14 @@ jobs:
         id: install
         run: |
           pip install --verbose -r ./firedrake-repo/requirements-build.txt
+          : # DROP BEFORE MERGE: test against UFL PR 564
+          pip install -v --ignore-installed --no-deps \
+            'git+https://github.com/FEniCS/ufl.git@pbrubeck/interpolate-function-pullbacks'
           CC=mpicc CXX=mpicxx \
             pip install --verbose --no-build-isolation './firedrake-repo[docs]'
+          : # DROP BEFORE MERGE: replace the UFL version resolved by pip
+          pip install -v --ignore-installed --no-deps \
+            'git+https://github.com/FEniCS/ufl.git@pbrubeck/interpolate-function-pullbacks'
           firedrake-clean
           pip list
 
