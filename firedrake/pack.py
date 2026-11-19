@@ -355,10 +355,15 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         if dof_axis.size == 0:
             continue
 
+        # Leave the DoFs of this entity dimension unpermuted if no orientation
+        # permutes them, for example when each entity has a single DoF. This
+        # removes the orientation lookups from the generated code.
+        if _entity_permutations_are_identity(space.finat_element, dim_label):
+            continue
+
         # First create an buffer expression for the permutations that looks like:
         #
         #     'perm[i_which, i_dof]'
-        # TODO: For some cases can avoid this permutation as it's just identity
         perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
@@ -437,6 +442,15 @@ def _prepare_entity_permutations(element, dim_label):
         new_perms.append(new_perm)
 
     return new_perms
+
+
+@op3.cache.serial_cache()
+def _entity_permutations_are_identity(element, dim_label) -> bool:
+    """Return whether no orientation permutes the DoFs of entities of ``dim_label``."""
+    return all(
+        np.array_equal(perm, np.arange(len(perm)))
+        for perm in _prepare_entity_permutations(element, dim_label)
+    )
 
 
 @op3.cache.serial_cache()
