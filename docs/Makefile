@@ -78,7 +78,7 @@ copy_demos: $(DEMO_SVG_ASSETS)
 	trap 'rm -rf "$$tmpdir"' EXIT; \
 	pdflatex -interaction=nonstopmode -halt-on-error \
 		-output-directory "$$tmpdir" "$<" >/dev/null; \
-	pdf2svg "$$tmpdir/$(basename $(notdir $@)).pdf" "$@"
+	pdftocairo -svg "$$tmpdir/$(basename $(notdir $@)).pdf" "$@"
 
 NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
 EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))
@@ -157,6 +157,7 @@ apidoc: $(GENERATED_FILES) copy_demos
 clean:
 	-rm -rf $(BUILDDIR)/*
 	-rm -rf $(GENERATED_FILES)
+	-rm -f $(DEMO_SVG_ASSETS)
 	-rm -rf source/apidoc
 
 buildhtml: apidoc
