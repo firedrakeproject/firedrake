@@ -128,3 +128,58 @@ class MLParameters(ufl.Coefficient):
             for t, s in zip(target, source):
                 t.copy_(s)
         return self
+
+
+class MLParameterGradient(ufl.Cofunction):
+    """A replicated parameter cotangent with one PyTorch tensor per weight.
+
+    Parameters
+    ----------
+    parameters : MLParameters
+        The coefficient with respect to which the derivative was taken.
+    tensors : tuple of torch.Tensor
+        The gradient blocks in the order and shapes of the parameter tensors.
+
+    Notes
+    -----
+    Assembly leaves the model's gradient buffers untouched. To accumulate the
+    result for a PyTorch optimizer, use
+    ``torch.autograd.backward(theta.tensors, gradient.tensors)`` with the
+    trainable parameters in ``theta``.
+    """
+
+    def __new__(cls, parameters: MLParameters, tensors: tuple[torch.Tensor, ...]) -> Self:
+        return super().__new__(cls, parameters.ufl_function_space().dual())
+
+    def __init__(self, parameters: MLParameters, tensors: tuple[torch.Tensor, ...]) -> None:
+        super().__init__(parameters.ufl_function_space().dual())
+        self.parameters = parameters
+        self.tensors = tensors
+
+    def assign(self, other: MLParameterGradient) -> Self:
+        """Assign the gradient of the same parameter block.
+
+        Parameters
+        ----------
+        other : MLParameterGradient
+            Source of the gradient values.
+
+        Returns
+        -------
+        MLParameterGradient
+            This gradient.
+        """
+        if other.parameters is not self.parameters:
+            raise ValueError("The gradients belong to different parameter blocks.")
+        for dest, src in zip(self.tensors, other.tensors, strict=True):
+            dest.copy_(src)
+        return self
+
+    @classmethod
+    def _linear_combination(cls, weights, gradients):
+        parameters = gradients[0].parameters
+        if any(g.parameters is not parameters for g in gradients):
+            raise ValueError("The gradients belong to different parameter blocks.")
+        blocks = zip(*(g.tensors for g in gradients), strict=True)
+        return cls(parameters, tuple(sum(w * t for w, t in zip(weights, block, strict=True))
+                                     for block in blocks))

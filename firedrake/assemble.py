@@ -20,6 +20,7 @@ from firedrake.adjoint_utils import annotate_assemble
 from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
+from firedrake.ml.parameters import MLParameterGradient
 from firedrake.functionspaceimpl import is_mixed
 from firedrake.interpolation import get_interpolator
 from firedrake.pack import pack, modified_lgmaps
@@ -106,7 +107,8 @@ def assemble(expr, *args, **kwargs):
     Returns
     -------
     float or firedrake.function.Function or firedrake.cofunction.Cofunction or matrix.MatrixBase
-        Result of assembly.
+        Result of assembly. A linear form in an ML parameter direction can
+        return an ``MLParameterGradient`` containing the native weight derivatives.
 
     Notes
     -----
@@ -562,7 +564,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
             mat, = args
-            if isinstance(mat, (firedrake.Cofunction, firedrake.Function)):
+            if isinstance(mat, (firedrake.Cofunction, firedrake.Function, MLParameterGradient)):
                 # The operand is the row Action(x, A), which contract assembles as the column A^H x.
                 return tensor.assign(mat) if tensor else mat
             # Out-of-place Hermitian transpose
@@ -604,6 +606,10 @@ class BaseFormAssembler(AbstractFormAssembler):
             if all(isinstance(op, numbers.Complex) for op in args):
                 result = numpy.dot(weights, args)
                 return tensor.assign(result) if tensor else result.item()
+
+            if all(isinstance(op, MLParameterGradient) for op in args):
+                result = MLParameterGradient._linear_combination(weights, args)
+                return tensor.assign(result) if tensor is not None else result
 
             # Accumulate coefficients in a dictionary for each unique Dat/Mat
             terms = defaultdict(PETSc.ScalarType)
@@ -1104,7 +1110,7 @@ class OneFormAssembler(ParloopFormAssembler):
         rank = len(self._form.arguments())
         if rank == 1:
             test, = self._form.arguments()
-            return firedrake.Function(test.function_space().dual())
+            return firedrake.Function(test.ufl_function_space().dual())
         elif rank == 2 and self._diagonal:
             test, _ = self._form.arguments()
             return firedrake.Function(test.function_space().dual())
@@ -2035,7 +2041,7 @@ class _FormHandler:
         """
         spaces = []
         for index, arg in zip(indices, form.arguments()):
-            space = arg.function_space()
+            space = arg.ufl_function_space()
             if index is not None:
                 space = space[index]
             spaces.append(space)

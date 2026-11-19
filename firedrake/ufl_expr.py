@@ -214,12 +214,12 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     ----------
     form : ufl.form.BaseForm or ufl.core.expr.Expr
         Expression to differentiate.
-    u : Function, Cofunction, Constant, BaseFormOperator, MLParameters or SpatialCoordinate
+    u : firedrake.function.Function or firedrake.cofunction.Cofunction or firedrake.constant.Constant or ufl.core.base_form_operator.BaseFormOperator or firedrake.ml.parameters.MLParameters or ufl.geometry.SpatialCoordinate
         Coefficient with respect to which the derivative is taken.
-    du : ufl.argument.BaseArgument or ufl.coefficient.BaseCoefficient, optional
+    du : ufl.argument.BaseArgument or ufl.coefficient.BaseCoefficient or None
         Direction of differentiation. If omitted, an argument is constructed
         in the coefficient's space.
-    coefficient_derivatives : dict, optional
+    coefficient_derivatives : dict or None
         Derivatives of coefficients that depend on ``u``.
 
     Returns

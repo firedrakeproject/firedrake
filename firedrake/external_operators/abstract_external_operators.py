@@ -8,6 +8,7 @@ from firedrake.assemble import get_assembler
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
+from firedrake.ml.parameters import MLParameterGradient
 from firedrake import functionspaceimpl
 
 
@@ -200,8 +201,8 @@ class AbstractExternalOperator(ExternalOperator, metaclass=AssemblyRegisterMetaC
         # -- Compatibility check -- #
         if len(self.arguments()) == 1:
             # Will also catch the case where wrong fct space
-            if not isinstance(result, (Function, Cofunction)):
-                raise ValueError('External operators with one argument must result in a firedrake.Function or firedrake.Cofunction object!')
+            if not isinstance(result, (Function, Cofunction, MLParameterGradient)):
+                raise ValueError('External operators with one argument must return a field or a parameter gradient.')
         elif len(self.arguments()) == 2:
             if not isinstance(result, MatrixBase):
                 raise ValueError('External operators with two arguments must result in a firedrake.MatrixBase object!')
