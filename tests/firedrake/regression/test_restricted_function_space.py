@@ -444,7 +444,7 @@ def test_restricted_solve_equivalence_hdiv():
     v = TestFunction(V)
     uh = Function(V)
     uh_restrict = Function(V)
-    
+
     rg = RandomGenerator(PCG64(seed=0))
     u_exact = rg.uniform(V)
 
