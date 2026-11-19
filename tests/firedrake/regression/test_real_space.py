@@ -450,6 +450,20 @@ def test_real_interpolate():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("n", [1, 2, 4])
+def test_real_interpolate_cofunction(n):
+    mesh = UnitSquareMesh(n, n)
+    R = FunctionSpace(mesh, "R", 0)
+    m = Function(R).assign(0.3)
+    c = Cofunction(R.dual()).assign(1)
+
+    paired = assemble(interpolate(exp(m), c))
+
+    assert np.allclose(paired, np.exp(0.3))
+
+
+@pytest.mark.skipcomplex
 def test_real_interior_facet():
     mesh = UnitSquareMesh(2, 2)
     K = FunctionSpace(mesh, "DG", 1)
