@@ -6018,7 +6018,7 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     coordinates_fs = mesh.coordinates.function_space().reconstruct(mesh=tmesh1)
     relabeled_coordinates = function.CoordinatelessFunction(
         coordinates_fs,
-        val=mesh.coordinates.dat.data_ro_with_halos,
+        val=mesh.coordinates.dat.data_rw_with_halos,
         name=_generate_default_mesh_coordinates_name(tmesh1.name),
     )
     rmesh = MeshGeometry(relabeled_coordinates)
