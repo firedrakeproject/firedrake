@@ -342,7 +342,7 @@ def test_function_passing_val_does_not_copy(V, obj_type, val_type):
     else:
         # Note that this is technically unsafe. We should at least be passing
         # pyop3.ArrayBuffer objects because that is where state tracking happens.
-        val = f.dat.data_ro
+        val = f.dat.data_rw
     g = Function(V, val=val) if obj_type == "function" else Cofunction(V.dual(), val=val)
 
     f.dat.data_wo[1] = 666
