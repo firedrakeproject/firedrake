@@ -84,8 +84,8 @@ class SymbolTable:
         self._scopes.pop()
 
     def define(self, key, value: SSAValue) -> None:
-        """ Key should only be defined once """
-        assert any(key not in scope for scope in self._scopes)
+        """ Key should only be defined once in a scope. An inner scope can shadow an outer scope SSA - happens for accumulators """
+        assert key not in self._scopes[-1], f"{key} is already defined in this scope"
         self._scopes[-1][key] = value
 
     def update(self, key, value: SSAValue) -> None:
@@ -267,6 +267,9 @@ class MLIRBuilder:
             return v
 
         if is_intlike(frm) and is_intlike(to):
+            # A boolean is unsigned, so that true becomes 1 and not -1
+            if frm == i1:
+                return self._convert_type(self.insert(arith.ExtUIOp(v, i64 if to == INDEX_TYPE else to)), to)
             if INDEX_TYPE in (frm, to):
                 return self.insert(arith.IndexCastOp(v, to))
             if to.width.data > frm.width.data:
@@ -276,7 +279,7 @@ class MLIRBuilder:
         elif is_intlike(frm) and is_float(to):
             if frm == INDEX_TYPE:
                 v = self.insert(arith.IndexCastOp(v, i64))
-            return self.insert(arith.SIToFPOp(v, to))
+            return self.insert((arith.UIToFPOp if frm == i1 else arith.SIToFPOp)(v, to))
 
         elif is_float(frm) and is_float(to):
             cls = arith.ExtFOp if to == f64 else arith.TruncFOp
