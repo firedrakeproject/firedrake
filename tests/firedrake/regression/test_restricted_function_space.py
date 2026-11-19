@@ -94,6 +94,56 @@ def test_restrict_assign(into_restricted):
     assert errornorm(ures, u) < 1E-13
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("op", ["bc.zero", "zero", "assign", "max", "min"])
+def test_restricted_assign_writes_bc_nodes(op):
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 2)
+    V_res = RestrictedFunctionSpace(V, boundary_set=[1])
+    bc = DirichletBC(V_res, 0, 1)
+
+    u = Function(V_res)
+    u.dat.data_wo_with_halos[...] = 1
+    if op == "bc.zero":
+        bc.zero(u)
+        expected = 0
+    elif op == "zero":
+        u.zero()
+        expected = 0
+    elif op == "assign":
+        g = Function(V_res)
+        g.dat.data_wo_with_halos[...] = 2
+        u.assign(g)
+        expected = 2
+    elif op == "max":
+        u.dat.assign(3, mode="max", eager=True, eager_strategy="array")
+        expected = 3
+    else:
+        u.dat.assign(-1, mode="min", eager=True, eager_strategy="array")
+        expected = -1
+
+    # The boundary condition nodes of a restricted space are the constrained DoFs
+    assert np.allclose(u.dat.data_ro_with_halos[bc.nodes], expected)
+
+
+@pytest.mark.parallel([1, 3])
+def test_restricted_solve_homogeneous_bcs_nonzero_guess():
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 2)
+    v = TestFunction(V)
+    bc = DirichletBC(V, 0, 1)
+
+    solutions = []
+    for restrict in [False, True]:
+        u = Function(V)
+        u.assign(1)
+        F = inner(grad(u), grad(v)) * dx - inner(Constant(1), v) * dx
+        solve(F == 0, u, bcs=bc, restrict=restrict)
+        solutions.append(u)
+
+    assert errornorm(*solutions) < 1.e-10
+
+
 def test_poisson_homogeneous_bcs():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 2)
