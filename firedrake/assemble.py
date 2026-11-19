@@ -565,12 +565,13 @@ class BaseFormAssembler(AbstractFormAssembler):
             if isinstance(mat, (firedrake.Cofunction, firedrake.Function)):
                 # The operand is the row Action(x, A), which contract assembles as the column A^H x.
                 return tensor.assign(mat) if tensor else mat
-            result = tensor.petscmat if tensor else PETSc.Mat()
             # Out-of-place Hermitian transpose
-            mat.petscmat.hermitianTranspose(out=result)
+            result = mat.petscmat.hermitianTranspose(out=PETSc.Mat())
             if tensor is None:
                 tensor = Matrix(expr, result, bcs=bcs,
                                 options_prefix=self._options_prefix, fc_params=self._form_compiler_params)
+            else:
+                result.copy(tensor.petscmat)
             return tensor
         elif isinstance(expr, ufl.Action):
             if len(args) != 2:
