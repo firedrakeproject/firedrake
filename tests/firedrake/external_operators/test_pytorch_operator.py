@@ -451,7 +451,7 @@ def test_ml_parameters_training_step() -> None:
     losses = []
     for i, V in enumerate(spaces, start=1):
         u = Function(V).assign(i)
-        N = ml_operator(model, V, inputs_format=1)
+        N = ml_operator(model, V, inputs_format="pointwise")
         value = N(theta, u) if i == 1 else N(u, theta)
         losses.append(inner(1, value) * dx)
         jac = derivative(value, u)
@@ -507,11 +507,20 @@ def test_ml_parameters_binding() -> None:
         N(theta, u, theta)
     with pytest.raises(ValueError, match="distinct parameters"):
         N(u, MLParameters(Linear(2, 1).parameters()))
+    for name in ("pointwise", "global"):
+        N = ml_operator(model, V, inputs_format=name)
+        N(u, theta)
+        with pytest.raises(ValueError, match="requires an explicit MLParameters operand"):
+            N(u)
+    for invalid in ("local", 2):
+        with pytest.raises(ValueError, match="inputs_format must be"):
+            ml_operator(model, V, inputs_format=invalid)
 
 
 @pytest.mark.skiptorch
 @pytest.mark.parallel(nprocs=[1, 2])
-def test_ml_parameters_multiple_fields() -> None:
+@pytest.mark.parametrize("inputs_format", ["pointwise", 1])
+def test_ml_parameters_multiple_fields(inputs_format: str | int) -> None:
     """Select the derivative slot independently of the weight operand's position."""
     dtype = torch.from_numpy(np.empty((), dtype=ScalarType)).dtype
     model = Linear(2, 1, dtype=dtype)
@@ -521,7 +530,7 @@ def test_ml_parameters_multiple_fields() -> None:
     theta = MLParameters(model.parameters())
     V = FunctionSpace(UnitIntervalMesh(4), "CG", 1)
     u, v = Function(V).assign(4), Function(V).assign(5)
-    op = ml_operator(model, V, inputs_format=1)(u, theta, v)
+    op = ml_operator(model, V, inputs_format=inputs_format)(u, theta, v)
     assert np.allclose(assemble(op).dat.data_ro, 24)
 
     du = Function(V).assign(1)
@@ -541,7 +550,9 @@ def test_ml_parameters_multiple_fields() -> None:
 
 @pytest.mark.skiptorch
 @pytest.mark.parallel(nprocs=[1, 2])
-def test_ml_parameters_global_model() -> None:
+@pytest.mark.parametrize("options", [{}, {"inputs_format": 0}, {"inputs_format": "global"}],
+                         ids=["default", "zero", "global"])
+def test_ml_parameters_global_model(options: dict) -> None:
     """A global network couples DoFs across ranks and returns a replicated gradient."""
     class GlobalSum(Module):
         def __init__(self):
@@ -555,7 +566,7 @@ def test_ml_parameters_global_model() -> None:
     V = FunctionSpace(UnitIntervalMesh(6), "CG", 1)
     u = Function(V).assign(1)
     theta = MLParameters(model.parameters())
-    op = ml_operator(model, V)(u, theta)
+    op = ml_operator(model, V, **options)(u, theta)
     assert np.allclose(assemble(op).dat.data_ro, 2 * V.dim())
     jac = derivative(op, u)
     assert np.allclose(assemble(action(assemble(jac), u)).dat.data_ro, 2 * V.dim())

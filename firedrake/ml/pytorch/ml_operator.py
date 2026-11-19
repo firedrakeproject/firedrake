@@ -59,8 +59,7 @@ class PytorchOperator(MLOperator):
             Dictionary to stash external data specific to the ML operator. This dictionary must
             at least contain the following:
             (i) ``'model'``: The machine learning model implemented in PyTorch.
-            (ii) ``'inputs_format'``: The format of the inputs to the ML model: ``0`` for models acting globally
-            on the inputs, ``1`` when acting locally/pointwise on the inputs.
+            (ii) ``'inputs_format'``: The input format accepted by ``ml_operator``.
             Other strategies can also be considered by subclassing the :class:`.PytorchOperator` class.
         """
         MLOperator.__init__(self, *operands, function_space=function_space, derivatives=derivatives,
@@ -78,6 +77,8 @@ class PytorchOperator(MLOperator):
         self._fields = tuple(op for op in operands if op is not self._parameters)
         self._parameter_names = ()
         if self._parameters is None:
+            if isinstance(operator_data.get("inputs_format"), str):
+                raise ValueError("A named inputs_format requires an explicit MLParameters operand.")
             self.model.type(dtype)
         else:
             if not self._fields:
@@ -120,9 +121,13 @@ class PytorchOperator(MLOperator):
         """Callback function to convert the PyTorch output of the ML model to a Firedrake function."""
         return from_torch(y_P, self.ufl_function_space())
 
+    @property
+    def _pointwise(self) -> bool:
+        return self.inputs_format in (1, "pointwise")
+
     def _network_input(self, values):
         """Pack field values for a model with an explicit parameter operand."""
-        if self.inputs_format == 1:
+        if self._pointwise:
             values = [v.reshape(-1, prod(field.ufl_shape)) for v, field in zip(values, self._fields, strict=True)]
             x = torch.cat(values, dim=1)
         else:
@@ -135,15 +140,15 @@ class PytorchOperator(MLOperator):
 
     def _field_values(self, field):
         """Global models see each complete input in PETSc ownership order."""
-        return to_torch(field, gather=self.inputs_format == 0, batched=False)
+        return to_torch(field, gather=not self._pointwise, batched=False)
 
     def _owned_values(self, values, space):
         layout = space.template_vec
-        expected = layout.getSize() if self.inputs_format == 0 else layout.getLocalSize()
+        expected = layout.getLocalSize() if self._pointwise else layout.getSize()
         if values.numel() != expected:
             raise ValueError(f"Model returned {values.numel()} values for a field with {expected} entries.")
         values = values.reshape(-1)
-        return values[slice(*layout.getOwnershipRange())] if self.inputs_format == 0 else values
+        return values if self._pointwise else values[slice(*layout.getOwnershipRange())]
 
     def _linearization(self):
         """Vary just the differentiated operand, keeping all other inputs fixed."""
@@ -194,7 +199,7 @@ class PytorchOperator(MLOperator):
     def _weight_gradient(self, gradient):
         """Reduce pointwise contributions from owned DoFs; global models already see the full seed."""
         gradient = gradient.detach()
-        if self.inputs_format == 0:
+        if not self._pointwise:
             return gradient.clone()
         # MPI provides sum reductions for single and double precision.
         dtype = torch.promote_types(gradient.dtype, torch.float32)
@@ -230,7 +235,7 @@ class PytorchOperator(MLOperator):
             rows = V.template_vec
             cols = operand.ufl_function_space().template_vec
             # One direction per input component suffices for all nodes of a pointwise model.
-            width = prod(operand.ufl_shape) if self.inputs_format == 1 else cols.getSize()
+            width = prod(operand.ufl_shape) if self._pointwise else cols.getSize()
             directions = torch.eye(width, dtype=x.dtype, device=x.device).repeat(1, x.numel() // width)
 
             def push(direction):
@@ -244,7 +249,7 @@ class PytorchOperator(MLOperator):
                     raise ValueError("A complex PETSc Jacobian requires a complex-linear derivative.")
             n = rows.getLocalSize()
             indices = np.tile(np.arange(width, dtype=PETSc.IntType), (n, 1))
-            if self.inputs_format == 1:
+            if self._pointwise:
                 nodes = np.arange(n, dtype=PETSc.IntType) // prod(V.value_shape)
                 indices += (cols.getOwnershipRange()[0] + width * nodes)[:, None]
             indptr = width * np.arange(n + 1, dtype=PETSc.IntType)
@@ -302,7 +307,7 @@ class PytorchOperator(MLOperator):
 
 
 # Helper functions #
-def ml_operator(model, function_space, inputs_format=0):
+def ml_operator(model, function_space, inputs_format: int | str = 0):
     """Helper function for instantiating the :class:`~.PytorchOperator` class.
 
     This function facilitates having a two-stage instantiation which dissociates between class arguments
@@ -320,16 +325,12 @@ def ml_operator(model, function_space, inputs_format=0):
         F = (inner(grad(u), grad(v)) + inner(N(u), v) - inner(f, v)) * dx
 
     A parameter operand makes the dependence on the model's live weights explicit.
-    It can appear anywhere among the operands. With explicit weights and
-    ``inputs_format=1``, local field values are passed to the model with one
-    row per node and one column per field component. Pointwise fields must
-    share the nodal layout. With ``inputs_format=0``, each rank evaluates the
-    model on the complete flattened fields in PETSc ownership order.
+    It can appear anywhere among the operands.
 
     .. code-block:: python
 
         theta = MLParameters(model.parameters())
-        N = ml_operator(model, V, inputs_format=1)
+        N = ml_operator(model, V, inputs_format="pointwise")
         loss = inner(1, N(u, theta)) * dx
         optimizer.zero_grad()
         gradient = assemble(derivative(loss, theta))
@@ -348,13 +349,17 @@ def ml_operator(model, function_space, inputs_format=0):
 
     Parameters
     ----------
-    model: collections.abc.Callable
-           The PyTorch model to embed in Firedrake.
-    function_space: firedrake.functionspaceimpl.WithGeometryBase
-                    The function space into which the machine learning model is mapping.
-    inputs_format: int
-                   The format of the input data of the ML model: `0` for models acting globally on the inputs, `1` when acting locally/pointwise on the inputs.
-                   Other strategies can also be considered by subclassing the :class:`.PytorchOperator` class.
+    model : collections.abc.Callable
+        The PyTorch model to embed in Firedrake.
+    function_space : firedrake.functionspaceimpl.WithGeometryBase
+        The output space of the model.
+    inputs_format : int or str
+        With an explicit ``MLParameters`` operand, ``"pointwise"`` (or ``1``)
+        gives the model one row per owned node and one column per field
+        component. The fields must share a nodal layout and the model must
+        process each row independently. With ``"global"`` (or ``0``, the
+        default), each rank receives the complete flattened fields in PETSc
+        ownership order. Operators with only field operands accept ``0`` or ``1``.
 
     Returns
     -------
@@ -364,8 +369,8 @@ def ml_operator(model, function_space, inputs_format=0):
     petsctools.cite("Bouziani2021")
     petsctools.cite("Bouziani2024")
 
-    if inputs_format not in (0, 1):
-        raise ValueError('Expecting inputs_format to be 0 or 1')
+    if inputs_format not in (0, 1, "pointwise", "global"):
+        raise ValueError('inputs_format must be 0, 1, "pointwise", or "global".')
 
     operator_data = {'model': model, 'inputs_format': inputs_format}
     return partial(PytorchOperator, function_space=function_space, operator_data=operator_data)
