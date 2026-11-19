@@ -8,6 +8,7 @@ from ufl.algorithms.analysis import has_type
 from ufl.domain import as_domain
 import firedrake
 from firedrake.constant import Constant
+from firedrake.ml.parameters import MLParameters
 from firedrake.petsc import PETSc
 from functools import cached_property
 
@@ -206,27 +207,42 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
     Given a form, this computes its linearization with respect to the
-    provided :class:`firedrake.function.Function`.  The resulting form has one
-    additional :class:`Argument` in the same finite element space as
-    the Function.
+    provided coefficient. The resulting form has one additional argument
+    in the coefficient's space.
 
-    :arg form: a :class:`~ufl.classes.Form` to compute the derivative of.
-    :arg u: a :class:`firedrake.function.Function` to compute the derivative with
-         respect to.
-    :arg du: an optional :class:`Argument` to use as the replacement
-         in the new form (constructed automatically if not provided).
-    :arg coefficient_derivatives: an optional :class:`dict` to
-         provide the derivative of a coefficient function.
+    Parameters
+    ----------
+    form : ufl.form.BaseForm or ufl.core.expr.Expr
+        Expression to differentiate.
+    u : Function, Cofunction, Constant, BaseFormOperator, MLParameters or SpatialCoordinate
+        Coefficient with respect to which the derivative is taken.
+    du : ufl.argument.BaseArgument or ufl.coefficient.BaseCoefficient, optional
+        Direction of differentiation. If omitted, an argument is constructed
+        in the coefficient's space.
+    coefficient_derivatives : dict, optional
+        Derivatives of coefficients that depend on ``u``.
 
-    :raises ValueError: If any of the coefficients in ``form`` were
-        obtained from ``u.subfunctions``.  UFL doesn't notice that these
-        are related to ``u`` and so therefore the derivative is
-        wrong (instead one should have written ``split(u)``).
+    Returns
+    -------
+    ufl.form.BaseForm or ufl.core.expr.Expr
+        The symbolic derivative. The direction for an ML parameter belongs to
+        its mesh-independent parameter space.
 
-    See also :func:`ufl.derivative`.
+    Raises
+    ------
+    ValueError
+        If ``form`` contains a coefficient obtained from ``u.subfunctions``.
+        UFL does not recognise that such a coefficient depends on ``u``.
+        Use ``split(u)`` when defining the form instead.
+
+    See Also
+    --------
+    ufl.derivative
     """
     if has_type(form, firedrake.slate.TensorBase):
         raise NotImplementedError("Cannot take the derivative of a form containing Slate tensors")
+    if isinstance(u, MLParameters):
+        return ufl.derivative(form, u, du, coefficient_derivatives)
     try:
         args = form.arguments()
     except AttributeError:
