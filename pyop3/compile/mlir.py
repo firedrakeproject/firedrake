@@ -500,8 +500,7 @@ class MLIRBuilder:
 
     @index_into.register(gem.Literal)
     def _(self, aggregate, multiindex) -> SSAValue:
-        strides = utils.row_major_strides([mi.extent for mi in multiindex])
-        return self._load(aggregate, multiindex, strides)
+        return self._load(aggregate, multiindex, utils.row_major_strides(aggregate.shape))
 
     @index_into.register(gem.Variable)
     def _(self, aggregate, multiindex) -> SSAValue:
