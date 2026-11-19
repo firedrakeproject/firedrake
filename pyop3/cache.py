@@ -34,8 +34,16 @@ import pyop3.constants
 from pyop3 import utils
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
-_CACHE_CIDX = itertools.count()
-_KNOWN_CACHES = []
+
+@dataclasses.dataclass
+class _CacheStats:
+    func: str
+    nhits: int = 0
+    nmisses: int = 0
+
+
+_CACHE_CREATION_IDX = itertools.count()
+_KNOWN_CACHES: dict[int, CacheStats] = {}
 
 
 # TODO: This should live in utils.py but there is a (bad) import of pyop3.cache
@@ -144,12 +152,26 @@ def get_method_cache(obj: Any, func, cache_id, make_cache: Callable[[], Mapping]
     return getattr(obj, cache_name)
 
 
-def cached_method(key=default_hashkey, make_cache: Callable[[], Mapping] = dict) -> Callable:
-    """TODO"""
+def cached_method(
+    key: Callable[..., Hashable] = default_hashkey,
+    make_cache: Callable[[], Mapping] = dict,
+) -> Callable:
+    """Decorator to cache a method.
+
+    Parameters
+    ----------
+    key : collections.abc.Callable[..., collections.abc.Hashable]
+        Callable returning the hashkey from the method arguments. This should
+        not take ``self`` as one of the arguments. Default is
+        :func:`cachetools.keys.default_hashkey`.
+    make_cache : collections.abc.Callable[[], collections.abc.Mapping]
+        Callable used to build the cache. Default is a `dict`.
+
+    """
     # Store a unique integer for each 'cached_method' decorator. This
     # identifier is different between ranks but that is fine as it is only
     # used locally.
-    cache_id = next(_CACHE_CIDX)
+    cache_id = next(_CACHE_CREATION_IDX)
 
     # Since this is a cache for an instance we ignore the 'self' argument
     def method_cache_key(self, *args, **kwargs):
@@ -618,7 +640,7 @@ def parallel_cache(
     # them (this happens for memory and disk caches for example). This
     # identifier is different between ranks but that is fine as it is only
     # used locally.
-    cache_id = next(_CACHE_CIDX)
+    cache_id = next(_CACHE_CREATION_IDX)
 
     def decorator(func):
         @PETSc.Log.EventDecorator(f"pyop2.caching.parallel_cache.wrapper({func.__qualname__})")
