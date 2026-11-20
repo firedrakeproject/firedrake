@@ -92,15 +92,10 @@ _supported_embedded_cell_types_and_gdims = [('interval', 2),
                                             ("interval * interval", 3)]
 
 
-# TODO: use these
-_FLAT_MESH_AXIS_LABEL_SUFFIX = "points"
-_STRATIFIED_MESH_AXIS_LABEL_SUFFIX = "strata"
-
-
 UNMARKED = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
-DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
+DEFAULT_MESH_NAME = "firedrake_default"
 """The default name of the mesh."""
 
 DISTRIBUTION_PARAMETERS_NOOP = {
@@ -113,9 +108,10 @@ cached_property_until_topology_changes = cached_property_until(
     lambda self: self._topology_version
 )
 
-cached_method_until_topology_changes = cached_method_until(
-    lambda self: self._topology_version
-)
+
+def cached_method_until_topology_changes(*args, **kwargs):
+    """Decorator that invalidates cached methods when the topology changes."""
+    return cached_method_until(lambda self: self._topology_version, *args, **kwargs)
 
 
 def _generate_default_submesh_name(name):
@@ -538,7 +534,7 @@ class AbstractMeshTopology(abc.ABC):
         """Add overlap."""
         pass
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def get_work_function_cache(self, ufl_element):
         """Get the cache for work functions.
 
@@ -676,7 +672,7 @@ class AbstractMeshTopology(abc.ABC):
             else:
                 return self._entity_axes(dim=stratum)
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_axes_by_name(self, name: str):
         if name == "cell":
             # NOTE: not sure this is necessary
@@ -782,7 +778,7 @@ class AbstractMeshTopology(abc.ABC):
 
         return self._plex_to_entity_numbering_sec(stratum=0).createGlobalSection(self.point_sf.sf)
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_indices_is(
         self,
         base: Literal["plex"],
@@ -991,7 +987,7 @@ class AbstractMeshTopology(abc.ABC):
             case _:
                 raise NotImplementedError
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_indices(
         self,
         base: Literal["plex"],
@@ -1005,7 +1001,7 @@ class AbstractMeshTopology(abc.ABC):
             self._entity_indices_is(base, _selector=_selector, name=name, dim=dim, stratum=stratum).indices
         )
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _plex_to_entity_numbering_sec(
         self,
         _selector: str | int | tuple[int, ...] | None = None,
