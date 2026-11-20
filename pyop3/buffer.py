@@ -88,6 +88,11 @@ class AbstractBuffer(pyop3.obj.Object):
     def dtype(self) -> np.dtype:
         pass
 
+    @property
+    @abc.abstractmethod
+    def comm(self) -> MPI.Comm:
+        pass
+
     @abc.abstractmethod
     def duplicate(self, *, copy: bool = False, constant: bool | None = None) -> AbstractBuffer:
         pass
@@ -232,239 +237,27 @@ class ConcreteBuffer(AbstractBuffer, metaclass=abc.ABCMeta):
         pass
 
 
-@pyop3.record.record()
-class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
-    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
+class ConcreteArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
-    Parameters
-    ----------
-    data
-        Note that the arrays passed here should be *unique to this array*. Do
-        not use the same array between buffers as it will disrupt the state
-        tracking done by the buffer.
-
-    """
-
-    # {{{ instance attrs
-
-    _device_arrays_private: dict[Device, np.ndarray] = dataclasses.field(repr=False)
-    """
-
-    Note that this attribute is mega private to reduce the risk of correctness
-    issues in parallel and between devices. Device arrays should be accessed
-    via other methods.
-
-    """
-
-    sf: StarForest
-    _name: str
-    _constant: bool
-
-    _rank_equal: bool
-    _ordered: bool
-
-    def collect_buffers(self, visitor):
-        return OrderedFrozenSet([self])
-
-    def get_disk_cache_key(self, visitor) -> Hashable:
-        return (
-            type(self),
-            self.dtype,
-            visitor.renamer.add_obj(self),
-            self._constant,
-            self._rank_equal,
-            self._ordered,
-        )
-
-    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
-        # Consider the expression:
-        #
-        #     dat1[i] <- dat2[map1[map2[i]]]
-        #
-        # We may end up optimising the repeated indirections to give:
-        #
-        #     dat1[i] <- dat2[map3[i]]
-        #
-        # It would be really nice to cache this and reuse the result for different
-        # objects in place of dat1 and dat2. The cache key therefore can be somewhat
-        # generic for those arguments. However, *it cannot be for the dats that make
-        # up map1 and map2*. If those change then we need to recompute map3 from
-        # scratch. The cache key here therefore distinguishes between outermost buffers
-        # and inner ones.
-        if visitor._identity_hash_buffers:
-            # Inside an axis tree or similar, we aren't allowed to change buffers here
-            return self
-        else:
-            return (
-                type(self),
-                self.dtype,
-                visitor.renamer.add_obj(self),
-                self._constant,
-                self._rank_equal,
-                self._ordered,
-            )
-
-    def __init__(
-        self,
-        data: Mapping[pyop3.device.Device, Any] | np.ndarray,
-        sf: StarForest | None = None,
-        *,
-        name: str | None = None,
-        prefix: str | None = None,
-        constant: bool = False,
-        rank_equal: bool = False,
-        ordered: bool = False
-    ) -> None:
-        if isinstance(data, Mapping):
-            assert len(data) > 0
-            if len(data) > 1:
-                raise NotImplementedError("which is up to date?")
-
-            raise NotImplementedError
-
-        if constant:
-            pyop3.device.flag_constant(data)
-
-        if type(data) != pyop3.device.DEVICE_TO_ARRAY_TYPE[get_current_device()]:
-            raise NotImplementedError(
-                "Current device does not match the array type, need to provide "
-                "data as a mapping so we know the right device"
-            )
-
-        device_arrays = {get_current_device(): data}
-
-        if sf is None:
-            sf = NullStarForest(data.size)
-        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
-
-        if rank_equal and not constant:
-            raise ValueError
-
-        self._device_arrays_private = device_arrays
-        self.sf = sf
-        self._name = name
-        self._constant = constant
-        self._rank_equal = rank_equal
-        self._ordered = ordered
+    __abstract_record_attrs = ("sf",)
 
     def __record_post_init(self) -> None:
-        # state tracking attrs
-        self._state = {pyop3.device.get_current_device(): 0}
-        self._state_locks = 0
-        self._device_locks = []
-
         # parallel semaphores
         self._semaphore_locks = 0
         self._leaves_valid_private = True
         self._pending_reduction_private = None
         self._finalizer_private: Callable | None = None
 
-        ####
-
         assert isinstance(self.sf, pyop3.sf.AbstractStarForest)
         if isinstance(self.sf, pyop3.sf.StarForest):
             assert self.sf.size == self.size
-        curr_dev = get_current_device()
+
         if self.rank_equal:
             assert self.constant
-        if self.ordered:
-            utils.debug_assert(lambda: utils.is_sorted(self._device_arrays_private))
-        if self.constant and isinstance(self._device_arrays_private[curr_dev], np.ndarray):
-            self._device_arrays_private[curr_dev].flags.writeable = False
-
-        self._debug_is_poisoned = False
 
     @property
     def comm(self) -> MPI.Comm:
         return self.sf.comm
-
-    # }}}
-
-    # {{{ Class attrs
-
-    DEFAULT_PREFIX: ClassVar[str] = "array"
-
-    # }}}
-
-    # {{{ interface impls
-
-    name: ClassVar[property] = pyop3.record.attr("_name")
-    constant: ClassVar[property] = pyop3.record.attr("_constant")
-    rank_equal: ClassVar[property] = pyop3.record.attr("_rank_equal")  # TODO: make an abstract property
-    ordered: ClassVar[property] = pyop3.record.attr("_ordered")
-
-    @property
-    def shape(self) -> tuple[int, ...]:
-        return next(a.shape for a in self._device_arrays_private.values())
-
-    @property
-    def dtype(self) -> np.dtype:
-        return next(a.dtype for a in self._device_arrays_private.values())
-
-    def duplicate(self, *, copy: bool = False, constant: bool | None = None, **kwargs) -> Self:
-        # make sure that there are no pending transfers before we copy
-        self.assemble()
-        name = f"{self.name}_copy"
-
-        current_device = get_current_device()
-        if copy:
-            data = self._current_device_array.copy()
-        else:
-            data = current_device.zeros_like(self._current_device_array)
-        if constant is None:
-            constant = self.constant
-
-        # NOTE: be careful here that arguments aren't being dropped
-        return type(self)(
-            data=data,
-            sf=self.sf,
-            name=name,
-            constant=constant,
-            **kwargs,
-        )
-
-    is_nested: ClassVar[bool] = False
-
-    def zero(self) -> None:
-        self.data_wo[...] = 0
-
-    # }}}
-
-    # {{{ constructors
-
-    @classmethod
-    def empty(cls, shape, dtype=None, **kwargs):
-        if dtype is None:
-            dtype = cls.DEFAULT_DTYPE
-
-        if pyop3.config.debug_checks:
-            data = np.full(shape, 666, dtype=dtype)
-        else:
-            data = np.empty(shape, dtype=dtype)
-        return cls(data, **kwargs)
-
-    @classmethod
-    def zeros(cls, shape, dtype=None, **kwargs):
-        if dtype is None:
-            dtype = cls.DEFAULT_DTYPE
-
-        data = np.zeros(shape, dtype=dtype)
-        return cls(data, **kwargs)
-
-    @classmethod
-    def full(cls, size: numbers.Integral, fill_value: numbers.Number, dtype=None, **kwargs):
-        if not isinstance(fill_value, int) or dtype != IntType:
-            raise NotImplementedError("Casting")
-
-        data = np.full(size, fill_value, dtype=dtype)
-        return cls(data, **kwargs)
-
-    @classmethod
-    def from_scalar(cls, value: numbers.Number, *, dtype=None, **kwargs):
-        data = np.array([value], dtype=dtype)
-        return cls(data, **kwargs)
-
-    # }}}
 
     # {{{ semaphores
 
@@ -555,22 +348,15 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
                 self._pending_reduction = None
                 self._leaves_valid = False
 
-        if self._debug_is_poisoned:
-            breakpoint()
-
         if intent in {"wo", "rw"}:
             self.inc_state()
 
-        array = self._current_device_array
+        array = self._get_array()
         return readonly(array) if intent == "ro" else array
 
-    # TODO: this would be nice to avoid halo exchanges
-    # @property
-    # def _owned_data(self):
-    #     if self.sf and self.sf.nleaves > 0:
-    #         return self._data[: -self.sf.nleaves]
-    #     else:
-    #         return self._data
+    @abc.abstractmethod
+    def _get_array(self):  # cleanup sig
+        pass
 
     def freeze(self) -> None:
         """Freeze the buffer, turning any modifying accesses into errors."""
@@ -616,6 +402,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
     # {{{ parallel communication
+
     @_not_in_flight
     def sync_roots(self) -> None:
         """Update roots."""
@@ -790,6 +577,228 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
+
+
+
+
+@pyop3.record.record()
+class ArrayBuffer(ConcreteArrayBuffer):
+    """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
+
+    Parameters
+    ----------
+    data
+        Note that the arrays passed here should be *unique to this array*. Do
+        not use the same array between buffers as it will disrupt the state
+        tracking done by the buffer.
+
+    """
+
+    # {{{ instance attrs
+
+    _device_arrays_private: dict[Device, np.ndarray] = dataclasses.field(repr=False)
+    """
+
+    Note that this attribute is mega private to reduce the risk of correctness
+    issues in parallel and between devices. Device arrays should be accessed
+    via other methods.
+
+    """
+
+    sf: StarForest
+    _name: str
+    _constant: bool
+
+    _rank_equal: bool
+    _ordered: bool
+
+    def collect_buffers(self, visitor):
+        return OrderedFrozenSet([self])
+
+    def get_disk_cache_key(self, visitor) -> Hashable:
+        return (
+            type(self),
+            self.dtype,
+            visitor.renamer.add_obj(self),
+            self._constant,
+            self._rank_equal,
+            self._ordered,
+        )
+
+    def get_instruction_executor_cache_key(self, visitor) -> Hashable:
+        # Consider the expression:
+        #
+        #     dat1[i] <- dat2[map1[map2[i]]]
+        #
+        # We may end up optimising the repeated indirections to give:
+        #
+        #     dat1[i] <- dat2[map3[i]]
+        #
+        # It would be really nice to cache this and reuse the result for different
+        # objects in place of dat1 and dat2. The cache key therefore can be somewhat
+        # generic for those arguments. However, *it cannot be for the dats that make
+        # up map1 and map2*. If those change then we need to recompute map3 from
+        # scratch. The cache key here therefore distinguishes between outermost buffers
+        # and inner ones.
+        if visitor._identity_hash_buffers:
+            # Inside an axis tree or similar, we aren't allowed to change buffers here
+            return self
+        else:
+            return (
+                type(self),
+                self.dtype,
+                visitor.renamer.add_obj(self),
+                self._constant,
+                self._rank_equal,
+                self._ordered,
+            )
+
+    def __init__(
+        self,
+        data: Mapping[pyop3.device.Device, Any] | np.ndarray,
+        sf: StarForest | None = None,
+        *,
+        name: str | None = None,
+        prefix: str | None = None,
+        constant: bool = False,
+        rank_equal: bool = False,
+        ordered: bool = False
+    ) -> None:
+        if isinstance(data, Mapping):
+            assert len(data) > 0
+            if len(data) > 1:
+                raise NotImplementedError("which is up to date?")
+
+            raise NotImplementedError
+
+        if constant:
+            pyop3.device.flag_constant(data)
+
+        if type(data) != pyop3.device.DEVICE_TO_ARRAY_TYPE[get_current_device()]:
+            raise NotImplementedError(
+                "Current device does not match the array type, need to provide "
+                "data as a mapping so we know the right device"
+            )
+
+        device_arrays = {get_current_device(): data}
+
+        if sf is None:
+            sf = NullStarForest(data.size)
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        if rank_equal and not constant:
+            raise ValueError
+
+        self._device_arrays_private = device_arrays
+        self.sf = sf
+        self._name = name
+        self._constant = constant
+        self._rank_equal = rank_equal
+        self._ordered = ordered
+
+    def __record_post_init(self) -> None:
+        # state tracking attrs
+        self._state = {pyop3.device.get_current_device(): 0}
+        self._state_locks = 0
+        self._device_locks = []
+
+        curr_dev = get_current_device()
+        if self.ordered:
+            utils.debug_assert(lambda: utils.is_sorted(self._device_arrays_private))
+        if self.constant and isinstance(self._device_arrays_private[curr_dev], np.ndarray):
+            self._device_arrays_private[curr_dev].flags.writeable = False
+
+    # }}}
+
+    # {{{ Class attrs
+
+    DEFAULT_PREFIX: ClassVar[str] = "array"
+
+    # }}}
+
+    # {{{ interface impls
+
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    constant: ClassVar[property] = pyop3.record.attr("_constant")
+    rank_equal: ClassVar[property] = pyop3.record.attr("_rank_equal")  # TODO: make an abstract property
+    ordered: ClassVar[property] = pyop3.record.attr("_ordered")
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return next(a.shape for a in self._device_arrays_private.values())
+
+    @property
+    def dtype(self) -> np.dtype:
+        return next(a.dtype for a in self._device_arrays_private.values())
+
+    def duplicate(self, *, copy: bool = False, constant: bool | None = None, **kwargs) -> Self:
+        # make sure that there are no pending transfers before we copy
+        self.assemble()
+        name = f"{self.name}_copy"
+
+        current_device = get_current_device()
+        if copy:
+            data = self._current_device_array.copy()
+        else:
+            data = current_device.zeros_like(self._current_device_array)
+        if constant is None:
+            constant = self.constant
+
+        # NOTE: be careful here that arguments aren't being dropped
+        return type(self)(
+            data=data,
+            sf=self.sf,
+            name=name,
+            constant=constant,
+            **kwargs,
+        )
+
+    is_nested: ClassVar[bool] = False
+
+    def zero(self) -> None:
+        self.data_wo[...] = 0
+
+    # }}}
+
+    # {{{ constructors
+
+    @classmethod
+    def empty(cls, shape, dtype=None, **kwargs):
+        if dtype is None:
+            dtype = cls.DEFAULT_DTYPE
+
+        if pyop3.config.debug_checks:
+            data = np.full(shape, 666, dtype=dtype)
+        else:
+            data = np.empty(shape, dtype=dtype)
+        return cls(data, **kwargs)
+
+    @classmethod
+    def zeros(cls, shape, dtype=None, **kwargs):
+        if dtype is None:
+            dtype = cls.DEFAULT_DTYPE
+
+        data = np.zeros(shape, dtype=dtype)
+        return cls(data, **kwargs)
+
+    @classmethod
+    def full(cls, size: numbers.Integral, fill_value: numbers.Number, dtype=None, **kwargs):
+        if not isinstance(fill_value, int) or dtype != IntType:
+            raise NotImplementedError("Casting")
+
+        data = np.full(size, fill_value, dtype=dtype)
+        return cls(data, **kwargs)
+
+    @classmethod
+    def from_scalar(cls, value: numbers.Number, *, dtype=None, **kwargs):
+        data = np.array([value], dtype=dtype)
+        return cls(data, **kwargs)
+
+    # }}}
+
+    def _get_array(self):
+        return self._current_device_array
+
     # {{{ cross-device state tracking
 
     @property
@@ -911,25 +920,6 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # }}}
 
-    # {{{ debugging helper methods
-
-    # def _debug_poison_array(self) -> None:
-    #     """Turn the next array access into an error."""
-    #     return
-    #     if self._debug_is_poisoned:
-    #         return
-    #     self.olddata = self._device_arrays_private
-    #     self._debug_is_poisoned = True
-    #     self._device_arrays_private = {pyop3.device.HOST_DEVICE: "NOTHING"}
-    #
-    # def _debug_unpoison_array(self) -> None:
-    #     return
-    #     """Undo array poisoning."""
-    #     self._debug_is_poisoned = False
-    #     self._device_arrays_private = self.olddata
-
-    # }}}
-
 
 class PetscObjectBuffer(ConcreteBuffer):
 
@@ -952,12 +942,13 @@ class PetscObjectBuffer(ConcreteBuffer):
 
 
 @pyop3.record.record()
-class PetscVecBuffer(AbstractArrayBuffer, PetscObjectBuffer):
+class PetscVecBuffer(ConcreteArrayBuffer, PetscObjectBuffer):
 
     vec: PETSc.Vec
     sf: pyop3.sf.StarForest
     _name: str
     _constant: bool
+    rank_equal: bool
     _ordered: bool
 
     def get_disk_cache_key(self, visitor) -> Hashable:
@@ -986,6 +977,7 @@ class PetscVecBuffer(AbstractArrayBuffer, PetscObjectBuffer):
         name: str | None = None,
         prefix: str | None = None,
         constant: bool = False,
+        rank_equal: bool = False,
         ordered: bool = False,
     ) -> None:
         name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
@@ -994,6 +986,7 @@ class PetscVecBuffer(AbstractArrayBuffer, PetscObjectBuffer):
         self.sf = sf
         self._name = name
         self._constant = constant
+        self.rank_equal = rank_equal
         self._ordered = ordered
 
     DEFAULT_PREFIX = "petscmat"
@@ -1017,10 +1010,13 @@ class PetscVecBuffer(AbstractArrayBuffer, PetscObjectBuffer):
     def shape(self):
         return (self.vec.size,)  # might be wrong
 
-    @property
-    def nest_shape(self):
+    def nest_shape(self, nest_indices=()):
+        assert nest_indices == ()
         assert self.vec.type != PETSc.Vec.Type.NEST
         return None
+
+    def _get_array(self, intent="ro") -> np.ndarray:
+        return self.vec.array_r  # readonly to avoid inc-ing state
 
 
 class PetscMatInitBufferSpec(pyop3.obj.Object):
@@ -1685,6 +1681,12 @@ def _(mat_buf: PetscMatBuffer, nest_indices):
 
 
 @_denest.register
+def _(vec_buf: PetscVecBuffer, nest_indices):
+    assert not nest_indices
+    return vec_buf.vec
+
+
+@_denest.register
 def _(array_buf: ArrayBuffer, nest_indices):
     assert not nest_indices
     return array_buf._current_device_array
@@ -1693,6 +1695,13 @@ def _(array_buf: ArrayBuffer, nest_indices):
 @functools.singledispatch
 def _extract_handle(data: Any):
     utils.raise_missing_dispatch_handler(data)
+
+
+@_extract_handle.register
+def _(vec: PETSc.Vec, /):
+    # readonly to avoid inc-ing
+    # is this right?
+    return vec.array_r
 
 
 @_extract_handle.register

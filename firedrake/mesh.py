@@ -1635,14 +1635,14 @@ class AbstractMeshTopology(abc.ABC):
             iterset.owned.as_axis().label: iterset.owned.as_axis().component.label
         })
 
-        # pyop3 maps map input paths to a list-of-lists. This is to capture the
-        # idea that a map can map an input to multiple equivalent representations
-        # (for example DM points vs cells, edges, vertices). Here we have two
-        # valid output representations: whether the target axis tree has been
-        # renumbered or not.
+        # pyop3 maps map input paths to a collection of labelled lists. This is to
+        # capture the idea that a map can map an input to multiple equivalent
+        # representations (for example DM points vs cells, edges, vertices). Here
+        # we have two valid output representations: whether the target axis tree
+        # has been renumbered or not.
         return op3.Map({
-            from_path: [closure_parts[False], closure_parts[True]],
-            owned_from_path: [owned_closure_parts[False], owned_closure_parts[True]],
+            from_path: {"norenum": closure_parts[False], "renum": closure_parts[True]},
+            owned_from_path: {"norenum": owned_closure_parts[False], "renum": owned_closure_parts[True]},
         })
 
     def _reorder_cell_closures_fiat_simplex(self, closure_data):
@@ -1732,15 +1732,19 @@ class AbstractMeshTopology(abc.ABC):
         for support_name in support_names:
             axis = self._entity_axes(support_name).as_axis()
             support_dat = self._support_dat(support_name, only_owned=False)
-            supports[idict({axis.label: axis.component.label})] = [[
-                op3.TabulatedMapComponent(self._uid, self.cell_label, support_dat, label=None),
-            ]]
+            supports[idict({axis.label: axis.component.label})] = {
+                "renum": [
+                    op3.TabulatedMapComponent(self._uid, self.cell_label, support_dat, label=None),
+                ],
+            }
 
             owned_axis = axis.owned
             owned_support_dat = self._support_dat(support_name, only_owned=True)
-            supports[idict({owned_axis.label: owned_axis.component.label})] = [[
-                op3.TabulatedMapComponent(self._uid, self.cell_label, owned_support_dat, label=None),
-            ]]
+            supports[idict({owned_axis.label: owned_axis.component.label})] = {
+                "renum": [
+                    op3.TabulatedMapComponent(self._uid, self.cell_label, owned_support_dat, label=None),
+                ],
+            }
         return op3.Map(supports)
 
     @cached_method()
