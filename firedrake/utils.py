@@ -230,13 +230,13 @@ def deprecated(message: str = "", internal: bool = False) -> Callable:
     return decorator
 
 
-def deprecated_rename(prefer: str | None = None, internal: bool = False) -> Callable:
+def deprecated_rename(prefer: str, internal: bool = False) -> Callable:
     """Emit a warning that directs callers to a replacement API.
 
     Parameters
     ----------
-    prefer : str or None
-        The name of the replacement API, if any.
+    prefer : str
+        The name of the replacement API.
     internal : bool
         Emit a ``DeprecationWarning`` if true, or a ``FutureWarning`` otherwise.
 
@@ -245,7 +245,7 @@ def deprecated_rename(prefer: str | None = None, internal: bool = False) -> Call
     Callable
         A decorator that warns callers to use the replacement API.
     """
-    message = f"Please use {prefer} instead." if prefer else ""
+    message = f"Please use {prefer} instead."
     return deprecated(message, internal=internal)
 
 
