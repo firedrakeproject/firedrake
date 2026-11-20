@@ -98,9 +98,13 @@ class VectorSpaceBasis:
                 for alpha, vec_ in zip(alphas, basis[:i]):
                     vec.axpy(-alpha, vec_)
                 if constant:
-                    # Subtract constant mode
-                    alpha = vec.sum()
-                    vec.array -= alpha
+                    # Remove the constant mode. The normalised constant vector
+                    # is 1/sqrt(N) in every entry, with N the global size, so
+                    # its projection is the mean of the entries in every entry.
+                    # The vector holds only the owned entries, and sum, getSize
+                    # and shift work on the global vector, so the result is the
+                    # same on any number of ranks.
+                    vec.shift(-vec.sum() / vec.getSize())
                 vec.normalize()
         self.check_orthogonality()
         self._ad_orthogonalized = True

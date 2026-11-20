@@ -86,6 +86,25 @@ def test_orthonormalize_updates_halo():
     assert _out_of_date_ghosts(f) == 0
 
 
+@pytest.mark.parallel([1, 2, 3])
+def test_orthonormalize_with_constant():
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).interpolate(x + y)
+    g = Function(V).interpolate(x * y)
+
+    basis = VectorSpaceBasis([f, g], constant=True, comm=mesh.comm)
+    # Raises ValueError if a vector is not orthonormal or not orthogonal to
+    # the constant vector.
+    basis.orthonormalize()
+    assert basis.is_orthonormal()
+
+    for v in (f, g):
+        # The constant mode is removed: the entries sum to zero.
+        assert np.isclose(mesh.comm.allreduce(v.dat.data_ro.sum()), 0)
+
+
 def test_transpose_nullspace():
     errors = []
     for n in range(4, 10):
