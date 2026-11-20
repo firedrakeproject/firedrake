@@ -52,7 +52,7 @@ def get_device_type() -> str | None:
     Returns
     -------
     str | None
-        The PETSc device type, or `None` if no device is found.
+        The PETSc device type name, or `None` if no device is found.
 
     """
     try:
@@ -63,7 +63,7 @@ def get_device_type() -> str | None:
         return None
     dev_type = dev.getDeviceType()
     dev.destroy()
-    return dev_type
+    return dev_type.name
 
 
 @cache
