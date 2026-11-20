@@ -329,11 +329,29 @@ def cached_method_until(key: Callable[[Self], Hashable]):
 
 
 class _InstrumentedCache:
+    """Wrapper around a cache that ensures that cache statistics are handled.
+
+    Parameters
+    ----------
+    comm : MPI.Comm
+        The communicator.
+    func : collections.abc.Callable
+        The function getting cached.
+    cache : collections.abc.Mapping
+        The underlying cache object that actually holds the data.
+    singleton : bool
+        Is there only ever going to be one of this cache created? For example,
+        a simple memory cache on a function is only going to be instantiated
+        once, whilst a heavy cache or a cache for a cached method may be
+        created many times (for each object).
+        If ``singleton`` is `False` then cache statistics are aggregated.
+
+    """
     def __init__(
         self,
         comm: MPI.Comm,
-        func,
-        cache,
+        func: Callable,
+        cache: Mapping,
         singleton: bool,
     ):
         # Find a unique key for the cache statistics. The function name isn't
