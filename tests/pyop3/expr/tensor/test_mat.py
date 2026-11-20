@@ -60,6 +60,15 @@ def test_petsc_mat_assignment_uses_petsc():
     assert "#include <petsc.h>" not in executable._device_code
 
 
+@pytest.mark.parametrize("mask_name", ["row_mask", "column_mask"])
+def test_sparsity_rejects_single_mask(mask_name):
+    axes = op3.AxisTree.from_iterable([3, 2])
+    mask = op3.Dat.zeros(axes, dtype=op3.IntType)
+    buffer_spec = op3.MonolithicPetscMatInitBufferSpec("is")
+    with pytest.raises(ValueError):
+        op3.Mat.sparsity(axes, axes, buffer_spec=buffer_spec, **{mask_name: mask})
+
+
 # Data type
 valuetype = op3.ScalarType
 

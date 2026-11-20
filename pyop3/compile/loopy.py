@@ -24,6 +24,7 @@ import pyop3.expr
 from pyop3 import mpi, utils
 from pyop3.buffer import (
     NullBuffer,
+    OpaqueObject,
     PetscMatBuffer,
 )
 from pyop3.compile.context import CodegenContext
@@ -233,7 +234,10 @@ class LoopyCodegenContext(CodegenContext):
 
             # Extract the underlying data as that is what we need to generate code
             handle = buffer_view.handle
-            if isinstance(handle, np.ndarray):
+            if isinstance(buffer, OpaqueObject):
+                name_in_kernel = self.unique_name("opaque")
+                loopy_arg = lp.ValueArg(name_in_kernel, dtype=buffer.dtype)
+            elif isinstance(handle, np.ndarray):
                 if isinstance(handle.dtype, np.dtypes.IntDType):
                     name_in_kernel = self.unique_name("idat")
                 else:
@@ -243,11 +247,12 @@ class LoopyCodegenContext(CodegenContext):
                 # have to make sure that the shapes match
                 shape = self._temporary_shapes.get(buffer, None)  # TODO: should be handle not buffer here?
                 loopy_arg = lp.GlobalArg(name_in_kernel, dtype=handle.dtype, shape=shape)
-            else:
-                assert isinstance(handle, PETSc.Mat)
+            elif isinstance(handle, PETSc.Mat):
                 assert handle.type not in {"nest", "python"}
                 name_in_kernel = self.unique_name("mat")
                 loopy_arg = lp.ValueArg(name_in_kernel, dtype=pyop3.dtypes.OpaqueType("Mat"))
+            else:
+                raise TypeError(f"Unsupported kernel argument type: {type(handle).__name__}")
 
             self._arguments.append(loopy_arg)
             return self.kernel_names.setdefault(buffer_view, name_in_kernel)
