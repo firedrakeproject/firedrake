@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import pyop3 as op3
 from firedrake import *
 from firedrake.assemble import TwoFormAssembler
 from firedrake.utils import ScalarType
@@ -385,6 +386,39 @@ def test_assemble_sparsity_diagonal_entries_for_bc():
     A = assemble(inner(u[1], v[0]) * dx, bcs=[bc], mat_type="nest")
     # Make sure that diagonals are allocated.
     assert np.allclose(A.petscmat.getNestSubMatrix(1, 1).getRowSum(), 1)
+
+
+def test_assemble_reuses_sparsity(monkeypatch):
+    # Count the sparsities that are built
+    make_sparsity = op3.Mat.sparsity
+    nbuilt = []
+
+    def counted_make_sparsity(*args, **kwargs):
+        nbuilt.append(1)
+        return make_sparsity(*args, **kwargs)
+
+    monkeypatch.setattr(op3.Mat, "sparsity", counted_make_sparsity)
+
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "DG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    A = assemble(inner(u, v) * dx)
+    assert len(nbuilt) == 1
+
+    # A different form with the same pattern reuses the sparsity
+    B = assemble(2 * inner(u, v) * dx)
+    assert len(nbuilt) == 1
+    assert np.allclose(B.M.values, 2 * A.M.values)
+
+    # The matrices do not share their values
+    A.petscmat.zeroEntries()
+    assert not np.allclose(B.M.values, 0)
+
+    # Interior facet integrals need a new sparsity
+    C = assemble(inner(jump(u), jump(v)) * dS)
+    assert len(nbuilt) == 2
+    assert C.petscmat.getInfo()["nz_allocated"] > B.petscmat.getInfo()["nz_allocated"]
 
 
 @pytest.mark.skipcomplex

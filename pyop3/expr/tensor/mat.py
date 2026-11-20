@@ -14,6 +14,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.buffer
+import pyop3.collections
 import pyop3.dtypes
 import pyop3.index_tree
 import pyop3.record
@@ -359,6 +360,21 @@ class Mat(Tensor):
         else:
             raise NotImplementedError
 
+    @property
+    def data_ro_with_halos(self):
+        """Return a read-only view of the matrix values, including ghost entries."""
+        return self.as_array("ro")
+
+    @property
+    def data_wo_with_halos(self):
+        """Return a write-only view of the matrix values, including ghost entries."""
+        return self.as_array("wo")
+
+    @property
+    def data_rw_with_halos(self):
+        """Return a modifiable view of the matrix values, including ghost entries."""
+        return self.as_array("rw")
+
     @staticmethod
     def _array_view(array, row_indices, column_indices, mode):
         block_shape = ()  # for now
@@ -371,7 +387,14 @@ class Mat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
-            return pyop3.arrayref.ArrayReference(array, (row_indices, column_indices), block_shape)
+            nrows, ncols = array.shape
+            if isinstance(row_indices, slice):
+                row_indices = pyop3.collections.slice_as_array(row_indices, nrows)
+            if isinstance(column_indices, slice):
+                column_indices = pyop3.collections.slice_as_array(column_indices, ncols)
+            indices = np.add.outer(row_indices*column_indices.size, column_indices)
+
+            return pyop3.arrayref.ArrayReference(array.ravel(), indices)
 
     # For PyOP2 compatibility
     @property

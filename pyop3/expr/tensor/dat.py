@@ -117,7 +117,6 @@ class Dat(Tensor):
             pass
         else:
             assert buffer is None and data is not None
-            sf = axes.unindexed.sf
 
             if buffer_kwargs is None:
                 buffer_kwargs = {}
@@ -127,11 +126,12 @@ class Dat(Tensor):
                 buffer_kwargs["constant"] = constant
 
             if isinstance(data, np.ndarray):
-                # the shape of the underlying buffer for a dat should be 1D
+                # The shape of the underlying buffer for a dat should be 1D. Do
+                # ravel not flatten here because we don't want to do a copy.
                 data = data.ravel()
-                buffer = ArrayBuffer(data, sf, **buffer_kwargs)
+                buffer = ArrayBuffer(data, axes.unindexed.sf, **buffer_kwargs)
             elif isinstance(data, PETSc.Vec):
-                buffer = pyop3.buffer.PetscVecBuffer(data, sf, **buffer_kwargs)
+                buffer = pyop3.buffer.PetscVecBuffer(data, axes.unindexed.sf, **buffer_kwargs)
             else:
                 raise TypeError
 
@@ -460,7 +460,9 @@ class Dat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
-            return pyop3.arrayref.ArrayReference(array, indices, block_shape)
+            shape = (-1, *block_shape) if indices.size > 0 else (0, *block_shape)
+            indices = indices.reshape(shape)
+            return pyop3.arrayref.ArrayReference(array, indices)
 
     @property
     def dat_version(self):
