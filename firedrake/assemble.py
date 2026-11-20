@@ -1194,7 +1194,7 @@ class OneFormAssembler(ParloopFormAssembler):
         rank = len(self._form.arguments())
         if rank == 1:
             test, = self._form.arguments()
-            return firedrake.Function(test.ufl_function_space().dual())
+            return firedrake.Function(test.function_space().dual())
         elif rank == 2 and self._diagonal:
             test, _ = self._form.arguments()
             return firedrake.Function(test.function_space().dual())
@@ -2131,7 +2131,7 @@ class _FormHandler:
         """
         spaces = []
         for index, arg in zip(indices, form.arguments()):
-            space = arg.ufl_function_space()
+            space = arg.function_space()
             if index is not None:
                 space = space[index]
             spaces.append(space)
