@@ -3213,7 +3213,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return closures
 
     @cached_property
-    def extr_cell_to_base_cell_map(self):
+    def extr_cell_to_base_cell_map(self) -> op3.Map:
         """Return the map from extruded cells to cells of the base mesh."""
         base_cell_nums = np.arange(
             self._base_mesh.cells.local_size, dtype=IntType
@@ -3235,6 +3235,7 @@ class ExtrudedMeshTopology(MeshTopology):
         owned_dat = op3.Dat(owned_map_axes, data=dat.data_rw)
         owned_map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, owned_dat, label=None)
 
+        # TODO: This could be a ScalarMap
         return op3.Map({
             idict({self._uid: self.cell_label}): [[map_cpt]],
             idict({f"{self._uid}_owned": self.cell_label}): [[owned_map_cpt]],
