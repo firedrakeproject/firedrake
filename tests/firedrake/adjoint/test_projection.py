@@ -179,3 +179,40 @@ def test_project_to_function_space():
     J = assemble(w**2*dx)
     rf = ReducedFunctional(J, Control(c))
     assert taylor_test(rf, Function(R, val=1.), Constant(0.1)) > 1.9
+
+
+@pytest.mark.skipcomplex
+def test_project_blocks():
+    mesh = UnitSquareMesh(12, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    u = Function(V)
+    c = Function(R, val=1.)
+    project(u+c, u)
+    assert len(get_solve_blocks()) == 0
+
+
+@pytest.mark.skipcomplex
+def test_project_bcs():
+    mesh = UnitIntervalMesh(8)
+    V = FunctionSpace(mesh, "CG", 1)
+    m = Function(V).assign(1.0)
+    bc = DirichletBC(V, 3.0, "on_boundary")
+    u = Function(V)
+
+    project(m, u, bcs=bc)
+    J = assemble(u**2 * dx)
+    rf = ReducedFunctional(J, Control(m))
+
+    # create new reference value independent of tape evaluation
+    with stop_annotating():
+        m_new = Function(V).assign(2.0)
+        u_exp = Function(V)
+        project(m_new, u_exp, bcs=bc)
+        J_exp = assemble(u_exp**2 * dx)
+
+    # ensure BCs are passed through the tape
+    assert rf(m_new) == pytest.approx(
+        J_exp, rel=1e-12, abs=1e-12,
+    )
+    assert taylor_test(rf, m_new, Constant(0.1)) > 1.9
