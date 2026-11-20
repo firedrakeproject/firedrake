@@ -1,6 +1,5 @@
 import typing
 import weakref
-from enum import IntEnum
 from itertools import chain
 
 import numpy
@@ -23,15 +22,7 @@ if typing.TYPE_CHECKING:
 
 
 def _make_reasons(reasons):
-    if issubclass(reasons, IntEnum):
-        return {entry.value: entry.name for entry in reasons}
-
-    # Support petsc4py releases that expose reasons as integer class attributes.
-    names = {}
-    for name in dir(reasons):
-        if name.isupper():
-            names.setdefault(getattr(reasons, name), name)
-    return names
+    return {entry.value: entry.name for entry in reasons}
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason)

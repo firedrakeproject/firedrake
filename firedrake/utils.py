@@ -63,8 +63,7 @@ def get_device_type() -> str | None:
         return None
     dev_type = dev.getDeviceType()
     dev.destroy()
-    # Supported petsc4py releases can return the device type as a string.
-    return dev_type if isinstance(dev_type, str) else dev_type.name
+    return dev_type.name
 
 
 @cache
