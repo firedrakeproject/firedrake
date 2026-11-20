@@ -42,6 +42,50 @@ def test_orthonormalize():
     assert basis.is_orthonormal()
 
 
+def _out_of_date_ghosts(f):
+    """Return the number of ghost entries of ``f`` that differ from the owner's value.
+
+    The owned values are copied into a new Function, whose halo is then filled
+    by a normal halo exchange, and the two halos are compared on every rank.
+    """
+    reference = Function(f.function_space())
+    reference.dat.data_wo[:] = f.dat.data_ro
+    stale = np.sum(~np.isclose(f.dat.data_ro_with_halos, reference.dat.data_ro_with_halos))
+    return f.comm.allreduce(int(stale))
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_orthogonalize_updates_halo():
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).interpolate(x + y)
+    # Read the halo once so that it holds the values from before the call.
+    f.dat.data_ro_with_halos
+
+    VectorSpaceBasis(constant=True, comm=mesh.comm).orthogonalize(f)
+
+    # The constant mode is removed from the owned values ...
+    assert np.isclose(mesh.comm.allreduce(f.dat.data_ro.sum()), 0)
+    # ... and the halo holds the new values.
+    assert _out_of_date_ghosts(f) == 0
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_orthonormalize_updates_halo():
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).interpolate(x + y)
+    f.dat.data_ro_with_halos
+
+    basis = VectorSpaceBasis([f], comm=mesh.comm)
+    basis.orthonormalize()
+
+    assert basis.is_orthonormal()
+    assert _out_of_date_ghosts(f) == 0
+
+
 def test_transpose_nullspace():
     errors = []
     for n in range(4, 10):
