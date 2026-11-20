@@ -224,13 +224,15 @@ def transform_packed_cell_closure_dat(
         mat_work_array = op3.Dat.null(op3.AxisTree.from_iterable([packed_dat.size, packed_dat.size]), dtype=utils.ScalarType, prefix="trans")
 
         def transform_in(untransformed, transformed):
-            return (
-                transform_in_kernel(orientations[cell_index], mat_work_array, untransformed, transformed),
+            return _transform_per_cell(
+                transform_in_kernel, [orientations[cell_index]], [mat_work_array], untransformed, transformed,
+                [_cell_loop(packed_dat.axes, depth)], gather=True,
             )
 
         def transform_out(transformed, untransformed):
-            return (
-                transform_out_kernel(orientations[cell_index], mat_work_array, transformed, untransformed),
+            return _transform_per_cell(
+                transform_out_kernel, [orientations[cell_index]], [mat_work_array], transformed, untransformed,
+                [_cell_loop(packed_dat.axes, depth)], gather=False,
             )
 
         transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_dat.transform)
@@ -293,14 +295,20 @@ def transform_packed_cell_closure_mat(
         mat_work_array_row = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.nrows, packed_mat.nrows]), dtype=utils.ScalarType, prefix="trans")
         mat_work_array_col = op3.Dat.null(op3.AxisTree.from_iterable([packed_mat.ncols, packed_mat.ncols]), dtype=utils.ScalarType, prefix="trans")
 
+        cell_orientations = [orientations[row_cell_index], orientations_c[column_cell_index]]
+        work_arrays = [mat_work_array_row, mat_work_array_col]
+
+        def cell_loops():
+            return [_cell_loop(packed_mat.row_axes, row_depth), _cell_loop(packed_mat.column_axes, column_depth)]
+
         def transform_in(untransformed, transformed):
-            return (
-                transform_in_kernel(orientations[row_cell_index], orientations_c[column_cell_index], mat_work_array_row, mat_work_array_col, untransformed, transformed),
+            return _transform_per_cell(
+                transform_in_kernel, cell_orientations, work_arrays, untransformed, transformed, cell_loops(), gather=True,
             )
 
         def transform_out(transformed, untransformed):
-            return (
-                transform_out_kernel(orientations[row_cell_index], orientations_c[column_cell_index], mat_work_array_row, mat_work_array_col, transformed, untransformed),
+            return _transform_per_cell(
+                transform_out_kernel, cell_orientations, work_arrays, transformed, untransformed, cell_loops(), gather=False,
             )
 
         transform = op3.OutOfPlaceCallableTensorTransform(transform_in, transform_out, packed_mat.transform)
@@ -328,6 +336,45 @@ def transform_packed_cell_closure_mat(
         packed_mat = packed_mat[row_dof_perm_slice, column_dof_perm_slice]
 
     return packed_mat
+
+
+def _cell_loop(axes, depth: int) -> op3.LoopIndex | None:
+    """A loop over the cells packed in ``axes``, i.e. over the axes above the
+    closure, or ``None`` if ``axes`` hold the closure of a single cell."""
+    if depth == 0:
+        return None
+    if isinstance(axes, op3.AxisForest):
+        axes = axes.trees[0]
+    return op3.AxisTree.from_iterable(axes.axes[:depth]).iter()
+
+
+def _transform_per_cell(kernel, orientations, work_arrays, source, target, cell_loops, *, gather: bool) -> tuple:
+    """Instructions applying ``kernel``, which transforms the closure of one
+    cell, from ``source`` to ``target``.
+
+    ``orientations`` and ``cell_loops`` have one entry per tensor dimension,
+    the latter from `_cell_loop`. Where several cells are packed, as for
+    interior facets, the kernel is applied to each cell (or pair of cells)
+    in turn. The packed global tensor cannot be indexed by cell, so it is
+    copied through a temporary: before the loop if it is ``source``
+    (``gather``), after it if it is ``target``.
+    """
+    if all(loop is None for loop in cell_loops):
+        return (kernel(*orientations, *work_arrays, source, target),)
+
+    local = (target if gather else source).materialize()
+    if gather:
+        copy, source = local.assign(source), local
+    else:
+        copy, target = target.assign(local), local
+
+    index = tuple(slice(None) if loop is None else loop for loop in cell_loops)
+    cell_orientations = (o if loop is None else o[loop] for o, loop in zip(orientations, cell_loops))
+    insn = kernel(*cell_orientations, *work_arrays, source[index], target[index])
+    for loop in reversed(cell_loops):
+        if loop is not None:
+            insn = op3.loop(loop, insn)
+    return (copy, insn) if gather else (insn, copy)
 
 
 @functools.singledispatch

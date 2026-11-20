@@ -9,7 +9,7 @@ import gem
 import numpy
 import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
-from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
+from FIAT.reference_element import Hypercube, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
@@ -124,17 +124,17 @@ class ContextBase(ProxyKernelInterface):
         # Directly set use_canonical_quadrature_point_ordering = False in context
         # for translation of special nodes, e.g., CellVolume, FacetArea, CellOrigin, and CellVertices,
         # as quadrature point ordering is not relevant for those node types.
-        def _any(cell_type, integral_types):
+        def _any(cell_type, integral_types, dim=None):
             for d, it in self.domain_integral_type_map.items():
                 if it is None:
                     continue
                 c = as_fiat_cell(d.ufl_cell())
-                if isinstance(c, cell_type) and it in integral_types:
+                if isinstance(c, cell_type) and dim in (None, c.get_dimension()) and it in integral_types:
                     return True
             return False
-        if _any(UFCHexahedron, ['exterior_facet', 'interior_facet']):
+        if _any(Hypercube, ['exterior_facet', 'interior_facet'], dim=3):
             return True
-        elif _any(UFCQuadrilateral, ['exterior_facet', 'interior_facet']) and _any(UFCSimplex, ['cell', 'exterior_facet', 'interior_facet']):
+        elif _any(Hypercube, ['exterior_facet', 'interior_facet'], dim=2) and _any(UFCSimplex, ['cell', 'exterior_facet', 'interior_facet']):
             return True
         else:
             return False
