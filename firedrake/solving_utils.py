@@ -22,8 +22,11 @@ if typing.TYPE_CHECKING:
 
 
 def _make_reasons(reasons):
+    # PETSc also names the ITERATING reason CONVERGED_ITERATING.
+    aliases = {"CONVERGED_ITERATING"}
     return {value: name
-            for name, value in sorted(vars(reasons).items()) if name.isupper()}
+            for name, value in vars(reasons).items()
+            if name.isupper() and name not in aliases}
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason)

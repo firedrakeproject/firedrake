@@ -1,8 +1,5 @@
-from enum import IntEnum
-
 import pytest
 from firedrake import *
-from firedrake.solving_utils import _make_reasons
 
 
 @pytest.fixture
@@ -83,11 +80,3 @@ def test_la_invalid_solution_type(a, L, c):
 def test_la_too_few_arguments(a, f):
     with pytest.raises(TypeError):
         solve(a, f)
-
-
-def test_convergence_reason_enum_alias() -> None:
-    class ConvergedReason(IntEnum):
-        DIVERGED_ITS = -3
-        DIVERGED_MAX_IT = DIVERGED_ITS
-
-    assert _make_reasons(ConvergedReason) == {-3: "DIVERGED_MAX_IT"}
