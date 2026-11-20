@@ -4,7 +4,6 @@
 
 """Provides common base classes for cached objects."""
 
-import abc
 import atexit
 import collections
 import contextlib
@@ -35,15 +34,43 @@ from pyop3 import utils
 from pyop3.mpi import MPI, comm_cache_keyval, temp_internal_comm
 
 
-@dataclasses.dataclass
-class _CacheStats:
-    func: str
-    nhits: int = 0
-    nmisses: int = 0
+class _AbstractCacheStats:
+    def __init__(self, func, comm_name: str, cache_type: type) -> None:
+        self.func = func
+        self.comm_name = comm_name
+        self.cache_type = cache_type
+        self.nhits = 0
+        self.nmisses = 0
+
+
+class _SingletonCacheStats(_AbstractCacheStats):
+    def __init__(self, func, comm_name, cache_type, max_size):
+        self.size = 0
+        self.max_size = max_size
+        super().__init__(func, comm_name, cache_type)
+
+
+class _MultiCacheStats(_AbstractCacheStats):
+    size = -1
+    max_size = -1
 
 
 _CACHE_CREATION_IDX = itertools.count()
-_KNOWN_CACHES: dict[int, CacheStats] = {}
+"""Generator for unique integers for each cache.
+
+The identifier can be different between ranks but that is fine as it is only
+used locally.
+
+"""
+
+_CACHE_STATS: dict[str, _AbstractCacheStats] = {}
+"""Statistics for each cache.
+
+Since many caches may be spawned during a simulation, the keys of the mapping
+are the function names to avoid this dictionary getting too large. Multiple
+caches of the same function will aggregate their results.
+
+"""
 
 
 # TODO: This should live in utils.py but there is a (bad) import of pyop3.cache
@@ -142,12 +169,12 @@ def default_hashkey(*args, **kwargs) -> tuple[Hashable, ...]:
     return (args_key, kwargs_key)
 
 
-def get_method_cache(obj: Any, func, cache_id, make_cache: Callable[[], Mapping]) -> None:
+def get_method_cache(obj: Any, func, make_cache: Callable[[], Mapping]) -> None:
     cache_name = f"_pyop3_method_cache_{func.__name__}"
     if not hasattr(obj, cache_name):
         # Use object.__setattr__ to get around frozen dataclasses
         cache = make_cache()
-        icache = _InstrumentedCache(cache_id, obj.comm, func, cache)
+        icache = _InstrumentedCache(obj.comm, func, cache, singleton=False)
         object.__setattr__(obj, cache_name, icache)
     return getattr(obj, cache_name)
 
@@ -168,27 +195,28 @@ def cached_method(
         Callable used to build the cache. Default is a `dict`.
 
     """
-    # Store a unique integer for each 'cached_method' decorator. This
-    # identifier is different between ranks but that is fine as it is only
-    # used locally.
-    cache_id = next(_CACHE_CREATION_IDX)
-
     # Since this is a cache for an instance we ignore the 'self' argument
     def method_cache_key(self, *args, **kwargs):
         return key(*args, **kwargs)
 
     def wrapper(func):
         return cachetools.cachedmethod(
-            lambda self: get_method_cache(self, func, cache_id, make_cache), method_cache_key
+            lambda self: get_method_cache(self, func, make_cache), method_cache_key
         )(func)
     return wrapper
 
 
-def cache_filter(comm=None, comm_name=None, alive=False, function=None, cache_type=None):
-    """ Filter PyOP2 caches based on communicator, function or cache type.
-    """
-    caches = _KNOWN_CACHES
+def cache_filter(
+    *,
+    comm: MPI.Comm | None = None,
+    comm_name: str | None = None,
+    function: str | Callable | None = None,
+    cache_type: type | None = None,
+) -> list[_AbstractCacheStats]:
+    """Return a filtered set of the cache statistics."""
+    caches = _CACHE_STATS.values()
     if comm is not None:
+        assert comm_name is None, "Cannot provide 'comm' and 'comm_name'"
         with temp_internal_comm(comm) as icomm:
             cache_collection = icomm.Get_attr(comm_cache_keyval)
             if cache_collection is None:
@@ -196,19 +224,24 @@ def cache_filter(comm=None, comm_name=None, alive=False, function=None, cache_ty
             comm_name = icomm.name
     if comm_name is not None:
         caches = filter(lambda c: c.comm_name == comm_name, caches)
-    if alive:
-        caches = filter(lambda c: not isinstance(c, _DeadInstrumentedCache), caches)
     if function is not None:
         if isinstance(function, str):
-            caches = filter(lambda c: function in c.func_name, caches)
+            def match(c):
+                return (
+                    function == f"{c.func.__module__}.{c.func.__qualname__}"  # includes the module
+                    or function == c.func.__qualname__  # includes the class
+                    or function == c.func.__name__  # just the function name
+                )
+
+            caches = filter(match, caches)
         else:
             caches = filter(lambda c: c.func is function, caches)
     if cache_type is not None:
         if isinstance(cache_type, str):
             caches = filter(lambda c: cache_type in c.cache_name, caches)
         else:
-            caches = filter(lambda c: c.cache_name == cache_type.__class__.__qualname__, caches)
-    return [*caches]
+            caches = filter(lambda c: c.cache_type is cache_type, caches)
+    return list(caches)
 
 
 def get_comm_caches(comm: MPI.Comm) -> dict[Hashable, Mapping]:
@@ -295,140 +328,97 @@ def cached_method_until(key: Callable[[Self], Hashable]):
     return decorator
 
 
-class _AbstractInstrumentedCache(abc.ABC):
-    def __init__(self, cidx, comm_name, func):
-        self.cidx = cidx
-        self.comm_name = comm_name
+class _InstrumentedCache:
+    def __init__(
+        self,
+        comm: MPI.Comm,
+        func,
+        cache,
+        singleton: bool,
+    ):
+        # Find a unique key for the cache statistics. The function name isn't
+        # sufficient because we wrap some functions in multiple caches (e.g.
+        # disk and memory caching).
+        for i in itertools.count():
+            stats_key = f"{func.__module__}.{func.__qualname__}_{i}"
+            if stats_key not in _CACHE_STATS:
+                break
+
+        self.comm = comm
         self.func = func
-        self.func_module = func.__module__
-        self.func_name = func.__qualname__
-        self.known_cache_index = len(_KNOWN_CACHES)
-        _KNOWN_CACHES.append(weakref.proxy(self))
+        self.cache = cache
+        self.singleton = singleton
+        self._stats_key = stats_key
 
-    @property
-    @abc.abstractmethod
-    def size(self) -> int:
-        ...
-
-    @property
-    @abc.abstractmethod
-    def maxsize(self) -> int:
-        ...
-
-
-class _InstrumentedCache(_AbstractInstrumentedCache):
-    def __init__(self, cidx, comm, func, cache):
         with pyop3.mpi.temp_internal_comm(comm) as icomm:
             comm_name = icomm.Get_name()
 
-        self.cache = cache
-        self.cache_name = cache.__class__.__qualname__
-        try:
-            self.cache_loc = cache.cachedir
-        except AttributeError:
-            self.cache_loc = "Memory"
-
-        self.hit = 0
-        self.miss = 0
-
-        super().__init__(cidx, comm_name, func)
+        # register the statistics
+        if singleton:
+            if self._sized:
+                assert len(cache) == 0, "Must start with an empty cache"
+            if isinstance(self.cache, cachetools.Cache):
+                max_size = self.cache.maxsize
+            else:
+                max_size = -1
+            _CACHE_STATS[self._stats_key] = _SingletonCacheStats(func, comm_name, type(cache), max_size)
+        else:
+            if self._stats_key not in _CACHE_STATS:
+                _CACHE_STATS[self._stats_key] = _MultiCacheStats(func, comm_name, type(cache))
+            else:
+                assert isinstance(_CACHE_STATS[self._stats_key], _MultiCacheStats)
 
     def __str__(self) -> str:
-        return f"{type(self.cache).__name__}({self.func_name})"
-
-    def __del__(self):
-        _KNOWN_CACHES[self.known_cache_index] = _DeadInstrumentedCache(self.cidx, self.cache_name, self.cache_loc, self.comm_name, self.func, self.hit, self.miss, self.size, self.maxsize)
+        return f"{type(self.cache).__name__}({self.func.__module__}.{self.func.__qualname__})"
 
     def __getitem__(self, key):
         try:
             value = self.cache[key]
         except KeyError as e:
-            self.miss += 1
+            self._stats.nmisses += 1
             raise e
         else:
-            self.hit += 1
+            self._stats.nhits += 1
             return value
 
     def __setitem__(self, key, value) -> None:
         self.cache[key] = value
 
+        if self._sized:
+            self._stats.size = len(self.cache)
+
     def __len__(self):
+        assert self._sized
         return len(self.cache)
 
     def get(self, key, default=None):
         try:
+            # hits and misses recorded in __getitem__
             value = self[key]
         except KeyError:
-            self.miss += 1
             return default
         else:
-            self.hit += 1
             return value
 
-    # TODO: singledispatch
     @property
-    def size(self) -> int:
-        # TODO: quite ick here, why is this happening?
-        try:
-            return len(self.cache)
-        except:  # noqa: E722
-            return self.miss
-
-    # TODO: singledispatch
-    @property
-    def maxsize(self) -> int:
-        if isinstance(self.cache, cachetools.Cache):
-            return self.cache.maxsize
-        else:
-            return -1
-
-
-class _DeadInstrumentedCache(_AbstractInstrumentedCache):
-    def __init__(self, cidx, cache_name, cache_loc, comm, func, nhit, nmiss, size, maxsize):
-        self.cache_name = cache_name
-        self.cache_loc = cache_loc
-        self.hit = nhit
-        self.miss = nmiss
-        self._size = size
-        self._maxsize = maxsize
-        super().__init__(cidx, comm, func)
+    def _sized(self) -> bool:
+        """Return whether the cache knows how big it is."""
+        return self.singleton and not isinstance(self.cache, DictLikeDiskAccess)
 
     @property
-    def size(self) -> int:
-        return self._size
-
-    @property
-    def maxsize(self) -> int:
-        return self._maxsize
+    def _stats(self) -> _AbstractCacheStats:
+        return _CACHE_STATS[self._stats_key]
 
 
-@gc_disabled()
-def print_cache_stats(*args, **kwargs):
+def print_cache_stats(**kwargs):
     """Print cache statistics."""
+    # Cache statistics are split by comm, then by type, then by function
     data = defaultdict(lambda: defaultdict(dict))
-    for entry in cache_filter(*args, **kwargs):
-        # entries are weakrefs, so they may be dead
-        # TODO: It would be nice to still have access to this information
-        try:
-            entry.cidx
-        except ReferenceError:
-            continue
-
-        active = not isinstance(entry, _DeadInstrumentedCache)
-        key1 = (entry.comm_name, active)
-        key2 = (entry.cache_name, entry.cache_loc)
-        key3 = (entry.cidx, entry.func_module, entry.func_name)
-
-        # TODO: for heavy caches this is obscure as it aggregates things
-        if key3 in data[key1][key2]:
-            value = list(data[key1][key2][key3])
-            value[0] += entry.hit
-            value[1] += entry.miss
-            assert value[2] == entry.size
-            assert value[3] == entry.maxsize
-            data[key1][key2][key3] = value
-        else:
-            data[key1][key2][key3] = (entry.hit, entry.miss, entry.size, entry.maxsize)
+    for entry in cache_filter(**kwargs):
+        key1 = entry.comm_name
+        key2 = f"{entry.cache_type.__module__}.{entry.cache_type.__name__}"
+        key3 = f"{entry.func.__module__}.{entry.func.__qualname__}"
+        data[key1][key2][key3] = (entry.nhits, entry.nmisses, entry.size, entry.max_size)
 
     tab = "  "
     hline = "-"*120
@@ -441,20 +431,13 @@ def print_cache_stats(*args, **kwargs):
     subtitles = "|".join(f"{st:^{w}}" for st, w in zip(stats, stats_col))
     print("|" + " "*col[0] + f"|{subtitles:{col[1]}}|")
     print(hline)
-    for ecomm, cachedict in data.items():
-        active = "Active" if ecomm[1] else "Freed"
-        comm_title = f"{ecomm[0]} ({active})"
-        print(f"|{comm_title:{col[0]}}|{no_stats}|")
-        for ecache, function_list in cachedict.items():
-            cache_title = f"{tab}{ecache[0]}"
+    for comm_name, data_per_comm in data.items():
+        print(f"|{comm_name:{col[0]}}|{no_stats}|")
+        for cache_type, data_per_func in data_per_comm.items():
+            cache_title = f"{tab}{cache_type}"
             print(f"|{cache_title:{col[0]}}|{no_stats}|")
-            cache_location = f"{tab} ↳ {ecache[1]!s}"
-            if len(cache_location) < col[0]:
-                print(f"|{cache_location:{col[0]}}|{no_stats}|")
-            else:
-                print(f"|{cache_location:78}|")
-            for entry, info in function_list.items():
-                function_title = f"{tab*2}id={entry[0]} {'.'.join(entry[1:])}"
+            for entry, info in data_per_func.items():
+                function_title = f"{tab*2}{entry}"
                 stats_row = "|".join(f"{s:{w}}" for s, w in zip(info, stats_col, strict=True))
                 print(f"|{function_title:{col[0]}}|{stats_row:{col[1]}}|")
         print(hline)
@@ -672,7 +655,7 @@ def parallel_cache(
                 else:
                     def make_instrumented_cache():
                         cache = make_cache()
-                        return _InstrumentedCache(cache_id, comm, func, cache)
+                        return _InstrumentedCache(comm, func, cache, singleton=not heavy)
 
                     comm_caches = get_comm_caches(comm)
                     if heavy:
