@@ -14,7 +14,7 @@ import finat.ufl
 import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
-from collections.abc import Sequence, Generator, Callable
+from collections.abc import Sequence, Generator, Callable, Iterable
 from ufl.classes import ReferenceGrad
 from ufl.cell import CellSequence
 from ufl.domain import extract_unique_domain, extract_domains
@@ -28,7 +28,6 @@ from textwrap import dedent
 from pathlib import Path
 import typing
 import warnings
-from typing import Any, Iterable
 from typing import Literal, TypeAlias
 
 from pyop3.mpi import (

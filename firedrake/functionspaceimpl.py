@@ -1305,23 +1305,17 @@ class FunctionSpace(AbstractFunctionSpace):
             # What if the 'R' dimension is on the base mesh?
             # What if we extrude multiple times?
             base_mesh = self._mesh._base_mesh
-
         else:
             base_mesh = self._mesh
 
-        # if self.permutation is not None...
-        #     mesh_axis = base_mesh.dm_axis(renumber=???)
-        mesh_axis = base_mesh.dm_axis()
-        num_points = mesh_axis.local_size
-
+        mesh_axis = base_mesh.dm_axis(renumber=self.renumber)
         constraints = [AxisConstraint(mesh_axis)]
 
         # Create an (unpermuted) mapping from plex point to number of DoFs
-        ndofs_array = numpy.empty(num_points, dtype=IntType)
+        ndofs_array = numpy.empty(mesh_axis.local_size, dtype=IntType)
         entity_dofs = _num_entity_dofs(self.finat_element)
         dm = base_mesh.topology_dm
         if type(base_mesh.topology) is MeshTopology:
-
             if self._is_real_tensor_product:
                 flattened_entity_dofs = {}
                 for base_dim in range(dm.getDimension()+1):
@@ -1344,7 +1338,7 @@ class FunctionSpace(AbstractFunctionSpace):
         # and we also always split into unconstrained and constrained even if we know
         # we don't have to (no boundary set).
         num_unconstrained_dofs, num_constrained_dofs = _partition_constrained_points(
-            base_mesh, ndofs_array, self.boundary_set
+            base_mesh, ndofs_array, self.boundary_set, self.renumber
         )
 
         unconstrained_dofs_dat = op3.Dat(

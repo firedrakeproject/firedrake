@@ -685,9 +685,6 @@ class CompiledCodeExecutor:
         for bcast in broadcasts:
             bcast()
 
-        if "form" in str(self):
-            breakpoint()
-
         # Now all the data is correct, compute!
         self.executable(*exec_arguments)
 

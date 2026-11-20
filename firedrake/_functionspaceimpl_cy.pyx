@@ -35,6 +35,7 @@ def _partition_constrained_points(
     mesh: firedrake.mesh.MeshGeometry,
     ndofs: np.ndarray,
     boundary_set,
+    renumber: bool,
 ):
     """Split a section into unconstrained and constrained sets."""
     constrained_pts_is = firedrake.cython.dmcommon.get_boundary_set_points(
@@ -58,5 +59,8 @@ def _partition_constrained_points(
     num_free_dofs[free_pts] = ndofs[free_pts]
 
     # Finally reorder the arrays because we have a different numbering
-    perm = mesh._new_to_old_point_numbering
-    return num_free_dofs[perm], num_constrained_dofs[perm]
+    if renumber:
+        perm = mesh._new_to_old_point_numbering
+        num_free_dofs = num_free_dofs[perm]
+        num_constrained_dofs = num_constrained_dofs[perm]
+    return num_free_dofs, num_constrained_dofs

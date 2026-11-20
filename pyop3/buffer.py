@@ -578,9 +578,6 @@ class ConcreteArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
 
-
-
-
 @pyop3.record.record()
 class ArrayBuffer(ConcreteArrayBuffer):
     """A buffer whose underlying data structure is a lazily-evaluated NumPy/CuPy array.
