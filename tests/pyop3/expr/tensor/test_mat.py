@@ -53,7 +53,7 @@ def test_lazy_assign(mymat):
 
 
 def test_petsc_mat_assignment_uses_petsc():
-    expr = petsc_mat().assign(1)
+    expr = petsc_mat().assign(1, _weakref=False)
     executable = expr._get_execution_context(None).compile().executable
     assert op3.cc.LIBPETSC in executable.extra_compiler_options.libraries
     assert "#include <petscmat.h>" in executable._device_code
