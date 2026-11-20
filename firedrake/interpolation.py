@@ -797,6 +797,8 @@ class SameMeshInterpolator(Interpolator):
         # and the MAX identity with a MIN reduction.
         mode = "max" if self.access is op3.MIN_WRITE else "min"
         self._loop_target_nodes(tensor, float(identity), mode)
+        # Finish the halo reduction before interpolation starts.
+        tensor.dat.buffer.sync_roots()
 
     @cached_on(
         get_obj=lambda self: self.source_mesh.unique().topology,
