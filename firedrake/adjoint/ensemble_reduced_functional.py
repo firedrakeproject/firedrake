@@ -87,18 +87,18 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
     works, please refer to the `Firedrake manual
     <https://www.firedrakeproject.org/ensemble_parallelism.html>`_.
     """
-    def __init__(self, functional, control, ensemble, scatter_control=True,
+    def __init__(self, functional, control, ensemble, parameters=None, scatter_control=True,
                  gather_functional=None,
                  derivative_components=None,
                  scale=1.0, tape=None,
-                 eval_cb_pre=lambda *args: None,
-                 eval_cb_post=lambda *args: None,
-                 derivative_cb_pre=lambda controls: controls,
-                 derivative_cb_post=lambda checkpoint, derivative_components, controls: derivative_components,
-                 hessian_cb_pre=lambda *args: None,
-                 hessian_cb_post=lambda *args: None):
+                 eval_cb_pre=lambda controls, parameters=None: None,
+                 eval_cb_post=lambda value, controls, parameters=None: None,
+                 derivative_cb_pre=lambda controls, parameters=None: controls,
+                 derivative_cb_post=lambda checkpoint, derivative_components, controls, parameters=None: (derivative_components),
+                 hessian_cb_pre=lambda controls, parameters=None: None,
+                 hessian_cb_post=lambda checkpoint, hessians, controls, parameters=None: None):
         self.local_reduced_functional = ReducedFunctional(
-            functional, control,
+            functional, control, parameters=parameters,
             derivative_components=derivative_components,
             scale=scale, tape=tape,
             eval_cb_pre=eval_cb_pre,
@@ -116,6 +116,15 @@ class EnsembleReducedFunctional(AbstractReducedFunctional):
     @property
     def controls(self):
         return self.local_reduced_functional.controls
+
+    @property
+    def parameters(self):
+        """Return the list of parameters for the ReducedFunctional."""
+        return self.local_reduced_functional.parameters
+
+    def update_parameters(self, new_parameters):
+        """Update the parameters for the ReducedFunctional."""
+        self.local_reduced_functional.update_parameters(new_parameters)
 
     def _allgather_J(self, J):
         if isinstance(J, float):
