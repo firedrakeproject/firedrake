@@ -145,13 +145,15 @@ rtree_ = ExternalDependency(
 # libspatialindex
 # example:
 # gcc -I/rtree/include
-# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../Rtree.libs
+# gcc /rtree.libs/libspatialindex.so -Wl,-rpath,$ORIGIN/../../rtree.libs
 libspatialindex_so = Path(rtree.core.rt._name).absolute()
 spatialindex_ = ExternalDependency(
     include_dirs=[rtree.finder.get_include()],
     extra_link_args=[str(libspatialindex_so)],
-    runtime_library_dirs=[str(libspatialindex_so.parent)] + [
-        os.path.join(dir, "Rtree.libs") for dir in sitepackage_dirs
+    runtime_library_dirs=[
+        os.path.join(dir, libdir)
+        for dir in sitepackage_dirs
+        for libdir in ("rtree.libs", "Rtree.libs")
     ],
 )
 
