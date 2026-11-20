@@ -724,7 +724,8 @@ class SameMeshInterpolator(Interpolator):
     @property
     def _needs_adjoint_weighting(self):
         return (isinstance(self.dual_arg, Cofunction)
-                and any(not V.finat_element.is_dg() for V in self.target_space))
+                and any(V.ufl_element().family() == "Real" or not V.finat_element.is_dg()
+                        for V in self.target_space))
 
     @cached_property
     def _weighted_dual_arg(self):
