@@ -110,7 +110,7 @@ cached_property_until_topology_changes = cached_property_until(
 
 
 def cached_method_until_topology_changes(*args, **kwargs):
-    """Decorator that invalidates cached methods when the topology changes."""
+    """Decorator for caching methods that invalidate when the topology changes."""
     return cached_method_until(lambda self: self._topology_version, *args, **kwargs)
 
 
