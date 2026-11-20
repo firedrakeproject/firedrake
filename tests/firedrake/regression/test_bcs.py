@@ -51,6 +51,24 @@ def test_init_bcs_illegal(mesh, v):
         DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
 
 
+@pytest.mark.parallel([1, 2])
+def test_morley_constant_bc():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "Morley", 2)
+    u = Function(V)
+    DirichletBC(V, 1, "on_boundary").apply(u)
+
+    P = FunctionSpace(mesh, "CG", 1)
+    u_linear = Function(P).interpolate(u)
+    error = u_linear - 1
+    assert sqrt(assemble(inner(error, error) * ds).real) < 1e-7
+
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    n = FacetNormal(mesh)
+    moments = assemble(inner(grad(u), n * TestFunction(T)) * ds)
+    np.testing.assert_allclose(moments.dat.data_ro, 0, atol=1e-7)
+
+
 @pytest.mark.parametrize('measure', [dx, ds])
 def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
