@@ -1,22 +1,20 @@
 """The lowering of the MLIR that pyop3 generates to the LLVM dialect.
 
-The pyop3 xDSL passes of the device run first, then `mlir-opt` runs the
-`mlir-opt` passes of the device.
+The pyop3 xDSL passes of the device change the module that `MLIRBuilder` builds
+(`apply_xdsl_passes`). Then `mlir-opt` runs the `mlir-opt` passes of the device
+(`mlir_opt_arguments`) on the printed module.
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 from io import StringIO
 
 from xdsl.context import Context
 from xdsl.dialects import get_all_dialects
-from xdsl.parser import Parser
-from xdsl.passes import PassPipeline
+from xdsl.dialects.builtin import ModuleOp
 from xdsl.printer import Printer
-from xdsl.transforms.mlir_opt import MLIROptPass
-from xdsl.utils.exceptions import DiagnosticException, ParseError
+from xdsl.utils.exceptions import DiagnosticException
 
 import pyop3.config
 from pyop3.compile.passes.mlir.atomics import RelaxAtomicRMWPass
@@ -97,12 +95,11 @@ XDSL_PASSES = {
 
 
 def mlir_context() -> Context:
-    """Return an xDSL context that can parse the MLIR that pyop3 generates and lowers.
+    """Return the xDSL context in which the pyop3 xDSL passes rewrite the module of a kernel.
 
     Every xDSL dialect is registered, and the `gpu` additions of
     `pyop3.compile.passes.mlir.gpu_ext`. Operations that xDSL does not define, such as
-    `llvm.mlir.poison` or `llvm.atomicrmw`, are kept as generic operations, so that
-    they are printed again without change.
+    `llvm.mlir.poison` or `llvm.atomicrmw`, are allowed as generic operations.
     """
     ctx = Context(allow_unregistered=True)
     for name, factory in get_all_dialects().items():
@@ -112,23 +109,18 @@ def mlir_context() -> Context:
     return ctx
 
 
-def build_lowering_pipeline(device: Device, mlir_opt: str) -> PassPipeline:
-    """Return the pass pipeline that lowers the MLIR of a kernel for `device` to the LLVM dialect.
-
-    The passes are frozen dataclasses, so the passes of the pipeline can be part of a cache key.
+def mlir_opt_arguments(device: Device) -> tuple[str, ...]:
+    """Return the `mlir-opt` arguments that lower the MLIR of a kernel for `device` to the LLVM dialect.
 
     Parameters
     ----------
     device
         The device that the kernel runs on.
-    mlir_opt
-        The `mlir-opt` executable.
 
     Returns
     -------
-    PassPipeline
-        The xDSL passes of `device`, then an `mlir-opt` pass. `mlir-opt` prints its
-        output in the generic form, so that xDSL can parse it again.
+    tuple[str, ...]
+        The `mlir-opt` passes of `device`, then the flags of ``pyop3.config.extra_mlir_opt_flags``.
     """
     flags = (flag.format(arch=device.arch) for flag in MLIR_OPT_PASSES[type(device)])
     if pyop3.config.ptxas_verbose:
@@ -137,31 +129,38 @@ def build_lowering_pipeline(device: Device, mlir_opt: str) -> PassPipeline:
             f"{flag} collect-compiler-diagnostics ptxas-cmd-options=-v" if flag.startswith("--nvvm-attach-target") else flag
             for flag in flags
         )
-    arguments = (*flags, *getattr(pyop3.config, "extra_mlir_opt_flags", ()), "--mlir-print-op-generic")
-    return PassPipeline((*XDSL_PASSES[type(device)], MLIROptPass(executable=mlir_opt, arguments=arguments)))
+    return (*flags, *getattr(pyop3.config, "extra_mlir_opt_flags", ()))
 
 
-def lower(code: str, pipeline: PassPipeline) -> str:
-    """Return the MLIR `code` after the passes of `pipeline`, in the generic form.
+def apply_xdsl_passes(module: ModuleOp, device: Device) -> str:
+    """Apply the pyop3 xDSL passes of `device` to `module`, and return the module as the input of `mlir-opt`.
+
+    Parameters
+    ----------
+    module
+        The module of a kernel. The passes change it in place.
+    device
+        The device that the kernel runs on.
+
+    Returns
+    -------
+    str
+        The module in the generic form.
 
     Raises
     ------
-    subprocess.CalledProcessError
-        If `mlir-opt` fails. Its error output is in the `stderr` of the exception.
     CompilationException
-        If xDSL cannot parse or rewrite the module.
+        If a pass cannot rewrite the module.
     """
     ctx = mlir_context()
     try:
-        module = Parser(ctx, code).parse_module()
-        pipeline.apply(ctx, module)
-    except (DiagnosticException, ParseError) as e:
-        if isinstance(e.__cause__, subprocess.CalledProcessError):
-            raise e.__cause__
+        for xdsl_pass in XDSL_PASSES[type(device)]:
+            xdsl_pass.apply(ctx, module)
+    except DiagnosticException as e:
         raise CompilationException(str(e)) from e
-    lowered = StringIO()
-    Printer(print_generic_format=True, stream=lowered).print_op(module)
-    return lowered.getvalue()
+    code = StringIO()
+    Printer(print_generic_format=True, stream=code).print_op(module)
+    return code.getvalue()
 
 
 def ptxas_logs(lowered: str) -> list[str]:

@@ -55,6 +55,7 @@ from pyop3.device import get_current_device, offloading
 from pyop3.compile.context import Executable, LoopVisitor, Pyop3Compiler
 from pyop3.compile.mlir import MLIRBuilder
 from pyop3.compile.passes.impero import apply_passes
+from pyop3.compile.passes.mlir import apply_xdsl_passes
 from pyop3.compile.passes.impero.utils import temporary
 from pyop3.insn.exec import ParsedCompilerParameters
 
@@ -130,10 +131,14 @@ class GemExecutable(Executable):
 
     @cached_property
     def _mlir_build(self) -> tuple[str, list, str, idict]:
-        """Generate the MLIR module from the instructions, after the Impero passes of `apply_passes`."""
+        """Generate the MLIR code of the instructions.
+
+        The Impero passes of `apply_passes` run before `MLIRBuilder`, and the xDSL passes of `apply_xdsl_passes` after it.
+        """
         tree = apply_passes(self._impero, get_current_device(), self.compiler_parameters)
         builder = MLIRBuilder(tree, self.arguments)
-        module_code, kernel_args, func_name = builder.build()
+        module, kernel_args, func_name = builder.build()
+        module_code = apply_xdsl_passes(module, get_current_device())
 
         # The argument devices are only complete after `build` has been called
         return module_code, kernel_args, func_name, builder.argument_devices

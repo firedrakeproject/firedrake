@@ -502,11 +502,11 @@ class MLIRCompiler(Compiler):
         return self._cc or shutil.which("clang++") or "clang++"
 
     @property
-    def xdsl_pipeline(self):
-        """The pass pipeline that lowers the generated MLIR to the LLVM dialect for the current device."""
-        from pyop3.compile.passes import build_lowering_pipeline
+    def mlir_opt_arguments(self) -> tuple[str, ...]:
+        """The `mlir-opt` arguments that lower the generated MLIR to the LLVM dialect for the current device."""
+        from pyop3.compile.passes import mlir_opt_arguments
 
-        return build_lowering_pipeline(get_current_device(), self.mlir_opt)
+        return mlir_opt_arguments(get_current_device())
 
     @property
     def cflags(self) -> tuple[str, ...]:
@@ -599,9 +599,9 @@ class CompilerDiskAccess(DictLikeDiskAccess):
 
 def _make_so_hashkey(compiler, code, extension, comm) -> tuple[Hashable, ...]:
     if extension == "mlir":
-        # The passes are frozen dataclasses, so their arguments are part of the key.
+        # The xDSL passes have already changed `code`, so only the mlir-opt passes are added to the key.
         return (
-            compiler, code, compiler.xdsl_pipeline.passes,
+            compiler, code, compiler.mlir_opt, compiler.mlir_opt_arguments,
             compiler.mlir_translate, compiler.cc, compiler.cflags,
             compiler.ld, compiler.ldflags,
         )
@@ -692,9 +692,15 @@ def make_so(compiler, code, extension, comm):
                 os.close(descriptor)
 
                 if extension == "mlir":
-                    # 1. mlir -> llvm dialect, with the xDSL pass pipeline
+                    from pyop3.compile.passes import ptxas_logs
+
+                    # mlir -> llvm dialect
                     lowered_name = filename.with_suffix(".llvm.mlir")
-                    _lower_mlir(compiler, code, lowered_name, logfile, errfile)
+                    lower_cmd = (compiler.mlir_opt, *compiler.mlir_opt_arguments, str(cname), "-o", str(lowered_name))
+                    _run(lower_cmd, logfile, errfile, step="Lowering")
+                    if logs := ptxas_logs(lowered_name.read_text()):
+                        with open(logfile, "a") as log:
+                            log.writelines(f"{ptx_log}\n" for ptx_log in logs)
 
                     # mlir -> llvm
                     llname = filename.with_suffix(".ll")
@@ -754,42 +760,6 @@ def make_so(compiler, code, extension, comm):
             return soname
 
     return mpi.safe_noncollective(ccomm, compile_single_rank, root=0)
-
-
-def _lower_mlir(compiler, code: str, lowered_name: Path, logfile: Path, errfile: Path) -> None:
-    """Lower MLIR source to the LLVM dialect with the pass pipeline of a compiler.
-
-    Raises
-    ------
-    subprocess.CalledProcessError
-        If `mlir-opt` fails. Its error output is in `errfile`.
-    CompilationException
-        If xDSL cannot parse or rewrite the module. The error is in `errfile`.
-    """
-    from pyop3.compile.passes import lower, ptxas_logs
-
-    try:
-        lowered = lower(code, compiler.xdsl_pipeline)
-    except subprocess.CalledProcessError as e:
-        # mlir-opt failed. The error handler of make_so reports its exit status.
-        with open(errfile, "w") as err:
-            err.write(e.stderr or "")
-        raise
-    except CompilationException as e:
-        with open(errfile, "w") as err:
-            err.write(str(e))
-        raise CompilationException(dedent(f"""
-            Unable to lower MLIR code with xDSL
-            Compile log in {logfile!s}
-            Compile errors in {errfile!s}
-        """)) from e
-
-    with open(lowered_name, "w") as fh:
-        fh.write(lowered)
-
-    if logs := ptxas_logs(lowered):
-        with open(logfile, "w") as log:
-            log.writelines(f"{ptx_log}\n" for ptx_log in logs)
 
 
 def _run(cc, logfile, errfile, step="Compilation", filemode="w"):

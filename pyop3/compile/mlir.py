@@ -218,7 +218,7 @@ class MLIRBuilder:
         if pyop3.config.debug_checks:
             modop.verify()
 
-        return str(modop), self.arguments, f"_mlir_ciface_{self._func_op.sym_name.data}"
+        return modop, self.arguments, f"_mlir_ciface_{self._func_op.sym_name.data}"
 
     # {{{ helpers
 
@@ -583,6 +583,7 @@ class MLIRBuilder:
 
         block_id = body.args[0]
         with self._item_loop(body):
+            # Placing tables into dynamic shared memory - static shared memory capped at 48kb 
             dynamic = self.insert(DynamicSharedMemoryOp()) if shared else None
             for name, v in shared.items():
                 view_type = MemRefType(get_mlir_type(v.dtype), v.shape, memory_space=WORKGROUP_ADDRESS_SPACE)
