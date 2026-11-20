@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 
+import ufl
 import firedrake as fd
 
 
@@ -244,14 +245,31 @@ def test_efunc_subfunctions(ensemblefunc):
     )
 
 
+@pytest.mark.parametrize('riesz', [None, ufl.L2, "H1", "custom"])
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
-def test_efunc_riesz_representation(ensemblefunc):
+def test_efunc_riesz_representation(ensemblefunc, riesz):
     """
     Test that taking the riesz representation of an EnsembleFunction
     is the same as taking the riesz representation of each component.
     """
     efunc = random_efunc(ensemblefunc)
-    edual = ensemblefunc.riesz_representation()
+    if riesz is None:  # No arguments
+        edual = ensemblefunc.riesz_representation()
+
+    elif riesz == "custom":  # callback applying to entire ensemble function
+        riesz = "l2"
+        riesz_maps = [fd.RieszMap(V, riesz) for V in ensemblefunc.function_space().local_spaces]
+
+        def riesz_map(other):
+            riesz_repr = fd.EnsembleFunction(other.function_space().dual())
+            for osub, rsub, rmap in zip(other.subfunctions, riesz_repr.subfunctions, riesz_maps):
+                rsub.assign(rmap(osub))
+            return riesz_repr
+
+        edual = ensemblefunc.riesz_representation(riesz_map)
+
+    else:  # map type passed down componentwise
+        edual = ensemblefunc.riesz_representation(riesz)
 
     parallel_assert(
         edual.function_space() == efunc.function_space().dual(),
@@ -261,7 +279,10 @@ def test_efunc_riesz_representation(ensemblefunc):
 
     failed = []
     for i, (ef, ed) in enumerate(zip(efunc.subfunctions, edual.subfunctions)):
-        check = ef.riesz_representation()
+        if riesz is None:
+            check = ef.riesz_representation()
+        else:
+            check = ef.riesz_representation(riesz)
         with ed.dat.vec_ro as edvec, check.dat.vec_ro as cvec:
             if not np.allclose(edvec.array_r, cvec.array_r):
                 failed.append(i)

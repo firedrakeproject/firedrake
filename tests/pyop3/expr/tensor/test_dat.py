@@ -12,6 +12,17 @@ def dat():
     return op3.Dat.zeros(axes)
 
 
+@pytest.mark.parametrize("mode", ["buffer", "array"])
+def test_passing_data_does_not_copy(dat, mode):
+    if mode == "buffer":
+        new_dat = op3.Dat(dat.axes, buffer=dat.buffer)
+    else:
+        new_dat = op3.Dat(dat.axes, data=dat.data_rw)
+
+    dat.data_wo.ravel()[1] = 666
+    assert new_dat.data_ro.ravel()[1] == 666
+
+
 def test_copy(dat):
     new_dat = dat.copy()
     dat.assign(1, eager=True)

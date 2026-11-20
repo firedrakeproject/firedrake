@@ -3926,7 +3926,7 @@ def get_extruded_base_point_map(base_dm, dm, nlayers, periodic):
     return extr_to_base_pt, extr_to_off
 
 
-def extrude_point_renumbering(dm, base_dm, base_renumbering, nlayers, periodic, extr2base, extr2off):
+def extrude_point_numbering(dm, base_dm, base_renumbering, nlayers, periodic, extr2base, extr2off):
     """
     Consider
 

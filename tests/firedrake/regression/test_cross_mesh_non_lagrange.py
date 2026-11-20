@@ -62,7 +62,7 @@ def test_cross_mesh(V, rank):
     f_source = Function(V_source).interpolate(expr1)
     f_direct = Function(V).interpolate(expr2)
 
-    Q = V.quadrature_space()
+    Q = V.quadrature_space
 
     if rank == 2:
         # Assemble the operator
@@ -138,7 +138,7 @@ def test_cross_mesh_adjoint(V, rank):
         def close(x, y):
             return np.linalg.norm(x - y) < 0.003
 
-    Q = V.quadrature_space()
+    Q = V.quadrature_space
 
     if rank == 2:
         # Assemble the operator

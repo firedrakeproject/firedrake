@@ -586,7 +586,11 @@ def comm_is_subset(comm_small: MPI.Comm, comm_large: MPI.Comm) -> bool:
     # If the intersection group doesn't match the small group then there
     # are elements in the small group that aren't in the large group and
     # therefore the comms aren't compatible.
-    return MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
+    is_subset = MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
+    # Free the groups since mpi4py does not free them on garbage collection
+    for group in (group_intersect, group_small, group_large):
+        group.Free()
+    return is_subset
 
 
 def common_comm(comms: Iterable[MPI.Comm], *, default: MPI.Comm | None = None) -> MPI.Comm:

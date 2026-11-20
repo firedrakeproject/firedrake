@@ -945,7 +945,7 @@ class CheckpointFile:
             assert not isinstance(tmesh, ExtrudedMeshTopology)
             # The renumbering is local to each process but the viewer is global
             perm_is = dmcommon.is_on_comm(
-                tmesh._new_to_old_point_renumbering_is, self.comm
+                tmesh._new_to_old_point_numbering_is, self.comm
             )
             perm_is.setName("permutation")
             perm_is.view(self.viewer)
@@ -1458,10 +1458,10 @@ class CheckpointFile:
         if tmesh_key + sd_key not in self._function_load_utils:
             if isinstance(tmesh, ExtrudedMeshTopology):
                 topology_dm = tmesh._base_mesh.topology_dm
-                perm = tmesh._base_mesh._new_to_old_point_renumbering_is
+                perm = tmesh._base_mesh._new_to_old_point_numbering_is
             else:
                 topology_dm = tmesh.topology_dm
-                perm = tmesh._new_to_old_point_renumbering_is
+                perm = tmesh._new_to_old_point_numbering_is
             dm = PETSc.DMShell().create(comm=tmesh.comm)
             dm.setName(self._get_dm_name_for_checkpointing(tmesh, element))
             dm.setPointSF(topology_dm.getPointSF())

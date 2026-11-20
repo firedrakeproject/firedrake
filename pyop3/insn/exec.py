@@ -16,7 +16,6 @@ import cachetools
 import loopy as lp
 import loopy.tools
 import numpy as np
-import petsctools
 from immutabledict import immutabledict as idict
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -254,7 +253,6 @@ class InstructionExecutionContext:
     )
     def _compile(self) -> CompiledCodeExecutor:
         from pyop3.compile.core import _compile_static
-        from pyop3.insn.visitors import collect_compiler_options
 
         # Preprocess the instruction. This is an expensive operation so we
         # want to avoid doing it if at all possible.
@@ -281,10 +279,8 @@ class InstructionExecutionContext:
         assert num_buffers == len(self.preprocessed_buffers)
 
         compiler_parameters = parse_compiler_parameters(self.compiler_parameters)
-        loopy_code, kernel_name_to_buffer_info, buffer_intents = \
+        loopy_code, kernel_name_to_buffer_info, buffer_intents, extra_compiler_options = \
             _compile_static(self, compiler_parameters)
-
-        extra_compiler_options = collect_compiler_options(self._preprocessed)
 
         if compiler_parameters.add_petsc_event:
             petsc_events = (loopy_code.default_entrypoint.name,)
@@ -464,6 +460,10 @@ class Executable:
         The computation to be performed.
     comm
         The communicator.
+    extra_compiler_options
+        The libraries that are needed to compile and link the code.
+    petsc_events
+        The names of the PETSc log events that the code records.
 
     Notes
     -----
@@ -487,17 +487,12 @@ class Executable:
     def _callable(self) -> collections.abc.Callable[[int, ...], None]:
         """Compile the code and return a function pointer."""
         # ideally move this logic somewhere else
-        cppargs = (
-            *petsctools.get_petsc_dirs(prefix="-I", subdir="include"),
-            *(f"-I{incdir}" for incdir in self.extra_compiler_options.include_dirs),
-        )
+        cppargs = tuple(f"-I{incdir}" for incdir in self.extra_compiler_options.include_dirs)
         ldargs = (
-            *petsctools.get_petsc_dirs(prefix="-L", subdir="lib"),
-            *petsctools.get_petsc_dirs(prefix="-Wl,-rpath,", subdir="lib"),
-            "-lpetsc",
-            "-lm",
             *(f"-L{libdir}" for libdir in self.extra_compiler_options.lib_dirs),
+            *(f"-Wl,-rpath,{libdir}" for libdir in self.extra_compiler_options.lib_dirs),
             *(f"-l{lib}" for lib in self.extra_compiler_options.libs),
+            "-lm",
         )
 
         # NOTE: no - instead of this inspect the compiler parameters!!!

@@ -43,6 +43,12 @@ class VertexOnlyMeshMissingPointsError(FiredrakeException):
         )
 
 
+class MismatchingFunctionSpaceError(FiredrakeException):
+    """Raised when a function space does not match the one expected, such as a
+    boundary condition applied to a form whose arguments live elsewhere.
+    """
+
+
 class NonUniqueMeshSequenceError(FiredrakeException):
     """Raised when calling `.unique()` on a MeshSequence which contains
     non-unique meshes.
@@ -78,3 +84,7 @@ class PointNotInDomainError(FiredrakeException):
 
     def __str__(self):
         return f"Domain {self.domain} does not contain point {self.point}"
+
+
+class FunctionMigrationError(FiredrakeException):
+    """Raised when automatic migration of Function data between mesh topology versions fails."""
