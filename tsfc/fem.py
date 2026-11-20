@@ -13,8 +13,7 @@ import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
 from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
-from finat.physically_mapped import (NeedsCoordinateMappingElement,
-                                     PhysicalGeometry)
+from finat.physically_mapped import PhysicalGeometry
 from finat.finiteelementbase import FiniteElementBase
 from finat.point_set import PointSet, PointSingleton
 from finat.point_set import AbstractPointSet, UnknownPointSet
@@ -356,8 +355,7 @@ def needs_coordinate_mapping(element):
     """Does this UFL element require a CoordinateMapping for translation?"""
     if element.family() == 'Real':
         return False
-    else:
-        return isinstance(create_element(element), NeedsCoordinateMappingElement)
+    return create_element(element).needs_coordinate_mapping
 
 
 def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Cofunction,
@@ -389,7 +387,7 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
 
     fn = DualEvaluationCallable(operand, kernel_cfg)
 
-    if isinstance(to_element, NeedsCoordinateMappingElement):
+    if to_element.needs_coordinate_mapping:
         ctx = PointSetContext(**kernel_cfg)
         coefficient = ufl.Coefficient(dual_arg.ufl_function_space().dual())
         coordinate_mapping = CoordinateMapping(analyse_modified_terminal(coefficient), ctx)
