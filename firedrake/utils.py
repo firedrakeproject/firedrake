@@ -1,7 +1,6 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
 import warnings
-from enum import IntEnum
 
 from petsc4py import PETSc
 
@@ -64,9 +63,8 @@ def get_device_type() -> str | None:
         return None
     dev_type = dev.getDeviceType()
     dev.destroy()
-    if isinstance(dev_type, IntEnum):
-        return dev_type.name
-    return dev_type
+    # Supported petsc4py releases can return the device type as a string.
+    return dev_type if isinstance(dev_type, str) else dev_type.name
 
 
 @cache

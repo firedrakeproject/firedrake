@@ -1,5 +1,6 @@
 import typing
 import weakref
+from enum import IntEnum
 from itertools import chain
 
 import numpy
@@ -22,11 +23,15 @@ if typing.TYPE_CHECKING:
 
 
 def _make_reasons(reasons):
-    # PETSc also names the ITERATING reason CONVERGED_ITERATING.
-    aliases = {"CONVERGED_ITERATING"}
-    return {value: name
-            for name, value in vars(reasons).items()
-            if name.isupper() and name not in aliases}
+    if issubclass(reasons, IntEnum):
+        return {entry.value: entry.name for entry in reasons}
+
+    # Support petsc4py releases that expose reasons as integer class attributes.
+    names = {}
+    for name in dir(reasons):
+        if name.isupper():
+            names.setdefault(getattr(reasons, name), name)
+    return names
 
 
 KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason)
