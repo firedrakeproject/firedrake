@@ -162,11 +162,17 @@ runs:
           exit 1
         fi
 
+        : # DROP BEFORE MERGE: test against UFL PR 564
+        pip install -v --ignore-installed --no-deps \
+          'git+https://github.com/FEniCS/ufl.git@pbrubeck/interpolate-function-pullbacks'
         pip install --verbose $EXTRA_PIP_FLAGS \
           --no-binary h5py \
           --extra-index-url https://download.pytorch.org/whl/cpu \
           "./firedrake-repo[${{ inputs.deps }}]"
 
+        : # DROP BEFORE MERGE: replace the UFL version resolved by pip
+        pip install -v --ignore-installed --no-deps \
+          'git+https://github.com/FEniCS/ufl.git@pbrubeck/interpolate-function-pullbacks'
         firedrake-clean
         pip list
 
