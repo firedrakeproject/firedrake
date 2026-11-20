@@ -587,7 +587,7 @@ class AbstractMeshTopology(abc.ABC):
 
     # {{{ axis trees
 
-    @cached_method_until_topology_changes()
+    @cached_method_until_topology_changes
     def dm_axis(self, *, renumber: bool = True) -> op3.Axis:
         """Return the mesh point axis.
 
@@ -735,7 +735,7 @@ class AbstractMeshTopology(abc.ABC):
             assert self.dimension == 3
             return (3, 0, 1, 2)
 
-    @cached_method_until_topology_changes()
+    @cached_method_until_topology_changes
     def dim_axis(self, *, renumber: bool = True) -> op3.IndexedAxisTree:
         return self.dm_axis(renumber=renumber)[self._dim_slice(renumber=renumber)]
 
