@@ -199,6 +199,7 @@ class PMGBase(PCSNESBase):
         cdm = cV.dm
 
         fproblem = fctx._problem
+        is_eigenproblem = isinstance(fproblem, firedrake.LinearEigenproblem)
         fdeg = PMGBase.max_degree(fV.ufl_element())
         cdeg = PMGBase.max_degree(cV.ufl_element())
 
@@ -207,6 +208,8 @@ class PMGBase(PCSNESBase):
                 a = self.coarsen_form(a, coefficient_mapping)
                 a = ufl.Form([f.reconstruct(metadata=self.coarsen_quadrature(f.metadata(), fdeg, cdeg))
                               for f in a.integrals()])
+            elif isinstance(a, ufl.ZeroBaseForm) and is_eigenproblem:
+                a = self.coarsen_form(a, coefficient_mapping)
             elif isinstance(a, ufl.BaseForm):
                 ctest = coefficient_mapping[test]
                 coeffs = {k: v for k, v in coefficient_mapping.items() if k not in (test, trial)}
@@ -237,14 +240,24 @@ class PMGBase(PCSNESBase):
             homogenize_bcs = True
 
         # Coarsen the problem
-        cu = firedrake.Function(cV)
-        cproblem = fproblem.rediscretise(F=cF, u=cu,
-                                         form_compiler_parameters=fcp,
-                                         form_transform=_coarsen_form,
-                                         homogenize_bcs=homogenize_bcs)
-        fu = fproblem.u_restrict
-        fine_to_coarse_map = dict(zip(fproblem.J.arguments(), cproblem.J.arguments()))
-        fine_to_coarse_map[fu] = cu
+        if is_eigenproblem:
+            cproblem = fproblem.rediscretise(
+                cV,
+                form_compiler_parameters=fcp,
+                form_transform=_coarsen_form,
+                homogenize_bcs=homogenize_bcs,
+            )
+            fine_to_coarse_map = dict(zip(fproblem.A.arguments(), cproblem.A.arguments()))
+            fine_to_coarse_map.update(zip(fproblem.M.arguments(), cproblem.M.arguments()))
+        else:
+            cu = firedrake.Function(cV)
+            cproblem = fproblem.rediscretise(F=cF, u=cu,
+                                             form_compiler_parameters=fcp,
+                                             form_transform=_coarsen_form,
+                                             homogenize_bcs=homogenize_bcs)
+            fu = fproblem.u_restrict
+            fine_to_coarse_map = dict(zip(fproblem.J.arguments(), cproblem.J.arguments()))
+            fine_to_coarse_map[fu] = cu
 
         # Coarsen the appctx: the user might want to provide solution-dependent expressions and forms
         cappctx = dict(fctx.appctx)
@@ -274,7 +287,7 @@ class PMGBase(PCSNESBase):
         cdm.setCreateInterpolation(self.create_interpolation)
         cdm.setCreateInjection(self.create_injection)
 
-        if cu in cproblem.J.coefficients():
+        if not is_eigenproblem and cu in cproblem.J.coefficients():
             # Only inject state if the coarse state is a dependency of the coarse Jacobian.
             inject = cdm.createInjection(fdm)
 
@@ -324,8 +337,8 @@ class PMGBase(PCSNESBase):
 
     def create_transfer(self, mat_type, cctx, fctx, cbcs, fbcs):
         """Create a transfer operator"""
-        cV = cctx._problem.u_restrict.function_space()
-        fV = fctx._problem.u_restrict.function_space()
+        cV = cctx.J.arguments()[-1].function_space()
+        fV = fctx.J.arguments()[-1].function_space()
         cbcs = tuple(cctx._problem.bcs) if cbcs else tuple()
         fbcs = tuple(fctx._problem.bcs) if fbcs else tuple()
         bcs = cbcs + fbcs

@@ -1,11 +1,18 @@
 """Specify and solve finite element eigenproblems."""
+from collections.abc import Callable
+
 from petsctools import OptionsManager, flatten_parameters
-from firedrake.assemble import assemble
+from firedrake import dmhooks
+from firedrake.assemble import assemble, make_mat_spec
 from firedrake.bcs import extract_subdomain_ids, restricted_function_space
 from firedrake.function import Function
+from firedrake.functionspaceimpl import WithGeometryBase
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.exceptions import ConvergenceError
-from ufl import replace, inner, dx
+from firedrake.petsc import PETSc
+from firedrake.solving import _extract_bcs
+from firedrake.solving_utils import _SNESContext
+from ufl import BaseForm, as_ufl, replace, inner, dx
 from functools import cached_property
 try:
     from slepc4py import SLEPc
@@ -36,6 +43,8 @@ class LinearEigenproblem:
     restrict: bool
         If True, replace the function spaces of u and v with their restricted
         version. The output space remains unchanged.
+    form_compiler_parameters : dict, optional
+        Parameters for the compiler when it assembles the operator and mass forms.
 
     Notes
     -----
@@ -53,7 +62,8 @@ class LinearEigenproblem:
     responsibility to ensure that the shift is not close to an actual
     eigenvalue of the system.
     """
-    def __init__(self, A, M=None, bcs=None, bc_shift=0.0, restrict=True):
+    def __init__(self, A, M=None, bcs=None, bc_shift=0.0, restrict=True, *,
+                 form_compiler_parameters: dict | None = None):
         if not SLEPc:
             raise ImportError(
                 "Unable to import SLEPc, eigenvalue computation not possible "
@@ -64,7 +74,9 @@ class LinearEigenproblem:
         v, u = args
         self.output_space = u.function_space()
         self.bc_shift = bc_shift
+        self.form_compiler_parameters = form_compiler_parameters
         self.restrict = restrict and bcs
+        bcs = _extract_bcs(bcs)
 
         if not M:
             M = inner(u, v) * dx
@@ -86,6 +98,62 @@ class LinearEigenproblem:
         """Return an iterator over the Dirichlet boundary conditions."""
         for bc in self.bcs:
             yield from bc.dirichlet_bcs()
+
+    def rediscretise(
+        self,
+        function_space: WithGeometryBase,
+        *,
+        form_compiler_parameters: dict | None = None,
+        coefficient_mapping: dict | None = None,
+        form_transform: Callable[[BaseForm, dict], BaseForm] | None = None,
+        homogenize_bcs: bool = False,
+    ) -> "LinearEigenproblem":
+        """Rebuild the operator, mass form, and boundary conditions on a function space.
+
+        Parameters
+        ----------
+        function_space
+            The target function space on the same mesh, including any restrictions.
+        form_compiler_parameters
+            The compiler parameters to use. Defaults to those of the original problem.
+        coefficient_mapping
+            Replacements for coefficients in the forms and boundary values.
+        form_transform
+            A callable that takes a form and its replacements. Defaults to
+            :func:`ufl.replace`.
+        homogenize_bcs
+            Whether to set the Dirichlet boundary values to zero.
+
+        Returns
+        -------
+        LinearEigenproblem
+            The eigenproblem on the target space.
+        """
+        if coefficient_mapping is None:
+            coefficient_mapping = {}
+        else:
+            coefficient_mapping = dict(coefficient_mapping)
+
+        for form in (self.A, self.M):
+            for arg in form.arguments():
+                coefficient_mapping[arg] = arg.reconstruct(function_space=function_space)
+
+        if form_transform is None:
+            form_transform = replace
+        if form_compiler_parameters is None:
+            form_compiler_parameters = self.form_compiler_parameters
+
+        A = form_transform(self.A, coefficient_mapping)
+        M = form_transform(self.M, coefficient_mapping)
+        bcs = []
+        for bc in self.dirichlet_bcs():
+            g = 0 if homogenize_bcs else replace(as_ufl(bc._original_arg), coefficient_mapping)
+            bcs.append(bc.reconstruct(V=function_space, indices=bc._indices, g=g))
+
+        return LinearEigenproblem(
+            A, M, bcs=bcs, bc_shift=self.bc_shift, restrict=False,
+            form_compiler_parameters=form_compiler_parameters,
+        )
 
     @cached_property
     def dm(self):
@@ -151,6 +219,10 @@ class LinearEigensolver(OptionsManager):
                  solver_parameters=None, ncv=None, mpd=None):
 
         self.es = SLEPc.EPS().create(comm=problem.dm.comm)
+        # Give the problem DM to the KSP of the spectral transformation.
+        ksp = self.es.getST().getKSP()
+        ksp.setDM(problem.dm)
+        ksp.setDMActive(PETSc.KSP.DMActive.ALL, False)
         self._problem = problem
         self.n_evals = n_evals
         self.ncv = ncv
@@ -160,7 +232,13 @@ class LinearEigensolver(OptionsManager):
             value = self.DEFAULT_EPS_PARAMETERS[key]
             solver_parameters.setdefault(key, value)
         super().__init__(solver_parameters, options_prefix)
-        self.set_from_options(self.es)
+
+        # Attach an appctx so we can use Python PCs.
+        mat_type = make_mat_spec(None, None, problem.A.arguments()).mat_type
+        self._ctx = _SNESContext(problem, mat_type=mat_type, pmat_type=mat_type,
+                                 options_prefix=self.options_prefix + "st_")
+        with dmhooks.add_hooks(problem.dm, self, save=False, appctx=self._ctx):
+            self.set_from_options(self.es)
 
     def check_es_convergence(self):
         r"""Check the convergence of the eigenvalue problem."""
@@ -185,15 +263,19 @@ class LinearEigensolver(OptionsManager):
         int
             The number of Eigenvalues found.
         """
-        self.A_mat = assemble(self._problem.A, bcs=self._problem.bcs).petscmat
+        self.A_mat = assemble(
+            self._problem.A, bcs=self._problem.bcs,
+            form_compiler_parameters=self._problem.form_compiler_parameters,
+        ).petscmat
         self.M_mat = assemble(
             self._problem.M, bcs=self._problem.bcs,
+            form_compiler_parameters=self._problem.form_compiler_parameters,
             weight=self._problem.bc_shift and 1./self._problem.bc_shift
         ).petscmat
 
         self.es.setDimensions(nev=self.n_evals, ncv=self.ncv, mpd=self.mpd)
         self.es.setOperators(self.A_mat, self.M_mat)
-        with self.inserted_options():
+        with dmhooks.add_hooks(self._problem.dm, self, appctx=self._ctx), self.inserted_options():
             self.es.solve()
         nconv = self.es.getConverged()
         if nconv == 0:

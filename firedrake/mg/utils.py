@@ -41,7 +41,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
         fine_to_coarse_nodes = impl.fine_to_coarse_nodes(Vf, Vc, fine_to_coarse)
 
         # Detect fine nodes that only touch orphaned fine cells with no coarse parent
-        orphaned = (fine_to_coarse_nodes[:Vf.axes.owned.local_size//Vf.block_size] < 0).all(axis=1).any()
+        orphaned = (fine_to_coarse_nodes[:Vf.nodal_axes.sf.num_owned] < 0).all(axis=1).any()
         with op3.mpi.temp_internal_comm(Vf.comm) as icomm:
             orphaned = icomm.allreduce(bool(orphaned), op=MPI.LOR)
         if orphaned:
@@ -93,7 +93,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
         # location, so a repeated entry changes nothing.
         valid = coarse_to_fine_nodes >= 0
         nonempty = valid.any(axis=1)
-        if not Vc.comm.allreduce(bool(nonempty[:Vc.axes.owned.local_size//Vc.block_size].all()), op=MPI.LAND):
+        if not Vc.comm.allreduce(bool(nonempty[:Vc.nodal_axes.sf.num_owned].all()), op=MPI.LAND):
             raise RuntimeError("Adaptive coarse-to-fine map has empty node candidates")
         replacement = numpy.zeros(coarse_to_fine_nodes.shape[0],
                                   dtype=coarse_to_fine_nodes.dtype)

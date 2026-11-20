@@ -114,3 +114,102 @@ def test_no_bcs():
     re, im = es.eigenfunction(0)
     assert np.allclose(re.dat.data[:], re.dat.data[0])
     assert np.allclose(im.dat.data[:], im.dat.data[0])
+
+
+class DGLaplacian(AuxiliaryOperatorPC):
+    def form(self, pc, q, p):
+        mesh = p.function_space().mesh()
+        n = FacetNormal(mesh)
+        h = CellSize(mesh)
+        dp, dq = grad(p), grad(q)
+        a_cells = inner(dp, dq) * dx
+        a_fflux = (inner(avg(dp), jump(q, n)) + inner(avg(dq), jump(p, n))) * dS
+        a_bflux = (q * inner(dp, n) + p * inner(dq, n)) * ds
+        a_fpenalty = Constant(4.0) / avg(h) * inner(jump(p, n), jump(q, n)) * dS
+        a_bpenalty = Constant(8.0) / h * inner(p, q) * ds
+        return (a_cells - a_fflux - a_bflux + a_fpenalty + a_bpenalty, None)
+
+
+@pytest.mark.skipslepc
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("restrict", [True, False])
+@pytest.mark.parametrize("pc", ["plain_cg", "dg_laplace"])
+def test_mixed_fieldsplit(restrict, pc):
+    """Solve the mixed Laplace eigenproblem with a fieldsplit PC.
+    The BCs are `u . n = 0` on `x = 0` and `x = pi`, and `p = 0` on the other
+    sides. The eigenfunctions are `p_mn = cos(m x) sin(n y)` with n >= 1."""
+    mesh = RectangleMesh(16, 16, pi, pi, diagonal="crossed")
+    V = FunctionSpace(mesh, "RT", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    Z = V * Q
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+    a = -(inner(u, v) + inner(p, div(v)) + inner(div(u), q)) * dx
+    m = inner(p, q) * dx
+    bc = DirichletBC(Z.sub(0), 0, (1, 2))
+    ep = LinearEigenproblem(a, m, bcs=bc, bc_shift=666.0, restrict=restrict)
+
+    opts = {
+        "plain_cg": {"ksp_type": "cg", "ksp_rtol": 1e-12, "pc_type": "none"},
+        "dg_laplace": {
+            "ksp_type": "gmres",
+            "pc_type": "python",
+            "pc_python_type": __name__ + ".DGLaplacian",
+            "aux_pc_type": "lu",
+            "aux_pc_factor_mat_solver_type": "mumps",
+        },
+    }
+
+    solver_parameters = {
+        "eps_gen_hermitian": None,
+        "eps_target": 0,
+        "st_type": "sinvert",
+        "st_ksp_type": "fgmres",
+        "st_pc_type": "fieldsplit",
+        "st_pc_fieldsplit_type": "schur",
+        "st_pc_fieldsplit_schur_fact_type": "full",
+        "st_fieldsplit_0": {
+            "ksp_type": "preonly",
+            "pc_type": "lu",
+            "pc_factor_mat_solver_type": "mumps",
+        },
+        "st_fieldsplit_1": opts[pc],
+    }
+    es = LinearEigensolver(ep, 3, solver_parameters=solver_parameters)
+    nconv = es.solve()
+    assert nconv >= 3
+    assert "state" not in es._ctx.appctx
+    estimates = sorted(es.eigenvalue(i).real for i in range(3))
+    assert np.allclose(estimates, [1, 2, 4], rtol=1e-2)
+
+
+@pytest.mark.skipslepc
+@pytest.mark.parallel(nprocs=[1, 3])
+@pytest.mark.parametrize("restrict", [True, False])
+def test_p_multigrid(restrict):
+    base_mesh = IntervalMesh(4, 0, pi)
+    hierarchy = MeshHierarchy(base_mesh, 1)
+    mesh = hierarchy[-1]
+    V = FunctionSpace(mesh, "CG", 3)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, 0, "on_boundary")
+    problem = LinearEigenproblem(
+        inner(grad(u), grad(v)) * dx, bcs=bc, bc_shift=666.0,
+        restrict=restrict, form_compiler_parameters={"quadrature_degree": 8},
+    )
+    es = LinearEigensolver(problem, 1, solver_parameters={
+        "eps_gen_hermitian": None,
+        "eps_target": 0,
+        "st_type": "sinvert",
+        "st_ksp_type": "cg",
+        "st_pc_type": "python",
+        "st_pc_python_type": "firedrake.PMGPC",
+        "st_pmg_mg_coarse_pc_type": "mg",
+        "st_pmg_mg_coarse_mg_coarse_ksp_type": "preonly",
+        "st_pmg_mg_coarse_mg_coarse_pc_type": "lu",
+        "st_pmg_mg_coarse_mg_coarse_pc_factor_mat_solver_type": "mumps",
+    })
+
+    es.solve()
+    assert np.isclose(es.eigenvalue(0), 1)
