@@ -170,6 +170,9 @@ runs:
         : # DROP BEFORE MERGE
         pip install -v --ignore-installed --no-deps \
           git+https://github.com/firedrakeproject/fiat.git@pbrubeck/zany-vector
+        : # DROP BEFORE MERGE: UFL companion
+        pip install -v --ignore-installed --no-deps \
+          git+https://github.com/FEniCS/ufl.git@26e7b0226f978e9e84092e09e5300373e8fb03a0
         firedrake-clean
         pip list
 
