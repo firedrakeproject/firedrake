@@ -245,6 +245,19 @@ def test_efunc_subfunctions(ensemblefunc):
     )
 
 
+@pytest.mark.parallel(nprocs=[1, 4])
+def test_efunc_subfunction_with_one_named_field(ensemble, mesh):
+    V = fd.FunctionSpace(mesh, "CG", 1)
+    W = fd.MixedFunctionSpace([V], _labels=("height",))
+    efunc = fd.EnsembleFunction(fd.EnsembleFunctionSpace([V, W], ensemble))
+    subfunction = efunc.subfunctions[1]
+
+    parallel_assert(subfunction.function_space() == W)
+    subfunction.dat["height"].data_wo[...] = 1
+    storage = efunc._full_local_function.subfunctions[1]
+    parallel_assert(np.allclose(storage.dat.data_ro, 1))
+
+
 @pytest.mark.parametrize('riesz', [None, ufl.L2, "H1", "custom"])
 @pytest.mark.parallel(nprocs=[1, 2, 4, 6])
 def test_efunc_riesz_representation(ensemblefunc, riesz):
