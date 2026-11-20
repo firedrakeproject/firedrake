@@ -1176,11 +1176,11 @@ class FunctionPlotter:
         # if the function space is the same as the last one
         Q = function.function_space()
         mesh = Q.mesh()
-        finat_element = Q.finat_element
-        if isinstance(finat_element, NeedsCoordinateMappingElement) or finat_element.mapping != "affine":
-            # The reference tabulation below is only valid for an affine
-            # mapping, so we sample the interpolant in a broken Lagrange space.
-            element = get_embedding_dg_element(Q.ufl_element(), Q.value_shape, broken_cg=True)
+        element = Q.ufl_element()
+        if isinstance(Q.finat_element, NeedsCoordinateMappingElement) or not element.pullback.is_identity:
+            # Interpolate into broken Lagrange to sample the physical values
+            # with the reference tabulation below.
+            element = get_embedding_dg_element(element, Q.value_shape, broken_cg=True)
             function = assemble(interpolate(function, FunctionSpace(mesh, element)))
             Q = function.function_space()
         dimension = mesh.topological_dimension

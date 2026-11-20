@@ -226,6 +226,16 @@ def test_fn_plotter_mapped_element(family, degree):
 
 
 @pytest.mark.skipplot
+def test_fn_plotter_overridden_pullback():
+    mesh = UnitSquareMesh(3, 2)
+    element = WithMapping(FiniteElement("DG", mesh.ufl_cell(), 1), "L2 Piola")
+    V = FunctionSpace(mesh, element)
+    u = project(Constant(1), V)
+    fn_plotter = FunctionPlotter(mesh, num_sample_points=10)
+    np.testing.assert_allclose(fn_plotter(u), 1)
+
+
+@pytest.mark.skipplot
 def test_quiver_plot():
     mesh = UnitSquareMesh(10, 10)
     V = VectorFunctionSpace(mesh, "CG", 1)

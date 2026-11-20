@@ -39,9 +39,10 @@ The Clamped Plate
 -----------------
 
 All three methods solve for the transverse deflection :math:`w` of the
-mid-surface :math:`\Omega = (0, 1)^2` of a plate that is clamped on its
-boundary and carries a transverse load :math:`f`. The bending energy of a
-rotation field :math:`\boldsymbol{\beta}` is
+mid-surface :math:`\Omega = (0, 1)^2` of a plate that carries a transverse
+load :math:`f`. The two Kirchhoff examples use clamped boundary conditions,
+and the MITC example prescribes the boundary deflection of its manufactured
+solution. The bending energy of a rotation field :math:`\boldsymbol{\beta}` is
 
 .. math::
 
@@ -71,11 +72,11 @@ parameters of a thin plate.
   nu = Constant(0.3)
   D = E * t**3 / (12 * (1 - nu**2))
 
-The bending term is common to all three methods, so we write it once as a
-bilinear form in a trial rotation :math:`\boldsymbol{\beta}` and a test rotation
-:math:`\boldsymbol{\theta}`. The Kirchhoff methods below pass
-:math:`\boldsymbol{\beta} = \nabla w` and :math:`\boldsymbol{\theta} = \nabla v`,
-where :math:`v` is the test function of the deflection.
+The bending term is common to all three methods, so we write it once in
+terms of a trial rotation :math:`\boldsymbol{\beta}` and a test rotation
+:math:`\boldsymbol{\theta}`. The modified Morley method uses the gradients of
+the deflection trial and test functions. The discrete Kirchhoff method
+interpolates those gradients before passing them to the bending form.
 
 .. code-block:: python
 
@@ -103,7 +104,7 @@ degree.
 .. code-block:: python
 
   def l2_error(error):
-      return sqrt(assemble(inner(error, error) * dx(degree=12)))
+      return sqrt(assemble(inner(error, error) * dx(degree=14)).real)
 
 Reissner--Mindlin Plate with MITC
 ---------------------------------
@@ -278,7 +279,7 @@ Morley discretisation, which we use below for comparison.
 
 .. code-block:: python
 
-  def modified_morley(mesh, T, f, reduced=True):
+  def modified_morley_problem(mesh, T, f, reduced=True):
       V = FunctionSpace(mesh, "Morley", 2)
       P = FunctionSpace(mesh, "Lagrange", 1)
 
@@ -297,13 +298,12 @@ Morley discretisation, which we use below for comparison.
       L = inner(f, Pi_v) * dx
 
       w_h = Function(V)
-      solve(a == L, w_h, bcs=DirichletBC(V, 0, "on_boundary"))
-      return w_h
+      return LinearVariationalProblem(a, L, w_h, bcs=DirichletBC(V, 0, "on_boundary"))
 
-We check the membrane limit with a uniform load. We compare
-:math:`\Pi_h^P w_h` with the linear Lagrange solution of the membrane problem,
-which has the same strong boundary condition, and we decrease
-:math:`\delta`.
+We check the membrane limit with a uniform load. Multiplying the membrane
+deflection by :math:`T` gives the solution of :math:`-\Delta u = f`, so we
+solve this reference problem once. We compare it with
+:math:`T \Pi_h^P w_h` while updating :math:`\delta` in the same plate solver.
 
 .. code-block:: python
 
@@ -313,18 +313,22 @@ which has the same strong boundary condition, and we decrease
   q = TestFunction(P)
   f = Constant(1.0)
 
+  a = inner(grad(p), grad(q)) * dx
+  L = inner(f, q) * dx
   w_membrane = Function(P)
-  for delta in [1e-1, 1e-2, 1e-3]:
-      T = D / Constant(delta)**2
-      w_h = modified_morley(mesh, T, f)
+  solve(a == L, w_membrane, bcs=DirichletBC(P, 0, "on_boundary"))
+  membrane_norm = norm(w_membrane).real
 
-      a = T * inner(grad(p), grad(q)) * dx
-      L = inner(f, q) * dx
-      solve(a == L, w_membrane, bcs=DirichletBC(P, 0, "on_boundary"))
+  delta = Constant(1e-1)
+  T = D / delta**2
+  plate_solver = LinearVariationalSolver(modified_morley_problem(mesh, T, f))
+  for value in [1e-1, 1e-2, 1e-3]:
+      delta.assign(value)
+      w_h = plate_solver.solve()
 
-      Pi_w_h = assemble(interpolate(w_h, P))
-      difference = errornorm(w_membrane, Pi_w_h) / norm(w_membrane)
-      print(f"Modified Morley: delta = {delta:.0e}, "
+      scaled_w_h = assemble(interpolate(T * w_h, P))
+      difference = errornorm(w_membrane, scaled_w_h).real / membrane_norm
+      print(f"Modified Morley: delta = {value:.0e}, "
             f"relative difference from the membrane = {difference:.2e}")
 
 The difference decreases as :math:`O(\delta^2)`. Thus the method gives the
@@ -353,7 +357,8 @@ the gradient of the deflection, which we evaluate on each cell.
       T = D / Constant(1e-4)**2
       w_K = kirchhoff_solution(mesh)
       f = D * div(grad(div(grad(w_K)))) - T * div(grad(w_K))
-      w_h = modified_morley(mesh, T, f, reduced=reduced)
+      problem = modified_morley_problem(mesh, T, f, reduced=reduced)
+      w_h = LinearVariationalSolver(problem).solve()
       return l2_error(grad(w_h) - grad(w_K))
 
   sizes = [4, 8, 16, 32]
@@ -403,7 +408,8 @@ For the convergence study, we use a tension that gives
       T = D / Constant(1e-2)**2
       w_K = kirchhoff_solution(mesh)
       f = D * div(grad(div(grad(w_K)))) - T * div(grad(w_K))
-      w_h = modified_morley(mesh, T, f)
+      problem = modified_morley_problem(mesh, T, f)
+      w_h = LinearVariationalSolver(problem).solve()
       return w_h, l2_error(grad(grad(w_h)) - grad(grad(w_K)))
 
 Kirchhoff Plate with Discrete Kirchhoff Triangles
@@ -440,11 +446,9 @@ The equilibrium equation for this energy is:
   = \int_\Omega f \Pi_h^P v_h \, \mathrm{d}x
   \qquad \forall v_h \in W_h.
 
-The P1 reduction is essential for the membrane term. The DKT discrete gradient
-is designed to approximate the rotation in the bending term; it is not the
-conforming gradient of the reduced deflection space. Using it in the membrane
-term would therefore define a different second-order operator and would lose
-the uniform membrane limit. The DKT method combines the two gradient
+The P1 reduction recovers the linear Lagrange membrane discretisation as
+:math:`D` tends to zero. The DKT discrete gradient approximates the
+rotation in the bending term. The DKT method combines the two gradient
 reductions in UFL as
 ``grad(interpolate(grad(w), Theta))`` for bending and
 ``grad(interpolate(w, P))`` for membrane energy.
@@ -545,9 +549,8 @@ The demo prints the following errors and rates:
    | 32 | 8.992e-03 | 0.93 | 9.602e-03 | 0.91 | 3.261e-03 | 1.00   |
    +----+-----------+------+-----------+------+-----------+--------+
 
-All three methods converge at first order in the rotation gradient. MITC
-reaches this rate only after several refinements. The rate of the modified
-Morley method does not depend on :math:`\delta`.
+The observed rates for all three methods approach first order in the
+rotation gradient as the mesh is refined.
 
 .. code-block:: python
 

@@ -74,10 +74,10 @@ copy_demos: $(DEMO_SVG_ASSETS)
 # Compile TikZ sources for demo diagrams before copying assets into the Sphinx
 # source tree.
 ../demos/%.svg: ../demos/%.tex
-	tmpdir=$$(mktemp -d); \
-	trap 'rm -rf "$$tmpdir"' EXIT; \
+	tmpdir=$$(mktemp -d) && \
+	trap 'rm -rf "$$tmpdir"' EXIT && \
 	pdflatex -interaction=nonstopmode -halt-on-error \
-		-output-directory "$$tmpdir" "$<" >/dev/null; \
+		-output-directory "$$tmpdir" "$<" >/dev/null && \
 	pdftocairo -svg "$$tmpdir/$(basename $(notdir $@)).pdf" "$@"
 
 NOTEBOOK_SRCS = $(wildcard notebooks/*.py)

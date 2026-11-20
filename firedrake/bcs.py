@@ -311,11 +311,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`firedrake.function.Function` on
-        ``V``, or a :class:`firedrake.function.Function` on a different space or UFL expression that can be interpolated into
-        ``V``, for example, a :class:`.Constant` , an iterable of
-        literal constants (converted to a UFL expression), or a
-        literal constant which can be pointwise evaluated at the nodes
-        of ``V``.
+        ``V`` or a UFL expression that can be interpolated or projected into
+        ``V``. Numeric literals and sequences are converted to UFL expressions.
     :arg sub_domain: the integer id(s) of the boundary region over which the
         boundary condition should be applied. The string "on_boundary" may be used
         to indicate all of the boundaries of the domain. In the case of extrusion
@@ -376,7 +373,15 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     @DirichletBCMixin._ad_annotate_function_arg
     def function_arg(self, g):
-        '''Set the value of this boundary condition.'''
+        """Set the value of this boundary condition."""
+        try:
+            g = as_ufl(g)
+        except ValueError:
+            try:
+                g = as_tensor(g)
+            except ValueError as exc:
+                raise ValueError(f"{g} is not a valid DirichletBC expression") from exc
+
         try:
             # Clear any previously set update function
             del self._function_arg_update
@@ -392,7 +397,10 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
-        elif isinstance(g, ufl.classes.Expr):
+        elif isinstance(g, ufl.classes.ScalarValue) and V.finat_element.has_pointwise_dual_basis:
+            # Each point evaluation of the constant gives the same value.
+            self._function_arg = g
+        else:
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
@@ -411,16 +419,6 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
             self._function_arg_update()
             self._coefficients = tuple(extract_coefficients(g))
-        else:
-            try:
-                g = as_ufl(g)
-                self._function_arg = g
-            except ValueError:
-                try:
-                    # Recurse to handle this through interpolation.
-                    self.function_arg = as_ufl(as_tensor(g))
-                except ValueError:
-                    raise ValueError(f"{g} is not a valid DirichletBC expression")
 
     def homogenize(self):
         '''Convert this boundary condition into a homogeneous one.

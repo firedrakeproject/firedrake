@@ -14,14 +14,14 @@ def discrete_kirchhoff_error(n):
 
     x, y = SpatialCoordinate(mesh)
     w_exact = x**2 * (1 - x)**2 * y**2 * (1 - y)**2
-    L = div(grad(div(grad(w_exact)))) * v * dx
+    L = inner(div(grad(div(grad(w_exact)))), v) * dx
 
     wh = Function(W)
     solve(a == L, wh, bcs=DirichletBC(W, 0, "on_boundary"),
           solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     hessian_error = grad(interpolate(grad(wh), Theta)) - grad(grad(w_exact))
-    return sqrt(assemble(inner(hessian_error, hessian_error) * dx(degree=12)))
+    return sqrt(assemble(inner(hessian_error, hessian_error) * dx(degree=12)).real)
 
 
 def test_discrete_kirchhoff_convergence():
