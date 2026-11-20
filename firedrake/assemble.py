@@ -1978,10 +1978,14 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
         mesh = next(self._active_interior_facets)
+        facet_dat = mesh.interior_facet_local_facet_indices
         if mesh is not self._mesh:
             index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
-            assert integral_type == "interior_facet"
-        return mesh.interior_facet_local_facet_indices[index]
+            if integral_type == "broken_facet":
+                facet_dat = mesh.exterior_facet_local_facet_indices
+            elif integral_type != "interior_facet":
+                raise ValueError(f"Expected an interior or broken facet map, got {integral_type}")
+        return facet_dat[index]
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)
     def _(self, _, index):
@@ -2016,10 +2020,14 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.OrientationsInteriorFacetKernelArg)
     def _(self, _, index):
         mesh = next(self._active_orientations_interior_facet)
+        orientation_dat = mesh._interior_facet_local_orientation_dat
         if mesh is not self._mesh:
             index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
-            assert integral_type == "interior_facet"
-        return mesh._interior_facet_local_orientation_dat[index]
+            if integral_type == "broken_facet":
+                orientation_dat = mesh._exterior_facet_local_orientation_dat
+            elif integral_type != "interior_facet":
+                raise ValueError(f"Expected an interior or broken facet map, got {integral_type}")
+        return orientation_dat[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)
     def _as_parloop_arg_cell_facet(self, _, index):

@@ -73,7 +73,7 @@ __all__ = [
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
-    'Submesh'
+    'Submesh', 'BrokenMesh'
 ]
 
 
@@ -385,7 +385,7 @@ class AbstractMeshTopology(abc.ABC):
 
     counter = itertools.count()
 
-    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None):
+    def __init__(self, topology_dm, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=None, submesh_parent_point_map=None):
         """Initialise a mesh topology.
 
         Parameters
@@ -414,6 +414,8 @@ class AbstractMeshTopology(abc.ABC):
             Communicator.
         submesh_parent: AbstractMeshTopology
             Submesh parent.
+        submesh_parent_point_map : numpy.ndarray | None
+            Point map to the parent mesh, including repeated parent points.
 
         """
         self._topology_version = 0
@@ -427,6 +429,7 @@ class AbstractMeshTopology(abc.ABC):
         self.sfXB = sfXB
         r"The PETSc SF that pushes the global point number slab [0, NX) to input (naive) plex."
         self.submesh_parent = submesh_parent
+        self.submesh_parent_point_map = submesh_parent_point_map
         self.sfBC_orig = None
         # User comm
         self.user_comm = comm
@@ -1355,7 +1358,7 @@ class AbstractMeshTopology(abc.ABC):
             # the indices of the target mesh.
             bb = self.submesh_ancestors
             for b in reversed(bb[:bb.index(common_ancestor)]):
-                intersect_indices = b._parent_to_submesh_plex_index_map[intersect_indices]
+                intersect_indices = np.flatnonzero(np.isin(b._submesh_to_parent_plex_index_map, intersect_indices)).astype(IntType)
 
             plex_indices_is = _make_is_general(
                 np.intersect1d(plex_indices_is.indices, intersect_indices)
@@ -1983,6 +1986,7 @@ class AbstractMeshTopology(abc.ABC):
             return dmcommon.submesh_create_cell_closure(
                 self.topology_dm,
                 self.submesh_parent.topology_dm,
+                self._submesh_to_parent_plex_index_map,
                 self._plex_to_entity_numbering_sec("cell"),
                 self.submesh_parent._plex_to_entity_numbering_sec("cell"),
                 self.submesh_parent.cell_closure,
@@ -2191,24 +2195,21 @@ class AbstractMeshTopology(abc.ABC):
 
     # trans mesh
 
-    def trans_mesh_entity_map(self, iteration_spec):
-        """Create entity-entity (composed) map from base_mesh to `self`.
+    def trans_mesh_entity_map(self, iteration_spec: MeshLoopIndex) -> tuple[op3.Index, str]:
+        """Map an iteration index from a related mesh to this mesh.
 
         Parameters
         ----------
-        base_mesh : AbstractMeshTopology
-            Base mesh topology.
-        base_integral_type : str
-            Integral type on ``base_mesh``.
-        base_subdomain_id : int
-            Subdomain ID on ``base_mesh``.
-        base_all_integer_subdomain_ids : tuple
-            ``all_integer_subdomain_ids`` corresponding to ``base_mesh`` and ``base_integral_type``.
+        iteration_spec : MeshLoopIndex
+            Iteration index that specifies the source mesh and entities.
 
         Returns
         -------
         tuple
-            `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
+            Index on this mesh and the target integral type. An index over
+            parent interior facets can have the private target type
+            ``"broken_facet"`` when it maps to two exterior facets created by
+            :func:`BrokenMesh`.
 
         """
         raise NotImplementedError(f"Not implemented for {type(self)}")
@@ -2240,6 +2241,7 @@ class MeshTopology(AbstractMeshTopology):
         distribution_name=None,
         permutation_name=None,
         submesh_parent=None,
+        submesh_parent_point_map=None,
         comm=COMM_WORLD,
     ):
         """Initialise a mesh topology.
@@ -2270,6 +2272,8 @@ class MeshTopology(AbstractMeshTopology):
             Name of the entity permutation (reordering); if `None`, automatically generated.
         submesh_parent: MeshTopology
             Submesh parent.
+        submesh_parent_point_map : numpy.ndarray | None
+            Point map to the parent mesh, including repeated parent points.
         comm : mpi4py.MPI.Comm
             Communicator.
 
@@ -2289,7 +2293,9 @@ class MeshTopology(AbstractMeshTopology):
         # Disable auto distribution and reordering before setFromOptions is called.
         plex.distributeSetDefault(False)
         plex.reorderSetDefault(PETSc.DMPlex.ReorderDefaultFlag.FALSE)
-        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name, permutation_name, comm, submesh_parent=submesh_parent)
+        super().__init__(plex, name, reorder, sfXB, perm_is, distribution_name,
+                         permutation_name, comm, submesh_parent=submesh_parent,
+                         submesh_parent_point_map=submesh_parent_point_map)
 
     def _distribute(self):
         # Distribute/redistribute the dm to all ranks
@@ -2405,6 +2411,24 @@ class MeshTopology(AbstractMeshTopology):
     @cached_property
     def local_cell_orientation_dat(self):
         return self.entity_orientations_dat[:, op3.atom(self.cell_label)]
+
+    def _recompute_orientation_data(self) -> None:
+        """Recompute cached data after the DMPlex cone orientations change."""
+        for name in (
+            "__plex_closures_cache", "__fiat_cell_closures_cache",
+            "__fiat_cell_closures_renumbered_cache", "__plex_closure_cache",
+            "__fiat_closure_cache", "_pyop3_method_cache__support_dat",
+            "_pyop3_cache",
+            "cell_closure", "entity_orientations", "entity_orientations_dat",
+            "local_cell_orientation_dat", "cell_to_facets",
+            "exterior_facet_local_facet_indices", "interior_facet_local_facet_indices",
+            "_exterior_facet_local_numbers_dat", "_interior_facet_local_numbers_dat",
+            "_exterior_facet_local_orientation_dat", "_interior_facet_local_orientation_dat",
+            "_support",
+        ):
+            self.__dict__.pop(name, None)
+        self.cell_closure
+        self.entity_orientations
 
     @cached_property
     @collective
@@ -2637,7 +2661,6 @@ class MeshTopology(AbstractMeshTopology):
         else:
             from_mesh = self.submesh_parent
             to_mesh = self
-            plex_index_map = self._parent_to_submesh_plex_index_map
 
         from_set = from_mesh._entity_axes(from_selector).as_axis()
         from_plex_indices = from_mesh._entity_indices("plex", from_selector)
@@ -2649,14 +2672,48 @@ class MeshTopology(AbstractMeshTopology):
         assert from_set.local_size == len(from_plex_indices)
         assert to_set.local_size == len(to_plex_indices)
 
-        subpoints = plex_index_map[from_plex_indices][:, np.newaxis]  # arity 1 map between plex points
-        values = self._renumber_map_fixed(subpoints, from_plex_indices, from_numbering_sec, to_numbering_sec)
+        if child_parent_map:
+            subpoints = plex_index_map[from_plex_indices][:, np.newaxis]
+            arity = 1
+        else:
+            parent_points = self._submesh_to_parent_plex_index_map[to_plex_indices]
+            order = np.argsort(parent_points, kind="stable")
+            starts = np.searchsorted(parent_points, from_plex_indices, sorter=order, side="left")
+            counts = np.searchsorted(parent_points, from_plex_indices, sorter=order, side="right") - starts
+            local_arity = int(counts.max()) if counts.size else 0
+            with temp_internal_comm(self.comm) as icomm:
+                arity = max(icomm.allreduce(local_arity, op=MPI.MAX), 1)
+            subpoints = np.full((len(from_plex_indices), arity), -1, dtype=IntType)
+            rows, slots = np.nonzero(np.arange(arity)[None, :] < counts[:, None])
+            subpoints[rows, slots] = to_plex_indices[order[starts[rows] + slots]]
+        values = self._renumber_map_fixed(subpoints, from_plex_indices, from_numbering_sec, to_numbering_sec).copy()
+        if arity > 1:
+            if (from_selector, to_selector, arity) != ("interior_facet", "exterior_facet", 2):
+                raise NotImplementedError("Only an interior facet split into two exterior facets supports several target entities")
+            # Order the child facets by the cells on the two sides of the parent facet.
+            child_cells = self._entity_indices("plex", "cell")
+            parent_cells = self._renumber_map_fixed(
+                self._submesh_to_parent_plex_index_map[child_cells, np.newaxis],
+                child_cells, self._plex_to_entity_numbering_sec("cell"),
+                self.submesh_parent._plex_to_entity_numbering_sec("cell"),
+            ).ravel()
+            child_support = self._support_dat("exterior_facet", only_owned=False).data_ro_with_halos.ravel()
+            parent_support = self.submesh_parent._support_dat("interior_facet", only_owned=False).data_ro_with_halos.reshape((-1, 2))
+            rows, slots = np.nonzero(values >= 0)
+            children = values[rows, slots]
+            sides = (parent_cells[child_support[children]] == parent_support[rows, 1]).astype(IntType)
+            values.fill(-1)
+            values[rows, sides] = children
         to_label = to_set.component.label
-        map_dat = op3.Dat(from_set, data=values.ravel())
+        map_axes = from_set if arity == 1 else op3.AxisTree.from_iterable([from_set, arity])
+        map_dat = op3.Dat(map_axes, data=values.ravel())
+        component = op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label)
+        if arity > 1:
+            return op3.Map({idict({from_set.label: from_set.component.label}): [[component]]})
         return op3.ScalarMap(
             {
                 idict({from_set.label: from_set.component.label}): [
-                    op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label),
+                    component,
                 ],
             },
         )
@@ -2712,14 +2769,14 @@ class MeshTopology(AbstractMeshTopology):
         if target_integral_type_temp == "cell":
             # NOTE: we don't really use target_subset_points at all...
             if reverse:
-                target_subset_points = self._parent_to_submesh_plex_index_map[source_subset_points]
+                target_subset_points = np.flatnonzero(np.isin(self._submesh_to_parent_plex_index_map, source_subset_points)).astype(IntType)
             else:
                 target_subset_points = self._submesh_to_parent_plex_index_map[source_subset_points]
             target_integral_type = "cell"
 
         elif target_integral_type_temp == "facet":
             if reverse:
-                target_subset_points = self._parent_to_submesh_plex_index_map[source_subset_points]
+                target_subset_points = np.flatnonzero(np.isin(self._submesh_to_parent_plex_index_map, source_subset_points)).astype(IntType)
             else:
                 target_subset_points = self._submesh_to_parent_plex_index_map[source_subset_points]
 
@@ -2788,6 +2845,8 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def _submesh_to_parent_plex_index_map(self) -> np.ndarray[IntType]:
+        if self.submesh_parent_point_map is not None:
+            return self.submesh_parent_point_map
         return self.topology_dm.getSubpointIS().indices
 
     @cached_property
@@ -2802,24 +2861,21 @@ class MeshTopology(AbstractMeshTopology):
         parent_to_submesh_map[submesh_to_parent_map] = np.arange(submesh_to_parent_map.size, dtype=IntType)
         return parent_to_submesh_map
 
-    def trans_mesh_entity_map(self, loop_index):
-        """Create entity-entity (composed) map from base_mesh to `self`.
+    def trans_mesh_entity_map(self, loop_index: MeshLoopIndex) -> tuple[op3.Index, str]:
+        """Map an iteration index from a related mesh to this mesh.
 
         Parameters
         ----------
-        base_mesh : AbstractMeshTopology
-            Base mesh topology.
-        base_integral_type : str
-            Integral type on ``base_mesh``.
-        base_subdomain_id : int
-            Subdomain ID on ``base_mesh``.
-        base_all_integer_subdomain_ids : tuple
-            ``all_integer_subdomain_ids`` corresponding to ``base_mesh`` and ``base_integral_type``.
+        loop_index : MeshLoopIndex
+            Iteration index that specifies the source mesh and entities.
 
         Returns
         -------
         tuple
-            `tuple` of `op2.ComposedMap` from base_mesh to `self` and integral_type on `self`.
+            Index on this mesh and the target integral type. An index over
+            parent interior facets can have the private target type
+            ``"broken_facet"`` when it maps to two exterior facets created by
+            :func:`BrokenMesh`.
 
         """
         base_mesh = loop_index.mesh
@@ -2833,7 +2889,11 @@ class MeshTopology(AbstractMeshTopology):
             raise NotImplementedError("Currently cannot return identity map")
         composed_map, integral_type, _ = self.submesh_map_composed(base_mesh, base_integral_type, base_plex_points)
         for map2 in composed_map:
-            loop_index = map2(loop_index)
+            if isinstance(map2, op3.Map):
+                loop_index = map2(loop_index, label="sides")
+                integral_type = "broken_facet"
+            else:
+                loop_index = map2(loop_index)
         return loop_index, integral_type
 
 
@@ -5123,6 +5183,7 @@ def Mesh(meshfile, **kwargs):
                             distribution_name=kwargs.get("distribution_name"),
                             permutation_name=kwargs.get("permutation_name"),
                             submesh_parent=submesh_parent.topology if submesh_parent else None,
+                            submesh_parent_point_map=kwargs.get("submesh_parent_point_map"),
                             comm=user_comm)
     mesh = make_mesh_from_mesh_topology(topology, name)
 
@@ -6187,25 +6248,166 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
 
     subplex = dmcommon.submesh_create(mesh.topology_dm, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
-
-    comm = comm or mesh.comm
     name = name or _generate_default_submesh_name(mesh.name)
-    subplex.setName(_generate_default_mesh_topology_name(name))
+    return _child_mesh_from_plex(mesh, subplex, name, reorder, comm=comm)
+
+
+def _child_mesh_from_plex(mesh: MeshGeometry, plex: PETSc.DMPlex, name: str,
+                          reorder: bool | None, comm: MPI.Comm | None = None,
+                          parent_point_map: np.ndarray | None = None) -> MeshGeometry:
+    """Construct a mesh from a DMPlex derived from the parent mesh plex.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        Parent mesh.
+    plex : PETSc.DMPlex
+        DMPlex of the child mesh, distributed as the parent mesh.
+    name : str
+        Name of the child mesh.
+    reorder : bool | None
+        Whether to reorder mesh entities. By default, use the parent mesh
+        setting.
+    comm : MPI.Comm | None
+        Communicator of the child mesh. Defaults to the parent mesh
+        communicator.
+    parent_point_map : numpy.ndarray | None
+        Parent plex point of each child plex point. Defaults to the subpoint
+        IS of ``plex``.
+
+    Returns
+    -------
+    MeshGeometry
+        The child mesh, with ``mesh`` as its ``submesh_parent``.
+    """
+    plex.setName(_generate_default_mesh_topology_name(name))
+    # The plex inherits the parent labels, but the entity classes must
+    # follow the point SF of the child plex.
+    plex.removeLabel("firedrake_is_ghost")
     if reorder is None:
         # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
-
-    submesh = Mesh(
-        subplex,
+    child = Mesh(
+        plex,
         submesh_parent=mesh,
         name=name,
-        comm=comm,
+        comm=comm or mesh.comm,
         reorder=reorder,
         distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
+        submesh_parent_point_map=parent_point_map,
     )
     # Tag the relabeled mesh with the original distribution parameters
-    submesh._distribution_parameters = mesh._distribution_parameters
-    return submesh
+    child._distribution_parameters = mesh._distribution_parameters
+    return child
+
+
+def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
+               label_name: str | None = None,
+               name: str | None = None, reorder: bool | None = None,
+               junctions: Literal["split", "unsplit"] | None = None) -> MeshGeometry:
+    """Construct the mesh obtained by opening a labelled surface.
+
+    Parameters
+    ----------
+    mesh : MeshGeometry
+        Parent mesh.
+    subdomain_id : int | Sequence[int]
+        Value or values in ``label_name`` that mark the surface facets.
+    label_name : str | None
+        Name of the label that marks the surface facets. Defaults to the
+        parent mesh facet label.
+    name : str | None
+        Name of the broken mesh. Defaults to ``mesh.name + "_broken"``.
+    reorder : bool | None
+        Whether to reorder mesh entities. By default, use the parent mesh
+        setting.
+    junctions : {"split", "unsplit"} | None
+        How to break surfaces that meet at a junction, where more than two
+        labelled facets share a ridge. If ``None``, all the values in
+        ``subdomain_id`` mark one surface, which must not have a junction.
+        Otherwise, each value marks a separate surface, and the surfaces are
+        broken one after the other. A surface is not split where it ends,
+        which includes where it ends on another surface. With ``"split"``,
+        a surface that passes through a junction splits it, as for faults.
+        With ``"unsplit"``, no surface splits a junction, as for rivers.
+
+    Returns
+    -------
+    MeshGeometry
+        A mesh with a separate copy of each side of the labelled surfaces.
+
+    Notes
+    -----
+    The returned mesh is related to ``mesh`` through the generic
+    ``submesh_parent`` relation. The surface itself can be constructed
+    independently with :func:`Submesh` from ``mesh``. In parallel,
+    ``mesh`` must use ``RIDGE`` or ``VERTEX`` overlap so that both cells
+    incident to every labelled facet are visible in the inherited halo.
+    """
+    if not isinstance(mesh, MeshGeometry):
+        raise TypeError("Parent mesh must be a `MeshGeometry`")
+    if label_name is None:
+        label_name = dmcommon.FACE_SETS_LABEL
+    elif not isinstance(label_name, str):
+        raise TypeError(f"label_name must be a string: got {label_name!r}")
+    if isinstance(subdomain_id, numbers.Integral):
+        subdomain_ids = (subdomain_id,)
+    elif isinstance(subdomain_id, Sequence) and not isinstance(subdomain_id, str):
+        subdomain_ids = tuple(subdomain_id)
+    else:
+        subdomain_ids = ()
+    if not subdomain_ids or not all(isinstance(subid, numbers.Integral) for subid in subdomain_ids):
+        raise TypeError(f"subdomain_id must be an integer or a non-empty sequence of integers: got {subdomain_id!r}")
+    subdomain_ids = tuple(dict.fromkeys(subdomain_ids))
+    if junctions is None:
+        surfaces = (subdomain_ids,)
+    elif junctions in {"split", "unsplit"}:
+        surfaces = tuple((subid,) for subid in subdomain_ids)
+    else:
+        raise ValueError(f'junctions must be "split", "unsplit", or None: got {junctions!r}')
+    if isinstance(mesh.topology, ExtrudedMeshTopology):
+        raise NotImplementedError("Can not create a broken mesh from an ``ExtrudedMesh``")
+    if isinstance(mesh.topology, VertexOnlyMeshTopology):
+        raise NotImplementedError("Can not create a broken mesh from a ``VertexOnlyMesh``")
+    if len(mesh.topology.dm_cell_types) != 1:
+        raise NotImplementedError("BrokenMesh requires a mesh with one cell type")
+
+    plex = mesh.topology_dm
+    cohesive_label_names = dmcommon.create_cohesive_labels(
+        plex, label_name, surfaces, junctions == "unsplit")
+    mesh.topology._recompute_orientation_data()
+    plex.setSaveTransform(True)
+    # Each transform carries the cohesive labels of the next surfaces to its
+    # output. For each transform, source_points maps its output points to
+    # its input points.
+    cell_type = mesh.topology.dm_cell_types[0]
+    broken_plex = plex
+    source_points = []
+    for cohesive_label_name in cohesive_label_names:
+        transform = PETSc.DMPlexTransform().create(comm=plex.comm)
+        petsctools.set_from_options(transform, {"dm_plex_transform_type": "cohesive_extrude"})
+        transform.setDM(broken_plex)
+        transform.setActive(broken_plex.getLabel(cohesive_label_name))
+        transform.setUp()
+        with petsctools.inserted_options(transform):
+            transformed_plex = transform.apply(broken_plex)
+        # Keep only the split parent cells before opening the next surface.
+        broken_plex, _ = transformed_plex.filter(
+            label=transformed_plex.getCellTypeLabel(),
+            value=cell_type,
+            ignoreHalo=False,
+            sanitizeSubMesh=True,
+            comm=transformed_plex.comm,
+        )
+        source_points.append(dmcommon.transform_source_points(broken_plex, transform))
+        transform.destroy()
+
+    parent_point_map = source_points.pop()
+    for points in reversed(source_points):
+        parent_point_map = points[parent_point_map]
+
+    name = name or f"{mesh.name}_broken"
+    return _child_mesh_from_plex(mesh, broken_plex, name, reorder, parent_point_map=parent_point_map)
 
 
 def coordinates_from_topology(topology: AbstractMeshTopology, element: finat.ufl.FiniteElement) -> "CoordinatelessFunction":
