@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import collections
 import contextlib
 import functools
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyop3 as op3
+import pyop3.types
 import finat
 from immutabledict import immutabledict as idict
 
@@ -16,6 +19,9 @@ from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed, entity_dofs_key, entity_permutations_key
 from firedrake.matrix import Matrix
 from firedrake.mesh import MeshLoopIndex, extract_mesh_topologies
+
+if TYPE_CHECKING:
+    from firedrake import *
 
 
 @op3.cache.with_heavy_caches(lambda t, li, *a, **kw: [li.mesh.topology])
@@ -47,59 +53,98 @@ def _(matrix: Matrix, loop_index, **kwargs):
     return pack(matrix.M, loop_index, *matrix.ufl_function_spaces(), **kwargs)
 
 
-def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
+def _pack_map(loop_index: MeshLoopIndex, mesh, *, renumber: bool) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
+    # For cross-mesh loops the mesh we are iterating over (iter_mesh) will not
+    # be the same as the mesh the function lives on (mesh).
     iter_mesh = loop_index.mesh
-    mesh = mesh.topology
 
-    if iter_mesh.topology is mesh:
+    if iter_mesh.topology is mesh.topology:
         target_integral_type = loop_index.integral_type
-        # Are we iterating over owned entities only? This is used to filter the
-        # maps to avoid ambiguity. Usually it is the case that the initial loop
-        # is over owned entities, but then as soon as it is hit with a map then
-        # entities may not necessarily be owned.
-        iter_owned = not loop_index.include_ghosts
 
+    # extruded -> base mesh
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
-        and iter_mesh.topology._base_mesh is mesh
+        and iter_mesh.topology._base_mesh is mesh.topology
     ):
-        assert loop_index.integral_type == "cell"
+        if loop_index.integral_type == "cell":
+            pass
+        else:
+            assert loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}
+            loop_index = iter_mesh.support(
+                loop_index, src_path=_get_src_path(loop_index, iter_mesh, loop_index.integral_type)
+            )
+
         loop_index = iter_mesh.extr_cell_to_base_cell_map(
-            loop_index, label="extr_cell_base_cell"
+            loop_index,
+            label="extr_cell_base_cell",
+            src_path=_get_src_path(loop_index, iter_mesh, "cell"),
         )
         target_integral_type = "cell"
-        iter_owned = False
 
+    # across submeshes
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
         loop_index, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
-        iter_owned = False
 
+    # No shared topology, must be using a vertex-only mesh
     else:
-        # No shared topology, must be using a vertex-only mesh
-        loop_index = loop_index.mesh.cell_parent_cell_map(loop_index)
+        loop_index = iter_mesh.cell_parent_cell_map(loop_index)
         target_integral_type = "cell"
-        iter_owned = False
 
     if target_integral_type == "cell":
-        # In parallel, only-owned and all points have different axis labels
-        if iter_owned and mesh.comm.size > 1:
-            src_label = f"{mesh._uid}_owned"
-        else:
-            src_label = mesh._uid
         return mesh.closure(
-            loop_index, src_path={src_label: mesh.cell_label}
+            loop_index, selector=_get_selector(loop_index, mesh, "cell", renumber)
         )
     elif "facet" in target_integral_type:
-        if iter_owned and mesh.comm.size > 1:
-            src_label = f"{target_integral_type}_owned"
-        else:
-            src_label = target_integral_type
+        raise NotImplementedError
         return mesh.closure(mesh.support(
-            loop_index, src_path={src_label: None}
+            loop_index, selector=_get_selector(loop_index, mesh, target_integral_type, renumber)
         ))
     else:
         raise ValueError(f"Unknown integral_type: {target_integral_type}")
+
+
+def _get_selector(
+    loop_index: op3.Index,
+    mesh: MeshGeometry,
+    integral_type: str,
+    renumber: bool,
+) -> tuple[op3.types.ConcretePathT, op3.types.LabelT]:
+    """Return the appropriate selector to filter a mesh map.
+
+    This function is used to filter the maps to avoid ambiguity between
+    only-owned and all points. The maps are capable of taking both as
+    inputs, and so the resulting indexed object is actually an axis forest,
+    which we don't want during packing.
+
+    There is similar ambiguity between outputs too. A map can target only-owned
+    points, all points, all points (but renumbered) etc.
+
+    """
+    # We assume that we are iterating over only-owned entities only when
+    # loop_index is still a MeshLoopIndex (i.e. it hasn't gone through a
+    # map yet).
+    iter_owned = isinstance(loop_index, MeshLoopIndex) and not loop_index.include_ghosts
+
+    if integral_type == "cell":
+        # We use the 'points' axis for cells
+        axis_label = f"{mesh._uid}_renum"
+        cpt_label = mesh.cell_label
+    elif "facet" in integral_type:
+        # Different facet types have axis labels that match integral_type, and
+        # a single component (labelled None)
+        axis_label = integral_type
+        cpt_label = None
+    else:
+        raise ValueError(f"Unexpected integral type: {integral_type}")
+
+    # In parallel, only-owned and all points have different axis labels
+    if iter_owned and mesh.comm.size > 1:
+        axis_label = f"{axis_label}_owned"
+
+    src_path = idict({axis_label: cpt_label})
+    dest_label = "renum" if renumber else "norenum"
+    return (src_path, dest_label)
 
 
 @_pack.register(op3.Dat)
@@ -163,7 +208,7 @@ def _pack_dat_nonmixed(
     get_version=lambda mesh_topology: mesh_topology._topology_version
 )
 def _pack_dat_nonmixed_topological(axes, loop_index, space):
-    map_ = _pack_map(loop_index, space.mesh())
+    map_ = _pack_map(loop_index, space.mesh(), renumber=space.renumber)
     cell_index = map_.index
     packed_axes = axes[map_]
 
@@ -220,8 +265,8 @@ def _pack_mat_nonmixed(
     row_space: WithGeometry,
     column_space: WithGeometry,
 ):
-    row_map = _pack_map(loop_info, row_space.mesh())
-    column_map = _pack_map(loop_info, column_space.mesh())
+    row_map = _pack_map(loop_info, row_space.mesh(), renumber=row_space.renumber)
+    column_map = _pack_map(loop_info, column_space.mesh(), renumber=column_space.renumber)
     packed_mat = mat[row_map, column_map]
 
     depths = []

@@ -254,7 +254,7 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
-def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS, MPI.Comm comm) -> PETSc.Section:
+def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS | Integral, MPI.Comm comm) -> PETSc.Section:
     """Return a PETSc section representing the renumbering of a set of points.
 
     The section maps from 'plex' indices (i.e. point numbers as seen by DMPlex) to
@@ -275,8 +275,12 @@ def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS, 
 
     """
     section = PETSc.Section().create(comm=comm)
-    section.setChart(0, new_to_old_numbering.size)
-    section.setPermutation(new_to_old_numbering)
+
+    if isinstance(new_to_old_numbering, Integral):
+        section.setChart(0, new_to_old_numbering)
+    else:
+        section.setChart(0, new_to_old_numbering.size)
+        section.setPermutation(new_to_old_numbering)
     for pt in selected_points.indices:
         section.setDof(pt, 1)
     section.setUp()

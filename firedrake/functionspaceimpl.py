@@ -1179,7 +1179,7 @@ class FunctionSpace(AbstractFunctionSpace):
     boundary_set = frozenset()
 
     @PETSc.Log.EventDecorator()
-    def __init__(self, mesh, element, name=None, *, layout=None):
+    def __init__(self, mesh, element, name=None, *, layout=None, renumber: bool = True, backend: Literal["fiat", "petsc"] = "fiat"):
         super().__init__()
         if type(element) is finat.ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
@@ -1223,6 +1223,9 @@ class FunctionSpace(AbstractFunctionSpace):
 
         self.element = element
         self.finat_element = create_element(element)
+
+        self.renumber = renumber
+        self.backend = backend
 
         if layout is None:
             # NOTE: Indicates bad inheritance
@@ -1302,21 +1305,17 @@ class FunctionSpace(AbstractFunctionSpace):
             # What if the 'R' dimension is on the base mesh?
             # What if we extrude multiple times?
             base_mesh = self._mesh._base_mesh
-
         else:
             base_mesh = self._mesh
 
-        mesh_axis = base_mesh.flat_points
-        num_points = mesh_axis.local_size
-
+        mesh_axis = base_mesh.dm_axis(renumber=self.renumber)
         constraints = [AxisConstraint(mesh_axis)]
 
         # Create an (unpermuted) mapping from plex point to number of DoFs
-        ndofs_array = numpy.empty(num_points, dtype=IntType)
+        ndofs_array = numpy.empty(mesh_axis.local_size, dtype=IntType)
         entity_dofs = _num_entity_dofs(self.finat_element)
         dm = base_mesh.topology_dm
         if type(base_mesh.topology) is MeshTopology:
-
             if self._is_real_tensor_product:
                 flattened_entity_dofs = {}
                 for base_dim in range(dm.getDimension()+1):
@@ -1339,7 +1338,7 @@ class FunctionSpace(AbstractFunctionSpace):
         # and we also always split into unconstrained and constrained even if we know
         # we don't have to (no boundary set).
         num_unconstrained_dofs, num_constrained_dofs = _partition_constrained_points(
-            base_mesh, ndofs_array, self.boundary_set
+            base_mesh, ndofs_array, self.boundary_set, self.renumber
         )
 
         unconstrained_dofs_dat = op3.Dat(
@@ -1392,6 +1391,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return tuple(constraints)
 
     @cached_property_until_mesh_topology_changes
+    @_with_mesh_heavy_cache
     def plex_axes(self) -> op3.IndexedAxisTree:
         # NOTE: We now have different but very similar treatment for R and AxR spaces
         if self._is_real_tensor_product:
@@ -1399,9 +1399,8 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             return self._make_plex_axes_default()
 
-    @_with_mesh_heavy_cache
     def _make_plex_axes_default(self) -> op3.IndexedAxisTree:
-        strata_slice = self._mesh._strata_slice
+        strata_slice = self._mesh._dim_slice(renumber=self.renumber)
         index_tree = op3.IndexTree(strata_slice)
         for slice_component in strata_slice.components:
             path = {strata_slice.label: slice_component.label}
@@ -1425,7 +1424,6 @@ class FunctionSpace(AbstractFunctionSpace):
                 index_tree = index_tree.add_subtree(path | {subslice.label: None}, shape_slices)
         return self.dm_axes[index_tree]
 
-    @_with_mesh_heavy_cache
     def _make_plex_axes_real_tensor_product(self, mode: Literal["plex", "nodal"]) -> op3.IndexedAxisTree:
         # Very similar to what we do for purely Real function spaces except
         # the base mesh exists.
@@ -1467,7 +1465,7 @@ class FunctionSpace(AbstractFunctionSpace):
                         # hacky way to get the right entities
                         base_selector = utils.just_one(
                             sc.array.buffer
-                            for sc in self.mesh()._base_mesh._strata_slice.components
+                            for sc in self.mesh()._base_mesh._dim_slice.components
                             if sc.label == base_dim
                         )
 
@@ -1722,7 +1720,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return dmcommon.restrict_section(
             self.function_space.section,
             self.mesh().topology_dm,
-            self.mesh().points.owned.local_size,
+            self.mesh().dim_axis.owned.local_size,
             self.boundary_set,
             self.extruded,
         )
@@ -1824,10 +1822,12 @@ class FunctionSpace(AbstractFunctionSpace):
             if isinstance(val, numpy.ndarray):
                 if valuetype is not None:
                     val = val.astype(valuetype, copy=False, casting="unsafe")
+                data = val.ravel()
+            elif isinstance(val, PETSc.Vec):
                 data = val
             else:
-                data = numpy.asarray(val, dtype=valuetype)
-            return op3.Dat(self.axes, data=data.ravel(), name=name)
+                data = numpy.asarray(val, dtype=valuetype).ravel()
+            return op3.Dat(self.axes, data=data, name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 
@@ -2217,9 +2217,12 @@ class MixedFunctionSpace(AbstractFunctionSpace):
             raise ValueError("Provided array has the wrong number of entries")
 
         if val is not None:
-            if valuetype is not None:
-                val = val.astype(valuetype, copy=False, casting="unsafe")
-            return op3.Dat(self.axes, data=val.ravel(), name=name)
+            if isinstance(val, numpy.ndarray):
+                if valuetype is not None:
+                    val = val.astype(valuetype, copy=False, casting="unsafe").ravel()
+            else:
+                assert isinstance(val, PETSc.Vec)
+            return op3.Dat(self.axes, data=val, name=name)
         else:
             return op3.Dat.zeros(self.axes, dtype=valuetype, name=name)
 

@@ -274,7 +274,8 @@ class InstructionExecutionContext:
         array_pattern = \
             r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \w+, \w+, \w+\)"
         petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \w+\)"
-        for pattern in [array_pattern, petscmat_pattern]:
+        petscvec_pattern = r"\(<class 'pyop3.buffer.PetscVecBuffer'>, 'PetscVecBuffer_\d+', \w+\)"
+        for pattern in [array_pattern, petscmat_pattern, petscvec_pattern]:
             num_buffers += len(utils.unique(re.findall(pattern, cache_key_str)))
         assert num_buffers == len(self.preprocessed_buffers)
 
@@ -716,8 +717,8 @@ class CompiledCodeExecutor:
         utils.raise_missing_dispatch_handler(obj)
 
     @_buffer_str.register
-    def _(self, buffer: pyop3.buffer.ArrayBuffer):
-        return f"({buffer.size})", str(buffer._current_device_array)
+    def _(self, buffer: pyop3.buffer.ConcreteArrayBuffer):
+        return f"({buffer.size})", str(buffer._get_array())
 
     @_buffer_str.register
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
@@ -796,8 +797,9 @@ class CompiledCodeExecutor:
     def _buffer_exchanges_by_type(self, buffer: pyop3.buffer.ConcreteBuffer, intent):
         utils.raise_missing_dispatch_handler(buffer)
 
-    @_buffer_exchanges_by_type.register
-    def _(self, buffer: pyop3.buffer.ArrayBuffer, intent):
+    @_buffer_exchanges_by_type.register(pyop3.buffer.ArrayBuffer)
+    @_buffer_exchanges_by_type.register(pyop3.buffer.PetscVecBuffer)
+    def _(self, buffer, intent):
         initializers, reductions, bcasts, finalizers = [], [], [], []
 
         # NOTE: We could be more doing some cool optimisations here. If we don't touch
