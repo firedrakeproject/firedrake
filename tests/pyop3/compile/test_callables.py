@@ -95,7 +95,7 @@ class TestCallables:
         loopy_knl = lp.register_callable(
             loopy_knl, "inverse", op3.compile.INVCallable()
         )
-        kernel = op3.Function(loopy_knl, [op3.WRITE, op3.READ], libs=["lapack"])
+        kernel = op3.Function(loopy_knl, [op3.WRITE, op3.READ], libraries=(op3.cc.LIBPETSC, op3.cc.LIBBLASLAPACK))
 
         op3.loop(p := iterset.iter(), kernel(zero_mat[p], inv_mat[p]), eager=True)
         expected = np.linalg.inv(inv_mat.data_ro)
@@ -117,7 +117,7 @@ class TestCallables:
         loopy_knl = lp.register_callable(
             loopy_knl, "solve", op3.compile.SolveCallable()
         )
-        kernel = op3.Function(loopy_knl, [op3.READ, op3.READ, op3.WRITE], libs=["lapack"])
+        kernel = op3.Function(loopy_knl, [op3.READ, op3.READ, op3.WRITE], libraries=(op3.cc.LIBPETSC, op3.cc.LIBBLASLAPACK))
 
         op3.loop(
             p := iterset.iter(),

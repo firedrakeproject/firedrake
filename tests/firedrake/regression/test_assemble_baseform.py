@@ -3,7 +3,8 @@ import numpy as np
 from firedrake import *
 from firedrake.assemble import get_assembler
 from firedrake.matrix import ImplicitMatrix
-from firedrake.utils import ScalarType
+from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType, complex_mode
 import ufl
 
 
@@ -86,6 +87,51 @@ def test_assemble_adjoint(M):
     assert isinstance(res, ufl.Matrix)
     assert res.M.handle == res.petscmat
     assert np.allclose(res.M.handle[:, :], res2.M.handle[:, :], rtol=1e-14)
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("mat_type", [
+    "aij",
+    pytest.param("nest", marks=pytest.mark.xfail(
+        complex_mode, raises=PETSc.Error,
+        reason="PETSc MatNest does not implement conjugation.",
+    )),
+])
+@pytest.mark.parametrize("degree", [1, 2])
+@pytest.mark.parametrize("measure", [dx, ds], ids=["cell", "boundary"])
+def test_assemble_adjoint_tensor(mat_type: str, degree: int, measure: ufl.Measure) -> None:
+    """Update an independent output matrix while preserving the input matrix."""
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "CG", degree)
+    u = TrialFunction(V)
+    v = TestFunction(W)
+    value = 1 + 2j if complex_mode else 1
+    coefficient = Constant(value)
+    form = inner(coefficient * (u + u.dx(0)), v) * measure
+    source = assemble(form, mat_type=mat_type)
+    target = assemble(inner(TrialFunction(W), TestFunction(V)) * dx, mat_type=mat_type)
+    handle = target.petscmat.handle
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(1 + x)
+    g = Function(W).interpolate(2 - x)
+
+    for scale in (1, 2, -1, 0):
+        coefficient.assign(scale * value)
+        assemble(form, tensor=source)
+        result = assemble(ufl.Adjoint(source), tensor=target)
+        assert result is target
+        assert result.petscmat.handle == handle
+
+        expected = assemble(action(adjoint(form), g))
+        error = assemble(assemble(action(result, g)) - expected)
+        with error.dat.vec_ro as vector:
+            assert vector.norm() < 1e-12
+
+        expected = assemble(action(form, f))
+        error = assemble(assemble(action(source, f)) - expected)
+        with error.dat.vec_ro as vector:
+            assert vector.norm() < 1e-12
 
 
 def test_assemble_action(M, f):

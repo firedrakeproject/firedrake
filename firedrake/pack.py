@@ -51,29 +51,53 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
     iter_mesh = loop_index.mesh
     mesh = mesh.topology
+
     if iter_mesh.topology is mesh:
         target_integral_type = loop_index.integral_type
+        # Are we iterating over owned entities only? This is used to filter the
+        # maps to avoid ambiguity. Usually it is the case that the initial loop
+        # is over owned entities, but then as soon as it is hit with a map then
+        # entities may not necessarily be owned.
+        iter_owned = not loop_index.include_ghosts
+
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
         and iter_mesh.topology._base_mesh is mesh
     ):
-        if loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}:
-            loop_index = iter_mesh.support(loop_index)
-        else:
-            assert loop_index.integral_type == "cell"
-        loop_index = iter_mesh.extr_cell_to_base_cell_map(loop_index, label="extr_cell_base_cell")
+        assert loop_index.integral_type == "cell"
+        loop_index = iter_mesh.extr_cell_to_base_cell_map(
+            loop_index, label="extr_cell_base_cell"
+        )
         target_integral_type = "cell"
+        iter_owned = False
+
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
         loop_index, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
+        iter_owned = False
+
     else:
         # No shared topology, must be using a vertex-only mesh
         loop_index = loop_index.mesh.cell_parent_cell_map(loop_index)
         target_integral_type = "cell"
+        iter_owned = False
 
     if target_integral_type == "cell":
-        return mesh.closure(loop_index)
+        # In parallel, only-owned and all points have different axis labels
+        if iter_owned and mesh.comm.size > 1:
+            src_label = f"{mesh._uid}_owned"
+        else:
+            src_label = mesh._uid
+        return mesh.closure(
+            loop_index, src_path={src_label: mesh.cell_label}
+        )
     elif "facet" in target_integral_type:
-        return mesh.closure(mesh.support(loop_index))
+        if iter_owned and mesh.comm.size > 1:
+            src_label = f"{target_integral_type}_owned"
+        else:
+            src_label = target_integral_type
+        return mesh.closure(mesh.support(
+            loop_index, src_path={src_label: None}
+        ))
     else:
         raise ValueError(f"Unknown integral_type: {target_integral_type}")
 
@@ -117,6 +141,13 @@ def _pack_dat_nonmixed(
     packed_topological_axes, depth = _pack_dat_nonmixed_topological(dat.axes, loop_index, space)
     packed_dat = dat.with_axes(packed_topological_axes)
 
+    # If the element numbers its nodes in entity order (for example P1, DG or RT)
+    # then the topological packing is already in nodal order and the node
+    # permutation below is the identity. Skip the reshape and the permutation so
+    # that the generated code does not copy the packed values once more.
+    if not _needs_static_permutation(space.finat_element):
+        return packed_dat
+
     # For high order elements the DoFs for the different topological entities are
     # interleaved. We therefore need to reshape the dat to a 'nodal' view in
     # order to permute the nodes.
@@ -129,21 +160,14 @@ def _pack_dat_nonmixed(
 @op3.cache.cached_on(
     get_obj=lambda ax, idx, sp: extract_mesh_topologies(sp.mesh()),
     multi=True,
+    get_version=lambda mesh_topology: mesh_topology._topology_version
 )
 def _pack_dat_nonmixed_topological(axes, loop_index, space):
     map_ = _pack_map(loop_index, space.mesh())
     cell_index = map_.index
     packed_axes = axes[map_]
 
-    # bit of a hack, find the depth of the axis labelled 'closure', this relies
-    # on the fact that the tree is always linear at the top
-    if isinstance(packed_axes, op3.AxisForest):
-        depth = utils.single_valued(
-            [ax.label for ax in tree.axes].index("closure")
-            for tree in packed_axes.trees
-        )
-    else:
-        depth = [ax.label for ax in packed_axes.axes].index("closure")
+    depth = [ax.label for ax in packed_axes.axes].index("closure")
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
@@ -202,13 +226,7 @@ def _pack_mat_nonmixed(
 
     depths = []
     for axes in [packed_mat.row_axes, packed_mat.column_axes]:
-        if isinstance(axes, op3.AxisForest):
-            depth = utils.single_valued(
-                [axis.label for axis in tree.axes].index("closure")
-                for tree in axes.trees
-            )
-        else:
-            depth = [axis.label for axis in axes.axes].index("closure")
+        depth = [axis.label for axis in axes.axes].index("closure")
         depths.append(depth)
     row_depth, column_depth = depths
 
@@ -320,18 +338,6 @@ def _orient_mat_dofs(packed_mat: op3.Mat, row_space: WithGeometry, column_space:
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
-    # If we have an axis forest then we have different interpretations of the data.
-    # We only want the most natural one here and want to drop the others. This is
-    # complicated by the fact that we can have maps from both all points and only
-    # owned points. We can also get maps from the nodal axes that we probably want
-    # to discard.
-    # For the moment we restrict ourself to selecting the first available choice.
-    # This seems to work for most things.
-    # TODO: this is fairly gross and should be rethought - perhaps we need to
-    # propagate axis forest information further in.
-    if isinstance(axes, op3.AxisForest):
-        axes = axes.trees[0]
-
     outer_axes = []
     outer_path = idict()
     for _ in range(depth):
@@ -354,10 +360,15 @@ def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth
         if dof_axis.size == 0:
             continue
 
+        # Leave the DoFs of this entity dimension unpermuted if no orientation
+        # permutes them, for example when each entity has a single DoF. This
+        # removes the orientation lookups from the generated code.
+        if _entity_permutations_are_identity(space.finat_element, dim_label):
+            continue
+
         # First create an buffer expression for the permutations that looks like:
         #
         #     'perm[i_which, i_dof]'
-        # TODO: For some cases can avoid this permutation as it's just identity
         perm_expr = _entity_permutation_buffer_expr(space, dim_axis_component.label)
 
         # Now replace 'i_which' with 'ort[i0, i1]'
@@ -436,6 +447,15 @@ def _prepare_entity_permutations(element, dim_label):
         new_perms.append(new_perm)
 
     return new_perms
+
+
+@op3.cache.serial_cache()
+def _entity_permutations_are_identity(element, dim_label) -> bool:
+    """Return whether no orientation permutes the DoFs of entities of ``dim_label``."""
+    return all(
+        np.array_equal(perm, np.arange(len(perm)))
+        for perm in _prepare_entity_permutations(element, dim_label)
+    )
 
 
 @op3.cache.serial_cache()

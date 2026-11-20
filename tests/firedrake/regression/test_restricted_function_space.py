@@ -94,6 +94,56 @@ def test_restrict_assign(into_restricted):
     assert errornorm(ures, u) < 1E-13
 
 
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("op", ["bc.zero", "zero", "assign", "max", "min"])
+def test_restricted_assign_writes_bc_nodes(op):
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 2)
+    V_res = RestrictedFunctionSpace(V, boundary_set=[1])
+    bc = DirichletBC(V_res, 0, 1)
+
+    u = Function(V_res)
+    u.dat.data_wo_with_halos[...] = 1
+    if op == "bc.zero":
+        bc.zero(u)
+        expected = 0
+    elif op == "zero":
+        u.zero()
+        expected = 0
+    elif op == "assign":
+        g = Function(V_res)
+        g.dat.data_wo_with_halos[...] = 2
+        u.assign(g)
+        expected = 2
+    elif op == "max":
+        u.dat.assign(3, mode="max", eager=True, eager_strategy="array")
+        expected = 3
+    else:
+        u.dat.assign(-1, mode="min", eager=True, eager_strategy="array")
+        expected = -1
+
+    # The boundary condition nodes of a restricted space are the constrained DoFs
+    assert np.allclose(u.dat.data_ro_with_halos[bc.nodes], expected)
+
+
+@pytest.mark.parallel([1, 3])
+def test_restricted_solve_homogeneous_bcs_nonzero_guess():
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 2)
+    v = TestFunction(V)
+    bc = DirichletBC(V, 0, 1)
+
+    solutions = []
+    for restrict in [False, True]:
+        u = Function(V)
+        u.assign(1)
+        F = inner(grad(u), grad(v)) * dx - inner(Constant(1), v) * dx
+        solve(F == 0, u, bcs=bc, restrict=restrict)
+        solutions.append(u)
+
+    assert errornorm(*solutions) < 1.e-10
+
+
 def test_poisson_homogeneous_bcs():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 2)
@@ -435,6 +485,29 @@ def test_reconstruct_mixed_restricted():
         assert W.collapse().boundary_set == boundary_set
 
 
+@pytest.mark.parallel([1, 2])
+def test_restricted_solve_equivalence_hdiv():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "RT", 2)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    uh = Function(V)
+    uh_restrict = Function(V)
+
+    rg = RandomGenerator(PCG64(seed=0))
+    u_exact = rg.uniform(V)
+
+    a = inner(u, v) * dx + inner(div(u), div(v)) * dx
+    L = replace(a, {u: u_exact})
+    bc = DirichletBC(V, u_exact, "on_boundary")
+
+    solve(a == L, uh, bcs=bc, restrict=False)
+    solve(a == L, uh_restrict, bcs=bc, restrict=True)
+    assert errornorm(u_exact, uh) < 1e-12
+    assert errornorm(uh, uh_restrict) < 1e-12
+
+
 @pytest.mark.parametrize("names", [(None, None), (None, "name1"), ("name0", "name1")])
 def test_restrict_fieldsplit(names):
     mesh = UnitSquareMesh(2, 2)
@@ -494,6 +567,31 @@ def test_restrict_python_pc():
     solver.solve()
 
     assert errornorm(u_exact, u) < 1E-10
+
+
+@pytest.mark.parallel([1, 3])
+def test_restrict_nullspace():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    Z = V * V
+    u, p = TrialFunctions(Z)
+    v, q = TestFunctions(Z)
+    a = (inner(grad(u), grad(v)) + inner(grad(p), grad(q))) * dx
+    L = inner(1, q) * ds(2) - inner(1, q) * ds(1)
+
+    nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
+    sol = Function(Z)
+    bc = DirichletBC(Z.sub(0), 0, "on_boundary")
+    prob = LinearVariationalProblem(a, L, sol, bcs=bc, restrict=True)
+    sp = {"ksp_type": "cg", "pc_type": "none", "ksp_rtol": 1e-12}
+    solver = LinearVariationalSolver(prob, nullspace=nullspace, solver_parameters=sp)
+    solver.solve()
+    A, _ = solver.snes.ksp.getOperators()
+    space = A.getNullSpace()
+    assert space
+    assert space.test(A)
+    x, _ = SpatialCoordinate(mesh)
+    assert errornorm(x - 0.5, sol.subfunctions[1]) < 1e-10
 
 
 @pytest.mark.parametrize("degree,relax", [(1, "jacobi"), (3, "asm")])

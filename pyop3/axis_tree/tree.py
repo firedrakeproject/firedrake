@@ -1104,13 +1104,13 @@ class AbstractNonUnitAxisTree(LabeledTree, AbstractAxisTree):
         for component in axis.components:
             if matching_labels_ := region_labels & set(component.flat_region_labels):
                 matching_labels = matching_labels_
-                new_label = f"{component.label}_{'_'.join(map(str, matching_labels))}"
-                slice_component = RegionSliceComponent(component.label, matching_labels, label=new_label)
+                slice_component = RegionSliceComponent(component.label, matching_labels, label=component.label)
             else:
                 slice_component = AffineSliceComponent(component.label)
             slice_components.append(slice_component)
 
-        slice_ = Slice(axis.label, slice_components)
+        new_label = f"{axis.label}_{'_'.join(map(str, sorted(region_labels)))}"
+        slice_ = Slice(axis.label, slice_components, label=new_label)
         index_tree = IndexTree(slice_)
         for component, slice_component in zip(axis.components, slice_.components, strict=True):
             path_ = path | {axis.label: component.label}
