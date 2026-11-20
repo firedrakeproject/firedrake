@@ -146,6 +146,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         -------
         A new `_SNESContext`
         """
+        from firedrake.eigensolver import LinearEigenproblem
         from firedrake.variational_solver import LinearVariationalProblem
         from firedrake.function import Function
 
@@ -156,6 +157,10 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
 
         nprob = LinearVariationalProblem(Jp, L, u, bcs=bcs, form_compiler_parameters=fcp)
         octx = get_appctx(pc.getDM())
+        if isinstance(octx._problem, LinearEigenproblem):
+            # The nested variational context adds a default solution to appctx.
+            # Copy the dictionary to keep that state out of the eigensolver context.
+            kwargs.setdefault("appctx", dict(octx.appctx))
         return octx.reconstruct(problem=nprob, mat_type=mat_type, pmat_type=mat_type, **kwargs)
 
 
