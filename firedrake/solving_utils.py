@@ -22,12 +22,12 @@ if typing.TYPE_CHECKING:
 
 
 def _make_reasons(reasons):
-    return {getattr(reasons, r): r
-            for r in dir(reasons) if not r.startswith('_')}
+    return {value: name
+            for name, value in sorted(vars(reasons).items()) if name.isupper()}
 
 
-KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
-SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
+KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason)
+SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason)
 
 
 def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaults=None):
