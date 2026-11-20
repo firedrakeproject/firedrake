@@ -805,10 +805,14 @@ class BaseFormAssembler(AbstractFormAssembler):
         if isinstance(expr, ufl.core.base_form_operator.BaseFormOperator):
             # Filter the base-form operands because a fusible interpolation is
             # compiled with the enclosing operator instead of as a child.
-            domains = set(extract_domains(expr.argument_slots()[0])) if isinstance(expr, ufl.Interpolate) else set()
+            slots = expr.argument_slots()
+            dual_slot = slots[0]
+            domains = set(extract_domains(dual_slot)) if isinstance(expr, ufl.Interpolate) else set()
+            # Assembly needs the dual slot as its first child.
             # Preserve the order in which the operands were created.
-            children = dict.fromkeys(e for e in (expr.argument_slots() + expr.ufl_operands)
-                                     if isinstance(e, ufl.form.BaseForm) and not _can_fuse_operator(e, domains))
+            children = dict.fromkeys(e for e in (slots + expr.ufl_operands)
+                                     if isinstance(e, ufl.form.BaseForm)
+                                     and (e is dual_slot or not _can_fuse_operator(e, domains)))
             return list(children)
         return []
 
