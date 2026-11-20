@@ -4,7 +4,7 @@ import numbers
 import types
 import warnings
 from functools import cached_property
-from typing import Any, Callable
+from typing import Any, Callable, Hashable
 
 import numpy as np
 from mpi4py import MPI
@@ -251,6 +251,69 @@ class Assigner:
 
     @cached_property
     def _assign_op(self) -> Callable[[], None]:
+        # Write a bare number with the eager assignment, because generated code
+        # contains the value of the number and every new value would need new
+        # code.
+        if self.mode == AssignmentMode.STANDARD and isinstance(self.expression, ufl.classes.ScalarValue):
+            lhs = self.assignee.dat[self.subset]
+            return functools.partial(lhs.assign, self.expression.value(), eager=True)
+
+        # Reuse the assignment built for an earlier call with the same subset
+        # and the same expression structure, and call it with the dats of this
+        # call. Skip cross-mesh assignments, because they run in a function
+        # that holds the assignee and swaps its buffer around the loop. Skip
+        # distinct dats that share a buffer, because the call would map two
+        # placeholders to that buffer and only one of their intents would apply.
+        if self.subset is not Ellipsis and not self._cross_mesh:
+            dats = {self.assignee.dat: 0}
+            structure = _expression_structure(self.expression, dats)
+            if structure is not None and len({dat.buffer for dat in dats}) == len(dats):
+                key = (self.subset, self.mode, structure, tuple((dat.axes, dat.dtype) for dat in dats))
+                assignment, names = self._cached_assignment(key, tuple(dats))
+                return functools.partial(assignment, **dict(zip(names, dats)))
+
+        return self._build_assign_op()
+
+    # Hold the cache on the topological space of the assignee, so that all
+    # functions and cofunctions of the space share it.
+    @op3.cache.cached_on(
+        lambda self, key, dats: self.assignee.function_space().topological,
+        get_key=lambda self, key, dats: key,
+        make_cache=lambda: op3.cache.LRUCache(16),
+    )
+    def _cached_assignment(self, key: tuple, dats: tuple[op3.Dat, ...]) -> tuple[op3.Assignment, tuple[str, ...]]:
+        """Build the subset assignment with placeholder dats.
+
+        The assignment uses placeholders in place of the dats of this call, so
+        that the cache does not keep the functions alive.
+
+        Parameters
+        ----------
+        key
+            The cache key.
+        dats
+            The dats of the assignee and of the expression.
+
+        Returns
+        -------
+        tuple
+            The assignment, and the name of the placeholder of each dat in
+            ``dats`` for the keyword arguments of a call.
+
+        """
+        placeholders = {dat: op3.Dat.zeros_like(dat, prefix="placeholder") for dat in dats}
+        assignment = self._build_assign_op(placeholders)
+        return assignment, tuple(p.name for p in placeholders.values())
+
+    def _build_assign_op(self, placeholders: dict[op3.Dat, op3.Dat] | None = None) -> Callable[[], None]:
+        """Build the operation that performs the assignment.
+
+        Parameters
+        ----------
+        placeholders
+            Dats that replace the dats of the assignee and of the expression.
+
+        """
         if self._cross_mesh:
             # If we are assigning between submeshes then we have to generate a
             # full parloop in order to be able to include maps. For example:
@@ -265,6 +328,10 @@ class Assigner:
 
         expr_builder = AssignExprBuilder(self.assignee.function_space(), loop_index)
         op3_expr, _ = expr_builder(self.expression)
+
+        if placeholders is not None:
+            op3_assignee = placeholders[self.assignee.dat][self.subset]
+            op3_expr = op3.replace(op3_expr, placeholders)
 
         match self.mode:
             case AssignmentMode.STANDARD:
@@ -351,6 +418,40 @@ class Assigner:
             assign_op = op3_assignee.assign(op3_expr, _weakref=False)
 
         return assign_op
+
+
+def _expression_structure(expr: ufl.core.expr.Expr, dats: dict[op3.Dat, int]) -> Hashable | None:
+    """Return the structure of an expression for the cache key of `Assigner`.
+
+    Parameters
+    ----------
+    expr
+        The expression.
+    dats
+        The dats found so far, each mapped to its position. This function adds
+        the dats of the functions and constants in ``expr``.
+
+    Returns
+    -------
+    Hashable or None
+        The expression with each function and constant replaced by the
+        position of its dat, or `None` if the assignment cannot be cached.
+
+    """
+    if isinstance(expr, (Function, Cofunction)) and expr.ufl_element().family() == "Real":
+        # AssignExprBuilder copies the value of a Real function into a new Dat
+        return None
+    elif isinstance(expr, (Function, Cofunction, Constant)):
+        # Tag the position so that it cannot compare equal to a number
+        return ("dat", dats.setdefault(expr.dat, len(dats)))
+    elif isinstance(expr, ufl.classes.MultiIndex):
+        # AssignExprBuilder does not use the indices
+        return ()
+    elif not expr.ufl_operands:
+        return expr
+    else:
+        operands = tuple(_expression_structure(op, dats) for op in expr.ufl_operands)
+        return None if None in operands else (type(expr), *operands)
 
 
 @functools.singledispatch
