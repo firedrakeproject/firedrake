@@ -115,10 +115,11 @@ class Dat(Tensor):
         elif isinstance(buffer, NullBuffer):
             pass
         else:
-            # the shape of the underlying buffer for a dat should be 1D
-            data = data.flatten()
+            assert buffer is None and data is not None
 
-            sf = axes.unindexed.sf
+            # The shape of the underlying buffer for a dat should be 1D. Do
+            # ravel not flatten here because we don't want to do a copy.
+            data = data.ravel()
 
             if buffer_kwargs is None:
                 buffer_kwargs = {}
@@ -126,8 +127,7 @@ class Dat(Tensor):
                 buffer_kwargs["name"] = f"{name}_buffer"
             if constant not in buffer_kwargs:
                 buffer_kwargs["constant"] = constant
-            assert buffer is None and data is not None
-            buffer = ArrayBuffer(data, sf, **buffer_kwargs)
+            buffer = ArrayBuffer(data, axes.unindexed.sf, **buffer_kwargs)
 
         object.__setattr__(self, "axes", axes)
         object.__setattr__(self, "buffer", buffer)
@@ -455,7 +455,9 @@ class Dat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
-            return pyop3.arrayref.ArrayReference(array, indices, block_shape)
+            shape = (-1, *block_shape) if indices.size > 0 else (0, *block_shape)
+            indices = indices.reshape(shape)
+            return pyop3.arrayref.ArrayReference(array, indices)
 
     @property
     def dat_version(self):
@@ -629,14 +631,17 @@ class Dat(Tensor):
 
         # We select the root components in a different order from their storage
         # order, so we concatenate the sorted entries of each component.
+        # The free tree can relabel the root axis and its components, but it
+        # keeps the order of the components.
         free = self.axes.free.trees[0]
-        component_indices = {label: [] for label in labels}
+        position = {label: i for i, label in enumerate(free.root.component_labels)}
+        component_indices = [[] for _ in labels]
         for leaf_path in free.leaf_paths:
             leaf_indices = free.linearize(leaf_path)._buffer_indices(include_ghosts=False)
-            component_indices[leaf_path[root.label]].append(leaf_indices)
+            component_indices[position[leaf_path[free.root.label]]].append(leaf_indices)
         return np.concatenate([
-            np.unique(np.concatenate(component_indices[label], dtype=IntType))
-            for label in labels
+            np.unique(np.concatenate(indices, dtype=IntType))
+            for indices in component_indices
         ])
 
     @property

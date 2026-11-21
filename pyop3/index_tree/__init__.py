@@ -1,5 +1,6 @@
 from .apply import index_axes  # noqa: F401
 from .tree import (  # noqa: F401
+    AbstractMap,
     AbstractCalledMap,
     AbstractLoopIndex,
     AffineSliceComponent,
