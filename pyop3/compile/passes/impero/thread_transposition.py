@@ -45,7 +45,7 @@ import numpy as np
 
 from gem import gem, impero as imp, replace
 from gem.impero_utils import gem_nodes, terminals
-from gem.node import pre_traversal
+from gem.node import Memoizer, pre_traversal
 
 from pyop3 import utils
 from pyop3.compile.passes.impero.copy_propagation import propagate_copies
@@ -76,6 +76,11 @@ SHARED_LATENCY = 30  # cycles of a shared load on Volta to Ada
 GLOBAL_LATENCY = 200  # cycles of an L2 hit (same sources), as most global loads are cached maps, coordinates, tables
 LSU_ACCESSES_PER_CYCLE = 16  # 64-bit accesses per SM per cycle: 32 banks of 4 bytes, 2 cycles per warp access
 ISSUE_PER_CYCLE = 128  # thread instructions issued per SM per cycle: 4 schedulers, one warp instruction each
+
+REGISTER_BASE = 24  # registers of a thread besides the values of a phase: indices, addresses, loop counters
+MAX_REGISTERS_PER_THREAD = 255  # NVIDIA since Volta, as are the two below
+REGISTER_GRANULE = 8  # the registers of a thread are allocated in multiples of this
+REGISTER_PARTITIONS = 4  # a warp takes its registers from one of these equal parts of the register file
 
 
 @dataclasses.dataclass(frozen=True)
@@ -203,6 +208,7 @@ def thread_transpose(
         buffers = {t.variable.name: t for t in temporaries.values() if not t.in_registers}.values()
         parameters = choose_parameters(
             phases, counts, lambda n: shared_layout(t.placed(n) for t in buffers)[1], target,
+            registers=_registers(phases, temporaries), table_bytes=_table_bytes(phases),
             batch_size=batch_size, block_size=block_size,
         )
         return lower(tree, loop, phases, temporaries, parameters)
@@ -392,12 +398,34 @@ def choose_parameters(
     shared_bytes: Callable[[int], int],
     target: GPUTarget,
     *,
+    registers: int,
+    table_bytes: int,
     batch_size: int | None = None,
     block_size: int | None = None,
 ) -> Parameters:
     """The cheapest pair, among every N_c up to `MAX_BATCH_SIZE` and every T a multiple of the warp size.
 
-    `shared_bytes(N_c)` is the shared memory of a block, as `pyop3.compile.mlir` lays it out.
+    Parameters
+    ----------
+    phases
+        The phases of the kernel.
+    counts
+        The `_phase_counts` of each phase.
+    shared_bytes
+        The shared memory of a block for a batch size, as `pyop3.compile.mlir` lays it out.
+    target
+        The limits of the device.
+    registers
+        The registers that a thread needs to run every phase without spills (`_registers`).
+    table_bytes
+        The bytes of the constant tables that the phases read (`_table_bytes`).
+    batch_size, block_size
+        N_c and T, to fix them instead of choosing them.
+
+    Returns
+    -------
+    Parameters
+        The chosen pair and its cost per item.
 
     Raises
     ------
@@ -411,6 +439,9 @@ def choose_parameters(
         if block_size is None else (block_size,)
     )
     w, fp64 = target.warp_size, target.fp64_per_cycle
+    if target.registers_per_sm is not None:
+        # ptxas spills below the demand, and spills are not priced, so the largest budget is the floor
+        needed = min(registers, max(_register_budget(t, target) for t in block_sizes))
 
     def cost_per_item(n: int, t: int) -> float | None:
         """The estimated SM cycles of one item, or `None` if the pair does not fit the target.
@@ -423,27 +454,38 @@ def choose_parameters(
 
         with n_k the width of phase k, W the warp size and B the resident blocks
         per SM. r_k is the cycles of a point on the busiest unit of the SM:
-        FP64 (operations), load/store (global and shared accesses) or issue
+        FP64 (operations), load/store (global, shared and table accesses) or issue
         (all of them). l_k is the latency of a point. A barrier ends each phase, so
         one block runs its phases one after the other. Blocks do not share barriers, so
         when an SM holds more than one block, the latency of the phases of one block is hidden by
-        the work of the others. Every SM is assumed to hold B blocks.
+        the work of the others. Every SM is assumed to hold B blocks, which the registers of a thread also limit.
+        A table read hits L1 with `_l1_hit_fraction`, with the latency of a shared access.
         """
         shared = shared_per_batch[n]
         if shared > target.shared_memory_per_block or t > target.max_threads_per_block:
             return None
         blocks = min(target.max_blocks_per_sm, target.max_threads_per_sm // t)
-        if per_block := shared + target.reserved_shared_memory_per_block:
+        if target.registers_per_sm is not None:
+            if (budget := _register_budget(t, target)) < needed:
+                return None
+            blocks = min(blocks, _resident_blocks_by_registers(min(registers, budget), t, target))
+        per_block = shared + target.reserved_shared_memory_per_block
+        if per_block:
             blocks = min(blocks, target.shared_memory_per_sm // per_block)
         if blocks == 0:
             return None
+        hit = _l1_hit_fraction(blocks * per_block, table_bytes, target)
+        table_latency = hit * SHARED_LATENCY + (1 - hit) * GLOBAL_LATENCY
 
         work, path = np.zeros(len(phases)), np.zeros(len(phases))
-        for k, (phase, (ops, glob, sh)) in enumerate(zip(phases, counts, strict=True)):
+        for k, (phase, (ops, glob, sh, tab)) in enumerate(zip(phases, counts, strict=True)):
             points = n * phase.width
-            rate = max(ops / fp64, (glob + sh) / LSU_ACCESSES_PER_CYCLE, (ops + glob + sh) / ISSUE_PER_CYCLE)
+            accesses = glob + sh + tab
+            rate = max(ops / fp64, accesses / LSU_ACCESSES_PER_CYCLE, (ops + accesses) / ISSUE_PER_CYCLE)
             work[k] = blocks * utils.ceildiv(points, w) * w * rate
-            path[k] = utils.ceildiv(points, t) * (ops * FP64_LATENCY + sh * SHARED_LATENCY + glob * GLOBAL_LATENCY)
+            path[k] = utils.ceildiv(points, t) * (
+                ops * FP64_LATENCY + sh * SHARED_LATENCY + glob * GLOBAL_LATENCY + tab * table_latency
+            )
         cycles = np.maximum(work, path).sum() if blocks == 1 else max(work.sum(), path.sum())
         return cycles / (blocks * n)
 
@@ -461,24 +503,112 @@ def choose_parameters(
 # TODO: I would love to use `gem.count_flops` here but it does not support counting FMAs (fuse-multiply-adds) 
 # which have a real impact on the parameter model 
 def _phase_counts(phase: Phase, temporaries: Mapping[str, Temporary]) -> np.ndarray:
-    """The floating-point operations, global accesses and shared accesses of one point of `phase`, times the reductions.
+    """The floating-point operations, global accesses, shared accesses and table reads of one point of `phase`,
+    times the reductions.
 
     An atomic is a global access, as only kernel arguments are atomic. A table (a `gem.Literal`) is a global
-    access, because it is a global constant. Register accesses are not counted.
+    constant, but its reads are counted apart, as they can hit L1. Register accesses are not counted.
     """
-    def access(aggregate: gem.Variable | gem.Literal) -> tuple[int, int, int]:
-        t = temporaries.get(aggregate.name) if isinstance(aggregate, gem.Variable) else None
-        return (0, 1, 0) if t is None else (0, 0, 0) if t.in_registers else (0, 0, 1)
+    def access(aggregate: gem.Variable | gem.Literal) -> tuple[int, int, int, int]:
+        if isinstance(aggregate, gem.Literal):
+            return (0, 0, 0, 1)
+        t = temporaries.get(aggregate.name)
+        return (0, 1, 0, 0) if t is None else (0, 0, 0, 0) if t.in_registers else (0, 0, 1, 0)
 
-    total = np.zeros(3)
+    total = np.zeros(4)
     for nest in phase.nests:
         s = nest.statement
-        counts = np.array([_floating_point_operations(s), 0, 0]) + access(nest.write.aggregate)
+        counts = np.array([_floating_point_operations(s), 0, 0, 0]) + access(nest.write.aggregate)
         for node in pre_traversal((s.expression, *s.assignee.indirect_children)):
             if isinstance(node, gem.Indexed) and isinstance(node.aggregate, (gem.Variable, gem.Literal)):
                 counts += access(node.aggregate)
         total += counts * num_points(nest.reductions)
     return total
+
+
+def _registers(phases: tuple[Phase, ...], temporaries: Mapping[str, Temporary]) -> int:
+    """The registers that a thread needs to run every phase without spills, two per 64-bit value."""
+    return REGISTER_BASE + 2 * max((_phase_values(phase, k, temporaries) for k, phase in enumerate(phases)), default=0)
+
+
+def _table_bytes(phases: tuple[Phase, ...]) -> int:
+    """The bytes of the distinct constant tables that `phases` read."""
+    return sum(x.array.nbytes for x in {
+        x for phase in phases for nest in phase.nests
+        for x in pre_traversal((nest.statement.expression, *nest.statement.assignee.indirect_children))
+        if isinstance(x, gem.Literal)
+    })
+
+
+def _register_budget(block_size: int, target: GPUTarget) -> int:
+    """The most registers per thread with which one block of `block_size` threads fits on an SM."""
+    warps = utils.ceildiv(block_size, target.warp_size)
+    per_partition = target.registers_per_sm // REGISTER_PARTITIONS
+    per_thread = per_partition // utils.ceildiv(warps, REGISTER_PARTITIONS) // target.warp_size
+    return min(MAX_REGISTERS_PER_THREAD, per_thread // REGISTER_GRANULE * REGISTER_GRANULE)
+
+
+def _resident_blocks_by_registers(registers: int, block_size: int, target: GPUTarget) -> int:
+    """The blocks of `block_size` threads with `registers` registers each that the register file of an SM holds."""
+    warps = utils.ceildiv(block_size, target.warp_size)
+    per_warp = utils.ceildiv(registers, REGISTER_GRANULE) * REGISTER_GRANULE * target.warp_size
+    return REGISTER_PARTITIONS * (target.registers_per_sm // REGISTER_PARTITIONS // per_warp) // warps
+
+
+def _l1_hit_fraction(shared_per_sm: int, table_bytes: int, target: GPUTarget) -> float:
+    """The fraction of table reads that hit L1, when the resident blocks of an SM use `shared_per_sm` bytes."""
+    # shortcut: ignores the fixed L1 carve-out and the driver's rounding of the split; refine if tables near L1 size choose poorly
+    if not target.unified_l1:
+        return 0.0
+    if not table_bytes:
+        return 1.0
+    return min(1.0, max(0, target.shared_memory_per_sm - shared_per_sm) / table_bytes)
+
+
+def _phase_values(phase: Phase, k: int, temporaries: Mapping[str, Temporary]) -> int:
+    """The 64-bit values that one thread of phase `k` keeps in registers at once.
+
+    The most, over its nests, of the register temporaries live at the nest plus the Sethi-Ullman number of
+    its expression, plus the entries of each constant table that more than one nest reads with the same
+    index pattern: a constant cannot change, so the compiler merges those loads and keeps the entries in
+    registers from the first of those nests to the last.
+    """
+    first, last = {}, {}
+    for i, nest in enumerate(phase.nests):
+        for a in nest.accesses:
+            t = temporaries.get(a.aggregate.name)
+            if t is not None and t.in_registers and t.phase == k:
+                first.setdefault(a.aggregate.name, i)
+                last[a.aggregate.name] = i
+    peak_registers = Memoizer(_calculate_peak_registers)
+    live = max(
+        (sum(temporaries[n].size for n in first if first[n] <= i <= last[n]) + peak_registers(nest.statement.expression)
+         for i, nest in enumerate(phase.nests)),
+        default=0,
+    )
+    readers, entries = {}, {}
+    for i, nest in enumerate(phase.nests):
+        for x in pre_traversal((nest.statement.expression,)):
+            if isinstance(x, gem.Indexed) and isinstance(x.aggregate, gem.Literal):
+                key = (x.aggregate, *(
+                    ("d", phase.domain.index(j)) if j in phase.domain
+                    else ("r", nest.reductions.index(j), j.extent) if j in nest.reductions
+                    else ("x", str(j))
+                    for j in x.multiindex
+                ))
+                readers.setdefault(key, set()).add(i)
+                entries[key] = num_points(tuple(j for j in x.multiindex if j in nest.reductions))
+    return live + sum(entries[key] for key, nests in readers.items() if len(nests) > 1)
+
+
+def _calculate_peak_registers(node: gem.Node, self: Memoizer) -> int:
+    """The values that evaluating `node` keeps live at once, without spills, by Sethi-Ullman numbering."""
+    if isinstance(node, gem.Indexed):
+        return 1
+    if isinstance(node, (gem.Literal, gem.Zero)) or not node.children:
+        return 0
+    labels = sorted(map(self, node.children), reverse=True)
+    return max(label + i for i, label in enumerate(labels))
 
 
 def _floating_point_operations(statement: imp.Assignment) -> int:

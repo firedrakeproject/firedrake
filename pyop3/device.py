@@ -145,6 +145,10 @@ class GPUTarget:
     warp_size: int
     fp64_per_cycle: float
     """FP64 thread operations per SM per cycle."""
+    registers_per_sm: int | None = None
+    """The 32-bit registers of an SM, or `None` if unknown: the cost model then ignores registers."""
+    unified_l1: bool = False
+    """Whether the part of `shared_memory_per_sm` that blocks do not use is L1."""
 
 
 class GPU(Device):
@@ -257,6 +261,12 @@ class CUDAGPU(GPU):
     def arch(self) -> str:
         """The name of the GPU architecture, for example ``sm_89``."""
         return f"sm_{self.cp.cuda.Device(self.device_id).compute_capability}"
+
+    @functools.cached_property
+    def target(self) -> GPUTarget:
+        """`GPU.target`, with the registers and the unified L1 of NVIDIA GPUs since Volta."""
+        registers = self.cp.cuda.Device(self.device_id).attributes["MaxRegistersPerMultiprocessor"]
+        return dataclasses.replace(super().target, registers_per_sm=registers, unified_l1=True)
 
     @property
     def fp32_lanes_per_sm(self) -> int:
