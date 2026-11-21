@@ -94,12 +94,12 @@ class HybridizationPC(SCBase):
             c = mesh_unique.iter("cell")
             op3.loop(c, pack(self.weight.sub(i), c).iassign(1), eager=True)
 
-            broken_residual = pack(self.residual.sub(i), c)
-            unbroken_residual = pack(self.unbroken_residual.sub(i), c)
+            broken_residual = pack(self.residual.sub(i), c, nodal=True)
+            unbroken_residual = pack(self.unbroken_residual.sub(i), c, nodal=True)
             self.scatter_loops.append(op3.loop(c, broken_residual.assign(unbroken_residual, _weakref=False)))
 
-            broken_solution = pack(self.solution.sub(i), c)
-            unbroken_solution = pack(self.unbroken_solution.sub(i), c)
+            broken_solution = pack(self.solution.sub(i), c, nodal=True)
+            unbroken_solution = pack(self.unbroken_solution.sub(i), c, nodal=True)
             self.gather_loops.append(op3.loop(c, unbroken_solution.iassign(broken_solution, _weakref=False)))
         with self.weight.dat.vec_rw as w:
             w.reciprocal()
