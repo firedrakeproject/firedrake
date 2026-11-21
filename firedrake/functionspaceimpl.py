@@ -2199,7 +2199,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
     @_with_mesh_heavy_cache
     def make_dat(self, val=None, valuetype=None, name=None):
         """Return a newly allocated :class:`pyop3.Dat` for this space."""
-        if val is not None and val.size != self.axes.local_size:
+        if val is not None and val.size != self.axes.unindexed.local_max_size:
             raise ValueError("Provided array has the wrong number of entries")
 
         if val is not None:
