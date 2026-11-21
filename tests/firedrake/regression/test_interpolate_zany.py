@@ -149,3 +149,20 @@ def test_interpolate_into_zany_piola_mapped(mesh, family, degree):
     for source in (x, u1, u2):
         u = assemble(interpolate(source, V))
         assert errornorm(source, u) < 1E-12
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("family", ("Bernardi-Raugel", "Rotated-Bernardi-Raugel"))
+def test_interpolate_into_vector_zany(mesh, family):
+    base = FunctionSpace(mesh, family, 1)
+    target = VectorFunctionSpace(mesh, family, 1, dim=2)
+    x, y = SpatialCoordinate(mesh)
+    rows = (as_vector((x, y**2)), as_vector((x*y, y)))
+    source = Function(TensorFunctionSpace(mesh, "CG", 2)).interpolate(as_tensor(rows))
+    expected = as_tensor([Function(base).interpolate(row) for row in rows])
+
+    result = Function(target).interpolate(source)
+    assert errornorm(expected, result) < 1e-12
+
+    error = interpolate(source, target) - expected
+    assert abs(assemble(inner(error, error) * dx)) < 1e-24

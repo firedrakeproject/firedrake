@@ -13,8 +13,7 @@ import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
 from FIAT.reference_element import UFCHexahedron, UFCQuadrilateral, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
-from finat.physically_mapped import (NeedsCoordinateMappingElement,
-                                     PhysicalGeometry)
+from finat.physically_mapped import PhysicalGeometry
 from finat.finiteelementbase import FiniteElementBase
 from finat.point_set import PointSet, PointSingleton
 from finat.point_set import AbstractPointSet, UnknownPointSet
@@ -356,8 +355,7 @@ def needs_coordinate_mapping(element):
     """Does this UFL element require a CoordinateMapping for translation?"""
     if element.family() == 'Real':
         return False
-    else:
-        return isinstance(create_element(element), NeedsCoordinateMappingElement)
+    return create_element(element).needs_coordinate_mapping
 
 
 def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Cofunction,
@@ -389,7 +387,7 @@ def dual_evaluate(operand: ufl.core.expr.Expr, dual_arg: ufl.Coargument | ufl.Co
 
     fn = DualEvaluationCallable(operand, kernel_cfg)
 
-    if isinstance(to_element, NeedsCoordinateMappingElement):
+    if to_element.needs_coordinate_mapping:
         ctx = PointSetContext(**kernel_cfg)
         coefficient = ufl.Coefficient(dual_arg.ufl_function_space().dual())
         coordinate_mapping = CoordinateMapping(analyse_modified_terminal(coefficient), ctx)
@@ -916,11 +914,13 @@ def translate_ufl_element(ufl_element: finat.ufl.FiniteElementBase,
     beta = ctx.index_cache.setdefault(ufl_element, element.get_indices())
     zeta = element.get_value_indices()
     vec_beta = gem.Indexed(vec, beta)
+    argument_indices = set(chain.from_iterable(ctx.argument_multiindices))
     # The value indices, the form's own quadrature points and the argument
     # indices are bound outside this contraction, so they stay free.  An
     # interpolated value also carries its interpolation points, which are
     # summed here.
-    unsummed_indices = set(chain(zeta, ctx.point_indices, *ctx.argument_multiindices))
+    allowed_indices = argument_indices.union(ctx.point_indices)
+    unsummed_indices = allowed_indices.union(zeta)
     unsummed_indices.update(ctx.unsummed_coefficient_indices)
     value_dict = {}
     for alpha, table in per_derivative.items():
@@ -929,14 +929,16 @@ def translate_ufl_element(ufl_element: finat.ufl.FiniteElementBase,
         for expr, indices in split_contraction(gem.Product(table_qi, vec_beta), beta, ctx.index_cache):
             indices += tuple(i for i in expr.free_indices
                              if i not in unsummed_indices and i not in indices)
-            summands.append(gem.optimise.contraction(gem.IndexSum(expr, indices)))
+            # Keep argument indices available for the factorisation of the form.
+            summands.append(gem.optimise.contraction(
+                gem.IndexSum(expr, indices), argument_indices=argument_indices,
+            ))
         optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
-    allowed_indices = set(chain(ctx.point_indices, *ctx.argument_multiindices))
     unexpected_indices = set(result.free_indices) - ctx.unsummed_coefficient_indices - allowed_indices
     assert not unexpected_indices
 
