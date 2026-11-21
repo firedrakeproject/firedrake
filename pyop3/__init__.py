@@ -146,6 +146,8 @@ __all__ += [
     "replace_terminals",
 ]
 from pyop3.index_tree import (
+    AbstractMap,
+    AbstractCalledMap,
     AbstractLoopIndex,
     AffineSliceComponent,
     CalledMap,
@@ -162,6 +164,8 @@ from pyop3.index_tree import (
     TabulatedMapComponent,
 )
 __all__ += [
+    "AbstractMap",
+    "AbstractCalledMap",
     "AbstractLoopIndex",
     "AffineSliceComponent",
     "CalledMap",

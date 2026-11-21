@@ -98,6 +98,7 @@ def check_transfer(op, V):
         assert errornorm(expr(Vc), uc) < 1E-13
 
 
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
 def test_transfer(op, V):
     check_transfer(op, V)

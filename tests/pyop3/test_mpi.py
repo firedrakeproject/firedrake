@@ -24,3 +24,13 @@ def test_branches_on_rank_do_not_deadlock(root):
     except BaseException as e:
         result = e
     pytest_mpi.parallel_assert(isinstance(result, RuntimeError) and str(result) == "This test has failed")
+
+
+@pytest.mark.parallel(2)
+def test_comm_is_subset():
+    comm = MPI.COMM_WORLD.Dup()
+    # Call twice to check that freeing the groups does not break the next call
+    for _ in range(2):
+        pytest_mpi.parallel_assert(op3.mpi.comm_is_subset(comm, MPI.COMM_WORLD))
+        pytest_mpi.parallel_assert(op3.mpi.comm_is_subset(MPI.COMM_WORLD, comm))
+    comm.Free()
