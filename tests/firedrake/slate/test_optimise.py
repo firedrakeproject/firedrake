@@ -1,7 +1,9 @@
 import pytest
 from firedrake import *
 import numpy as np
+from firedrake.slate.slate import Block
 from firedrake.slate.slac.optimise import optimise
+from firedrake.slate.slac.utils import traverse_dags
 from firedrake.parameters import parameters
 
 
@@ -176,6 +178,31 @@ def test_push_tensor_blocks_on_blocks(T_hyb):
     # test for blocks with too few indices too
     expressions += [(T_hyb+T_hyb).blocks[:2].blocks[0, 0]]
     compare_tensor_expressions(expressions)
+
+
+def test_push_tensor_blocks_under_transpose(T_hyb):
+    """Test Optimisers's ability to push blocks of Tensors that sit under a transpose."""
+    B = T_hyb.blocks[::2, ::2]
+    x = AssembledVector(Function(B.arg_function_spaces[0]))
+    opt = optimise(B.T * x, parameters["slate_compiler"])
+    assert not any(isinstance(node, Block) for node in traverse_dags([opt]))
+
+
+@pytest.mark.parametrize("optimise", [False, True])
+def test_noncontiguous_tensor_blocks(T_hyb, optimise):
+    """Test blocks of Tensors on 2-forms that select subspaces that are not adjacent."""
+    idx = (0, 2)
+    f = Function(T_hyb.arg_function_spaces[1].sub(idx))
+    for i, fi in enumerate(f.subfunctions):
+        fi.dat.data[:] = np.arange(i + 1, i + 1 + fi.dat.data.size).reshape(fi.dat.data.shape)
+
+    fcp = {"slate_compiler": {"optimise": optimise}}
+    for expr in [T_hyb.T, T_hyb.inv, T_hyb*T_hyb, -T_hyb]:
+        result = assemble(expr.blocks[::2, ::2] * AssembledVector(f), form_compiler_parameters=fcp)
+        for i, row in enumerate(idx):
+            expected = sum(assemble(expr.blocks[row, col] * AssembledVector(fj), form_compiler_parameters=fcp).dat.data
+                           for col, fj in zip(idx, f.subfunctions))
+            assert np.allclose(result.subfunctions[i].dat.data, expected, rtol=1e-12)
 
 
 def test_push_vector_block_individual(KF):

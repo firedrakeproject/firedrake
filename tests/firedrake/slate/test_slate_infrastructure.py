@@ -295,6 +295,12 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F1.blocks[0] == F1
     assert F2.blocks[0] == F2
 
+    # Taking every block in order should return the tensor itself
+    assert Block(M, (range(3), range(3))) is M
+    assert Block(F, (range(3),)) is F
+    assert Block(M0101, (range(2), range(2))) is M0101
+    assert _M[:, :] is M
+
     # Test arguments
     assert M00.arguments() == splitter.split(a, (0, 0)).arguments()
     assert M11.arguments() == splitter.split(a, (1, 1)).arguments()

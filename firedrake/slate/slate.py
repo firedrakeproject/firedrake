@@ -101,8 +101,6 @@ class BlockIndexer(object):
                        else (k,)
                        for k, n in zip(key, block_shape))
 
-        if blocks == tuple(tuple(range(n)) for n in block_shape):
-            return self.tensor
         # Avoid repeated instantiation of an equivalent block
         try:
             block = self.block_cache[blocks]
@@ -667,7 +665,9 @@ class Block(TensorBase):
 
     More generally, argument indices of the form `(idr, idc)`
     produces a tensor of block-size `len(idr)` x `len(idc)`
-    spanning the specified test/trial spaces.
+    spanning the specified test/trial spaces. If the indices
+    select every subspace of each argument in order, the
+    result will be the tensor itself.
     """
 
     _initialised = False
@@ -686,6 +686,10 @@ class Block(TensorBase):
             raise ValueError("Indices out of range.")
 
         if not tensor.is_mixed:
+            return tensor
+
+        if all(idx == tuple(range(len(arg.function_space())))
+               for arg, idx in zip(tensor.arguments(), indices)):
             return tensor
 
         if isinstance(tensor, Block):

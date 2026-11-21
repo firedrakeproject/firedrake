@@ -132,6 +132,7 @@ def _pack_dat_nonmixed(
     dat: op3.Dat,
     loop_index: MeshLoopIndex,
     space: WithGeometry,
+    nodal: bool = False,
 ) -> op3.Dat:
     if isinstance(space.topological, RestrictedFunctionSpace):
         space = space.function_space
@@ -145,7 +146,8 @@ def _pack_dat_nonmixed(
     # then the topological packing is already in nodal order and the node
     # permutation below is the identity. Skip the reshape and the permutation so
     # that the generated code does not copy the packed values once more.
-    if not _needs_static_permutation(space.finat_element):
+    # Assignments between dats on different spaces need the nodal layout on both sides.
+    if not nodal and not _needs_static_permutation(space.finat_element):
         return packed_dat
 
     # For high order elements the DoFs for the different topological entities are

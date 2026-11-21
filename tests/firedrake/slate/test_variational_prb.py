@@ -90,3 +90,66 @@ def test_lvp_equiv_hdg(degree, nested, elimination):
     solver.solve()
 
     assert np.allclose(uhat_ref.dat.data, t.dat.data, rtol=1.E-12)
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize(("elimination", "localsolve"),
+                         [(("sigma",), {}),
+                          (("sigma", "u"), {}),
+                          (("u", "sigma"), {}),
+                          (("sigma", "u"), {'pc_fieldsplit_type': 'schur'}),
+                          (("u", "sigma"), {'pc_fieldsplit_type': 'schur',
+                                            'pc_fieldsplit_0_fields': '1',
+                                            'pc_fieldsplit_1_fields': '0'})],
+                         ids=["sigma", "sigma-u", "u-sigma", "sigma-u-schur", "u-sigma-schur-swapped"])
+@pytest.mark.parametrize("order", [("sigma", "u", "lambdar"), ("lambdar", "sigma", "u"), ("sigma", "lambdar", "u")])
+def test_scpc_subspace_order(order, elimination, localsolve):
+    """Test that SCPC eliminates any group of subspaces, in any order, from a hybridized mixed Poisson problem."""
+    mesh = UnitSquareMesh(4, 4)
+    x = SpatialCoordinate(mesh)
+    n = FacetNormal(mesh)
+
+    U = FunctionSpace(mesh, BrokenElement(FiniteElement("RT", mesh.ufl_cell(), 1)))
+    V = FunctionSpace(mesh, "DG", 0)
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    spaces = {"sigma": U, "u": V, "lambdar": T}
+
+    W = MixedFunctionSpace([spaces[name] for name in order])
+    trials = dict(zip(order, TrialFunctions(W)))
+    tests = dict(zip(order, TestFunctions(W)))
+    sigma, u, lambdar = (trials[name] for name in ("sigma", "u", "lambdar"))
+    tau, v, gammar = (tests[name] for name in ("sigma", "u", "lambdar"))
+
+    f = sin(pi*x[0])*sin(pi*x[1])
+    a = ((inner(sigma, tau) - inner(u, div(tau)) + inner(div(sigma), v))*dx
+         + inner(lambdar('+'), jump(tau, n=n))*dS
+         + inner(jump(sigma, n=n), gammar('+'))*dS)
+    L = inner(f, v)*dx
+    bcs = DirichletBC(W.sub(order.index("lambdar")), 0, "on_boundary")
+
+    params = {
+        'mat_type': 'matfree',
+        'pmat_type': 'matfree',
+        'ksp_type': 'preonly',
+        'pc_type': 'python',
+        'pc_python_type': 'firedrake.SCPC',
+        'pc_sc_eliminate_fields': ",".join(str(order.index(name)) for name in elimination),
+        'condensed_field': {
+            'ksp_type': 'preonly',
+            'pc_type': 'lu',
+            'pc_factor': DEFAULT_DIRECT_SOLVER_PARAMETERS,
+        }
+    }
+    if localsolve:
+        params['condensed_field']['localsolve'] = {'ksp_type': 'preonly',
+                                                   'pc_type': 'fieldsplit',
+                                                   **localsolve}
+    w = Function(W)
+    solve(a == L, w, bcs=bcs, solver_parameters=params)
+
+    w_ref = Function(W)
+    solve(a == L, w_ref, bcs=bcs, solver_parameters={'ksp_type': 'preonly',
+                                                     'pc_type': 'lu',
+                                                     'pc_factor': DEFAULT_DIRECT_SOLVER_PARAMETERS})
+
+    assert np.allclose(w.dat.data_ro, w_ref.dat.data_ro, rtol=1.E-10)
