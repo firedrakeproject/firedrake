@@ -55,6 +55,35 @@ def test_domainless_interpolate_in_form():
     compile_form(form, parameters={"mode": "spectral"})
 
 
+def test_interpolate_wrapped_bernardi_raugel_argument_in_form():
+    cell = ufl.triangle
+    mesh = Mesh(VectorElement("P", cell, 1))
+    base = FiniteElement("Bernardi-Raugel", cell, 1)
+    space = FunctionSpace(mesh, VectorElement(base, dim=2))
+    trial = ufl.TrialFunction(space)
+    form = ufl.inner(ufl.Interpolate(trial, space), ufl.TestFunction(space)) * ufl.dx
+
+    assert compile_form(form, parameters={"mode": "spectral"})
+
+
+@pytest.mark.parametrize("target_family", ["RT", "N1curl", "gradient"])
+def test_interpolate_morley_argument_with_coupled_components(target_family):
+    cell = ufl.triangle
+    mesh = Mesh(VectorElement("P", cell, 1))
+    source = FunctionSpace(mesh, VectorElement("Morley", cell, 2))
+    trial = ufl.TrialFunction(source)
+    if target_family == "gradient":
+        operand = ufl.grad(trial)
+        target_element = TensorElement("P", cell, 1)
+    else:
+        operand = trial
+        target_element = FiniteElement(target_family, cell, 1)
+    target = FunctionSpace(mesh, target_element)
+    form = ufl.inner(ufl.Interpolate(operand, target), ufl.TestFunction(target)) * ufl.dx
+
+    assert compile_form(form, parameters={"mode": "spectral"})
+
+
 @pytest.mark.parametrize("dual", (False, True), ids=("primal", "dual"))
 def test_sum_factorisation(mesh, element, dual):
     # Interpolation between sum factorisable elements should cost
