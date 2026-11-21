@@ -493,7 +493,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx.set_snes(self.snes)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.function_space().template_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -622,9 +621,8 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
-        with problem.u_restrict.dat.vec_ro as u:
-            u.copy(work)
+        # The work Function also holds the boundary values of a restricted space.
+        self._ctx._work.assign(problem.u_restrict)
 
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
@@ -636,7 +634,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             for top in self._transfer_operators:
                 stack.enter_context(top)
 
-            self.snes.solve(None, work)
+            self.snes.solve(None, self._ctx._work.dat._work_vec)
 
             # The appctx might have been refined
             self._ctx = dmhooks.get_appctx(self.snes.getDM())

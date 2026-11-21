@@ -182,6 +182,10 @@ class _SNESContext:
     pre_apply_bcs
         If `False`, the problem is linearised around the initial guess before
         imposing the boundary conditions.
+    work
+        The Function on whose owned entries the SNES solves. The fields
+        outside a split read their values from it. A new Function on the
+        solution space is the default.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -201,7 +205,8 @@ class _SNESContext:
                  marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
-                 pre_apply_bcs: bool = True):
+                 pre_apply_bcs: bool = True,
+                 work: Function | None = None):
         from firedrake.assemble import get_assembler
 
         if pmat_type is None:
@@ -230,6 +235,7 @@ class _SNESContext:
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
         self._x = problem.u_restrict
+        self._work = work if work is not None else Function(self._x.function_space())
 
         if appctx is None:
             appctx = {}
@@ -447,7 +453,6 @@ class _SNESContext:
         # setting state flags does not make sense (we call this function
         # before we do any compute).
         snes.setFunction(self.form_function, self._F.dat._work_vec)
-        snes.getDM().setSNESFieldSplitPreSolve(self.fieldsplit_presolve)
 
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
@@ -492,19 +497,19 @@ class _SNESContext:
             else:
                 # result remains mixed
                 slice_ = [problem.u_restrict.function_space()._labels[i] for i in field]
-            val = problem.u_restrict.dat[slice_]
-            subu = Function(V, val=val)
+            subu = Function(V, val=problem.u_restrict.dat[slice_])
+            subwork = Function(V, val=self._work.dat[slice_])
             if len(field) == 1:
                 subsplit = (subu,)
             else:
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             vec = []
-            for i, ui in enumerate(problem.u.subfunctions):
+            for i, ui in enumerate(self._work.subfunctions):
                 if i in field:
                     # If this is a field we're keeping, get it from
-                    # the new function. Otherwise just point to the
-                    # old data.
+                    # the new function. Otherwise read it from the
+                    # solution of the parent SNES.
                     ui = subsplit[field.index(i)]
                 vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
 
@@ -572,12 +577,21 @@ class _SNESContext:
                 pmat_type=pmat_type,
                 sub_pmat_type=sub_pmat_type,
                 options_prefix=options_prefix,
+                work=subwork,
             )
             split_ctx._nullspace = self._nullspace.split(field) if self._nullspace is not None else None
             split_ctx._nullspace_T = self._nullspace_T.split(field) if self._nullspace_T is not None else None
             split_ctx._near_nullspace = self._near_nullspace.split(field) if self._near_nullspace is not None else None
             splits.append(split_ctx)
         return self._splits.setdefault(fields, splits)
+
+    def _invalidate_work_halo(self) -> None:
+        """Mark the halo values of the SNES solution as out of date.
+
+        PETSc changes the owned values of the solution in place, so pyop3
+        cannot detect that the halo values must be updated.
+        """
+        self._work.dat.buffer._leaves_valid = False
 
     @staticmethod
     def form_objective(snes, X):
@@ -588,6 +602,7 @@ class _SNESContext:
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
+        ctx._invalidate_work_halo()
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._x.dat.vec_wo as v:
@@ -610,6 +625,7 @@ class _SNESContext:
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
+        ctx._invalidate_work_halo()
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
@@ -658,6 +674,7 @@ class _SNESContext:
             # that's already assembled
             return
         ctx._jacobian_assembled = True
+        ctx._invalidate_work_halo()
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
@@ -679,18 +696,6 @@ class _SNESContext:
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
-
-    @staticmethod
-    def fieldsplit_presolve(snes, child, X):
-        r"""Load the state from which a child of a nonlinear field split starts
-
-        :arg snes: a PETSc SNES of type fieldsplit
-        :arg child: the child SNES about to be solved
-        :arg X: the state of ``snes`` (a Vec)
-        """
-        ctx = dmhooks.get_appctx(snes.getDM())
-        with ctx._x.dat.vec_wo as v:
-            X.copy(v)
 
     @staticmethod
     def create_operators(ksp):

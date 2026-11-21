@@ -40,6 +40,7 @@ advance.
 import weakref
 import numpy
 from functools import partial
+from mpi4py import MPI
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -383,7 +384,7 @@ def create_field_decomposition(dm, *args, **kwargs):
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, d, coarsen), teardown=partial(pop_ctx_coarsener, d, coarsen),
                      call_setup=True)
-            set_snes_callbacks(d)
+            set_snes_callbacks(d, parent_dm=dm)
     return names, W.field_ises, dms
 
 
@@ -412,7 +413,7 @@ def create_subdm(dm, fields, *args, **kwargs):
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen), teardown=partial(pop_ctx_coarsener, subdm, coarsen),
                      call_setup=True)
-            set_snes_callbacks(subdm)
+            set_snes_callbacks(subdm, parent_dm=dm)
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
@@ -425,9 +426,8 @@ def create_subdm(dm, fields, *args, **kwargs):
         add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
                  call_setup=True)
         # Index set mapping from W into subspace.
-        iset = PETSc.IS().createGeneral(numpy.concatenate([W.field_ises[f].indices
-                                                           for f in fields]),
-                                        comm=W.comm)
+        indices = numpy.concatenate([W.field_ises[f].indices for f in fields])
+        iset = PETSc.IS().createGeneral(indices, comm=W.comm)
         if ctx is not None:
             ctx, = ctx.split([fields])
             add_hook(parent, setup=partial(push_appctx, subdm, ctx),
@@ -436,7 +436,9 @@ def create_subdm(dm, fields, *args, **kwargs):
             add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen),
                      teardown=partial(pop_ctx_coarsener, subdm, coarsen),
                      call_setup=True)
-            set_snes_callbacks(subdm)
+            # The indices are local. PETSc uses a view only when they are contiguous in order on every rank.
+            copies_iterate = W.comm.allreduce(bool(numpy.any(numpy.diff(indices) != 1)), op=MPI.LOR)
+            set_snes_callbacks(subdm, parent_dm=dm, copies_iterate=copies_iterate)
         return iset, subdm
 
 
@@ -452,7 +454,16 @@ def set_ksp_operators(dm: PETSc.DM) -> None:
     dm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
 
 
-def set_snes_callbacks(dm: PETSc.DM) -> None:
+def _reject_copied_fieldsplit_nesting(*args: object) -> None:
+    raise RuntimeError(
+        "Native SNES fieldsplit nesting requires a view of the enclosing iterate. "
+        "For consecutive fields, specify the outer group in vector order and set the inner split order explicitly."
+    )
+
+
+def set_snes_callbacks(
+    dm: PETSc.DM, *, parent_dm: PETSc.DM | None = None, copies_iterate: bool = False
+) -> None:
     """Make the SNESs on a DM evaluate their equations from the application context.
 
     Parameters
@@ -460,6 +471,10 @@ def set_snes_callbacks(dm: PETSc.DM) -> None:
     dm
         The DM that receives the residual and Jacobian callbacks of
         :class:`~firedrake.solving_utils._SNESContext`.
+    parent_dm
+        The DM from which this split was created.
+    copies_iterate
+        Whether PETSc copies the iterate of this split.
 
     Notes
     -----
@@ -469,11 +484,18 @@ def set_snes_callbacks(dm: PETSc.DM) -> None:
     creation callback of the DM.
     """
     ctx = get_appctx(dm)
-    dm.setSNESFunction(firedrake.solving_utils._SNESContext.form_function)
-    dm.setSNESJacobian(firedrake.solving_utils._SNESContext.form_jacobian)
-    dm.setSNESObjective(firedrake.solving_utils._SNESContext.form_objective if ctx._problem.E else None)
-    dm.setSNESFieldSplitPreSolve(firedrake.solving_utils._SNESContext.fieldsplit_presolve)
-    dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
+    nested_in_copy = parent_dm is not None and parent_dm.getAttr("__snes_split_has_copied_iterate__")
+    dm.setAttr("__snes_split_has_copied_iterate__", nested_in_copy or copies_iterate)
+    context = firedrake.solving_utils._SNESContext
+    if nested_in_copy:
+        dm.setSNESFunction(_reject_copied_fieldsplit_nesting)
+        dm.setSNESJacobian(_reject_copied_fieldsplit_nesting)
+        dm.setSNESObjective(_reject_copied_fieldsplit_nesting if ctx._problem.E else None)
+    else:
+        dm.setSNESFunction(context.form_function)
+        dm.setSNESJacobian(context.form_jacobian)
+        dm.setSNESObjective(context.form_objective if ctx._problem.E else None)
+    dm.setKSPCreateOperators(context.create_operators)
 
 
 @PETSc.Log.EventDecorator()

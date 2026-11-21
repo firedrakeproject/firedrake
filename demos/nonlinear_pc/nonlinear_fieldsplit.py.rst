@@ -282,10 +282,16 @@ system needs fewer iterations still for this small problem. The
 fieldsplit methods are useful when the coupled problem is hard to solve
 but each field is easy to solve by itself, for example because a good
 solver is already available for each separate equation. Because each
-split uses a PETSc SNES, the split solvers
-can use any of the solver options that are available in Firedrake,
-including another ``fieldsplit`` for a split that contains more
-than one field.
+split uses a PETSc SNES, the split solvers accept Firedrake solver options.
+
+A nested native ``fieldsplit`` needs a group whose entries are contiguous
+and in vector order on every rank. This allows PETSc to pass a view of
+the enclosing iterate to that group. Firedrake raises an error when a
+nested split needs an enclosing iterate that PETSc has copied. For a
+group containing consecutive fields 0 and 1, select ``0,1`` with
+``snes_fieldsplit_0_fields``. To sweep those fields in reverse order,
+set ``fieldsplit_0_snes_fieldsplit_0_fields`` to ``1`` and
+``fieldsplit_0_snes_fieldsplit_1_fields`` to ``0``.
 
 Try changing ``beta`` to see how the coupling strength changes the
 iteration counts. With ``beta = 0`` the equations are independent, and
