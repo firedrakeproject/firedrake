@@ -1,6 +1,8 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import functools
 import warnings
+from typing import Callable
 
 from petsc4py import PETSc
 
@@ -199,18 +201,52 @@ def assert_empty(iterator):
 
 
 # NOTE: Python 3.13 has warnings.deprecated which does exactly this
-def deprecated(prefer=None, internal=False):
-    """Decorator that emits a warning saying that the function is deprecated."""
+def deprecated(message: str = "", internal: bool = False) -> Callable:
+    """Emit a warning when the decorated function is called.
+
+    Parameters
+    ----------
+    message : str
+        The migration advice to append to the deprecation message.
+    internal : bool
+        Emit a ``DeprecationWarning`` if true, or a ``FutureWarning`` otherwise.
+
+    Returns
+    -------
+    Callable
+        A decorator that prefixes the message with the function's qualified
+        name and states that it is deprecated and will be removed.
+    """
     def decorator(fn):
+        @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            msg = f"{fn.__qualname__} is deprecated and will be removed"
-            if prefer:
-                msg += f", please use {prefer} instead"
+            msg = f"{fn.__qualname__} is deprecated and will be removed."
+            if message:
+                msg += f" {message}"
             warning_type = DeprecationWarning if internal else FutureWarning
             warnings.warn(msg, warning_type)
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def deprecated_rename(prefer: str, internal: bool = False) -> Callable:
+    """Emit a warning that directs callers to a replacement API.
+
+    Parameters
+    ----------
+    prefer : str
+        The name of the replacement API.
+    internal : bool
+        Emit a ``DeprecationWarning`` if true, or a ``FutureWarning`` otherwise.
+
+    Returns
+    -------
+    Callable
+        A decorator that warns callers to use the replacement API.
+    """
+    message = f"Please use {prefer} instead."
+    return deprecated(message, internal=internal)
 
 
 def safe_is(is_: PETSc.IS, *, comm=MPI.COMM_SELF) -> PETSc.IS:
