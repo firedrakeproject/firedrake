@@ -467,7 +467,7 @@ def test_cofunction_inplace_operators_before_and_after_migration(vom, vom_fs, op
 def test_vom_function_component_migration_raises(vom, vom_fs, make_coefficient):
     """Check that reading a component of a vector- or tensor-valued function after a rebuild raises an error."""
     f = make_coefficient(vom_fs)
-    components = [f.sub(ix) for ix in np.ndindex(vom_fs.shape)]
+    components = [f.sub(k) for k in range(vom_fs.block_size)]
 
     vom._rebuild()
     for c in components:
