@@ -87,6 +87,17 @@ def test_mixed_function_space_split(fs):
     assert fs.subspaces == tuple(fs)
 
 
+def test_mixed_function_space_labels(fs):
+    from firedrake.formmanipulation import subspace
+
+    W = fs * fs
+    first = subspace(W, (0, 1))
+    second = subspace(W, (2, 3))
+    assert first != second
+    assert len({first, second}) == 2
+    assert TestFunction(first) != TestFunction(second)
+
+
 def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
 

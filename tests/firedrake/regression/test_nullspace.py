@@ -19,6 +19,7 @@ def test_nullspace(V):
     L = -conj(v)*ds(3) + conj(v)*ds(4)
 
     nullspace = VectorSpaceBasis(constant=True)
+    assert nullspace.split((0,)) is nullspace
     u = Function(V)
     solve(a == L, u, nullspace=nullspace)
 
@@ -87,6 +88,30 @@ def test_nullspace_preassembled(V):
     exact = Function(V)
     exact.interpolate(x[1] - 0.5)
     assert sqrt(assemble(inner((u - exact), (u - exact))*dx)) < 5e-8
+
+
+@pytest.fixture
+def mixed_nullspace():
+    mesh = UnitIntervalMesh(2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V * V
+    basis = VectorSpaceBasis(constant=True, comm=mesh.comm)
+    return MixedVectorSpaceBasis(W, [W.sub(0), W.sub(1), basis])
+
+
+@pytest.mark.parametrize("fields", [(0,), (2,), (1, 0), (2, 0), (1, 2), (2, 1, 0)])
+def test_mixed_nullspace_split(mixed_nullspace, fields):
+    W = mixed_nullspace._function_space
+    basis = mixed_nullspace.split(fields)
+
+    if len(fields) == 1:
+        assert basis is (mixed_nullspace._bases[2] if fields == (2,) else None)
+    else:
+        assert isinstance(basis, MixedVectorSpaceBasis)
+        V = MixedFunctionSpace([W.sub(i) for i in fields], _labels=[W._labels[i] for i in fields])
+        assert basis._function_space == V
+        assert tuple(basis) == tuple(mixed_nullspace._bases[2] if i == 2 else V.sub(k)
+                                     for k, i in enumerate(fields))
 
 
 def test_nullspace_mixed():
