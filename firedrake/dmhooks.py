@@ -125,8 +125,30 @@ def _attach_function_space(dm: PETSc.DM, V: "firedrake.functionspaceimpl.WithGeo
 def _create_dm(V: "firedrake.functionspaceimpl.WithGeometry") -> PETSc.DM:
     """Create independent SNES callback storage for a FunctionSpace."""
     dm = PETSc.DMShell().create(comm=V.comm)
-    dm.setGlobalVector(V.template_vec)
+    dm.setCreateGlobalVector(_create_global_vector, args=(V,))
     return _attach_function_space(dm, V)
+
+
+def _create_global_vector(dm: PETSc.DM, V: "firedrake.functionspaceimpl.WithGeometry") -> PETSc.Vec:
+    """Create a global vector whose array also stores the ghost entries of a Function on V.
+
+    Parameters
+    ----------
+    dm
+        The DM that requests the vector.
+    V
+        The function space of the DM.
+
+    Returns
+    -------
+    PETSc.Vec
+        A vector on the owned entries of the array. The array is available as the
+        ``"__array__"`` attribute of the vector, and has the layout of a
+        :class:`~firedrake.function.Function` on V.
+    """
+    template = V.template_vec
+    array = numpy.zeros(V.axes.unindexed.local_max_size, dtype=PETSc.ScalarType)
+    return PETSc.Vec().createWithArray(array, size=template.getSizes(), bsize=template.getBlockSize(), comm=V.comm)
 
 
 # Attribute management on DMs. Since they are reused in multiple
@@ -368,16 +390,22 @@ def create_field_decomposition(dm, *args, **kwargs):
     # recursively created splits have the names you want)
     names = [s.name for s in W]
     ctx = get_appctx(dm)
-    # Each split equation needs its own DM: subspaces with equal layouts share a cached DM.
-    dms = [V.dm if ctx is None else _create_dm(V) for V in W]
+    if ctx is None:
+        dms = [V.dm for V in W]
+    elif len(W) > 1:
+        # Each split equation solves on the DM of its own context.
+        ctxs = ctx.split([(i,) for i in range(len(W))])
+        dms = [c.dm for c in ctxs]
+    else:
+        # A single field is the whole problem, so its DM takes the full context.
+        ctxs = [ctx]
+        dms = [_create_dm(W[0])]
     coarsen = get_ctx_coarsener(dm)
     parent = get_parent(dm)
     for d in dms:
         add_hook(parent, setup=partial(push_parent, d, parent), teardown=partial(pop_parent, d, parent),
                  call_setup=True)
     if ctx is not None:
-        # A single field is the whole problem, so its DM takes the full context.
-        ctxs = ctx.split([(i,) for i in range(len(W))]) if len(W) > 1 else [ctx]
         for d, c in zip(dms, ctxs):
             add_hook(parent, setup=partial(push_appctx, d, c), teardown=partial(pop_appctx, d, c),
                      call_setup=True)
@@ -401,13 +429,16 @@ def create_subdm(dm, fields, *args, **kwargs):
     if len(fields) == 1:
         # Subspace is just a single FunctionSpace.
         idx, = fields
-        subdm = W[idx].dm if ctx is None else _create_dm(W[idx])
+        if ctx is None:
+            subdm = W[idx].dm
+        else:
+            ctx, = ctx.split([(idx, )])
+            subdm = ctx.dm
         iset = W.field_ises[idx]
         add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
                  call_setup=True)
 
         if ctx is not None:
-            ctx, = ctx.split([(idx, )])
             add_hook(parent, setup=partial(push_appctx, subdm, ctx), teardown=partial(pop_appctx, subdm, ctx),
                      call_setup=True)
             add_hook(parent, setup=partial(push_ctx_coarsener, subdm, coarsen), teardown=partial(pop_ctx_coarsener, subdm, coarsen),
@@ -416,11 +447,15 @@ def create_subdm(dm, fields, *args, **kwargs):
         return iset, subdm
     else:
         # Need to build an MFS for the subspace
-        labels = [W._labels[f] for f in fields]
-        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields], _labels=labels)
-        subdm = subspace.dm
-        if ctx is not None or subdm == parent:
-            subdm = _create_dm(subspace)
+        if ctx is None:
+            labels = [W._labels[f] for f in fields]
+            subspace = firedrake.MixedFunctionSpace([W[f] for f in fields], _labels=labels)
+            subdm = subspace.dm
+            if subdm == parent:
+                subdm = _create_dm(subspace)
+        else:
+            ctx, = ctx.split([fields])
+            subdm = ctx.dm
 
         add_hook(parent, setup=partial(push_parent, subdm, parent), teardown=partial(pop_parent, subdm, parent),
                  call_setup=True)
@@ -429,7 +464,6 @@ def create_subdm(dm, fields, *args, **kwargs):
                                                            for f in fields]),
                                         comm=W.comm)
         if ctx is not None:
-            ctx, = ctx.split([fields])
             add_hook(parent, setup=partial(push_appctx, subdm, ctx),
                      teardown=partial(pop_appctx, subdm, ctx),
                      call_setup=True)
@@ -472,7 +506,6 @@ def set_snes_callbacks(dm: PETSc.DM) -> None:
     dm.setSNESFunction(firedrake.solving_utils._SNESContext.form_function)
     dm.setSNESJacobian(firedrake.solving_utils._SNESContext.form_jacobian)
     dm.setSNESObjective(firedrake.solving_utils._SNESContext.form_objective if ctx._problem.E else None)
-    dm.setSNESFieldSplitPreSolve(firedrake.solving_utils._SNESContext.fieldsplit_presolve)
     dm.setKSPCreateOperators(firedrake.solving_utils._SNESContext.create_operators)
 
 
