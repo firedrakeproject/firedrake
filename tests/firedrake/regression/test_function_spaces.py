@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake import dmhooks
 from firedrake.bcs import restricted_function_space
 from firedrake.functionspace import DualSpace
 from ufl.duals import is_dual, is_primal
@@ -91,6 +92,23 @@ def test_indexed_function_space_index(fs):
     assert fs0.index == 0 and fs1.index == 1
 
 
+def test_indexed_function_space_equality(fs):
+    fs0, fs1 = fs.subspaces
+    assert fs0 != fs1
+    assert fs0 != fs0.collapse()
+    assert fs0.topological == fs0.collapse().topological
+    assert fs0.dual() == fs.dual().sub(0)
+
+
+def test_indexed_function_space_dm(cg1):
+    W = cg1 * cg1 * cg1
+    subspaces = [W.sub(1), W.sub(2), W.sub((0, 1)).sub(1)]
+    assert len(set(id(V.dm) for V in subspaces)) == len(subspaces)
+    for V in subspaces:
+        assert dmhooks.get_function_space(V.dm) == V
+        assert dmhooks.get_function_space(V.dm).parent.index == V.parent.index
+
+
 def test_mixed_function_space_split(fs):
     assert fs.subspaces == tuple(fs)
 
@@ -115,8 +133,69 @@ def test_tensor_function_space_sub(tensor, dual, topological):
         V.sub(n)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("indices", [(), (1,), (1, 0), [1, 0], range(1, -1, -1), (-1, 0)])
+@pytest.mark.parametrize("topological", [False, True])
+def test_mixed_function_space_sub_tuple(fs, dual, indices, topological):
+    if dual:
+        fs = fs.dual()
+    if topological:
+        fs = fs.topological
+    if not indices:
+        with pytest.raises(ValueError, match="At least one subspace"):
+            fs.sub(indices)
+        return
+    with pytest.raises(ValueError, match="only once"):
+        fs.sub((*indices, indices[0] % len(fs) - len(fs)))
+    W = fs.sub(indices)
+    assert fs.sub(tuple(indices)) is W
+    assert W.parent is fs
+    assert W.index == (indices[0] % len(fs) if len(indices) == 1 else tuple(i % len(fs) for i in indices))
+    collapsed = W.collapse()
+    assert collapsed.parent is None
+    assert collapsed.index is None
+    assert collapsed.topological == W.topological
+    if len(indices) == 1:
+        assert W is fs.sub(indices[0])
+    else:
+        assert W._labels == tuple(fs._labels[i] for i in indices)
+        assert tuple(V.topological for V in W) == tuple(fs[i].topological for i in indices)
+    if not topological:
+        assert is_dual(W) == dual
+        assert W.dual().parent == fs.dual()
+        assert W.reconstruct().parent == fs
+        restored = dmhooks.get_function_space(W.dm)
+        assert restored.topological == W.topological
+        assert restored.parent.topological == fs.topological
+        assert restored.index == W.index
+
+
+@pytest.mark.parametrize("indices", [(0, 1), [0, 1], range(2), (-2, -1)])
+@pytest.mark.parametrize("topological", [False, True])
+def test_mixed_function_space_sub_all(fs, dual, indices, topological):
+    if dual:
+        fs = fs.dual()
+    if topological:
+        fs = fs.topological
+    assert fs.sub(indices) is fs
+
+
 def test_function_space_collapse(cg1):
     assert cg1 == cg1.collapse()
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_coarsen_selected_subspace():
+    from firedrake.mg.ufl_utils import coarsen
+
+    meshes = MeshHierarchy(UnitSquareMesh(1, 1), 1)
+    V = FunctionSpace(meshes[-1], "CG", 1)
+    W = V * V * V
+    selected = W.sub((2, 0)).sub(0)
+    coarse = coarsen(selected, coarsen)
+    assert coarse.index == 0
+    assert coarse.parent.index == (2, 0)
+    assert coarse.parent.parent.mesh()[0] is meshes[0]
 
 
 @pytest.mark.parametrize("restrict", [False, True])

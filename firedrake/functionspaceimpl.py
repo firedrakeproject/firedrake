@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from immutabledict import immutabledict as idict
 from typing import Any, Literal, Self
+from types import EllipsisType
 from mpi4py import MPI
 
 import finat.ufl
@@ -182,6 +183,15 @@ def _dof_dset_cached(func):
     return _mesh_cached(hashkey)(func)
 
 
+def _indexed_space_key(V):
+    """Return a cache key that distinguishes equal subspaces at different indices in their parent spaces."""
+    key = []
+    while V is not None:
+        key.append((V, V.index))
+        V = V.parent
+    return tuple(key)
+
+
 _with_mesh_heavy_cache = with_heavy_caches(lambda self, *a, **kw: extract_mesh_topologies(self.mesh()))
 
 
@@ -237,6 +247,7 @@ class WithGeometryBase:
         self.parent = parent
         self.component = function_space.component
         self.comm = mesh.comm
+        self._subspaces = {}
         super().__init__(mesh, element, label=function_space._label or "")
 
     @classmethod
@@ -296,33 +307,52 @@ class WithGeometryBase:
         return tuple(type(self)(self.topological.sub(k), self.mesh(), parent=self) for k in range(self.block_size))
 
     @PETSc.Log.EventDecorator()
-    def sub(self, indices: int | Sequence[int]) -> WithGeometryBase:
-        """Select a subspace of a mixed space, or components of a vector or tensor space.
+    def sub(self, indices: int | Sequence[int] | EllipsisType) -> WithGeometryBase:
+        """Select subspaces of a mixed space, or components of a vector or tensor space.
 
         Parameters
         ----------
-        indices : int or collections.abc.Sequence of int
-            For a mixed space, the index of the subspace to extract. For a
-            vector or tensor space, the flat index of the component to
-            extract, or a tuple, list or range of flat indices. Flat indices
-            count the components in the storage order of the space, in which a
-            symmetric tensor only stores its independent components.
+        indices : int, collections.abc.Sequence of int, or types.EllipsisType
+            For a mixed space, use an integer to extract an indexed subspace,
+            or a nonempty tuple, list or range of distinct indices to extract
+            subspaces in the given order. For a vector or tensor space, use the
+            flat index of the component to extract, or a tuple, list or range
+            of flat indices. Flat indices count the components in the storage
+            order of the space, in which a symmetric tensor only stores its
+            independent components. Use ``Ellipsis`` to select the whole space.
 
         Returns
         -------
         WithGeometryBase
             The selected space, retaining this space as its parent. If a
-            sequence selects every component in order, the result will be this
-            space. Repeated calls with the same indices will return the same
-            space.
+            sequence contains only one index, the result will be an unmixed
+            space. If a sequence selects every subspace of a mixed space, or
+            every component of a vector or tensor space, in order, the result
+            will be this space. Use ``collapse()`` to obtain an independent
+            space. Repeated calls with the same sequence of indices will return
+            the same space.
 
         Raises
         ------
         NotImplementedError
-            If a sequence selects more than one component, but not every
-            component in order.
+            If a sequence selects more than one component of a vector or
+            tensor space, but not every component in order.
         """
+        if indices is Ellipsis:
+            return self
         if type(self.ufl_element()) is finat.ufl.MixedElement:
+            if isinstance(indices, (tuple, list, range)):
+                indices = tuple(indices)
+                if indices not in self._subspaces:
+                    W = self.topological.sub(indices)
+                    if W is self.topological:
+                        self._subspaces[indices] = self
+                    elif len(indices) == 1:
+                        self._subspaces[indices] = self.subspaces[indices[0]]
+                    else:
+                        mesh = MeshSequenceGeometry([self.mesh()[i] for i in indices])
+                        self._subspaces[indices] = type(self)(W, mesh, parent=self)
+                return self._subspaces[indices]
             return self.subspaces[indices]
         W = self.topological.sub(indices)
         return self if W is self.topological else self._components[W.component]
@@ -431,8 +461,10 @@ class WithGeometryBase:
         if is_primal(self) != is_primal(other) or \
                 is_dual(self) != is_dual(other):
             return False
+        # Topological equality ignores indices, so compare them here.
         try:
             return self.topological == other.topological and \
+                self.index == other.index and \
                 self.mesh() == other.mesh()
         except AttributeError:
             return False
@@ -526,7 +558,16 @@ class WithGeometryBase:
                                   f"Valid markers are '{valid}'")
         return dmcommon.facet_closure_nodes(self, sub_domain)
 
-    def collapse(self):
+    @cached_method()
+    def collapse(self) -> Self:
+        """Return an independent space with the same finite element.
+
+        Returns
+        -------
+        WithGeometryBase
+            A space without parent or component metadata. Repeated calls will
+            return the same space.
+        """
         return type(self)(self.topological.collapse(), self.mesh())
 
     @classmethod
@@ -858,7 +899,9 @@ class AbstractFunctionSpace:
         dmhooks.set_function_space(dm, self)
         return dm
 
-    @_dof_dset_cached
+    # The DM records the indices of the space in its parent spaces, so equal
+    # subspaces at different indices must not share a DM.
+    @_mesh_cached(_indexed_space_key)
     def _cached_dm(self):
         dm = PETSc.DMShell().create(comm=self.comm)
         dm.setGlobalVector(self.template_vec)
@@ -897,19 +940,10 @@ class AbstractFunctionSpace:
             The local-to-global mapping.
 
         """
-        # Partition the boundary conditions by which element of the mixed
-        # space they correspond to.
-        # TODO: we should check that the function spaces are compatible
+        # Partition the boundary conditions by their subspaces in this space.
         split_bcs = collections.defaultdict(list)
-        if self.index is not None:
-            # We are an indexed component of a mixed space. The lgmap is therefore
-            # only for the current block and thus we don't need a field index here.
-            for bc in bcs:
-                assert bc.function_space_index() == self.index
-                split_bcs[None].append(bc)
-        else:
-            for bc in bcs:
-                split_bcs[bc.function_space_index()].append(bc)
+        for bc in bcs:
+            split_bcs[bc.function_space_index(self)].append(bc)
 
         lgmap_axes = self.axes
         if is_mixed(self) or any(bc.function_space().component is not None for bc in bcs):
@@ -920,7 +954,7 @@ class AbstractFunctionSpace:
         lgmap_dat = lgmap_axes.global_numbering.copy(constant=False)
 
         for field_idx, bcs_per_field in split_bcs.items():
-            if field_idx is not None:
+            if field_idx is not Ellipsis:
                 field_label = (self._labels[field_idx],)
             else:
                 field_label = ()
@@ -1801,23 +1835,24 @@ class FunctionSpace(AbstractFunctionSpace):
         else:
             return tuple(ComponentFunctionSpace(self, k) for k in range(self.block_size))
 
-    def sub(self, indices: int | Sequence[int]) -> FunctionSpace:
-        """Select components of a vector or tensor space.
+    def sub(self, indices: int | Sequence[int] | EllipsisType) -> FunctionSpace:
+        """Select components of a vector or tensor space, or the whole space.
 
         Parameters
         ----------
-        indices : int or collections.abc.Sequence of int
+        indices : int, collections.abc.Sequence of int, or types.EllipsisType
             The flat index of the component to extract, or a tuple, list or
             range of flat indices. Flat indices count the components in the
             storage order of the space, in which a symmetric tensor only stores
             its independent components. A scalar space has the single
-            component ``0``.
+            component ``0``. Use ``Ellipsis`` to select the whole space.
 
         Returns
         -------
         FunctionSpace
             The selected component space. If a sequence selects every
-            component in order, the result will be this space.
+            component in order, or ``indices`` is ``Ellipsis``, the result will
+            be this space.
 
         Raises
         ------
@@ -1825,6 +1860,8 @@ class FunctionSpace(AbstractFunctionSpace):
             If a sequence selects more than one component, but not every
             component in order.
         """
+        if indices is Ellipsis:
+            return self
         if isinstance(indices, (tuple, list, range)):
             components = range(len(self._components))
             indices = tuple(components[i] for i in indices)
@@ -2146,9 +2183,47 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         :class:`MixedFunctionSpace` is composed."""
         return self._spaces
 
-    def sub(self, i):
-        r"""Return the `i`th :class:`FunctionSpace` in this
-        :class:`MixedFunctionSpace`."""
+    def sub(self, i: Sequence[int] | int | EllipsisType) -> FunctionSpace | MixedFunctionSpace:
+        """Select subspaces of this mixed space.
+
+        Parameters
+        ----------
+        i : int, collections.abc.Sequence of int, or types.EllipsisType
+            Use an integer to extract an indexed subspace, or a nonempty tuple,
+            list or range of distinct indices to extract subspaces in the given
+            order.
+            Use ``Ellipsis`` to select the whole space.
+
+        Returns
+        -------
+        FunctionSpace or MixedFunctionSpace
+            The selected space, retaining this space as its parent. If a
+            sequence contains only one index, the result will be an unmixed
+            space. If a sequence selects every subspace in order, the result
+            will be this space. Use ``collapse()`` to obtain an independent
+            space. Repeated calls with the same sequence of indices will return
+            the same space.
+        """
+        if i is Ellipsis:
+            return self
+        if isinstance(i, (tuple, list, range)):
+            i = tuple(range(len(self))[j] for j in i)
+            if not i:
+                raise ValueError("At least one subspace must be selected.")
+            if len(set(i)) != len(i):
+                raise ValueError(f"Each subspace can be selected only once, not {i}.")
+            if i not in self._subspaces:
+                if i == tuple(range(len(self))):
+                    self._subspaces[i] = self
+                elif len(i) == 1:
+                    self._subspaces[i] = self._spaces[i[0]]
+                else:
+                    spaces = [self._spaces[j] for j in i]
+                    mesh = MeshSequenceTopology([self.mesh()[j] for j in i])
+                    labels = [self._labels[j] for j in i]
+                    W = type(self)(spaces, mesh, _labels=labels)
+                    self._subspaces[i] = IndexedFunctionSpace(i, W, self)
+            return self._subspaces[i]
         return self._spaces[i]
 
     def num_sub_spaces(self):
@@ -2393,25 +2468,36 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
         return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
 
 
-def IndexedFunctionSpace(index, space, parent):
-    r"""Build a new FunctionSpace that remembers it is a particular
-    subspace of a :class:`MixedFunctionSpace`.
+def IndexedFunctionSpace(index: int | tuple[int, ...], space: FunctionSpace | MixedFunctionSpace,
+                         parent: MixedFunctionSpace) -> FunctionSpace | MixedFunctionSpace:
+    """Build a space that retains its indices in a parent mixed space.
 
-    :arg index: The index into the parent space.
-    :arg space: The subspace to represent
-    :arg parent: The parent mixed space.
-    :returns: A new :class:`ProxyFunctionSpace` with index and parent
-        set.
+    Parameters
+    ----------
+    index : int or tuple of int
+        The indices of the subspaces in the parent.
+    space : FunctionSpace or MixedFunctionSpace
+        The space to represent.
+    parent : MixedFunctionSpace
+        The parent mixed space.
+
+    Returns
+    -------
+    FunctionSpace or MixedFunctionSpace
+        An indexed space with the given parent.
     """
-    if space.ufl_element().family() == "Real":
-        new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
-    elif len(space.boundary_set) > 0:
-        new = ProxyRestrictedFunctionSpace(space.function_space, name=space.name, boundary_set=space.boundary_set)
+    if is_mixed(space):
+        new = space.collapse()
     else:
-        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        if space.ufl_element().family() == "Real":
+            new = RealFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        elif len(space.boundary_set) > 0:
+            new = ProxyRestrictedFunctionSpace(space.function_space, name=space.name, boundary_set=space.boundary_set)
+        else:
+            new = ProxyFunctionSpace(space.mesh(), space.ufl_element(), name=space.name)
+        new.identifier = "indexed"
     new.index = index
     new.parent = parent
-    new.identifier = "indexed"
 
     return new
 
