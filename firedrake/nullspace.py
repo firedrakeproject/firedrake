@@ -87,23 +87,11 @@ class VectorSpaceBasis:
         constant = self._constant
         basis = self._petsc_vecs
         for i, (function_, vec) in enumerate(zip(self._vecs, basis)):
-            # The PETSc vectors in the basis share their memory with the
-            # Functions. Change each one inside a read-write access so that
-            # the Function knows that its values changed and updates its halo
-            # before the next read. The vectors basis[:i] are only read here.
             with function_.dat.vec_rw as vec:
-                alphas = []
-                for vec_ in basis[:i]:
-                    alphas.append(vec.dot(vec_))
-                for alpha, vec_ in zip(alphas, basis[:i]):
-                    vec.axpy(-alpha, vec_)
+                previous = basis[:i]
+                if previous:
+                    vec.maxpy(-vec.mDot(previous), previous)
                 if constant:
-                    # Remove the constant mode. The normalised constant vector
-                    # is 1/sqrt(N) in every entry, with N the global size, so
-                    # its projection is the mean of the entries in every entry.
-                    # The vector holds only the owned entries, and sum, getSize
-                    # and shift work on the global vector, so the result is the
-                    # same on any number of ranks.
                     vec.shift(-vec.sum() / vec.getSize())
                 vec.normalize()
         self.check_orthogonality()
@@ -137,8 +125,6 @@ class VectorSpaceBasis:
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        # remove() changes b, so the access must be read-write: this marks
-        # the halo of b as out of date.
         with b.dat.vec_rw as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
@@ -314,17 +300,12 @@ class MixedVectorSpaceBasis:
             with v.dat.vec_ro as v_:
                 self._petsc_vecs.append(v_)
 
-        # orthonormalize: change each vector inside a read-write access so
-        # that its Function marks the halo as out of date, as in
-        # VectorSpaceBasis.orthonormalize. The vectors basis[:i] are only read.
         basis = self._petsc_vecs
         for i, mvec in enumerate(self._vecs):
             with mvec.dat.vec_rw as vec:
-                alphas = []
-                for vec_ in basis[:i]:
-                    alphas.append(vec.dot(vec_))
-                for alpha, vec_ in zip(alphas, basis[:i]):
-                    vec.axpy(-alpha, vec_)
+                previous = basis[:i]
+                if previous:
+                    vec.maxpy(-vec.mDot(previous), previous)
                 vec.normalize()
 
         self._nullspace = PETSc.NullSpace().create(constant=False,
