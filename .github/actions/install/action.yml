@@ -169,7 +169,7 @@ runs:
 
         : # DROP BEFORE MERGE
         pip install -v --ignore-installed --no-deps \
-          git+https://github.com/firedrakeproject/fiat.git@47e6c159fd3d22dea8b976d37b051874736695d1
+          git+https://github.com/firedrakeproject/fiat.git@e436ac32452779a3c62fdf5b01b9b22146c40084
         : # DROP BEFORE MERGE: UFL companion
         pip install -v --ignore-installed --no-deps \
           git+https://github.com/FEniCS/ufl.git@26e7b0226f978e9e84092e09e5300373e8fb03a0
