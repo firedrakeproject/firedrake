@@ -19,11 +19,7 @@ def mesh(request):
 @pytest.fixture(params=[FiniteElement, VectorElement, TensorElement],
                 ids=lambda x: x.__name__)
 def element(request, mesh):
-    if mesh.ufl_cell() == interval:
-        family = "DP"
-    else:
-        family = "DQ"
-    return partial(request.param, family, mesh.ufl_cell())
+    return partial(request.param, "DG", mesh.ufl_cell())
 
 
 def interpolate_expression(domain, source, target, dual):
@@ -97,32 +93,32 @@ def test_sum_factorisation(mesh, element, dual):
     assert (rates < mesh.topological_dimension + 1).all()
 
 
-@pytest.mark.parametrize(
-    "cell, family, degrees, wrapper, build_form, flop_limit",
-    [
-        pytest.param(cell, family, (15, 16), wrapper, partial(interpolate_expression, dual=dual), None,
-                     id=f"{cell.cellname}-{wrapper.__name__}-{mode}")
-        for cell, family in ((interval, "DP"), (quadrilateral, "DQ"), (hexahedron, "DQ"))
-        for wrapper in (VectorElement, TensorElement)
-        for dual, mode in ((False, "primal"), (True, "dual"))
-    ] + [
-        pytest.param(ufl.triangle, "Bernardi-Raugel", (1, 1), VectorElement,
-                     interpolation_in_mass_form, 8392, id="wrapped-bernardi-raugel"),
-    ],
-)
-def test_componentwise_interpolation_flops(cell, family, degrees, wrapper, build_form, flop_limit):
+@pytest.mark.parametrize("vector", [
+    pytest.param(partial(VectorElement, dim=2), id="VectorElement"),
+    pytest.param(partial(TensorElement, shape=(2, 2)), id="TensorElement"),
+])
+@pytest.mark.parametrize("dual", (False, True), ids=("primal", "dual"))
+def test_vector_flops(mesh, vector, dual):
+    # Interpolation between vector-valued elements should cost one
+    # scalar interpolation per component.
+    scalar_source = FiniteElement("DG", mesh.ufl_cell(), 15)
+    scalar_target = FiniteElement("DG", mesh.ufl_cell(), 16)
+    vector_source = vector(scalar_source)
+    vector_target = vector(scalar_target)
+
+    scalar_flops = interpolate_flop_count(mesh, scalar_source, scalar_target, dual)
+    flops = interpolate_flop_count(mesh, vector_source, vector_target, dual)
+    assert flops == len(vector_target.sub_elements) * scalar_flops
+
+
+def test_vector_zany_flops():
+    # The components of a vector Bernardi-Raugel element share the
+    # geometric work, so the cost stays below a fixed budget.
+    cell = ufl.triangle
     mesh = Mesh(VectorElement("P", cell, 1))
-    source, target = (FiniteElement(family, cell, degree) for degree in degrees)
-    block_dim = max(2, cell.topological_dimension)
-    wrap = partial(wrapper, dim=block_dim) if wrapper is VectorElement else partial(wrapper, shape=(block_dim, block_dim))
-    wrapped_source, wrapped_target = wrap(source), wrap(target)
-    flops = spectral_flop_count(build_form(mesh, wrapped_source, wrapped_target))
-    if flop_limit is None:
-        scalar_flops = spectral_flop_count(build_form(mesh, source, target))
-        assert flops == len(wrapped_target.sub_elements) * scalar_flops
-    else:
-        # Wrapped Bernardi–Raugel shares geometric work across components.
-        assert flops <= flop_limit
+    element = VectorElement(FiniteElement("Bernardi-Raugel", cell, 1), dim=2)
+    form = interpolation_in_mass_form(mesh, element, element)
+    assert spectral_flop_count(form) <= 8392
 
 
 def q_rtce_elements(degree):
