@@ -38,12 +38,21 @@ def interpolate_expression(domain, source, target, dual):
     )
 
 
-def interpolate_flop_count(domain, source, target, dual):
-    kernel, = compile_form(
-        interpolate_expression(domain, source, target, dual),
-        parameters={"mode": "spectral"},
-    )
+def spectral_flop_count(form):
+    kernel, = compile_form(form, parameters={"mode": "spectral"})
     return kernel.flop_count
+
+
+def interpolate_flop_count(domain, source, target, dual):
+    return spectral_flop_count(interpolate_expression(domain, source, target, dual))
+
+
+def interpolation_in_mass_form(mesh, source, target):
+    source_space = FunctionSpace(mesh, source)
+    target_space = FunctionSpace(mesh, target)
+    trial = ufl.TrialFunction(source_space)
+    test = ufl.TestFunction(target_space)
+    return ufl.inner(ufl.Interpolate(trial, target_space), test) * ufl.dx
 
 
 def test_domainless_interpolate_in_form():
@@ -53,17 +62,6 @@ def test_domainless_interpolate_in_form():
     form = ufl.Interpolate(1, V) * ufl.dx
 
     compile_form(form, parameters={"mode": "spectral"})
-
-
-def test_interpolate_wrapped_bernardi_raugel_argument_in_form():
-    cell = ufl.triangle
-    mesh = Mesh(VectorElement("P", cell, 1))
-    base = FiniteElement("Bernardi-Raugel", cell, 1)
-    space = FunctionSpace(mesh, VectorElement(base, dim=2))
-    trial = ufl.TrialFunction(space)
-    form = ufl.inner(ufl.Interpolate(trial, space), ufl.TestFunction(space)) * ufl.dx
-
-    assert compile_form(form, parameters={"mode": "spectral"})
 
 
 @pytest.mark.parametrize("target_family", ["RT", "N1curl", "gradient"])
@@ -99,22 +97,32 @@ def test_sum_factorisation(mesh, element, dual):
     assert (rates < mesh.topological_dimension + 1).all()
 
 
-@pytest.mark.parametrize("dual", (False, True), ids=("primal", "dual"))
-def test_sum_factorisation_scalar_tensor(mesh, element, dual):
-    # Interpolation into tensor elements should cost value_shape
-    # more than the equivalent scalar element.
-    degree = 16
-    source = element(degree - 1)
-    target = element(degree)
-    tensor_flops = interpolate_flop_count(mesh, source, target, dual)
-    expect = FunctionSpace(mesh, target).value_size
-    if isinstance(target, FiniteElement):
-        scalar_flops = tensor_flops
+@pytest.mark.parametrize(
+    "cell, family, degrees, wrapper, build_form, flop_limit",
+    [
+        pytest.param(cell, family, (15, 16), wrapper, partial(interpolate_expression, dual=dual), None,
+                     id=f"{cell.cellname}-{wrapper.__name__}-{mode}")
+        for cell, family in ((interval, "DP"), (quadrilateral, "DQ"), (hexahedron, "DQ"))
+        for wrapper in (VectorElement, TensorElement)
+        for dual, mode in ((False, "primal"), (True, "dual"))
+    ] + [
+        pytest.param(ufl.triangle, "Bernardi-Raugel", (1, 1), VectorElement,
+                     interpolation_in_mass_form, 8392, id="wrapped-bernardi-raugel"),
+    ],
+)
+def test_componentwise_interpolation_flops(cell, family, degrees, wrapper, build_form, flop_limit):
+    mesh = Mesh(VectorElement("P", cell, 1))
+    source, target = (FiniteElement(family, cell, degree) for degree in degrees)
+    block_dim = max(2, cell.topological_dimension)
+    wrap = partial(wrapper, dim=block_dim) if wrapper is VectorElement else partial(wrapper, shape=(block_dim, block_dim))
+    wrapped_source, wrapped_target = wrap(source), wrap(target)
+    flops = spectral_flop_count(build_form(mesh, wrapped_source, wrapped_target))
+    if flop_limit is None:
+        scalar_flops = spectral_flop_count(build_form(mesh, source, target))
+        assert flops == len(wrapped_target.sub_elements) * scalar_flops
     else:
-        target = target.sub_elements[0]
-        source = source.sub_elements[0]
-        scalar_flops = interpolate_flop_count(mesh, source, target, dual)
-    assert numpy.allclose(tensor_flops / scalar_flops, expect, rtol=1e-2)
+        # Wrapped Bernardi–Raugel shares geometric work across components.
+        assert flops <= flop_limit
 
 
 def q_rtce_elements(degree):
