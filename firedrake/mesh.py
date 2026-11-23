@@ -3229,17 +3229,19 @@ class ExtrudedMeshTopology(MeshTopology):
         dat = op3.Dat(map_axes, data=extr_base_cell_nums)
         map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None)
 
-        owned_map_axes = op3.AxisTree.from_iterable([
-            self.cells.owned.root, op3.Axis(1, "extr_cell_base_cell")
-        ])
-        owned_dat = op3.Dat(owned_map_axes, data=dat.data_rw)
-        owned_map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, owned_dat, label=None)
+        connectivity = {idict({self._uid: self.cell_label}): [[map_cpt]]}
+
+        # In serial there is no need to differentiate between owned and owned+ghost
+        if self.comm.size > 1:
+            owned_map_axes = op3.AxisTree.from_iterable([
+                self.cells.owned.root, op3.Axis(1, "extr_cell_base_cell")
+            ])
+            owned_dat = op3.Dat(owned_map_axes, data=dat.data_rw)
+            owned_map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, owned_dat, label=None)
+            connectivity[idict({f"{self._uid}_owned": self.cell_label})] = [[owned_map_cpt]]
 
         # TODO: This could be a ScalarMap
-        return op3.Map({
-            idict({self._uid: self.cell_label}): [[map_cpt]],
-            idict({f"{self._uid}_owned": self.cell_label}): [[owned_map_cpt]],
-        })
+        return op3.Map(connectivity)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
