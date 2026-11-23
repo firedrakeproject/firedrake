@@ -13,13 +13,13 @@ every line of a pull request, so each change should be easy to follow and easy t
 
 ## Core Working Rules
 
+* Read nearby code and preserve Firedrake style. Reuse or extend existing logic and helpers,
+  including UFL, FInAT, and PETSc functionality.
 * Fix bugs at their root cause, in the component where the cause is (PETSc, UFL, FIAT, or Firedrake).
 * Do not branch on the cell type, polynomial degree, element family or number of processes. Use the
-  abstraction that already handles all cases. This also applies to tests, and existing code that
-  branches is not an example to follow.
+  abstraction that already handles all cases, including edge cases. This also applies to tests,
+  and existing code that branches is not an example to follow.
 * Check each condition in one place, by its name: `mesh.extruded`, not `m.offset is None`.
-* Let edge cases go through the general code path.
-* Reuse existing helpers, the exceptions in `firedrake/exceptions.py`, and PETSc functionality.
 * Keep each pull request focused. Put unrelated refactors in a separate pull request.
 * Report or fix every bug that you find, also bugs outside the scope of your change. Open an issue
   for each bug that you do not fix.
@@ -29,29 +29,32 @@ every line of a pull request, so each change should be easy to follow and easy t
 ## Coding Style And Conventions
 
 * Prefer simple constructs, for example `if` instead of `match`.
-* Keep `try` blocks small, and catch a specific exception.
-* Do not use exceptions for control flow.
+* Keep `try` blocks small and catch a specific exception. Do not use exceptions for control flow.
 * Use f-strings.
 * Put imports at the top of the module, unless the import breaks a circular dependency.
-* Raise an exception for invalid input. Do not skip or overwrite things silently.
-* Use `assert` only for internal invariants.
-* Initialize every attribute in `__init__`.
+* Raise an exception for invalid input. Write exception messages that tell the user what went wrong.
+  Use an exception from `firedrake/exceptions.py` when it describes the error. Do not skip or
+  overwrite things silently.
+* In library code, use `assert` only for internal invariants.
+* Initialize stored instance attributes in `__init__`.
 * Use `functools.cached_property` for lazy values and `@property` for derived values.
 * Do not use `hasattr` or `getattr(obj, "x", None)` to find attributes.
 * Only add private attributes or helpers when several places use them.
-* Call each collective operation on every rank.
+* Call each collective operation on every rank in its communicator.
 * Send MPI messages on `pyop3.mpi.temp_internal_comm(comm)`, not on the communicator that the user
   gave.
 * Do not loop over mesh or DoF data in Python. Prefer UFL, then `par_loop`, then Cython.
+* Use comments to explain non-obvious behaviour, correctness constraints, or implementation choices.
 * Write comments and docstrings for a reader who knows the finite element method but not this
   code. Use plain words, define each symbol and abbreviation, and give a short example when the
   behaviour is not obvious.
 * Keep every statement in a comment or docstring correct.
+* Comments should not state a property without explaining why it matters to the code.
 * Use the same terms in the names of functions, arguments and variables as in their docstrings and
-  in the surrounding code. Use the existing UFL, FInAT or PETSc term for a concept, not a new synonym.
-* Remove commented-out code, debug prints and `breakpoint()` calls.
-* Write numpydoc docstrings for new and changed functions.
-* Add type hints to new signatures.
+  in the surrounding code. Use the existing PETSc, UFL, or FInAT term for a concept, not a new synonym.
+* Write numpydoc docstrings for new and changed functions outside tests. Use Sphinx-resolvable types
+  (**WRONG** `iterable, optional`, **RIGHT** `collections.abc.Iterable or None`).
+* Add type hint annotations to new signatures outside tests.
 * Write comments and documentation in ASD-STE100: complete sentences, explicit `that` and `which`,
   no stacked nouns, and no dangling modifiers.
 * Write comments and docstring summaries in the imperative mood: "Return the mesh", not "Returns
@@ -68,15 +71,16 @@ every line of a pull request, so each change should be easy to follow and easy t
 * Do not hardcode numbers copied from a previous run.
 * Use the public API (`assemble`, `interpolate`, `solve`) with the smallest input that shows the bug.
   Do not monkeypatch internals.
+* Construct meshes, function spaces, and functions in separate assignments in test setup. This
+  includes trial and test functions.
 * Check one property in each test. If two cases need different assertions, write two tests.
 * Use one `parametrize` decorator for each parameter.
-* Put constants in the test body.
+* Put shared constants in the test body and case-specific inputs in `parametrize`.
 * When cases differ only in which function they call, parametrize over the function.
-* Name tests after the property that they check, using UFL and FInAT terminology.
+* Name tests after the property that they check, using PETSc, UFL and FInAT terminology.
 * Add tests to the existing test file for the module.
 * Use the skip markers from `tests/firedrake/conftest.py`.
-* Write one parallel test with `@pytest.mark.parallel([1, 3])` instead of separate serial and
-  parallel tests.
+* To test several process counts, list them in one `@pytest.mark.parallel` decorator.
 
 ## Pull Request Expectations
 
@@ -147,7 +151,8 @@ redist = getattr(mesh, "redist", None)
 
 # RIGHT
 @cached_property
-def _work(self):
+def _work(self) -> Function:
+    """Return the work function."""
     return Function(self.V)
 ```
 
@@ -164,6 +169,20 @@ for i, x in enumerate(mesh.coordinates.dat.data_ro):
     f.dat.data[i] = g(x)
 # RIGHT
 f.interpolate(g(SpatialCoordinate(mesh)))
+```
+
+### Nested Constructors In Tests
+
+```python
+# WRONG
+f = Function(FunctionSpace(UnitIntervalMesh(2), "CG", 1))
+u, v = TrialFunction(V), TestFunction(V)
+# RIGHT
+mesh = UnitIntervalMesh(2)
+V = FunctionSpace(mesh, "CG", 1)
+f = Function(V)
+u = TrialFunction(V)
+v = TestFunction(V)
 ```
 
 ### Overloaded Parametrized Tests
