@@ -342,7 +342,7 @@ def statement_return(leaf, ctx):
     insns = [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
 
     # GCC 15 and 16 can miscompile outer loops with interleaved stores.
-    # TODO: set this with an attribute: we don't want it for clang
+    # TODO: Move this workaround into a compiler attribute.
     if not ctx.return_increments:
         barrier = (
             "#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 15 || __GNUC__ == 16)\n"
