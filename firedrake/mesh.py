@@ -3236,7 +3236,7 @@ class ExtrudedMeshTopology(MeshTopology):
             owned_map_axes = op3.AxisTree.from_iterable([
                 self.cells.owned.root, op3.Axis(1, "extr_cell_base_cell")
             ])
-            owned_dat = op3.Dat(owned_map_axes, data=dat.data_rw)
+            owned_dat = op3.Dat(owned_map_axes, data=dat.data_ro.copy())
             owned_map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, owned_dat, label=None)
             connectivity[idict({f"{self._uid}_owned": self.cell_label})] = [[owned_map_cpt]]
 
