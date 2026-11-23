@@ -237,10 +237,7 @@ def cache_filter(
         else:
             caches = filter(lambda c: c.func is function, caches)
     if cache_type is not None:
-        if isinstance(cache_type, str):
-            caches = filter(lambda c: cache_type in c.cache_name, caches)
-        else:
-            caches = filter(lambda c: c.cache_type is cache_type, caches)
+        caches = filter(lambda c: c.cache_type is cache_type, caches)
     return list(caches)
 
 
@@ -354,13 +351,18 @@ class _InstrumentedCache:
         cache: Mapping,
         singleton: bool,
     ):
-        # Find a unique key for the cache statistics. The function name isn't
-        # sufficient because we wrap some functions in multiple caches (e.g.
-        # disk and memory caching).
-        for i in itertools.count():
-            stats_key = f"{func.__module__}.{func.__qualname__}_{i}"
-            if stats_key not in _CACHE_STATS:
-                break
+        if singleton:
+            # Find a unique key for the cache statistics. The function name isn't
+            # sufficient because we wrap some functions in multiple caches (e.g.
+            # disk and memory caching).
+            for i in itertools.count():
+                stats_key = f"{func.__module__}.{func.__qualname__}_{i}"
+                if stats_key not in _CACHE_STATS:
+                    break
+        else:
+            # If we have things like cached methods then we intentionally want to
+            # aggregate results/have a shared stats key
+            stats_key = (comm.name, func, type(cache))
 
         self.comm = comm
         self.func = func

@@ -42,7 +42,6 @@ from pytest_mpi import parallel_assert
 
 import pyop3.config
 from pyop3.cache import (
-    _KNOWN_CACHES,
     DEFAULT_CACHE,
     clear_memory_cache,
     disk_only_cache,
@@ -62,29 +61,11 @@ nelems = 8
 default_cache_name = DEFAULT_CACHE().__class__.__name__
 
 
-def get_cache(comm, func_name):
-    cache_id = None
-    for cache_info in _KNOWN_CACHES:
-        if cache_info.func_name == func_name:
-            assert cache_id is None
-            cache_id = cache_info.cidx
-
-    if cache_id is None:
-        # haven't hit the function yet so the cache doesn't exist
-        return None
-
-    caches = get_comm_caches(comm)
-    return caches[cache_id]
-
-
 def get_caches(comm, func_name):
-    cache_ids = []
-    for cache_info in _KNOWN_CACHES:
-        if cache_info.func_name == func_name and cache_info.comm_name == comm.name:
-            cache_ids.append(cache_info.cidx)
-
-    caches = get_comm_caches(comm)
-    return tuple(caches[cache_id] for cache_id in cache_ids)
+    return [
+        c for c in get_comm_caches(comm).values()
+        if c.func.__qualname__ == func_name
+    ]
 
 
 class TestDiskCachedDecorator:
