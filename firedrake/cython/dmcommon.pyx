@@ -1557,7 +1557,8 @@ def _get_firedrake_plex_permutation_dg_transitive_closure(PETSc.DM dm):
         dm_cell_type = -1
     else:
         dm_cell_type = dm.getCellType(0)  # assume single cell type
-    dm_cell_type = dm.comm.tompi4py().allreduce(dm_cell_type, op=MPI.MAX)
+    # Reduce the integer value because MPI cannot pickle the petsc4py enum.
+    dm_cell_type = dm.comm.tompi4py().allreduce(int(dm_cell_type), op=MPI.MAX)
     if dm_cell_type == PETSc.DM.PolytopeType.POINT:
         ndofs = np.array([1], dtype=IntType)
         perm = np.array([0], dtype=IntType)
