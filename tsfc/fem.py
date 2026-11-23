@@ -912,6 +912,16 @@ def translate_ufl_element(ufl_element: finat.ufl.FiniteElementBase,
         per_derivative = {alpha: gem.select_expression(tables, f)
                           for alpha, tables in per_derivative.items()}
 
+    if ctx.use_canonical_quadrature_point_ordering:
+        # Permute the tables from reference to physical quadrature point order
+        # before they are contracted with ``vec``.
+        # The facet orientation then does not change ``vec``.
+        quad_multiindex = ctx.quadrature_rule.point_set.indices
+        quad_multiindex_permuted = _make_quad_multiindex_permuted(domain, mt, ctx)
+        mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
+        per_derivative = {alpha: mapper(table, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
+                          for alpha, table in per_derivative.items()}
+
     # Coefficient evaluation
     beta = ctx.index_cache.setdefault(ufl_element, element.get_indices())
     zeta = element.get_value_indices()
@@ -946,11 +956,6 @@ def translate_ufl_element(ufl_element: finat.ufl.FiniteElementBase,
                                        if isinstance(node, gem.Literal)):
         result = gem.optimise.aggressive_unroll(result)
 
-    if ctx.use_canonical_quadrature_point_ordering:
-        quad_multiindex = ctx.quadrature_rule.point_set.indices
-        quad_multiindex_permuted = _make_quad_multiindex_permuted(domain, mt, ctx)
-        mapper = gem.node.MemoizerArg(gem.optimise.filtered_replace_indices)
-        result = mapper(result, tuple(zip(quad_multiindex, quad_multiindex_permuted)))
     return result
 
 
