@@ -136,13 +136,14 @@ class ExtractSubBlock(DAGTraverser):
     @process.register(CoefficientDerivative)
     @DAGTraverser.postorder
     def _(self, o, expr, coefficients, arguments, cds, blocks):
-        argument, = arguments
-        if (isinstance(argument, Zero)
-            or (isinstance(argument, ListTensor)
-                and all(isinstance(a, Zero) for a in argument.ufl_operands))):
+        if all(isinstance(argument, Zero)
+               or (isinstance(argument, ListTensor)
+                   and all(isinstance(a, Zero) for a in argument.ufl_operands))
+               for argument in arguments):
             # If we're only taking a derivative wrt part of an argument in
             # a mixed space other bits might come back as zero. We want to
-            # propagate a zero in that case.
+            # propagate a zero if this happens for the direction of every
+            # coefficient.
             return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
         else:
             return self.reuse_if_untouched(o, blocks=blocks)

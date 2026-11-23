@@ -1,6 +1,8 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
+from ufl.algorithms import expand_derivatives
+import ufl
 import numpy as np
 
 
@@ -18,6 +20,55 @@ def test_assemble_split_derivative():
     F = (inner(u, v) + inner(p, v[1])) * dx
 
     assert assemble(derivative(F, x))
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("mat_type", ["nest", "aij"])
+def test_assemble_split_derivative_coefficient_tuple(mat_type):
+    """Assemble the derivative of a form wrt a tuple of coefficients."""
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    W = V * Q * V
+    x = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(1 + x[0])
+    p = Function(Q).interpolate(2 + x[0]*x[1])
+    v, q, r = TestFunctions(W)
+    du, dp, _ = TrialFunctions(W)
+
+    F = inner(u*p, v)*dx + inner(p, q)*dx + inner(u, r)*dx
+    # The last column has a zero direction for both coefficients
+    J = ufl.derivative(F, (u, p), (du, dp))
+
+    actual = assemble(J, mat_type=mat_type).petscmat
+    expected = assemble(expand_derivatives(J), mat_type=mat_type).petscmat
+    if mat_type == "nest":
+        blocks = [(actual.getNestSubMatrix(i, j), expected.getNestSubMatrix(i, j))
+                  for i, j in np.ndindex(3, 3)]
+    else:
+        blocks = [(actual, expected)]
+    for A, B in blocks:
+        A.axpy(-1, B, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
+        assert A.norm(PETSc.NormType.NORM_FROBENIUS) < 1e-12
+
+
+@pytest.mark.parallel([1, 2])
+def test_assemble_split_gradient_coefficient_tuple():
+    """Assemble the gradient of a functional wrt a tuple of coefficients."""
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    W = V * Q
+    x = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(1 + x[0])
+    p = Function(Q).interpolate(2 + x[0]*x[1])
+
+    dG = ufl.derivative(u*p*dx, (u, p), TestFunctions(W))
+
+    actual = assemble(dG)
+    expected = assemble(expand_derivatives(dG))
+    for a, e in zip(actual.subfunctions, expected.subfunctions):
+        assert np.allclose(a.dat.data_ro, e.dat.data_ro)
 
 
 def test_function_split_raises():
