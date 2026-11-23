@@ -480,7 +480,7 @@ class AbstractMeshTopology(abc.ABC):
                         new_to_old_rcm_cell_numbering = \
                             utils.invert(old_to_new_rcm_cell_numbering)
                     else:
-                        new_to_old_rcm_cell_numbering_is = None
+                        new_to_old_rcm_cell_numbering = None
                     new_to_old_point_numbering = dmcommon.compute_dm_renumbering(
                         self, new_to_old_rcm_cell_numbering
                     )
@@ -852,6 +852,7 @@ class AbstractMeshTopology(abc.ABC):
         name: str | None = None,
         dim: int | tuple[int, ...] | None = None,
         stratum: int | None = None,
+        return_array: bool = False,
     ) -> np.ndarray | tuple[int, int]:
         if sum(x is not None for x in [_selector, name, dim, stratum]) != 1:
             raise ValueError(
@@ -865,12 +866,15 @@ class AbstractMeshTopology(abc.ABC):
                 dim = _selector
 
         if name is not None:
-            return self._entity_dm_indices_by_name(name)
+            idxs = self._entity_dm_indices_by_name(name)
         elif dim is not None:
-            return self._entity_dm_indices_by_dim(dim)
+            idxs = self._entity_dm_indices_by_dim(dim)
         else:
-            p_start, p_end = self.topology_dm.getDepthStratum(stratum)
-            return(p_start, p_end)
+            idxs = self.topology_dm.getDepthStratum(stratum)
+
+        if isinstance(idxs, tuple) and return_array:
+            idxs = np.arange(*idxs, dtype=IntType)
+        return idxs
 
     def _entity_dm_indices_by_name(self, name: str) -> np.ndarray | tuple[int, int]:
         match name:
@@ -1041,7 +1045,7 @@ class AbstractMeshTopology(abc.ABC):
         base_dim, extr_dim = dim
         p_start, p_end = self.topology_dm.getDepthStratum(base_dim + extr_dim)
 
-        if not renumber and dim in {self._cell_label, self._vertex_label}:
+        if dim in {self.cell_label, self.vertex_label}:
             # For extruded meshes we can only use a slice for cells and
             # vertices because for intermediate dimensions the
             # horizontal and vertical entities interleave.
@@ -1062,13 +1066,7 @@ class AbstractMeshTopology(abc.ABC):
         matching_extruded_points = dmcommon.filter_is(
             matching_base_dim_extruded_points, p_start, p_end
         )
-
-        # Finally do the renumbering (optional)
-        indices = matching_extruded_points.indices
-        if renumber:
-            indices = self._old_to_new_point_numbering[indices]
-
-        return utils.readonly(np.sort(indices))
+        return matching_extruded_points.indices
 
     @cached_method_until_topology_changes
     def _plex_to_entity_numbering_sec(
@@ -3109,25 +3107,6 @@ class ExtrudedMeshTopology(MeshTopology):
         # up for the whole column
         return np.repeat(orientationss, self.layers-1, axis=0)
 
-    # TODO: implement for regular meshes too
-    def _plex_indices_for_dim(self, dim: tuple) -> PETSc.IS:
-        assert False, "old code"
-        if len(dim) != 2:
-            raise NotImplementedError
-
-        base_dim, extr_dim = dim
-
-        # Get all points up each column that match the base dimension
-        column_plex_indices = utils.safe_is(
-            self.topology_dm.getLabel("base_dim").getStratumIS(base_dim)
-        )
-
-        # Drop indices up the column that do not match the required dimension
-        return dmcommon.filter_is(
-            column_plex_indices,
-            *self.topology_dm.getDepthStratum(base_dim+extr_dim),
-        )
-
     # {{{ facet iteration
 
     @cached_property
@@ -3151,14 +3130,6 @@ class ExtrudedMeshTopology(MeshTopology):
         return self._entity_axes("interior_facet_vert")
 
     # }}}
-
-    @cached_property
-    def _fiat_cell_closures(self) -> np.ndarray:
-        assert False, "not needed for extruded meshes"
-
-    @cached_property
-    def _fiat_cell_closures_renumbered(self) -> np.ndarray:
-        assert False, "not needed for extruded meshes"
 
     # TODO: I think I should be able to avoid a lot of this if the base closure ordering can be expressed as a permutation
     @cached_property
