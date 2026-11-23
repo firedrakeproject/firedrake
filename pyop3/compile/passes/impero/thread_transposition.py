@@ -432,72 +432,69 @@ def choose_parameters(
     NotImplementedError
         If no pair fits the target.
     """
-    batch_sizes = range(1, MAX_BATCH_SIZE + 1) if batch_size is None else (batch_size,)
-    shared_per_batch = {n: shared_bytes(n) for n in batch_sizes}
+    # The model is evaluated on the whole grid at once: axis 0 is the phase k, then N_c, then T.
+    #
+    # With w_k = B ceil(N_c n_k / W) W r_k (the work of phase k) and p_k = ceil(N_c n_k / T) l_k
+    # (the critical path of a block through phase k), the cost of an item in SM cycles is
+    #
+    #     sum_k max(w_k, p_k) / N_c          if B = 1,
+    #     max(sum_k w_k, sum_k p_k) / (B N_c)  if B > 1,
+    #
+    # with n_k the width of phase k, W the warp size and B the resident blocks
+    # per SM. r_k is the cycles of a point on the busiest unit of the SM:
+    # FP64 (operations), load/store (global, shared and table accesses) or issue
+    # (all of them). l_k is the latency of a point. A barrier ends each phase, so
+    # one block runs its phases one after the other. Blocks do not share barriers, so
+    # when an SM holds more than one block, the latency of the phases of one block is hidden by
+    # the work of the others. Every SM is assumed to hold B blocks, which the registers of a thread also limit.
+    # A table read hits L1 with `_l1_hit_fraction`, with the latency of a shared access.
+    # A pair that does not fit the target has B = 0 and an infinite cost.
+    batch_sizes = np.arange(1, MAX_BATCH_SIZE + 1) if batch_size is None else np.array([batch_size])
     block_sizes = (
-        range(target.warp_size, target.max_threads_per_block + 1, target.warp_size)
-        if block_size is None else (block_size,)
+        np.arange(target.warp_size, target.max_threads_per_block + 1, target.warp_size)
+        if block_size is None else np.array([block_size])
     )
+    n, t = batch_sizes[:, None], block_sizes[None, :]
+    shared = np.array([shared_bytes(int(b)) for b in batch_sizes])[:, None]
     w, fp64 = target.warp_size, target.fp64_per_cycle
+
+    blocks = np.minimum(target.max_blocks_per_sm, target.max_threads_per_sm // t)
     if target.registers_per_sm is not None:
+        budgets = [_register_budget(int(b), target) for b in block_sizes]
         # ptxas spills below the demand, and spills are not priced, so the largest budget is the floor
-        needed = min(registers, max(_register_budget(t, target) for t in block_sizes))
+        needed = min(registers, max(budgets))
+        blocks = np.minimum(blocks, [
+            _resident_blocks_by_registers(min(registers, budget), int(b), target) if budget >= needed else 0
+            for budget, b in zip(budgets, block_sizes)
+        ])
+    per_block = shared + target.reserved_shared_memory_per_block
+    blocks = np.where(per_block > 0, np.minimum(blocks, target.shared_memory_per_sm // np.maximum(per_block, 1)), blocks)
+    blocks = np.where((shared > target.shared_memory_per_block) | (t > target.max_threads_per_block), 0, blocks)
+    hit = _l1_hit_fraction(blocks * per_block, table_bytes, target)
+    table_latency = hit * SHARED_LATENCY + (1 - hit) * GLOBAL_LATENCY
 
-    def cost_per_item(n: int, t: int) -> float | None:
-        """The estimated SM cycles of one item, or `None` if the pair does not fit the target.
+    width = np.array([phase.width for phase in phases])[:, None, None]
+    ops, glob, sh, tab = np.array(counts, dtype=float).reshape(len(phases), 4).T[:, :, None, None]
+    points = n * width
+    accesses = glob + sh + tab
+    rate = np.maximum.reduce([ops / fp64, accesses / LSU_ACCESSES_PER_CYCLE, (ops + accesses) / ISSUE_PER_CYCLE])
+    work = blocks * -(-points // w) * w * rate
+    path = -(-points // t) * (ops * FP64_LATENCY + sh * SHARED_LATENCY + glob * GLOBAL_LATENCY + tab * table_latency)
+    cycles = np.where(blocks == 1, np.maximum(work, path).sum(0), np.maximum(work.sum(0), path.sum(0)))
 
-        With w_k = B ceil(N_c n_k / W) W r_k (the work of phase k) and p_k = ceil(N_c n_k / T) l_k
-        (the critical path of a block through phase k), the cost is
+    # Any cases with errors are not possible so cost model should make as infeasible 
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cost = np.where(blocks > 0, cycles / (blocks * n), np.inf)
 
-            sum_k max(w_k, p_k) / N_c          if B = 1,
-            max(sum_k w_k, sum_k p_k) / (B N_c)  if B > 1,
-
-        with n_k the width of phase k, W the warp size and B the resident blocks
-        per SM. r_k is the cycles of a point on the busiest unit of the SM:
-        FP64 (operations), load/store (global, shared and table accesses) or issue
-        (all of them). l_k is the latency of a point. A barrier ends each phase, so
-        one block runs its phases one after the other. Blocks do not share barriers, so
-        when an SM holds more than one block, the latency of the phases of one block is hidden by
-        the work of the others. Every SM is assumed to hold B blocks, which the registers of a thread also limit.
-        A table read hits L1 with `_l1_hit_fraction`, with the latency of a shared access.
-        """
-        shared = shared_per_batch[n]
-        if shared > target.shared_memory_per_block or t > target.max_threads_per_block:
-            return None
-        blocks = min(target.max_blocks_per_sm, target.max_threads_per_sm // t)
-        if target.registers_per_sm is not None:
-            if (budget := _register_budget(t, target)) < needed:
-                return None
-            blocks = min(blocks, _resident_blocks_by_registers(min(registers, budget), t, target))
-        per_block = shared + target.reserved_shared_memory_per_block
-        if per_block:
-            blocks = min(blocks, target.shared_memory_per_sm // per_block)
-        if blocks == 0:
-            return None
-        hit = _l1_hit_fraction(blocks * per_block, table_bytes, target)
-        table_latency = hit * SHARED_LATENCY + (1 - hit) * GLOBAL_LATENCY
-
-        work, path = np.zeros(len(phases)), np.zeros(len(phases))
-        for k, (phase, (ops, glob, sh, tab)) in enumerate(zip(phases, counts, strict=True)):
-            points = n * phase.width
-            accesses = glob + sh + tab
-            rate = max(ops / fp64, accesses / LSU_ACCESSES_PER_CYCLE, (ops + accesses) / ISSUE_PER_CYCLE)
-            work[k] = blocks * utils.ceildiv(points, w) * w * rate
-            path[k] = utils.ceildiv(points, t) * (
-                ops * FP64_LATENCY + sh * SHARED_LATENCY + glob * GLOBAL_LATENCY + tab * table_latency
-            )
-        cycles = np.maximum(work, path).sum() if blocks == 1 else max(work.sum(), path.sum())
-        return cycles / (blocks * n)
-
-    pairs = {(n, t): cost for n in batch_sizes for t in block_sizes if (cost := cost_per_item(n, t)) is not None}
-    if not pairs:
+    lowest = cost.min()
+    if np.isinf(lowest):
         raise NotImplementedError(
-            f"No batch size and block size fit the target: the smallest batch needs {min(shared_per_batch.values())} "
+            f"No batch size and block size fit the target: the smallest batch needs {shared.min()} "
             f"bytes of shared memory, and a block can have {target.shared_memory_per_block}"
         )
-    lowest = min(pairs.values())
-    pair = min(pair for pair, cost in pairs.items() if cost <= (1 + COST_TOLERANCE) * lowest)
-    return Parameters(*pair, pairs[pair])
+    # The first pair in C order is the smallest (N_c, T), as both ranges ascend
+    i, j = np.argwhere(cost <= (1 + COST_TOLERANCE) * lowest)[0]
+    return Parameters(int(batch_sizes[i]), int(block_sizes[j]), float(cost[i, j]))
 
 
 # TODO: I would love to use `gem.count_flops` here but it does not support counting FMAs (fuse-multiply-adds) 
@@ -562,7 +559,7 @@ def _l1_hit_fraction(shared_per_sm: int, table_bytes: int, target: GPUTarget) ->
         return 0.0
     if not table_bytes:
         return 1.0
-    return min(1.0, max(0, target.shared_memory_per_sm - shared_per_sm) / table_bytes)
+    return np.minimum(1.0, np.maximum(0, target.shared_memory_per_sm - shared_per_sm) / table_bytes)
 
 
 def _phase_values(phase: Phase, k: int, temporaries: Mapping[str, Temporary]) -> int:
