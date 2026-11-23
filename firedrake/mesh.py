@@ -2523,7 +2523,7 @@ class MeshTopology(AbstractMeshTopology):
         ----------
         subdomain_id : int, tuple of int, or str
             The subdomain ID to return.
-        all_integer_subdomain_ids : iterable of int or None
+        all_integer_subdomain_ids : collections.abc.Iterable of int or None
             This argument is ignored.
 
         Returns
