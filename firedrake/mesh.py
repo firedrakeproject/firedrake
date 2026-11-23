@@ -1564,10 +1564,10 @@ class AbstractMeshTopology(abc.ABC):
         dm_closures = self._dm_closures(from_dim)
 
         # 2. Now permute the entries to get an oriented closure
-        oriented_dm_closures = np.take_along_axis(
-            dm_closures, self._fiat_cell_closure_permutations
-        )
-        breakpoint()
+        # oriented_dm_closures = np.take_along_axis(
+        #     dm_closures, self._fiat_cell_closure_permutations
+        # )
+        # breakpoint()
 
         # 3. Now renumber the source and (optionally) destination points.
         #    Source points are renumbered by permuting map rows, and
@@ -1580,8 +1580,14 @@ class AbstractMeshTopology(abc.ABC):
         for renumber_dest in [False, True]:
             off = 0
             for to_dim, size in self._closure_sizes[from_dim].items():
+                dm_closures_per_dim = dm_closures[to_dim]
+                oriented_dm_closures_per_dim = np.take_along_axis(
+                    dm_closures_per_dim, self._fiat_cell_closure_permutations[to_dim]
+                )
+
                 to_dim_closures = self._renumber_map_fixed(
-                    oriented_dm_closures[:, off:off+size],
+                    # oriented_dm_closures[:, off:off+size],
+                    oriented_dm_closures_per_dim,
                     from_plex_indices,
                     from_numbering_sec,
                     self._plex_to_entity_numbering_sec(dim=to_dim, renumber=renumber_dest),
@@ -1630,6 +1636,9 @@ class AbstractMeshTopology(abc.ABC):
     def _dm_closures(self, dim: DimT) -> np.ndarray:
         if dim != self.cell_label:
             raise NotImplementedError("Only cell closures currently supported")
+
+        if self.extruded:
+            return self._dm_closures_extruded
 
         stratum = sum(dim) if isinstance(dim, tuple) else dim
         p_start, p_end = self.topology_dm.getDepthStratum(stratum)
@@ -1681,10 +1690,34 @@ class AbstractMeshTopology(abc.ABC):
                     closure_tmp[8] = closure[5]
                     return closure_tmp
 
+        closure_data = {0: [], 1: []}
         for i, pt in enumerate(range(p_start, p_end)):
-            closure_data[i] = closure_func(pt)
-
+            cl = closure_func(pt)
+            # only interval
+            if len(cl) != 3:
+                raise NotImplementedError
+            closure_data[0].append(cl[[1, 2]])
+            closure_data[1].append(cl[[0]])
+        closure_data = {
+            k: np.asarray(v,dtype=IntType) for k, v in closure_data.items()
+        }
+        return closure_data
         return utils.readonly(closure_data)
+
+    @property
+    def _dm_closures_extruded(self):
+        closures = defaultdict(list)
+        for i, pt in enumerate(range(self.num_cells())):
+            closure = self.topology_dm.getTransitiveClosure(pt)[0]
+            closures[0, 0].append(closure[[2, 3, 5, 6]])
+            closures[0, 1].append(closure[[7, 8]])
+            closures[1, 0].append(closure[[1, 4]])
+            closures[1, 1].append(closure[[0]])
+
+        closures = {
+            k: np.asarray(v, dtype=IntType) for k, v in closures.items()}
+
+        return closures
 
     @cached_property_until_topology_changes
     def _fiat_cell_closure_permutations(self) -> np.ndarray:
@@ -1733,6 +1766,67 @@ class AbstractMeshTopology(abc.ABC):
     @property
     def _fiat_cell_closure_permutations_extruded(self) -> np.ndarray:
         if self.dimension == 2:
+
+            # I think that this very nearly works. Still need to think about DM vs FIAT numbering.
+            # The permutation I have sort of merges them together which doesn't help me out very much.
+
+            perms = {
+                (0, 0): {
+                    (0, 1): [0, 1, 2, 3],
+                    (1, 0): [2, 3, 0, 1],
+                },
+                (0, 1): {
+                    (0, 1): [0, 1],
+                    (1, 0): [1, 0],
+                },
+                (1, 0): {(0,): [0, 1]},
+                (1, 1): {(0,): [0]},
+            }
+
+            # in principle we don't need to have a base mesh always
+            base_perm = self._base_mesh._fiat_cell_closure_permutations
+            closures = {}
+
+            # verts
+            vbrange = slice(2)  # first 2
+            closures[0, 0] = []
+            for c in range(self.num_cells()):
+                cb = c // (self.layers-1)
+                closures[0, 0].append(perms[0, 0][tuple(map(int, base_perm[0][cb][vbrange]))])
+
+            # ve
+            vbrange = slice(2)  # first 2
+            closures[0, 1] = []
+            for c in range(self.num_cells()):
+                cb = c // (self.layers-1)
+                closures[0, 1].append(perms[0, 1][tuple(map(int, base_perm[0][cb][vbrange]))])
+
+            # he
+            brange = slice(1)
+            closures[1, 0] = []
+            for c in range(self.num_cells()):
+                cb = c // (self.layers-1)
+                closures[1, 0].append(perms[1, 0][tuple(map(int, base_perm[1][cb][brange]))])
+
+            # c
+            brange = slice(1)
+            closures[1, 1] = []
+            for c in range(self.num_cells()):
+                cb = c // (self.layers-1)
+                closures[1, 1].append(perms[1, 1][tuple(map(int, base_perm[1][cb][brange]))])
+
+            closures = {
+                k: np.asarray(v, dtype=IntType) for k, v in closures.items()
+                    }
+            return closures
+            breakpoint()
+
+
+
+
+
+
+
             # 1----0----2
             #
             #   vs
@@ -2543,6 +2637,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def entity_orientations_dat(self):
+        raise NotImplementedError("labels!")
         cell_axis = self.cells.root
 
         # TODO: This is quite a funky way of getting this. We should be able to get
