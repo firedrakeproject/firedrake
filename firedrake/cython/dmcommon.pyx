@@ -254,7 +254,7 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
-def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS | Integral, MPI.Comm comm) -> PETSc.Section:
+def entity_numbering(selected_points: np.ndarray | tuple[int, int], new_to_old_numbering: np.ndarray | Integral, MPI.Comm comm) -> PETSc.Section:
     """Return a PETSc section representing the renumbering of a set of points.
 
     The section maps from 'plex' indices (i.e. point numbers as seen by DMPlex) to
@@ -274,29 +274,45 @@ def entity_numbering(selected_points: PETSc.IS, new_to_old_numbering: PETSc.IS |
         A PETSc section encoding the numbering.
 
     """
+    if isinstance(selected_points, tuple):
+        assert len(selected_points) == 2
+        selected_points = range(*selected_points)
+
     section = PETSc.Section().create(comm=comm)
 
     if isinstance(new_to_old_numbering, Integral):
         section.setChart(0, new_to_old_numbering)
     else:
         section.setChart(0, new_to_old_numbering.size)
-        section.setPermutation(new_to_old_numbering)
-    for pt in selected_points.indices:
+        perm = PETSc.IS().createGeneral(new_to_old_numbering, comm=MPI.COMM_SELF)
+        section.setPermutation(perm)
+    for pt in selected_points:
         section.setDof(pt, 1)
     section.setUp()
     return section
 
 
-def section_offsets(section: PETSc.Section, selected_points: PETSc.IS, *, sort: bool = False) -> PETSc.IS:
+def section_offsets(section: PETSc.Section, selected_points: PetscInt[::1] | tuple[int, int], *, sort: bool = False) -> np.ndarray:
     """Return the section offsets for a given set of points."""
-    offsets = np.empty(selected_points.size, dtype=IntType)
-    for i, pt in enumerate(selected_points.indices):
-        offsets[i] = section.getOffset(pt)
 
-    offsets_is = PETSc.IS().createGeneral(offsets, comm=MPI.COMM_SELF)
+    if isinstance(selected_points, tuple):
+        start, stop = selected_points
+        offsets = np.empty(stop-start, dtype=IntType)
+        for i, pt in enumerate(range(start, stop)):
+            offsets[i] = section.getOffset(pt)
+    else:
+        offsets = _section_offsets_with_array(section, selected_points)
+
     if sort:
-        offsets_is.sort()
-    return offsets_is
+        offsets.sort()
+    return offsets
+
+
+def _section_offsets_with_array(section, PetscInt[::1] selected_points):
+    offsets = np.empty(selected_points.size, dtype=IntType)
+    for i, pt in enumerate(selected_points):
+        offsets[i] = section.getOffset(pt)
+    return offsets
 
 
 def section_permute(section: PETSc.Section, PetscInt[::1] perm) -> PETSc.Section:
@@ -382,26 +398,26 @@ def local_facet_number(mesh, facet_type):
     if facet_type == "exterior":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 1
-        facets = mesh._entity_indices("plex", "exterior_facet")
+        facets = mesh._entity_dm_indices("exterior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet")
     elif facet_type == "interior":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
         ncells_per_facet = 2
-        facets = mesh._entity_indices("plex", "interior_facet")
+        facets = mesh._entity_dm_indices("interior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet")
     elif facet_type == "exterior_vert":
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
         ncells_per_facet = 1
-        facets = mesh._entity_indices("plex", "exterior_facet_vert")
+        facets = mesh._entity_dm_indices("exterior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet_vert")
     else:
         assert facet_type == "interior_vert"
         closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
         ncells_per_facet = 2
-        facets = mesh._entity_indices("plex", "interior_facet_vert")
+        facets = mesh._entity_dm_indices("interior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
         specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet_vert")
 
@@ -777,7 +793,6 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
 
     cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
-        cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
 
         # Here we assume that DMPlex gives entities in the order:
@@ -865,7 +880,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         assert fi == 4
 
         # The first vertex is given by the entry in cell_orientations.
-        start_v = cell_orientations[cell]
+        start_v = cell_orientations[c]
 
         # Based on the cell orientation, we reorder the vertices and facets
         # (edges) from 'c_vertices' and 'c_facets' into 'vertices' and 'facets'.
@@ -2053,9 +2068,8 @@ def validate_mesh(PETSc.DM dm):
 @cython.wraparound(False)
 def compute_dm_renumbering(
     mesh,
-    new_to_old_cell_numbering_is: PETSc.IS | None = None,
-    # boundary_set=None,
-) -> PETSc.IS:
+    new_to_old_cell_numbering: np.ndarray | None = None,
+) -> np.ndarray:
     """Return a renumbering of DM points that maximises locality.
 
     :arg dm: The DMPlex object encapsulating the mesh topology
@@ -2084,26 +2098,25 @@ def compute_dm_renumbering(
         PetscInt pStart_c, pEnd_c, nPoints_c
         PetscInt cStart, cEnd, nclosure
         PetscInt *closure = NULL
-        PetscInt *ordering = NULL
         PetscBT seen_points = NULL
         bint reorder
 
     dm = mesh.topology_dm
 
-    reorder = new_to_old_cell_numbering_is is not None
+    reorder = new_to_old_cell_numbering is not None
 
     pStart_c, pEnd_c = dm.getChart()
     nPoints_c = pEnd_c - pStart_c
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
 
-    CHKERR(PetscMalloc1(nPoints_c, &ordering))
+    ordering = np.empty(nPoints_c, dtype=IntType)
     CHKERR(PetscBTCreate(nPoints_c, &seen_points))
     ptr = 0
 
     for cell in range(cStart, cEnd):
         if reorder:
-            cell = new_to_old_cell_numbering_is.indices[cell]
+            cell = new_to_old_cell_numbering[cell]
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
         for i in range(nclosure):
@@ -2120,74 +2133,39 @@ def compute_dm_renumbering(
 
     if closure != NULL:
         restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
-
     CHKERR(PetscBTDestroy(&seen_points))
 
-    # This gives us the ordering of old points (i.e. new to old) when we want to be dealing with
-    # a mapping from old to new
-    #
-    # For example:
-    #
-    #    x-----x-----x
-    #    2  0  3  1  4
-    #   (1  0  2  3  4)   going to
-    #
-    # ordering is: [0, 2, 3, 1, 4] / [0->0, 1->2, 2->3, 3->1, 4->4]
-    #
-    # but we want: [0->0, 1->3, 2->1, 3->2, 4->4] / [0, 3, 1, 2, 4]
-
-    ordering_is = PETSc.IS().create(comm=MPI.COMM_SELF)
-    ordering_is.setType("general")
-    CHKERR(ISGeneralSetIndices(ordering_is.iset, mesh.num_points, ordering, PETSC_OWN_POINTER))
-
-    return ordering_is
+    return np.asarray(ordering)
 
 
-def partition_renumbering(PETSc.DM dm, PETSc.IS serial_new_to_old_renumbering) -> PETSc.IS:
+def partition_renumbering(PETSc.DM dm, const PetscInt[::1] serial_new_to_old_numbering) -> np.ndarray:
     """Partition a serial point renumbering into owned and ghost points."""
     cdef:
-        PETSc.IS       parallel_new_to_old_renumbering
-
         DMLabel        ghost_label_c
         PetscInt       n_points_c, n_owned_c, n_ghost_c, is_ghost_c
         PetscInt       owned_ptr_c, ghost_ptr_c, i_c, pt_c
-        const PetscInt *serial_new_to_old_renumbering_c = NULL
-        PetscInt *parallel_new_to_old_renumbering_c = NULL
 
-    CHKERR(ISGetIndices(serial_new_to_old_renumbering.iset, &serial_new_to_old_renumbering_c))
-    CHKERR(ISGetLocalSize(serial_new_to_old_renumbering.iset, &n_points_c))
-    CHKERR(PetscMalloc1(n_points_c, &parallel_new_to_old_renumbering_c))
+    parallel_new_to_old_numbering = np.empty_like(serial_new_to_old_numbering)
 
+    n_points_c = serial_new_to_old_numbering.size
     CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghost_label_c))
     CHKERR(DMLabelGetStratumSize(ghost_label_c, 1, &n_ghost_c))
     n_owned_c = n_points_c - n_ghost_c
 
     owned_ptr_c = 0
     ghost_ptr_c = n_owned_c
-    for i_c in range(n_points_c):
-        pt_c = serial_new_to_old_renumbering_c[i_c]
+    for i_c in range(serial_new_to_old_numbering.size):
+        pt_c = serial_new_to_old_numbering[i_c]
         CHKERR(DMLabelGetValue(ghost_label_c, pt_c, &is_ghost_c))
         if is_ghost_c == 1:
-            parallel_new_to_old_renumbering_c[ghost_ptr_c] = pt_c
+            parallel_new_to_old_numbering[ghost_ptr_c] = pt_c
             ghost_ptr_c += 1
         else:
-            parallel_new_to_old_renumbering_c[owned_ptr_c] = pt_c
+            parallel_new_to_old_numbering[owned_ptr_c] = pt_c
             owned_ptr_c += 1
-
     assert owned_ptr_c == n_owned_c
     assert ghost_ptr_c == n_points_c
-
-    parallel_new_to_old_renumbering = PETSc.IS().create(comm=MPI.COMM_SELF)
-    parallel_new_to_old_renumbering.setType("general")
-    CHKERR(
-        ISGeneralSetIndices(
-            parallel_new_to_old_renumbering.iset,
-            n_points_c,
-            parallel_new_to_old_renumbering_c,
-            PETSC_OWN_POINTER,
-        )
-    )
-    return parallel_new_to_old_renumbering
+    return parallel_new_to_old_numbering
 
 
 @cython.boundscheck(False)
@@ -2916,8 +2894,6 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
-            cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
-
             CHKERR(DMPlexGetCone(plex.dm, c, &cone))
             CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
 
@@ -2972,7 +2948,7 @@ def orientations_facet2cell(mesh, np.ndarray cell_ranks, np.ndarray facet_orient
                 v = cone[0]
             else:
                 v = cone[1]
-            cell_orientations[cell] = cabs(mesh._global_old_to_new_vertex_numbering.getOffset(v))
+            cell_orientations[c] = cabs(mesh._global_old_to_new_vertex_numbering.getOffset(v))
 
     return cell_orientations
 
