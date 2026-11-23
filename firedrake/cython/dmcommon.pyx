@@ -658,7 +658,7 @@ def closure_ordering(mesh, closure_data_plex):
     # Must call this before loop collectively.
     mesh._global_old_to_new_vertex_numbering
 
-    closure_data_reord = np.empty_like(closure_data_plex)
+    closure_perm = np.empty_like(closure_data_plex)
     for cell in range(*dm.getHeightStratum(0)):
         # 1. Order vertices
         for vi, vert in enumerate(closure_data_plex[cell, vert_offset_plex:]):
@@ -678,7 +678,10 @@ def closure_ordering(mesh, closure_data_plex):
         for vi in range(nverts_per_cell):
             # Correct 1D edge numbering
             vert = verts[vi] if tdim != 1 else verts[nverts_per_cell-vi-1]
-            closure_data_reord[cell, vert_offset_fiat+vi] = vert
+            for vj in range(nverts_per_cell):
+                if closure_data_plex[cell, vert_offset_plex+vj] == vert:
+                    closure_perm[cell, vert_offset_fiat+vi] = vert_offset_plex + vj
+                    break
 
         # 2. Order edges (3D only, in 2D facets and edges are equivalent)
         if tdim > 2:
@@ -696,7 +699,7 @@ def closure_ordering(mesh, closure_data_plex):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(2):
-                        if edge_verts[vj] == closure_data_reord[cell, vert_offset_fiat+vi]:
+                        if edge_verts[vj] == verts[vi]:
                             incident = True
                             break
                     if not incident:
@@ -708,11 +711,14 @@ def closure_ordering(mesh, closure_data_plex):
 
             # Insert into the closure
             for ei in range(nedges_per_cell):
-                closure_data_reord[cell, edge_offset_fiat+ei] = edges[ei]
+                for ej in range(nedges_per_cell):
+                    if closure_data_plex[cell, edge_offset_plex+ej] == edges[ei]:
+                        closure_perm[cell, edge_offset_fiat+ei] = edge_offset_plex + ej
+                        break
 
         # 3. Order facets
         if tdim > 1:
-            for facet in closure_data_plex[cell, facet_offset_plex:edge_offset_plex]:
+            for fi, facet in enumerate(closure_data_plex[cell, facet_offset_plex:edge_offset_plex]):
                 # Collect vertices that are in the closure of the facet
                 get_transitive_closure(
                     dm.dm, facet, PETSC_TRUE, &nfacet_closure, &facet_closure
@@ -728,17 +734,17 @@ def closure_ordering(mesh, closure_data_plex):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(nverts_per_cell-1):
-                        if facet_verts[vj] == closure_data_reord[cell, vert_offset_fiat+vi]:
+                        if facet_verts[vj] == verts[vi]:
                             incident = True
                             break
                     # Only one non-incident vertex per facet, so the local facet
                     # number is the same as the non-incident vertex number
                     if not incident:
-                        closure_data_reord[cell, facet_offset_fiat+vi] = facet
+                        closure_perm[cell, facet_offset_fiat+vi] = facet_offset_plex + fi
                         break
 
         # 4. And finally the cell
-        closure_data_reord[cell, cell_offset_fiat] = closure_data_plex[cell, cell_offset_plex]
+        closure_perm[cell, cell_offset_fiat] = cell_offset_plex
 
     # Cleanup
     CHKERR(PetscFree(verts))
@@ -750,7 +756,7 @@ def closure_ordering(mesh, closure_data_plex):
     if facet_closure != NULL:
         restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nfacet_closure, &facet_closure)
 
-    return closure_data_reord
+    return closure_perm
 
 
 @cython.boundscheck(False)
