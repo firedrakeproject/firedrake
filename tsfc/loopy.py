@@ -344,15 +344,12 @@ def statement_return(leaf, ctx):
     # GCC 15 and 16 can miscompile outer loops with interleaved stores.
     # TODO: set this with an attribute: we don't want it for clang
     if not ctx.return_increments:
-        insns.append(
-            lp.CInstruction(
-                (),
-                "#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 15 || __GNUC__ == 16)\n"
-                '__asm__ __volatile__("" ::: "memory");\n'
-                "#endif",
-                within_inames=ctx.active_inames(),
-            )
+        barrier = (
+            "#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 15 || __GNUC__ == 16)\n"
+            '__asm__ __volatile__("" ::: "memory");\n'
+            "#endif"
         )
+        insns.append(lp.CInstruction((), barrier, within_inames=ctx.active_inames()))
 
     return insns
 
