@@ -101,9 +101,9 @@ def dual_evaluation_kernel(operand, dual_arg, parameters=None,
         A primal expression.
     dual_arg : ufl.Coargument or ufl.Cofunction
         A dual argument or coefficient.
-    parameters : dict or None, optional
+    parameters : dict or None
         Compiler parameters to pass to TSFC.
-    name : str, optional
+    name : str
         The name to use for the generated kernel.
 
     Returns

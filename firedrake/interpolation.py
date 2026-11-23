@@ -64,8 +64,9 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : int, tuple of int, {"everywhere", "otherwise"}, or None
+    subset : int, tuple of int, str, or None
         The subdomain IDs of the target cells over which to interpolate.
+        Strings must be ``"everywhere"`` or ``"otherwise"``.
         If None, interpolate over all target cells.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
@@ -724,7 +725,8 @@ class SameMeshInterpolator(Interpolator):
     @property
     def _needs_adjoint_weighting(self):
         return (isinstance(self.dual_arg, Cofunction)
-                and any(not V.finat_element.is_dg() for V in self.target_space))
+                and any(V.ufl_element().family() == "Real" or not V.finat_element.is_dg()
+                        for V in self.target_space))
 
     @cached_property
     def _weighted_dual_arg(self):
@@ -797,6 +799,8 @@ class SameMeshInterpolator(Interpolator):
         # and the MAX identity with a MIN reduction.
         mode = "max" if self.access is op3.MIN_WRITE else "min"
         self._loop_target_nodes(tensor, float(identity), mode)
+        # Finish the halo reduction before interpolation starts.
+        tensor.dat.buffer.sync_roots()
 
     @cached_on(
         get_obj=lambda self: self.source_mesh.unique().topology,

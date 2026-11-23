@@ -2,6 +2,7 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 import pyop3 as op3
+from pytest_mpi.parallel_assert import parallel_assert
 from firedrake import *
 
 cwd = abspath(dirname(__file__))
@@ -73,21 +74,25 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_subset_interpolation_reduction(access):
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(1, 1)
     x, y = SpatialCoordinate(mesh)
     DG0 = FunctionSpace(mesh, "DG", 0)
     indicator = Function(DG0).interpolate(conditional(x < 0.5, 1, 0))
-    mesh = RelabeledMesh(mesh, [indicator], [100])
+    complement = Function(DG0).interpolate(1 - indicator)
+    mesh = RelabeledMesh(mesh, [indicator, complement], [100, 200])
     x, y = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
-    subset = mesh.cell_subset(100)
+    expr = x + y if access is op3.MIN_WRITE else -x - y
 
-    # The DoFs outside the cells of the subset receive no value, so they stay zero.
-    exact = assemble(interpolate(x + y, V))
-    reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op3.INC))
-    expected = np.where(reached.dat.data_ro > 0, exact.dat.data_ro, 0)
-    reduced = assemble(interpolate(x + y, V, subset=subset, access=access))
-    assert np.allclose(reduced.dat.data_ro, expected)
+    # Check both sides so that shared nodes can be reached from either rank.
+    exact = assemble(interpolate(expr, V))
+    for subdomain_id in [100, 200]:
+        subset = mesh.cell_subset(subdomain_id)
+        # The DoFs outside the cells of the subset receive no value, so they stay zero.
+        reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op3.INC))
+        expected = np.where(reached.dat.data_ro > 0, exact.dat.data_ro, 0)
+        reduced = assemble(interpolate(expr, V, subset=subset, access=access))
+        parallel_assert(np.allclose(reduced.dat.data_ro, expected))
 
 
 @pytest.mark.parallel([1, 2])
