@@ -4,9 +4,9 @@ from ufl.duals import is_dual
 from ufl.core.base_form_operator import BaseFormOperator
 from ufl.split_functions import split
 from ufl.algorithms import extract_arguments, extract_coefficients
+from ufl.algorithms.analysis import has_type
 from ufl.domain import as_domain
 import firedrake
-from firedrake import function, cofunction
 from firedrake.constant import Constant
 from firedrake.petsc import PETSc
 from functools import cached_property
@@ -82,8 +82,6 @@ class Argument(ufl.argument.Argument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.value_shape != self.function_space().value_shape:
-            raise ValueError("Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 
 
@@ -121,17 +119,12 @@ class Coargument(ufl.argument.Coargument):
     def make_dat(self):
         return self.function_space().make_dat()
 
-    def _analyze_form_arguments(self, outer_form=None):
-        # Returns the argument found in the Coargument object
-        self._coefficients = ()
-        # Coarguments map from V* to V*, i.e. V* -> V*, or equivalently V* x V -> R.
-        # So they have one argument in the primal space and one in the dual space.
-        # However, when they are composed with linear forms with dual arguments, such as BaseFormOperators,
-        # the primal argument is discarded when analysing the argument as Coarguments.
-        if not outer_form:
-            self._arguments = (Argument(self.function_space().dual(), 0), self)
-        else:
-            self._arguments = (self,)
+    def _analyze_form_arguments(self):
+        super()._analyze_form_arguments()
+        self._arguments = tuple(
+            a if a is self else Argument(a.ufl_function_space(), a.number(), part=a.part())
+            for a in self._arguments
+        )
 
     def reconstruct(self, function_space=None,
                     number=None, part=None):
@@ -146,8 +139,6 @@ class Coargument(ufl.argument.Coargument):
             return self
         if not isinstance(number, int):
             raise TypeError(f"Expecting an int, not {number}")
-        if function_space.value_shape != self.function_space().value_shape:
-            raise ValueError("Cannot reconstruct an Coargument with a different value shape.")
         return Argument(function_space, number, part=part)
 
     def equals(self, other):
@@ -210,12 +201,12 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
     Given a form, this computes its linearization with respect to the
-    provided :class:`.Function`.  The resulting form has one
+    provided :class:`firedrake.function.Function`.  The resulting form has one
     additional :class:`Argument` in the same finite element space as
     the Function.
 
     :arg form: a :class:`~ufl.classes.Form` to compute the derivative of.
-    :arg u: a :class:`.Function` to compute the derivative with
+    :arg u: a :class:`firedrake.function.Function` to compute the derivative with
          respect to.
     :arg du: an optional :class:`Argument` to use as the replacement
          in the new form (constructed automatically if not provided).
@@ -229,10 +220,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 
     See also :func:`ufl.derivative`.
     """
-    if isinstance(form, firedrake.slate.TensorBase):
-        raise TypeError(
-            f"Cannot take the derivative of a {type(form).__name__}"
-        )
+    if has_type(form, firedrake.slate.TensorBase):
+        raise NotImplementedError("Cannot take the derivative of a form containing Slate tensors")
     try:
         args = form.arguments()
     except AttributeError:
@@ -302,7 +291,7 @@ def action(form, coefficient, derivatives_expanded=None):
     """Compute the action of a form on a coefficient.
 
     :arg form: A UFL form, or a Slate tensor.
-    :arg coefficient: The :class:`~.Function` to act on.
+    :arg coefficient: The :class:`firedrake.function.Function` to act on.
     :returns: a symbolic expression for the action.
     """
     if isinstance(form, firedrake.slate.TensorBase):
@@ -380,17 +369,20 @@ def extract_domains(f):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
+    from firedrake import Cofunction
     from firedrake.mesh import MeshSequenceGeometry
 
     if isinstance(f, firedrake.slate.TensorBase):
         return f.ufl_domains()
-    elif isinstance(f, (cofunction.Cofunction, Coargument)):
+    elif isinstance(f, (Cofunction, Coargument)):
         # ufl.domain.extract_domains does not work.
         mesh = f.function_space().mesh()
         if isinstance(mesh, MeshSequenceGeometry):
             return list(set(mesh._meshes))
         else:
             return [mesh]
+    elif isinstance(f, ufl.core.base_form_operator.BaseFormOperator):
+        return f.ufl_domains()
     elif isinstance(f, (ufl.form.FormSum, ufl.Action)):
         # ufl.domain.extract_domains does not work.
         if f._domains is None:
@@ -413,7 +405,9 @@ def extract_unique_domain(func):
     list of firedrake.mesh.MeshGeometry
         Extracted domains.
     """
-    if isinstance(func, (function.Function, cofunction.Cofunction, Argument, Coargument)):
+    from firedrake import Function, Cofunction
+
+    if isinstance(func, (Function, Cofunction, Argument, Coargument)):
         return func.function_space().mesh().unique()
     else:
         return ufl.domain.extract_unique_domain(func)

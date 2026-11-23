@@ -31,6 +31,7 @@ class NonlinearVariationalProblemMixin:
                 self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
+            self._ad_bc_map = {}
         return wrapper
 
     def _ad_count_map_update(self, updated_ad_count_map):
@@ -116,23 +117,43 @@ class NonlinearVariationalSolverMixin:
 
     @no_annotations
     def _ad_problem_clone(self, problem, dependencies):
-        """Replaces every coefficient in the residual and jacobian with a deepcopy to return
-        a clone of the original NonlinearVariationalProblem instance. We'll be modifying the
-        numerical values of the coefficients in the residual and jacobian, so in order not to
-        affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
-        expressions, we'll instead create clones of them.
+        """Replaces every coefficient in the residual, jacobian and Dirichlet boundary values
+        with a deepcopy to return a clone of the original NonlinearVariationalProblem instance.
+        We'll be modifying the numerical values of these coefficients, so in order not to
+        affect the user-defined self._ad_problem.F, self._ad_problem.J, self._ad_problem.u
+        and self._ad_problem.bcs, we'll instead create clones of them.
         """
         from firedrake import NonlinearVariationalProblem
         _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
             problem.J, dependencies, F=problem.F)
+        bc_map = self._ad_dirichlet_bcs_clone(problem.bcs, F_replace_map)
         nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
                                            F_replace_map[problem.u_restrict],
-                                           bcs=problem.bcs,
+                                           bcs=[bc_map.get(bc, bc) for bc in problem.bcs],
                                            J=replace(problem.J, J_replace_map))
         nlvp.is_linear = problem.is_linear
         nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
+        nlvp._ad_bc_map = bc_map
         return nlvp
+
+    @staticmethod
+    def _ad_dirichlet_bcs_clone(bcs, replace_map):
+        """Map each DirichletBC with a Function value to a clone that applies a copy of that value."""
+        from firedrake import DirichletBC, Function
+        bc_map = {}
+        for bc in bcs:
+            if not isinstance(bc, DirichletBC):
+                continue
+            g = bc.function_arg
+            if not isinstance(g, Function):
+                continue
+            if g in replace_map:
+                g_copy = replace_map[g]
+            else:
+                g_copy = g.copy(deepcopy=True)
+            bc_map[bc] = bc.reconstruct(g=g_copy)
+        return bc_map
 
     @no_annotations
     def _ad_adj_lvs_problem(self, block, adj_F):

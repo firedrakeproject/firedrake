@@ -157,8 +157,8 @@ class EnsembleBlockDiagonalMatCtx(EnsembleMatCtxBase):
                     f"Block {i} must be a PETSc.Mat not a {type(block).__name__}.\n"
                     "Did you mean to use assemble(block).petscmat instead?")
             # number of columns is row length, and vice-versa
-            vr_sizes = Vrow.dof_dset.layout_vec.sizes
-            vc_sizes = Vcol.dof_dset.layout_vec.sizes
+            vr_sizes = Vrow.template_vec.sizes
+            vc_sizes = Vcol.template_vec.sizes
             mc_sizes, mr_sizes = block.sizes
             if (vr_sizes[0] != mr_sizes[0]) or (vr_sizes[1] != mr_sizes[1]):
                 raise ValueError(

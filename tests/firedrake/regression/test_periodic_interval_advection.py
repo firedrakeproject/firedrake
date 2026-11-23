@@ -32,9 +32,9 @@ def run_test(degree):
         n = FacetNormal(mesh)
         un = 0.5 * (dot(u, n) + abs(dot(u, n)))
 
-        a_mass = phi*D*dx
-        a_int = dot(grad(phi), -u*D)*dx
-        a_flux = dot(jump(phi), jump(un*D))*dS
+        a_mass = inner(D, phi)*dx
+        a_int = inner(-u*D, grad(phi))*dx
+        a_flux = inner(jump(un*D), jump(phi))*dS
 
         dD1 = Function(V)
         D1 = Function(V)
@@ -80,7 +80,6 @@ def run_test(degree):
     return np.asarray(l2error)
 
 
-@pytest.mark.skipcomplexnoslate
 def test_periodic_1d_advection(degree, threshold):
     l2error = run_test(degree)
     convergence = np.log2(l2error[:-1] / l2error[1:])
@@ -88,7 +87,6 @@ def test_periodic_1d_advection(degree, threshold):
     assert np.all(convergence > threshold)
 
 
-@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel(nprocs=2)
 def test_periodic_1d_advection_parallel(degree, threshold):
     l2error = run_test(degree)

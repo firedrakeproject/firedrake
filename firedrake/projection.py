@@ -10,10 +10,9 @@ from firedrake.bcs import BCBase
 from firedrake.petsc import PETSc
 from functools import cached_property
 
-from firedrake.utils import complex_mode, SLATE_SUPPORTS_COMPLEX
 from firedrake import functionspaceimpl
 from firedrake import function
-from firedrake.adjoint_utils import annotate_project
+from firedrake.adjoint_utils import annotate_project, ProjectorMixin
 
 
 __all__ = ['project', 'Projector']
@@ -70,7 +69,7 @@ def project(
     v
         The :class:`ufl.core.expr.Expr` to project.
     V
-        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+        The :class:`.FunctionSpace` or :class:`firedrake.function.Function` to project into.
     bcs
         Boundary conditions to apply in the projection.
     solver_parameters
@@ -83,14 +82,14 @@ def project(
     quadrature_degree
         Quadrature degree to use when approximating integrands.
     name
-        The name of the resulting :class:`.Function`.
+        The name of the resulting :class:`firedrake.function.Function`.
     ad_block_tag
         String for tagging the resulting block on the Pyadjoint tape.
 
     Returns
     -------
     firedrake.function.Function
-        The :class:`.Function` on the new :class:`.FunctionSpace`.
+        The :class:`firedrake.function.Function` on the new :class:`.FunctionSpace`.
 
     Notes
     -----
@@ -98,10 +97,10 @@ def project(
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
 
-    If ``V`` is a :class:`.Function` then ``v`` is projected into ``V``
+    If ``V`` is a :class:`firedrake.function.Function` then ``v`` is projected into ``V``
     and ``V`` is returned. If `V` is a :class:`.FunctionSpace` then
-    ``v`` is projected into a new :class:`.Function` and that
-    :class:`.Function` is returned.
+    ``v`` is projected into a new :class:`firedrake.function.Function` and that
+    :class:`firedrake.function.Function` is returned.
 
     """
     val = Projector(
@@ -117,7 +116,7 @@ def project(
     return val
 
 
-class Assigner(object):
+class Assigner:
     def __init__(self, source, target):
         self.source = source
         self.target = target
@@ -127,7 +126,7 @@ class Assigner(object):
         return self.target
 
 
-class ProjectorBase(object, metaclass=abc.ABCMeta):
+class ProjectorBase(metaclass=abc.ABCMeta):
     def __init__(
         self, source, target, bcs=None, solver_parameters=None,
         form_compiler_parameters=None, constant_jacobian=True,
@@ -171,8 +170,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             slate_supported = False
             needs_trace = False
         else:
-            slate_supported = (F.finat_element.is_dg() and not F.mesh().variable_layers
-                               and (not complex_mode or SLATE_SUPPORTS_COMPLEX))
+            slate_supported = F.finat_element.is_dg() and not F.mesh().variable_layers
             needs_trace = F.ufl_element().family() in {"HDiv Trace", "Boundary Quadrature"}
 
         self.use_slate_for_inverse = use_slate_for_inverse and slate_supported
@@ -210,8 +208,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
     def solver(self):
         return firedrake.LinearSolver(self.A, solver_parameters=self.solver_parameters)
 
-    @property
-    def apply_massinv(self):
+    def apply_massinv(self, target, rhs):
         if not self.constant_jacobian:
             firedrake.assemble(self.A.a, tensor=self.A, bcs=self.bcs,
                                form_compiler_parameters=self.form_compiler_parameters)
@@ -219,9 +216,9 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
             def solve(x, b):
                 with x.dat.vec_wo as x_, b.dat.vec_ro as b_:
                     self.A.petscmat.mult(b_, x_)
-            return solve
+            return solve(target, rhs)
         else:
-            return self.solver.solve
+            return self.solver.solve(target, rhs)
 
     @cached_property
     def residual(self):
@@ -231,6 +228,7 @@ class ProjectorBase(object, metaclass=abc.ABCMeta):
     def rhs(self):
         pass
 
+    @ProjectorMixin._ad_annotate_project
     def project(self):
         self.apply_massinv(self.target, self.rhs)
         return self.target
@@ -314,7 +312,7 @@ def Projector(
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
     allowing the solver to be reused. Projection reverts to an assign
-    operation if ``v`` is a :class:`.Function` and belongs to the same
+    operation if ``v`` is a :class:`firedrake.function.Function` and belongs to the same
     function space as ``v_out``.
     It is possible to project onto the trace space 'DGT', but not onto
     other trace spaces e.g. into the restriction of CG onto the facets.
@@ -324,7 +322,7 @@ def Projector(
     v
         The :class:`ufl.core.expr.Expr` to project.
     v_out
-        The :class:`.FunctionSpace` or :class:`.Function` to project into.
+        The :class:`.FunctionSpace` or :class:`firedrake.function.Function` to project into.
     bcs
         Boundary conditions to apply in the projection.
     solver_parameters

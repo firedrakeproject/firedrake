@@ -21,7 +21,7 @@ def test_submesh_subdomain_id_union():
 
     mesh.mark_entities(m3, 333)
     submesh2 = Submesh(mesh, mesh.topological_dimension, 333)
-    assert submesh2.cell_set.size == submesh1.cell_set.size
+    assert submesh2.cells.owned.local_size == submesh1.cells.owned.local_size
     assert np.allclose(submesh2.coordinates.dat.data, submesh1.coordinates.dat.data)
 
 
@@ -41,5 +41,5 @@ def test_submesh_facet_subdomain_id_union(subdomain_id):
     facet_value = 999
     rmesh = RelabeledMesh(mesh, [facet_function], [facet_value])
     submesh2 = Submesh(rmesh, mesh.topological_dimension - 1, facet_value)
-    assert submesh2.cell_set.size == submesh1.cell_set.size
+    assert submesh2.cells.owned.local_size == submesh1.cells.owned.local_size
     assert np.allclose(submesh2.coordinates.dat.data, submesh1.coordinates.dat.data)

@@ -2,7 +2,9 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.assemble import get_assembler
-from firedrake.utils import ScalarType
+from firedrake.matrix import ImplicitMatrix
+from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType, complex_mode
 import ufl
 
 
@@ -87,6 +89,51 @@ def test_assemble_adjoint(M):
     assert np.allclose(res.M.handle[:, :], res2.M.handle[:, :], rtol=1e-14)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("mat_type", [
+    "aij",
+    pytest.param("nest", marks=pytest.mark.xfail(
+        complex_mode, raises=PETSc.Error,
+        reason="PETSc MatNest does not implement conjugation.",
+    )),
+])
+@pytest.mark.parametrize("degree", [1, 2])
+@pytest.mark.parametrize("measure", [dx, ds], ids=["cell", "boundary"])
+def test_assemble_adjoint_tensor(mat_type: str, degree: int, measure: ufl.Measure) -> None:
+    """Update an independent output matrix while preserving the input matrix."""
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "CG", degree)
+    u = TrialFunction(V)
+    v = TestFunction(W)
+    value = 1 + 2j if complex_mode else 1
+    coefficient = Constant(value)
+    form = inner(coefficient * (u + u.dx(0)), v) * measure
+    source = assemble(form, mat_type=mat_type)
+    target = assemble(inner(TrialFunction(W), TestFunction(V)) * dx, mat_type=mat_type)
+    handle = target.petscmat.handle
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(1 + x)
+    g = Function(W).interpolate(2 - x)
+
+    for scale in (1, 2, -1, 0):
+        coefficient.assign(scale * value)
+        assemble(form, tensor=source)
+        result = assemble(ufl.Adjoint(source), tensor=target)
+        assert result is target
+        assert result.petscmat.handle == handle
+
+        expected = assemble(action(adjoint(form), g))
+        error = assemble(assemble(action(result, g)) - expected)
+        with error.dat.vec_ro as vector:
+            assert vector.norm() < 1e-12
+
+        expected = assemble(action(form, f))
+        error = assemble(assemble(action(source, f)) - expected)
+        with error.dat.vec_ro as vector:
+            assert vector.norm() < 1e-12
+
+
 def test_assemble_action(M, f):
     res = assemble(action(M, f))
     assembledM = assemble(M)
@@ -110,6 +157,29 @@ def test_assemble_action(M, f):
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
             assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
+
+
+@pytest.mark.parametrize("output", ["new", "tensor"])
+@pytest.mark.parametrize("assembled", ["matrix", "matrix-sum", "form-matrix-sum"])
+def test_assemble_action_adjoint(mesh, assembled, output):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "CG", 2)
+    x = Function(V).interpolate(SpatialCoordinate(mesh)[0])
+    w = TestFunction(W)
+    form = inner(TrialFunction(W), TestFunction(V)) * dx
+    A = assemble(form)
+    operand, scale = {
+        "matrix": (A, 1),
+        "matrix-sum": (ufl.FormSum((A, 3), (assemble(form), 2)), 5),
+        "form-matrix-sum": (ufl.FormSum((form, 3), (A, 2)), 5),
+    }[assembled]
+    tensor = Cofunction(W.dual()) if output == "tensor" else None
+
+    res = assemble(action(ufl.Adjoint(operand), x), tensor=tensor)
+
+    if tensor is not None:
+        assert res is tensor
+    assert np.allclose(res.dat.data_ro, scale * assemble(inner(x, w) * dx).dat.data_ro)
 
 
 @pytest.mark.parametrize("scale", ["float", "numpy", "ufl", "Constant", "Real"])
@@ -148,7 +218,7 @@ def test_scalar_formsum(f, scale):
 
     result = assemble(formsum, tensor=tensor)
     assert result is tensor
-    assert result.dat.data_ro.item() == expected
+    assert result.dat.global_data.item() == expected
 
 
 def test_vector_formsum(a):
@@ -181,6 +251,23 @@ def test_matrix_formsum(M):
     out = assemble(formsum, tensor=res2)
     assert out is res2
     assert np.allclose(sumfirst.petscmat[:, :], res2.petscmat[:, :], rtol=1E-14)
+
+
+@pytest.mark.parallel([1, 3])
+def test_matfree_form_sum_uses_implicit_matrix(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    A = interpolate(u, W)
+    B = interpolate(2 * u, W)
+    form = ufl.FormSum((A, 1), (B, 1))
+    assert len(form.components()) == 2
+
+    assembled = assemble(form, mat_type="matfree")
+
+    assert isinstance(assembled, ImplicitMatrix)
+    assert isinstance(assembled.a, ufl.FormSum)
+    assert len(assembled.a.components()) == 2
 
 
 def test_formsum_vector_self(a):
@@ -299,7 +386,7 @@ def test_cofunction_riesz_representation(a):
             M = assemble(mass)
             Mr = Function(V)
             with r.dat.vec_ro as v_vec:
-                with Mr.dat.vec as res_vec:
+                with Mr.dat.vec_wo as res_vec:
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity
@@ -307,7 +394,7 @@ def test_cofunction_riesz_representation(a):
 
         # Check residual
         for a, b in zip(Mr.subfunctions, c.subfunctions):
-            assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
+            assert np.allclose(a.dat.data_ro, b.dat.data_ro, rtol=1e-14)
 
 
 def test_function_riesz_representation(f):
@@ -336,7 +423,7 @@ def test_function_riesz_representation(f):
             M = assemble(mass)
             Mf = Function(V)
             with f.dat.vec_ro as v_vec:
-                with Mf.dat.vec as res_vec:
+                with Mf.dat.vec_wo as res_vec:
                     M.petscmat.mult(v_vec, res_vec)
         else:
             # l2 mass matrix is identity
@@ -344,7 +431,7 @@ def test_function_riesz_representation(f):
 
         # Check residual
         for a, b in zip(Mf.subfunctions, r.subfunctions):
-            assert np.allclose(a.dat.data, b.dat.data, rtol=1e-14)
+            assert np.allclose(a.dat.data_ro, b.dat.data_ro, rtol=1e-14)
 
 
 def helmholtz(r, quadrilateral=False, degree=2, mesh=None):

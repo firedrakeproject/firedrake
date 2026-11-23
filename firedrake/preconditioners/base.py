@@ -108,8 +108,8 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
             ctx = get_appctx(pc.getDM())
             a = ctx.Jp or ctx.J
             bcs = ctx.bcs_Jp
-        if len(args):
-            a = a(*args)
+        if args != a.arguments():
+            a = ufl.replace(a, dict(zip(a.arguments(), args)))
         return a, bcs
 
     @staticmethod
@@ -229,7 +229,7 @@ class SNESBase(PCSNESBase):
 
     The required function signatures for each method are shown below:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         def solve(self, snes, b, x):
             '''Solve the nonlinear problem using the Vec x as the initial guess and

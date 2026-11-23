@@ -54,8 +54,6 @@ import pytest
                               "fieldsplit_1_ksp_type": "preonly",
                               "fieldsplit_1_pc_type": "bjacobi",
                               "fieldsplit_1_sub_pc_type": "ilu"}])
-@pytest.mark.skipcomplex
-@pytest.mark.skipcomplexnoslate
 def test_nested_split_multigrid(parameters):
     mesh = UnitSquareMesh(10, 10)
 
@@ -74,7 +72,7 @@ def test_nested_split_multigrid(parameters):
     v, q, r = TestFunctions(W)
 
     epsilon = Constant(1e-4)
-    nu = (epsilon**2 + 0.5 * inner(grad(u), grad(u)))
+    nu = (epsilon**2 + 0.5 * dot(grad(u), grad(u)))
 
     x = SpatialCoordinate(mh[-1])[0]
     y = SpatialCoordinate(mh[-1])[1]

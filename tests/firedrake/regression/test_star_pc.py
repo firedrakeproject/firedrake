@@ -5,8 +5,8 @@ from firedrake.petsc import PETSc, DEFAULT_DIRECT_SOLVER
 
 
 @pytest.fixture(params=["scalar",
-                        pytest.param("vector", marks=pytest.mark.skipcomplexnoslate),
-                        pytest.param("mixed", marks=pytest.mark.skipcomplexnoslate)])
+                        "vector",
+                        "mixed"])
 def problem_type(request):
     return request.param
 
@@ -397,8 +397,9 @@ def test_asm_extruded_star(base, periodic, family, degree):
         "pmg_mg_coarse_pc_factor_mat_solver_type": "mumps",
         "pmg_mg_levels_ksp_type": "chebyshev",
         "pmg_mg_levels_pc_type": "python",
-        "pmg_mg_levels_pc_python_type": "firedrake.ASMExtrudedStarPC",
+        "pmg_mg_levels_pc_python_type": "firedrake.ASMStarPC",
         "pmg_mg_levels_pc_star_construct_dim": patch_dim,
+        "pmg_mg_levels_pc_star_column": 0,
     }
 
     uh = Function(V)
@@ -456,13 +457,10 @@ def test_star_coloring(extruded):
         its[color] = solver.snes.getLinearSolveIterations()
 
         if color:
-            colors = mesh.topology_dm.createColoring(depth=0, distance=1)
-            expected = len(colors)
-            if extruded:
-                expected *= 2
+            expected = len(mesh.topology_dm.createColoring(depth=0, distance=1))
         else:
             CG1 = FunctionSpace(mesh, "Lagrange", 1)
-            pstart, pend = CG1.dof_dset.layout_vec.getOwnershipRange()
+            pstart, pend = CG1.template_vec.getOwnershipRange()
             expected = pend - pstart
         assert npatches == expected
 
@@ -530,8 +528,58 @@ def test_vanka_coloring():
             colors = plex.createColoring(depth=0, distance=3)
             expected = len(colors)
         else:
-            pstart, pend = Q.dof_dset.layout_vec.getOwnershipRange()
+            pstart, pend = Q.template_vec.getOwnershipRange()
             expected = pend - pstart
         assert npatches == expected
 
     assert its[True] == its[False]
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_star_inplace_factorization_reused():
+    """The submatrices must be refreshed when the operator changes.
+
+    A subsolver asked to factor in place overwrites its submatrix with the
+    factors. `PCSetUp_ASM` refills those submatrices with `MAT_REUSE_MATRIX`
+    on a later setup, which fails unless the factored flag has been cleared,
+    so a second solve with a changed coefficient errors or gives the wrong
+    answer.
+    """
+    distribution_parameters = {"partition": True,
+                               "overlap_type": (DistributedMeshOverlapType.VERTEX, 1)}
+    mesh = UnitSquareMesh(8, 8, distribution_parameters=distribution_parameters)
+    x, y = SpatialCoordinate(mesh)
+
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    uh = Function(V)
+
+    kappa = Constant(1)
+    a = inner(kappa*grad(u), grad(v))*dx
+    L = inner(cos(pi*x)*cos(pi*y), v)*dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+
+    solver_parameters = {
+        "ksp_type": "preonly",
+        "pc_type": "python",
+        "pc_python_type": "firedrake.ASMStarPC",
+        "pc_star_backend_type": "petscasm",
+        "pc_star_construct_dim": 0,
+        "pc_star_sub_sub_pc_type": "ilu",
+        "pc_star_sub_sub_pc_factor_in_place": None,
+    }
+
+    problem = LinearVariationalProblem(a, L, uh, bcs=bcs)
+    solver = LinearVariationalSolver(problem, solver_parameters=solver_parameters)
+
+    solver.solve()
+    first = norm(uh)
+
+    # A preonly solve applies the preconditioner once, so starting from zero
+    # again makes the second solve directly comparable: tripling the
+    # coefficient must divide the result by three.
+    kappa.assign(3)
+    uh.zero()
+    solver.solve()
+    assert abs(first/norm(uh) - 3) < 1.0e-8

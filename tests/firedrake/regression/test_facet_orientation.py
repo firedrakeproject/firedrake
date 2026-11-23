@@ -16,6 +16,7 @@ meshes = [
     partial(UnitIcosahedralSphereMesh, 2),
     partial(UnitCubedSphereMesh, 3),
     partial(Mesh, join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh")),
+    partial(Mesh, join(cwd, "..", "meshes", "cube_hex.msh")),
 ]
 
 
@@ -26,6 +27,8 @@ def run_consistent_facet_orientation(mesh_thunk, variant="equispaced", **kwargs)
     V = FunctionSpace(mesh, "CG", degree, variant=variant)  # continuous space
     if variant == "equispaced":
         W = FunctionSpace(mesh, "DG", degree, variant=variant)  # discontinuous space
+    elif mesh.ufl_cell() == hexahedron:
+        pytest.skip("BrokenElement is not supported on hexahedral meshes")
     else:
         W = FunctionSpace(mesh, BrokenElement(V.ufl_element()))  # discontinuous space
 
@@ -45,7 +48,7 @@ def run_consistent_facet_orientation(mesh_thunk, variant="equispaced", **kwargs)
     """
     par_loop((domain, instructions), dx, {'C': (f, READ), 'D': (g, READ), 'R': (q, RW)})
 
-    assert np.allclose(q.dat.data, 0.0)
+    assert np.allclose(q.dat.data_ro, 0.0)
 
 
 @pytest.mark.parametrize('mesh_thunk', meshes)

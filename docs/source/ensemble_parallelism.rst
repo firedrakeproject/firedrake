@@ -30,11 +30,12 @@ Cartesian product over the original global communicator.
 .. figure:: images/ensemble.svg
   :align: center
 
-  Spatial and ensemble parallelism for an ensemble with 5 members,
-  each of which is executed in parallel over 5 processors.
+  Spatial and ensemble parallelism for an ensemble with 4 members, each of
+  which is executed in parallel over 5 processors. Black dots represent
+  individual processors (MPI ranks).
 
 The additional functionality required to support ensemble parallelism
-is the ability to send instances of :class:`~.Function` from one
+is the ability to send instances of :class:`Function <firedrake.function.Function>` from one
 ensemble to another.  This is handled by the :class:`~.Ensemble` class.
 
 Each ensemble member must have the same spatial parallel domain decomposition, so
@@ -58,7 +59,7 @@ raised if this is not the case.
 Then, the spatial sub-communicator ``Ensemble.comm`` must be passed
 to :func:`~.mesh.Mesh` (possibly via inbuilt mesh generators in
 :mod:`~.utility_meshes`), so that it will then be used by any
-:func:`~.FunctionSpace` and :class:`~.Function` derived from the mesh.
+:func:`~.FunctionSpace` and :class:`Function <firedrake.function.Function>` derived from the mesh.
 
 .. literalinclude:: ../../tests/firedrake/ensemble/test_ensemble_manual.py
    :language: python3
@@ -105,12 +106,12 @@ can be accessed via the ``ensemble_rank`` and ``ensemble_size`` attributes.
 EnsembleFunction and EnsembleFunctionSpace
 ==========================================
 
-A :class:`~.Function` is logically collective over a single spatial
+A :class:`Function <firedrake.function.Function>` is logically collective over a single spatial
 communicator ``Ensemble.comm``. However, for some applications we want
-to treat multiple :class:`~.Function` instances on different ensemble
+to treat multiple :class:`Function <firedrake.function.Function>` instances on different ensemble
 members as a single collective object over the entire global
 communicator ``Ensemble.global_comm``. For example, in time-parallel
-methods we may have a :class:`~.Function` for each timestep in a
+methods we may have a :class:`Function <firedrake.function.Function>` for each timestep in a
 timeseries, and each timestep may live on a separate ensemble member.
 In this case we want to treat the entire timeseries as a single
 object.
@@ -155,7 +156,7 @@ An :class:`~.EnsembleFunction` and :class:`~.EnsembleCofunction` can be
 created from the :class:`~.EnsembleFunctionSpace`. These have a ``subfunctions``
 property that can be used to access the components on the local ensemble
 member. Each element in ``EnsembleFunction.subfunctions`` is itself just a
-normal Firedrake :class:`~.Function`. If a component of the
+normal Firedrake :class:`Function <firedrake.function.Function>`. If a component of the
 ``EnsembleFunctionSpace`` is a ``MixedFunctionSpace``, then the corresponding
 component in ``EnsembleFunction.subfunctions`` will be a mixed ``Function`` in
 that ``MixedFunctionSpace``.
@@ -167,13 +168,13 @@ that ``MixedFunctionSpace``.
    :end-before: [test_ensemble_manual_example 6 <]
 
 :class:`~.EnsembleFunction` and :class:`~.EnsembleCofunction` have
-a range of methods equivalent to those of :class:`~.Function` and
+a range of methods equivalent to those of :class:`Function <firedrake.function.Function>` and
 :class:`~.Cofunction`, such as ``assign``, ``zero``,
 ``riesz_representation``, arithmetic operators e.g. ``+``, ``+=``,
 etc. These act component-wise on each local component.
 
 Because the components in ``EnsembleFunction.subfunctions``
-(``EnsembleCofunction.subfunctions``) are just :class:`~.Function`
+(``EnsembleCofunction.subfunctions``) are just :class:`Function <firedrake.function.Function>`
 (:class:`~.Cofunction`) instances, they can be used directly
 with variational forms and solvers. In the example code below,
 We create a :class:`~.LinearVariationalSolver` where the right
@@ -204,10 +205,10 @@ on each ensemble member.
 Internally, the :class:`~.EnsembleFunction` creates a ``PETSc.Vec``
 on the ``Ensemble.global_comm`` which contains the data for all
 local components on all ensemble members. This ``Vec`` can be accessed
-with a context manager, similarly to the ``Function.dat.vec`` context
-managers used to access :class:`~.Function` data. There are also
+with a context manager, similarly to the ``Function.vec`` context
+managers used to access :class:`Function <firedrake.function.Function>` data. There are also
 analogous ``vec_ro`` and ``vec_wo`` context managers for read/write
-only accesses. However note that, unlike the ``Function.dat.vec``
+only accesses. However note that, unlike the ``Function.vec``
 context managers, the ``EnsembleFunction.vec`` context managers
 need braces i.e. ``vec()`` not ``vec``.
 

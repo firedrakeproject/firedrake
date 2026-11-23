@@ -12,8 +12,8 @@ def hierarchy():
 
     mh = MeshHierarchy(base, 3, distribution_parameters=distribution_parameters)
     for m in mh:
-        m.coordinates.dat.data[:, 0] -= 1
-        m.coordinates.dat.data[:, 1] -= 1
+        m.coordinates.dat.data_rw[::2] -= 1
+        m.coordinates.dat.data_rw[1::2] -= 1
     return mh
 
 
@@ -98,6 +98,7 @@ def check_transfer(op, V):
         assert errornorm(expr(Vc), uc) < 1E-13
 
 
+@pytest.mark.parallel([1, 3])
 @pytest.mark.parametrize("op", ["prolong", "restrict", "inject"])
 def test_transfer(op, V):
     check_transfer(op, V)
@@ -186,7 +187,6 @@ def manifold():
     return mh[-1]
 
 
-@pytest.mark.skipcomplexnoslate
 @pytest.mark.parallel([1, 3])
 def test_riesz_manifold(manifold, solver_parameters):
     V = FunctionSpace(manifold, "RT", 1)

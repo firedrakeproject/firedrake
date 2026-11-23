@@ -26,7 +26,9 @@ We demonstrate the use of deflation in Firedrake on the `Liouville–Bratu–Gel
 
 If :math:`\Omega = (0, 1)`, then for :math:`\lambda \in (0, \lambda^\star)` the equation has two solutions, for :math:`\lambda \in \{0, \lambda^\star\}` it has one solution, and for :math:`\lambda > \lambda^\star` it has no solutions. Here :math:`\lambda^\star \approx 3.51` is a constant with a known analytical expression. We will fix :math:`\lambda = 2` and prescribe :math:`6x(1-x)` as our initial guess.
 
-We implement the usual weak formulation of the equation in Firedrake as standard: ::
+We implement the usual weak formulation of the equation in Firedrake as standard:
+
+.. code-block:: python
 
     from firedrake import *
     mesh = UnitIntervalMesh(10)
@@ -44,7 +46,9 @@ We implement the usual weak formulation of the equation in Firedrake as standard
     bcs = DirichletBC(V, 0, "on_boundary")
     problem = NonlinearVariationalProblem(F, u, bcs)
 
-Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonlinear solver, and a :class:`~.Deflation` object. The :class:`~.Deflation` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product: ::
+Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonlinear solver, and a :class:`~.Deflation` object. The :class:`~.Deflation` object records the solutions to be deflated, and specifies the sense of distance to use in deflation. In this example we use the metric induced by the :math:`L^2(\Omega)` inner product:
+
+.. code-block:: python
 
     sp = {"snes_type": "python",
           "snes_python_type": "firedrake.DeflatedSNES",
@@ -59,24 +63,32 @@ Applying deflation requires two ingredients: the :class:`~.DeflatedSNES` nonline
 
     solver = NonlinearVariationalSolver(problem, solver_parameters=sp, appctx=appctx)
 
-We now find the first solution: ::
+We now find the first solution:
+
+.. code-block:: python
 
     u.assign(guess)
     solver.solve()
 
-The first solution has now been deflated automatically in the ``Deflation`` object. If we reset our initial guess and solve again, we find the second solution: ::
+The first solution has now been deflated automatically in the ``Deflation`` object. If we reset our initial guess and solve again, we find the second solution:
+
+.. code-block:: python
 
     u.assign(guess)
     solver.solve()
 
-We can check that the two solutions are distinct: ::
+We can check that the two solutions are distinct:
+
+.. code-block:: python
 
     # Prints 'Norm of difference: 1.7514003250270025'
     (first, second) = deflation.roots
     print(f"Norm of difference: {norm(first - second)}")
     assert norm(first - second) > 1
 
-We can plot the two solutions: ::
+We can plot the two solutions:
+
+.. code-block:: python
 
     import matplotlib.pyplot as plt
     ax = plt.gca()

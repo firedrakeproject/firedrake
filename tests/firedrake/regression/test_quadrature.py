@@ -54,6 +54,7 @@ def test_quadrature_element(mesh, family, mat_type, diagonal):
     assemble(a, mat_type=mat_type, diagonal=diagonal)
 
 
+@pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("space", [FunctionSpace, VectorFunctionSpace, TensorFunctionSpace])
 def test_boundary_quadrature_interpolation(mesh, space):
     V = space(mesh, "Boundary Quadrature", 2)

@@ -63,8 +63,8 @@ def setup_poisson_3D():
     f = Function(V).interpolate(expr)
 
     # Define the variational forms
-    a = dot(sigma, tau) * dx(degree=8) + (inner(u, div(tau)) + inner(div(sigma), v)) * dx(degree=6)
-    L = -f*v*dx(degree=8)
+    a = inner(sigma, tau) * dx(degree=8) + (inner(u, div(tau)) + inner(div(sigma), v)) * dx(degree=6)
+    L = -inner(f, v)*dx(degree=8)
     return a, L, W
 
 
@@ -190,20 +190,20 @@ def test_slate_hybridization_nested_schur(setup_poisson):
 
 
 class DGLaplacian(AuxiliaryOperatorPC):
-    def form(self, pc, u, v):
-        W = u.function_space()
+    def form(self, pc, test, trial):
+        W = trial.function_space()
         n = FacetNormal(W.mesh())
         alpha = Constant(3**3)
         gamma = Constant(4**3)
         h = CellSize(W.mesh())
         h_avg = (h('+') + h('-'))/2
-        a_dg = -(inner(grad(u), grad(v)) * dx
-                 + (- inner(jump(u, n), avg(grad(v)))
-                    - inner(avg(grad(u)), jump(v, n))
-                    + (alpha/h_avg) * inner(jump(u, n), jump(v, n))) * dS
-                 + (- inner(u*n, grad(v))
-                    - inner(grad(u), v*n)
-                    + (gamma/h)*inner(u, v)) * ds)
+        a_dg = -(inner(grad(trial), grad(test)) * dx
+                 + (- inner(jump(trial, n), avg(grad(test)))
+                    - inner(avg(grad(trial)), jump(test, n))
+                    + (alpha/h_avg) * inner(jump(trial, n), jump(test, n))) * dS
+                 + (- inner(trial*n, grad(test))
+                    - inner(grad(trial), test*n)
+                    + (gamma/h)*inner(trial, test)) * ds)
         bcs = None
         return (a_dg, bcs)
 

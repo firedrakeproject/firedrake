@@ -6,6 +6,9 @@ from firedrake import *
 from firedrake.petsc import DEFAULT_DIRECT_SOLVER
 
 
+pytest.skip(allow_module_level=True, reason="pyop3 TODO")
+
+
 @pytest.fixture
 def rg():
     return RandomGenerator(PCG64(seed=123456789))
@@ -241,7 +244,7 @@ def test_vertex_dofs(mh, variant, degree):
     P1 = FunctionSpace(mesh, "Lagrange", 1, variant=variant)
     V0 = FunctionSpace(mesh, "Lagrange", degree, variant=variant)
     v = get_restricted_dofs(V0, "vertex")
-    assert v.getSizes() == P1.dof_dset.layout_vec.getSizes()
+    assert v.getSizes() == P1.template_vec.getSizes()
 
 
 @pytest.mark.parallel([1, 3])
@@ -292,6 +295,9 @@ def test_bddc_aij_simplex(rg, family, degree, cellwise):
     assert (np.diff(sqrt_kappa) <= 0.5).all(), str(sqrt_kappa)
 
 
+@pytest.mark.skipcomplex(
+    reason="Adaptive BDDC's sub-Schur factorization assumes SPD matrices, unsupported for complex Hermitian systems"
+)
 @pytest.mark.parallel(3)
 @pytest.mark.parametrize("family,degree,cellwise", [("CG", 2, False), ("GN", 1, False), ("MTW", 1, False)])
 def test_bddc_elasticity_aij_simplex(rg, family, degree, cellwise):

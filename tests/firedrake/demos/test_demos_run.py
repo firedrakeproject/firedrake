@@ -27,7 +27,7 @@ SERIAL_DEMOS = [
     Demo(("DG_advection", "DG_advection"), ["matplotlib"]),
     Demo(("eigenvalues_QG_basinmodes", "qgbasinmodes"), ["matplotlib", "slepc", "vtk"]),
     Demo(("extruded_continuity", "extruded_continuity"), []),
-    Demo(("extruded_shallow_water", "extruded_shallow_water"), []),
+    Demo(("extruded_shallow_water", "extruded_shallow_water"), ["vtk"]),
     Demo(("helmholtz", "helmholtz"), ["vtk"]),
     Demo(("higher_order_mass_lumping", "higher_order_mass_lumping"), ["vtk"]),
     Demo(("immersed_fem", "immersed_fem"), []),
@@ -44,6 +44,7 @@ SERIAL_DEMOS = [
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
+    Demo(("poisson_adaptive_eigenvalue", "poisson_adaptive_eigenvalue"), ["netgen", "slepc", "vtk"]),
     Demo(("patch", "poisson_mg_patches"), []),
     Demo(("patch", "stokes_vanka_patches"), []),
     Demo(("patch", "hcurl_riesz_star"), []),
@@ -51,7 +52,7 @@ SERIAL_DEMOS = [
     Demo(("quasigeostrophy_1layer", "qg_1layer_wave"), ["hypre", "vtk"]),
     Demo(("saddle_point_pc", "saddle_point_systems"), ["hypre", "mumps"]),
     Demo(("fast_diagonalisation", "fast_diagonalisation_poisson"), ["mumps"]),
-    Demo(('vlasov_poisson_1d', 'vp1d'), []),
+    Demo(('vlasov_poisson_1d', 'vp1d'), ["vtk"]),
     Demo(('shape_optimization', 'shape_optimization'), ["adjoint", "vtk"]),
     Demo(('submesh_reaction_diffusion', 'submesh_reaction_diffusion'), ["netgen", "vtk"]),
     Demo(('nonlinear_pc', 'nonlinear_pc_allen_cahn'), []),
@@ -119,7 +120,7 @@ def _prepare_demo(demo, monkeypatch, tmpdir):
     name = splitext(basename(rst_file))[0]
     py_file = str(tmpdir.join(name))
     # Convert rst demo to runnable python file
-    subprocess.check_call(["pylit", rst_file, py_file])
+    subprocess.check_call(["pylit", "--code-block-marker", ".. code-block:: python", rst_file, py_file])
     return Path(py_file)
 
 

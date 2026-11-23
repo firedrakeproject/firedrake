@@ -42,6 +42,12 @@ def obj(request):
     return partial(case[request.param])
 
 
+# Attempting to solve this has been a tremendous headache. Combined with
+# tests/firedrake/adjoint/test_disk_checkpointing.py::test_disk_checkpointing_parallel
+# the UIDs will sometimes go out of sync. I have tracked it down to
+# pyadjoint.BlockVariable.save_output() where BlockVariable.checkpoint is either
+# None or a Function. Reproducing it is really difficult.
+@pytest.mark.skip(reason="Something is afoot")
 @pytest.mark.parallel(nprocs=[1, 2, 3, 4])
 def test_monotonic_uid(obj):
     object_parallel = obj(comm=COMM_WORLD)  # noqa: F841

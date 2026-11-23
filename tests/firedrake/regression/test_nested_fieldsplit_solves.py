@@ -132,7 +132,7 @@ def test_nested_fieldsplit_solve(W, A, b, expect, parameters):
     assert norm(f) < 1e-11
 
 
-@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parallel
 def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
     parameters = {"ksp_type": "preonly",
                   "pc_type": "fieldsplit",
@@ -162,19 +162,14 @@ def test_matrix_types(W):
     assert A.M.handle.getType() == "seq" + parameters["default_matrix_type"]
 
     A = assemble(a, mat_type="aij")
-
     assert A.M.handle.getType() == "seqaij"
 
     A = assemble(a, mat_type="nest")
-
     assert A.M.handle.getType() == "nest"
-
-    assert A.M[1, 1].handle.getType() == "seq" + parameters["default_sub_matrix_type"]
+    assert A.M.handle.getNestSubMatrix(1, 1).getType() == "seq" + parameters["default_sub_matrix_type"]
 
     A = assemble(a, mat_type="nest", sub_mat_type="aij")
-
-    assert A.M[1, 1].handle.getType() == "seqaij"
+    assert A.M.handle.getNestSubMatrix(1, 1).getType() == "seqaij"
 
     A = assemble(a, mat_type="nest", sub_mat_type="baij")
-
-    assert A.M[1, 1].handle.getType() == "seqbaij"
+    assert A.M.handle.getNestSubMatrix(1, 1).getType() == "seqbaij"

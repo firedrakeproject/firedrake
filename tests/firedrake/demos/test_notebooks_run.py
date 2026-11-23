@@ -10,6 +10,12 @@ import pytest
 cwd = os.path.abspath(os.path.dirname(__file__))
 nb_dir = os.path.join(cwd, "..", "..", "..", "docs", "notebooks")
 
+NOTEBOOK_REQUIREMENTS = {
+    "08-composable-solvers.py": ["mumps"],
+    "11-extract-adjoint-solutions.py": ["pygraphviz"],
+    "12-HPC_demo.py": ["mumps"],
+}
+
 
 # Discover the notebook files by globbing the notebook directory. The notebooks
 # are stored as jupytext py:percent scripts and converted to .ipynb on the fly.
@@ -25,9 +31,10 @@ def py_file(request):
 def test_notebook_runs(py_file, tmpdir, monkeypatch, skip_dependency):
     skip_dep, dependency_skip_markers_and_reasons = skip_dependency
     basename = os.path.basename(py_file)
-    if basename in ("08-composable-solvers.py", "12-HPC_demo.py"):
-        if skip_dep("mumps"):
-            pytest.skip("MUMPS not installed with PETSc")
+    requirements = NOTEBOOK_REQUIREMENTS.get(basename, ())
+    for dep, _, reason in dependency_skip_markers_and_reasons:
+        if dep in requirements and skip_dep(dep):
+            pytest.skip(reason)
 
     # Copy across the data files the notebooks reference at runtime (relative to
     # the working directory) and convert the py:percent script to a notebook.
