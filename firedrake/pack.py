@@ -78,7 +78,7 @@ def _pack_map(loop_index: MeshLoopIndex, mesh, *, renumber: bool) -> op3.Index:
         loop_index = iter_mesh.extr_cell_to_base_cell_map(
             loop_index,
             label="extr_cell_base_cell",
-            src_path=_get_src_path(loop_index, iter_mesh, "cell"),
+            selector=_get_selector(loop_index, iter_mesh, "cell", renumber=True),  # renumber=True correct?
         )
         target_integral_type = "cell"
 

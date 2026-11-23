@@ -36,6 +36,8 @@ def meshdata(request):
 def test_locate_cell(meshdata, point, value):
     m, f = meshdata
 
+    f.function_space().cell_node_list
+
     def value_at(p, cell_ignore=None):
         cell = m.locate_cell(p, cell_ignore=cell_ignore)
         return f.dat.data[cell]

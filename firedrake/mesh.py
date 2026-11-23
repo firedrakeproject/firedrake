@@ -1564,7 +1564,10 @@ class AbstractMeshTopology(abc.ABC):
         dm_closures = self._dm_closures(from_dim)
 
         # 2. Now permute the entries to get an oriented closure
-        oriented_dm_closures = np.take_along_axis(dm_closures, self._fiat_cell_closure_permutation)
+        oriented_dm_closures = np.take_along_axis(
+            dm_closures, self._fiat_cell_closure_permutations
+        )
+        breakpoint()
 
         # 3. Now renumber the source and (optionally) destination points.
         #    Source points are renumbered by permuting map rows, and
@@ -1684,7 +1687,7 @@ class AbstractMeshTopology(abc.ABC):
         return utils.readonly(closure_data)
 
     @cached_property_until_topology_changes
-    def _fiat_cell_closure_permutation(self) -> np.ndarray:
+    def _fiat_cell_closure_permutations(self) -> np.ndarray:
         if self.extruded:
             return self._fiat_cell_closure_permutations_extruded
 
@@ -1727,6 +1730,7 @@ class AbstractMeshTopology(abc.ABC):
             assert self.ufl_cell() == ufl.hexahedron
             return self._fiat_cell_closure_permutations_hex
 
+    @property
     def _fiat_cell_closure_permutations_extruded(self) -> np.ndarray:
         if self.dimension == 2:
             # 1----0----2
@@ -1738,6 +1742,21 @@ class AbstractMeshTopology(abc.ABC):
             # 7    0    8
             # |         |
             # 2----1----3
+
+            # and we want things split by entity type (0,0), (0,1) etc:
+            #
+            # 1----7----3
+            # |         |
+            # 4    8    5
+            # |         |
+            # 0----6----2
+            #
+            # this is step 2
+            closure_perm = np.asarray([8, 6, 0, 2, 7, 1, 3, 4, 5], dtype=IntType)
+            # closure_perm = utils.invert(closure_perm)
+
+
+
             #
             # (this makes sense if you start at the cell and take recursive closures)
             #
@@ -1749,16 +1768,34 @@ class AbstractMeshTopology(abc.ABC):
             # |         |
             # 2----3----1
 
-            # identify entities that transform together
+            # identify entities that transform together, the order doesn't really matter provided that it's up the column
             xxx = np.asarray(
-                [[1, 0, 4], [2, 7, 5], [3, 8, 6]]
+                [[0, 4, 1], [2, 5, 3], [6, 8, 7]],
             )
 
-            base_perm = self._base_mesh._dm_closure_permutation
-            closures_perm = np.empty_like(closures)
-            for i, closure in enumerate(closures):
+            base_perm = self._base_mesh._fiat_cell_closure_permutations
+            closures_perm = np.empty((self.num_cells(), 9), dtype=IntType)
+            for i in range(self.num_cells()):
                 perm = base_perm[i // (self.layers-1)]
-                closures_perm[i] = closure[xxx[perm].ravel()]
+                perm = utils.invert(perm)
+
+                select = xxx[perm].ravel()
+
+                select2 = utils.invert(select)
+                # closures_perm[i] = closure_perm[xxx[perm].ravel()]
+                # closures_perm[i] = closure_perm[xxx][perm].ravel()
+                # closures_perm[i] = closure_perm[select2]
+                cp = closure_perm[select]
+
+                # now split apart
+                vv = cp[cp<4]
+                ve = cp[np.logical_and(4<=cp, cp<6)]
+                he = cp[np.logical_and(6<=cp, cp<8)]
+                cc = cp[cp==8]
+                closures_perm[i] = np.concatenate([vv, ve, he, cc])
+
+            breakpoint()
+            return closures_perm
 
             breakpoint()
 
@@ -1787,7 +1824,9 @@ class AbstractMeshTopology(abc.ABC):
     def _fiat_cell_closure_permutations_simplex(self):
         return dmcommon.closure_ordering(self, self._dm_closures(self.cell_label))
 
-    def _reorder_cell_closures_fiat_quad(self, closure_data):
+    @property
+    def _fiat_cell_closure_permutations_quad(self):
+        raise NotImplementedError
         petsctools.cite("Homolya2016")
         petsctools.cite("McRae2016")
 
@@ -3246,7 +3285,7 @@ class ExtrudedMeshTopology(MeshTopology):
         )
         extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
-        dest_axis = self._base_mesh._uid
+        dest_axis = f"{self._base_mesh._uid}_renum"
         dest_stratum = self._base_mesh.cell_label
 
         map_axes = op3.AxisTree.from_iterable([
@@ -3255,6 +3294,7 @@ class ExtrudedMeshTopology(MeshTopology):
         dat = op3.Dat(map_axes, data=extr_base_cell_nums)
         map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None)
 
+        # TODO only if comm.size > 1
         owned_map_axes = op3.AxisTree.from_iterable([
             self.cells.owned.root, op3.Axis(1, "extr_cell_base_cell")
         ])
@@ -3263,8 +3303,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
         # TODO: This could be a ScalarMap
         return op3.Map({
-            idict({self._uid: self.cell_label}): [[map_cpt]],
-            idict({f"{self._uid}_owned": self.cell_label}): [[owned_map_cpt]],
+            idict({f"{self._uid}_renum": self.cell_label}): {"renum": [map_cpt]},
+            idict({f"{self._uid}_owned_renum": self.cell_label}): {"renum": [owned_map_cpt]},
         })
 
     def make_dofs_per_plex_entity(self, entity_dofs):
