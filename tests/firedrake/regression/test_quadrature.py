@@ -1,3 +1,5 @@
+from math import sqrt
+
 from firedrake import *
 import pytest
 import numpy as np
@@ -54,10 +56,10 @@ def test_quadrature_element(mesh, family, mat_type, diagonal):
     assemble(a, mat_type=mat_type, diagonal=diagonal)
 
 
-@pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("space", [FunctionSpace, VectorFunctionSpace, TensorFunctionSpace])
-def test_boundary_quadrature_interpolation(mesh, space):
-    V = space(mesh, "Boundary Quadrature", 2)
+@pytest.fixture(params=[FunctionSpace, VectorFunctionSpace, TensorFunctionSpace],
+                ids=lambda space: space.__name__)
+def boundary_quadrature_data(mesh, request):
+    V = request.param(mesh, "Boundary Quadrature", 2)
     x = SpatialCoordinate(mesh)
     if V.value_shape == ():
         expr = x[0]**2 + x[1]
@@ -65,9 +67,25 @@ def test_boundary_quadrature_interpolation(mesh, space):
         expr = as_vector([x[0]**2, x[1]])
     else:
         expr = as_tensor([[x[0]**2, x[1]], [x[0]*x[1], 1 + x[0]]])
+    return V, expr
 
+
+@pytest.mark.parallel([1, 2])
+def test_boundary_quadrature_interpolation(boundary_quadrature_data):
+    V, expr = boundary_quadrature_data
     f = Function(V).interpolate(expr)
+    error = f - expr
 
     # The functionals are point evaluations, so interpolation is exact there
-    assert np.isclose(assemble(inner(f - expr, f - expr) * ds), 0)
-    assert np.isclose(assemble(inner(f('+') - expr('+'), f('+') - expr('+')) * dS), 0)
+    assert sqrt(abs(assemble(inner(error, error) * ds))) < 1e-12
+    trace = error('+')
+    assert sqrt(abs(assemble(inner(trace, trace) * dS))) < 1e-12
+
+
+@pytest.mark.parallel([1, 2])
+def test_boundary_quadrature_interpolation_in_form(boundary_quadrature_data):
+    V, expr = boundary_quadrature_data
+    error = interpolate(expr, V) - expr
+    assert sqrt(abs(assemble(inner(error, error) * ds))) < 1e-12
+    trace = error('+')
+    assert sqrt(abs(assemble(inner(trace, trace) * dS))) < 1e-12
