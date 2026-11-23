@@ -4,7 +4,7 @@ import pytest
 import ufl
 import finat.ufl
 from finat.element_factory import create_element
-from tsfc import compile_expression_dual_evaluation
+from tsfc import compile_expression_dual_evaluation, compile_form
 from tsfc.kernel_args import OutputKernelArg
 
 
@@ -128,3 +128,19 @@ def test_dual_argument_is_sum_factorised(cell, restriction, dual):
     rate = math.log(flops[1] / flops[0]) / math.log(degrees[1] / degrees[0])
     # Lower order terms move the measured rate to either side of dim + 1.
     assert rate < dim + 1.5
+
+
+@pytest.mark.parametrize("degree", [1, 2])
+@pytest.mark.parametrize("cell", [ufl.quadrilateral, ufl.hexahedron])
+def test_boundary_quadrature_in_facet_integral(cell, degree):
+    """Facet quadrature values enter a facet integral on a runtime facet.
+
+    On a hexahedron the quadrature points of a facet integral are permuted by
+    the facet orientation, including the axes with a single point.
+    """
+    mesh = ufl.Mesh(finat.ufl.VectorElement("Q", cell, 1))
+    u = ufl.Coefficient(ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("Q", cell, 2)))
+    V = ufl.FunctionSpace(mesh, finat.ufl.FiniteElement("Boundary Quadrature", cell, degree))
+    for f in [ufl.Coefficient(V), ufl.Interpolate(u, V)]:
+        kernel, = compile_form(f * u * ufl.ds)
+        assert kernel.flop_count > 0

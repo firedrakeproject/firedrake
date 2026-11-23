@@ -975,6 +975,10 @@ def _make_quad_multiindex_permuted(domain, mt, ctx):
     for ref_axis in range(len(quad_multiindex)):
         io = cell.extract_intrinsic_orientation(o, ref_axis)
         io_perm_map = gem.Literal(quad_rule.intrinsic_orientation_permutation_map_tuple[ref_axis], dtype=gem.uint_type)
+        if io_perm_map.shape[-1] == 1:
+            # The only permutation of a single point is the identity.
+            quad_multiindex_permuted.append(0)
+            continue
         # Effectively swap axes if needed.
         ref_index = tuple((phys_index, gem.Indexed(eo_perm_map, (eo, ref_axis, phys_axis))) for phys_axis, phys_index in enumerate(quad_multiindex))
         quad_index_permuted = gem.VariableIndex(gem.FlexiblyIndexed(io_perm_map, ((0, ((io, 1), )), (0, ref_index))))
