@@ -1096,29 +1096,41 @@ class ParloopFormAssembler(FormAssembler):
 
         A shared loop is called with the data of a new form by replacing the
         buffers of the loop arguments, one buffer for each argument name. Two
-        coefficients that are subfunctions of one mixed Function, a coefficient
-        that is the coordinate field, or a coefficient that is a view into the
-        data of the tensor are all arguments with one buffer. A form with the same
-        signature and layouts whose coefficients do not share data in the same
-        way needs one buffer more, so it must not use these loops. A coefficient
-        that shares the data of the tensor is also replaced by a copy (see
-        ``ParloopBuilder._as_parloop_arg_coefficient``), which is not replaced by
-        name at all.
+        coefficients that are subfunctions of one mixed Function, or a
+        coefficient that is a Function the loops also take from the mesh (the
+        coordinates, the cell orientations or the cell sizes), or a coefficient
+        that is a view into the data of the tensor, are arguments with one
+        buffer. A form with the same signature and layouts whose coefficients do
+        not share data in the same way needs one buffer more, so it must not use
+        these loops. A coefficient that shares the data of the tensor is also
+        replaced by a copy (see ``ParloopBuilder._as_parloop_arg_coefficient``),
+        which is not replaced by name at all.
 
         Returns
         -------
         tuple
             For each coefficient of the form, the position of the first earlier
-            data (tensor, coordinates of each domain, earlier coefficients) with
-            the same buffer, or ``None`` if its buffer is new.
+            data (the tensor, the mesh Functions that the local kernels take,
+            earlier coefficients) with the same buffer, or ``None`` if its buffer
+            is new.
         """
         seen = []
         if isinstance(tensor, firedrake.Cofunction | firedrake.Function):
             seen.append(tensor.dat.buffer)
         else:
-            # Keep the positions of the coordinates independent of the tensor type.
+            # Keep the positions of the mesh Functions independent of the tensor type.
             seen.append(None)
-        seen.extend(domain.coordinates.dat.buffer for domain in self._form.ufl_domains())
+        # The mesh Functions that the loops take as arguments of their own, in the
+        # order of ParloopBuilder. Only the ones a kernel uses are built, so this
+        # does not compute, for example, the cell sizes of a mesh that never needs them.
+        for local_kernel, _ in self.local_kernels:
+            kinfo = local_kernel.kinfo
+            for mesh_functions in (
+                _FormHandler.iter_active_coordinates(self._form, kinfo),
+                _FormHandler.iter_active_cell_orientations(self._form, kinfo),
+                _FormHandler.iter_active_cell_sizes(self._form, kinfo),
+            ):
+                seen.extend(f.dat.buffer for f in mesh_functions)
         key = []
         for c in self._form.coefficients():
             buffer = c.dat.buffer

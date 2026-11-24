@@ -409,6 +409,33 @@ def test_assemble_with_coefficients_sharing_data(mesh, order):
         assert np.isclose(assemble((a - b)**2*dx), expected)
 
 
+@pytest.mark.parallel([1, 2])
+def test_assemble_with_cell_sizes_as_coefficient():
+    """A form with the mesh cell sizes as a coefficient does not share loops with other forms.
+
+    The kernels of a physically mapped element (here Hermite) take the cell
+    sizes as an argument of their own. With mesh.cell_sizes also as a
+    coefficient, both arguments have one buffer, and a later form with another
+    P1 coefficient must not use these loops.
+    """
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    H = FunctionSpace(mesh, "Hermite", 3)
+    v = TestFunction(H)
+    f = Function(P1).interpolate(1 + x*y)
+    # The references use another quadrature degree, so they share no loops with
+    # the forms below. Both quadratures are exact for this integrand.
+    fcp = {"quadrature_degree": 8}
+    expected_sizes = assemble(inner(Function(P1).assign(mesh.cell_sizes), v)*dx, form_compiler_parameters=fcp)
+    expected_f = assemble(inner(Function(P1).assign(f), v)*dx, form_compiler_parameters=fcp)
+
+    sizes = assemble(inner(mesh.cell_sizes, v)*dx)
+    result_f = assemble(inner(f, v)*dx)
+    assert np.allclose(sizes.dat.data_ro, expected_sizes.dat.data_ro)
+    assert np.allclose(result_f.dat.data_ro, expected_f.dat.data_ro)
+
+
 @pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")
 def test_two_form_assembler_cache(mesh):
     from firedrake.assemble import _FORM_CACHE_KEY
