@@ -556,6 +556,11 @@ def solve_init_params(self, args, kwargs, varform):
     if len(self.adj_kwargs) <= 0:
         self.adj_kwargs = self.forward_kwargs.copy()
 
+        # Swap nullspace with transpose_nullspace if transpose_nullspace was provided
+        if self.adj_kwargs.get("transpose_nullspace") is not None:
+            self.adj_kwargs["nullspace"], self.adj_kwargs["transpose_nullspace"] = \
+                self.adj_kwargs["transpose_nullspace"], self.adj_kwargs.get("nullspace")
+
         if varform:
             if "J" in self.forward_kwargs:
                 self.adj_kwargs["J"] = firedrake.adjoint(
