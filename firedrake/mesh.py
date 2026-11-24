@@ -1713,15 +1713,13 @@ class AbstractMeshTopology(abc.ABC):
             return
         if overlap_type in {DistributedMeshOverlapType.VERTEX, DistributedMeshOverlapType.RIDGE} and overlap > 0:
             return
-        msg = (
+        raise ValueError(
             "Interior facet integrals on a codim-1 Submesh in parallel need an original mesh "
             f"with a VERTEX or RIDGE overlap, but the overlap is ({overlap_type.name}, {overlap}). "
-            "Make the original mesh with distribution_parameters="
+            "Make the original mesh, that is the mesh that the first Submesh was made from, "
+            "with distribution_parameters="
             "{\"overlap_type\": (DistributedMeshOverlapType.RIDGE, 1)} or VERTEX."
         )
-        if self.submesh_parent.submesh_parent is not None:
-            msg += " For a submesh of a submesh, this is the mesh that the first Submesh was made from."
-        raise ValueError(msg)
 
     def _memoize_map(
         self,
