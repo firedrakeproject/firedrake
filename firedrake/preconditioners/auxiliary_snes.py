@@ -4,7 +4,7 @@ from firedrake.cofunction import Cofunction
 from firedrake.ufl_expr import Argument, TestFunction
 from firedrake.petsc import PETSc
 from ufl import replace
-from firedrake.dmhooks import get_function_space, get_appctx as get_dm_appctx
+from firedrake.dmhooks import _create_dm, get_function_space, get_appctx as get_dm_appctx
 
 __all__ = ("AuxiliaryOperatorSNES",)
 
@@ -101,6 +101,7 @@ class AuxiliaryOperatorSNES(SNESBase):
         problem = NonlinearVariationalProblem(
             Gb, u, bcs=bcs, form_compiler_parameters=ctx.fcp
         )
+        problem.dm = _create_dm(V)
         self.solver = NonlinearVariationalSolver(
             problem,
             nullspace=ctx._nullspace,

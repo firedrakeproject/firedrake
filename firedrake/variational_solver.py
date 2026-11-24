@@ -493,7 +493,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ctx.set_snes(self.snes)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.function_space().template_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
@@ -622,19 +621,20 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
-        with problem.u_restrict.dat.vec_ro as u:
-            u.copy(work)
+        # The work Function also holds the boundary values of a restricted space.
+        self._ctx._work.assign(problem.u_restrict)
 
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
-            dmctxs = [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]
+            dmctxs = [dmhooks.add_hooks(dm, self if dm == solution_dm else self._ctx,
+                                        appctx=self._ctx, save=(dm == solution_dm))
+                      for dm in problem_dms]
             for dmctx in dmctxs:
                 stack.enter_context(dmctx)
             for top in self._transfer_operators:
                 stack.enter_context(top)
 
-            self.snes.solve(None, work)
+            self.snes.solve(None, self._ctx._work.dat._work_vec)
 
             # The appctx might have been refined
             self._ctx = dmhooks.get_appctx(self.snes.getDM())
@@ -737,4 +737,4 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         r"""
         Forces the matrix to be reassembled next time it is required.
         """
-        self._ctx._jacobian_assembled = False
+        self._ctx.invalidate_jacobian()

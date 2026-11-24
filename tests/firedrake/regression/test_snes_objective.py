@@ -166,3 +166,36 @@ def test_allen_cahn_energy(pre_apply_bcs, pc_type, sol_type):
     solver_parameters = newtonls_parameters if sol_type == "ls" else newtontr_parameters
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters, pre_apply_bcs=pre_apply_bcs)
     solver.solve()
+
+
+@pytest.mark.parallel([1, 2])
+def test_snes_evaluates_caller_owned_trial() -> None:
+    from firedrake import dmhooks
+
+    mesh = UnitIntervalMesh(3)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(u**3, v)*dx
+    E = inner(u**2, u**2)/4*dx
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, objective=E))
+    snes = solver.snes
+    with u.dat.vec_ro as vec:
+        trial = PETSc.Vec().createMPI(vec.getSizes(), comm=vec.comm)
+    residual = trial.duplicate()
+    J, P, _ = snes.getJacobian()
+
+    with dmhooks.add_hooks(snes.dm, solver, appctx=solver._ctx):
+        trial.set(2)
+        snes.computeJacobian(trial, J, P)
+        expected = assemble(inner(12*TrialFunction(V), v)*dx).petscmat
+        difference = J.copy()
+        difference.axpy(-1, expected)
+        assert difference.norm() < 1e-12
+
+        trial.set(3)
+        snes.computeFunction(trial, residual)
+        assert residual.sum() == pytest.approx(27)
+
+        trial.set(4)
+        assert snes.computeObjective(trial) == pytest.approx(64)

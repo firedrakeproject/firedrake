@@ -391,6 +391,24 @@ def test_real_space_mixed_assign():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+def test_real_space_mixed_function_from_array():
+    mesh = UnitIntervalMesh(4)
+    Q = FunctionSpace(mesh, "CG", 1)
+    V = FunctionSpace(mesh, "Real", 0)
+    W = Q*V
+
+    array = np.zeros_like(Function(W).dat.buffer.data_ro)
+    f = Function(W, val=array)
+    f.subfunctions[0].assign(2)
+    f.subfunctions[1].assign(3)
+
+    assert np.allclose(f.subfunctions[0].dat.data_ro, 2.0)
+    assert np.allclose(float(f.subfunctions[1]), 3.0)
+    assert np.shares_memory(f.dat.buffer.data_ro, array)
+
+
+@pytest.mark.skipcomplex
 def test_real_space_first():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
