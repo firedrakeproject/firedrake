@@ -9,7 +9,7 @@ import gem
 import numpy
 import ufl
 from FIAT.orientation_utils import Orientation as FIATOrientation
-from FIAT.reference_element import Hypercube, UFCSimplex, make_affine_mapping
+from FIAT.reference_element import Hypercube, Simplex, UFCSimplex, make_affine_mapping
 from FIAT.reference_element import TensorProductCell
 from finat.physically_mapped import (NeedsCoordinateMappingElement,
                                      PhysicalGeometry)
@@ -132,9 +132,14 @@ class ContextBase(ProxyKernelInterface):
                 if isinstance(c, cell_type) and dim in (None, c.get_dimension()) and it in integral_types:
                     return True
             return False
-        if _any(Hypercube, ['exterior_facet', 'interior_facet'], dim=3):
+        facets = ['exterior_facet', 'interior_facet']
+        if _any(Hypercube, facets, dim=3):
             return True
-        elif _any(Hypercube, ['exterior_facet', 'interior_facet'], dim=2) and _any(UFCSimplex, ['cell', 'exterior_facet', 'interior_facet']):
+        elif _any(Simplex, facets) and not _any(UFCSimplex, facets):
+            # UFC simplices list each facet's vertices in increasing order,
+            # therefore they don't need permuting to agree on shared points
+            return True
+        elif _any(Hypercube, facets, dim=2) and _any(UFCSimplex, ['cell', *facets]):
             return True
         else:
             return False
