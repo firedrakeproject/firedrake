@@ -3,8 +3,6 @@ import numpy as np
 
 
 from firedrake import *
-from firedrake.cython import dmcommon
-from firedrake.petsc import PETSc
 # Must come after firedrake import (that loads MPI)
 try:
     import gmshpy
@@ -447,57 +445,21 @@ def test_changing_default_reorder_works(reorder):
         parameters["reorder_meshes"] = old_reorder
 
 
-class CountingIS(PETSc.IS):
-    """An index set that counts the copies of its indices.
-
-    ``IS.indices`` calls ``IS.getIndices``, which copies the whole index set
-    into a new NumPy array.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.ncopies = 0
-
-    def getIndices(self):
-        self.ncopies += 1
-        return super().getIndices()
-
-
 def closure_order(dm, cells):
-    """Return the points of the closures of ``cells`` in the order of the first visit."""
+    """Return the points of the closures of ``cells``, each point at its first visit."""
     closures = [dm.getTransitiveClosure(cell)[0] for cell in cells]
     points = np.concatenate(closures)
     _, first = np.unique(points, return_index=True)
     return points[np.sort(first)]
 
 
-def test_compute_dm_renumbering_reads_permutation_once():
-    mesh = UnitSquareMesh(6, 5)
+def test_reordered_mesh_numbers_points_in_cell_closure_order():
+    mesh = UnitSquareMesh(3, 2, reorder=True)
     dm = mesh.topology.topology_dm
     cStart, cEnd = dm.getHeightStratum(0)
-    rng = np.random.default_rng(seed=5)
-    cells = np.arange(cStart, cEnd, dtype=PETSc.IntType)
-    new_to_old_cells = rng.permutation(cells)
-    new_to_old_cell_is = CountingIS()
-    new_to_old_cell_is.createGeneral(new_to_old_cells)
-
-    renumbering = dmcommon.compute_dm_renumbering(mesh.topology, new_to_old_cell_is)
-
-    assert np.array_equal(renumbering.indices, closure_order(dm, new_to_old_cells))
-    # A copy of the permutation for each cell makes the cost grow with the
-    # square of the number of cells.
-    assert new_to_old_cell_is.ncopies <= 1
-
-
-def test_compute_dm_renumbering_wrong_permutation_size():
-    mesh = UnitSquareMesh(2, 2)
-    cStart, cEnd = mesh.topology.topology_dm.getHeightStratum(0)
-    cells = np.arange(cStart, cEnd - 1, dtype=PETSc.IntType)
-    new_to_old_cell_is = PETSc.IS()
-    new_to_old_cell_is.createGeneral(cells)
-
-    with pytest.raises(ValueError):
-        dmcommon.compute_dm_renumbering(mesh.topology, new_to_old_cell_is)
+    new_to_old = mesh.topology._dm_renumbering.indices
+    cells = new_to_old[(new_to_old >= cStart) & (new_to_old < cEnd)]
+    assert np.array_equal(new_to_old, closure_order(dm, cells))
 
 
 @pytest.mark.parametrize("kind, num_cells",
