@@ -556,13 +556,7 @@ def solve_init_params(self, args, kwargs, varform):
     if len(self.adj_kwargs) <= 0:
         self.adj_kwargs = self.forward_kwargs.copy()
 
-        # The adjoint operator is the transpose of the forward operator, so
-        # the forward transpose null space is its null space and the forward
-        # null space is its transpose null space. A null space given alone is
-        # kept: the forward solve projects its iterates with it, and the
-        # transpose of that solve is the solve of the transpose with the same
-        # projection. The near null space only affects the preconditioner and
-        # the one of the transpose cannot be built from it, so it is kept.
+        # Swap nullspace with transpose_nullspace if transpose_nullspace was provided
         if self.adj_kwargs.get("transpose_nullspace") is not None:
             self.adj_kwargs["nullspace"], self.adj_kwargs["transpose_nullspace"] = \
                 self.adj_kwargs["transpose_nullspace"], self.adj_kwargs.get("nullspace")
