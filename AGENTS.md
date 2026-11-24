@@ -81,6 +81,8 @@ every line of a pull request, so each change should be easy to follow and easy t
 * Add tests to the existing test file for the module.
 * Use the skip markers from `tests/firedrake/conftest.py`.
 * To test several process counts, list them in one `@pytest.mark.parallel` decorator.
+* Use `parallel_assert` for checks in MPI tests when a failure on one rank could leave other
+  ranks running.
 
 ## Pull Request Expectations
 
@@ -89,8 +91,9 @@ every line of a pull request, so each change should be easy to follow and easy t
 3. Run the test file for the changed module, at each process count that it uses.
 4. Before you report a test failure, record the branch and commit of every editable component. A
    failure that also happens without your change can come from a component on the wrong branch.
-5. In the pull request description, state the goal of the pull request. Explain each new feature
-   and each bug that it fixes.
+5. In the pull request description, summarize the problem and what changes for users. Use
+   pseudocode, diagrams, or equations when they make the change easier to understand. List
+   implementation details and limitations separately.
 6. Target `release` for bug fixes and documentation, and `main` for new features.
 7. Declare the AI tool that you used, and add the `LLM used` label.
 
