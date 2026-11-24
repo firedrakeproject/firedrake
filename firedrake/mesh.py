@@ -1280,6 +1280,9 @@ class AbstractMeshTopology(abc.ABC):
         if not all_integer_subdomain_ids.get(integral_type) and subdomain_id == "otherwise":
             subdomain_id = "everywhere"
 
+        if integral_type == "interior_facet" and self.submesh_parent is not None:
+            self._check_submesh_interior_facet_support()
+
         match integral_type:
             case "cell":
                 iterset = self.cells
@@ -1666,6 +1669,46 @@ class AbstractMeshTopology(abc.ABC):
         support_axes = from_axes.regionless().materialize()
         support_axes = support_axes.add_axis(None, op3.Axis(arity, "support"))
         return op3.Dat(support_axes, data=map_data, prefix="support")
+
+    @cached_method()
+    @collective
+    def _check_submesh_interior_facet_support(self) -> None:
+        """Raise on all ranks if an owned interior facet of this submesh has only one local cell.
+
+        Interior facet integrals read both cells of each owned facet. A submesh
+        has no overlap of its own, so it depends on the overlap of its parent.
+        For a codim-1 submesh the default (FACET, 1) overlap is not enough: two
+        submesh cells that share a facet can belong to parent cells that share
+        only a ridge. The second cell is then not on the rank, ``_support_dat``
+        holds -1 for it, and the integral is wrong or crashes.
+
+        The check is collective, so all ranks raise together, and it is cached,
+        so it runs once per mesh.
+        """
+        # In serial there is no halo, so every interior facet has both cells.
+        if self.comm.size == 1:
+            return
+        # Ghost facets at the outer edge of the halo can have one cell. Only owned facets count.
+        owned_support = self._support_dat("interior_facet", only_owned=True).data_ro.reshape(-1, 2)
+        nmissing = int((owned_support < 0).any(axis=1).sum())
+        with temp_internal_comm(self.comm) as icomm:
+            nmissing = icomm.allreduce(nmissing, op=MPI.SUM)
+        if nmissing > 0:
+            if self.dimension < self.submesh_parent.dimension:
+                fix = (
+                    "Interior facet integrals on a codim-1 Submesh need a parent mesh "
+                    "with a VERTEX or RIDGE overlap, for example distribution_parameters="
+                    "{'overlap_type': (DistributedMeshOverlapType.RIDGE, 1)}."
+                )
+            else:
+                fix = "Interior facet integrals on a Submesh need a parent mesh with an overlap."
+            if self.submesh_parent.submesh_parent is not None:
+                fix += " For a submesh of a submesh, set the overlap on the original mesh."
+            raise ValueError(
+                f"{nmissing} owned interior facets of this submesh do not have both of "
+                f"their cells on the owning rank, because the overlap of the parent mesh "
+                f"is too small. {fix}"
+            )
 
     def _memoize_map(
         self,
@@ -6131,7 +6174,9 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     ``DistributedMeshOverlapType`` of {`VERTEX``, ``RIDGE``}, and the
     facets of the parent mesh must have been labeled such that the
     ridges (entities of co-dim 2) to be contained in the submesh are
-    shared by at most two facets.
+    shared by at most two facets. In parallel, an interior facet integral
+    raises a ``ValueError`` if an owned interior facet of the submesh does
+    not have both of its cells on the owning rank.
 
     Currently, to make a quadrilateral submesh from a hexahedral mesh,
     the facets of the hex mesh must have been labeled such that the
