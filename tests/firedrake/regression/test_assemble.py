@@ -281,6 +281,83 @@ def test_one_form_assembler_cache(mesh):
     assert len(L._cache[_FORM_CACHE_KEY]) == 4
 
 
+def standalone_cofunction(V):
+    return Cofunction(V.dual())
+
+
+def first_subfunction(V):
+    W = V * V
+    w = Cofunction(W.dual())
+    return w.subfunctions[0]
+
+
+def second_subfunction(V):
+    W = V * V
+    w = Cofunction(W.dual())
+    return w.subfunctions[1]
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("make_tensor", [standalone_cofunction, first_subfunction, second_subfunction])
+@pytest.mark.parametrize("make_previous_tensor", [standalone_cofunction, first_subfunction, second_subfunction])
+def test_assemble_one_form_into_tensor_after_another_tensor(mesh, make_previous_tensor, make_tensor):
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    v = TestFunction(V)
+    L = inner(1 + x*y, v) * dx
+    previous_tensor = make_previous_tensor(V)
+    tensor = make_tensor(V)
+    assemble(L, tensor=previous_tensor)
+    assemble(L, tensor=tensor)
+    # The basis functions sum to one, so the entries sum to the integral of 1 + x*y
+    with tensor.dat.vec_ro as vec:
+        assert np.isclose(vec.sum(), 1.25)
+
+
+@pytest.mark.parallel([1, 3])
+def test_assemble_one_form_into_subfunction_leaves_other_subfunction_zero(mesh):
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = V * V
+    v = TestFunction(V)
+    L = inner(1 + x*y, v) * dx
+    c = Cofunction(V.dual())
+    w = Cofunction(W.dual())
+    assemble(L, tensor=c)
+    assemble(L, tensor=w.subfunctions[1])
+    with w.subfunctions[0].dat.vec_ro as vec:
+        assert vec.norm() == 0
+
+
+@pytest.mark.parallel([1, 3])
+def test_assemble_one_form_without_tensor_after_subfunction(mesh):
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = V * V
+    v = TestFunction(V)
+    L = inner(1 + x*y, v) * dx
+    w = Cofunction(W.dual())
+    assemble(L, tensor=w.subfunctions[1])
+    c = assemble(L)
+    # The basis functions sum to one, so the entries sum to the integral of 1 + x*y
+    with c.dat.vec_ro as vec:
+        assert np.isclose(vec.sum(), 1.25)
+
+
+@pytest.mark.parallel([1, 3])
+def test_assemble_interpolate_into_subfunction_after_function(mesh):
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = V * V
+    expr = interpolate(1 + x*y, V)
+    f = Function(V)
+    w = Function(W)
+    assemble(expr, tensor=f)
+    assemble(expr, tensor=w.subfunctions[1])
+    # 1 + x*y is in the CG2 space, so the interpolation is exact
+    assert errornorm(1 + x*y, w.subfunctions[1]) < 1e-12
+
+
 @pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")
 def test_two_form_assembler_cache(mesh):
     from firedrake.assemble import _FORM_CACHE_KEY
