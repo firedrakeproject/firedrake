@@ -531,13 +531,17 @@ def _refine_adaptive(dm):
 
 
 def _refine_from_hierarchy(dm):
-    """Return the DM of the refined function space."""
+    """Return the DM of the refined function space, with the refined context if the DM has one."""
     from firedrake.mg.ufl_utils import refine
     Vcoarse = get_function_space(dm)
     if Vcoarse is None:
         raise RuntimeError("No FunctionSpace found on DM")
     Vfine = refine(Vcoarse, refine)
-    return Vfine.dm
+    ctx = get_appctx(dm)
+    if ctx is None:
+        return Vfine.dm
+    refined_ctx = refine(ctx, refine)
+    return _attach_refined_context(dm, ctx, refined_ctx)
 
 
 @PETSc.Log.EventDecorator()
