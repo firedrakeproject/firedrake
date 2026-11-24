@@ -156,6 +156,58 @@ def test_singular_nonsymmetric_linear_problem(solver_type, rg):
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("solver_type", ("solve", "lvs", "nlvs"))
+def test_singular_nonsymmetric_linear_problem_hessian(solver_type, rg):
+    """Check that the tangent linear solve keeps the forward null spaces.
+
+    The operator is the one of test_singular_nonsymmetric_linear_problem,
+    whose null space and transpose null space differ. The adjoint solve swaps
+    them. The tangent linear operator is the forward operator, so the tangent
+    linear solve must keep them as given to the forward solve. With the
+    swapped spaces in the tangent linear solve the Hessian is wrong and the
+    second order Taylor rate drops from 3 to 2.
+    """
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    g = Function(V).interpolate(1 + x + 2*y**2)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v/g))*dx
+
+    nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
+    # orthonormalize changes the basis vectors in place, so give it a copy of g.
+    transpose_nullspace = VectorSpaceBasis([g.copy(deepcopy=True)], comm=mesh.comm)
+    transpose_nullspace.orthonormalize()
+    kwargs = {"nullspace": nullspace, "transpose_nullspace": transpose_nullspace,
+              "solver_parameters": {"ksp_type": "gmres", "pc_type": "none",
+                                    "ksp_gmres_restart": 200, "ksp_rtol": 1e-12}}
+
+    uh = Function(V)
+    f = Function(V).interpolate(sin(3*x) + cos(2*y))
+    L = inner(f, v)*dx
+    if solver_type == "solve":
+        solve(a == L, uh, **kwargs)
+    elif solver_type == "lvs":
+        LinearVariationalSolver(LinearVariationalProblem(a, L, uh), **kwargs).solve()
+    else:
+        # The problem is linear, so the default Newton solver stops after one step.
+        F = action(a, uh) - L
+        NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh), **kwargs).solve()
+    # A functional of fourth order in f, so that the Hessian term is not exact
+    # and a wrong Hessian shows in the second order rate.
+    J = assemble(uh**4*dx)
+    rf = ReducedFunctional(J, Control(f))
+
+    h = rg.uniform(V)
+    rates = taylor_to_dict(rf, f, h)
+    assert min(rates["R0"]["Rate"]) > 0.9
+    assert min(rates["R1"]["Rate"]) > 1.9
+    assert min(rates["R2"]["Rate"]) > 2.9
+
+
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize("pre_apply_bcs", (True, False))
 def test_nonlinear_problem(pre_apply_bcs, rg):
     """This tests whether nullspace and solver_parameters are passed on in adjoint solves"""

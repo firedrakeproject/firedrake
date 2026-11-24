@@ -841,7 +841,10 @@ def solve_init_params(self, args, kwargs, varform):
     if len(self.adj_args) <= 0:
         self.adj_args = self.forward_args
 
-    if len(self.adj_kwargs) <= 0:
+    # True when the adjoint kwargs are derived from the forward kwargs here,
+    # and so carry the swapped null spaces below.
+    adj_kwargs_from_forward = len(self.adj_kwargs) <= 0
+    if adj_kwargs_from_forward:
         self.adj_kwargs = self.forward_kwargs.copy()
 
         # The adjoint operator is the transpose of the forward operator, so
@@ -876,6 +879,13 @@ def solve_init_params(self, args, kwargs, varform):
 
     if hasattr(self, "tlm_kwargs") and len(self.tlm_kwargs) <= 0:
         self.tlm_kwargs = self.adj_kwargs.copy()
+        if adj_kwargs_from_forward:
+            # The tangent linear operator is the forward operator, not its
+            # transpose, so it takes the forward null spaces and not the
+            # swapped ones of the adjoint solve.
+            for key in ("nullspace", "transpose_nullspace"):
+                if key in self.forward_kwargs or key in self.tlm_kwargs:
+                    self.tlm_kwargs[key] = self.forward_kwargs.get(key)
 
     solver_params = kwargs.get("solver_parameters", None)
     if solver_params is not None and "mat_type" in solver_params:
