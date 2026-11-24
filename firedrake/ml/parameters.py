@@ -3,63 +3,39 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Self
 
+from mpi4py import MPI
+import numpy as np
 import ufl
+
+from firedrake.cofunction import Cofunction
+from firedrake.function import Function
+from firedrake.realspace import RealSpace
+from firedrake.utils import ScalarType, complex_mode
 
 if TYPE_CHECKING:
     import torch
 
 
-@dataclass(frozen=True, slots=True)
-class _ParameterElement(ufl.AbstractFiniteElement):
-    """Describe a parameter vector on the reference point by its shape."""
-
-    cell = ufl.vertex
-    reference_value_shape: tuple[int, ...] = field()
-    sobolev_space = ufl.HInf
-    pullback = ufl.identity_pullback
-    embedded_subdegree = embedded_superdegree = 0
-    sub_elements = ()
-
-    def __str__(self) -> str:
-        return repr(self)
-
-
 class MLParameters(ufl.Coefficient):
-    """Represent PyTorch tensors as a single symbolic parameter vector.
+    """Represent live PyTorch parameters by a single coefficient.
 
     Parameters
     ----------
     parameters : Iterable[torch.Tensor]
-        Tensors to reference, normally ``model.parameters()``. Their order and
-        shapes define the parameter vector and must remain fixed. All tensors
-        must have floating-point or complex values.
+        The model tensors in parameter order. Their shapes, dtypes and devices
+        must remain fixed. Construct the handle after loading and moving the model.
 
     Notes
     -----
-    Construction retains the supplied tensors and their PyTorch storage.
-    UFL records their total size. Operators on different meshes can share
-    the same parameter vector.
-    Each MPI rank retains its own model parameters.
-
-    Create the handle after moving the model to its intended dtype and device.
-    In-place optimiser steps remain visible through the handle. If the model
-    replaces its parameter objects, create a new handle.
-
-    Examples
-    --------
-    >>> import torch
-    >>> from firedrake.ml.pytorch import MLParameters
-    >>> model = torch.nn.Linear(2, 1)
-    >>> parameters = MLParameters(model.parameters())
-    >>> saved_parameters = parameters.copy()
-    >>> _ = parameters.assign(saved_parameters)
+    Each process owns its model replica. Operators on any mesh can refer to the
+    same handle. Gradients and directions use coordinates in parameter order.
+    In real scalar builds, the real and imaginary parts of each complex entry
+    occupy adjacent coordinates.
     """
 
     def __new__(cls, *args: object, **kwargs: object) -> Self:
-        # A parameter block is always a primal coefficient.
         return object.__new__(cls)
 
     def __init__(self, parameters: Iterable[torch.Tensor]) -> None:
@@ -70,134 +46,105 @@ class MLParameters(ufl.Coefficient):
             raise TypeError("Model parameters must be PyTorch tensors.")
         if any(not (t.is_floating_point() or t.is_complex()) for t in self._tensors):
             raise TypeError("Model parameters must have floating-point or complex values.")
-        size = sum(t.numel() for t in self._tensors)
-        if size == 0:
+        if any(torch.finfo(t.dtype).bits > np.finfo(ScalarType).bits for t in self._tensors):
+            raise ValueError("Firedrake scalar precision must accommodate the model parameters.")
+        self._layout = tuple((t.shape, t.dtype, t.device) for t in self._tensors)
+        self._sizes = tuple(t.numel() * (2 if t.is_complex() and not complex_mode else 1) for t in self._tensors)
+        size = sum(self._sizes)
+        if not size:
             raise ValueError("A parameter vector must contain at least one scalar.")
-        element = _ParameterElement((size,))
-        super().__init__(ufl.FunctionSpace(None, element))
+        super().__init__(RealSpace(MPI.COMM_SELF, (size,)))
 
     @property
     def tensors(self) -> tuple[torch.Tensor, ...]:
-        """Return the native parameter tensors.
-
-        Returns
-        -------
-        tuple[torch.Tensor]
-            References to the tensors in parameter order.
-        """
+        """Return the original tensors in parameter order."""
+        if any((t.shape, t.dtype, t.device) != spec for t, spec in zip(self._tensors, self._layout, strict=True)):
+            raise ValueError("The model parameter layout has changed. Create a new MLParameters handle.")
         return self._tensors
 
-    def backward(self, gradient: MLParameterGradient) -> None:
-        """Accumulate an assembled gradient in the PyTorch parameters' ``.grad`` buffers.
+    def function_space(self) -> RealSpace:
+        """Return the space of parameter directions."""
+        return self.ufl_function_space()
+
+    def _pack(self, blocks: Iterable[torch.Tensor], out: Function | Cofunction) -> None:
+        import torch
+
+        dest = out.dat.data_wo.reshape(-1)
+        dtype = torch.from_numpy(np.empty((), dtype=ScalarType)).dtype
+        start = 0
+        for block, size in zip(blocks, self._sizes, strict=True):
+            values = block.detach().resolve_conj().resolve_neg()
+            if values.is_complex() and not complex_mode:
+                values = torch.view_as_real(values)
+            dest[start:start + size] = values.reshape(-1).to(device="cpu", dtype=dtype).numpy()
+            start += size
+
+    def _unpack(self, value: Function | Cofunction) -> tuple[torch.Tensor, ...]:
+        import torch
+
+        data = value.dat.data_ro.reshape(-1)
+        start = 0
+        blocks = []
+        for t, size in zip(self.tensors, self._sizes, strict=True):
+            values = data[start:start + size]
+            if t.is_complex() and not complex_mode:
+                values = values[0::2] + 1j * values[1::2]
+            elif not t.is_complex() and np.iscomplexobj(values):
+                if np.any(values.imag):
+                    raise ValueError("A real model parameter received a non-real coordinate.")
+                values = values.real
+            blocks.append(torch.tensor(values.reshape(t.shape), device=t.device, dtype=t.dtype))
+            start += size
+        return tuple(blocks)
+
+    def backward(self, gradient: Cofunction) -> None:
+        """Accumulate an assembled cotangent in the live parameters' gradient buffers.
 
         Parameters
         ----------
-        gradient : MLParameterGradient
-            The gradient assembled with respect to this parameter vector.
-
-        Raises
-        ------
-        ValueError
-            If the gradient does not belong to this parameter vector.
+        gradient : firedrake.Cofunction
+            Cotangent in the dual of this handle's space.
         """
         import torch
 
-        if not isinstance(gradient, MLParameterGradient) or gradient.parameters is not self:
+        if not isinstance(gradient, Cofunction) or gradient.function_space() != self.function_space().dual():
             raise ValueError("Expected a gradient assembled with respect to these parameters.")
-        torch.autograd.backward(self.tensors, gradient.tensors)
+        tensors = self.tensors
+        if not all(t.requires_grad for t in tensors):
+            raise ValueError("Only parameters that require gradients can receive backward contributions.")
+        torch.autograd.backward(tensors, self._unpack(gradient))
 
-    def copy(self) -> "MLParameters":
-        """Copy parameter values without retaining their autograd history.
+    def copy(self) -> Function:
+        """Return a snapshot in the parameter space.
 
         Returns
         -------
-        MLParameters
-            Independent tensors with the same shapes, dtypes and devices.
+        firedrake.Function
+            Independent values from which the live model can be restored.
         """
-        return type(self)(t.detach().clone() for t in self._tensors)
+        saved = Function(self.function_space())
+        self._pack(self.tensors, saved)
+        return saved
 
-    def assign(self, other: "MLParameters") -> "MLParameters":
-        """Copy values while preserving the original tensors and their storage.
+    def assign(self, value: Function) -> Self:
+        """Restore the model's values in place.
 
         Parameters
         ----------
-        other : MLParameters
-            Values with the same tensor shapes, dtypes and devices.
+        value : firedrake.Function
+            Values in this handle's parameter space.
 
         Returns
         -------
         MLParameters
-            This parameter vector.
-
-        Raises
-        ------
-        ValueError
-            If the tensor shapes, dtypes or devices differ.
+            This handle.
         """
         import torch
 
-        source = other.tensors
-        target = self._tensors
-        if len(source) != len(target) or any(
-            (s.shape, s.dtype, s.device) != (t.shape, t.dtype, t.device)
-            for s, t in zip(source, target)
-        ):
-            raise ValueError("Parameter tensors must have matching shapes, dtypes and devices.")
+        if not isinstance(value, Function) or value.function_space() != self.function_space():
+            raise ValueError("Expected a function in this parameter space.")
+        blocks = self._unpack(value)
         with torch.no_grad():
-            for t, s in zip(target, source):
-                t.copy_(s)
+            for t, block in zip(self.tensors, blocks, strict=True):
+                t.copy_(block)
         return self
-
-
-class MLParameterGradient(ufl.Cofunction):
-    """A replicated parameter cotangent with one PyTorch tensor per weight.
-
-    Parameters
-    ----------
-    parameters : MLParameters
-        The coefficient with respect to which the derivative was taken.
-    tensors : tuple of torch.Tensor
-        The gradient blocks in the order and shapes of the parameter tensors.
-
-    Notes
-    -----
-    Assembly leaves the model's gradient buffers untouched. Call
-    ``theta.backward(gradient)`` to accumulate the result in the trainable
-    parameters that ``theta`` references.
-    """
-
-    def __new__(cls, parameters: MLParameters, tensors: tuple[torch.Tensor, ...]) -> Self:
-        return super().__new__(cls, parameters.ufl_function_space().dual())
-
-    def __init__(self, parameters: MLParameters, tensors: tuple[torch.Tensor, ...]) -> None:
-        super().__init__(parameters.ufl_function_space().dual())
-        self.parameters = parameters
-        self.tensors = tensors
-
-    def assign(self, other: MLParameterGradient) -> Self:
-        """Assign the gradient of the same parameter block.
-
-        Parameters
-        ----------
-        other : MLParameterGradient
-            Source of the gradient values.
-
-        Returns
-        -------
-        MLParameterGradient
-            This gradient.
-        """
-        if other.parameters is not self.parameters:
-            raise ValueError("The gradients belong to different parameter blocks.")
-        for dest, src in zip(self.tensors, other.tensors, strict=True):
-            dest.copy_(src)
-        return self
-
-    @classmethod
-    def _linear_combination(cls, weights, gradients):
-        parameters = gradients[0].parameters
-        if any(g.parameters is not parameters for g in gradients):
-            raise ValueError("The gradients belong to different parameter blocks.")
-        blocks = zip(*(g.tensors for g in gradients), strict=True)
-        return cls(parameters, tuple(sum(w * t for w, t in zip(weights, block, strict=True))
-                                     for block in blocks))

@@ -26,7 +26,9 @@ import petsctools
 from firedrake.external_operators import MLOperator
 from firedrake import utils
 from firedrake.ml.pytorch import to_torch, from_torch
-from firedrake.ml.parameters import MLParameters, MLParameterGradient
+from firedrake.cofunction import Cofunction
+from firedrake.function import Function
+from firedrake.ml.parameters import MLParameters
 from firedrake.petsc import PETSc
 
 
@@ -132,7 +134,10 @@ class PytorchOperator(MLOperator):
             x = torch.cat(values, dim=1)
         else:
             x = torch.cat(values)
-        reference = self._parameters.tensors[0]
+        tensors = self._parameters.tensors
+        if any(self.model.get_parameter(name) is not t for name, t in zip(self._parameter_names, tensors, strict=True)):
+            raise ValueError("The model replaced a bound parameter. Create a new MLParameters handle.")
+        reference = tensors[0]
         dtype = reference.dtype
         if x.is_complex() and not reference.is_complex():
             dtype = torch.promote_types(dtype, torch.complex64)
@@ -143,6 +148,8 @@ class PytorchOperator(MLOperator):
         return to_torch(field, gather=not self._pointwise, batched=False)
 
     def _owned_values(self, values, space):
+        if values.is_complex() and not utils.complex_mode:
+            raise ValueError("A real Firedrake build requires a real-valued output field.")
         layout = space.template_vec
         expected = layout.getLocalSize() if self._pointwise else layout.getSize()
         if values.numel() != expected:
@@ -186,7 +193,12 @@ class PytorchOperator(MLOperator):
             gradients = pullback(seed.reshape_as(output))
             operand = self.ufl_operands[self.derivatives.index(1)]
             if operand is self._parameters:
-                return MLParameterGradient(operand, tuple(self._weight_gradient(g) for g in gradients))
+                result = Cofunction(operand.function_space().dual())
+                operand._pack(gradients, result)
+                if self._pointwise:
+                    # Global models already receive the complete seed on every rank.
+                    self.function_space().comm.Allreduce(MPI.IN_PLACE, result.dat.data_rw, op=MPI.SUM)
+                return result
             space = operand.ufl_function_space().dual()
             return from_torch(self._owned_values(gradients[0], space).detach().resolve_conj().cpu(), space)
         model = self.model
@@ -196,23 +208,16 @@ class PytorchOperator(MLOperator):
         vjp_F = self._post_forward_callback(vjp)
         return vjp_F
 
-    def _weight_gradient(self, gradient):
-        """Reduce pointwise contributions from owned DoFs; global models already see the full seed."""
-        gradient = gradient.detach()
-        if not self._pointwise:
-            return gradient.clone()
-        # MPI provides sum reductions for single and double precision.
-        dtype = torch.promote_types(gradient.dtype, torch.float32)
-        local = gradient.resolve_conj().to(device="cpu", dtype=dtype).contiguous().numpy()
-        total = np.empty_like(local)
-        self.function_space().comm.Allreduce(local, total, op=MPI.SUM)
-        return torch.from_numpy(total).to(gradient)
-
     def _jvp(self, z):
         """Implement the Jacobian-vector product (JVP) for a given vector `z`."""
         if self._parameters is not None:
             evaluate, inputs = self._linearization()
-            tangent = z.tensors if isinstance(z, MLParameters) else (self._field_values(z),)
+            if self.ufl_operands[self.derivatives.index(1)] is self._parameters:
+                if not isinstance(z, Function) or z.function_space() != self._parameters.function_space():
+                    raise ValueError("Expected a direction in this parameter space.")
+                tangent = self._parameters._unpack(z)
+            else:
+                tangent = (self._field_values(z),)
             _, jvp = torch.func.jvp(evaluate, inputs, tangent)
             V = self.function_space()
             return from_torch(self._owned_values(jvp, V).detach().resolve_conj().cpu(), V)
@@ -347,9 +352,10 @@ def ml_operator(model, function_space, inputs_format: int | str = 0):
     Derivatives evaluate the model again. Use deterministic evaluation (for
     example, ``model.eval()`` for modules with dropout or batch normalization).
 
-    The assembled gradient contains one tensor per weight, summed over the
-    mesh communicator. Ranks must start with the same model parameters and
-    apply the same optimizer step. A weight Jacobian is evaluated by applying
+    The assembled gradient is a Firedrake Cofunction in the dual of the
+    parameter space. It includes every contribution on the mesh communicator.
+    Ranks must start with the same model parameters and apply the same optimizer
+    step. A weight Jacobian is evaluated by applying
     it or its adjoint to a direction.
 
     Parameters

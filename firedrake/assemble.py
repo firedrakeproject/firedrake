@@ -21,7 +21,6 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.exceptions import MismatchingFunctionSpaceError
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
-from firedrake.ml.parameters import MLParameterGradient
 from firedrake.functionspaceimpl import is_mixed
 from firedrake.interpolation import get_interpolator, get_runtime_tabulation_coordinates, SameMeshInterpolator
 from firedrake.pack import pack, modified_lgmaps
@@ -110,8 +109,7 @@ def assemble(expr, *args, **kwargs):
     Returns
     -------
     float or firedrake.function.Function or firedrake.cofunction.Cofunction or matrix.MatrixBase
-        Result of assembly. A linear form in an ML parameter direction can
-        return an ``MLParameterGradient`` containing the native weight derivatives.
+        Result of assembly.
 
     Notes
     -----
@@ -612,7 +610,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             if len(args) != 1:
                 raise TypeError("Not enough operands for Adjoint")
             mat, = args
-            if isinstance(mat, (firedrake.Cofunction, firedrake.Function, MLParameterGradient)):
+            if isinstance(mat, (firedrake.Cofunction, firedrake.Function)):
                 # The operand is the row Action(x, A), which contract assembles as the column A^H x.
                 return tensor.assign(mat) if tensor else mat
             # Out-of-place Hermitian transpose
@@ -655,9 +653,6 @@ class BaseFormAssembler(AbstractFormAssembler):
                 result = numpy.dot(weights, args)
                 return tensor.assign(result) if tensor else result.item()
 
-            if all(isinstance(op, MLParameterGradient) for op in args):
-                result = MLParameterGradient._linear_combination(weights, args)
-                return tensor.assign(result) if tensor is not None else result
             vector_types = (firedrake.Function, firedrake.Cofunction)
             vector_sum = all(isinstance(op, vector_types) for op in args)
             if vector_sum:

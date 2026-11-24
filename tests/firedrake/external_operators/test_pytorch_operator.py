@@ -1,3 +1,5 @@
+from io import BytesIO
+
 import pytest
 import numpy as np
 import ufl
@@ -7,7 +9,7 @@ from ufl.algorithms.restructure_base_form import restructure_base_form
 from ufl.core.external_operator import ExternalOperator
 
 from firedrake import *
-from firedrake.utils import ScalarType
+from firedrake.utils import ScalarType, complex_mode
 
 
 @pytest.fixture
@@ -321,22 +323,31 @@ def test_ml_parameters_storage_and_snapshots(complex_parameters: bool) -> None:
     tensors = tuple(model.parameters())
     pointers = tuple(t.data_ptr() for t in tensors)
     assert all(t is p for t, p in zip(parameters.tensors, tensors))
-    assert parameters.ufl_shape == (3,)
+    assert parameters.ufl_shape == ((6 if complex_parameters and not complex_mode else 3),)
     assert parameters.ufl_domains() == ()
 
     saved = parameters.copy()
-    assert all(not t.requires_grad for t in saved.tensors)
-    assert all(t.data_ptr() != p.data_ptr() for t, p in zip(saved.tensors, tensors))
+    assert type(saved) is Function and saved.function_space() is parameters.function_space()
+    originals = tuple(t.detach().clone() for t in tensors)
+    checkpoint = BytesIO()
+    torch.save(model.state_dict(), checkpoint)
     optimiser = torch.optim.SGD(parameters.tensors, lr=0.1)
     model(torch.ones(2, dtype=dtype)).real.sum().backward()
     optimiser.step()
-    for value, original in zip(parameters.tensors, saved.tensors):
+    for value, original in zip(parameters.tensors, originals):
         torch.testing.assert_close(value, original - 0.1)
 
+    checkpoint.seek(0)
+    model.load_state_dict(torch.load(checkpoint, weights_only=True))
+    for t, original in zip(parameters.tensors, originals, strict=True):
+        torch.testing.assert_close(t, original)
+    with torch.no_grad():
+        for t in tensors:
+            t.zero_()
     assert parameters.assign(saved) is parameters
     assert tuple(t.data_ptr() for t in parameters.tensors) == pointers
     assert all(t is p for t, p in zip(parameters.tensors, model.parameters()))
-    for value, original in zip(parameters.tensors, saved.tensors):
+    for value, original in zip(parameters.tensors, originals):
         torch.testing.assert_close(value, original)
 
 
@@ -372,7 +383,7 @@ def test_ml_parameters_symbolic_derivative(size: int, interpolated: bool) -> Non
     assert directional.argument_slots()[-1] is saved
     replaced = ufl.replace(N, {parameters: saved})
     assert replaced.ufl_operands[-1] is saved
-    assert type(replaced.ufl_operands[-1]) is MLParameters
+    assert type(replaced.ufl_operands[-1]) is Function
     assert saved.ufl_function_space() == parameters.ufl_function_space()
     assert saved != parameters
 
@@ -391,7 +402,9 @@ def test_ml_parameters_on_two_meshes() -> None:
     for u in states:
         V = u.function_space()
         N = ml_operator(model, V, inputs_format=1)
-        residual = inner(N(u, theta), TestFunction(V)) * dx
+        output = N(u, theta)
+        assert grad(output).ufl_shape == (V.mesh().geometric_dimension,)
+        residual = inner(output, TestFunction(V)) * dx
         assert residual.domain_numbering() == {V.mesh(): 0}
         contributions.append(restructure_base_form(action(adjoint(derivative(residual, theta)), u)))
 
@@ -403,19 +416,12 @@ def test_ml_parameters_on_two_meshes() -> None:
 
 @pytest.mark.skiptorch
 @pytest.mark.parallel(nprocs=[1, 2])
-@pytest.mark.parametrize("mismatch", ["shape", "dtype", "count"])
-def test_ml_parameters_assign_mismatch(mismatch: str) -> None:
-    """Reject incompatible snapshots before modifying any parameter."""
+def test_ml_parameters_assign_mismatch() -> None:
+    """Reject a snapshot from another model before changing any live tensor."""
     parameters = MLParameters([torch.ones(2), torch.ones(3)])
-    replacement = [torch.full((2,), 9.0), torch.zeros(3)]
-    if mismatch == "shape":
-        replacement[1] = torch.zeros(4)
-    elif mismatch == "dtype":
-        replacement[1] = replacement[1].double()
-    else:
-        replacement.pop()
-    with pytest.raises(ValueError, match="matching shapes, dtypes and devices"):
-        parameters.assign(MLParameters(replacement))
+    other = MLParameters([torch.full((2,), 9.0), torch.zeros(3)])
+    with pytest.raises(ValueError, match="parameter space"):
+        parameters.assign(other.copy())
     for tensor in parameters.tensors:
         torch.testing.assert_close(tensor, torch.ones_like(tensor))
 
@@ -470,10 +476,9 @@ def test_ml_parameters_training_step() -> None:
     derivative_sum = sum(derivative(loss, theta) for loss in losses)
     for _ in range(2):
         gradient = assemble(derivative_sum)
-        assert gradient.parameters is theta
-        assert gradient.ufl_function_space() == theta.ufl_function_space().dual()
-        for g, expected in zip(gradient.tensors, (3, 2), strict=True):
-            torch.testing.assert_close(g, torch.full_like(g, expected))
+        assert type(gradient) is Cofunction
+        assert gradient.function_space() is theta.function_space().dual()
+        np.testing.assert_allclose(gradient.dat.data_ro, [3, 2])
         assert all(p.grad is None for p in model.parameters())
 
     # Check the directional derivative in the (1, -1) direction.
@@ -491,14 +496,22 @@ def test_ml_parameters_training_step() -> None:
     assert np.isclose((plus - minus) / 2e-5, 1)
 
     other = MLParameters(Linear(1, 1, dtype=dtype).parameters())
+    out = Cofunction(other.function_space().dual(), val=[4, 5])
+    with pytest.raises(ValueError, match="function space"):
+        assemble(derivative_sum, tensor=out)
+    np.testing.assert_array_equal(out.dat.data_ro, [4, 5])
     with pytest.raises(ValueError, match="with respect to these parameters"):
         other.backward(gradient)
     assert all(p.grad is None for p in other.tensors)
+    for p in other.tensors:
+        p.grad = torch.full_like(p, 17)
+    with pytest.raises(ValueError, match="with respect to these parameters"):
+        other.backward(gradient)
+    assert all(torch.all(p.grad == 17) for p in other.tensors)
 
     for loss in losses:
         theta.backward(assemble(derivative(loss, theta)))
-    for p, g in zip(theta.tensors, gradient.tensors, strict=True):
-        torch.testing.assert_close(p.grad, g)
+    assert [p.grad.item() for p in theta.tensors] == pytest.approx([3, 2])
 
     optimizer.zero_grad()
     theta.backward(gradient)
@@ -528,6 +541,11 @@ def test_ml_parameters_binding() -> None:
         with pytest.raises(ValueError, match="inputs_format must be"):
             ml_operator(model, V, inputs_format=invalid)
 
+    op = ml_operator(model, V, inputs_format="pointwise")(u, u, theta)
+    model.weight = torch.nn.Parameter(model.weight.detach().clone())
+    with pytest.raises(ValueError, match="replaced a bound parameter|distinct parameters"):
+        assemble(op)
+
 
 @pytest.mark.skiptorch
 @pytest.mark.parallel(nprocs=[1, 2])
@@ -552,12 +570,14 @@ def test_ml_parameters_multiple_fields(inputs_format: str | int) -> None:
         assert np.allclose(assemble(action(jac, du)).dat.data_ro, factor)
         assert np.allclose(assemble(action(adjoint(jac), seed)).dat.data_ro, factor * seed.dat.data_ro)
 
-    direction = MLParameters(torch.ones_like(t) for t in theta.tensors)
+    direction = Function(theta.function_space()).assign(1)
     jac = derivative(op, theta)
     assert np.allclose(assemble(action(jac, direction)).dat.data_ro, 10)
     gradient = assemble(action(adjoint(jac), seed))
-    torch.testing.assert_close(gradient.tensors[0], torch.tensor([[4, 5]], dtype=dtype))
-    torch.testing.assert_close(gradient.tensors[1], torch.ones(1, dtype=dtype))
+    np.testing.assert_allclose(gradient.dat.data_ro, [4, 5, 1])
+    foreign = Function(MLParameters(Linear(2, 1, dtype=dtype).parameters()).function_space())
+    with pytest.raises(TypeError, match="function spaces"):
+        action(jac, foreign)
 
 
 @pytest.mark.skiptorch
@@ -585,4 +605,63 @@ def test_ml_parameters_global_model(options: dict) -> None:
     seed = assemble(inner(1, TestFunction(V)) * dx)
     assert np.allclose(assemble(action(adjoint(jac), seed)).dat.data_ro, 2)
     gradient = assemble(derivative(inner(1, op) * dx, theta))
-    assert gradient.tensors[0].item() == pytest.approx(V.dim())
+    assert gradient.dat.data_ro.item() == pytest.approx(V.dim())
+
+
+@pytest.mark.skiptorch
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_ml_parameters_complex_directions() -> None:
+    """Real and imaginary perturbations agree with the applied weight adjoint."""
+    class Model(Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor(2 + 3j, dtype=torch.complex128))
+
+        def forward(self, x):
+            return (x * self.weight).real + 2 * (x * self.weight).imag
+
+    model = Model()
+    theta = MLParameters(model.parameters())
+    V = FunctionSpace(UnitIntervalMesh(4), "CG", 1)
+    u = Function(V).assign(1)
+    N = ml_operator(model, V, inputs_format="pointwise")(u, theta)
+    J = inner(1, N) * dx
+    g = assemble(derivative(J, theta))
+    before = g.dat.data_ro.copy()
+    theta.backward(g)
+    assert model.weight.grad.item() == pytest.approx(1 + 2j)
+    for step in (1, 1j):
+        h = Function(theta.function_space(), val=[step] if complex_mode else [step.real, step.imag])
+        prediction = assemble(action(derivative(N, theta), h))
+        delta = 1e-6 * step
+        with torch.no_grad():
+            model.weight.add_(delta)
+            plus = assemble(J).real
+            model.weight.sub_(2 * delta)
+            minus = assemble(J).real
+            model.weight.add_(delta)
+        finite_difference = (plus - minus) / 2e-6
+        assert np.allclose(prediction.dat.data_ro, finite_difference)
+        assert assemble(action(g, h)).real == pytest.approx(finite_difference)
+    model.zero_grad(set_to_none=False)
+    np.testing.assert_array_equal(g.dat.data_ro, before)
+
+
+@pytest.mark.skiptorch
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_ml_parameters_mixed_cotangent() -> None:
+    """Preserve the native scalar field of each parameter block."""
+    z = torch.nn.Parameter(torch.tensor(0j, dtype=torch.complex128))
+    r = torch.nn.Parameter(torch.tensor(0., dtype=torch.float32))
+    theta = MLParameters((z, r))
+    dual = theta.function_space().dual()
+    g = Cofunction(dual, val=[2 + 3j, 4] if complex_mode else [2, 3, 4])
+    theta.backward(g)
+    assert z.grad.item() == 2 + 3j
+    assert r.grad.item() == 4
+    if complex_mode:
+        invalid = Cofunction(dual, val=[7, 4 + 1j])
+        with pytest.raises(ValueError, match="non-real coordinate"):
+            theta.backward(invalid)
+        assert z.grad.item() == 2 + 3j
+        assert r.grad.item() == 4
