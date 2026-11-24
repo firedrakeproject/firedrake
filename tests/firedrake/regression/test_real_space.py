@@ -541,3 +541,39 @@ def test_real_space_repeated_assembly():
     for i in range(3):
         x = assemble(form)
         pytest_mpi.parallel_assert(float(x), 5)
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("shape", [(), (4,), (2, 2)])
+def test_mesh_independent_real_space(shape):
+    from firedrake.utils import ScalarType
+
+    P = RealSpace(COMM_WORLD, shape)
+    Q = RealSpace(COMM_WORLD, shape)
+    assert P != Q and P.dual() != Q.dual()
+    assert P.dual().dual() is P
+    assert P._ufl_signature_data_({}) == Q._ufl_signature_data_({})
+    assert P.ufl_domains() == ()
+    n = int(np.prod(shape))
+    assert P.dim() == n
+    x = np.arange(1, n + 1, dtype=ScalarType)
+    y = 2 * x
+    if np.iscomplexobj(x):
+        y *= 1 + 2j
+    h = Function(P, val=x)
+    g = Cofunction(P.dual(), val=y)
+    with h.dat.vec_ro as vec:
+        assert vec.getSize() == n
+        assert vec.norm() == pytest.approx(np.linalg.norm(x))
+    assert assemble(action(g, h)) == pytest.approx(np.vdot(x, y))
+    with pytest.raises(ValueError, match="function spaces"):
+        action(g, Function(Q))
+    with pytest.raises(ValueError, match="dimension"):
+        grad(h)
+    h2 = Function(P)
+    h2.assign(2 * h)
+    assert np.allclose(h2.dat.data_ro_with_halos.ravel(), 2 * x)
+    result = assemble(2 * g + 3 * g)
+    assert type(result) is Cofunction and result.function_space() == P.dual()
+    assert assemble(2 * g - result, tensor=g) is g
+    assert np.allclose(g.dat.data_ro_with_halos.ravel(), -3 * y)

@@ -16,6 +16,7 @@ from firedrake.adjoint_utils.function import CofunctionMixin
 from firedrake.adjoint_utils.checkpointing import DelegatedFunctionCheckpoint
 from firedrake.adjoint_utils.blocks.function import CofunctionAssignBlock
 from firedrake.mesh import extract_mesh_topologies
+from firedrake.realspace import _DualRealSpace
 from firedrake.petsc import PETSc
 
 
@@ -80,7 +81,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             # Deep copy prevents modifications to Vector copies.
             # Also, this discard the value of `val` if it was specified (consistent with Function)
             val = function_space.copy(deepcopy=True).dat
-        elif not isinstance(V, functionspaceimpl.FiredrakeDualSpace):
+        elif not isinstance(V, (functionspaceimpl.FiredrakeDualSpace, _DualRealSpace)):
             raise NotImplementedError("Can't make a Cofunction defined on a "
                                       + str(type(function_space)))
 
@@ -123,11 +124,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
         self._val_used = val is not None
 
-        self._mesh_topology_version = self._mesh_topology._topology_version
-        r"""The topology version on which the values of this cofunction are stored."""
-
-        # Register the cofunction at the mesh level
-        self._mesh_topology._register_function(self)
+        topology = self._mesh_topology
+        self._mesh_topology_version = None if topology is None else topology._topology_version
+        if topology is not None:
+            topology._register_function(self)
 
     @property
     def _mesh_topology(self):
@@ -137,7 +137,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @property
     def dat(self) -> op3.Dat:
         """The data of this cofunction, defined on the current topology of its mesh."""
-        self._migrate_to_current_topology()
+        if self._mesh_topology_version is not None:
+            self._migrate_to_current_topology()
         return self._dat
 
     def _migrate_to_current_topology(self) -> None:
