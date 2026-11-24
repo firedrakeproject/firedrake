@@ -8,6 +8,7 @@ from ufl.algorithms.analysis import has_type
 from ufl.domain import as_domain
 import firedrake
 from firedrake.constant import Constant
+from firedrake.realspace import RealSpace
 from firedrake.petsc import PETSc
 from functools import cached_property
 
@@ -245,6 +246,11 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         u = ufl.SpatialCoordinate(coord_mesh)
         V = coords.function_space()
         set_internal_coord_derivatives = True
+    elif isinstance(u, ufl.Coefficient) and isinstance(u.ufl_function_space(), RealSpace):
+        uc = u
+        V = u.ufl_function_space()
+        if isinstance(du, (ufl.Coefficient, ufl.argument.BaseArgument)) and du.ufl_function_space() != V:
+            raise ValueError("The derivative direction belongs to a different function space.")
     elif isinstance(u, BaseFormOperator):
         uc = u
         V = uc.function_space()
