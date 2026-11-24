@@ -445,6 +445,23 @@ def test_changing_default_reorder_works(reorder):
         parameters["reorder_meshes"] = old_reorder
 
 
+def closure_order(dm, cells):
+    """Return the points of the closures of ``cells``, each point at its first visit."""
+    closures = [dm.getTransitiveClosure(cell)[0] for cell in cells]
+    points = np.concatenate(closures)
+    _, first = np.unique(points, return_index=True)
+    return points[np.sort(first)]
+
+
+def test_reordered_mesh_numbers_points_in_cell_closure_order():
+    mesh = UnitSquareMesh(3, 2, reorder=True)
+    dm = mesh.topology.topology_dm
+    cStart, cEnd = dm.getHeightStratum(0)
+    new_to_old = mesh.topology._dm_renumbering.indices
+    cells = new_to_old[(new_to_old >= cStart) & (new_to_old < cEnd)]
+    assert np.array_equal(new_to_old, closure_order(dm, cells))
+
+
 @pytest.mark.parametrize("kind, num_cells",
                          [("default", 6)])
 def test_boxmesh_kind(kind, num_cells):

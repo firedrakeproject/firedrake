@@ -1284,13 +1284,21 @@ def get_boundary_set_points(dm: PETSc.DM, boundary_set: Iterable, extruded: bool
 
 def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, nowned, boundary_set, extruded: bool) -> PETSc.IS:
     """'Restrict' a renumbering of DM points by moving constrained points to the end."""
-    boundary_pts = get_boundary_set_points(dm, boundary_set, extruded)
+    boundary_pts = get_boundary_set_points(dm, boundary_set, extruded).indices
+
+    # Mark the constrained points in a mask over the chart. The petsc4py
+    # property IS.indices returns a new copy of the whole array on every
+    # access, and a membership test on an array scans it, so a test against
+    # the IS for every point would cost O(npoints * nconstrained).
+    pStart, pEnd = dm.getChart()
+    is_boundary = np.zeros(pEnd - pStart, dtype=bool)
+    is_boundary[boundary_pts - pStart] = True
 
     ghostlabel = dm.getLabel("firedrake_is_ghost")
 
     num_owned_cons = 0
     num_ghost_cons = 0
-    for bpt in boundary_pts.indices:
+    for bpt in boundary_pts:
         if ghostlabel.getValue(bpt) != 1:
             num_owned_cons += 1
         else:
@@ -1304,14 +1312,14 @@ def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, nowned, bo
     ptr_ghost_cons = orig_renumbering.size - num_ghost_cons
     for n in orig_renumbering.indices:
         if ghostlabel.getValue(n) != 1:
-            if n in boundary_pts.indices:
+            if is_boundary[n - pStart]:
                 new_renumbering[ptr_owned_cons] = n
                 ptr_owned_cons += 1
             else:
                 new_renumbering[ptr_owned_free] = n
                 ptr_owned_free += 1
         else:
-            if n in boundary_pts.indices:
+            if is_boundary[n - pStart]:
                 new_renumbering[ptr_ghost_cons] = n
                 ptr_ghost_cons += 1
             else:
@@ -2054,18 +2062,12 @@ def compute_dm_renumbering(
 ) -> PETSc.IS:
     """Return a renumbering of DM points that maximises locality.
 
-    :arg dm: The DMPlex object encapsulating the mesh topology
-    :arg reordering: A reordering from reordered to original plex
-         points used to provide the traversal order of the cells
-         (i.e. the inverse of the ordering obtained from
-         DMPlexGetOrdering).  Optional, if not provided (or ``None``),
-         no reordering is applied and the plex is traversed in
-         original order.
-    :arg boundary_set: A set of boundary subdomains, where a DirichletBC is to
-         be applied. This is None if working with a FunctionSpace object, and
-         non-empty if working with a RestrictedFunctionSpace object. If one is
-         provided, this will move all core or owned boundary points to the end
-         of the core+owned block.
+    :arg mesh: The mesh topology; its ``topology_dm`` is traversed.
+    :arg new_to_old_cell_numbering_is: A cell permutation from reordered to
+         original plex cells: entry ``i`` is the plex cell that is visited
+         in position ``i``.
+         Optional, if not provided (or ``None``), no reordering is applied
+         and the plex is traversed in original order.
 
     The node permutation is derived from a depth-first traversal of
     the Plex graph over each entity class in turn. The returned IS
@@ -2075,12 +2077,15 @@ def compute_dm_renumbering(
     # TODO: clean this up
     cdef:
         PETSc.IS ordering_is
+        PETSc.IS new_to_old_cell_is
         PETSc.DM dm
 
         PetscInt pStart_c, pEnd_c, nPoints_c
         PetscInt cStart, cEnd, nclosure
+        PetscInt c, cell, n_new_to_old_cell
         PetscInt *closure = NULL
         PetscInt *ordering = NULL
+        const PetscInt *new_to_old_cell = NULL
         PetscBT seen_points = NULL
         bint reorder
 
@@ -2093,13 +2098,27 @@ def compute_dm_renumbering(
 
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
 
+    # Get the cell permutation once, as a pointer into the IS. The petsc4py
+    # property IS.indices returns a new copy of the whole array on every
+    # access, so reading it inside the cell loop below would cost O(ncells^2).
+    if reorder:
+        new_to_old_cell_is = new_to_old_cell_numbering_is
+        CHKERR(ISGetLocalSize(new_to_old_cell_is.iset, &n_new_to_old_cell))
+        if n_new_to_old_cell != cEnd - cStart:
+            raise ValueError(
+                f"Cell renumbering has {n_new_to_old_cell} entries, but the mesh has {cEnd - cStart} cells"
+            )
+        CHKERR(ISGetIndices(new_to_old_cell_is.iset, &new_to_old_cell))
+
     CHKERR(PetscMalloc1(nPoints_c, &ordering))
     CHKERR(PetscBTCreate(nPoints_c, &seen_points))
     ptr = 0
 
-    for cell in range(cStart, cEnd):
+    for c in range(cStart, cEnd):
         if reorder:
-            cell = new_to_old_cell_numbering_is.indices[cell]
+            cell = new_to_old_cell[c - cStart]
+        else:
+            cell = c
 
         get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
         for i in range(nclosure):
@@ -2111,6 +2130,9 @@ def compute_dm_renumbering(
                 PetscBTSet(seen_points, point)
                 ordering[ptr] = point
                 ptr += 1
+
+    if reorder:
+        CHKERR(ISRestoreIndices(new_to_old_cell_is.iset, &new_to_old_cell))
 
     assert ptr == nPoints_c
 
