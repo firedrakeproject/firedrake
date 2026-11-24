@@ -655,7 +655,7 @@ class AbstractMeshTopology(abc.ABC):
         return op3.Slice("mesh", subsets, label=label)
 
     # TODO: Kind of redundant now
-    @cached_method()
+    @cached_method_until_topology_changes
     def _dim_indices(self, dim, *, renumber: bool) -> np.ndarray | tuple[int, int]:
         """
 
@@ -1636,95 +1636,90 @@ class AbstractMeshTopology(abc.ABC):
     def _dm_closures(self, dim: DimT) -> np.ndarray:
         if dim != self.cell_label:
             raise NotImplementedError("Only cell closures currently supported")
-
         if self.extruded:
-            return self._dm_closures_extruded
-
-        stratum = sum(dim) if isinstance(dim, tuple) else dim
-        p_start, p_end = self.topology_dm.getDepthStratum(stratum)
-        npoints = p_end - p_start
-        closure_size = sum(self._closure_sizes[dim].values())
-        closure_data = np.empty((npoints, closure_size), dtype=IntType)
-
-        def closure_func(_pt):
-            return self.topology_dm.getTransitiveClosure(_pt)[0]
-
-        is_periodic = bool(self.topology_dm.getCellCoordinatesLocal())
-        if self.ufl_cell() == ufl.quadrilateral and is_periodic:
-            # We support 1 element thick quad meshes, where the closure is
-            # smaller and needs to be expanded to include repeated points.
-            # For a detailed explanation refer to
-            # dmcommon.quadrilateral_closure_ordering
-            (_, horiz_unit_periodic), (_, vert_unit_periodic) = dmcommon._get_periodicity(self.topology_dm)
-
-            if horiz_unit_periodic and vert_unit_periodic:
-                raise NotImplementedError
-            if vert_unit_periodic:
-                closure_tmp = np.empty(closure_size, dtype=IntType)
-
-                def closure_func(_pt):  # noqa: F811
-                    closure = self.topology_dm.getTransitiveClosure(_pt)[0]
-                    closure_tmp[0] = closure[0]
-                    closure_tmp[1] = closure[1]
-                    closure_tmp[2] = closure[2]
-                    closure_tmp[3] = closure[1]
-                    closure_tmp[4] = closure[3]
-                    closure_tmp[5] = closure[4]
-                    closure_tmp[6] = closure[5]
-                    closure_tmp[7] = closure[5]
-                    closure_tmp[8] = closure[4]
-                    return closure_tmp
-            elif horiz_unit_periodic:
-                closure_tmp = np.empty(closure_size, dtype=IntType)
-
-                def closure_func(_pt):  # noqa: F811
-                    closure = self.topology_dm.getTransitiveClosure(_pt)[0]
-                    closure_tmp[0] = closure[0]
-                    closure_tmp[1] = closure[1]
-                    closure_tmp[2] = closure[2]
-                    closure_tmp[3] = closure[3]
-                    closure_tmp[4] = closure[2]
-                    closure_tmp[5] = closure[4]
-                    closure_tmp[6] = closure[4]
-                    closure_tmp[7] = closure[5]
-                    closure_tmp[8] = closure[5]
-                    return closure_tmp
-
-        closure_data = {0: [], 1: []}
-        for i, pt in enumerate(range(p_start, p_end)):
-            cl = closure_func(pt)
-            # only interval
-            if len(cl) != 3:
-                raise NotImplementedError
-            closure_data[0].append(cl[[1, 2]])
-            closure_data[1].append(cl[[0]])
-        closure_data = {
-            k: np.asarray(v,dtype=IntType) for k, v in closure_data.items()
-        }
-        return closure_data
-        return utils.readonly(closure_data)
-
-    @property
-    def _dm_closures_extruded(self):
-        closures = defaultdict(list)
-        for i, pt in enumerate(range(self.num_cells())):
-            closure = self.topology_dm.getTransitiveClosure(pt)[0]
-            closures[0, 0].append(closure[[2, 3, 5, 6]])
-            closures[0, 1].append(closure[[7, 8]])
-            closures[1, 0].append(closure[[1, 4]])
-            closures[1, 1].append(closure[[0]])
-
-        closures = {
-            k: np.asarray(v, dtype=IntType) for k, v in closures.items()}
-
-        return closures
+            return self._fiat_cell_closures_extruded
+        else:
+            return self._fiat_cell_closures_and_perms[0]
 
     @cached_property_until_topology_changes
-    def _fiat_cell_closure_permutations(self) -> np.ndarray:
+    def _fiat_cell_closure_permutations(self):
         if self.extruded:
-            return self._fiat_cell_closure_permutations_extruded
+            return self._fiat_cell_closure_perms_extruded
+        else:
+            return self._fiat_cell_closures_and_perms[1]
 
-        elif (
+        # if self.extruded:
+        #     return self._dm_closures_extruded
+        #
+        # stratum = sum(dim) if isinstance(dim, tuple) else dim
+        # p_start, p_end = self.topology_dm.getDepthStratum(stratum)
+        # npoints = p_end - p_start
+        # closure_size = sum(self._closure_sizes[dim].values())
+        # closure_data = np.empty((npoints, closure_size), dtype=IntType)
+        #
+        # def closure_func(_pt):
+        #     return self.topology_dm.getTransitiveClosure(_pt)[0]
+        #
+        # is_periodic = bool(self.topology_dm.getCellCoordinatesLocal())
+        # if self.ufl_cell() == ufl.quadrilateral and is_periodic:
+        #     # We support 1 element thick quad meshes, where the closure is
+        #     # smaller and needs to be expanded to include repeated points.
+        #     # For a detailed explanation refer to
+        #     # dmcommon.quadrilateral_closure_ordering
+        #     (_, horiz_unit_periodic), (_, vert_unit_periodic) = dmcommon._get_periodicity(self.topology_dm)
+        #
+        #     if horiz_unit_periodic and vert_unit_periodic:
+        #         raise NotImplementedError
+        #     if vert_unit_periodic:
+        #         closure_tmp = np.empty(closure_size, dtype=IntType)
+        #
+        #         def closure_func(_pt):  # noqa: F811
+        #             closure = self.topology_dm.getTransitiveClosure(_pt)[0]
+        #             closure_tmp[0] = closure[0]
+        #             closure_tmp[1] = closure[1]
+        #             closure_tmp[2] = closure[2]
+        #             closure_tmp[3] = closure[1]
+        #             closure_tmp[4] = closure[3]
+        #             closure_tmp[5] = closure[4]
+        #             closure_tmp[6] = closure[5]
+        #             closure_tmp[7] = closure[5]
+        #             closure_tmp[8] = closure[4]
+        #             return closure_tmp
+        #     elif horiz_unit_periodic:
+        #         closure_tmp = np.empty(closure_size, dtype=IntType)
+        #
+        #         def closure_func(_pt):  # noqa: F811
+        #             closure = self.topology_dm.getTransitiveClosure(_pt)[0]
+        #             closure_tmp[0] = closure[0]
+        #             closure_tmp[1] = closure[1]
+        #             closure_tmp[2] = closure[2]
+        #             closure_tmp[3] = closure[3]
+        #             closure_tmp[4] = closure[2]
+        #             closure_tmp[5] = closure[4]
+        #             closure_tmp[6] = closure[4]
+        #             closure_tmp[7] = closure[5]
+        #             closure_tmp[8] = closure[5]
+        #             return closure_tmp
+        #
+        # closure_data = {0: [], 1: []}
+        # for i, pt in enumerate(range(p_start, p_end)):
+        #     cl = closure_func(pt)
+        #     # only interval
+        #     if len(cl) != 3:
+        #         raise NotImplementedError
+        #     closure_data[0].append(cl[[1, 2]])
+        #     closure_data[1].append(cl[[0]])
+        # closure_data = {
+        #     k: np.asarray(v,dtype=IntType) for k, v in closure_data.items()
+        # }
+        # return closure_data
+        # return utils.readonly(closure_data)
+
+    @cached_property_until_topology_changes
+    def _fiat_cell_closures_and_perms(self) -> np.ndarray:
+        assert not self.extruded, "Closures and permutations require separate treatment"
+
+        if (
             self.submesh_parent is not None
             and not (
                 self.submesh_parent.ufl_cell().cellname == "hexahedron"
@@ -1754,7 +1749,7 @@ class AbstractMeshTopology(abc.ABC):
             )[self._old_to_new_cell_numbering_is.indices]
 
         elif self.ufl_cell().is_simplex:
-            return self._fiat_cell_closure_permutations_simplex
+            return dmcommon.fiat_cell_closures_and_perms_simplex(self)
 
         elif self.ufl_cell() == ufl.quadrilateral:
             return self._fiat_cell_closure_permutations_quad
@@ -1763,8 +1758,101 @@ class AbstractMeshTopology(abc.ABC):
             assert self.ufl_cell() == ufl.hexahedron
             return self._fiat_cell_closure_permutations_hex
 
+    @cached_property_until_topology_changes
+    def _fiat_cell_closures_extruded(self):
+        if self.dimension == 2:
+            # 5----4----6
+            # |         |
+            # 7    0    8
+            # |         |
+            # 2----1----3
+
+            # and we want things split by entity type (0,0), (0,1) etc:
+            #
+            # 1----7----3
+            # |         |
+            # 4    8    5
+            # |         |
+            # 0----6----2
+            #
+            # this is step 2
+            closure_perm = np.asarray([8, 6, 0, 2, 7, 1, 3, 4, 5], dtype=IntType)
+
+        elif self._base_mesh.ufl_cell() == ufl.triangle:
+            # fiat triangle ( Ithink)
+            #        2
+            #       /  \
+            #      /     3
+            #     4   6    \
+            #    /           \
+            #   0------5-------1
+
+            #        x
+            #       /. \
+            #      / .   \
+            #     /  .     \
+            #    /   .       \
+            #   x--------------x
+            #   |    .         |
+            #   |    .         |
+            #   |    x         |
+            #   |   .  .       |
+            #   |  .     .     |
+            #   | .        .   |
+            #   |.           . |
+            #   x--------------x
+            #
+            #
+            #
+            #        5
+            #       /. \
+            #      / .   \
+            #     /  .     \
+            #    /  (8)      \
+            #   1--------------3
+            #   |    .         |
+            #   |    .         |
+            #   |   (4)        |
+            #   6   .  .       7
+            #   | (11)  (9)    |
+            #   | .        .   |
+            #   |.           . |
+            #   0-----10-------2
+            #
+            #
+            #
+            #
+            # from_petsc = ???
+
+            # # a guess
+            # dm_fiat_pt_map = np.asarray(
+            #     [
+            #         20, 0, 1, 2, 3, 4, 5, 18, 19, 17, 15, 16, 11, 14, 9, 12, 10, 13, 6, 7, 8
+            #     ],
+            #     dtype=int,
+            # )
+            # closure_perm = np.asarray([8, 6, 0, 2, 7, 1, 3, 4, 5], dtype=IntType)
+            closure_perm = np.asarray([20, 18, 11,  9, 10,  0,  2,  4, 19, 14, 12, 13,  1,  3, 5, 17, 15, 16,6,7, 8], dtype=int)
+
+        else:
+            raise NotImplementedError
+
+        flat_fiat_closures = np.empty((self.num_cells(), sum(self._closure_sizes[self.cell_label].values())), dtype=IntType)
+        for cell in range(self.num_cells()):
+            closure, _ = self.topology_dm.getTransitiveClosure(cell)
+            # take along axis...
+            flat_fiat_closures[cell] = closure[closure_perm]
+
+        fiat_closures = {}
+        off = 0
+        for dim, size in self._closure_sizes[self.cell_label].items():
+            fiat_closures[dim] = flat_fiat_closures[:, off:off+size]
+            off += size
+
+        return fiat_closures
+
     @property
-    def _fiat_cell_closure_permutations_extruded(self) -> np.ndarray:
+    def _fiat_cell_closure_perms_extruded(self) -> np.ndarray:
         if self.dimension == 2:
 
             # I think that this very nearly works. Still need to think about DM vs FIAT numbering.
@@ -1819,104 +1907,32 @@ class AbstractMeshTopology(abc.ABC):
                 k: np.asarray(v, dtype=IntType) for k, v in closures.items()
                     }
             return closures
-            breakpoint()
 
-
-
-
-
-
-
-            # 1----0----2
-            #
-            #   vs
-            #
-            # 5----4----6
-            # |         |
-            # 7    0    8
-            # |         |
-            # 2----1----3
-
-            # and we want things split by entity type (0,0), (0,1) etc:
-            #
-            # 1----7----3
-            # |         |
-            # 4    8    5
-            # |         |
-            # 0----6----2
-            #
-            # this is step 2
-            closure_perm = np.asarray([8, 6, 0, 2, 7, 1, 3, 4, 5], dtype=IntType)
-            # closure_perm = utils.invert(closure_perm)
-
-
-
-            #
-            # (this makes sense if you start at the cell and take recursive closures)
-            #
-            # which can permute to (e.g.) since we have the base permutation
-            #
-            # 5----6----4
-            # |         |
-            # 7    8    0
-            # |         |
-            # 2----3----1
-
-            # identify entities that transform together, the order doesn't really matter provided that it's up the column
-            xxx = np.asarray(
-                [[0, 4, 1], [2, 5, 3], [6, 8, 7]],
-            )
+        elif self._base_mesh.ufl_cell() == ufl.triangle:
+            perms = {
+                (0, 0): [[0, 1], [2, 3], [4, 5]],
+                (0, 1): [[0], [1], [2]],
+                (1, 0): [[0, 3], [1, 4], [2, 5]],
+                (1, 1): [[0], [1], [2]],
+                (2, 0): [[0, 1]],
+                (2, 1): [[0]],
+            }
+            perms = {k: np.asarray(v, dtype=int) for k, v in perms.items()}
 
             base_perm = self._base_mesh._fiat_cell_closure_permutations
-            closures_perm = np.empty((self.num_cells(), 9), dtype=IntType)
-            for i in range(self.num_cells()):
-                perm = base_perm[i // (self.layers-1)]
-                perm = utils.invert(perm)
+            closures = {}
 
-                select = xxx[perm].ravel()
-
-                select2 = utils.invert(select)
-                # closures_perm[i] = closure_perm[xxx[perm].ravel()]
-                # closures_perm[i] = closure_perm[xxx][perm].ravel()
-                # closures_perm[i] = closure_perm[select2]
-                cp = closure_perm[select]
-
-                # now split apart
-                vv = cp[cp<4]
-                ve = cp[np.logical_and(4<=cp, cp<6)]
-                he = cp[np.logical_and(6<=cp, cp<8)]
-                cc = cp[cp==8]
-                closures_perm[i] = np.concatenate([vv, ve, he, cc])
-
-            breakpoint()
-            return closures_perm
-
-            breakpoint()
-
-            # perm = np.arange(9, dtype=IntType)
-            #
-            # ???
-
-
-
-
-            # and we want things split by entity type (0,0), (0,1) etc:
-            #
-            # 1----7----3
-            # |         |
-            # 4    8    5
-            # |         |
-            # 0----6----2
-            #
-            # this is step 2
-            breakpoint()
+            for base_dim in range(3):
+                for extr_dim in range(2):
+                    closures[base_dim, extr_dim] = np.empty((self.num_cells(), self._closure_sizes[self.cell_label][base_dim, extr_dim]), dtype=IntType)
+                    for c in range(self.num_cells()):
+                        cb = c // (self.layers-1)
+                        closures[base_dim, extr_dim][c] = perms[base_dim, extr_dim][base_perm[base_dim][cb]].ravel()
 
         else:
             raise NotImplementedError
 
-    @property
-    def _fiat_cell_closure_permutations_simplex(self):
-        return dmcommon.closure_ordering(self, self._dm_closures(self.cell_label))
+        return closures
 
     @property
     def _fiat_cell_closure_permutations_quad(self):

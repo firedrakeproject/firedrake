@@ -1571,6 +1571,8 @@ class FunctionSpace(AbstractFunctionSpace):
             and other.ufl_element() == self.ufl_element()
             and other.boundary_set == self.boundary_set
             and other.component == self.component
+            and other.backend == self.backend
+            and other.renumber == self.renumber
         )
 
     def __hash__(self):
