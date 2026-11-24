@@ -1095,7 +1095,34 @@ class ParloopFormAssembler(FormAssembler):
             # into a larger dat. A subfunction and a Function on the same subspace differ here.
             self._as_pyop3_type(tensor).axis_trees,
             tuple(c.dat.axis_trees for c in self._form.coefficients()),
+            self._data_sharing_key(tensor),
         )
+
+    def _data_sharing_key(
+        self, tensor: "op3.Scalar | firedrake.Function | firedrake.Cofunction | MatrixBase"
+    ) -> tuple[int, ...]:
+        """Return the first argument position that shares each coefficient's buffer."""
+        coefficients = self._form.coefficients()
+        if not coefficients:
+            return ()
+
+        # PyOP3 replaces the data once per buffer in a cached loop. Use buffer
+        # positions so forms with the same sharing pattern can reuse the loop.
+        tensor_buffer = tensor.dat.buffer if isinstance(tensor, firedrake.Function | firedrake.Cofunction) else None
+        buffers = [tensor_buffer]
+        for local_kernel, _ in self.local_kernels:
+            kinfo = local_kernel.kinfo
+            mesh_functions = itertools.chain(
+                _FormHandler.iter_active_coordinates(self._form, kinfo),
+                _FormHandler.iter_active_cell_orientations(self._form, kinfo),
+                _FormHandler.iter_active_cell_sizes(self._form, kinfo),
+            )
+            buffers.extend(f.dat.buffer for f in mesh_functions)
+
+        first_position = {}
+        for i, buffer in enumerate(buffers):
+            first_position.setdefault(id(buffer), i)
+        return tuple(first_position.setdefault(id(c.dat.buffer), i) for i, c in enumerate(coefficients, len(buffers)))
 
     @cached_property
     def local_kernels(self):

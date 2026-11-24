@@ -374,6 +374,55 @@ def test_assemble_with_different_coefficient_layouts(mesh):
     assert np.isclose(assemble((u2 - v2)**2*dx), expected)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("order", ["shared_first", "separate_first"])
+def test_assemble_with_coefficients_sharing_data(order):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "DG", 1)
+    W = V * V
+
+    w = Function(W)
+    w0, w1 = w.subfunctions
+    w0.interpolate(sin(3*x))
+    w1.interpolate(x + y)
+
+    z = Function(W)
+    s = Function(W)
+    z0 = z.subfunctions[0]
+    s1 = s.subfunctions[1]
+    z0.interpolate(cos(2*y))
+    s1.interpolate(x*y + 1)
+
+    pairs = [(w1, w0), (s1, z0)]
+    if order == "separate_first":
+        pairs.reverse()
+    for a, b in pairs:
+        # The reference uses standalone copies, which share no data.
+        expected = assemble((Function(V).assign(a) - Function(V).assign(b))**2*dx)
+        assert np.isclose(assemble((a - b)**2*dx), expected)
+
+
+@pytest.mark.parallel([1, 2])
+def test_assemble_with_cell_sizes_as_coefficient():
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    H = FunctionSpace(mesh, "Hermite", 3)
+    v = TestFunction(H)
+    f = Function(P1).interpolate(1 + x*y)
+    # Use a different quadrature degree to keep the reference loops separate.
+    fcp = {"quadrature_degree": 8}
+    expected_sizes = assemble(inner(Function(P1).assign(mesh.cell_sizes), v)*dx, form_compiler_parameters=fcp)
+    expected_f = assemble(inner(Function(P1).assign(f), v)*dx, form_compiler_parameters=fcp)
+
+    # The Hermite kernel takes cell sizes as both geometry and a coefficient.
+    sizes = assemble(inner(mesh.cell_sizes, v)*dx)
+    result_f = assemble(inner(f, v)*dx)
+    assert np.allclose(sizes.dat.data_ro, expected_sizes.dat.data_ro)
+    assert np.allclose(result_f.dat.data_ro, expected_f.dat.data_ro)
+
+
 @pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")
 def test_two_form_assembler_cache(mesh):
     from firedrake.assemble import _FORM_CACHE_KEY
