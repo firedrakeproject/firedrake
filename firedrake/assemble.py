@@ -653,6 +653,15 @@ class BaseFormAssembler(AbstractFormAssembler):
                 result = numpy.dot(weights, args)
                 return tensor.assign(result) if tensor else result.item()
 
+            vector_types = (firedrake.Function, firedrake.Cofunction)
+            vector_sum = all(isinstance(op, vector_types) for op in args)
+            if vector_sum:
+                V = args[0].function_space()
+                if any(op.function_space() != V for op in args[1:]):
+                    raise ValueError("Vector FormSum operands must have the same function space.")
+                if tensor is not None and (not isinstance(tensor, vector_types) or tensor.function_space() != V):
+                    raise ValueError("Vector FormSum output must have the same function space as its operands.")
+
             # Accumulate coefficients in a dictionary for each unique Dat/Mat
             terms = defaultdict(PETSc.ScalarType)
             for arg, weight in zip(args, weights):
@@ -674,10 +683,8 @@ class BaseFormAssembler(AbstractFormAssembler):
                 raise ValueError("Expecting tensor to be None, Function, Cofunction, or Matrix")
 
             # Compute the linear combination
-            if (all(isinstance(op, firedrake.Cofunction) for op in args)
-                    or all(isinstance(op, firedrake.Function) for op in args)):
+            if vector_sum:
                 # Vector FormSum
-                V, = set(a.function_space() for a in args)
                 result = tensor if tensor else firedrake.Function(V)
                 weights = terms.values()
                 dats = terms.keys()
