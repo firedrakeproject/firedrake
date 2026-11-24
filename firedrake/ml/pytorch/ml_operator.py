@@ -314,8 +314,8 @@ def ml_operator(model, function_space, inputs_format: int | str = 0):
     that are fixed, such as the function space or the ML model, and the operands of the operator,
     which may change, e.g. when the operator is used in a time-loop.
 
-    Example
-    -------
+    Examples
+    --------
 
     .. code-block:: python
 
@@ -325,17 +325,22 @@ def ml_operator(model, function_space, inputs_format: int | str = 0):
         F = (inner(grad(u), grad(v)) + inner(N(u), v) - inner(f, v)) * dx
 
     A parameter operand makes the dependence on the model's live weights explicit.
-    It can appear anywhere among the operands.
+    It can appear anywhere among the operands. For a real-valued target,
+    assemble the derivative at each step to use the current weights.
 
     .. code-block:: python
 
         theta = MLParameters(model.parameters())
         N = ml_operator(model, V, inputs_format="pointwise")
-        loss = inner(1, N(u, theta)) * dx
-        optimizer.zero_grad()
-        gradient = assemble(derivative(loss, theta))
-        torch.autograd.backward(theta.tensors, gradient.tensors)
-        optimizer.step()
+        error = N(u, theta) - target
+        loss = 0.5 * inner(error, error) * dx
+        dJ = derivative(loss, theta)
+
+        for _ in range(10):
+            optimizer.zero_grad()
+            gradient = assemble(dJ)
+            theta.backward(gradient)
+            optimizer.step()
 
     The parameter operand can contain an ordered subset of the model's weights.
     For a partially frozen model, use the parameters with ``requires_grad=True``.

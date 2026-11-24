@@ -87,6 +87,25 @@ class MLParameters(ufl.Coefficient):
         """
         return self._tensors
 
+    def backward(self, gradient: MLParameterGradient) -> None:
+        """Accumulate an assembled gradient in the PyTorch parameters' ``.grad`` buffers.
+
+        Parameters
+        ----------
+        gradient : MLParameterGradient
+            The gradient assembled with respect to this parameter vector.
+
+        Raises
+        ------
+        ValueError
+            If the gradient does not belong to this parameter vector.
+        """
+        import torch
+
+        if not isinstance(gradient, MLParameterGradient) or gradient.parameters is not self:
+            raise ValueError("Expected a gradient assembled with respect to these parameters.")
+        torch.autograd.backward(self.tensors, gradient.tensors)
+
     def copy(self) -> "MLParameters":
         """Copy parameter values without retaining their autograd history.
 
@@ -142,10 +161,9 @@ class MLParameterGradient(ufl.Cofunction):
 
     Notes
     -----
-    Assembly leaves the model's gradient buffers untouched. To accumulate the
-    result for a PyTorch optimizer, use
-    ``torch.autograd.backward(theta.tensors, gradient.tensors)`` with the
-    trainable parameters in ``theta``.
+    Assembly leaves the model's gradient buffers untouched. Call
+    ``theta.backward(gradient)`` to accumulate the result in the trainable
+    parameters that ``theta`` references.
     """
 
     def __new__(cls, parameters: MLParameters, tensors: tuple[torch.Tensor, ...]) -> Self:

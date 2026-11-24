@@ -489,7 +489,19 @@ def test_ml_parameters_training_step() -> None:
     minus = loss_value()
     theta.assign(saved)
     assert np.isclose((plus - minus) / 2e-5, 1)
-    torch.autograd.backward(theta.tensors, gradient.tensors)
+
+    other = MLParameters(Linear(1, 1, dtype=dtype).parameters())
+    with pytest.raises(ValueError, match="with respect to these parameters"):
+        other.backward(gradient)
+    assert all(p.grad is None for p in other.tensors)
+
+    for loss in losses:
+        theta.backward(assemble(derivative(loss, theta)))
+    for p, g in zip(theta.tensors, gradient.tensors, strict=True):
+        torch.testing.assert_close(p.grad, g)
+
+    optimizer.zero_grad()
+    theta.backward(gradient)
     optimizer.step()
     assert np.isclose(loss_value(), 8 - 0.1 * (3**2 + 2**2))
 
