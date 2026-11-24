@@ -115,6 +115,8 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             val = parent.dat[self._parent_index]
 
         if isinstance(val, Cofunction):
+            if val.function_space() != V:
+                raise ValueError("Cofunction values have wrong function space.")
             val = val.dat
         if isinstance(val, op3.Dat):
             assert val.comm == self.comm

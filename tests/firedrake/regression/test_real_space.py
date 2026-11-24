@@ -546,6 +546,7 @@ def test_real_space_repeated_assembly():
 @pytest.mark.parallel(nprocs=[1, 2])
 @pytest.mark.parametrize("shape", [(), (4,), (2, 2)])
 def test_mesh_independent_real_space(shape):
+    from firedrake.ufl_expr import extract_domains
     from firedrake.utils import ScalarType
 
     P = RealSpace(COMM_WORLD, shape)
@@ -553,6 +554,7 @@ def test_mesh_independent_real_space(shape):
     assert P != Q and P.dual() != Q.dual()
     assert P.dual().dual() is P
     assert P._ufl_signature_data_({}) == Q._ufl_signature_data_({})
+    assert len(set(COMM_WORLD.allgather(P._ufl_signature_data_({})))) == 1
     assert P.ufl_domains() == ()
     n = int(np.prod(shape))
     assert P.dim() == n
@@ -562,6 +564,9 @@ def test_mesh_independent_real_space(shape):
         y *= 1 + 2j
     h = Function(P, val=x)
     g = Cofunction(P.dual(), val=y.copy())
+    assert not extract_domains(g)
+    with pytest.raises(ValueError, match="function space"):
+        Cofunction(Q.dual(), val=g)
     with h.dat.vec_ro as vec:
         assert vec.getSize() == n
         assert vec.norm() == pytest.approx(np.linalg.norm(x))
