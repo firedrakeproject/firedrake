@@ -1,3 +1,4 @@
+import functools
 import numbers
 from collections.abc import Sequence
 import numpy as np
@@ -25,24 +26,35 @@ from firedrake.adjoint_utils.constant import ConstantMixin
 __all__ = ['Constant']
 
 
-def _create_const(value, comm):
-    data = np.array(value, dtype=ScalarType)
-    shape = data.shape
-    rank = len(shape)
+@functools.cache
+def _constant_axes(shape: tuple[int, ...]) -> op3.AxisTree:
+    """Return the axis tree for the data of a `Constant` of the given shape.
 
-    if rank == 0:
+    The tree is shared by all constants of the same shape, so that its
+    layouts are only computed once.
+    """
+    comm = MPI.COMM_SELF
+    if len(shape) == 0:
         # could maybe be a Scalar
         sf = op3.sf.single_star_sf(comm)
-        axes = op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
+        return op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
     else:
         sf = op3.sf.single_star_sf(comm, shape[0])
         root_component = op3.AxisComponent(shape[0], sf=sf)
         components = [root_component]
         for size in shape[1:]:
             components.append(op3.AxisComponent(size))
-        axes = op3.AxisTree.from_iterable((
+        return op3.AxisTree.from_iterable((
             op3.Axis(component, label=f"dim{i}") for i, component in enumerate(components)
         ))
+
+
+def _create_const(value):
+    data = np.array(value, dtype=ScalarType)
+    shape = data.shape
+    rank = len(shape)
+
+    axes = _constant_axes(shape)
     dat = op3.Dat(axes, data=data.flatten())
     return dat, rank, shape
 
@@ -79,7 +91,7 @@ class Constant(ufl.constantvalue.ConstantValue, ConstantMixin, TSFCConstantMixin
         name: str | None = None,
         count: int | None = None,
     ) -> None:
-        self.dat, rank, self._ufl_shape = _create_const(value, MPI.COMM_SELF)
+        self.dat, rank, self._ufl_shape = _create_const(value)
 
         super().__init__()
         Counted.__init__(self, count, Counted)

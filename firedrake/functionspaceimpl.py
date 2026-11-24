@@ -365,7 +365,7 @@ class WithGeometryBase:
             if not out:
                 cache[function] = True
                 if zero:
-                    function.dat.zero()
+                    function.dat.zero(eager=True)
                 return function
         if len(cache) == self.max_work_functions:
             raise ValueError("Can't check out more than %d work functions." %
