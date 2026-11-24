@@ -566,7 +566,7 @@ def test_mesh_independent_real_space(shape):
         assert vec.getSize() == n
         assert vec.norm() == pytest.approx(np.linalg.norm(x))
     assert assemble(action(g, h)) == pytest.approx(np.vdot(x, y))
-    with pytest.raises(ValueError, match="function spaces"):
+    with pytest.raises(TypeError, match="function spaces"):
         action(g, Function(Q))
     with pytest.raises(ValueError, match="dimension"):
         grad(h)
