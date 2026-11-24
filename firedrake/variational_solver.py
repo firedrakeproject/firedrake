@@ -523,8 +523,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
-        # Used for custom grid transfer.
-        self._transfer_operators = ()
         self._setup = False
 
     @property
@@ -612,8 +610,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with ExitStack() as stack:
             stack.enter_context(self.inserted_options())
             stack.enter_context(self._ctx.problem_hooks(solution_dm, include_coefficient_dms=True))
-            for top in self._transfer_operators:
-                stack.enter_context(top)
 
             self.snes.solve(None, work)
             if self.snes.getSolution().handle != work.handle:
