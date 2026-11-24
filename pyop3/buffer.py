@@ -7,7 +7,7 @@ import functools
 import numbers
 from collections.abc import Callable, Hashable, Iterable, Mapping
 from types import GeneratorType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 import numpy as np
 from mpi4py import MPI
@@ -22,7 +22,7 @@ from pyop3 import utils
 from pyop3.cache import cached_method
 from pyop3.collections import OrderedFrozenSet
 from pyop3.device import Device, get_current_device, on_host
-from pyop3.dtypes import DTypeT, IntType, ScalarType
+from pyop3.dtypes import IntType, ScalarType
 from pyop3.sf import NullStarForest, StarForest
 from pyop3.utils import (
     readonly,
@@ -30,8 +30,6 @@ from pyop3.utils import (
 
 from ._buffer_cy import set_petsc_mat_diagonal
 
-if TYPE_CHECKING:
-    from pyop3.types import *
 
 MatTypeT = str | np.ndarray["MatTypeT"]
 
@@ -158,7 +156,7 @@ class NullBuffer(AbstractArrayBuffer):
     def __init__(
         self,
         shape: tuple[numbers.Integral, ...] | numbers.Integral,
-        dtype: DTypeT | None = None,
+        dtype=None,
         *,
         name: str | None = None,
         prefix: str | None = None,
@@ -249,7 +247,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     # {{{ instance attrs
 
-    _device_arrays_private: dict[Device, np.ndarray | cp.ndarray] = dataclasses.field(repr=False)
+    _device_arrays_private: dict[Device, np.ndarray] = dataclasses.field(repr=False)
     """
 
     Note that this attribute is mega private to reduce the risk of correctness
@@ -308,7 +306,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
 
     def __init__(
         self,
-        data: Mapping[pyop3.device.Device, Any] | np.ndarray | cp.ndarray,
+        data: Mapping[pyop3.device.Device, Any] | np.ndarray,
         sf: StarForest | None = None,
         *,
         name: str | None = None,
@@ -435,7 +433,7 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # {{{ constructors
 
     @classmethod
-    def empty(cls, shape, dtype: DTypeT | None = None, **kwargs):
+    def empty(cls, shape, dtype=None, **kwargs):
         if dtype is None:
             dtype = cls.DEFAULT_DTYPE
 
@@ -618,8 +616,12 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     # }}}
 
     # {{{ parallel communication
+    @_not_in_flight
     def sync_roots(self) -> None:
         """Update roots."""
+        # With no pending reduction there is nothing to do
+        if self._roots_valid:
+            return
         self.sync_roots_begin()
         self.sync_roots_end()
 
@@ -962,8 +964,8 @@ class PetscMatBufferSpec(pyop3.obj.Object):
 @pyop3.record.frozenrecord()
 class MonolithicPetscMatBufferSpec(PetscMatBufferSpec):
     mat_type: str
-    row_spec: PetscMatAxisSpec | AbstractAxisTree  # TODO: drop axis tree as valid type here
-    column_spec: PetscMatAxisSpec | AbstractAxisTree  # TODO: drop axis tree as valid type here
+    row_spec: PetscMatAxisSpec | pyop3.axis_tree.AbstractAxisTree  # TODO: drop axis tree as valid type here
+    column_spec: PetscMatAxisSpec | pyop3.axis_tree.AbstractAxisTree  # TODO: drop axis tree as valid type here
 
     def get_instruction_executor_cache_key(self, visitor) -> Hashable:
         return (type(self), self.mat_type, visitor(self.row_spec), visitor(self.column_spec))
@@ -1493,7 +1495,7 @@ class DenseRowPythonMatContext(DensePythonMatContext):
         return cls(buffer)
 
     @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+    def sizes(self) -> tuple[pyop3.types.PetscSizeT, pyop3.types.PetscSizeT]:
         return ((None, 1), (self.buffer.sf.num_owned, None))
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
@@ -1526,7 +1528,7 @@ class DenseColumnPythonMatContext(DensePythonMatContext):
         return cls(buffer)
 
     @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+    def sizes(self) -> tuple[pyop3.types.PetscSizeT, pyop3.types.PetscSizeT]:
         return ((self.buffer.sf.num_owned, None), (None, 1))
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:
@@ -1562,7 +1564,7 @@ class DenseBlockPythonMatContext(DensePythonMatContext):
         return cls(buffer)
 
     @property
-    def sizes(self) -> tuple[PetscSizeT, PetscSizeT]:
+    def sizes(self) -> tuple[pyop3.types.PetscSizeT, pyop3.types.PetscSizeT]:
         return ((None, 1), (None, 1))
 
     def mult(self, mat: PETSc.Mat, x: PETSc.Vec, y: PETSc.Vec) -> None:

@@ -22,7 +22,7 @@ import pyop3.config
 import pyop3.constants
 import pyop3.exceptions
 from pyop3.collections import unique  # noqa: F401
-from pyop3.dtypes import DTypeT, IntType
+from pyop3.dtypes import IntType
 from pyop3.exceptions import (
     UnhashableObjectException,
 )
@@ -269,8 +269,8 @@ def strides(sizes, *, drop_last=True) -> np.ndarray[int]:
     return readonly(strides_[::-1])
 
 
-def pairwise(iterable, *, final=pyop3.constants._nothing):
-    if final is not pyop3.constants._nothing:
+def pairwise(iterable, *, final=pyop3.constants.NOTHING):
+    if final is not pyop3.constants.NOTHING:
         return itertools.zip_longest(iterable, iterable[1:], fillvalue=final)
     else:
         return zip(iterable, iterable[1:])
@@ -299,7 +299,7 @@ def strict_cast(obj: Any, dtype: type | np.dtype) -> Any:
         return obj.astype(dtype, casting="same_kind")
 
 
-def strict_int(num: numbers.Number) -> IntType:
+def strict_int(num: numbers.Number) -> np.dtype[IntType]:
     return strict_cast(num, IntType)
 
 
@@ -308,7 +308,7 @@ def strict_floordiv(num: numbers.Number, fac):
     return num // fac
 
 
-def as_dtype(dtype: DTypeT | None, default: np.dtype) -> np.dtype:
+def as_dtype(dtype, default: np.dtype) -> np.dtype:
     return np.dtype(dtype) if dtype else default
 
 
@@ -333,7 +333,7 @@ def map_when(func, when_func, iterable):
             yield item
 
 
-def readonly(array: np.ndarray | cp.ndarray) -> np.ndarray | cp.ndarray:
+def readonly(array):
     """Return a readonly view of a numpy/cupy array."""
     view = array.view()
     if isinstance(array, np.ndarray):

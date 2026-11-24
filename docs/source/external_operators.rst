@@ -50,7 +50,7 @@ for `u \in V`. For sake of simplicity, in what follows, we use `N` to denote bot
 and the operator `N`. Expressing external operators as linear forms facilitates their 
 composition with variational forms of PDEs. Note that while `N` is linear with respect to `v^{*}`, 
 its *argument*, it can be nonlinear with respect to `u`, its *operand*. In Firedrake, `u` would 
-be a :class:`~.Function` object, and `v^{*}` a :class:`~.Coargument` object.
+be a :class:`Function <firedrake.function.Function>` object, and `v^{*}` a :class:`~.Coargument` object.
 
 Arbitrary UFL expressions defined on arbitrary finite element spaces, i.e. other than `V`, can also 
 be passed as operands to the external operator using the symbolic :class:`~.Interpolate` operator. 
@@ -105,7 +105,7 @@ linear form on which they are applied. For example, let's consider the Jacobian 
   \operatorname{action}\left(\frac{dN(u; \hat{u}, v^{*})}{du}, w\right) = \frac{dN(u; w, v^{*})}{du} \quad \forall w \in V
 
 where the external operator `\frac{dN(u; w, v^{*})}{du}` is the Jacobian action of `N` on `w`. 
-Hence, for a given :class:`~.Function` `w` in `V`, the external operator `\frac{dN(u; w, v^{*})}{du}` 
+Hence, for a given :class:`Function <firedrake.function.Function>` `w` in `V`, the external operator `\frac{dN(u; w, v^{*})}{du}` 
 is linear with respect to `w`, which is a known function in `V`, and `v^{*}`, which is an unknown 
 function in `V^{*}`, i.e. a :class:`~.Coargument` in `V^{*}`. Therefore, `\frac{dN(u; w, v^{*})}{du}` 
 is a 1-form, i.e. it is a linear form with respect to one unknown argument.
@@ -174,7 +174,7 @@ see :ref:`previous section <action_adjoint>`.
 
 Finally, the number of arguments of an external operator also determines the type of its output after 
 being assembled. For instance, given that an external operator with one argument is a 1-form, its assembly 
-would result in a :class:`~.Function` or a :class:`~.Cofunction`. Similarly, an external operator 
+would result in a :class:`Function <firedrake.function.Function>` or a :class:`~.Cofunction`. Similarly, an external operator 
 with two arguments, i.e. a 2-form, would produce a :class:`~.MatrixBase` object. The following table 
 illustrates an external operator `N` with two operands, 
 `N \colon V \times V \times V^{*} \rightarrow \mathbb{R}`, along with the external operators 
@@ -303,10 +303,10 @@ Note that building an external operator for the above operation is, in practice,
 can already be readily implemented using Firedrake's built-in functionalities. Also, because this 
 translation operation is fully defined in Firedrake, the evaluation methods of the external operator we will 
 build rely on Firedrake code. However, the external operator evaluation methods can contain any Python 
-code as long as they return compatible objects, e.g. :class:`~.Function` or :class:`~.MatrixBase` objects.
+code as long as they return compatible objects, e.g. :class:`Function <firedrake.function.Function>` or :class:`~.MatrixBase` objects.
 
 `N` takes in two operands `f, u \in V` and one argument `v^{*} \in V^{*}`. When assembled, 
-this external operator returns a :class:`~.Function` in `V` since the linear form `N` can also 
+this external operator returns a :class:`Function <firedrake.function.Function>` in `V` since the linear form `N` can also 
 be seen as an operator mapping to `V`, as :ref:`previously discussed <math_background>`. To construct `N`, 
 we need to subclass the :class:`~.AbstractExternalOperator` class and specify how `N` can be assembled. 
 Given that `N` has `(0,)` as derivative multi-index and that it only has one argument, 
@@ -417,7 +417,7 @@ In many cases, computing the Jacobian of the residual form is not appropriate, o
 Instead, one may want to use matrix-free methods to solve the PDE problem of interest. In that case, 
 the Jacobian of `F` won't be assembled. Instead, only the action of the Jacobian will be used. As a 
 consequence, our external operator subclass will need to be equipped with an implementation stating how 
-the action of the Jacobian of `N` on a given :class:`~.Function` `w` can be assembled, i.e. how to 
+the action of the Jacobian of `N` on a given :class:`Function <firedrake.function.Function>` `w` can be assembled, i.e. how to 
 compute `\frac{\partial N(u, f; w, v^{*})}{\partial u}`. In this case, this implementation should simply 
 return `w` as the Jacobian is the identity matrix.
 
@@ -443,7 +443,7 @@ return `w` as the Jacobian is the identity matrix.
 
 The arguments of an external operator can be obtained via *.argument_slots()*. This will return 
 all the arguments of the external operator, independently of whether they are 
-:class:`~.Argument`/ :class:`~.Coargument` or :class:`~.Function`/ :class:`~.Cofunction`. If you only want 
+:class:`~.Argument`/ :class:`~.Coargument` or :class:`Function <firedrake.function.Function>`/ :class:`~.Cofunction`. If you only want 
 the unknown arguments, for example to determine the arity of the external operator, 
 you can instead use *.arguments()*. We can now solve the variational problem using any matrix-free method:
 

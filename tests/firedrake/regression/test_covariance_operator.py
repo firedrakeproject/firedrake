@@ -432,6 +432,59 @@ def test_mixed_covariance(operation):
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("operation", ("action", "inverse"))
+def test_covariance_mat_shift(operation):
+    """Test that covariance mat uses a shift when set.
+    """
+    nx = 4
+    L = 0.1
+    sigma = 0.9
+    m = 0
+
+    mesh = UnitIntervalMesh(nx)
+    coords, = SpatialCoordinate(mesh)
+
+    V = FunctionSpace(mesh, "CG", 1)
+
+    B = AutoregressiveCovariance(V, L, sigma, m)
+
+    mat = CovarianceMat(B, operation=operation)
+
+    expr = 2*pi*coords
+    x = Function(V).project(expr)
+
+    if operation == 'action':
+        # B: V* -> V
+        x = x.riesz_representation()
+    Vx = x.function_space()
+
+    # original unshifted multiplication
+    y = Function(Vx.dual())
+    with x.dat.vec_ro as xv, y.dat.vec_wo as yv:
+        mat.mult(xv, yv)
+
+    shift = 10.
+    y_shift = Function(Vx.dual())
+    with x.dat.vec_ro as xv, y.dat.vec_ro as yv, y_shift.dat.vec_wo as yshift:
+        # shift by weighted identity
+        mat.shift(shift)
+        mat.mult(xv, yshift)
+        yshift.axpy(-shift, xv)
+        assert (yshift - yv).norm() < 1e-14
+
+        # shift should be cumulative
+        mat.shift(shift)
+        mat.mult(xv, yshift)
+        yshift.axpy(-2*shift, xv)
+        assert (yshift - yv).norm() < 1e-14
+
+        # reset shift to zero
+        mat.getPythonContext().update()
+        mat.mult(xv, yshift)
+        assert (yshift - yv).norm() < 1e-14
+
+
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize("family", ("CG", "DG"))
 def test_diffusion_form(family):
     """Test that the provided diffusion forms converge to a known solution at the expected rate.

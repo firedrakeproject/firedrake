@@ -61,12 +61,10 @@ class GenericSolveBlock(Block):
         if bcs is not None:
             self.bcs = Enlist(bcs)
 
-        if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
-            self.linear = True
+        self.linear = isinstance(self.lhs, ufl.BaseForm) and len(self.lhs.arguments()) == 2
+        if isinstance(self.rhs, ufl.BaseForm):
             for c in self.rhs.coefficients():
                 self.add_dependency(c, no_duplicates=True)
-        else:
-            self.linear = False
 
         for c in self.lhs.coefficients():
             self.add_dependency(c, no_duplicates=True)
@@ -847,7 +845,7 @@ class SupermeshProjectBlock(Block):
       * :math:`M_{AB}` is the mixed mass matrix for :math:`V_A` and
         :math:`V_B`,
       * :math:`v_A` and :math:`v_B` are vector representations of the source
-        and target :class:`.Function` s.
+        and target :class:`firedrake.function.Function` s.
 
     This can be broken into two steps:
       Step 1. form RHS, multiplying the source with the mixed mass matrix;

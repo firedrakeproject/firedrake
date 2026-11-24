@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import abc
 import numbers
-import typing
 from functools import cached_property
 from typing import Any, Self
 
@@ -15,10 +14,6 @@ import pyop3.obj
 import pyop3.record
 from pyop3 import utils
 from pyop3.dtypes import IntType, get_mpi_dtype
-
-if typing.TYPE_CHECKING:
-    from pyop3.axis_tree import AxisComponentRegionSizeT
-
 
 from ._sf_cy import (  # noqa: F401
     create_petsc_section_sf,
@@ -60,12 +55,12 @@ class AbstractStarForest(pyop3.obj.Object):
 
     @property
     @abc.abstractmethod
-    def num_owned(self) -> AxisComponentRegionSizeT:
+    def num_owned(self):
         pass
 
     @property
     @abc.abstractmethod
-    def num_ghost(self) -> AxisComponentRegionSizeT:
+    def num_ghost(self):
         pass
 
     @abc.abstractmethod
@@ -318,7 +313,7 @@ class NullStarForest(AbstractStarForest):
         return np.empty(0, dtype=IntType)
 
     @property
-    def num_owned(self) -> AxisComponentRegionSizeT:
+    def num_owned(self):
         return self.size
 
     @property

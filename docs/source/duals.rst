@@ -57,7 +57,7 @@ For an arbitrary :py:class:`~.ufl.FunctionSpace`, ``V``, the corresponding dual 
     V = FunctionSpace(mesh, "CG", 1)
     V_star = V.dual()
 
-A :py:class:`~.ufl.Coefficient` defines a *known* function ``c`` in ``V``. A :py:class:`~.Function` is a subclass of :py:class:`~.ufl.Coefficient`.
+A :py:class:`~.ufl.Coefficient` defines a *known* function ``c`` in ``V``. A :py:class:`Function <firedrake.function.Function>` is a subclass of :py:class:`~.ufl.Coefficient`.
 Consequently, 
 
 .. code-block:: python

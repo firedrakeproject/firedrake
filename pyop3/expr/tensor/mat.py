@@ -3,10 +3,10 @@ from __future__ import annotations
 import itertools
 import numbers
 import operator
-import typing
 import weakref
+from collections.abc import Hashable
 from functools import cached_property
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 import numpy as np
 from immutabledict import immutabledict as idict
@@ -14,6 +14,7 @@ from mpi4py import MPI
 from petsc4py import PETSc
 
 import pyop3.buffer
+import pyop3.collections
 import pyop3.dtypes
 import pyop3.index_tree
 import pyop3.record
@@ -29,17 +30,18 @@ from pyop3.dtypes import ScalarType
 
 from .base import ReshapeTensorTransform, Tensor, TensorTransform
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from pyop3.types import *
 
 
 @pyop3.record.record()
 class Mat(Tensor):
+    """A matrix."""
 
     # {{{ instance attributes
 
-    row_axes: AxisTreeT
-    column_axes: AxisTreeT
+    row_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike
+    column_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike
     buffer: pyop3.buffer.AbstractBuffer
     name: str
     _transform: TensorTransform | None
@@ -59,12 +61,12 @@ class Mat(Tensor):
 
     def __init__(
         self,
-        row_axes,
-        column_axes,
+        row_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike,
+        column_axes: pyop3.axis_tree.LoopContextAwareAxisTreeLike,
         buffer: pyop3.buffer.AbstractBuffer,
         *,
-        name=None,
-        prefix=None,
+        name: str | None = None,
+        prefix: str | None = None,
         transform=None,
     ) -> None:
         if not isinstance(buffer, pyop3.buffer.AbstractBuffer):
@@ -358,6 +360,21 @@ class Mat(Tensor):
         else:
             raise NotImplementedError
 
+    @property
+    def data_ro_with_halos(self):
+        """Return a read-only view of the matrix values, including ghost entries."""
+        return self.as_array("ro")
+
+    @property
+    def data_wo_with_halos(self):
+        """Return a write-only view of the matrix values, including ghost entries."""
+        return self.as_array("wo")
+
+    @property
+    def data_rw_with_halos(self):
+        """Return a modifiable view of the matrix values, including ghost entries."""
+        return self.as_array("rw")
+
     @staticmethod
     def _array_view(array, row_indices, column_indices, mode):
         block_shape = ()  # for now
@@ -370,7 +387,14 @@ class Mat(Tensor):
             shape = (-1, *block_shape) if array.size > 0 else (0, *block_shape)
             return array.reshape(shape, copy=False)
         else:
-            return pyop3.arrayref.ArrayReference(array, (row_indices, column_indices), block_shape)
+            nrows, ncols = array.shape
+            if isinstance(row_indices, slice):
+                row_indices = pyop3.collections.slice_as_array(row_indices, nrows)
+            if isinstance(column_indices, slice):
+                column_indices = pyop3.collections.slice_as_array(column_indices, ncols)
+            indices = np.add.outer(row_indices*column_indices.size, column_indices)
+
+            return pyop3.arrayref.ArrayReference(array.ravel(), indices)
 
     # For PyOP2 compatibility
     @property
@@ -412,7 +436,11 @@ class Mat(Tensor):
             return indices
 
 
-def make_full_mat_buffer_spec(partial_spec: pyop3.buffer.PetscMatInitBufferSpec, row_axes: AbstractNonUnitAxisTree, column_axes: AbstractNonUnitAxisTree) -> FullMatBufferSpec:
+def make_full_mat_buffer_spec(
+    partial_spec: pyop3.buffer.PetscMatInitBufferSpec,
+    row_axes: AbstractNonUnitAxisTree,
+    column_axes: AbstractNonUnitAxisTree,
+) -> pyop3.buffer.PetscMatBufferSpec:
     import pyop3.visitors
 
     if isinstance(partial_spec, pyop3.buffer.MonolithicPetscMatInitBufferSpec):

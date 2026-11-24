@@ -57,7 +57,7 @@ from packaging.version import InvalidVersion, Version
 from petsc4py import PETSc
 
 import pyop3.config
-from pyop3 import mpi
+from pyop3 import mpi, utils
 from pyop3.cache import (
     DictLikeDiskAccess,
     as_hexdigest,
@@ -85,22 +85,87 @@ _EXE_HASH = md5(sys.executable.encode()).hexdigest()[-6:]
 MEM_TMP_DIR = Path(gettempdir()).joinpath(f"pyop3-tempcache-uid{os.getuid()}").joinpath(_EXE_HASH)
 
 
-# TODO: This might not be best living here, could have stuff like #include <petscmat.h>
 @dataclasses.dataclass(frozen=True)
-class CompilerOptions:
+class Library:
+    """A C library that generated code is compiled and linked against.
+
+    Parameters
+    ----------
+    include_dirs
+        The directories that are searched for the header files.
+    lib_dirs
+        The directories that are searched for the libraries, at link time
+        and at run time.
+    libs
+        The names of the libraries, without the ``lib`` prefix.
+    headers
+        The header files that are included in the generated code.
+
+    """
     include_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     lib_dirs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
     libs: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+    headers: tuple[str, ...] = dataclasses.field(default=(), kw_only=True)
+
+
+LIBPETSC = Library(
+    include_dirs=petsctools.get_petsc_dirs(subdir="include"),
+    lib_dirs=petsctools.get_petsc_dirs(subdir="lib"),
+    libs=("petsc",),
+    # petscmat.h also includes petscsys.h and petsclog.h, and it compiles
+    # faster than petsc.h, which includes every PETSc header.
+    headers=("petscmat.h",),
+)
+"""The include and link flags and the header of PETSc."""
+
+_BLASLAPACK_FLAGS = petsctools.get_petscvariables()["BLASLAPACK_LIB"].split()
+
+LIBBLASLAPACK = Library(
+    # petscblaslapack.h is in the PETSc include directories.
+    include_dirs=petsctools.get_petsc_dirs(subdir="include"),
+    lib_dirs=tuple(flag.removeprefix("-L") for flag in _BLASLAPACK_FLAGS if flag.startswith("-L")),
+    libs=tuple(flag.removeprefix("-l") for flag in _BLASLAPACK_FLAGS if flag.startswith("-l")),
+    headers=("petscblaslapack.h",),
+)
+"""The include and link flags of the BLAS and LAPACK that PETSc is configured with.
+
+The header declares the BLAS and LAPACK routines with the PETSc names, for
+example ``LAPACKgetrf_``.
+"""
+
+
+@dataclasses.dataclass(frozen=True)
+class CompilerOptions:
+    """The libraries that are needed to compile and link generated code.
+
+    Parameters
+    ----------
+    libraries
+        The libraries.
+
+    """
+    libraries: tuple[Library, ...] = dataclasses.field(default=(), kw_only=True)
 
     def __add__(self, other, /) -> Self:
         if not isinstance(other, CompilerOptions):
             return NotImplemented
+        return type(self)(libraries=utils.unique(self.libraries + other.libraries))
 
-        return type(self)(
-            include_dirs=self.include_dirs+other.include_dirs,
-            lib_dirs=self.lib_dirs+other.lib_dirs,
-            libs=self.libs+other.libs,
-        )
+    @property
+    def include_dirs(self) -> tuple[str, ...]:
+        return tuple(incdir for lib in self.libraries for incdir in lib.include_dirs)
+
+    @property
+    def lib_dirs(self) -> tuple[str, ...]:
+        return tuple(libdir for lib in self.libraries for libdir in lib.lib_dirs)
+
+    @property
+    def libs(self) -> tuple[str, ...]:
+        return tuple(name for lib in self.libraries for name in lib.libs)
+
+    @property
+    def headers(self) -> tuple[str, ...]:
+        return tuple(header for lib in self.libraries for header in lib.headers)
 
 
 def set_default_compiler(compiler):
@@ -238,7 +303,7 @@ class Compiler(ABC):
         The environment variables ``PYOP2_CFLAGS`` and ``PYOP2_CXXFLAGS``
         can also be used to extend these options.
     :arg extra_linker_flags: A list of arguments to the linker (LDFLAGS)
-    (optional, prepended to any flags specified as the ldflags configuration option).
+        (optional, prepended to any flags specified as the ldflags configuration option).
         The environment variable ``PYOP2_LDFLAGS`` can also be used to
         extend these options.
     :arg version: (Optional) usually sniffed by loader.
@@ -564,8 +629,11 @@ def make_so(compiler, code, extension, comm):
     :arg filename: The filename of the library to create.
     :arg extension: extension of the source file (c, cpp).
     :arg comm: Communicator over which to perform compilation.
+
     Returns a :class:`ctypes.CDLL` object of the resulting shared
-    library."""
+    library.
+
+    """
     # Compilation communicators are reference counted on the PyOP2 comm
     icomm = mpi.internal_comm(comm, compiler)
     ccomm = mpi.compilation_comm(icomm, compiler)
@@ -652,7 +720,7 @@ def add_profiling_events(dll, events):
     If PyOP2 is in profiling mode, events are attached to dll to profile the local linear algebra calls.
     The event is generated here in python and then set in the shared library,
     so that memory is not allocated over and over again in the C kernel. The naming
-    convention is that the event ids are named by the event name prefixed by "ID_".
+    convention is that the event ids are named by the event name prefixed by ``"ID_"``.
     """
     if PETSc.Log.isActive():
         # also link the events from the linear algebra callables

@@ -56,8 +56,7 @@ continue_annotation()
 
 # %%
 n = 100
-with stop_annotating():
-    mesh = PeriodicIntervalMesh(n, length=2)
+mesh = PeriodicIntervalMesh(n, length=2)
 x = SpatialCoordinate(mesh)[0]
 nu = Constant(1e-2)
 V = FunctionSpace(mesh, "Lagrange", 2)

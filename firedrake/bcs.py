@@ -26,7 +26,6 @@ from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.functionspaceimpl import is_mixed
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -127,20 +126,9 @@ class BCBase:
         -----
         For mixed spaces in parallel (and potentially other more funky layouts)
         we interleave the DoFs for performance reasons. This means that one
-        cannot compute offsets as ``node*block_size``. If you truly want the
-        node numbers in that case you should use ``bc._nodes`` instead.
+        cannot compute offsets as ``node*block_size``.
 
         """
-        V = self._function_space
-        if V.comm.size > 1 and (is_mixed(V) or V.parent):
-            raise TypeError(
-                "For mixed spaces in parallel we interleave the DoFs so the nodes "
-                "cannot be used to compute offsets. Use 'node_offsets' instead."
-            )
-        return self._nodes
-
-    @cached_property
-    def _nodes(self) -> np.ndarray:
         V = self._function_space
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
@@ -229,7 +217,7 @@ class BCBase:
     def node_set(self) -> op3.Slice:
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
-        subset_dat = op3.Dat.from_sequence(self._nodes, dtype=op3.dtypes.IntType)
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=op3.dtypes.IntType)
         subset = op3.SubsetSliceComponent(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
@@ -237,7 +225,7 @@ class BCBase:
     def zero(self, r):
         r"""Zero the boundary condition nodes on ``r``.
 
-        :arg r: a :class:`.Function` to which the
+        :arg r: a :class:`firedrake.function.Function` to which the
             boundary condition should be applied.
 
         """
@@ -256,7 +244,7 @@ class BCBase:
     @PETSc.Log.EventDecorator()
     def set(self, r, val):
         r"""Set the boundary nodes to a prescribed (external) value.
-        :arg r: the :class:`Function` to which the value should be applied.
+        :arg r: the :class:`firedrake.function.Function` to which the value should be applied.
         :arg val: the prescribed value.
         """
 
@@ -322,8 +310,8 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, or a :class:`.Function` on a different space or UFL expression that can be interpolated into
+    :arg g: the boundary condition values. This can be a :class:`firedrake.function.Function` on
+        ``V``, or a :class:`firedrake.function.Function` on a different space or UFL expression that can be interpolated into
         ``V``, for example, a :class:`.Constant` , an iterable of
         literal constants (converted to a UFL expression), or a
         literal constant which can be pointwise evaluated at the nodes
@@ -462,14 +450,14 @@ class DirichletBC(BCBase, DirichletBCMixin):
     def apply(self, r, u=None):
         r"""Apply this boundary condition to ``r``.
 
-        :arg r: a :class:`.Function` or :class:`.Matrix` to which the
+        :arg r: a :class:`firedrake.function.Function` or :class:`.Matrix` to which the
             boundary condition should be applied.
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
             no effect if ``r`` is a :class:`.Matrix` rather than a
-            :class:`.Function` . If ``u`` is absent, then the boundary
+            :class:`firedrake.function.Function` . If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
 
@@ -528,11 +516,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
         return self
 
 
-class EquationBC(object):
+class EquationBC:
     r'''Construct and store EquationBCSplit objects (for `F`, `J`, and `Jp`).
 
     :param eq: the linear/nonlinear form equation
-    :param u: the :class:`.Function` to solve for
+    :param u: the :class:`firedrake.function.Function` to solve for
     :arg sub_domain: see :class:`.DirichletBC` .
     :arg bcs: a list of :class:`.DirichletBC` s and/or :class:`.EquationBC` s
         to be applied to this boundary condition equation (optional)
@@ -783,7 +771,8 @@ def extract_subdomain_ids(bcs):
     _chain = itertools.chain.from_iterable
     _to_tuple = lambda s: (s,) if isinstance(s, (int, str)) else s
     subdomain_ids = tuple(tuple(_chain(_to_tuple(bc.sub_domain)
-                                for bc in bcs if bc.function_space() == Vsub))
+                                for bc in bcs if bc.function_space() == Vsub
+                                and bc.function_space().index == Vsub.index))
                           for Vsub in V)
     return subdomain_ids
 

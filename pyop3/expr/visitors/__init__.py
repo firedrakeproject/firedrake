@@ -50,7 +50,6 @@ from pyop3.expr.visitors.evaluate_arraywise import evaluate_arraywise  # noqa: F
 
 if typing.TYPE_CHECKING:
     from pyop3.types import *
-    from pyop3.axis_tree import AxisLabelT
 
     AxisVarMapT = Mapping[AxisLabelT, int]
 

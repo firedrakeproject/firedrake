@@ -7,7 +7,7 @@ Changing mesh coordinates
 
 Users may want to change the coordinates of an existing mesh object
 for certain reasons. The coordinates can be accessed as a
-:py:class:`~.Function` through ``mesh.coordinates`` where ``mesh`` is
+:py:class:`Function <firedrake.function.Function>` through ``mesh.coordinates`` where ``mesh`` is
 a mesh object. For example,
 
 .. code-block:: python
@@ -15,7 +15,7 @@ a mesh object. For example,
    mesh.coordinates.dat.data[:, 1] *= 2.0
 
 streches the mesh in the *y*-direction. Another possibility is to use
-:meth:`~.Function.assign`:
+:meth:`Function.assign <firedrake.function.Function.assign>`:
 
 .. code-block:: python
 
@@ -112,7 +112,7 @@ Replacing the mesh geometry of an existing function
 ---------------------------------------------------
 
 Creating a new mesh geometry object, as described above, leaves any
-existing :py:class:`~.Function`\s untouched -- they continue to live
+existing :py:class:`Function <firedrake.function.Function>`\s untouched -- they continue to live
 on their original mesh geometries.  One may wish to move these
 functions over to the new mesh.  To move `f` over to ``mesh``, use:
 
@@ -121,7 +121,7 @@ functions over to the new mesh.  To move `f` over to ``mesh``, use:
    g = Function(functionspaceimpl.WithGeometry(f.function_space(), mesh),
                 val=f.topological)
 
-This creates a :py:class:`~.Function` `g` which shares data with `f`,
+This creates a :py:class:`Function <firedrake.function.Function>` `g` which shares data with `f`,
 but its mesh geometry is ``mesh``.
 
 .. warning::

@@ -60,4 +60,5 @@ def with_attach_debugger(kernel):
         debug_insn,
         *(insn.copy(depends_on=insn.depends_on | {debug_insn.id}) for insn in kernel.instructions),
     )
-    return kernel.copy(instructions=insns)
+    preambles = kernel.preambles + (("99_petscsys", "#include <petscsys.h>"),)
+    return kernel.copy(preambles=preambles, instructions=insns)

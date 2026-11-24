@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 @pyop3.record.record()
 class Scalar(Tensor):
+    """A scalar value."""
 
     # {{{ instance attrs
 
@@ -134,6 +135,21 @@ class Scalar(Tensor):
                 return self.buffer.data_rw
             case _:
                 raise ValueError(f"Unknown array access mode '{mode}'")
+
+    @property
+    def data_ro_with_halos(self) -> np.ndarray:
+        """Return a read-only view of the scalar's buffer."""
+        return self.data_ro
+
+    @property
+    def data_wo_with_halos(self) -> np.ndarray:
+        """Return a write-only view of the scalar's buffer."""
+        return self.data_wo
+
+    @property
+    def data_rw_with_halos(self) -> np.ndarray:
+        """Return a modifiable view of the scalar's buffer."""
+        return self.data_rw
 
     # }}}
 

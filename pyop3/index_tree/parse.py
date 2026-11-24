@@ -59,7 +59,7 @@ def as_index_forests(forest: Any, /, axes: AbstractNonUnitAxisTree | None = None
 
     Returns
     -------
-    index_forest
+    immutabledict.immutabledict
         A mapping from loop contexts to a tuple of equivalent index trees. Loop
         contexts are represented by the mapping ``{loop index id: iterset path}``.
 

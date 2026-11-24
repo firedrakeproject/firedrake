@@ -614,6 +614,8 @@ class NamedTerminalExpression(TerminalExpression):
     This type is important because only named terminals can be replaced when
     an operation is reused. For example we can only do the following:
 
+    .. code-block:: python
+
         loop = op3.loop(p, kernel(dat1[p]))
         loop(**{"dat": dat2})  # pass dat2 instead of dat1
 

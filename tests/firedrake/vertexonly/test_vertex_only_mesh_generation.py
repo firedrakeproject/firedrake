@@ -494,3 +494,10 @@ def test_vertex_only_mesh_particle_ids(redundant):
     all_ids = np.concatenate(gathered)
 
     assert np.array_equal(np.sort(all_ids), np.arange(len(all_ids), dtype=IntType))
+
+
+def test_vom_in_vom_raises():
+    m = UnitSquareMesh(2, 2)
+    vom = VertexOnlyMesh(m, [[0.1, 0.1]])
+    with pytest.raises(NotImplementedError, match="topological dimension 0"):
+        VertexOnlyMesh(vom, [[0.1, 0.1]])

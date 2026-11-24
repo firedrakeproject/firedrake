@@ -23,9 +23,9 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
 
     :arg extruded_topology: an :class:`~.ExtrudedMeshTopology` to extrude
          a coordinate field for.
-    :arg base_coords: a :class:`~.Function` to read the base
+    :arg base_coords: a :class:`firedrake.function.Function` to read the base
          coordinates from.
-    :arg ext_coords: a :class:`~.Function` to write the extruded
+    :arg ext_coords: a :class:`firedrake.function.Function` to write the extruded
          coordinates into.
     :arg layer_height: the height for each layer.  Either a scalar,
          where layers will be equi-spaced at the specified height, or a

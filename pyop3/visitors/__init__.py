@@ -4,7 +4,6 @@ import contextlib
 import functools
 import numbers
 import types
-import typing
 from collections.abc import Hashable
 from typing import Any
 
@@ -24,10 +23,6 @@ from pyop3.visitors.compress_indirections import materialize_indirections  # noq
 from pyop3.visitors.concretize import concretize  # noqa: F401
 from pyop3.visitors.relabel import Relabeler, relabel  # noqa: F401
 from pyop3.visitors.replace import replace  # noqa: F401
-
-
-if typing.TYPE_CHECKING:
-    import pyop3.types
 
 
 class BufferCollector(pyop3.node.NodeCollector):

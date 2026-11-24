@@ -97,7 +97,7 @@ lumped quadrature schemes to produce a diagonal mass matrix.
 The Quadrature space
 --------------------
 
-It is possible to define a finite element :py:class:`~.Function` on a quadrature rule.
+It is possible to define a finite element :py:class:`Function <firedrake.function.Function>` on a quadrature rule.
 The ``"Quadrature"`` and ``"Boundary Quadrature"`` spaces are useful to
 interpolate data at quadrature points on cell interiors and cell boundaries,
 respectively.
@@ -110,7 +110,7 @@ respectively.
 
 The ``quad_scheme`` keyword argument again may be either
 :py:class:`~finat.quadrature.QuadratureRule` or a string.
-If a :py:class:`~.Function` in the ``"Quadrature"`` space appears within an
+If a :py:class:`Function <firedrake.function.Function>` in the ``"Quadrature"`` space appears within an
 integral, Firedrake will automatically select the quadrature rule that corresponds
 to ``dx(degree=quad_degree, scheme=quad_scheme)`` to match the one associated
 with the quadrature space.

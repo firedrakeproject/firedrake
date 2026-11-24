@@ -178,8 +178,8 @@ def pgfplot(f, filename, degree=1, complex_component='real', print_latex_example
 
     Parameters
     ----------
-    f : Function
-       `Function` to plot.
+    f : firedrake.function.Function
+       Function to plot.
     filename : str
         Name of the output file.
     degree : int
