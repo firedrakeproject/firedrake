@@ -374,6 +374,41 @@ def test_assemble_with_different_coefficient_layouts(mesh):
     assert np.isclose(assemble((u2 - v2)**2*dx), expected)
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("order", ["shared_first", "separate_first"])
+def test_assemble_with_coefficients_sharing_data(mesh, order):
+    """Forms whose coefficients share data in different ways do not share loops.
+
+    In one form both coefficients are subfunctions of one mixed Function, so
+    they are views into the same data. In the other form, with the same
+    signature, spaces and layouts, they are subfunctions of two different
+    mixed Functions.
+    """
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "DG", 1)
+    W = V * V
+
+    w = Function(W)
+    w0, w1 = w.subfunctions
+    w0.interpolate(sin(3*x))
+    w1.interpolate(x + y)
+
+    z = Function(W)
+    s = Function(W)
+    z0 = z.subfunctions[0]
+    s1 = s.subfunctions[1]
+    z0.interpolate(cos(2*y))
+    s1.interpolate(x*y + 1)
+
+    pairs = [(w1, w0), (s1, z0)]
+    if order == "separate_first":
+        pairs.reverse()
+    for a, b in pairs:
+        # The reference uses standalone copies, which share no data.
+        expected = assemble((Function(V).assign(a) - Function(V).assign(b))**2*dx)
+        assert np.isclose(assemble((a - b)**2*dx), expected)
+
+
 @pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")
 def test_two_form_assembler_cache(mesh):
     from firedrake.assemble import _FORM_CACHE_KEY

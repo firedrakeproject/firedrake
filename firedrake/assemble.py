@@ -1088,7 +1088,45 @@ class ParloopFormAssembler(FormAssembler):
             # into a larger dat. A subfunction and a Function on the same subspace differ here.
             self._as_pyop3_type(tensor).axis_trees,
             tuple(c.dat.axis_trees for c in self._form.coefficients()),
+            self._data_sharing_key(tensor),
         )
+
+    def _data_sharing_key(self, tensor):
+        """Return which coefficients share their data with the tensor, the coordinates or each other.
+
+        A shared loop is called with the data of a new form by replacing the
+        buffers of the loop arguments, one buffer for each argument name. Two
+        coefficients that are subfunctions of one mixed Function, a coefficient
+        that is the coordinate field, or a coefficient that is a view into the
+        data of the tensor are all arguments with one buffer. A form with the same
+        signature and layouts whose coefficients do not share data in the same
+        way needs one buffer more, so it must not use these loops. A coefficient
+        that shares the data of the tensor is also replaced by a copy (see
+        ``ParloopBuilder._as_parloop_arg_coefficient``), which is not replaced by
+        name at all.
+
+        Returns
+        -------
+        tuple
+            For each coefficient of the form, the position of the first earlier
+            data (tensor, coordinates of each domain, earlier coefficients) with
+            the same buffer, or ``None`` if its buffer is new.
+        """
+        seen = []
+        if isinstance(tensor, firedrake.Cofunction | firedrake.Function):
+            seen.append(tensor.dat.buffer)
+        else:
+            # Keep the positions of the coordinates independent of the tensor type.
+            seen.append(None)
+        seen.extend(domain.coordinates.dat.buffer for domain in self._form.ufl_domains())
+        key = []
+        for c in self._form.coefficients():
+            buffer = c.dat.buffer
+            position = next((i for i, b in enumerate(seen) if b is buffer), None)
+            key.append(position)
+            if position is None:
+                seen.append(buffer)
+        return tuple(key)
 
     @cached_property
     def local_kernels(self):
