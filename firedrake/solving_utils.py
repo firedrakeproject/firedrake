@@ -16,7 +16,9 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
-from ufl import as_vector, replace, split, zero
+from ufl import BaseForm, as_vector, replace, split, zero
+from ufl.algorithms import extract_coefficients
+from ufl.classes import Expr
 
 if typing.TYPE_CHECKING:
     from firedrake.variational_solver import NonlinearVariationalProblem
@@ -370,10 +372,13 @@ class _SNESContext:
 
     @cached_property
     def coefficient_dms(self) -> tuple[PETSc.DM, ...]:
-        """Return the unique DMs of the coefficients of F, J, Jp, E and bcs."""
+        """Return the unique DMs of the coefficients of F, J, Jp, E, bcs and the appctx."""
         problem = self._problem
         objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
-        coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
+        problem_coefficients = chain.from_iterable(f.coefficients() for f in objs if f is not None)
+        appctx_objs = (v for v in self.appctx.values() if isinstance(v, (Expr, BaseForm)))
+        appctx_coefficients = chain.from_iterable(map(extract_coefficients, appctx_objs))
+        coefficients = utils.unique(chain(problem_coefficients, appctx_coefficients))
         dms = []
         for coefficient in coefficients:
             dm = coefficient.function_space().dm
