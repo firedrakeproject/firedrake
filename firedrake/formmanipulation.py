@@ -5,7 +5,7 @@ import functools
 
 from ufl import as_tensor, as_vector, split
 from ufl.classes import (
-    Form, Zero, ListTensor, ZeroBaseForm, BaseForm, Action, Adjoint,
+    Form, Zero, ZeroBaseForm, BaseForm, Action, Adjoint,
     Expr, CoefficientDerivative, MultiIndex, Argument, Matrix,
     Interpolate, FormSum,
 )
@@ -136,13 +136,10 @@ class ExtractSubBlock(DAGTraverser):
     @process.register(CoefficientDerivative)
     @DAGTraverser.postorder
     def _(self, o, expr, coefficients, arguments, cds, blocks):
-        argument, = arguments
-        if (isinstance(argument, Zero)
-            or (isinstance(argument, ListTensor)
-                and all(isinstance(a, Zero) for a in argument.ufl_operands))):
-            # If we're only taking a derivative wrt part of an argument in
-            # a mixed space other bits might come back as zero. We want to
-            # propagate a zero in that case.
+        if all(isinstance(argument, Zero) for argument in arguments):
+            # UFL simplifies a direction outside the selected block to Zero.
+            # The derivative is zero only if the direction of every
+            # coefficient is zero.
             return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
         else:
             return self.reuse_if_untouched(o, blocks=blocks)
