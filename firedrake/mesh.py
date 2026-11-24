@@ -1671,44 +1671,57 @@ class AbstractMeshTopology(abc.ABC):
         return op3.Dat(support_axes, data=map_data, prefix="support")
 
     @cached_method()
-    @collective
     def _check_submesh_interior_facet_support(self) -> None:
-        """Raise on all ranks if an owned interior facet of this submesh has only one local cell.
+        """Raise if this submesh cannot do interior facet integrals in parallel.
 
         Interior facet integrals read both cells of each owned facet. A submesh
-        has no overlap of its own, so it depends on the overlap of its parent.
-        For a codim-1 submesh the default (FACET, 1) overlap is not enough: two
-        submesh cells that share a facet can belong to parent cells that share
-        only a ridge. The second cell is then not on the rank, ``_support_dat``
-        holds -1 for it, and the integral is wrong or crashes.
+        has no overlap of its own, so it depends on the overlap of the original
+        (root) mesh. For a codim-1 submesh the default (FACET, 1) overlap is not
+        enough: two submesh cells that share a facet can belong to parent cells
+        that share only a ridge, so the second cell can be missing on the rank
+        that owns the facet. A VERTEX or RIDGE overlap always brings that cell.
 
-        The check is collective, so all ranks raise together, and it is cached,
-        so it runs once per mesh.
+        The check uses only the distribution parameters, so it gives the same
+        answer on every rank and for every number of ranks, and needs no
+        communication. It is cached, so it runs once per mesh. A failed check
+        is not cached and raises again at the next call.
+
+        If Firedrake neither partitioned the original mesh nor added an overlap
+        (partition False and overlap NONE), the halo is not known and nothing is
+        checked. An example is a mesh that ``CheckpointFile.load_mesh`` loads
+        with its saved distribution.
         """
         # In serial there is no halo, so every interior facet has both cells.
         if self.comm.size == 1:
             return
-        # Ghost facets at the outer edge of the halo can have one cell. Only owned facets count.
-        owned_support = self._support_dat("interior_facet", only_owned=True).data_ro.reshape(-1, 2)
-        nmissing = int((owned_support < 0).any(axis=1).sum())
-        with temp_internal_comm(self.comm) as icomm:
-            nmissing = icomm.allreduce(nmissing, op=MPI.SUM)
-        if nmissing > 0:
-            if self.dimension < self.submesh_parent.dimension:
-                fix = (
-                    "Interior facet integrals on a codim-1 Submesh need a parent mesh "
-                    "with a VERTEX or RIDGE overlap, for example distribution_parameters="
-                    "{'overlap_type': (DistributedMeshOverlapType.RIDGE, 1)}."
-                )
-            else:
-                fix = "Interior facet integrals on a Submesh need a parent mesh with an overlap."
-            if self.submesh_parent.submesh_parent is not None:
-                fix += " For a submesh of a submesh, set the overlap on the original mesh."
-            raise ValueError(
-                f"{nmissing} owned interior facets of this submesh do not have both of "
-                f"their cells on the owning rank, because the overlap of the parent mesh "
-                f"is too small. {fix}"
-            )
+        # Find the original mesh. A codim-0 submesh of a codim-1 submesh has
+        # the same problem as a codim-1 submesh, so compare with its dimension.
+        # Submesh supports only codim 0 and 1, so a lower dimension than the
+        # original mesh means codim 1 relative to the original mesh.
+        root = self
+        while root.submesh_parent is not None:
+            root = root.submesh_parent
+        if self.dimension == root.dimension:
+            return
+        # Submesh copies the distribution parameters of the original mesh,
+        # also through a RelabeledMesh or a submesh of a submesh.
+        overlap_type, overlap = self._distribution_parameters["overlap_type"]
+        if overlap_type == DistributedMeshOverlapType.NONE and not self._distribution_parameters["partition"]:
+            # Firedrake did not partition the original mesh and did not add an
+            # overlap, so the halo came with the DMPlex, for example from a
+            # checkpoint file. (NONE, 0) then does not describe the halo.
+            return
+        if overlap_type in {DistributedMeshOverlapType.VERTEX, DistributedMeshOverlapType.RIDGE} and overlap > 0:
+            return
+        msg = (
+            "Interior facet integrals on a codim-1 Submesh in parallel need an original mesh "
+            f"with a VERTEX or RIDGE overlap, but the overlap is ({overlap_type.name}, {overlap}). "
+            "Make the original mesh with distribution_parameters="
+            "{\"overlap_type\": (DistributedMeshOverlapType.RIDGE, 1)} or VERTEX."
+        )
+        if self.submesh_parent.submesh_parent is not None:
+            msg += " For a submesh of a submesh, this is the mesh that the first Submesh was made from."
+        raise ValueError(msg)
 
     def _memoize_map(
         self,
@@ -6175,8 +6188,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     facets of the parent mesh must have been labeled such that the
     ridges (entities of co-dim 2) to be contained in the submesh are
     shared by at most two facets. In parallel, an interior facet integral
-    raises a ``ValueError`` if an owned interior facet of the submesh does
-    not have both of its cells on the owning rank.
+    on a codim-1 submesh raises a ``ValueError`` if the overlap type of the
+    original mesh is not VERTEX or RIDGE.
 
     Currently, to make a quadrilateral submesh from a hexahedral mesh,
     the facets of the hex mesh must have been labeled such that the
@@ -6249,8 +6262,10 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         reorder=reorder,
         distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
     )
-    # Tag the relabeled mesh with the original distribution parameters
-    submesh._distribution_parameters = mesh._distribution_parameters
+    # Tag the submesh topology with the original distribution parameters.
+    # The submesh (MeshGeometry) sees them through MeshGeometry.__getattr__.
+    # The interior facet check reads the overlap type from the topology.
+    submesh.topology._distribution_parameters = mesh._distribution_parameters
     return submesh
 
 

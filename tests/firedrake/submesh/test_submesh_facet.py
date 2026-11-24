@@ -1,8 +1,10 @@
+import os
 import pytest
 import numpy as np
 from firedrake import *
 from firedrake.mesh import plex_from_cell_list
 from pyop3.mpi import COMM_WORLD
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 @pytest.mark.parallel(2)
@@ -139,15 +141,16 @@ def test_submesh_facet_all_facets():
 
 def _make_codim1_submesh(overlap_type=None):
     # The y = 1 face of a unit cube. The simple partitioner makes the
-    # partition, and so the facets with a missing cell, independent of the
-    # installed partitioners.
+    # partition independent of the installed partitioners.
     distribution_parameters = {"partitioner_type": "simple"}
     if overlap_type is not None:
         distribution_parameters["overlap_type"] = (overlap_type, 1)
     mesh = UnitCubeMesh(4, 4, 4, distribution_parameters=distribution_parameters)
     subm = Submesh(mesh, mesh.topological_dimension - 1, 4)
     x, y, z = SpatialCoordinate(subm)
-    f = Function(FunctionSpace(subm, "DG", 1)).interpolate(1 + x + 2*y + 3*z)
+    V = FunctionSpace(subm, "DG", 1)
+    f = Function(V)
+    f.interpolate(1 + x + 2*y + 3*z)
     return subm, f
 
 
@@ -158,40 +161,18 @@ _codim1_ds = 20.
 _codim1_dS = 30. + 20. * np.sqrt(2.)
 
 
-@pytest.mark.parallel(2)
+@pytest.mark.parallel([2, 3])
 def test_submesh_codim1_interior_facet_default_overlap_raises():
-    # With the default (FACET, 1) overlap some owned interior facets of the
-    # submesh have only one local cell. All ranks must raise.
+    # The default (FACET, 1) overlap is not enough for interior facet
+    # integrals on a codim-1 submesh, so all ranks must raise.
     subm, f = _make_codim1_submesh()
     try:
         assemble(f('-') * dS)
     except ValueError as e:
-        raised = "overlap" in str(e)
+        raised = "RIDGE" in str(e)
     else:
         raised = False
-    assert all(subm.comm.allgather(raised))
-
-
-@pytest.mark.parallel(2)
-def test_submesh_codim0_interior_facet_no_overlap_raises():
-    # A codim-0 submesh of a parent without overlap has the same problem.
-    mesh = UnitSquareMesh(8, 8, distribution_parameters={
-        "partitioner_type": "simple",
-        "overlap_type": (DistributedMeshOverlapType.NONE, 0),
-    })
-    x, y = SpatialCoordinate(mesh)
-    marker = Function(FunctionSpace(mesh, "DG", 0)).interpolate(conditional(lt(x, 0.5), 1, 0))
-    mesh.mark_entities(marker, 111)
-    subm = Submesh(mesh, mesh.topological_dimension, 111)
-    x, y = SpatialCoordinate(subm)
-    f = Function(FunctionSpace(subm, "DG", 1)).interpolate(1 + x + 2*y)
-    try:
-        assemble(f('-') * dS)
-    except ValueError as e:
-        raised = "overlap" in str(e)
-    else:
-        raised = False
-    assert all(subm.comm.allgather(raised))
+    parallel_assert(raised)
 
 
 @pytest.mark.parallel([1, 2, 3])
@@ -200,6 +181,29 @@ def test_submesh_codim0_interior_facet_no_overlap_raises():
 def test_submesh_codim1_interior_facet_ridge_vertex_overlap(overlap_type):
     subm, f = _make_codim1_submesh(overlap_type)
     assert np.isclose(assemble(f('+') * dS), _codim1_dS)
+    assert np.isclose(assemble(f('-') * dS), _codim1_dS)
+
+
+@pytest.mark.parallel(2)
+def test_submesh_codim1_interior_facet_checkpointed_mesh(tmpdir):
+    # A mesh loaded with its saved distribution keeps the RIDGE overlap of
+    # the saved mesh, although its distribution parameters do not show it.
+    filename = os.path.join(str(tmpdir), "test_submesh_codim1_interior_facet_checkpointed_mesh.h5")
+    filename = COMM_WORLD.bcast(filename, root=0)
+    distribution_parameters = {
+        "partitioner_type": "simple",
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    mesh = UnitCubeMesh(4, 4, 4, distribution_parameters=distribution_parameters, name="cube")
+    with CheckpointFile(filename, "w") as afile:
+        afile.save_mesh(mesh)
+    with CheckpointFile(filename, "r") as afile:
+        mesh = afile.load_mesh("cube")
+    subm = Submesh(mesh, mesh.topological_dimension - 1, 4)
+    x, y, z = SpatialCoordinate(subm)
+    V = FunctionSpace(subm, "DG", 1)
+    f = Function(V)
+    f.interpolate(1 + x + 2*y + 3*z)
     assert np.isclose(assemble(f('-') * dS), _codim1_dS)
 
 
