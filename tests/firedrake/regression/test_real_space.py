@@ -450,6 +450,20 @@ def test_real_interpolate():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("n", [1, 2, 4])
+def test_real_interpolate_cofunction(n):
+    mesh = UnitSquareMesh(n, n)
+    R = FunctionSpace(mesh, "R", 0)
+    m = Function(R).assign(0.3)
+    c = Cofunction(R.dual()).assign(1)
+
+    paired = assemble(interpolate(exp(m), c))
+
+    assert np.allclose(paired, np.exp(0.3))
+
+
+@pytest.mark.skipcomplex
 def test_real_interior_facet():
     mesh = UnitSquareMesh(2, 2)
     K = FunctionSpace(mesh, "DG", 1)
@@ -527,3 +541,44 @@ def test_real_space_repeated_assembly():
     for i in range(3):
         x = assemble(form)
         pytest_mpi.parallel_assert(float(x), 5)
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("shape", [(), (4,), (2, 2)])
+def test_mesh_independent_real_space(shape):
+    from firedrake.ufl_expr import extract_domains
+    from firedrake.utils import ScalarType
+
+    P = RealSpace(COMM_WORLD, shape)
+    Q = RealSpace(COMM_WORLD, shape)
+    assert P != Q and P.dual() != Q.dual()
+    assert P.dual().dual() is P
+    assert P._ufl_signature_data_({}) == Q._ufl_signature_data_({})
+    assert len(set(COMM_WORLD.allgather(P._ufl_signature_data_({})))) == 1
+    assert P.ufl_domains() == ()
+    n = int(np.prod(shape))
+    assert P.dim() == n
+    x = np.arange(1, n + 1, dtype=ScalarType)
+    y = 2 * x
+    if np.iscomplexobj(x):
+        y *= 1 + 2j
+    h = Function(P, val=x)
+    g = Cofunction(P.dual(), val=y.copy())
+    assert not extract_domains(g)
+    with pytest.raises(ValueError, match="function space"):
+        Cofunction(Q.dual(), val=g)
+    with h.dat.vec_ro as vec:
+        assert vec.getSize() == n
+        assert vec.norm() == pytest.approx(np.linalg.norm(x))
+    assert assemble(action(g, h)) == pytest.approx(np.vdot(x, y))
+    with pytest.raises(TypeError, match="function spaces"):
+        action(g, Function(Q))
+    with pytest.raises(ValueError, match="dimension"):
+        grad(h)
+    h2 = Function(P)
+    h2.assign(2 * h)
+    assert np.allclose(h2.dat.data_ro_with_halos.ravel(), 2 * x)
+    result = assemble(2 * g + 3 * g)
+    assert type(result) is Cofunction and result.function_space() == P.dual()
+    assert assemble(2 * g - result, tensor=g) is g
+    assert np.allclose(g.dat.data_ro_with_halos.ravel(), -3 * y)

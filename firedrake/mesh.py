@@ -92,15 +92,10 @@ _supported_embedded_cell_types_and_gdims = [('interval', 2),
                                             ("interval * interval", 3)]
 
 
-# TODO: use these
-_FLAT_MESH_AXIS_LABEL_SUFFIX = "points"
-_STRATIFIED_MESH_AXIS_LABEL_SUFFIX = "strata"
-
-
 UNMARKED = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
-DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
+DEFAULT_MESH_NAME = "firedrake_default"
 """The default name of the mesh."""
 
 DISTRIBUTION_PARAMETERS_NOOP = {
@@ -113,9 +108,10 @@ cached_property_until_topology_changes = cached_property_until(
     lambda self: self._topology_version
 )
 
-cached_method_until_topology_changes = cached_method_until(
-    lambda self: self._topology_version
-)
+
+def cached_method_until_topology_changes(*args, **kwargs):
+    """Decorator for caching methods that invalidate when the topology changes."""
+    return cached_method_until(lambda self: self._topology_version, *args, **kwargs)
 
 
 def _generate_default_submesh_name(name):
@@ -333,7 +329,23 @@ class ClosureOrdering(enum.Enum):
 # TODO: The interface isn't quite right here. These attributes are codependent.
 # @op3.record.frozenrecord()
 class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
-    """Object representing a loop over mesh entities."""
+    """Object representing a loop over mesh entities.
+
+    Users are not expected to instantiate this class directly. Instead they
+    should use :meth:`firedrake.mesh.AbstractMeshTopology.iter`.
+
+    Parameters
+    ----------
+    iterset : pyop3.IndexedAxisTree
+        The pyop3 iteration set.
+    integral_type : str
+        The integral type (e.g. ``"cell"`` or ``"interior_facet_horiz"``).
+    plex_indices_is : PETSc.IS
+        The DMPlex indices represented by the iteration
+    include_ghosts : bool
+        Is the iteration also over ghost points?
+
+    """
 
     def __init__(
         self,
@@ -341,10 +353,12 @@ class MeshLoopIndex(op3.LoopContextFreeLoopIndex):
         mesh: MeshGeometry,
         integral_type: str,
         plex_indices_is: PETSc.IS | None,
+        include_ghosts: bool,
     ) -> None:
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "integral_type", integral_type)
         object.__setattr__(self, "plex_indices_is", plex_indices_is)
+        object.__setattr__(self, "include_ghosts", include_ghosts)
         super().__init__(iterset)
 
     def __str__(self) -> str:
@@ -520,7 +534,7 @@ class AbstractMeshTopology(abc.ABC):
         """Add overlap."""
         pass
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def get_work_function_cache(self, ufl_element):
         """Get the cache for work functions.
 
@@ -658,7 +672,7 @@ class AbstractMeshTopology(abc.ABC):
             else:
                 return self._entity_axes(dim=stratum)
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_axes_by_name(self, name: str):
         if name == "cell":
             # NOTE: not sure this is necessary
@@ -764,7 +778,7 @@ class AbstractMeshTopology(abc.ABC):
 
         return self._plex_to_entity_numbering_sec(stratum=0).createGlobalSection(self.point_sf.sf)
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_indices_is(
         self,
         base: Literal["plex"],
@@ -973,7 +987,7 @@ class AbstractMeshTopology(abc.ABC):
             case _:
                 raise NotImplementedError
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_indices(
         self,
         base: Literal["plex"],
@@ -987,7 +1001,7 @@ class AbstractMeshTopology(abc.ABC):
             self._entity_indices_is(base, _selector=_selector, name=name, dim=dim, stratum=stratum).indices
         )
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _plex_to_entity_numbering_sec(
         self,
         _selector: str | int | tuple[int, ...] | None = None,
@@ -1415,15 +1429,15 @@ class AbstractMeshTopology(abc.ABC):
         # is tied to the mesh, things will never be cleaned up.
         mesh_ref = weakref.proxy(self.topology)
 
-        return MeshLoopIndex(iterset, mesh_ref, integral_type, plex_indices_is)
+        return MeshLoopIndex(iterset, mesh_ref, integral_type, plex_indices_is, include_ghosts=include_ghosts)
 
-    def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT):
+    def closure(self, index, ordering: ClosureOrdering | str = ClosureOrdering.FIAT, **kwargs):
         # Adding the 'closure' label here is a bit of a hack to make sure we
         # can detect which axis is generated in the packed axis trees.
         if ordering == ClosureOrdering.PLEX:
-            return self._plex_closure(index, label="closure")
+            return self._plex_closure(index, label="closure", **kwargs)
         elif ordering == ClosureOrdering.FIAT:
-            return self._fiat_closure(index, label="closure")
+            return self._fiat_closure(index, label="closure", **kwargs)
 
     @cached_property
     def _closure_sizes(self) -> idict[idict]:
@@ -1586,8 +1600,8 @@ class AbstractMeshTopology(abc.ABC):
         #
         # return readonly(map_pts_renum), readonly(sizes_renum)
 
-    def support(self, index: MeshLoopIndex) -> op3.CalledMap:
-        return self._support(index, label="support")
+    def support(self, index: MeshLoopIndex, **kwargs) -> op3.CalledMap:
+        return self._support(index, label="support", **kwargs)
 
     @cached_property
     def _support(self) -> op3.Map:
@@ -3195,30 +3209,35 @@ class ExtrudedMeshTopology(MeshTopology):
         return closures
 
     @cached_property
-    def extr_cell_to_base_cell_map(self):
+    def extr_cell_to_base_cell_map(self) -> op3.Map:
         """Return the map from extruded cells to cells of the base mesh."""
         base_cell_nums = np.arange(
-            self._base_mesh.cells.owned.local_size, dtype=IntType
+            self._base_mesh.cells.local_size, dtype=IntType
         )
         extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
-        src_axis = self.cells.owned.root
         dest_axis = self._base_mesh._uid
         dest_stratum = self._base_mesh.cell_label
 
         map_axes = op3.AxisTree.from_iterable([
-            self.cells.owned.root,
-            op3.Axis(1, "extr_cell_base_cell")
+            self.cells.root, op3.Axis(1, "extr_cell_base_cell")
         ])
         dat = op3.Dat(map_axes, data=extr_base_cell_nums)
+        map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None)
 
-        return op3.Map(
-            {
-                idict({src_axis.label: src_axis.component.label}): [[
-                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
-                ]]
-            },
-        )
+        connectivity = {idict({self._uid: self.cell_label}): [[map_cpt]]}
+
+        # In serial there is no need to differentiate between owned and owned+ghost
+        if self.comm.size > 1:
+            owned_map_axes = op3.AxisTree.from_iterable([
+                self.cells.owned.root, op3.Axis(1, "extr_cell_base_cell")
+            ])
+            owned_dat = op3.Dat(owned_map_axes, data=dat.data_ro.copy())
+            owned_map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, owned_dat, label=None)
+            connectivity[idict({f"{self._uid}_owned": self.cell_label})] = [[owned_map_cpt]]
+
+        # TODO: This could be a ScalarMap
+        return op3.Map(connectivity)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -6431,6 +6450,8 @@ def get_mesh_topologies(expr) -> frozenset[AbstractMeshTopology]:
 
 
 def extract_mesh_topologies(mesh) -> frozenset[MeshTopology]:
+    if mesh is None:
+        return op3.collections.OrderedFrozenSet()
     if isinstance(mesh, MeshSequenceTopology | MeshSequenceGeometry):
         return op3.collections.OrderedFrozenSet([m.topology for m in mesh])
     else:

@@ -80,6 +80,7 @@ from firedrake.functionspace import (  # noqa: F401
     MixedFunctionSpace, FunctionSpace, VectorFunctionSpace,
     TensorFunctionSpace, RestrictedFunctionSpace
 )
+from firedrake.realspace import RealSpace  # noqa: F401
 from firedrake.interpolation import (  # noqa: F401
     interpolate, Interpolate, get_interpolator
 )

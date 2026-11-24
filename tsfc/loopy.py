@@ -341,14 +341,15 @@ def statement_return(leaf, ctx):
 
     insns = [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
 
-    # GCC has a race condition bug for non-increment returns which result
-    # in numerical nonsense. We add a '__sync_synchronize()' call to
-    # prevent it.
-    # TODO: set this with an attribute: we don't want it for clang
+    # GCC 15 and 16 can miscompile outer loops with interleaved stores.
+    # TODO: Move this workaround into a compiler attribute.
     if not ctx.return_increments:
-        insns.append(
-            lp.CInstruction((), "__sync_synchronize();", within_inames=ctx.active_inames())
+        barrier = (
+            "#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 15 || __GNUC__ == 16)\n"
+            '__asm__ __volatile__("" ::: "memory");\n'
+            "#endif"
         )
+        insns.append(lp.CInstruction((), barrier, within_inames=ctx.active_inames()))
 
     return insns
 

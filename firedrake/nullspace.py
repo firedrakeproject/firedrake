@@ -86,17 +86,14 @@ class VectorSpaceBasis:
         """
         constant = self._constant
         basis = self._petsc_vecs
-        for i, vec in enumerate(basis):
-            alphas = []
-            for vec_ in basis[:i]:
-                alphas.append(vec.dot(vec_))
-            for alpha, vec_ in zip(alphas, basis[:i]):
-                vec.axpy(-alpha, vec_)
-            if constant:
-                # Subtract constant mode
-                alpha = vec.sum()
-                vec.array -= alpha
-            vec.normalize()
+        for i, (function_, vec) in enumerate(zip(self._vecs, basis)):
+            with function_.dat.vec_rw as vec:
+                previous = basis[:i]
+                if previous:
+                    vec.maxpy(-vec.mDot(previous), previous)
+                if constant:
+                    vec.shift(-vec.sum() / vec.getSize())
+                vec.normalize()
         self.check_orthogonality()
         self._ad_orthogonalized = True
 
@@ -128,7 +125,7 @@ class VectorSpaceBasis:
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.dat.vec_ro as v:
+        with b.dat.vec_rw as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
@@ -303,15 +300,13 @@ class MixedVectorSpaceBasis:
             with v.dat.vec_ro as v_:
                 self._petsc_vecs.append(v_)
 
-        # orthonormalize:
         basis = self._petsc_vecs
-        for i, vec in enumerate(basis):
-            alphas = []
-            for vec_ in basis[:i]:
-                alphas.append(vec.dot(vec_))
-            for alpha, vec_ in zip(alphas, basis[:i]):
-                vec.axpy(-alpha, vec_)
-            vec.normalize()
+        for i, mvec in enumerate(self._vecs):
+            with mvec.dat.vec_rw as vec:
+                previous = basis[:i]
+                if previous:
+                    vec.maxpy(-vec.mDot(previous), previous)
+                vec.normalize()
 
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs,

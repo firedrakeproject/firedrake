@@ -9,6 +9,7 @@ from ufl.domain import as_domain
 import firedrake
 from firedrake.constant import Constant
 from firedrake.ml.parameters import MLParameters
+from firedrake.realspace import RealSpace
 from firedrake.petsc import PETSc
 from functools import cached_property
 
@@ -40,7 +41,8 @@ class Argument(ufl.argument.Argument):
         return super().__new__(cls, *args, **kwargs)
 
     def __init__(self, function_space, number, part=None):
-        if function_space.ufl_element().family() == "Real" and function_space.shape != ():
+        if (function_space.ufl_element().family() == "Real" and function_space.shape
+                and function_space.mesh() is not None):
             raise NotImplementedError(f"{type(self).__name__} on a vector-valued Real space is not supported.")
         super(Argument, self).__init__(function_space.ufl_function_space(),
                                        number, part=part)
@@ -96,7 +98,8 @@ class Coargument(ufl.argument.Coargument):
     """
 
     def __init__(self, function_space, number, part=None):
-        if function_space.ufl_element().family() == "Real" and function_space.shape != ():
+        if (function_space.ufl_element().family() == "Real" and function_space.shape
+                and function_space.mesh() is not None):
             raise NotImplementedError(f"{type(self).__name__} on a vector-valued Real space is not supported.")
         super(Coargument, self).__init__(function_space.ufl_function_space(),
                                          number, part=part)
@@ -259,6 +262,11 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
         u = ufl.SpatialCoordinate(coord_mesh)
         V = coords.function_space()
         set_internal_coord_derivatives = True
+    elif isinstance(u, ufl.Coefficient) and isinstance(u.ufl_function_space(), RealSpace):
+        uc = u
+        V = u.ufl_function_space()
+        if isinstance(du, (ufl.Coefficient, ufl.argument.BaseArgument)) and du.ufl_function_space() != V:
+            raise ValueError("The derivative direction belongs to a different function space.")
     elif isinstance(u, BaseFormOperator):
         uc = u
         V = uc.function_space()
@@ -393,6 +401,8 @@ def extract_domains(f):
     elif isinstance(f, (Cofunction, Coargument)):
         # ufl.domain.extract_domains does not work.
         mesh = f.function_space().mesh()
+        if mesh is None:
+            return []
         if isinstance(mesh, MeshSequenceGeometry):
             return list(set(mesh._meshes))
         else:

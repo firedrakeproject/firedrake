@@ -42,6 +42,10 @@ class AssignExprBuilder(DAGTraverser):
 
     @process.register
     def _(self, func: Function | Cofunction, /) -> op3.Dat:
+        if isinstance(self.function_space, firedrake.realspace.RealSpaceBase):
+            if func.function_space() != self.function_space:
+                raise ValueError("Assignment requires the same mesh-independent function space.")
+            return func.dat, True
         if func.ufl_element().family() == "Real":
             data = func.dat.global_data
             return (
@@ -247,6 +251,8 @@ class Assigner:
         """Return whether the expression and assignee are on different (sub)meshes."""
         expr_meshes = firedrake.ufl_expr.extract_domains(self.expression)
         assignee_meshes = self.assignee.function_space().mesh()
+        if assignee_meshes is None and expr_meshes:
+            raise ValueError("Cannot assign a spatial field to a mesh-independent function space.")
         return any(mesh not in assignee_meshes for mesh in expr_meshes)
 
     @cached_property

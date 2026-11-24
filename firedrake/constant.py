@@ -9,6 +9,7 @@ from tsfc.ufl_utils import TSFCConstantMixin
 import pyop3 as op3
 from pyop3.mpi import collective
 from firedrake.petsc import PETSc
+from firedrake.realspace import real_axes
 from firedrake.utils import ScalarType
 from ufl.classes import all_ufl_classes, ufl_classes, terminal_classes
 from ufl.core.ufl_type import UFLType
@@ -33,20 +34,7 @@ def _constant_axes(shape: tuple[int, ...]) -> op3.AxisTree:
     The tree is shared by all constants of the same shape, so that its
     layouts are only computed once.
     """
-    comm = MPI.COMM_SELF
-    if len(shape) == 0:
-        # could maybe be a Scalar
-        sf = op3.sf.single_star_sf(comm)
-        return op3.AxisTree(op3.Axis(op3.AxisComponent(1, sf=sf)))
-    else:
-        sf = op3.sf.single_star_sf(comm, shape[0])
-        root_component = op3.AxisComponent(shape[0], sf=sf)
-        components = [root_component]
-        for size in shape[1:]:
-            components.append(op3.AxisComponent(size))
-        return op3.AxisTree.from_iterable((
-            op3.Axis(component, label=f"dim{i}") for i, component in enumerate(components)
-        ))
+    return real_axes(MPI.COMM_SELF, shape)
 
 
 def _create_const(value):
