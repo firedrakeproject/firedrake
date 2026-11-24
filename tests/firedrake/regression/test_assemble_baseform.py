@@ -239,6 +239,20 @@ def test_vector_formsum(a):
         assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("foreign_operand", [False, True])
+def test_vector_formsum_rejects_different_spaces(foreign_operand):
+    spaces = [FunctionSpace(UnitIntervalMesh(4), "CG", 1).dual() for _ in range(2)]
+    a, b, out = (Cofunction(V) for V in (spaces[0], spaces[int(foreign_operand)],
+                                          spaces[int(not foreign_operand)]))
+    a.dat.data_wo[:] = 2
+    b.dat.data_wo[:] = 3
+    out.dat.data_wo[:] = 7
+    with pytest.raises(ValueError, match="function space"):
+        assemble(2 * a + 3 * b, tensor=out)
+    assert np.all(out.dat.data_ro == 7)
+
+
 def test_matrix_formsum(M):
     res = assemble(M)
     sumfirst = assemble(M+M)
