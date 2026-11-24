@@ -93,15 +93,10 @@ _supported_embedded_cell_types_and_gdims = [('interval', 2),
                                             ("interval * interval", 3)]
 
 
-# TODO: use these
-_FLAT_MESH_AXIS_LABEL_SUFFIX = "points"
-_STRATIFIED_MESH_AXIS_LABEL_SUFFIX = "strata"
-
-
 UNMARKED = -1
 """A mesh marker that selects all entities that are not explicitly marked."""
 
-DEFAULT_MESH_NAME = "_".join(["firedrake", "default"])
+DEFAULT_MESH_NAME = "firedrake_default"
 """The default name of the mesh."""
 
 DISTRIBUTION_PARAMETERS_NOOP = {
@@ -114,9 +109,10 @@ cached_property_until_topology_changes = cached_property_until(
     lambda self: self._topology_version
 )
 
-cached_method_until_topology_changes = cached_method_until(
-    lambda self: self._topology_version
-)
+
+def cached_method_until_topology_changes(*args, **kwargs):
+    """Decorator for caching methods that invalidate when the topology changes."""
+    return cached_method_until(lambda self: self._topology_version, *args, **kwargs)
 
 
 def _generate_default_submesh_name(name):
@@ -531,7 +527,7 @@ class AbstractMeshTopology(abc.ABC):
         """Add overlap."""
         pass
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def get_work_function_cache(self, ufl_element):
         """Get the cache for work functions.
 
@@ -668,7 +664,7 @@ class AbstractMeshTopology(abc.ABC):
             else:
                 return self._entity_axes(dim=stratum)
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_axes_by_name(self, name: str):
         if name == "cell":
             # NOTE: not sure this is necessary
@@ -774,7 +770,7 @@ class AbstractMeshTopology(abc.ABC):
 
         return self._plex_to_entity_numbering_sec(stratum=0).createGlobalSection(self.point_sf.sf)
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _entity_dm_indices(
         self,
         _selector: str | int | tuple[int, ...] | None = None,
@@ -972,7 +968,7 @@ class AbstractMeshTopology(abc.ABC):
             case _:
                 raise NotImplementedError
 
-    @cached_method_until_topology_changes
+    @cached_method_until_topology_changes()
     def _plex_to_entity_numbering_sec(
         self,
         _selector: str | int | tuple[int, ...] | None = None,
@@ -3147,30 +3143,35 @@ class ExtrudedMeshTopology(MeshTopology):
         return closures
 
     @cached_property
-    def extr_cell_to_base_cell_map(self):
+    def extr_cell_to_base_cell_map(self) -> op3.Map:
         """Return the map from extruded cells to cells of the base mesh."""
         base_cell_nums = np.arange(
-            self._base_mesh.cells.owned.local_size, dtype=IntType
+            self._base_mesh.cells.local_size, dtype=IntType
         )
         extr_base_cell_nums = base_cell_nums.repeat(self.layers-1)
 
-        src_axis = self.cells.owned.root
         dest_axis = self._base_mesh._uid
         dest_stratum = self._base_mesh.cell_label
 
         map_axes = op3.AxisTree.from_iterable([
-            self.cells.owned.root,
-            op3.Axis(1, "extr_cell_base_cell")
+            self.cells.root, op3.Axis(1, "extr_cell_base_cell")
         ])
         dat = op3.Dat(map_axes, data=extr_base_cell_nums)
+        map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None)
 
-        return op3.Map(
-            {
-                idict({src_axis.label: src_axis.component.label}): [[
-                    op3.TabulatedMapComponent(dest_axis, dest_stratum, dat, label=None),
-                ]]
-            },
-        )
+        connectivity = {idict({self._uid: self.cell_label}): [[map_cpt]]}
+
+        # In serial there is no need to differentiate between owned and owned+ghost
+        if self.comm.size > 1:
+            owned_map_axes = op3.AxisTree.from_iterable([
+                self.cells.owned.root, op3.Axis(1, "extr_cell_base_cell")
+            ])
+            owned_dat = op3.Dat(owned_map_axes, data=dat.data_ro.copy())
+            owned_map_cpt = op3.TabulatedMapComponent(dest_axis, dest_stratum, owned_dat, label=None)
+            connectivity[idict({f"{self._uid}_owned": self.cell_label})] = [[owned_map_cpt]]
+
+        # TODO: This could be a ScalarMap
+        return op3.Map(connectivity)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
