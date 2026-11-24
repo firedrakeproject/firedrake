@@ -561,7 +561,7 @@ def test_mesh_independent_real_space(shape):
     if np.iscomplexobj(x):
         y *= 1 + 2j
     h = Function(P, val=x)
-    g = Cofunction(P.dual(), val=y)
+    g = Cofunction(P.dual(), val=y.copy())
     with h.dat.vec_ro as vec:
         assert vec.getSize() == n
         assert vec.norm() == pytest.approx(np.linalg.norm(x))
