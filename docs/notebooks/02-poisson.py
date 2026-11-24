@@ -117,7 +117,7 @@ fig.colorbar(collection);
 # where $\Gamma_1$ is the plane $y = 0$ and $\Gamma_2$ is the plane $y = 1$.
 #
 # - Hint 1: To provide a zero right hand side, you'll need to write `Constant(0)*v*dx`.
-# - Hint 2: Use help to remind youself of the boundary markers for meshes.
+# - Hint 2: Use help to remind yourself of the boundary markers for meshes.
 # - Hint 3: The bcs argument to `solve` can be a list of boundary conditions.
 # - Hint 4: You can check your answer against the exact solution $u^* = 1 + y$.
 
