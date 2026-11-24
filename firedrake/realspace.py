@@ -138,7 +138,7 @@ class RealSpace(RealSpaceBase, ufl.FunctionSpace):
         return self._dual_space
 
 
-class _DualRealSpace(RealSpaceBase, ufl.DualSpace):
+class _DualRealSpace(RealSpaceBase, ufl.functionspace.DualSpace):
     def __init__(self, primal: RealSpace) -> None:
         self._primal_space = primal
         super().__init__(primal._layout)
