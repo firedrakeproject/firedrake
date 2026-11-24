@@ -243,8 +243,10 @@ def test_vector_formsum(a):
 @pytest.mark.parametrize("foreign_operand", [False, True])
 def test_vector_formsum_rejects_different_spaces(foreign_operand):
     spaces = [FunctionSpace(UnitIntervalMesh(4), "CG", 1).dual() for _ in range(2)]
-    a, b, out = (Cofunction(V) for V in (spaces[0], spaces[int(foreign_operand)],
-                                          spaces[int(not foreign_operand)]))
+    V, W = spaces
+    a = Cofunction(V)
+    b = Cofunction(W if foreign_operand else V)
+    out = Cofunction(V if foreign_operand else W)
     a.dat.data_wo[:] = 2
     b.dat.data_wo[:] = 3
     out.dat.data_wo[:] = 7
