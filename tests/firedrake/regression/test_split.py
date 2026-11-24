@@ -1,7 +1,6 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
-from ufl.algorithms import expand_derivatives
 import ufl
 import numpy as np
 
@@ -39,9 +38,10 @@ def test_assemble_split_derivative_coefficient_tuple(mat_type):
     F = inner(u*p, v)*dx + inner(p, q)*dx + inner(u, r)*dx
     # The last column has a zero direction for both coefficients
     J = ufl.derivative(F, (u, p), (du, dp))
+    J_ref = inner(du*p + u*dp, v)*dx + inner(dp, q)*dx + inner(du, r)*dx
 
     actual = assemble(J, mat_type=mat_type).petscmat
-    expected = assemble(expand_derivatives(J), mat_type=mat_type).petscmat
+    expected = assemble(J_ref, mat_type=mat_type).petscmat
     if mat_type == "nest":
         blocks = [(actual.getNestSubMatrix(i, j), expected.getNestSubMatrix(i, j))
                   for i, j in np.ndindex(3, 3)]
@@ -52,6 +52,7 @@ def test_assemble_split_derivative_coefficient_tuple(mat_type):
         assert A.norm(PETSc.NormType.NORM_FROBENIUS) < 1e-12
 
 
+@pytest.mark.skipif(utils.complex_mode, reason="The derivative of u*p*dx does not conjugate the test function.")
 @pytest.mark.parallel([1, 2])
 def test_assemble_split_gradient_coefficient_tuple():
     """Assemble the gradient of a functional wrt a tuple of coefficients."""
@@ -62,11 +63,13 @@ def test_assemble_split_gradient_coefficient_tuple():
     x = SpatialCoordinate(mesh)
     u = Function(V).interpolate(1 + x[0])
     p = Function(Q).interpolate(2 + x[0]*x[1])
+    v, q = TestFunctions(W)
 
-    dG = ufl.derivative(u*p*dx, (u, p), TestFunctions(W))
+    dG = ufl.derivative(u*p*dx, (u, p), (v, q))
+    dG_ref = (v*p + u*q)*dx
 
     actual = assemble(dG)
-    expected = assemble(expand_derivatives(dG))
+    expected = assemble(dG_ref)
     for a, e in zip(actual.subfunctions, expected.subfunctions):
         assert np.allclose(a.dat.data_ro, e.dat.data_ro)
 
