@@ -162,7 +162,7 @@ class CachedSolverBlock(Block):
                 continue
             if dep.output is self.forward_cache.func:  # Can't compute dependence on initial guess
                 continue
-            tlm_rhs += firedrake.assemble(dFdm)
+            tlm_rhs += firedrake.assemble(dFdm, **self.forward_cache.assemble_params)
 
         # Solve for dudm
         solver = self.tangent_cache.solver
@@ -183,7 +183,10 @@ class CachedSolverBlock(Block):
         self.adjoint_cache.solver.solve()
 
         if compute_boundary:
-            adj_sol_bc = firedrake.assemble(self.adjoint_cache.residual)
+            adj_sol_bc = firedrake.assemble(
+                self.adjoint_cache.residual,
+                **self.forward_cache.assemble_params,
+            )
             adj_sol_bc = adj_sol_bc.riesz_representation("l2")
         else:
             adj_sol_bc = None
@@ -222,7 +225,10 @@ class CachedSolverBlock(Block):
             )
 
         # assemble sensititivy comment
-        dFdm = firedrake.assemble(self.adjoint_cache.dFdm_forms[idx])
+        dFdm = firedrake.assemble(
+            self.adjoint_cache.dFdm_forms[idx],
+            **self.forward_cache.assemble_params,
+        )
 
         return dFdm
 
@@ -246,7 +252,10 @@ class CachedSolverBlock(Block):
         # tlm_output contribution
         self.hessian_cache.tlm_output.assign(tlm_output)
         if not self.hessian_cache.d2Fdu2_form.empty():
-            hessian_rhs -= firedrake.assemble(self.hessian_cache.d2Fdu2_form)
+            hessian_rhs -= firedrake.assemble(
+                self.hessian_cache.d2Fdu2_form,
+                **self.forward_cache.assemble_params,
+            )
 
         # tlm_input contribution
         for d2Fdmdu, dep in zip(self.hessian_cache.d2Fdmdu_forms,
@@ -256,7 +265,10 @@ class CachedSolverBlock(Block):
             if dep.output is self.forward_cache.func:  # Can't compute dependence on initial guess
                 continue
             if len(d2Fdmdu.integrals()) > 0:
-                hessian_rhs -= firedrake.assemble(d2Fdmdu)
+                hessian_rhs -= firedrake.assemble(
+                    d2Fdmdu,
+                    **self.forward_cache.assemble_params,
+                )
 
         # 2. Solve adjoint system
         compute_boundary = self._compute_boundary(relevant_dependencies)
@@ -300,7 +312,10 @@ class CachedSolverBlock(Block):
                      self.hessian_cache.dFdm_adj2_forms[idx],
                      *relevant_d2Fdm2_forms):
             if not form.empty():
-                hessian_output += firedrake.assemble(form)
+                hessian_output += firedrake.assemble(
+                    form,
+                    **self.forward_cache.assemble_params,
+                )
 
         return hessian_output
 
