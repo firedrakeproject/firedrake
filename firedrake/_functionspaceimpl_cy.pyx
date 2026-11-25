@@ -14,15 +14,15 @@ def _get_ndofs_extruded(mesh: firedrake.mesh.MeshGeometry, entity_dofs: dict) ->
     base_dim_label = dm.getLabel("base_dim")
 
     for base_dim in base_dim_label.getValueIS().indices:
-        matching_pts = base_dim_label.getStratumIS(base_dim)
+        matching_pts = base_dim_label.getStratumIS(base_dim).indices
         vertex_pts = np.intersect1d(
-            matching_pts.indices,
-            mesh._entity_dm_indices(dim=(base_dim, 0), return_array=True),
+            matching_pts,
+            mesh._entity_dm_indices((base_dim, 0), force_return_array=True),
             assume_unique=True,
         )
         edge_pts = np.intersect1d(
-            matching_pts.indices,
-            mesh._entity_dm_indices(dim=(base_dim, 1), return_array=True),
+            matching_pts,
+            mesh._entity_dm_indices((base_dim, 1), force_return_array=True),
             assume_unique=True,
         )
         ndofs[vertex_pts] = entity_dofs[base_dim, 0]

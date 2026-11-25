@@ -254,32 +254,38 @@ cdef inline void get_chart(PETSc.PetscDM dm, PetscInt *pStart, PetscInt *pEnd):
         raise ValueError("dm must be a DMPlex or DMSwarm")
 
 
-def entity_numbering(selected_points: np.ndarray | tuple[int, int], new_to_old_numbering: np.ndarray | Integral, MPI.Comm comm) -> PETSc.Section:
+def entity_numbering(
+    selected_points: np.ndarray | slice,
+    new_to_old_numbering: np.ndarray | Integral,
+    MPI.Comm comm,
+) -> PETSc.Section:
     """Return a PETSc section representing the renumbering of a set of points.
 
-    The section maps from 'plex' indices (i.e. point numbers as seen by DMPlex) to
-    entity-wise indices in the range [0, selected_points.size). This mapping is
-    achieved by calling 'section.getOffset(plex_point)'.
+    The section maps from 'DM' indices (i.e. point numbers as seen by PETSc) to
+    entity-wise indices in the range ``[0, selected_points.size)``. This mapping is
+    achieved by calling ``section.getOffset(dm_point)``.
 
     Parameters
     ----------
-    selected_points :
-        The 'plex' indices that we wish to include in the numbering.
-    new_to_old_renumbering :
-        The mesh numbering.
+    selected_points : numpy.ndarray | slice
+        The DM indices that we wish to include in the numbering. If the indices
+        are contiguous this is allowed to be a `slice`.
+    new_to_old_numbering : numpy.ndarray | numbers.Integral
+        The mesh point numbering. If the renumbering is identity then the
+        chart size (an integer) is passed instead.
+    comm : mpi4py.MPI.Comm
+        The communicator.
 
     Returns
     -------
-    PETSc.Section :
+    PETSc.Section
         A PETSc section encoding the numbering.
 
     """
-    if isinstance(selected_points, tuple):
-        assert len(selected_points) == 2
-        selected_points = range(*selected_points)
+    if isinstance(selected_points, slice):
+        selected_points = range(selected_points.start, selected_points.stop)
 
     section = PETSc.Section().create(comm=comm)
-
     if isinstance(new_to_old_numbering, Integral):
         section.setChart(0, new_to_old_numbering)
     else:
@@ -292,11 +298,34 @@ def entity_numbering(selected_points: np.ndarray | tuple[int, int], new_to_old_n
     return section
 
 
-def section_offsets(section: PETSc.Section, selected_points: PetscInt[::1] | tuple[int, int], *, sort: bool = False) -> np.ndarray:
-    """Return the section offsets for a given set of points."""
+def section_offsets(
+    section: PETSc.Section,
+    selected_points: np.ndarray | slice,
+    *,
+    sort: bool = False,
+) -> np.ndarray:
+    """Return the section offsets for a given set of points.
 
-    if isinstance(selected_points, tuple):
-        start, stop = selected_points
+    Parameters
+    ----------
+    section : petsc4py.PETSc.Section
+        The section to gather offsets from.
+    selected_points : numpy.ndarray | slice
+        The points in the chart of the section to gather the offsets of.
+    sort : bool
+        Should the returned array be sorted? Default is `False`.
+
+    Returns
+    -------
+    numpy.ndarray
+        The offsets given by the section at the selected points.
+
+    """
+    # Dispatch on the type of selected points here so we can generate faster,
+    # type-specific code
+    if isinstance(selected_points, slice):
+        start = selected_points.start
+        stop = selected_points.stop
         offsets = np.empty(stop-start, dtype=IntType)
         for i, pt in enumerate(range(start, stop)):
             offsets[i] = section.getOffset(pt)
@@ -308,7 +337,7 @@ def section_offsets(section: PETSc.Section, selected_points: PetscInt[::1] | tup
     return offsets
 
 
-def _section_offsets_with_array(section, PetscInt[::1] selected_points):
+def _section_offsets_with_array(section, const PetscInt[::1] selected_points) -> np.ndarray:
     offsets = np.empty(selected_points.size, dtype=IntType)
     for i, pt in enumerate(selected_points):
         offsets[i] = section.getOffset(pt)
@@ -336,18 +365,6 @@ def section_permute(section: PETSc.Section, PetscInt[::1] perm) -> PETSc.Section
         CHKERR(PetscSectionSetOffset(new_section.sec, pnew, n))
 
     return new_section
-
-
-# TODO: This should be in petsc4py
-# NOTE: This is way way way slower than numpy.intersect1d
-def intersect_is(is1: PETSc.IS, is2: PETSc.IS) -> PETSc.IS:
-    """Return the intersection of two PETSc ISs."""
-    cdef:
-        PETSc.IS is_intersected
-
-    is_intersected = PETSc.IS().create(comm=MPI.COMM_SELF)
-    PETSc.CHKERR(ISIntersect(is1.iset, is2.iset, &is_intersected.iset))
-    return is_intersected
 
 
 def count_labelled_points(PETSc.DM dm, name,
@@ -2098,41 +2115,32 @@ def validate_mesh(PETSc.DM dm):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def compute_dm_renumbering(
-    mesh,
+    PETSc.DM dm,
     new_to_old_cell_numbering: np.ndarray | None = None,
 ) -> np.ndarray:
     """Return a renumbering of DM points that maximises locality.
 
-    :arg dm: The DMPlex object encapsulating the mesh topology
-    :arg reordering: A reordering from reordered to original plex
-         points used to provide the traversal order of the cells
-         (i.e. the inverse of the ordering obtained from
-         DMPlexGetOrdering).  Optional, if not provided (or ``None``),
-         no reordering is applied and the plex is traversed in
-         original order.
-    :arg boundary_set: A set of boundary subdomains, where a DirichletBC is to
-         be applied. This is None if working with a FunctionSpace object, and
-         non-empty if working with a RestrictedFunctionSpace object. If one is
-         provided, this will move all core or owned boundary points to the end
-         of the core+owned block.
+    Parameters
+    ----------
+    dm : petsc4py.PETSc.DMPlex
+        The mesh topology.
+    new_to_old_cell_numbering : numpy.ndarray | None
+        A traversal order for cells that favours locality. If `None` then cells
+        are traversed in DM point order.
 
-    The node permutation is derived from a depth-first traversal of
-    the Plex graph over each entity class in turn. The returned IS
-    is the Plex -> PyOP2 permutation. A tuple indicating the start and end of
-    the core/owned constrained block is returned, for use in create_section.
+    Returns
+    -------
+    numpy.ndarray
+        The point permutation describing an optimal ordering for DM points.
+
     """
     # TODO: clean this up
     cdef:
-        PETSc.IS ordering_is
-        PETSc.DM dm
-
         PetscInt pStart_c, pEnd_c, nPoints_c
         PetscInt cStart, cEnd, nclosure
         PetscInt *closure = NULL
         PetscBT seen_points = NULL
         bint reorder
-
-    dm = mesh.topology_dm
 
     reorder = new_to_old_cell_numbering is not None
 
@@ -2166,22 +2174,23 @@ def compute_dm_renumbering(
         restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
     CHKERR(PetscBTDestroy(&seen_points))
 
-    return np.asarray(ordering)
+    return ordering
 
 
-def partition_renumbering(PETSc.DM dm, const PetscInt[::1] serial_new_to_old_numbering) -> np.ndarray:
+def partition_renumbering(PETSc.DM dm, PetscInt[::1] serial_new_to_old_numbering) -> np.ndarray:
     """Partition a serial point renumbering into owned and ghost points."""
     cdef:
         DMLabel        ghost_label_c
-        PetscInt       n_points_c, n_owned_c, n_ghost_c, is_ghost_c
+        PetscInt       n_owned_c, n_ghost_c, is_ghost_c
         PetscInt       owned_ptr_c, ghost_ptr_c, i_c, pt_c
+        PetscInt *parallel_new_to_old_renumbering_c = NULL
 
     parallel_new_to_old_numbering = np.empty_like(serial_new_to_old_numbering)
 
     n_points_c = serial_new_to_old_numbering.size
     CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghost_label_c))
     CHKERR(DMLabelGetStratumSize(ghost_label_c, 1, &n_ghost_c))
-    n_owned_c = n_points_c - n_ghost_c
+    n_owned_c = serial_new_to_old_numbering.size - n_ghost_c
 
     owned_ptr_c = 0
     ghost_ptr_c = n_owned_c
@@ -2195,7 +2204,8 @@ def partition_renumbering(PETSc.DM dm, const PetscInt[::1] serial_new_to_old_num
             parallel_new_to_old_numbering[owned_ptr_c] = pt_c
             owned_ptr_c += 1
     assert owned_ptr_c == n_owned_c
-    assert ghost_ptr_c == n_points_c
+    assert ghost_ptr_c == serial_new_to_old_numbering.size
+
     return parallel_new_to_old_numbering
 
 
@@ -3981,16 +3991,6 @@ def extrude_point_numbering(dm, base_dm, base_renumbering, nlayers, periodic, ex
     for ep in range(start, end):
         extr_renumbering[ep] = base_renumbering[extr2base[ep]] * column_height + extr2off[ep]
     return extr_renumbering
-
-
-def filter_is(is_: PETSc.IS, start: IntType, end: IntType) -> PETSc.IS:
-    cdef:
-        PETSc.IS filtered_is
-    assert is_, "uninitialised ISes are not allowed as they cause deadlocks"
-    is_ = is_.toGeneral()
-    filtered_is = is_.duplicate()
-    PETSc.CHKERR(ISGeneralFilter(filtered_is.iset, start, end))
-    return filtered_is
 
 
 # TODO: petsc4py

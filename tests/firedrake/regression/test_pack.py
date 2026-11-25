@@ -57,7 +57,12 @@ def test_extruded_cell_base_cell_map(iter_type):
 
     """
     num_layers = 3
+<<<<<<< HEAD
     base_mesh = UnitIntervalMesh(4)
+||||||| bd846cdc8
+=======
+    base_mesh = UnitIntervalMesh(5)
+>>>>>>> origin/connorjward/minor-refactor
     extr_mesh = ExtrudedMesh(base_mesh, num_layers)
 
     Vb = FunctionSpace(base_mesh, "DG", 0)
