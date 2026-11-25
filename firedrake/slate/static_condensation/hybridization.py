@@ -1,12 +1,11 @@
-import functools
-
 import ufl
+import finat.ufl
+import pyop3 as op3
 
-import firedrake.dmhooks as dmhooks
 from firedrake.slate.static_condensation.sc_base import SCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
-from firedrake.parloops import par_loop, READ, INC
+from firedrake.pack import pack
 from firedrake.slate.slate import Tensor, AssembledVector
 from firedrake.slate.static_condensation.la_utils import SchurComplementBuilder
 from firedrake.ufl_expr import adjoint
@@ -15,28 +14,34 @@ __all__ = ['HybridizationPC', 'SchurComplementBuilder']
 
 
 class HybridizationPC(SCBase):
+    """Solve a mixed H(div)-conforming problem using hybridization.
+
+    Group the H(div) fields and the L2 fields into two blocks. Eliminate
+    both blocks locally with Slate and enforce continuity through one
+    trace field for each H(div) field.
+
+    Notes
+    -----
+    Configure the trace solver with the ``hybridization_`` options prefix.
+    By default, the local solver puts the H(div) subspaces in ``fieldsplit_0``
+    and the L2 subspaces in ``fieldsplit_1``. Set
+    ``hybridization_localsolve_pc_fieldsplit_0_fields`` and
+    ``hybridization_localsolve_pc_fieldsplit_1_fields`` to change the splits.
+    """
 
     needs_python_pmat = True
 
-    """A Slate-based python preconditioner that solves a
-    mixed H(div)-conforming problem using hybridization.
-    Currently, this preconditioner supports the hybridization
-    of the RT and BDM mixed methods of arbitrary degree.
-
-    The forward eliminations and backwards reconstructions
-    are performed element-local using the Slate language.
-    """
-
     @PETSc.Log.EventDecorator("HybridInit")
-    def initialize(self, pc):
-        """Set up the problem context. Take the original
-        mixed problem and reformulate the problem as a
-        hybridized mixed system.
+    def initialize(self, pc: PETSc.PC) -> None:
+        """Construct the hybridized system and its local reconstruction.
 
-        A KSP is created for the Lagrange multiplier system.
+        Parameters
+        ----------
+        pc : PETSc.PC
+            The preconditioner that supplies the original mixed operator.
         """
         from firedrake import (FunctionSpace, Cofunction, Function,
-                               TrialFunction, TrialFunctions, TestFunction,
+                               TrialFunction, TrialFunctions, TestFunction, TestFunctions,
                                DirichletBC)
         from firedrake.assemble import get_assembler
         from ufl.algorithms.replace import replace
@@ -58,143 +63,131 @@ class HybridizationPC(SCBase):
         else:
             raise NotImplementedError("Not implemented for general mixed meshes")
 
-        if len(V) != 2:
-            raise ValueError("Expecting two function spaces.")
-
-        if all(Vi.value_shape for Vi in V):
-            raise ValueError("Expecting an H(div) x L2 pair of spaces.")
-
-        # Automagically determine which spaces are vector and scalar
-        for i, Vi in enumerate(V):
-            if Vi.ufl_element().sobolev_space.name == "HDiv":
-                self.vidx = i
-            else:
-                assert Vi.ufl_element().sobolev_space.name == "L2"
-                self.pidx = i
+        self.vidx = tuple(i for i, Vi in enumerate(V) if Vi.ufl_element().sobolev_space == ufl.HDiv)
+        self.pidx = tuple(i for i, Vi in enumerate(V) if Vi.ufl_element().sobolev_space == ufl.L2)
+        if not self.vidx or not self.pidx or len(self.vidx) + len(self.pidx) != len(V):
+            raise ValueError("Expecting H(div) and L2 spaces.")
 
         # Create the space of approximate traces.
-        W = V[self.vidx]
-        if W.ufl_element().family() == "Brezzi-Douglas-Marini":
-            tdegree = W.ufl_element().degree()
+        W = V.sub(self.vidx)
+        TraceSpace = FunctionSpace(W.mesh(), div_to_trace(W.ufl_element()))
 
-        else:
-            try:
-                # If we have a tensor product element
-                h_deg, v_deg = W.ufl_element().degree()
-                tdegree = (h_deg - 1, v_deg - 1)
-
-            except TypeError:
-                tdegree = W.ufl_element().degree() - 1
-
-        TraceSpace = FunctionSpace(mesh[self.vidx], "HDiv Trace", tdegree)
-
-        # Break the function spaces and define fully discontinuous spaces
-        V_d = V.broken_space()
-
-        # Set up the functions for the original, hybridized
-        # and schur complement systems
-        self.broken_solution = Function(V_d)
-        self.broken_residual = Cofunction(V_d.dual())
-        self.trace_solution = Function(TraceSpace)
+        # The hybridized solution and residual are on the broken subspaces,
+        # followed by the trace subspaces.
+        Z = V.broken_space() * TraceSpace
+        d = tuple(range(len(V)))
+        self.c = tuple(range(len(V), len(Z)))
+        Vd = Z.sub(d)
+        Vc = Z.sub(self.c)
+        self.solution = Function(Z)
+        self.residual = Cofunction(Z.dual())
+        self.condensed_rhs = Cofunction(Vc.dual())
         self.unbroken_solution = Function(V)
         self.unbroken_residual = Cofunction(V.dual())
 
-        shapes = (V[self.vidx].finat_element.space_dimension(),
-                  V[self.vidx].block_size)
-        domain = "{[i,j]: 0 <= i < %d and 0 <= j < %d}" % shapes
-        instructions = """
-        for i, j
-            w[i,j] = w[i,j] + 1
-        end
-        """
-        self.weight = Function(V[self.vidx])
-        par_loop((domain, instructions), ufl.dx, {"w": (self.weight, INC)})
+        # Weight each DOF by the reciprocal of its multiplicity.
+        # Create persistent loops that scatter the residual into the broken space and gather the broken solution.
+        self.weight = Function(V)
+        self.scatter_loops = []
+        self.gather_loops = []
+        for i in d:
+            c = mesh_unique.iter("cell")
+            op3.loop(c, pack(self.weight.sub(i), c).iassign(1), eager=True)
 
-        instructions = """
-        for i, j
-            vec_out[i,j] = vec_out[i,j] + vec_in[i,j]/w[i,j]
-        end
-        """
-        self.average_kernel = (domain, instructions)
+            broken_residual = pack(self.residual.sub(i), c, nodal=True)
+            unbroken_residual = pack(self.unbroken_residual.sub(i), c, nodal=True)
+            self.scatter_loops.append(op3.loop(c, broken_residual.assign(unbroken_residual, _weakref=False)))
+
+            broken_solution = pack(self.solution.sub(i), c, nodal=True)
+            unbroken_solution = pack(self.unbroken_solution.sub(i), c, nodal=True)
+            self.gather_loops.append(op3.loop(c, unbroken_solution.iassign(broken_solution, _weakref=False)))
+        with self.weight.dat.vec_rw as w:
+            w.reciprocal()
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
         # arguments
-        arg_map = {test: TestFunction(V_d),
-                   trial: TrialFunction(V_d)}
+        arg_map = {test: TestFunction(Vd),
+                   trial: TrialFunction(Vd)}
         Atilde = Tensor(replace(self.ctx.a, arg_map))
-        gammar = TestFunction(TraceSpace)
+        gammar = TestFunctions(Vc)
         n = ufl.FacetNormal(mesh_unique)
-        sigma = TrialFunctions(V_d)[self.vidx]
+        sigma = TrialFunctions(Vd)
 
-        if mesh_unique.extruded:
-            Kform = (ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS_h
-                     + ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS_v)
-        else:
-            Kform = ufl.inner(ufl.jump(sigma, n=n), gammar('+')) * ufl.dS
+        for bc in self.ctx.row_bcs:
+            if bc.function_space_index(V) in self.pidx:
+                raise NotImplementedError("Dirichlet conditions for scalar variable not supported. Use a weak bc")
+            if bc.function_space_index(V) not in self.vidx:
+                raise NotImplementedError("Dirichlet bc set on unsupported space.")
 
-        # Here we deal with boundaries. If there are Neumann
-        # conditions (which should be enforced strongly for
-        # H(div)xL^2) then we need to add jump terms on the exterior
-        # facets. If there are Dirichlet conditions (which should be
-        # enforced weakly) then we need to zero out the trace
-        # variables there as they are not active (otherwise the hybrid
-        # problem is not well-posed).
-
-        # If boundary conditions are contained in the ImplicitMatrixContext:
-        if self.ctx.row_bcs:
-            # Find all the subdomains with neumann BCS
-            # These are Dirichlet BCs on the vidx space
-            neumann_subdomains = set()
-            for bc in self.ctx.row_bcs:
-                if bc.function_space_index(V) == self.pidx:
-                    raise NotImplementedError("Dirichlet conditions for scalar variable not supported. Use a weak bc")
-                if bc.function_space_index(V) != self.vidx:
-                    raise NotImplementedError("Dirichlet bc set on unsupported space.")
-                # append the set of sub domains
-                neumann_subdomains |= set(bc.sub_domain)
-
-            # separate out the top and bottom bcs
-            extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
-            neumann_subdomains = neumann_subdomains - extruded_neumann_subdomains
-
-            integrand = ufl.inner(ufl.dot(sigma, n), gammar)
-            measures = []
-            trace_subdomains = []
+        Kform = 0
+        trace_bcs = []
+        for i, j in enumerate(self.vidx):
             if mesh_unique.extruded:
-                ds = ufl.ds_v
-                for subdomain in sorted(extruded_neumann_subdomains):
-                    measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
-                trace_subdomains.extend(sorted({"top", "bottom"} - extruded_neumann_subdomains))
+                Kform += (ufl.inner(ufl.jump(sigma[j], n=n), gammar[i]('+')) * ufl.dS_h
+                          + ufl.inner(ufl.jump(sigma[j], n=n), gammar[i]('+')) * ufl.dS_v)
             else:
-                ds = ufl.ds
-            if "on_boundary" in neumann_subdomains:
-                measures.append(ds)
+                Kform += ufl.inner(ufl.jump(sigma[j], n=n), gammar[i]('+')) * ufl.dS
+
+            # Here we deal with boundaries. If there are Neumann
+            # conditions (which should be enforced strongly for
+            # H(div)xL^2) then we need to add jump terms on the exterior
+            # facets. If there are Dirichlet conditions (which should be
+            # enforced weakly) then we need to zero out the trace
+            # variables there as they are not active (otherwise the hybrid
+            # problem is not well-posed).
+
+            # If boundary conditions on this subspace are contained in the ImplicitMatrixContext:
+            field_bcs = [bc for bc in self.ctx.row_bcs if bc.function_space_index(V) == j]
+            if field_bcs:
+                # Find all the subdomains with neumann BCS
+                # These are Dirichlet BCs on the vidx space
+                neumann_subdomains = set()
+                for bc in field_bcs:
+                    # append the set of sub domains
+                    neumann_subdomains |= set(bc.sub_domain)
+
+                # separate out the top and bottom bcs
+                extruded_neumann_subdomains = neumann_subdomains & {"top", "bottom"}
+                neumann_subdomains = neumann_subdomains - extruded_neumann_subdomains
+
+                integrand = ufl.inner(ufl.dot(sigma[j], n), gammar[i])
+                measures = []
+                trace_subdomains = []
+                if mesh_unique.extruded:
+                    ds = ufl.ds_v
+                    for subdomain in sorted(extruded_neumann_subdomains):
+                        measures.append({"top": ufl.ds_t, "bottom": ufl.ds_b}[subdomain])
+                    trace_subdomains.extend(sorted({"top", "bottom"} - extruded_neumann_subdomains))
+                else:
+                    ds = ufl.ds
+                if "on_boundary" in neumann_subdomains:
+                    measures.append(ds)
+                else:
+                    measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
+                    markers = [int(x) for x in mesh_unique.facet_markers]
+                    dirichlet_subdomains = set(markers) - neumann_subdomains
+                    trace_subdomains.extend(sorted(dirichlet_subdomains))
+
+                for measure in measures:
+                    Kform += integrand*measure
+
+                trace_bcs.extend(DirichletBC(Vc[i], 0, subdomain) for subdomain in trace_subdomains)
+
             else:
-                measures.extend((ds(sd) for sd in sorted(neumann_subdomains)))
-                markers = [int(x) for x in mesh_unique.facet_markers]
-                dirichlet_subdomains = set(markers) - neumann_subdomains
-                trace_subdomains.extend(sorted(dirichlet_subdomains))
-
-            for measure in measures:
-                Kform += integrand*measure
-
-            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
-
-        else:
-            # No bcs were provided, we assume weak Dirichlet conditions.
-            # We zero out the contribution of the trace variables on
-            # the exterior boundary. We don't need to do this for boundary-less
-            # domains (like a sphere).
-            trace_subdomains = []
-            if mesh_unique.extruded:
-                if mesh_unique.exterior_facets_vert.global_size > 0:
+                # No bcs were provided, we assume weak Dirichlet conditions.
+                # We zero out the contribution of the trace variables on
+                # the exterior boundary. We don't need to do this for boundary-less
+                # domains (like a sphere).
+                trace_subdomains = []
+                if mesh_unique.extruded:
+                    if mesh_unique.exterior_facets_vert.global_size > 0:
+                        trace_subdomains.append("on_boundary")
+                    if not mesh_unique.extruded_periodic:
+                        trace_subdomains.extend(["bottom", "top"])
+                elif mesh_unique.exterior_facets.global_size > 0:
                     trace_subdomains.append("on_boundary")
-                if not mesh_unique.extruded_periodic:
-                    trace_subdomains.extend(["bottom", "top"])
-            elif mesh_unique.exterior_facets.global_size > 0:
-                trace_subdomains.append("on_boundary")
-            trace_bcs = [DirichletBC(TraceSpace, 0, subdomain) for subdomain in trace_subdomains]
+                trace_bcs.extend(DirichletBC(Vc[i], 0, subdomain) for subdomain in trace_subdomains)
 
         # Make a SLATE tensor from Kform
         K = Tensor(Kform)
@@ -202,216 +195,106 @@ class HybridizationPC(SCBase):
 
         # Build schur complement operator and right hand side
         self.schur_builder = SchurComplementBuilder(prefix, Atilde, K, KT, pc, self.vidx, self.pidx)
-        schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.broken_residual))
-
-        # Assemble the Schur complement operator and right-hand side
-        self.schur_rhs = Cofunction(TraceSpace.dual())
+        schur_rhs, schur_comp = self.schur_builder.build_schur(AssembledVector(self.residual.sub(d)))
         self._assemble_Srhs = get_assembler(schur_rhs, form_compiler_parameters=self.ctx.fc_params).assemble
 
-        mat_type = PETSc.Options().getString(prefix + "mat_type", "aij")
-        form_assembler = get_assembler(schur_comp, bcs=trace_bcs, form_compiler_parameters=self.ctx.fc_params, mat_type=mat_type, options_prefix=prefix, appctx=self.get_appctx(pc))
-        self.S = form_assembler.allocate()
-        self._assemble_S = form_assembler.assemble
+        monitor = self.ctx.appctx.get("custom_monitor", None)
+        self.initialize_condensed_ksp(pc, prefix, Vc, schur_comp, trace_bcs, "trace_nullspace", monitor=monitor)
 
-        with PETSc.Log.Event("HybridOperatorAssembly"):
-            self._assemble_S(tensor=self.S)
+        # Set up local solvers for backwards substitution
+        self.local_solvers = self.local_solver_callbacks(self.residual, self.solution, d, self.schur_builder)
 
-        Smat = self.S.petscmat
+    def forward_elimination(self, pc: PETSc.PC, x: PETSc.Vec) -> None:
+        """Eliminate the mixed fields to form the right-hand side on the trace space.
 
-        nullspace = self.ctx.appctx.get("trace_nullspace", None)
-        if nullspace is not None:
-            nsp = nullspace(TraceSpace)
-            Smat.setNullSpace(nsp.nullspace())
-
-        # Create a SNESContext for the DM associated with the trace problem
-        self._ctx_ref = self.new_snes_ctx(pc,
-                                          schur_comp,
-                                          trace_bcs,
-                                          mat_type,
-                                          self.ctx.fc_params,
-                                          options_prefix=prefix)
-
-        # dm associated with the trace problem
-        trace_dm = TraceSpace.dm
-
-        # KSP for the system of Lagrange multipliers
-        trace_ksp = PETSc.KSP().create(comm=pc.comm)
-        trace_ksp.incrementTabLevel(1, parent=pc)
-
-        # Set the dm for the trace solver
-        trace_ksp.setDM(trace_dm)
-        trace_ksp.setDMActive(PETSc.KSP.DMActive.ALL, False)
-        trace_ksp.setOptionsPrefix(prefix)
-        trace_ksp.setOperators(Smat, Smat)
-
-        # Option to add custom monitor
-        monitor = self.ctx.appctx.get('custom_monitor', None)
-        if monitor:
-            monitor.add_reconstructor(self.backward_substitution)
-            trace_ksp.setMonitor(monitor)
-
-        self.trace_ksp = trace_ksp
-
-        with dmhooks.add_hooks(trace_dm, self,
-                               appctx=self._ctx_ref,
-                               save=False):
-            trace_ksp.setFromOptions()
-
-        # Generate reconstruction calls
-        self._reconstruction_calls()
-
-    def _reconstruction_calls(self):
-        """This generates the reconstruction calls for the unknowns using the
-        Lagrange multipliers.
-        """
-        from firedrake.assemble import get_assembler
-
-        # We always eliminate the velocity block first
-        id0, id1 = (self.vidx, self.pidx)
-
-        # TODO: When PyOP2 is able to write into mixed dats,
-        # the reconstruction expressions can simplify into
-        # one clean expression.
-
-        # reuse work from trace operator build
-        A, B, C, _ = self.schur_builder.list_split_mixed_ops
-        K_0, K_1 = self.schur_builder.list_split_trace_ops
-        Ahat = self.schur_builder.A00_inv_hat
-        S = self.schur_builder.inner_S
-
-        # Split functions and reconstruct each bit separately
-        split_residual = self.broken_residual.subfunctions
-        split_sol = self.broken_solution.subfunctions
-        g = AssembledVector(split_residual[id0])
-        f = AssembledVector(split_residual[id1])
-        sigma = split_sol[id0]
-        u = split_sol[id1]
-        lambdar = AssembledVector(self.trace_solution)
-
-        R = K_1.T - C * Ahat * K_0.T
-        rhs = f - C * Ahat * g - R * lambdar
-        if self.schur_builder.schur_approx or self.schur_builder.jacobi_S:
-            Shat = self.schur_builder.inner_S_approx_inv_hat
-            if self.schur_builder.preonly_S:
-                S = Shat
-            else:
-                S = Shat * S
-                rhs = Shat * rhs
-
-        u_rec = S.solve(rhs, decomposition="PartialPivLU")
-        self._sub_unknown = functools.partial(get_assembler(u_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=u)
-
-        sigma_rec = A.solve(g - B * AssembledVector(u) - K_0.T * lambdar,
-                            decomposition="PartialPivLU")
-        self._elim_unknown = functools.partial(get_assembler(sigma_rec, form_compiler_parameters=self.ctx.fc_params).assemble, tensor=sigma)
-
-    @PETSc.Log.EventDecorator("HybridUpdate")
-    def update(self, pc):
-        """Update by assembling into the operator. No need to
-        reconstruct symbolic objects.
-        """
-        self._assemble_S(tensor=self.S)
-
-    def forward_elimination(self, pc, x):
-        """Perform the forward elimination of fields and
-        provide the reduced right-hand side for the condensed
-        system.
-
-        :arg pc: a Preconditioner instance.
-        :arg x: a PETSc vector containing the incoming right-hand side.
+        Parameters
+        ----------
+        pc : PETSc.PC
+            The preconditioner for the original mixed system.
+        x : PETSc.Vec
+            The right-hand side of the original mixed system.
         """
 
         with PETSc.Log.Event("HybridBreak"):
-            with self.unbroken_residual.dat.vec_wo as v:
-                x.copy(v)
-
-            # Transfer unbroken_rhs into broken_rhs
-            # NOTE: Scalar space is already "broken" so no need for
-            # any projections
-            unbroken_scalar_data = self.unbroken_residual.subfunctions[self.pidx]
-            broken_scalar_data = self.broken_residual.subfunctions[self.pidx]
-            broken_scalar_data.dat.assign(unbroken_scalar_data.dat, eager=True, eager_strategy="array")
-
-            # Assemble the new "broken" hdiv residual
             # We need a residual R' in the broken space that
             # gives R'[w] = R[w] when w is in the unbroken space.
             # We do this by splitting the residual equally between
             # basis functions that add together to give unbroken
             # basis functions.
-            unbroken_res_hdiv = self.unbroken_residual.subfunctions[self.vidx]
-            broken_res_hdiv = self.broken_residual.subfunctions[self.vidx]
-            broken_res_hdiv.assign(0)
-            par_loop(self.average_kernel, ufl.dx,
-                     {"w": (self.weight, READ),
-                      "vec_in": (unbroken_res_hdiv, READ),
-                      "vec_out": (broken_res_hdiv, INC)})
+            with self.unbroken_residual.dat.vec_wo as v, self.weight.dat.vec_ro as w:
+                v.pointwiseMult(x, w)
+            for loop in self.scatter_loops:
+                loop()
 
         with PETSc.Log.Event("HybridRHS"):
             # Compute the rhs for the multiplier system
-            self._assemble_Srhs(tensor=self.schur_rhs)
+            self._assemble_Srhs(tensor=self.condensed_rhs)
 
-    def sc_solve(self, pc):
-        """Solve the condensed linear system for the
-        condensed field.
+    def backward_substitution(self, pc: PETSc.PC, y: PETSc.Vec) -> None:
+        """Recover the eliminated fields from the trace solution.
 
-        :arg pc: a Preconditioner instance.
+        Parameters
+        ----------
+        pc : PETSc.PC
+            The preconditioner for the original mixed system.
+        y : PETSc.Vec
+            The vector in which to store the recovered solution.
         """
-
-        dm = self.trace_ksp.getDM()
-
-        with dmhooks.add_hooks(dm, self, appctx=self._ctx_ref):
-
-            # Solve the system for the Lagrange multipliers
-            with self.schur_rhs.dat.vec_ro as b:
-                if self.trace_ksp.getInitialGuessNonzero():
-                    acc = self.trace_solution.dat.vec_rw
-                else:
-                    acc = self.trace_solution.dat.vec_wo
-                with acc as x_trace:
-                    self.trace_ksp.solve(b, x_trace)
-
-    def backward_substitution(self, pc, y):
-        """Perform the backwards recovery of eliminated fields.
-
-        :arg pc: a Preconditioner instance.
-        :arg y: a PETSc vector for placing the resulting fields.
-        """
-        # We assemble the unknown which is an expression
-        # of the first eliminated variable.
-        with PETSc.Log.Event("RecoverFirstElim"):
-            self._sub_unknown()
-        # Recover the eliminated unknown
-        self._elim_unknown()
+        for local_solver_call in self.local_solvers:
+            local_solver_call()
 
         with PETSc.Log.Event("HybridProject"):
-            # Project the broken solution into non-broken spaces
-            broken_pressure = self.broken_solution.subfunctions[self.pidx]
-            unbroken_pressure = self.unbroken_solution.subfunctions[self.pidx]
-            unbroken_pressure.dat.assign(broken_pressure.dat, eager=True, eager_strategy="array")
-
-            # Compute the hdiv projection of the broken hdiv solution
-            broken_hdiv = self.broken_solution.subfunctions[self.vidx]
-            unbroken_hdiv = self.unbroken_solution.subfunctions[self.vidx]
-            unbroken_hdiv.assign(0)
-
-            par_loop(self.average_kernel, ufl.dx,
-                     {"w": (self.weight, READ),
-                      "vec_in": (broken_hdiv, READ),
-                      "vec_out": (unbroken_hdiv, INC)})
-
-        with self.unbroken_solution.dat.vec_ro as v:
-            v.copy(y)
+            # Average the broken solution into the unbroken space.
+            self.unbroken_solution.zero()
+            for loop in self.gather_loops:
+                loop()
+            with self.unbroken_solution.dat.vec_ro as u, self.weight.dat.vec_ro as w:
+                y.pointwiseMult(u, w)
 
     def view(self, pc, viewer=None):
         """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
-        if hasattr(self, "trace_ksp"):
+        if hasattr(self, "condensed_ksp"):
             viewer.printfASCII("Applying hybridization to mixed problem.\n")
             viewer.printfASCII("Statically condensing to trace system.\n")
             viewer.printfASCII("KSP solver for the multipliers:\n")
-            self.trace_ksp.view(viewer)
+            self.condensed_ksp.view(viewer)
             viewer.printfASCII("Locally reconstructing solutions.\n")
             viewer.printfASCII("Projecting broken flux into HDiv space.\n")
 
+    @property
+    def trace_ksp(self) -> PETSc.KSP:
+        """Return the KSP that solves the system for the traces."""
+        return self.condensed_ksp
+
     def getSchurComplementBuilder(self):
         return self.schur_builder
+
+
+def div_to_trace(element: finat.ufl.FiniteElementBase) -> finat.ufl.FiniteElementBase:
+    """Construct the trace element for the normal component of an H(div) element.
+
+    Parameters
+    ----------
+    element : finat.ufl.FiniteElementBase
+        An H(div) element or a mixed element of H(div) elements.
+
+    Returns
+    -------
+    finat.ufl.FiniteElementBase
+        The trace element with the same mixed, vector, or tensor structure.
+    """
+    if isinstance(element, (finat.ufl.VectorElement, finat.ufl.TensorElement)):
+        return element.reconstruct(sub_element=div_to_trace(element._sub_element))
+    elif isinstance(element, finat.ufl.MixedElement):
+        return type(element)(*map(div_to_trace, element.sub_elements))
+    elif isinstance(element, finat.ufl.RestrictedElement):
+        return element.reconstruct(element=div_to_trace(element._element))
+    else:
+        degree = element.degree()
+        if element.family() != "Brezzi-Douglas-Marini":
+            if isinstance(degree, tuple):
+                degree = tuple(d - 1 for d in degree)
+            else:
+                degree -= 1
+        return finat.ufl.FiniteElement("HDiv Trace", element.cell, degree)
