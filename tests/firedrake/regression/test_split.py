@@ -4,6 +4,27 @@ from firedrake.formmanipulation import ExtractSubBlock
 import numpy as np
 
 
+@pytest.mark.parametrize("shape,symmetry", [((2, 2), None), ((2, 2), True), ((2, 2, 2), None)],
+                         ids=["unsymmetric", "symmetric", "rank3"])
+@pytest.mark.parametrize("dual", [False, True], ids=["primal", "dual"])
+def test_tensor_function_sub(shape, symmetry, dual):
+    mesh = UnitSquareMesh(1, 1)
+    V = TensorFunctionSpace(mesh, "CG", 1, shape=shape, symmetry=symmetry)
+    if dual:
+        V = V.dual()
+    f = Cofunction(V) if dual else Function(V)
+    n = V.block_size
+    for k in range(n):
+        view = f.sub(k)
+        assert view.function_space() is V.sub(k)
+        assert f.sub((k,)) is view
+        view.assign(k + 1)
+    assert np.allclose(f.dat.data_ro.reshape(-1, n), np.arange(1, n + 1))
+    assert f.sub(range(n)) is f
+    with pytest.raises(NotImplementedError):
+        f.sub((0, n - 1))
+
+
 def test_assemble_split_derivative():
     """Assemble the derivative of a form with a zero block."""
     mesh = UnitSquareMesh(1, 1)
