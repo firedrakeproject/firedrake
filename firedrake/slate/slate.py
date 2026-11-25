@@ -24,6 +24,7 @@ from ufl import Constant
 from ufl.coefficient import BaseCoefficient
 
 from firedrake.function import Function, Cofunction
+from firedrake.functionspaceimpl import is_mixed
 from firedrake.ufl_expr import TestFunction
 from firedrake.utils import unique
 
@@ -749,10 +750,9 @@ class Block(TensorBase):
         """Splits the function space and stores the component
         spaces determined by the indices.
         """
-        from firedrake.formmanipulation import subspace
-
         tensor, = self.operands
-        return tuple(type(a)(subspace(a.function_space(), self._blocks[i]),
+        return tuple(type(a)((a.function_space().sub(self._blocks[i])
+                              if is_mixed(a.function_space()) else a.function_space().collapse()),
                              a.number(), part=a.part())
                      for i, a in enumerate(tensor.arguments()))
 

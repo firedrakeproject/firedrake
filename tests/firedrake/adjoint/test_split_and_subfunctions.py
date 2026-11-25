@@ -2,6 +2,7 @@ import pytest
 
 from firedrake import *
 from firedrake.adjoint import *
+from firedrake.adjoint_utils.blocks.solving import extract_subfunction
 import numpy as np
 
 
@@ -161,6 +162,29 @@ def test_merge_blocks():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("component", [0, 1])
+@pytest.mark.parametrize("use_subfunctions", [False, True])
+def test_interpolate_vector_component(V1, component: int, use_subfunctions: bool) -> None:
+    mesh = V1.mesh()
+    V = VectorFunctionSpace(mesh, "CG", 1, dim=2)
+    x, y = SpatialCoordinate(mesh)
+    with stop_annotating():
+        kappa = Function(V1).interpolate(1 + x + 2 * y)
+        h = Function(V1).interpolate(0.1 + 0.2 * x - 0.1 * y)
+
+    u = Function(V).interpolate(as_vector((kappa, 2 * kappa + 1)))
+    u.sub(component).interpolate(kappa**2 + x * y)
+    v = u.subfunctions[0] if use_subfunctions else u
+    J = assemble(inner(v, v)**2 * dx)
+    rf = ReducedFunctional(J, Control(kappa))
+
+    # Check that replay preserves the component write before testing its derivative.
+    assert rf(kappa) == pytest.approx(J)
+    assert taylor_test(rf, kappa, h) > 1.9
+
+
+@pytest.mark.skipcomplex
 def test_subfunctions_always_create_blocks():
     """
     Function.subfunctions use pyadjoint.FloatingType to create Blocks on the fly when
@@ -224,3 +248,53 @@ def test_writing_to_subfunctions():
     assert min(taylor['R0']['Rate']) > 0.95, taylor['R0']
     assert min(taylor['R1']['Rate']) > 1.95, taylor['R1']
     assert min(taylor['R2']['Rate']) > 2.95, taylor['R2']
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("dual", [False, True])
+@pytest.mark.parametrize("indices", [(2, 0), (1,)])
+def test_tuple_subfunctions(V1, V2, dual, indices):
+    W = V1 * V2 * V1
+    with stop_annotating():
+        kappa = Function(W).assign(2)
+        h = Function(W).assign(0.1)
+        if dual:
+            kappa = kappa.riesz_representation("l2")
+            h = h.riesz_representation("l2")
+            initial = kappa.copy(deepcopy=True).assign(5)
+        u = type(kappa)(kappa.function_space())
+        usub = u.sub(indices)
+        weights = Function(W).assign(1)
+
+    u.assign(initial if dual else kappa)
+    if dual:
+        usub.assign(kappa.sub(indices))
+        rf = ReducedFunctional(u, Control(kappa))
+        output = rf(h)
+        derivative = rf.derivative(adj_input=weights)
+        hessian = rf.hessian(h)
+        for j, sub in enumerate(derivative.subfunctions):
+            assert np.allclose(sub.dat.data_ro, 1 if j in indices else 0)
+            assert np.allclose(output.sub(j).dat.data_ro, 0.1 if j in indices else 5)
+            assert np.allclose(hessian.sub(j).dat.data_ro, 0)
+        return
+    usub.assign(3 * usub)
+    J = assemble(inner(u, u)**2 * dx)
+    rf = ReducedFunctional(J, Control(kappa))
+    taylor = taylor_to_dict(rf, kappa, h)
+    assert min(taylor['R1']['Rate']) > 1.95
+    assert min(taylor['R2']['Rate']) > 2.95
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+def test_extract_selected_subfunction(V1, V2):
+    with stop_annotating():
+        W = V1 * V2 * V1
+        f = Function(W)
+        for i, sub in enumerate(f.subfunctions):
+            sub.assign(i + 1)
+        selected = W.sub((2, 0)).sub(0)
+        g = extract_subfunction(f, selected)
+        assert g.function_space() is selected
+        assert np.allclose(g.dat.data_ro, 3)

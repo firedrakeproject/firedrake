@@ -53,6 +53,53 @@ def test_slate_hybridized_on_boundary(degree, hdiv_family, quadrilateral):
     assert u_err < 1e-11
 
 
+def test_slate_hybridized_fieldsplit_bcs():
+    mesh = UnitSquareMesh(6, 6)
+    R = FunctionSpace(mesh, "DG", 0)
+    RT = FunctionSpace(mesh, "RT", 1)
+    DG = FunctionSpace(mesh, "DG", 0)
+    Z = R * RT * DG
+    r, sigma, u = TrialFunctions(Z)
+    s, tau, v = TestFunctions(Z)
+
+    f = Function(DG)
+    x, y = SpatialCoordinate(mesh)
+    f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
+
+    a = (inner(r, s) + inner(sigma, tau) - inner(u, div(tau)) + inner(u, v) + inner(div(sigma), v)) * dx
+    L = inner(f, v) * dx + inner(f, s) * dx
+    bcs = [DirichletBC(Z.sub(1), zero(), "on_boundary")]
+
+    # The hybridized block is the subspace Z.sub((1, 2)), so the boundary
+    # condition on Z.sub(1) is on the H(div) space of that block.
+    z = Function(Z)
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'fieldsplit',
+              'pc_fieldsplit_type': 'additive',
+              'pc_fieldsplit_0_fields': '0',
+              'pc_fieldsplit_1_fields': '1,2',
+              'fieldsplit_0': {'ksp_type': 'preonly',
+                               'pc_type': 'python',
+                               'pc_python_type': 'firedrake.AssembledPC',
+                               'assembled_pc_type': 'lu'},
+              'fieldsplit_1': {'ksp_type': 'preonly',
+                               'pc_type': 'python',
+                               'pc_python_type': 'firedrake.HybridizationPC',
+                               'hybridization': {'ksp_type': 'preonly',
+                                                 'pc_type': 'lu'}}}
+    solve(a == L, z, solver_parameters=params, bcs=bcs)
+
+    z2 = Function(Z)
+    solve(a == L, z2,
+          solver_parameters={'pc_type': 'lu',
+                             'mat_type': 'aij',
+                             'ksp_type': 'preonly'}, bcs=bcs)
+
+    for z_h, nh_z in zip(z.subfunctions, z2.subfunctions):
+        assert errornorm(z_h, nh_z) < 1e-11
+
+
 @pytest.mark.parametrize(("degree", "hdiv_family"),
                          [(1, "RTCF"),
                           (2, "RTCF")])

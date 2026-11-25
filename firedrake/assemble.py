@@ -1,4 +1,5 @@
 import abc
+import contextlib
 import functools
 import itertools
 import numbers
@@ -21,7 +22,7 @@ from firedrake.ufl_expr import extract_domains
 from firedrake.bcs import DirichletBC, EquationBC, EquationBCSplit
 from firedrake.exceptions import MismatchingFunctionSpaceError
 from firedrake.matrix import MatrixBase, Matrix, ImplicitMatrix
-from firedrake.functionspaceimpl import is_mixed
+from firedrake.functionspaceimpl import WithGeometry, is_mixed
 from firedrake.interpolation import get_interpolator, get_runtime_tabulation_coordinates, SameMeshInterpolator
 from firedrake.pack import pack, modified_lgmaps
 from firedrake.petsc import PETSc, local_submat
@@ -279,7 +280,10 @@ class ExprAssembler:
             if tensor is None:
                 try:
                     coefficients = ufl.algorithms.extract_coefficients(expr)
-                    V, = set(c.function_space() for c in coefficients) - {None}
+                    # Subfunctions are compatible with their collapsed spaces.
+                    spaces = {c.function_space().topological: c.function_space()
+                              for c in coefficients if c.function_space() is not None}
+                    V, = spaces.values()
                 except ValueError:
                     raise ValueError("Cannot deduce correct target space from pointwise expression")
                 tensor = firedrake.Function(V)
@@ -1550,26 +1554,24 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         mat = tensor.M
 
         spaces = tuple(a.function_space() for a in tensor.a.arguments())
-        V = bc.function_space()
-        component = V.component
-        if component is not None:
-            V = V.parent
-        component_idx = () if component is None else numpy.unravel_index(component, V.shape)
-        space = V if V.parent is None else V.parent
-        if V.index is None:
-            index = Ellipsis
-        else:
-            # The label comes from the space of the boundary condition, because
-            # the other argument of a rectangular form can have different labels.
-            index = space.field_axis.component_labels[V.index]
         if isinstance(bc, DirichletBC):
-            if not any(bc.parent_function_space.topological == fs.topological for fs in spaces):
+            if not any(bc.parent_function_space.topological == _root_space(fs).topological for fs in spaces):
                 raise MismatchingFunctionSpaceError(
                     "bc space does not match the test or trial function space")
             if spaces[0].topological != spaces[1].topological:
                 # Not on a diagonal block, we cannot set diagonal entries
                 return
 
+        component = bc.function_space().component
+        # Find the subspace of the boundary condition in the test space.
+        row_index = bc.function_space_index(spaces[0])
+        V = spaces[0].sub(row_index)
+        component_idx = () if component is None else numpy.unravel_index(component, V.shape)
+        # The label comes from the test space, because the trial space of a
+        # rectangular form can have different labels.
+        index = row_index if row_index is Ellipsis else tensor.M.row_axes.trees[0].root.component_labels[row_index]
+        if isinstance(bc, DirichletBC):
+            col_index = bc.function_space_index(spaces[1])
             # NOTE: This is only OK in parallel with mixed spaces because we
             # apply the BC to local submat, where DoF interleaving is not
             # applicable.
@@ -1583,19 +1585,22 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                     rows = numpy.dstack([rbs*rows + i for i in range(rbs)]).flatten()
             rows = numpy.asarray(rows, dtype=utils.IntType)
 
-            # unpack MATNESTs
+            # Select the block of the boundary condition, unpacking MATNESTs.
             petscmat = mat.buffer.mat
-            row_index = V.index
             if petscmat.type == PETSc.Mat.Type.NEST:
-                petscmat = petscmat.getNestSubMatrix(row_index or 0, row_index or 0)
-                row_index = None
-            myspace = space if row_index is None else space[row_index]
+                petscmat = petscmat.getNestSubMatrix(0 if row_index is Ellipsis else row_index,
+                                                     0 if col_index is Ellipsis else col_index)
+                block = contextlib.nullcontext(petscmat)
+            elif row_index is Ellipsis:
+                block = contextlib.nullcontext(petscmat)
+            else:
+                block = local_submat(petscmat, V, spaces[1].sub(col_index))
 
             if petscmat.type == PETSc.Mat.Type.IS:
                 # We have to fully assemble (MAT_FINAL_ASSEMBLY not MAT_FLUSH_ASSEMBLY)
                 # a MATIS in order for the following routine to work.
                 mat.buffer.assemble()
-                with local_submat(petscmat, myspace, myspace) as submat:
+                with block as submat:
                     # For MATIS we handle boundary conditions by masking out
                     # rows and columns after the fact because we can't change
                     # lgmaps on the fly.
@@ -1606,7 +1611,7 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                 rows = rows.reshape(-1, 1)
                 values = numpy.full(rows.shape, self.weight, dtype=utils.ScalarType)
                 mat.buffer.maybe_flush_assemble(PETSc.InsertMode.INSERT_VALUES)
-                with local_submat(petscmat, myspace, myspace) as submat:
+                with block as submat:
                     submat.setValuesLocalRCV(
                         rows, rows, values, addv=PETSc.InsertMode.INSERT_VALUES
                     )
@@ -1615,9 +1620,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
             # "lgmaps" is correctly constructed in _matrix_arg, but
             # is ignored by PyOP2 in this case.
             # Walk through row blocks associated with index.
-            for j, s in enumerate(space):
-                if j != V.index and _is_real_space(s):
-                    j = spaces[0]._labels[j]
+            for j, s in enumerate(spaces[1]):
+                if j != col_index and _is_real_space(s):
+                    j = spaces[1]._labels[j]
                     self._apply_bcs_mat_real_block(
                         mat,
                         index,
@@ -1627,9 +1632,9 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
                         "row",
                     )
             # Walk through col blocks associated with index.
-            for i, s in enumerate(space):
-                if i != V.index and _is_real_space(s):
-                    i = spaces[1]._labels[i]
+            for i, s in enumerate(spaces[0]):
+                if i != row_index and _is_real_space(s):
+                    i = spaces[0]._labels[i]
                     self._apply_bcs_mat_real_block(
                         mat, i, index, component_idx, bc.node_set, "column")
 
@@ -1781,7 +1786,7 @@ class ParloopBuilder:
 
     def _filter_bcs(self, function_space, bcs, index: int | None):
         if index is not None:
-            return tuple(bc for bc in bcs if bc.function_space_index() == index)
+            return tuple(bc for bc in bcs if bc.function_space_index(function_space) == index)
         else:
             return bcs
 
@@ -1802,19 +1807,19 @@ class ParloopBuilder:
 
         row_arg, column_arg = matrix.arguments()
         row_space = row_arg.function_space()
-        column_space = column_arg.function_space()
+        col_space = column_arg.function_space()
         i, j = indices
 
         # A boundary condition only constrains the argument that shares its space.
         row_bcs = [bc for bc in self._bcs
-                   if bc.parent_function_space.topological == row_space.topological]
+                   if bc.parent_function_space.topological == _root_space(row_space).topological]
         col_bcs = [bc for bc in self._bcs
                    if isinstance(bc, DirichletBC)
-                   and bc.parent_function_space.topological == column_space.topological]
+                   and bc.parent_function_space.topological == _root_space(col_space).topological]
 
         if matrix.petscmat.type == PETSc.Mat.Type.NEST:
             ii = list(range(len(row_space))) if i is None else [i]
-            jj = list(range(len(column_space))) if j is None else [j]
+            jj = list(range(len(col_space))) if j is None else [j]
 
             # For MATNESTS return an lgmap pair for each block in the form,
             # keyed by nest indices.
@@ -1825,9 +1830,9 @@ class ParloopBuilder:
                 else:
                     # MATNESTS require lgmaps that only address the current block
                     row_subspace = row_space[i]
-                    col_subspace = column_space[j]
-                    row_bcs_ = self._filter_bcs(row_subspace, row_bcs, i)
-                    col_bcs_ = self._filter_bcs(col_subspace, col_bcs, j)
+                    col_subspace = col_space[j]
+                    row_bcs_ = self._filter_bcs(row_space, row_bcs, i)
+                    col_bcs_ = self._filter_bcs(col_space, col_bcs, j)
                     row_lgmap = row_subspace.lgmap(row_bcs_)
                     col_lgmap = col_subspace.lgmap(col_bcs_)
                     lgmaps[i, j] = (row_lgmap, col_lgmap)
@@ -1839,8 +1844,8 @@ class ParloopBuilder:
         else:
             # Not a MATNEST, only a single lgmap pair to consider
             row_bcs = self._filter_bcs(row_space, row_bcs, i)
-            col_bcs = self._filter_bcs(column_space, col_bcs, j)
-            return (row_space.lgmap(row_bcs), column_space.lgmap(col_bcs))
+            col_bcs = self._filter_bcs(col_space, col_bcs, j)
+            return (row_space.lgmap(row_bcs), col_space.lgmap(col_bcs))
 
     @property
     def _indices(self):
@@ -2137,6 +2142,13 @@ class _FormHandler:
                 space = space[index]
             spaces.append(space)
         return tuple(spaces)
+
+
+def _root_space(V: WithGeometry) -> WithGeometry:
+    """Return the top-level space from which ``V`` was selected."""
+    while V.parent is not None:
+        V = V.parent
+    return V
 
 
 def _is_real_space(space):

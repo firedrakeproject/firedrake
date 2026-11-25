@@ -1367,12 +1367,9 @@ class MixedInterpolator(Interpolator):
             sub_bcs = []
             for space, index in zip(spaces, indices):
                 subspace = space.sub(index)
-                # filter the bcs and drop index information because the sub interpolate
-                # doesn't know that it's part of a bigger expression
-                sub_bcs.extend(
-                    bc.reconstruct(V=subspace.collapse())
-                    for bc in bcs if space_equals(bc.function_space(), subspace)
-                )
+                # The arguments of the block are defined on the subspace, so
+                # keep the boundary conditions on the subspace.
+                sub_bcs.extend(bc for bc in bcs if space_equals(bc.function_space(), subspace))
             Isub[indices] = (get_interpolator(block), sub_bcs)
 
         return Isub
