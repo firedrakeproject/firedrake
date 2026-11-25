@@ -67,6 +67,17 @@ This is a numerical operation, equivalent to:
    :end-before: [test_interpolate_operator 6]
 
 
+To restrict interpolation to marked target cells, pass their subdomain IDs:
+
+.. literalinclude:: ../../tests/firedrake/regression/test_interpolation_manual.py
+   :language: python3
+   :dedent:
+   :start-after: [test_interpolate_subdomain_id 1]
+   :end-before: [test_interpolate_subdomain_id 2]
+
+Pass an integer to select one subdomain or a tuple to select multiple subdomains.
+Omit ``subdomain_id`` or use ``"everywhere"`` to select all target cells.
+
 The source expression can be any UFL_ expression with the correct shape.
 UFL produces clear error messages in case of syntax or type errors, yet
 UFL expressions have good run-time performance, since they are
