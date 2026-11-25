@@ -1546,8 +1546,6 @@ class AbstractMeshTopology(abc.ABC):
                 from_numbering_sec,
                 self._plex_to_entity_numbering_sec(dim=to_dim),
             )
-            # if isinstance(to_dim, tuple):
-            #     breakpoint()
 
             # NOTE: currently we must label the innermost axis of the map to be the same as the resulting
             # indexed axis tree. I don't yet know whether to raise an error if this is not upheld or to
@@ -1640,7 +1638,7 @@ class AbstractMeshTopology(abc.ABC):
 
         else:
             assert self.ufl_cell() == ufl.hexahedron
-            raise NotImplementedError
+            raise NotImplementedError("new approach needed for hexes, might be easy")
             return dmcommon.reorder_closure_fiat_hex(plex_closures)
 
     @cached_property_until_topology_changes
@@ -1725,7 +1723,7 @@ class AbstractMeshTopology(abc.ABC):
             closure_perm = utils.invert(np.asarray([20, 18, 9, 10, 11,  0,  2,  4, 19, 12, 13, 14,  1,  3, 5, 15, 16, 17, 6,7, 8], dtype=IntType))
 
         else:
-            raise NotImplementedError
+            raise NotImplementedError("TODO extrusion of this type not yet supported")
 
         flat_fiat_closures = np.empty((self.num_cells(), sum(self._closure_sizes[self.cell_label].values())), dtype=IntType)
         for cell in range(self.num_cells()):

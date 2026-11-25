@@ -413,26 +413,26 @@ def local_facet_number(mesh, facet_type):
     cell_numbering = mesh._plex_to_entity_numbering_sec(stratum=mesh.dimension)
 
     if facet_type == "exterior":
-        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro_with_halos
         ncells_per_facet = 1
         facets = mesh._entity_dm_indices("exterior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet")
     elif facet_type == "interior":
-        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro_with_halos
         ncells_per_facet = 2
         facets = mesh._entity_dm_indices("interior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet")
     elif facet_type == "exterior_vert":
-        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro_with_halos
         ncells_per_facet = 1
         facets = mesh._entity_dm_indices("exterior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet_vert")
     else:
         assert facet_type == "interior_vert"
-        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro_with_halos
         ncells_per_facet = 2
         facets = mesh._entity_dm_indices("interior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
@@ -722,6 +722,7 @@ def cell_closures_and_perms_simplex(mesh) -> tuple[np.ndarray, np.ndarray]:
             # keys (the local numbers of the two non-incident vertices)
             for ei in range(nedges_per_cell):
                 edge = closure[2*(edge_offset_plex+ei)]
+                closures[1][cell, ei] = edge
                 edges[ei] = edge
 
                 # Collect incident vertices
@@ -745,11 +746,9 @@ def cell_closures_and_perms_simplex(mesh) -> tuple[np.ndarray, np.ndarray]:
 
             # Insert into the closure
             for ei in range(nedges_per_cell):
-                closures[1][ei] = edges[ei]
-
                 for ej in range(nedges_per_cell):
                     if closure[2*(edge_offset_plex+ej)] == edges[ei]:
-                        closure_perms[1][cell, ej] = ei
+                        closure_perms[1][cell, ei] = ej
                         break
 
         # 3. Order facets
@@ -1025,36 +1024,36 @@ def cell_closures_and_perms_quad(mesh, np.ndarray cell_orientations):
             if closure[2*(vi+5)] == vertices[1]:
                 closure_perms[0][c, vi] = 1
                 break
-        cell_closure[0][c, 2] = c_vertices[3]
-        for vi in range(4):
-            if closure[2*(vi+5)] == vertices[3]:
-                closure_perms[0][c, vi] = 3
-                break
-        cell_closure[0][c, 3] = c_vertices[2]
+        cell_closure[0][c, 2] = c_vertices[2]
         for vi in range(4):
             if closure[2*(vi+5)] == vertices[2]:
+                closure_perms[0][c, vi] = 3
+                break
+        cell_closure[0][c, 3] = c_vertices[3]
+        for vi in range(4):
+            if closure[2*(vi+5)] == vertices[3]:
                 closure_perms[0][c, vi] = 2
                 break
 
         cell_closure[1][c, 0] = c_facets[0]
         for fi in range(4):
             if closure[2*(1+fi)] == facets[0]:
-                closure_perms[1][c, fi] = 0
+                closure_perms[1][c, 0] = fi
                 break
-        cell_closure[1][c, 1] = c_facets[2]
-        for fi in range(4):
-            if closure[2*(1+fi)] == facets[2]:
-                closure_perms[1][c, fi] = 2
-                break
-        cell_closure[1][c, 2] = c_facets[3]
-        for fi in range(4):
-            if closure[2*(1+fi)] == facets[3]:
-                closure_perms[1][c, fi] = 3
-                break
-        cell_closure[1][c, 3] = c_facets[1]
+        cell_closure[1][c, 1] = c_facets[1]
         for fi in range(4):
             if closure[2*(1+fi)] == facets[1]:
-                closure_perms[1][c, fi] = 1
+                closure_perms[1][c, 3] = fi
+                break
+        cell_closure[1][c, 2] = c_facets[2]
+        for fi in range(4):
+            if closure[2*(1+fi)] == facets[2]:
+                closure_perms[1][c, 1] = fi
+                break
+        cell_closure[1][c, 3] = c_facets[3]
+        for fi in range(4):
+            if closure[2*(1+fi)] == facets[3]:
+                closure_perms[1][c, 2] = fi
                 break
 
         cell_closure[2][c, 0] = c
