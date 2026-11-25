@@ -436,7 +436,6 @@ def coarsen(dm, comm):
     mesh = V.mesh()
     hierarchy, level = get_level(mesh)
     if level < 1:
-        breakpoint()
         raise RuntimeError("Cannot coarsen coarsest DM")
     coarsen = get_ctx_coarsener(dm)
     Vc = coarsen(V, coarsen)
@@ -463,6 +462,26 @@ def coarsen(dm, comm):
         # dm before each solve.
         add_hook(parent, setup=partial(set_ksp_operators, dm), call_setup=True)
     return cdm
+
+
+def _attach_refined_context(dm, ctx, refined_ctx):
+    """Attach the refined context to the DMs of the refined problem and return its solution DM."""
+    refined_ctx.set_snes(ctx.snes)
+    parent = get_parent(dm)
+    coarsener = get_ctx_coarsener(dm)
+    solution_dm = refined_ctx._problem.dm
+    dms = [solution_dm, *(cdm for cdm in refined_ctx.coefficient_dms if cdm != solution_dm)]
+    for refined_dm in dms:
+        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
+                 teardown=partial(pop_parent, refined_dm, parent),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
+                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
+                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
+                 call_setup=True)
+    return solution_dm
 
 
 def _refine_adaptive(dm):
@@ -507,39 +526,22 @@ def _refine_adaptive(dm):
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))
-    coefficient_mapping = {}
-    refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
-    parent = get_parent(dm)
-    coarsener = get_ctx_coarsener(dm)
-    # Get all DMs from the refined problem
-    dms = [refined_ctx._problem.u_restrict.function_space().dm]
-    for value in coefficient_mapping.values():
-        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
-            value_dm = value.function_space().dm
-            if value_dm not in dms:
-                dms.append(value_dm)
-    # Attach refined context
-    for refined_dm in dms:
-        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
-                 teardown=partial(pop_parent, refined_dm, parent),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
-                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
-                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
-                 call_setup=True)
-    return refined_ctx._problem.dm
+    refined_ctx = refine(ctx, refine)
+    return _attach_refined_context(dm, ctx, refined_ctx)
 
 
 def _refine_from_hierarchy(dm):
-    """Return the DM of the refined function space."""
+    """Return the DM of the refined function space, with the refined context if the DM has one."""
     from firedrake.mg.ufl_utils import refine
     Vcoarse = get_function_space(dm)
     if Vcoarse is None:
         raise RuntimeError("No FunctionSpace found on DM")
     Vfine = refine(Vcoarse, refine)
-    return Vfine.dm
+    ctx = get_appctx(dm)
+    if ctx is None:
+        return Vfine.dm
+    refined_ctx = refine(ctx, refine)
+    return _attach_refined_context(dm, ctx, refined_ctx)
 
 
 @PETSc.Log.EventDecorator()

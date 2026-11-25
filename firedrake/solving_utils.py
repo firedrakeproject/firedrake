@@ -1,10 +1,11 @@
 import typing
 import weakref
+from contextlib import ExitStack, contextmanager
 from itertools import chain
 
 import numpy
 
-from firedrake import dmhooks, parameters
+from firedrake import dmhooks, parameters, utils
 from firedrake.bcs import DirichletBC
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -15,7 +16,9 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
-from ufl import as_vector, replace, split, zero
+from ufl import BaseForm, as_vector, replace, split, zero
+from ufl.algorithms import extract_coefficients
+from ufl.classes import Expr
 
 if typing.TYPE_CHECKING:
     from firedrake.variational_solver import NonlinearVariationalProblem
@@ -366,6 +369,35 @@ class _SNESContext:
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    @cached_property
+    def coefficient_dms(self) -> tuple[PETSc.DM, ...]:
+        """Return the unique DMs of the coefficients of F, J, Jp, E, bcs and the appctx."""
+        problem = self._problem
+        objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
+        problem_coefficients = chain.from_iterable(f.coefficients() for f in objs if f is not None)
+        appctx_objs = (v for v in self.appctx.values() if isinstance(v, (Expr, BaseForm)))
+        appctx_coefficients = chain.from_iterable(map(extract_coefficients, appctx_objs))
+        coefficients = utils.unique(chain(problem_coefficients, appctx_coefficients))
+        dms = []
+        for coefficient in coefficients:
+            dm = coefficient.function_space().dm
+            if dm not in dms:
+                dms.append(dm)
+        return tuple(dms)
+
+    @contextmanager
+    def problem_hooks(self, solution_dm: PETSc.DM, *, include_coefficient_dms: bool):
+        """Attach this context to the solution DM and, optionally, to the coefficient DMs."""
+        with ExitStack() as stack:
+            stack.enter_context(dmhooks.add_hooks(solution_dm, self, appctx=self))
+            if include_coefficient_dms:
+                # The coefficient DMs only need the appctx to find the transfer manager.
+                for dm in self.coefficient_dms:
+                    if dm != solution_dm:
+                        dmhooks.push_appctx(dm, self)
+                        stack.callback(dmhooks.pop_appctx, dm, self)
+            yield
 
     @property
     def transfer_manager(self):
