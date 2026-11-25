@@ -603,7 +603,6 @@ class Function(ufl.Coefficient, FunctionMixin):
         return float(self.topological)
 
     @cached_property
-    @PETSc.Log.EventDecorator()
     def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
@@ -612,9 +611,9 @@ class Function(ufl.Coefficient, FunctionMixin):
 
         # Store data into ``C struct''
         c_function = _CFunction()
-        c_function.coords = coordinates.dat.buffer._current_device_array.ctypes.data_as(c_void_p)
+        c_function.coords = coordinates.dat.buffer._get_array().ctypes.data_as(c_void_p)
         c_function.coords_map = coordinates._cell_dof_map_array.ctypes.data_as(POINTER(as_ctypes(IntType)))
-        c_function.f = self.dat.buffer._current_device_array.ctypes.data_as(c_void_p)
+        c_function.f = self.dat.buffer._get_array().ctypes.data_as(c_void_p)
         c_function.f_map = self._cell_dof_map_array.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 

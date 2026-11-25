@@ -14,15 +14,15 @@ def _get_ndofs_extruded(mesh: firedrake.mesh.MeshGeometry, entity_dofs: dict) ->
     base_dim_label = dm.getLabel("base_dim")
 
     for base_dim in base_dim_label.getValueIS().indices:
-        matching_pts = base_dim_label.getStratumIS(base_dim)
+        matching_pts = base_dim_label.getStratumIS(base_dim).indices
         vertex_pts = np.intersect1d(
-            matching_pts.indices,
-            mesh._plex_indices_for_dim((base_dim, 0)).indices,
+            matching_pts,
+            mesh._entity_dm_indices((base_dim, 0), force_return_array=True),
             assume_unique=True,
         )
         edge_pts = np.intersect1d(
-            matching_pts.indices,
-            mesh._plex_indices_for_dim((base_dim, 1)).indices,
+            matching_pts,
+            mesh._entity_dm_indices((base_dim, 1), force_return_array=True),
             assume_unique=True,
         )
         ndofs[vertex_pts] = entity_dofs[base_dim, 0]
@@ -35,6 +35,7 @@ def _partition_constrained_points(
     mesh: firedrake.mesh.MeshGeometry,
     ndofs: np.ndarray,
     boundary_set,
+    renumber: bool,
 ):
     """Split a section into unconstrained and constrained sets."""
     constrained_pts_is = firedrake.cython.dmcommon.get_boundary_set_points(
@@ -58,5 +59,8 @@ def _partition_constrained_points(
     num_free_dofs[free_pts] = ndofs[free_pts]
 
     # Finally reorder the arrays because we have a different numbering
-    perm = mesh._new_to_old_point_numbering
-    return num_free_dofs[perm], num_constrained_dofs[perm]
+    if renumber:
+        perm = mesh._new_to_old_point_numbering
+        num_free_dofs = num_free_dofs[perm]
+        num_constrained_dofs = num_constrained_dofs[perm]
+    return num_free_dofs, num_constrained_dofs

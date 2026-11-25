@@ -17,6 +17,7 @@ from petsc4py import PETSc
 
 import pyop3.arrayref
 import pyop3.axis_tree
+import pyop3.buffer
 import pyop3.device
 import pyop3.record
 from pyop3 import utils
@@ -117,17 +118,22 @@ class Dat(Tensor):
         else:
             assert buffer is None and data is not None
 
-            # The shape of the underlying buffer for a dat should be 1D. Do
-            # ravel not flatten here because we don't want to do a copy.
-            data = data.ravel()
-
             if buffer_kwargs is None:
                 buffer_kwargs = {}
             if "name" not in buffer_kwargs:
                 buffer_kwargs["name"] = f"{name}_buffer"
             if constant not in buffer_kwargs:
                 buffer_kwargs["constant"] = constant
-            buffer = ArrayBuffer(data, axes.unindexed.sf, **buffer_kwargs)
+
+            if isinstance(data, np.ndarray):
+                # The shape of the underlying buffer for a dat should be 1D. Do
+                # ravel not flatten here because we don't want to do a copy.
+                data = data.ravel()
+                buffer = ArrayBuffer(data, axes.unindexed.sf, **buffer_kwargs)
+            elif isinstance(data, PETSc.Vec):
+                buffer = pyop3.buffer.PetscVecBuffer(data, axes.unindexed.sf, **buffer_kwargs)
+            else:
+                raise TypeError
 
         object.__setattr__(self, "axes", axes)
         object.__setattr__(self, "buffer", buffer)

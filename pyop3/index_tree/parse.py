@@ -591,13 +591,13 @@ def _(
             for input_path in equivalent_input_paths:
                 if input_path in called_map.connectivity:
                     found = True
-                    for output_spec in called_map.connectivity[input_path]:
+                    for output_spec in called_map.connectivity[input_path].items():
                         possibilities.append((input_path, output_spec))
             assert found, "must be at least one matching path"
 
         for input_path, output_spec in possibilities:
             # TODO: Introduce new type here so we don't need the 1-tuple, also assert single input path...
-            restricted_connectivity = idict({input_path: (output_spec,)})
+            restricted_connectivity = idict({input_path: idict({output_spec})})
             restricted_map = called_map.map.record_new(connectivity=restricted_connectivity)
             restricted_called_map = called_map.record_new(map=restricted_map, index=cf_index)
             cf_maps.append(restricted_called_map)
