@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import pyop3 as op3
 from firedrake import *
-from firedrake.assemble import TwoFormAssembler
+from firedrake.assemble import TwoFormAssembler, get_assembler
 from firedrake.utils import ScalarType
 
 
@@ -279,6 +279,148 @@ def test_one_form_assembler_cache(mesh):
     # changing zero_bc_nodes should increase the cache size
     assemble(L, zero_bc_nodes=False)
     assert len(L._cache[_FORM_CACHE_KEY]) == 4
+
+
+@pytest.mark.parallel(2)
+@pytest.mark.parametrize("rank", [0, 1, 2])
+def test_loops_shared_between_coefficients(mesh, rank):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    v = TestFunction(V) if rank > 0 else 1
+    u = TrialFunction(V) if rank > 1 else 1
+    loops = set()
+    for k in range(3):
+        w = Function(W)
+        w.subfunctions[0].assign(k + 1)
+        w.subfunctions[1].assign(2 * k + 1)
+        c = Constant(k + 1)
+        u0, u1 = split(w)
+        form = c * inner((u0 + u1) * u, v) * dx(domain=mesh)
+        expected = assemble((k + 1) * (3 * k + 2) * inner(u, v) * dx(domain=mesh))
+
+        # Forms with new coefficients share the loops
+        result = assemble(form)
+        loops.add(id(get_assembler(form)._parloops))
+        if rank == 0:
+            assert np.isclose(result, expected)
+        elif rank == 1:
+            assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
+        else:
+            result.petscmat.axpy(-1, expected.petscmat)
+            assert np.isclose(result.petscmat.norm(), 0)
+
+    assert len(loops) == 1
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("rank", [0, 1, 2])
+def test_repeated_assembly_with_updated_inputs(mesh, rank):
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V * V
+    w = Function(W)
+    c = Constant(1)
+    w0, w1 = split(w)
+    v = TestFunction(V) if rank > 0 else 1
+    u = TrialFunction(V) if rank > 1 else 1
+    form = c * inner((w0 + w1) * u, v) * dx(domain=mesh)
+    assembler = get_assembler(form)
+    tensors = (assembler.allocate(), assembler.allocate())
+
+    for k in range(4):
+        w.subfunctions[0].assign(k + 1)
+        w.subfunctions[1].assign(2 * k + 1)
+        c.assign(k + 2)
+        result = assembler.assemble(tensor=tensors[k % 2])
+        expected = assemble((k + 2) * (3 * k + 2) * inner(u, v) * dx(domain=mesh))
+        if rank == 0:
+            assert np.isclose(result, expected)
+        elif rank == 1:
+            assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
+        else:
+            result.petscmat.axpy(-1, expected.petscmat)
+            assert np.isclose(result.petscmat.norm(), 0)
+
+
+def test_loops_shared_between_tensor_layouts(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    W = V * Q
+    q = TestFunction(Q)
+    expected = assemble(conj(q) * dx)
+
+    # The second tensor is a view into the dat of a mixed cofunction
+    plain = assemble(Constant(1) * conj(q) * dx, tensor=Cofunction(Q.dual()))
+    mixed = Cofunction(W.dual())
+    assemble(Constant(1) * conj(q) * dx, tensor=mixed.subfunctions[1])
+    assert np.allclose(plain.dat.data_ro, expected.dat.data_ro)
+    assert np.allclose(mixed.subfunctions[1].dat.data_ro, expected.dat.data_ro)
+    assert np.allclose(mixed.subfunctions[0].dat.data_ro, 0)
+
+
+def test_assemble_with_different_coefficient_layouts(mesh):
+    x, y = SpatialCoordinate(mesh)
+    W = FunctionSpace(mesh, "DG", 1) * FunctionSpace(mesh, "CG", 2)
+
+    # Standalone Functions on the subspaces of W
+    u1 = Function(W.sub(0)).interpolate(x + 2*y)
+    v1 = Function(W.sub(1)).interpolate(sin(4*pi*x)*cos(4*pi*y))
+    expected = assemble((u1 - v1)**2*dx)
+
+    # The subfunctions have the same spaces, but their dats are views into the dat of w
+    w = Function(W)
+    u2, v2 = w.subfunctions
+    u2.assign(u1)
+    v2.assign(v1)
+    assert np.isclose(assemble((u2 - v2)**2*dx), expected)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("order", ["shared_first", "separate_first"])
+def test_assemble_with_coefficients_sharing_data(order):
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "DG", 1)
+    W = V * V
+
+    w = Function(W)
+    w0, w1 = w.subfunctions
+    w0.interpolate(sin(3*x))
+    w1.interpolate(x + y)
+
+    z = Function(W)
+    s = Function(W)
+    z0 = z.subfunctions[0]
+    s1 = s.subfunctions[1]
+    z0.interpolate(cos(2*y))
+    s1.interpolate(x*y + 1)
+
+    pairs = [(w1, w0), (s1, z0)]
+    if order == "separate_first":
+        pairs.reverse()
+    for a, b in pairs:
+        # The reference uses standalone copies, which share no data.
+        expected = assemble((Function(V).assign(a) - Function(V).assign(b))**2*dx)
+        assert np.isclose(assemble((a - b)**2*dx), expected)
+
+
+@pytest.mark.parallel([1, 2])
+def test_assemble_with_cell_sizes_as_coefficient():
+    mesh = UnitSquareMesh(4, 4)
+    x, y = SpatialCoordinate(mesh)
+    P1 = FunctionSpace(mesh, "CG", 1)
+    H = FunctionSpace(mesh, "Hermite", 3)
+    v = TestFunction(H)
+    f = Function(P1).interpolate(1 + x*y)
+    # Use a different quadrature degree to keep the reference loops separate.
+    fcp = {"quadrature_degree": 8}
+    expected_sizes = assemble(inner(Function(P1).assign(mesh.cell_sizes), v)*dx, form_compiler_parameters=fcp)
+    expected_f = assemble(inner(Function(P1).assign(f), v)*dx, form_compiler_parameters=fcp)
+
+    # The Hermite kernel takes cell sizes as both geometry and a coefficient.
+    sizes = assemble(inner(mesh.cell_sizes, v)*dx)
+    result_f = assemble(inner(f, v)*dx)
+    assert np.allclose(sizes.dat.data_ro, expected_sizes.dat.data_ro)
+    assert np.allclose(result_f.dat.data_ro, expected_f.dat.data_ro)
 
 
 @pytest.mark.xfail(reason="Assembler caching not currently supported for two forms")

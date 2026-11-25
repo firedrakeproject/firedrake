@@ -9,7 +9,7 @@ from functools import cached_property
 import firedrake
 import numpy
 from pyadjoint.tape import annotate_tape
-from pyop3.cache import with_heavy_caches
+from pyop3.cache import cached_on, with_heavy_caches
 from tsfc import kernel_args
 from tsfc.ufl_utils import extract_firedrake_constants
 import ufl
@@ -943,6 +943,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
         self._access = access
+        self._parloops = None
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -988,14 +989,16 @@ class ParloopFormAssembler(FormAssembler):
                     # FIXME: this doesn't work for matrices (yet)
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
-        for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
-            parloop, lgmaps, setup_callables = parloop_info
+        parloops = self.parloops(tensor)
+        for parloop_info, input_dats in zip(parloops, self._input_dats):
+            local_kernel, parloop, lgmaps, setup_callables, tensor_name, arg_names = parloop_info
             for setup in setup_callables:
                 setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
-                arg_replace_map = {self._tensor_id[local_kernel]: subtensor}
+                arg_replace_map = {name: dat for name, dat in zip(arg_names, input_dats, strict=True) if name is not None}
+                arg_replace_map[tensor_name] = subtensor
                 parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
@@ -1029,36 +1032,109 @@ class ParloopFormAssembler(FormAssembler):
             The PyOP3 object that represents ``tensor``.
         """
 
+    @cached_property
+    def _input_dats(self) -> tuple[tuple, ...]:
+        """Return the coefficient and constant dats for each local kernel."""
+        return tuple(
+            tuple(c.dat for c in itertools.chain(
+                _FormHandler.iter_active_coefficients(self._form, local_kernel.kinfo),
+                _FormHandler.iter_constants(self._form, local_kernel.kinfo),
+            ))
+            for local_kernel, *_ in self._parloops
+        )
+
     def parloops(self, tensor):
-        if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_id")
-        else:
-            tensor_id = {}
-            parloops_ = []
-            for local_kernel, subdomain_id in self.local_kernels:
-                # TODO: Move this about
-                subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
-                tensor_id[local_kernel] = subtensor.name
-
-                parloop_builder = ParloopBuilder(
-                    self._form,
-                    tensor,
-                    self._bcs,
-                    local_kernel,
-                    subdomain_id,
-                    self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
-                    diagonal=self.diagonal,
-                )
-                parloops_.append((
-                    parloop_builder.build(),
-                    parloop_builder.collect_lgmaps(tensor, local_kernel.indices),
-                    parloop_builder.setup_callables,
-                ))
-            self._parloops = parloops_
-            self._tensor_id = tensor_id
-
+        if self._parloops is None:
+            mesh_buffers, variants = self._parloop_cache(tensor)
+            key = self._data_sharing_key(tensor, mesh_buffers)
+            if key not in variants:
+                variants[key] = self._build_parloops(tensor)
+            self._parloops = variants[key]
         return self._parloops
+
+    @cached_on(
+        get_obj=lambda self, tensor: get_mesh_topologies(self._form),
+        get_key=lambda self, tensor: self._parloops_key(tensor),
+        multi=True,
+    )
+    def _parloop_cache(
+        self, tensor: "op3.Scalar | firedrake.Function | firedrake.Cofunction | MatrixBase"
+    ) -> tuple[tuple[op3.buffer.AbstractBuffer, ...], dict]:
+        """Return the mesh buffers and loop variants for this form structure."""
+        buffers = []
+        if self._form.coefficients():
+            for local_kernel, _ in self.local_kernels:
+                kinfo = local_kernel.kinfo
+                mesh_functions = itertools.chain(
+                    _FormHandler.iter_active_coordinates(self._form, kinfo),
+                    _FormHandler.iter_active_cell_orientations(self._form, kinfo),
+                    _FormHandler.iter_active_cell_sizes(self._form, kinfo),
+                )
+                buffers.extend(f.dat.buffer for f in mesh_functions)
+        return tuple(dict.fromkeys(buffers)), {}
+
+    def _build_parloops(self, tensor):
+        """Build the loops that assemble the form into ``tensor``."""
+        parloops = []
+        for local_kernel, subdomain_id in self.local_kernels:
+            parloop_builder = ParloopBuilder(
+                self._form,
+                tensor,
+                self._bcs,
+                local_kernel,
+                subdomain_id,
+                self.all_integer_subdomain_ids[local_kernel.indices][local_kernel.kinfo.domain_number],
+                diagonal=self.diagonal,
+            )
+            parloop = parloop_builder.build()
+            parloops.append((
+                local_kernel,
+                parloop,
+                parloop_builder.collect_lgmaps(tensor, local_kernel.indices),
+                parloop_builder.setup_callables,
+                self._as_pyop3_type(tensor, local_kernel.indices).name,
+                parloop_builder.coefficient_names + parloop_builder.constant_names,
+            ))
+        return parloops
+
+    def _parloops_key(self, tensor):
+        """Return the key of the loops in the cache on the mesh."""
+        spaces = [a.function_space() for a in self._form.arguments()]
+        spaces.extend(c.function_space() for c in self._form.coefficients())
+        return (
+            type(self),
+            self._form.signature(),
+            self._form.ufl_domains(),
+            # Subspaces of a mixed space compare equal, but the loops index the dat of their parent.
+            tuple((V, V.parent, V.index) for V in spaces),
+            # The loops iterate over the subdomain data, which is not part of the signature.
+            utils.freeze(self._form.subdomain_data()),
+            tuple(self._bcs),
+            tuplify(self._form_compiler_params),
+            self.diagonal,
+            self._access,
+            # The loops index the data of the tensor and of the coefficients, which can be views
+            # into a larger dat. A subfunction and a Function on the same subspace differ here.
+            self._as_pyop3_type(tensor).axis_trees,
+            tuple(c.dat.axis_trees for c in self._form.coefficients()),
+        )
+
+    def _data_sharing_key(
+        self,
+        tensor: "op3.Scalar | firedrake.Function | firedrake.Cofunction | MatrixBase",
+        mesh_buffers: tuple[op3.buffer.AbstractBuffer, ...],
+    ) -> tuple[int, ...]:
+        """Return the buffer-sharing pattern of the output, mesh data, and coefficients."""
+        coefficients = self._form.coefficients()
+        if not coefficients:
+            return ()
+
+        # PyOP3 replaces the data once per buffer. Number distinct buffers in
+        # argument order so forms that share data in the same way get the same key.
+        tensor_buffer = tensor.dat.buffer if isinstance(tensor, firedrake.Function | firedrake.Cofunction) else None
+        buffers = (tensor_buffer, *mesh_buffers, *(c.dat.buffer for c in coefficients))
+        buffer_numbers = {buffer: number for number, buffer in enumerate(dict.fromkeys(buffers))}
+        return tuple(buffer_numbers[buffer] for buffer in buffers)
 
     @cached_property
     def local_kernels(self):
@@ -1395,6 +1471,10 @@ class ExplicitMatrixAssembler(ParloopFormAssembler):
         self._appctx = appctx
         self.weight = weight
         self._allocation_integral_types = allocation_integral_types
+
+    def _parloops_key(self, tensor):
+        # The loops set the lgmaps of the matrix, which depend on its type.
+        return (*super()._parloops_key(tensor), tensor.petscmat.type)
 
     @with_heavy_caches(lambda self: get_mesh_topologies(self._form))
     def allocate(self):
@@ -1760,6 +1840,12 @@ class ParloopBuilder:
         self.setup_callables = []
         """List of callables to execute before the parloop."""
 
+        self.coefficient_names = []
+        """Names of the parloop arguments that take the active coefficients, or None for a copy."""
+
+        self.constant_names = []
+        """Names of the parloop arguments that take the constants."""
+
         self._active_coordinates = _FormHandler.iter_active_coordinates(form, local_knl.kinfo)
         self._active_cell_orientations = _FormHandler.iter_active_cell_orientations(form, local_knl.kinfo)
         self._active_cell_sizes = _FormHandler.iter_active_cell_sizes(form, local_knl.kinfo)
@@ -1952,11 +2038,16 @@ class ParloopBuilder:
 
             # We have to perform the copy every time the parloop is invoked
             self.setup_callables.append(copy_into_coeff)
-        return pack(coeff, index)
+            self.coefficient_names.append(None)
+            return pack(coeff, index)
+        packed = pack(coeff, index)
+        self.coefficient_names.append(packed.name)
+        return packed
 
     @_as_parloop_arg.register(kernel_args.ConstantKernelArg)
     def _as_parloop_arg_constant(self, arg, index):
         const = next(self._constants)
+        self.constant_names.append(const.dat.name)
         return const.dat
 
     @_as_parloop_arg.register(kernel_args.TabulationKernelArg)
