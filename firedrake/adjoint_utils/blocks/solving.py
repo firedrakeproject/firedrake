@@ -61,12 +61,10 @@ class GenericSolveBlock(Block):
         if bcs is not None:
             self.bcs = Enlist(bcs)
 
-        if isinstance(self.lhs, ufl.Form) and isinstance(self.rhs, (ufl.Form, ufl.Cofunction)):
-            self.linear = True
+        self.linear = isinstance(self.lhs, ufl.BaseForm) and len(self.lhs.arguments()) == 2
+        if isinstance(self.rhs, ufl.BaseForm):
             for c in self.rhs.coefficients():
                 self.add_dependency(c, no_duplicates=True)
-        else:
-            self.linear = False
 
         for c in self.lhs.coefficients():
             self.add_dependency(c, no_duplicates=True)
@@ -557,6 +555,11 @@ def solve_init_params(self, args, kwargs, varform):
 
     if len(self.adj_kwargs) <= 0:
         self.adj_kwargs = self.forward_kwargs.copy()
+
+        # Swap nullspace with transpose_nullspace if transpose_nullspace was provided
+        if self.adj_kwargs.get("transpose_nullspace") is not None:
+            self.adj_kwargs["nullspace"], self.adj_kwargs["transpose_nullspace"] = \
+                self.adj_kwargs["transpose_nullspace"], self.adj_kwargs.get("nullspace")
 
         if varform:
             if "J" in self.forward_kwargs:

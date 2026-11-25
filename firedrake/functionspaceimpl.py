@@ -551,15 +551,10 @@ class WithGeometryBase:
             self.mesh(), finat.ufl.BrokenElement(self.ufl_element()),
             name=f"{self.name}_broken" if self.name else None)
 
+    @cached_property
     def quadrature_space(self):
-        """Return a :class:`.WithGeometryBase` with a ``Quadrature`` element
-        defined on the point set required for interpolating external data into this space.
-
-        Returns
-        -------
-        WithGeometryBase :
-            The new function space with a ``Quadrature`` FiniteElement.
-        """
+        """A :class:`.WithGeometryBase` with a ``Quadrature`` element
+        defined on the point set required for interpolating external data into this space."""
         ufl_element = self.ufl_element()
         if not self.finat_element.has_pointwise_dual_basis:
             # Grab the point set for interpolation
@@ -1624,7 +1619,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return base_section
 
     @cached_property_until_mesh_topology_changes
-    @utils.deprecated("field_ises")
+    @utils.deprecated_rename("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -2188,7 +2183,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return tuple(ises)
 
     @property
-    @utils.deprecated("field_ises")
+    @utils.deprecated_rename("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
