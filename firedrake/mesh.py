@@ -503,6 +503,8 @@ class AbstractMeshTopology(abc.ABC):
 
         self._uid = f"mesh_{next(self.counter)}"
 
+    extruded = False
+
     layers = None
     """No layers on unstructured mesh"""
 
@@ -815,14 +817,9 @@ class AbstractMeshTopology(abc.ABC):
                 dim = _selector
 
         if name is not None:
-            idxs = self._entity_indices_plex_by_name(name)
+            idxs = self._entity_dm_indices_by_name(name)
         elif dim is not None:
-            if not isinstance(self, ExtrudedMeshTopology):
-                # strata and dims are the same
-                idxs = self._entity_dm_indices(stratum=dim)
-            else:
-                # dims are tuples, need to think
-                raise NotImplementedError
+            idxs = self._entity_dm_indices_by_dim(dim)
         else:
             idxs = slice(*self.topology_dm.getDepthStratum(stratum))
 
@@ -830,7 +827,7 @@ class AbstractMeshTopology(abc.ABC):
             idxs = np.arange(idxs.start, idxs.stop, dtype=IntType)
         return idxs
 
-    def _entity_indices_plex_by_name(self, name: str) -> np.ndarray:
+    def _entity_dm_indices_by_name(self, name: str) -> np.ndarray | slice:
         match name:
             case "cell":
                 return self._entity_dm_indices(stratum=self.dimension)
@@ -928,7 +925,7 @@ class AbstractMeshTopology(abc.ABC):
                 #     x--H--x--H--x
                 #
                 # The horizontal facets are those generated from base cells.
-                return self._plex_indices_for_dim((self.dimension-1, 0))
+                return self._entity_dm_indices_by_dim((self.dimension-1, 0))
 
             case "facet_vert":
                 # Consider extruding the following interval mesh:
@@ -948,7 +945,7 @@ class AbstractMeshTopology(abc.ABC):
                 #     x-----x-----x
                 #
                 # The vertical facets are those generated from base facets.
-                return self._plex_indices_for_dim((self.dimension-2, 1))
+                return self._entity_dm_indices_by_dim((self.dimension-2, 1))
 
             case "exterior_facet_top" | "exterior_facet_bottom":
                 # Consider extruding the following interval mesh:
@@ -972,7 +969,7 @@ class AbstractMeshTopology(abc.ABC):
                 # up the column we can just slice them out.
 
                 if name == "exterior_facet_bottom" and self.periodic:
-                    return self._entity_indices_plex_by_name("exterior_facet_top")
+                    return self._entity_dm_indices_by_name("exterior_facet_top")
 
                 # Periodic extruded meshes have one fewer horizontal facets
                 if self.periodic:
@@ -990,6 +987,32 @@ class AbstractMeshTopology(abc.ABC):
 
             case _:
                 raise NotImplementedError
+
+    def _entity_dm_indices_by_dim(self, dim: int | tuple[int, ...]) -> np.ndarray | slice:
+        if not self.extruded:
+            # stratum and dim are the same
+            return self._entity_dm_indices(stratum=dim)
+
+        base_dim, extr_dim = dim
+        p_start, p_end = self.topology_dm.getDepthStratum(base_dim + extr_dim)
+
+        if dim in {self.cell_label, self.vertex_label}:
+            # For extruded meshes we can only use a slice for cells and
+            # vertices because for intermediate dimensions the
+            # horizontal and vertical entities interleave.
+            return slice(p_start, p_end)
+
+        # Get the indices of the right entity type. This is more complicated
+        # for extruded meshes because the different facet types (horizontal vs
+        # vertical) are not natively distinguished.
+
+        # Get all points that were originally a vertex, say
+        dm_idxs = utils.safe_is(
+            self.topology_dm.getLabel("base_dim").getStratumIS(base_dim)
+        ).indices
+
+        # Filter out the extruded dimension that we don't want
+        return dm_idxs[np.logical_and(p_start <= dm_idxs, dm_idxs < p_end)]
 
     @cached_method_until_topology_changes()
     def _plex_to_entity_numbering_sec(
@@ -2793,6 +2816,8 @@ class MeshTopology(AbstractMeshTopology):
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
+    extruded = True
+
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, layers, periodic=False, name=None):
         """Build an extruded mesh topology from an input mesh topology
@@ -3064,22 +3089,6 @@ class ExtrudedMeshTopology(MeshTopology):
         # We now have the orientation for a single extruded cell, now blow this
         # up for the whole column
         return np.repeat(orientationss, self.layers-1, axis=0)
-
-    # TODO: implement for regular meshes too
-    def _plex_indices_for_dim(self, dim: tuple) -> PETSc.IS:
-        if len(dim) != 2:
-            raise NotImplementedError
-
-        base_dim, extr_dim = dim
-
-        # Get all points up each column that match the base dimension
-        dm_idxs = utils.safe_is(
-            self.topology_dm.getLabel("base_dim").getStratumIS(base_dim)
-        ).indices
-
-        # Drop indices up the column that do not match the required dimension
-        p_start, p_end = self.topology_dm.getDepthStratum(base_dim+extr_dim)
-        return dm_idxs[np.logical_and(p_start <= dm_idxs, dm_idxs < p_end)]
 
     # {{{ facet iteration
 
