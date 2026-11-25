@@ -5167,43 +5167,50 @@ def Mesh(meshfile, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=0.5):
-    """Build an extruded mesh from an input mesh
+def ExtrudedMesh(
+    mesh: MeshGeometry,
+    layers: numbers.Integral,
+    layer_height: numbers.Number | None = None,
+    extrusion_type: Literal["uniform", "radial", "radial_hedgehog", "custom"] = "uniform",
+    periodic: bool = False,
+    kernel=None,
+    gdim=None,
+    name=None,
+    tolerance=0.5,
+):
+    """Build an extruded mesh from an input mesh.
 
-    :arg mesh:           the unstructured base mesh
-    :arg layers:         number of extruded cell layers in the "vertical"
-                         direction.  One may also pass an array of
-                         shape (cells, 2) to specify a variable number
-                         of layers (deprecated).  In this case, each entry is a pair
-                         ``[a, b]`` where ``a`` indicates the starting
-                         cell layer of the column and ``b`` the number
-                         of cell layers in that column.
-    :arg layer_height:   the layer height.  A scalar value will result in
-                         evenly-spaced layers, whereas an array of values
-                         will vary the layer height through the extrusion.
-                         If this is omitted, the value defaults to
-                         1/layers (i.e. the extruded mesh has total height 1.0)
-                         unless a custom kernel is used.  Must be
-                         provided if using a variable number of layers.
-    :arg extrusion_type: the algorithm to employ to calculate the extruded
-                         coordinates. One of "uniform", "radial",
-                         "radial_hedgehog" or "custom". See below.
-    :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
-                         Can be used with any "extrusion_type" to make annulus, torus, etc.
-    :arg kernel:         a ``pyop2.Kernel`` to produce coordinates for
-                         the extruded mesh. See :func:`firedrake.extrusion_utils.make_extruded_coords`
-                         for more details.
-    :arg gdim:           number of spatial dimensions of the
-                         resulting mesh (this is only used if a
-                         custom kernel is provided)
-    :arg name:           optional name for the extruded mesh.
-    :kwarg tolerance:    The relative tolerance (i.e. as defined on the
-                         reference cell) for the distance a point can be from a
-                         cell and still be considered to be in the cell.
-                         Note that this tolerance uses an L1
-                         distance (aka 'manhattan', 'taxicab' or rectilinear
-                         distance) so will scale with the dimension of the
-                         mesh.
+    Parameters
+    ----------
+    mesh : firedrake.mesh.MeshGeometry
+        The unstructured base mesh.
+    layers : numbers.Integral
+        The number of extruded cell layers in the "vertical" direction.
+    layer_height : numbers.Number | None
+        The layer height. A scalar value will result in evenly-spaced layers,
+        whereas an array of values will vary the layer height through the extrusion.
+        If this is omitted, the value defaults to 1/layers (i.e. the extruded mesh
+        has total height 1.0) unless a custom kernel is used.
+    extrusion_type : str
+        The algorithm to employ to calculate the extruded coordinates. One of
+        "uniform", "radial", "radial_hedgehog" or "custom". See below.
+    periodic : bool
+        The flag for periodic extrusion. Can be used with any ``extrusion_type``
+        to make annulus, torus, etc.
+    kernel : pyop3.Function
+        A :class:`pyop3.Function` to produce coordinates for the extruded mesh.
+        See :func:`firedrake.extrusion_utils.make_extruded_coords` for more details.
+    gdim : int
+        The number of spatial dimensions of the resulting mesh (this is only used
+        if a custom kernel is provided).
+    name : str
+        Optional name for the extruded mesh.
+    tolerance : float
+        The relative tolerance (i.e. as defined on the reference cell) for the
+        distance a point can be from a cell and still be considered to be in the
+        cell. Note that this tolerance uses an L1 distance (a.k.a. 'manhattan',
+        'taxicab' or rectilinear distance) so will scale with the dimension of the
+        mesh.
 
     The various values of ``extrusion_type`` have the following meanings:
 
@@ -5229,6 +5236,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
         use a custom kernel to generate the extruded coordinates
 
     For more details see the :doc:`manual section on extruded meshes </extruded-meshes>`.
+
     """
     import firedrake.functionspace as functionspace
     import firedrake.function as function
@@ -5535,12 +5543,16 @@ class VertexOnlyMeshSF:
     ) -> None:
         if root_values.shape[0] != self.nroots:
             raise ValueError("Number of root values does not match number of roots in the SF.")
+        if not root_values.flags.c_contiguous:
+            raise ValueError("`root_values` must have row-major ordering, do not pass a transposed view")
         if leaf_values.shape[0] < self.leaf_buffer_size:
             raise ValueError("Leaf array is too small for the SF leaf indices.")
         if leaf_values.shape[1:] != root_values.shape[1:]:
             raise ValueError("`leaf_values` shape does not match `root_values`.")
         if leaf_values.dtype != root_values.dtype:
             raise TypeError("`leaf_values` dtype does not match `root_values`.")
+        if not leaf_values.flags.c_contiguous:
+            raise ValueError("`leaf_values` must have row-major ordering, do not pass a transposed view")
 
     def broadcast(
         self,
