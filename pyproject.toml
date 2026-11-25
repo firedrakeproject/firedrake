@@ -20,8 +20,8 @@ dependencies = [
   "mpi4py; python_version < '3.13'",
   # Note that FEniCS may make new minor releases of UFL without warning so we pin
   # each Firedrake release to a specific UFL minor version (e.g. 2025.3.x)
-  "fenics-ufl==2026.2",
-  "firedrake-fiat==2026.10",
+  "fenics-ufl==2026.2.1",
+  "firedrake-fiat==2026.10.*",
   "h5py>3.12.1",
   "firedrake-rtree>=2026.3.0",
   "immutabledict",
