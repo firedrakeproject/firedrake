@@ -413,26 +413,26 @@ def local_facet_number(mesh, facet_type):
     cell_numbering = mesh._plex_to_entity_numbering_sec(stratum=mesh.dimension)
 
     if facet_type == "exterior":
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro
         ncells_per_facet = 1
         facets = mesh._entity_dm_indices("exterior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet")
     elif facet_type == "interior":
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro
         ncells_per_facet = 2
         facets = mesh._entity_dm_indices("interior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet")
     elif facet_type == "exterior_vert":
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro
         ncells_per_facet = 1
         facets = mesh._entity_dm_indices("exterior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet_vert")
     else:
         assert facet_type == "interior_vert"
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro
         ncells_per_facet = 2
         facets = mesh._entity_dm_indices("interior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
@@ -803,7 +803,7 @@ def cell_closures_and_perms_simplex(mesh) -> tuple[np.ndarray, np.ndarray]:
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
+def cell_closures_and_perms_quad(mesh, np.ndarray cell_orientations):
     """Cellwise orders mesh entities according to the given cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -838,7 +838,14 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
 
     CHKERR(PetscMalloc1(2*9, &closure))
 
-    cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
+    cell_closure, closure_perms = (
+        {
+            0: np.empty((ncells, 4), dtype=IntType),
+            1: np.empty((ncells, 4), dtype=IntType),
+            2: np.empty((ncells, 1), dtype=IntType),
+        }
+        for _ in range(2)
+    )
     for c in range(cStart, cEnd):
         cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
@@ -904,7 +911,6 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
                 closure_tmp[2*7] = closure[2*5]
                 closure_tmp[2*8] = closure[2*5]
 
-            nclosure = 9
             for i in range(9):
                 closure[2*i] = closure_tmp[2*i]
         else:
@@ -915,7 +921,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         # For the vertices, we also retrieve the global numbers into g_vertices.
         vi = 0
         fi = 0
-        for p in range(nclosure):
+        for p in range(9):
             pt = closure[2*p]
             if vStart <= pt < vEnd:
                 c_vertices[vi] = pt
@@ -1005,19 +1011,58 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         #   o--2--o
         #
         # So let us permute.
-        cell_closure[c, 0] = vertices[0]
-        cell_closure[c, 1] = vertices[1]
-        cell_closure[c, 2] = vertices[3]
-        cell_closure[c, 3] = vertices[2]
-        cell_closure[c, 4 + 0] = facets[0]
-        cell_closure[c, 4 + 1] = facets[2]
-        cell_closure[c, 4 + 2] = facets[3]
-        cell_closure[c, 4 + 3] = facets[1]
-        cell_closure[c, 8] = c
+
+        # Note: in cell_closure we store the closure in "FIAT" order but without
+        # the orientation permutation
+
+        cell_closure[0][c, 0] = c_vertices[0]
+        for vi in range(4):
+            if closure[2*(vi+5)] == vertices[0]:
+                closure_perms[0][c, vi] = 0
+                break
+        cell_closure[0][c, 1] = c_vertices[1]
+        for vi in range(4):
+            if closure[2*(vi+5)] == vertices[1]:
+                closure_perms[0][c, vi] = 1
+                break
+        cell_closure[0][c, 2] = c_vertices[3]
+        for vi in range(4):
+            if closure[2*(vi+5)] == vertices[3]:
+                closure_perms[0][c, vi] = 3
+                break
+        cell_closure[0][c, 3] = c_vertices[2]
+        for vi in range(4):
+            if closure[2*(vi+5)] == vertices[2]:
+                closure_perms[0][c, vi] = 2
+                break
+
+        cell_closure[1][c, 0] = c_facets[0]
+        for fi in range(4):
+            if closure[2*(1+fi)] == facets[0]:
+                closure_perms[1][c, fi] = 0
+                break
+        cell_closure[1][c, 1] = c_facets[2]
+        for fi in range(4):
+            if closure[2*(1+fi)] == facets[2]:
+                closure_perms[1][c, fi] = 2
+                break
+        cell_closure[1][c, 2] = c_facets[3]
+        for fi in range(4):
+            if closure[2*(1+fi)] == facets[3]:
+                closure_perms[1][c, fi] = 3
+                break
+        cell_closure[1][c, 3] = c_facets[1]
+        for fi in range(4):
+            if closure[2*(1+fi)] == facets[1]:
+                closure_perms[1][c, fi] = 1
+                break
+
+        cell_closure[2][c, 0] = c
+        closure_perms[2][c, 0] = 0
 
     CHKERR(PetscFree(closure))
 
-    return cell_closure
+    return cell_closure, closure_perms
 
 
 cdef inline PetscInt _fact(PetscInt m):
