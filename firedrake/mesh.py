@@ -1574,7 +1574,7 @@ class AbstractMeshTopology(abc.ABC):
             raise NotImplementedError
         # do the reordering too
         rcl = []
-        for d in self._closure_sizes.keys():
+        for d in self._closure_sizes[self.cell_label].keys():
             cldm, clperm = self._cell_closures_and_perms
             rcl.append(np.take_along_axis(cldm[d], clperm[d], axis=1))
         return np.concatenate(rcl, axis=1, dtype=IntType)
@@ -1721,8 +1721,8 @@ class AbstractMeshTopology(abc.ABC):
             #     ],
             #     dtype=int,
             # )
-            # closure_perm = np.asarray([8, 6, 0, 2, 7, 1, 3, 4, 5], dtype=IntType)
-            closure_perm = utils.invert(np.asarray([20, 18, 11,  9, 10,  0,  2,  4, 19, 14, 12, 13,  1,  3, 5, 17, 15, 16,6,7, 8], type=int))
+            # closure_perm = utils.invert(np.asarray([20, 18, 11,  9, 10,  0,  2,  4, 19, 14, 12, 13,  1,  3, 5, 15, 16, 17, 6,7, 8], dtype=IntType))
+            closure_perm = utils.invert(np.asarray([20, 18, 9, 10, 11,  0,  2,  4, 19, 12, 13, 14,  1,  3, 5, 15, 16, 17, 6,7, 8], dtype=IntType))
 
         else:
             raise NotImplementedError
@@ -1817,10 +1817,11 @@ class AbstractMeshTopology(abc.ABC):
 
             for base_dim in range(3):
                 for extr_dim in range(2):
-                    closures[base_dim, extr_dim] = np.empty((self.num_cells(), self._closure_sizes[self.cell_label][base_dim, extr_dim]), dtype=IntType)
+                    dim = (base_dim, extr_dim)
+                    closures[dim] = np.empty((self.num_cells(), self._closure_sizes[self.cell_label][dim]), dtype=IntType)
                     for c in range(self.num_cells()):
                         cb = c // (self.layers-1)
-                        closures[base_dim, extr_dim][c] = perms[base_dim, extr_dim][base_perm[base_dim][cb]].ravel()
+                        closures[dim][c] = perms[dim][base_perm[base_dim][cb]].ravel()
 
         else:
             raise NotImplementedError
