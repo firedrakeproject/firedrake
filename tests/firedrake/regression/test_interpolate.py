@@ -2,6 +2,7 @@ from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 import pyop3 as op3
+from pytest_mpi.parallel_assert import parallel_assert
 from firedrake import *
 
 cwd = abspath(dirname(__file__))
@@ -73,21 +74,24 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_subset_interpolation_reduction(access):
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(1, 1)
     x, y = SpatialCoordinate(mesh)
     DG0 = FunctionSpace(mesh, "DG", 0)
     indicator = Function(DG0).interpolate(conditional(x < 0.5, 1, 0))
-    mesh = RelabeledMesh(mesh, [indicator], [100])
+    complement = Function(DG0).interpolate(1 - indicator)
+    mesh = RelabeledMesh(mesh, [indicator, complement], [100, 200])
     x, y = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
-    subset = mesh.cell_subset(100)
+    expr = x + y if access is op3.MIN_WRITE else -x - y
 
-    # The DoFs outside the cells of the subset receive no value, so they stay zero.
-    exact = assemble(interpolate(x + y, V))
-    reached = assemble(interpolate(Constant(1.0), V, subset=subset, access=op3.INC))
-    expected = np.where(reached.dat.data_ro > 0, exact.dat.data_ro, 0)
-    reduced = assemble(interpolate(x + y, V, subset=subset, access=access))
-    assert np.allclose(reduced.dat.data_ro, expected)
+    # Check both sides so that shared nodes can be reached from either rank.
+    exact = assemble(interpolate(expr, V))
+    for subdomain_id in [100, 200]:
+        # The DoFs outside the cells of the subset receive no value, so they stay zero.
+        reached = assemble(interpolate(Constant(1.0), V, subdomain_id=subdomain_id, access=op3.INC))
+        expected = np.where(reached.dat.data_ro > 0, exact.dat.data_ro, 0)
+        reduced = assemble(interpolate(expr, V, subdomain_id=subdomain_id, access=access))
+        parallel_assert(np.allclose(reduced.dat.data_ro, expected))
 
 
 @pytest.mark.parallel([1, 2])
@@ -101,12 +105,12 @@ def test_subset_adjoint_interpolation():
     u = Cofunction(V.dual()).assign(1)
 
     # The weights of the matrix-free adjoint depend on the cells of the subset.
-    for subset in [None, mesh.cell_subset(100)]:
-        A = assemble(interpolate(TrialFunction(V), V, subset=subset), mat_type="aij")
+    for subdomain_id in ["everywhere", 100]:
+        A = assemble(interpolate(TrialFunction(V), V, subdomain_id=subdomain_id), mat_type="aij")
         expected = Cofunction(V.dual())
         with u.dat.vec_ro as x, expected.dat.vec_wo as y:
             A.petscmat.multTranspose(x, y)
-        result = assemble(interpolate(TestFunction(V), u, subset=subset))
+        result = assemble(interpolate(TestFunction(V), u, subdomain_id=subdomain_id))
         assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
 
 
@@ -1011,7 +1015,7 @@ def test_interpolation_cell_subset():
     mesh = RelabeledMesh(mesh, [ind], [100])
 
     a = Constant(1)
-    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subset=mesh.cell_subset(100))
+    u = Function(FunctionSpace(mesh, "DG", 0)).interpolate(-a*-a, subdomain_id=100)
 
     assert assemble((u-a/2)*dx) < 1e-14
 
@@ -1025,12 +1029,23 @@ def test_in_place_interpolation_cell_subset():
 
     mesh = RelabeledMesh(mesh, [ind], [100])
 
-    # The cells outside the subset keep their values.
+    # The cells outside the subdomain keep their values.
     V = FunctionSpace(mesh, "DG", 0)
     u = Function(V).assign(1)
-    u.interpolate(2*u, subset=mesh.cell_subset(100))
+    u.interpolate(2*u, subdomain_id=100)
 
     assert np.allclose(assemble(u*dx), 1.5)
+
+
+@pytest.fixture
+def interpolation_space():
+    return FunctionSpace(UnitIntervalMesh(2), "DG", 0)
+
+
+@pytest.mark.parametrize("subdomain_id", [100, np.int64(100), (100, 200), "everywhere", "otherwise"])
+def test_interpolation_subdomain_id_options(interpolation_space, subdomain_id):
+    expr = interpolate(1, interpolation_space, subdomain_id=subdomain_id)
+    assert expr.options.subdomain_id == subdomain_id
 
 
 def test_interpolate_indexed():

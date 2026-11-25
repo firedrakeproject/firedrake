@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import collections
 import contextlib
 import functools
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyop3 as op3
+import pyop3.types
 import finat
 from immutabledict import immutabledict as idict
 
@@ -16,6 +19,9 @@ from firedrake.function import CoordinatelessFunction, Function
 from firedrake.functionspaceimpl import RestrictedFunctionSpace, WithGeometry, is_mixed, entity_dofs_key, entity_permutations_key
 from firedrake.matrix import Matrix
 from firedrake.mesh import MeshLoopIndex, extract_mesh_topologies
+
+if TYPE_CHECKING:
+    from firedrake import *
 
 
 @op3.cache.with_heavy_caches(lambda t, li, *a, **kw: [li.mesh.topology])
@@ -49,33 +55,89 @@ def _(matrix: Matrix, loop_index, **kwargs):
 
 def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
     """Return the map packing mesh entities according to the iteration spec."""
+    # For cross-mesh loops the mesh we are iterating over (iter_mesh) will not
+    # be the same as the mesh the function lives on (mesh).
     iter_mesh = loop_index.mesh
-    mesh = mesh.topology
-    if iter_mesh.topology is mesh:
+
+    if iter_mesh.topology is mesh.topology:
         target_integral_type = loop_index.integral_type
+
+    # extruded -> base mesh
     elif (
         isinstance(iter_mesh.topology, firedrake.mesh.ExtrudedMeshTopology)
-        and iter_mesh.topology._base_mesh is mesh
+        and iter_mesh.topology._base_mesh is mesh.topology
     ):
-        if loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}:
-            loop_index = iter_mesh.support(loop_index)
+        if loop_index.integral_type == "cell":
+            pass
         else:
-            assert loop_index.integral_type == "cell"
-        loop_index = iter_mesh.extr_cell_to_base_cell_map(loop_index, label="extr_cell_base_cell")
+            assert loop_index.integral_type in {"exterior_facet_top", "exterior_facet_bottom"}
+            loop_index = iter_mesh.support(
+                loop_index, src_path=_get_src_path(loop_index, iter_mesh, loop_index.integral_type)
+            )
+
+        loop_index = iter_mesh.extr_cell_to_base_cell_map(
+            loop_index,
+            label="extr_cell_base_cell",
+            src_path=_get_src_path(loop_index, iter_mesh, "cell"),
+        )
         target_integral_type = "cell"
+
+    # across submeshes
     elif mesh.submesh_youngest_common_ancestor(loop_index.mesh):
         loop_index, target_integral_type = mesh.trans_mesh_entity_map(loop_index)
+
+    # No shared topology, must be using a vertex-only mesh
     else:
-        # No shared topology, must be using a vertex-only mesh
-        loop_index = loop_index.mesh.cell_parent_cell_map(loop_index)
+        loop_index = iter_mesh.cell_parent_cell_map(loop_index)
         target_integral_type = "cell"
 
     if target_integral_type == "cell":
-        return mesh.closure(loop_index)
+        return mesh.closure(
+            loop_index, src_path=_get_src_path(loop_index, mesh, "cell")
+        )
     elif "facet" in target_integral_type:
-        return mesh.closure(mesh.support(loop_index))
+        return mesh.closure(mesh.support(
+            loop_index, src_path=_get_src_path(loop_index, mesh, target_integral_type)
+        ))
     else:
         raise ValueError(f"Unknown integral_type: {target_integral_type}")
+
+
+def _get_src_path(
+    loop_index: op3.Index,
+    mesh: MeshGeometry,
+    integral_type: str,
+) -> op3.types.ConcretePathT:
+    """Return the appropriate source path to filter a mesh map.
+
+    This function is used to filter the maps to avoid ambiguity between
+    only-owned and all points. The maps are capable of taking both as
+    inputs, and so the resulting indexed object is actually an axis forest,
+    which we don't want during packing.
+
+    """
+    # We assume that we are iterating over only-owned entities only when
+    # loop_index is still a MeshLoopIndex (i.e. it hasn't gone through a
+    # map yet).
+    iter_owned = isinstance(loop_index, MeshLoopIndex) and not loop_index.include_ghosts
+
+    if integral_type == "cell":
+        # We use the 'points' axis for cells
+        axis_label = mesh._uid
+        cpt_label = mesh.cell_label
+    elif "facet" in integral_type:
+        # Different facet types have axis labels that match integral_type, and
+        # a single component (labelled None)
+        axis_label = integral_type
+        cpt_label = None
+    else:
+        raise ValueError(f"Unexpected integral type: {integral_type}")
+
+    # In parallel, only-owned and all points have different axis labels
+    if iter_owned and mesh.comm.size > 1:
+        axis_label = f"{axis_label}_owned"
+
+    return idict({axis_label: cpt_label})
 
 
 @_pack.register(op3.Dat)
@@ -143,15 +205,7 @@ def _pack_dat_nonmixed_topological(axes, loop_index, space):
     cell_index = map_.index
     packed_axes = axes[map_]
 
-    # bit of a hack, find the depth of the axis labelled 'closure', this relies
-    # on the fact that the tree is always linear at the top
-    if isinstance(packed_axes, op3.AxisForest):
-        depth = utils.single_valued(
-            [ax.label for ax in tree.axes].index("closure")
-            for tree in packed_axes.trees
-        )
-    else:
-        depth = [ax.label for ax in packed_axes.axes].index("closure")
+    depth = [ax.label for ax in packed_axes.axes].index("closure")
 
     # Do this before the DoF transformations because this occurs at the level of entities, not nodes
     # TODO: In current Firedrake we apply this universally when 'entity_permutations' is
@@ -210,13 +264,7 @@ def _pack_mat_nonmixed(
 
     depths = []
     for axes in [packed_mat.row_axes, packed_mat.column_axes]:
-        if isinstance(axes, op3.AxisForest):
-            depth = utils.single_valued(
-                [axis.label for axis in tree.axes].index("closure")
-                for tree in axes.trees
-            )
-        else:
-            depth = [axis.label for axis in axes.axes].index("closure")
+        depth = [axis.label for axis in axes.axes].index("closure")
         depths.append(depth)
     row_depth, column_depth = depths
 
@@ -328,18 +376,6 @@ def _orient_mat_dofs(packed_mat: op3.Mat, row_space: WithGeometry, column_space:
 
 
 def _orient_axis_tree(axes, space: WithGeometry, cell_index: op3.Index, *, depth: int) -> op3.IndexedAxisTree:
-    # If we have an axis forest then we have different interpretations of the data.
-    # We only want the most natural one here and want to drop the others. This is
-    # complicated by the fact that we can have maps from both all points and only
-    # owned points. We can also get maps from the nodal axes that we probably want
-    # to discard.
-    # For the moment we restrict ourself to selecting the first available choice.
-    # This seems to work for most things.
-    # TODO: this is fairly gross and should be rethought - perhaps we need to
-    # propagate axis forest information further in.
-    if isinstance(axes, op3.AxisForest):
-        axes = axes.trees[0]
-
     outer_axes = []
     outer_path = idict()
     for _ in range(depth):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy
 import abc
+import warnings
 
 import dataclasses
 from functools import cached_property, partial
@@ -64,9 +65,10 @@ class InterpolateOptions:
 
     Parameters
     ----------
-    subset : int, tuple of int, {"everywhere", "otherwise"}, or None
+    subdomain_id : int, tuple of int, or str
         The subdomain IDs of the target cells over which to interpolate.
-        If None, interpolate over all target cells.
+        Strings must be ``"everywhere"`` or ``"otherwise"``.
+        The default is ``"everywhere"``, which selects all target cells.
         Cannot, at present, be used when interpolating across meshes unless
         the target mesh is a :func:`.VertexOnlyMesh`.
     access : pyop3.Intent or None
@@ -94,7 +96,7 @@ class InterpolateOptions:
         the :meth:`interpolate` method or (b) set to zero.
         Ignored if interpolating within the same mesh or onto a :func:`.VertexOnlyMesh`.
     """
-    subset: int | tuple[int, ...] | Literal["everywhere", "otherwise"] | None = None
+    subdomain_id: int | tuple[int, ...] | Literal["everywhere", "otherwise"] = "everywhere"
     access: Literal[op3.WRITE, op3.MIN_WRITE, op3.MAX_WRITE, op3.INC] | None = None
     allow_missing_dofs: bool = False
     default_missing_val: float | None = None
@@ -134,6 +136,15 @@ class Interpolate(UFLInterpolate):
 
         super().__init__(expr, V)
 
+        subset = kwargs.pop("subset", None)
+        if subset is not None:
+            warnings.warn(
+                "The 'subset' argument is deprecated and will be removed in a future release. "
+                "Please pass 'subdomain_id' instead.", FutureWarning,
+            )
+            if "subdomain_id" in kwargs:
+                raise ValueError("Cannot supply both 'subset' and 'subdomain_id'.")
+            kwargs["subdomain_id"] = subset
         self._options = InterpolateOptions(**kwargs)
 
     function_space = UFLInterpolate.ufl_function_space
@@ -268,7 +279,7 @@ class Interpolator(abc.ABC):
         """The primal space we are interpolating into."""
 
         # Interpolation options
-        self.subset = expr.options.subset
+        self.subdomain_id = expr.options.subdomain_id
         self.allow_missing_dofs = expr.options.allow_missing_dofs
         self.default_missing_val = expr.options.default_missing_val
         # An interpolation kernel never reads the output, it only reduces its
@@ -724,7 +735,8 @@ class SameMeshInterpolator(Interpolator):
     @property
     def _needs_adjoint_weighting(self):
         return (isinstance(self.dual_arg, Cofunction)
-                and any(not V.finat_element.is_dg() for V in self.target_space))
+                and any(V.ufl_element().family() == "Real" or not V.finat_element.is_dg()
+                        for V in self.target_space))
 
     @cached_property
     def _weighted_dual_arg(self):
@@ -737,12 +749,9 @@ class SameMeshInterpolator(Interpolator):
         source_mesh = self.source_mesh.unique()
         if source_mesh is not target_mesh and source_mesh.submesh_youngest_common_ancestor(target_mesh):
             # Only the target cells that the source mesh covers are reached.
-            subdomain_id = "everywhere" if self.subset is None else self.subset
-            return target_mesh.iter("cell", subdomain_id=subdomain_id, intersect_meshes=[source_mesh])
-        elif self.subset is not None:
-            return target_mesh.iter("cell", subdomain_id=self.subset)
+            return target_mesh.iter("cell", subdomain_id=self.subdomain_id, intersect_meshes=[source_mesh])
         else:
-            return target_mesh.iter("cell")
+            return target_mesh.iter("cell", subdomain_id=self.subdomain_id)
 
     @cached_property
     def covers_target(self) -> bool:
@@ -752,7 +761,7 @@ class SameMeshInterpolator(Interpolator):
         mesh can miss some target cells. This check does not count the cells,
         so it does not need an MPI reduction.
         """
-        if self.subset is not None:
+        if self.subdomain_id != "everywhere":
             return False
         source = self.source_mesh.unique().topology
         common = source.submesh_youngest_common_ancestor(self.target_mesh.unique().topology)
@@ -797,10 +806,12 @@ class SameMeshInterpolator(Interpolator):
         # and the MAX identity with a MIN reduction.
         mode = "max" if self.access is op3.MIN_WRITE else "min"
         self._loop_target_nodes(tensor, float(identity), mode)
+        # Finish the halo reduction before interpolation starts.
+        tensor.dat.buffer.sync_roots()
 
     @cached_on(
         get_obj=lambda self: self.source_mesh.unique().topology,
-        get_key=lambda self: (self.dual_arg.function_space(), self.subset),
+        get_key=lambda self: (self.dual_arg.function_space(), self.subdomain_id),
     )
     def _adjoint_weight(self) -> op3.Dat:
         """The reciprocal of the number of cells in the iteration set whose closure contains each node of the dual argument."""
@@ -820,7 +831,7 @@ class SameMeshInterpolator(Interpolator):
         if not self._needs_adjoint_weighting:
             return self.ufl_interpolate
         return self.ufl_interpolate._ufl_expr_reconstruct_(self.operand, v=self._weighted_dual_arg,
-                                                           subset=self.subset, access=self.access)
+                                                           subdomain_id=self.subdomain_id, access=self.access)
 
     def _update_weighted_dual_arg(self):
         self._weighted_dual_arg.dat.assign(self.dual_arg.dat, eager=True)
@@ -842,7 +853,7 @@ class SameMeshInterpolator(Interpolator):
             inputs.update(mesh.coordinates.dat.buffer for mesh in extract_domains(self._interpolate_to_assemble))
             if tensor.dat.buffer in inputs:
                 output = tensor
-                reads_output = self.access in {op3.MIN_WRITE, op3.MAX_WRITE} or self.subset is not None
+                reads_output = self.access in {op3.MIN_WRITE, op3.MAX_WRITE} or self.subdomain_id != "everywhere"
 
         assembler = get_form_assembler(self._interpolate_to_assemble, bcs=bcs,
                                        mat_type=mat_type, sub_mat_type=sub_mat_type,
