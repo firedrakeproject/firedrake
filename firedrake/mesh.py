@@ -2948,8 +2948,8 @@ class ExtrudedMeshTopology(MeshTopology):
         raise NotImplementedError
 
     @property
-    def vert_label(self) -> tuple:
-        return (self._base_mesh.vert_label, 0)
+    def vertex_label(self) -> tuple:
+        return (self._base_mesh.vertex_label, 0)
 
     def num_cells(self) -> int:
         nlayers = int(self.layers) - 1
@@ -3484,9 +3484,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def edge_label(self):
         raise RuntimeError
 
-    # TODO I prefer "vertex_label"
     @property
-    def vert_label(self):
+    def vertex_label(self) -> int:
         return 0
 
     @cached_property_until_topology_changes
