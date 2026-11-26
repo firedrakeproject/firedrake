@@ -42,6 +42,7 @@ SERIAL_DEMOS = [
     Demo(("multigrid", "geometric_multigrid"), ["vtk"]),
     Demo(("netgen", "netgen_mesh"), ["mumps", "netgen", "slepc", "vtk"]),
     Demo(("nonlinear_QG_winddrivengyre", "qg_winddrivengyre"), ["vtk"]),
+    Demo(("obstacle_problem", "obstacle_problem"), ["matplotlib", "netgen", "vtk"]),
     Demo(("parallel-printing", "parprint"), []),
     Demo(("poisson", "poisson_mixed"), ["vtk"]),
     Demo(("poisson_adaptive_eigenvalue", "poisson_adaptive_eigenvalue"), ["netgen", "slepc", "vtk"]),
