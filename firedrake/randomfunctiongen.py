@@ -337,7 +337,7 @@ def __getattr__(module_attr):
         if module_attr in ('PCG64', 'PCG64DXSM'):
             def _init(self, *args, **kwargs):
                 if 'inc' in kwargs:
-                    raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake.html#module-firedrake.randomfunctiongen>")
+                    raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake/apidoc/firedrake.html#module-firedrake.randomfunctiongen>")
                 rank = self.comm.Get_rank()
                 size = self.comm.Get_size()
                 _kwargs = kwargs.copy()

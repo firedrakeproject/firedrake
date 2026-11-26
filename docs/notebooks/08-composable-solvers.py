@@ -292,7 +292,7 @@ convergence(solver)
 # Firedrake offers a facilities to build Python preconditioning objects, utilising petsc4py.
 #
 # In this case, we can subclass the 
-# [AuxiliaryOperatorPC](https://www.firedrakeproject.org/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
+# [AuxiliaryOperatorPC](https://www.firedrakeproject.org/firedrake/apidoc/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
 
 # %%
 class MassMatrix(AuxiliaryOperatorPC):
