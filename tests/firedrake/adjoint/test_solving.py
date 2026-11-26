@@ -472,6 +472,63 @@ def test_linear_problem_interpolate_rhs(use_solver, rg):
     assert min(rates["R2"]["Rate"]) > 2.9
 
 
+def _assembled_linear_solve(control, with_bc):
+    """Tape solve(A, x, b) with A = assemble(a) and b = assemble(L).
+
+    Return the functional and the coefficient of a or L named by control.
+    """
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    X, Y = SpatialCoordinate(mesh)
+
+    f = Function(V).interpolate(1 + X*Y)
+    k = Function(R).assign(2.0)
+    bcs = [DirichletBC(V, 0, 1)] if with_bc else None
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = k*inner(grad(u), grad(v))*dx + inner(u, v)*dx
+    L = inner(f**2, v)*dx
+    A = assemble(a, bcs=bcs)
+    b = assemble(L)
+    x = Function(V)
+    solve(A, x, b)
+
+    J = assemble(x**4*dx)
+    return J, {"L": f, "a": k}[control]
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("control", ("L", "a"))
+@pytest.mark.parametrize("with_bc", (False, True))
+def test_assembled_linear_solve_replay(control, with_bc):
+    J, m = _assembled_linear_solve(control, with_bc)
+    rf = ReducedFunctional(J, Control(m))
+    assert np.isclose(rf(m), J, rtol=1e-10)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("control", ("L", "a"))
+@pytest.mark.parametrize("with_bc", (False, True))
+def test_assembled_linear_solve_gradient(control, with_bc, rg):
+    J, m = _assembled_linear_solve(control, with_bc)
+    rf = ReducedFunctional(J, Control(m))
+    h = rg.uniform(m.function_space(), 1.0, 2.0)
+    assert taylor_test(rf, m, h) > 1.9
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("control", ("L", "a"))
+@pytest.mark.parametrize("with_bc", (False, True))
+def test_assembled_linear_solve_hessian(control, with_bc, rg):
+    J, m = _assembled_linear_solve(control, with_bc)
+    rf = ReducedFunctional(J, Control(m))
+    h = rg.uniform(m.function_space(), 1.0, 2.0)
+    rates = taylor_to_dict(rf, m, h)
+    assert min(rates["R2"]["Rate"]) > 2.9
+
+
 @pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
