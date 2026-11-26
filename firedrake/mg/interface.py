@@ -88,7 +88,8 @@ def prolong(coarse, fine):
         node_locations = utils.physical_node_locations(Vf)
 
         kernel, oriented, needs_cell_sizes = kernels.prolong_kernel(coarse, Vf)
-        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+        refined, unrefined, coarse_node = utils.split_unrefined_nodes(Vc, Vf)
+        n = Vf.nodal_axes[refined].blocked(Vf.shape).free.iter()
         compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
         kernel_args = [
             fine.dat[n],
@@ -107,6 +108,10 @@ def prolong(coarse, fine):
             kernel_args.append(cs.dat[compose_map(cs)])
 
         op3.loop(n, kernel(*kernel_args), eager=True)
+        if unrefined is not None:
+            # Copy the coarse values to the fine nodes on unrefined points.
+            p = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
+            op3.loop(p, fine.dat[p].assign(coarse.dat[coarse_node(p)]), eager=True)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -168,7 +173,8 @@ def restrict(fine_dual, coarse_dual):
         node_locations = utils.physical_node_locations(Vf.dual())
 
         kernel, oriented, needs_cell_sizes = kernels.restrict_kernel(Vf, Vc)
-        n = Vf.nodal_axes.blocked(Vf.shape).free.iter()
+        refined, unrefined, coarse_node = utils.split_unrefined_nodes(Vc, Vf)
+        n = Vf.nodal_axes[refined].blocked(Vf.shape).free.iter()
         compose_map = lambda u: utils.fine_node_to_coarse_node_map(Vf, u.function_space())(n)
 
         kernel_args = [
@@ -188,6 +194,10 @@ def restrict(fine_dual, coarse_dual):
             kernel_args.append(cs.dat[compose_map(cs)])
 
         op3.loop(n, kernel(*kernel_args), eager=True)
+        if unrefined is not None:
+            # Add the values at the fine nodes on unrefined points to their coarse nodes.
+            p = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
+            op3.loop(p, coarse_dual.dat[coarse_node(p)].iassign(fine_dual.dat[p]), eager=True)
         fine_dual = coarse_dual
 
     return coarse_dual
