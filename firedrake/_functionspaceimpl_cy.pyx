@@ -17,12 +17,12 @@ def _get_ndofs_extruded(mesh: firedrake.mesh.MeshGeometry, entity_dofs: dict) ->
         matching_pts = base_dim_label.getStratumIS(base_dim)
         vertex_pts = np.intersect1d(
             matching_pts.indices,
-            mesh._plex_indices_for_dim((base_dim, 0)).indices,
+            mesh._plex_indices_for_dim((base_dim, 0)),
             assume_unique=True,
         )
         edge_pts = np.intersect1d(
             matching_pts.indices,
-            mesh._plex_indices_for_dim((base_dim, 1)).indices,
+            mesh._plex_indices_for_dim((base_dim, 1)),
             assume_unique=True,
         )
         ndofs[vertex_pts] = entity_dofs[base_dim, 0]
