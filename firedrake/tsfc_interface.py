@@ -11,7 +11,7 @@ import collections
 import ufl
 import finat.ufl
 from ufl import Form, ZeroBaseForm
-from ufl.measure import as_integral_type
+from ufl.measure import facet_integral_types, ridge_integral_types, point_integral_types
 from .ufl_expr import extract_domains
 
 from tsfc import compile_form as original_tsfc_compile_form
@@ -162,18 +162,16 @@ class TSFCKernel:
 SplitKernel = collections.namedtuple("SplitKernel", ["indices", "kinfo"])
 
 
-def entity_dimension_from_integral_type(domain, integral_type):
-    integral_type = as_integral_type(integral_type)
-    topological_dimension = domain.topological_dimension
-    if integral_type == "cell":
-        return topological_dimension
-    if integral_type.startswith("exterior_facet") or integral_type.startswith("interior_facet"):
-        return topological_dimension - 1
-    if integral_type == "ridge":
-        return topological_dimension - 2
-    if integral_type == "vertex":
+def _entity_dimension(domain, integral_type):
+    """Return the dimension of the mesh entities an integral is over."""
+    tdim = domain.topological_dimension
+    if integral_type.startswith(facet_integral_types):
+        return tdim - 1
+    if integral_type in ridge_integral_types:
+        return tdim - 2
+    if integral_type in point_integral_types:
         return 0
-    return topological_dimension
+    return tdim
 
 
 def _resolve_region_names(form):
@@ -186,7 +184,7 @@ def _resolve_region_names(form):
         domain = integral.ufl_domain()
         parse_subdomain_id = getattr(domain, "parse_subdomain_id", None)
         if parse_subdomain_id is not None:
-            dim = entity_dimension_from_integral_type(domain, integral.integral_type())
+            dim = _entity_dimension(domain, integral.integral_type())
             subdomain_id = integral.subdomain_id()
             new_subdomain_id = parse_subdomain_id(dim, subdomain_id)
             if new_subdomain_id != subdomain_id:
@@ -197,7 +195,6 @@ def _resolve_region_names(form):
 
 
 def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
-    form = _resolve_region_names(form)
     return (
         form.signature(),
         name,
@@ -209,13 +206,6 @@ def _compile_form_hashkey(form, name, parameters=None, split=True, dont_split=()
     )
 
 
-@PETSc.Log.EventDecorator()
-@memory_and_disk_cache(
-    hashkey=_compile_form_hashkey,
-    get_comm=_compile_form_comm,
-    cachedir=_cachedir
-)
-@PETSc.Log.EventDecorator()
 def compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     """Compile a form using TSFC.
 
@@ -259,9 +249,21 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     # Check that we get a Form
     if not isinstance(form, (Form, ufl.Interpolate)):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
-
+    # Resolve region names before the cache lookup, so that the cache key
+    # reflects the integer subdomain ids the names currently map to
     form = _resolve_region_names(form)
+    return _compile_form(form, name, parameters=parameters, split=split,
+                         dont_split=dont_split, diagonal=diagonal, access=access)
 
+
+@PETSc.Log.EventDecorator()
+@memory_and_disk_cache(
+    hashkey=_compile_form_hashkey,
+    get_comm=_compile_form_comm,
+    cachedir=_cachedir
+)
+@PETSc.Log.EventDecorator()
+def _compile_form(form, name, parameters=None, split=True, dont_split=(), diagonal=False, access=op3.INC):
     if parameters is None:
         parameters = default_parameters["form_compiler"].copy()
     else:

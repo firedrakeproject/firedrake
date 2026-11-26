@@ -200,3 +200,13 @@ def test_submesh_base_facet_integral_hex_2_processes(family_degree, nelem):
 @pytest.mark.parametrize('nelem', [2, 4, 8])
 def test_submesh_base_facet_integral_hex_4_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_hex(family_degree, nelem)
+
+
+def test_submesh_accepts_region_name():
+    mesh = UnitSquareMesh(2, 2)
+    mesh.rename_subdomain(1, [1, 2], "vertical")
+
+    submesh = Submesh(mesh, subdim=1, subdomain_id="vertical")
+    target = assemble(Constant(1) * ds(1, domain=mesh)) + assemble(Constant(1) * ds(2, domain=mesh))
+
+    assert assemble(Constant(1) * dx(domain=submesh)) == pytest.approx(target)

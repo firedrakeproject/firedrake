@@ -498,3 +498,14 @@ def test_solve_mixed_bcs_restrict():
     solve(a == L, w, bcs=bc, restrict=True)
     assert np.allclose(w.subfunctions[0].dat.data_ro, 1)
     assert np.allclose(w.subfunctions[1].dat.data_ro, 2)
+
+
+def test_dirichletbc_accepts_region_name():
+    mesh = UnitSquareMesh(2, 2)
+    mesh.rename_subdomain(1, [1, 2], "vertical")
+    V = FunctionSpace(mesh, "CG", 1)
+
+    named = DirichletBC(V, 0, "vertical")
+    numeric = DirichletBC(V, 0, [1, 2])
+
+    assert np.array_equal(np.sort(named.nodes), np.sort(numeric.nodes))

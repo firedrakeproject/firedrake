@@ -1,6 +1,7 @@
 from firedrake import *
 import pytest
 import numpy as np
+import ufl
 from functools import reduce
 
 
@@ -75,3 +76,42 @@ def test_cell_facet_subdomains(square, forms):
     full_mat = assemble(full).M.values
     part_mat = reduce(add, map(lambda x: assemble(x).M.values, forms))
     assert np.allclose(part_mat, full_mat)
+
+
+def test_rename_subdomain_appends_and_parse():
+    mesh = UnitSquareMesh(1, 1)
+    mesh.rename_subdomain(1, 1, "walls")
+    mesh.rename_subdomain(1, [2, 3], "walls")
+
+    assert mesh.topology.region_names[1]["walls"] == [1, 2, 3]
+    assert mesh.parse_subdomain_id(1, "walls") == (1, 2, 3)
+    assert mesh.parse_subdomain_id(1, ["walls", 4]) == (1, 2, 3, 4)
+    assert mesh.parse_subdomain_id(1, "on_boundary") == "on_boundary"
+
+    with pytest.raises(ValueError, match="Subdomain region 'missing'"):
+        mesh.parse_subdomain_id(1, "missing")
+
+
+def test_measure_accepts_region_name_with_domain():
+    mesh = UnitSquareMesh(2, 2)
+    mesh.rename_subdomain(1, [1, 2], "vertical")
+
+    named = assemble(Constant(1) * ds(domain=mesh, subdomain_id="vertical"))
+    ufl_named = assemble(Constant(1) * ufl.Measure("ds", domain=mesh, subdomain_id="vertical"))
+    target = assemble(Constant(1) * ds(1, domain=mesh)) + assemble(Constant(1) * ds(2, domain=mesh))
+
+    assert named == pytest.approx(target)
+    assert ufl_named == pytest.approx(target)
+
+
+def test_measure_accepts_region_name_with_inferred_domain():
+    mesh = UnitSquareMesh(2, 2)
+    mesh.rename_subdomain(1, [1, 2], "vertical")
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V)
+    f.assign(1)
+
+    named = assemble(f * ds("vertical"))
+    target = assemble(f * ds(1)) + assemble(f * ds(2))
+
+    assert named == pytest.approx(target)

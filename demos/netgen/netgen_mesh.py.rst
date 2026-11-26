@@ -129,7 +129,6 @@ Now we are ready to assemble the stiffness matrix for the problem. Since we want
 .. code-block:: python
 
    bc = DirichletBC(V, 0, ["line", "curve"])
-   print(labels)
 
 We then proceed to solve the problem:
 

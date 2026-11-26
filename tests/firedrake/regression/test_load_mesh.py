@@ -1,6 +1,7 @@
 from math import pi
 
 from firedrake import *
+from firedrake.mesh import _parse_gmsh_physical_names
 import numpy as np
 import pytest
 from os.path import abspath, dirname, join
@@ -123,3 +124,34 @@ def test_periodic_3d_solve():
     solve(a == L, uh, bcs=bc, solver_parameters={"ksp_type": "cg"})
 
     assert errornorm(u_exact_expr, uh, "L2") < 1e-12
+
+
+def test_gmsh_physical_names_parser(tmp_path):
+    filename = tmp_path / "named.msh"
+    filename.write_text(
+        "$MeshFormat\n2.2 0 8\n$EndMeshFormat\n"
+        "$PhysicalNames\n2\n1 5 \"left wall\"\n2 7 \"fluid\"\n$EndPhysicalNames\n"
+    )
+
+    assert _parse_gmsh_physical_names(str(filename)) == [(1, 5, "left wall"), (2, 7, "fluid")]
+
+
+def test_gmsh_region_names_are_loaded(tmp_path):
+    source = (Path(path) / "square.msh").read_text()
+    physical_names = (
+        "$PhysicalNames\n2\n"
+        "1 1 \"left\"\n"
+        "2 1 \"cells\"\n"
+        "$EndPhysicalNames\n"
+    )
+    filename = tmp_path / "named_square.msh"
+    filename.write_text(source.replace("$EndMeshFormat\n", "$EndMeshFormat\n" + physical_names))
+
+    mesh = Mesh(str(filename))
+
+    assert mesh.topology.region_names[1]["left"] == [1]
+    assert mesh.topology.region_names[2]["cells"] == [1]
+    assert assemble(Constant(1) * ds("left", domain=mesh)) == pytest.approx(
+        assemble(Constant(1) * ds(1, domain=mesh))
+    )
+    assert assemble(Constant(1) * dx("cells", domain=mesh)) == pytest.approx(1.0)

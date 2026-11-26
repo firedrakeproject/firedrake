@@ -183,71 +183,47 @@ def _generate_default_mesh_topology_permutation_name(reorder):
 
 
 def _as_subdomain_id_list(subdomain_id):
-    if isinstance(subdomain_id, str) or not isinstance(subdomain_id, (list, tuple, set, frozenset, np.ndarray)):
-        subdomain_ids = (subdomain_id,)
-    else:
-        subdomain_ids = subdomain_id
-
-    ids = []
-    for sid in subdomain_ids:
+    ids = utils.as_tuple(subdomain_id)
+    for sid in ids:
         if not isinstance(sid, numbers.Integral):
             raise TypeError(f"Expected integer subdomain id, got {sid!r}")
-        ids.append(int(sid))
-    return ids
+    return [int(sid) for sid in ids]
 
 
 def _parse_gmsh_physical_names(filename):
     """Parse the ``$PhysicalNames`` block from a Gmsh ``.msh`` file."""
-    region_names = []
-    try:
-        with open(filename, encoding="utf-8", errors="replace") as f:
-            in_physical_names = False
-            for line in f:
-                line = line.strip()
-                if line == "$PhysicalNames":
-                    in_physical_names = True
-                    continue
-                if line == "$EndPhysicalNames":
-                    break
-                if not in_physical_names:
-                    continue
-                parts = line.split(maxsplit=2)
-                if len(parts) < 3:
-                    continue
-                try:
-                    dim = int(parts[0])
-                    tag = int(parts[1])
-                except ValueError:
-                    continue
-                name = parts[2].strip().strip('"')
-                if name:
-                    region_names.append((dim, tag, name))
-    except OSError:
-        pass
+    with open(filename, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if line == "$PhysicalNames":
+                break
+            if line in {"$Entities", "$Nodes"}:
+                # $PhysicalNames precedes these sections, no need to read on
+                return []
+        else:
+            return []
+        num_names = int(next(f))
+        region_names = []
+        for _ in range(num_names):
+            dim, tag, name = next(f).split(maxsplit=2)
+            region_names.append((int(dim), int(tag), name.strip().strip('"')))
     return region_names
 
 
 def _extract_netgen_region_names(ngmesh, mesh_dim):
-    """Extract region names from Netgen, converting codimension to dimension."""
-    region_names = []
-    for dim in range(mesh_dim + 1):
-        names = ngmesh.GetRegionNames(dim=dim)
-        for subdomain_id, name in enumerate(names, start=1):
-            if name != "":
-                region_names.append((dim, subdomain_id, name))
-    return region_names
+    """Extract the named regions of a Netgen mesh for every entity dimension."""
+    return [(dim, subdomain_id, name)
+            for dim in range(mesh_dim + 1)
+            for subdomain_id, name in enumerate(ngmesh.GetRegionNames(dim=dim), start=1)
+            if name]
 
 
 def _register_region_names(mesh, region_names):
-    all_region_names = mesh.comm.allgather(region_names)
-    seen = set()
-    for rank_region_names in all_region_names:
-        for dim, subdomain_id, name in rank_region_names:
-            key = (dim, subdomain_id, name)
-            if key in seen:
-                continue
-            seen.add(key)
-            mesh.rename_subdomain(dim, subdomain_id, name)
+    # Union over ranks, sorted so that every rank registers in the same order
+    with temp_internal_comm(mesh.comm) as icomm:
+        all_region_names = set().union(*icomm.allgather(region_names))
+    for dim, subdomain_id, name in sorted(all_region_names):
+        mesh.rename_subdomain(dim, subdomain_id, name)
 
 
 @PETSc.Log.EventDecorator()
@@ -2940,6 +2916,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # AbstractMeshTopology.__init__
         self._shared_data_cache = defaultdict(dict)
         self._max_work_functions = {}
+        # Region names are set on the extruded mesh itself, because the
+        # entity dimensions differ from those of the base mesh
+        self.region_names = defaultdict(dict)
 
         # needed because we don't call super().__init__
         self._uid = f"mesh_{next(self.counter)}"
@@ -4620,71 +4599,60 @@ values from f.)"""
 
     _reserved_subdomain_names = frozenset({"on_boundary", "everywhere", "otherwise", "top", "bottom"})
 
+    def _check_entity_dimension(self, dim):
+        dim = int(dim)
+        mesh_dim = self.topological_dimension
+        if not 0 <= dim <= mesh_dim:
+            raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
+        return dim
+
     def rename_subdomain(self, dim, subdomain_id, subdomain_name):
         """Bind a string name to one or more integer subdomain ids."""
         if not isinstance(subdomain_name, str):
             raise TypeError("subdomain_name must be a string")
-        dim = int(dim)
-        mesh_dim = self.topological_dimension
-        if not 0 <= dim <= mesh_dim:
-            raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
-
-        dim_region_names = self.topology.region_names[dim]
+        dim_region_names = self.topology.region_names[self._check_entity_dimension(dim)]
         dim_region_names.setdefault(subdomain_name, []).extend(_as_subdomain_id_list(subdomain_id))
 
     def parse_subdomain_id(self, dim, subdomain_id):
-        """Resolve string region names to integer subdomain ids for an entity dimension."""
-        dim = int(dim)
-        mesh_dim = self.topological_dimension
-        if not 0 <= dim <= mesh_dim:
-            raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
+        """Resolve string region names to integer subdomain ids for an entity dimension.
 
+        Names in a top-level collection are spliced into it, while names in a
+        nested collection (an intersection of markers) stay grouped.
+        """
+        dim = self._check_entity_dimension(dim)
         dim_region_names = self.topology.region_names[dim]
 
-        def is_collection(value):
-            return not isinstance(value, str) and isinstance(value, Sequence)
-
-        def resolve_string(value):
-            if value in self._reserved_subdomain_names:
-                return (value,)
+        def lookup(name):
+            if name in self._reserved_subdomain_names:
+                return (name,)
             try:
-                return tuple(dim_region_names[value])
+                return tuple(dim_region_names[name])
             except KeyError:
-                available = sorted(dim_region_names)
                 raise ValueError(
-                    f"Subdomain region {value!r} not found in dimension {dim}. "
-                    f"Available names: {available}"
-                )
+                    f"Subdomain region {name!r} not found in dimension {dim}. "
+                    f"Available names: {sorted(dim_region_names)}"
+                ) from None
 
-        def resolve(value, flatten_named):
-            if isinstance(value, str):
-                resolved = resolve_string(value)
-                if flatten_named:
-                    return resolved
-                if len(resolved) == 1:
-                    return resolved[0]
-                return resolved
-            if is_collection(value):
-                resolved = []
-                for entry in value:
-                    if is_collection(entry):
-                        resolved.append(resolve(entry, flatten_named=False))
+        def resolve(values, top):
+            resolved = []
+            for value in values:
+                if isinstance(value, str):
+                    ids = lookup(value)
+                    if top:
+                        resolved.extend(ids)
                     else:
-                        entry_resolved = resolve(entry, flatten_named=flatten_named)
-                        if flatten_named and isinstance(entry_resolved, Sequence):
-                            resolved.extend(entry_resolved)
-                        else:
-                            resolved.append(entry_resolved)
-                return tuple(resolved)
-            return value
+                        resolved.append(ids[0] if len(ids) == 1 else ids)
+                elif isinstance(value, Sequence):
+                    resolved.append(resolve(value, top=False))
+                else:
+                    resolved.append(value)
+            return tuple(resolved)
 
         if isinstance(subdomain_id, str):
-            resolved = resolve_string(subdomain_id)
-            if resolved == (subdomain_id,):
-                return subdomain_id
-            return resolved
-        if is_collection(subdomain_id):
-            return resolve(subdomain_id, flatten_named=True)
+            ids = lookup(subdomain_id)
+            return subdomain_id if ids == (subdomain_id,) else ids
+        if isinstance(subdomain_id, Sequence):
+            return resolve(subdomain_id, top=True)
         return subdomain_id
 
     def mark_entities(self, f, label_value, label_name=None):
@@ -5258,7 +5226,8 @@ def Mesh(meshfile, **kwargs):
         region_names = _extract_netgen_region_names(meshfile, mesh.topological_dimension)
         _register_region_names(mesh, region_names)
     elif isinstance(meshfile, str) and meshfile.lower().endswith(".msh"):
-        region_names = _parse_gmsh_physical_names(meshfile)
+        # Every rank sees the same file, so only rank 0 needs to read it
+        region_names = _parse_gmsh_physical_names(meshfile) if mesh.comm.rank == 0 else []
         _register_region_names(mesh, region_names)
 
     mesh.submesh_parent = submesh_parent
