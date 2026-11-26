@@ -3467,6 +3467,10 @@ def submesh_create(PETSc.DM dm,
             subpoints = dm.getStratumIS("exterior_facets", 1)
         else:
             raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
+        if not subpoints:
+            # The stratum is empty on this rank, and PETSc then returns a
+            # NULL IS, which IS.union cannot take.
+            continue
         if points:
             points = points.union(subpoints)
         else:
