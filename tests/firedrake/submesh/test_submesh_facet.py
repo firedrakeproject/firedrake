@@ -206,8 +206,10 @@ def test_submesh_codim1_interior_facet_ridge_vertex_overlap(overlap_type):
 @pytest.mark.parallel([2, 3])
 def test_submesh_codim1_interior_facet_relabeled_ridge_overlap():
     mesh = _make_cube(DistributedMeshOverlapType.RIDGE)
-    marker = Function(FunctionSpace(mesh, "HDiv Trace", 0))
-    DirichletBC(marker.function_space(), 1, 4).apply(marker)
+    V = FunctionSpace(mesh, "HDiv Trace", 0)
+    marker = Function(V)
+    bc = DirichletBC(V, 1, 4)
+    bc.apply(marker)
     rmesh = RelabeledMesh(mesh, [marker], [111])
     subm = Submesh(rmesh, rmesh.topological_dimension - 1, 111)
     f = _linear_function(subm)

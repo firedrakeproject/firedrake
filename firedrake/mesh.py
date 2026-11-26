@@ -135,6 +135,8 @@ class PartitionOverlap:
     size: int
 
     def __le__(self, other: PartitionOverlap) -> bool:
+        if not isinstance(other, PartitionOverlap):
+            return NotImplemented
         return (
             _OVERLAP_ORDER.index(self.overlap_type) <= _OVERLAP_ORDER.index(other.overlap_type)
             and self.size <= other.size
@@ -1354,8 +1356,8 @@ class AbstractMeshTopology(abc.ABC):
         # An owned interior facet needs both of its cells on the owning rank.
         # With one rank there is no halo, and Firedrake adds no overlap.
         if integral_type in {"interior_facet", "interior_facet_vert"} and self.comm.size > 1:
-            if not PartitionOverlap(DistributedMeshOverlapType.FACET, 1) <= self.partition_overlap:
-                overlap = self.partition_overlap
+            overlap = self.partition_overlap
+            if not PartitionOverlap(DistributedMeshOverlapType.FACET, 1) <= overlap:
                 raise ValueError(
                     "Interior facet integrals in parallel need a partition overlap of at least "
                     f"(FACET, 1), but this mesh only has ({overlap.overlap_type.name}, {overlap.size}). "
@@ -6128,8 +6130,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     rmesh.name = name1
     rmesh._tolerance = mesh.tolerance
 
-    # The relabeled topology has the halo of the original mesh. Copy the dict,
-    # since a checkpoint load changes the overlap entry in place.
+    # The relabeled topology has the halo of the original mesh. The two
+    # topologies must not share one dict.
     rmesh.topology._distribution_parameters = dict(mesh._distribution_parameters)
     rmesh._did_reordering = mesh._did_reordering
     return rmesh
@@ -6292,8 +6294,8 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         reorder=reorder,
         distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
     )
-    # Record the overlap that the submesh plex is guaranteed to have, which is
-    # not the overlap of the parent mesh. ignore_halo leaves out the halo.
+    # Record the overlap that the submesh plex is guaranteed to have, which can
+    # be smaller than the overlap of the parent mesh. ignore_halo leaves out the halo.
     if ignore_halo:
         overlap = PartitionOverlap(DistributedMeshOverlapType.NONE, 0)
     else:

@@ -329,7 +329,14 @@ def MeshHierarchy(mesh, refinement_levels=0,
     if distribution_parameters is not None:
         parameters.update(distribution_parameters)
     else:
+        # A Submesh records the overlap that it is guaranteed to have, which can
+        # be smaller than the overlap of its parent. The refined levels are new
+        # meshes, so they get the overlap that the original mesh was distributed with.
+        root = mesh
+        while root.submesh_parent is not None:
+            root = root.submesh_parent
         parameters.update(mesh._distribution_parameters)
+        parameters["overlap_type"] = root._distribution_parameters["overlap_type"]
     parameters["partition"] = False
 
     meshes = [mesh]
