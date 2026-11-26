@@ -3752,6 +3752,7 @@ def cell_closures_and_perms_submesh(
     PETSc.DM dm,
     # PETSc.Section subcell_numbering,
     # PETSc.Section cell_numbering,
+    PetscInt[::1] subcell_closure_sizes,
     np.ndarray cell_closure,
     np.ndarray closure_perms,
     np.ndarray entity_per_subcell,
@@ -3782,7 +3783,7 @@ def cell_closures_and_perms_submesh(
         PetscInt *subpoint_indices_inv = NULL
         PetscInt dim, subdim
         PetscInt subpStart, subpEnd, subp, subcStart, subcEnd, subc, subcell
-        PetscInt pStart, pEnd, p, cStart, cEnd, c, cell
+        PetscInt pStart, pEnd, p, cStart, cEnd, c, cell, off
         PetscInt nclosure, cl, nsubclosure, subcl, nsupport
         PetscInt *subclosure = NULL
         PetscInt *perm = NULL
@@ -3832,25 +3833,28 @@ def cell_closures_and_perms_submesh(
             p = subpoint_indices[subp]
             subpoint_indices_inv[p - pStart] = subp  # set to non-negative subp.
 
-        orig_perms = np.empty(nclosure, dtype=IntType)
         subcl = 0
         for cl in range(nclosure):
             p = cell_closure[cell, cl]
             subp = subpoint_indices_inv[p]
             if subp >= 0:
                 subcell_closures[subcell, subcl] = subp
-                orig_perms[subcl] = closure_perms[cell, cl]
+                perm[subcl] = closure_perms[cell, cl]
                 subcl += 1
+        if subcl != nsubclosure:
+            raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
 
         # this gives us something like [2, 4, 1, 5], convert to [1, 2, 0, 3]
         for i in range(nsubclosure):
             subperm[i] = i  # reset
-        CHKERR(PetscSortIntWithArray(nsubclosure, perm, subperm))
-        for subcl in range(nsubclosure):
-            subcell_perms[subcell, subcl] = subperm[subcl]
+        off = 0
+        for ss in subcell_closure_sizes:
+            CHKERR(PetscSortIntWithArray(ss, perm+off, subperm))
+            for subcl in range(ss):
+                # subcell_perms[subcell, subcl+off] = subperm[subcl+off] - off
+                subcell_perms[subcell, subperm[subcl+off]] = subcl
+            off += ss
 
-        if subcl != nsubclosure:
-            raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
         for subcl in range(nsubclosure):
             subp = subclosure[2*subcl]
             p = subpoint_indices[subp]

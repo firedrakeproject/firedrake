@@ -1644,7 +1644,8 @@ class AbstractMeshTopology(abc.ABC):
             return dmcommon.cell_closures_and_perms_submesh(
                 self.topology_dm,
                 self.submesh_parent.topology_dm,
-                self.submesh_parent._flat_dm_closures(self.cell_label),
+                np.asarray(list(self._closure_sizes[self.cell_label].values()), dtype=IntType),
+                self.submesh_parent._flat_dm_closures(self.submesh_parent.cell_label),
                 self.submesh_parent._flat_cell_closure_perms,
                 entity_per_cell,
             )
