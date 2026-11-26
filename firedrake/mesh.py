@@ -5170,7 +5170,7 @@ def Mesh(meshfile, **kwargs):
 def ExtrudedMesh(
     mesh: MeshGeometry,
     layers: numbers.Integral,
-    layer_height: numbers.Number | None = None,
+    layer_height: numbers.Number | np.ndarray | None = None,
     extrusion_type: Literal["uniform", "radial", "radial_hedgehog", "custom"] = "uniform",
     periodic: bool = False,
     kernel=None,
@@ -5186,7 +5186,7 @@ def ExtrudedMesh(
         The unstructured base mesh.
     layers : numbers.Integral
         The number of extruded cell layers in the "vertical" direction.
-    layer_height : numbers.Number | None
+    layer_height : numbers.Number | numpy.ndarray | None
         The layer height. A scalar value will result in evenly-spaced layers,
         whereas an array of values will vary the layer height through the extrusion.
         If this is omitted, the value defaults to 1/layers (i.e. the extruded mesh
@@ -5197,13 +5197,13 @@ def ExtrudedMesh(
     periodic : bool
         The flag for periodic extrusion. Can be used with any ``extrusion_type``
         to make annulus, torus, etc.
-    kernel : pyop3.Function
+    kernel : pyop3.Function | None
         A :class:`pyop3.Function` to produce coordinates for the extruded mesh.
         See :func:`firedrake.extrusion_utils.make_extruded_coords` for more details.
-    gdim : int
+    gdim : int | None
         The number of spatial dimensions of the resulting mesh (this is only used
         if a custom kernel is provided).
-    name : str
+    name : str | None
         Optional name for the extruded mesh.
     tolerance : float
         The relative tolerance (i.e. as defined on the reference cell) for the
