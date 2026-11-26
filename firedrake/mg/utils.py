@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import types
 import numpy
 from immutabledict import immutabledict as idict
 from fractions import Fraction
@@ -10,7 +11,7 @@ from firedrake.utils import IntType
 from firedrake.functionspaceimpl import entity_dofs_key
 import finat.ufl
 import firedrake
-from firedrake.cython import mgimpl as impl
+from firedrake.cython import dmcommon, mgimpl as impl
 
 
 def fine_node_to_coarse_node_map(Vf, Vc):
@@ -158,6 +159,78 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
             },
         )
         return cache.setdefault(key, node_map)
+
+
+def split_unrefined_nodes(
+    Vc: firedrake.functionspaceimpl.WithGeometry,
+    Vf: firedrake.functionspaceimpl.WithGeometry,
+) -> tuple[op3.Slice | types.EllipsisType, op3.Slice | None, op3.ScalarMap | None]:
+    """Split the owned fine nodes into refined nodes and unrefined nodes.
+
+    Unrefined nodes are chosen as the fine nodes on points that were not split
+    by adaptive refinement. All fine nodes are treated as refined if the spaces
+    have different elements, or if every coarse cell was split.
+
+    The values at unrefined nodes will be copied from their coarse nodes. Only
+    the refined nodes will be evaluated by the transfer kernels.
+
+    Parameters
+    ----------
+    Vc : firedrake.functionspaceimpl.WithGeometry
+        The coarse function space.
+    Vf : firedrake.functionspaceimpl.WithGeometry
+        The fine function space, on the next level of the same hierarchy.
+
+    Returns
+    -------
+    refined : pyop3.Slice or Ellipsis
+        The owned fine nodes on points that were split by refinement.
+    unrefined : pyop3.Slice or None
+        The owned fine nodes on points that were not split by refinement.
+    coarse_node : pyop3.ScalarMap or None
+        The map from the unrefined fine nodes to their coarse nodes.
+
+    """
+    all_refined = (Ellipsis, None, None)
+    if Vc.ufl_element() != Vf.ufl_element() or Vc.boundary_set != Vf.boundary_set:
+        return all_refined
+    hierarchy, levelc = get_level(Vc.mesh())
+    _, levelf = get_level(Vf.mesh())
+    fine_to_coarse_points = hierarchy.fine_to_coarse_points.get(levelf)
+    if fine_to_coarse_points is None:
+        return all_refined
+
+    key = _cache_key(Vc, Vf)
+    cache = Vf.mesh()._shared_data_cache["hierarchy_split_unrefined_nodes"]
+    try:
+        return cache[key]
+    except KeyError:
+        has_unrefined_cells = ((hierarchy.coarse_to_fine_cells[levelc] >= 0).sum(axis=1) == 1).any()
+        with op3.mpi.temp_internal_comm(Vf.comm) as icomm:
+            has_unrefined_cells = icomm.allreduce(bool(has_unrefined_cells), op=MPI.LOR)
+        if not has_unrefined_cells:
+            return cache.setdefault(key, all_refined)
+
+        # Find the coarse points that were not split. Split coarse points were
+        # refined into several fine points.
+        sources, counts = numpy.unique(fine_to_coarse_points[fine_to_coarse_points >= 0],
+                                       return_counts=True)
+        unrefined_points = numpy.where(numpy.isin(fine_to_coarse_points, sources[counts == 1]),
+                                       fine_to_coarse_points, -1)
+        coarse_nodes = dmcommon.make_node_to_node_map(unrefined_points, Vf.local_section,
+                                                      Vc.local_section, Vf.block_size)
+
+        # Visit only the owned fine nodes. Otherwise restriction would add the
+        # values at ghost fine nodes to their coarse nodes twice.
+        owned = coarse_nodes[:Vf.axes.owned.local_size // Vf.block_size]
+        refined = firedrake.assign.parse_subset(numpy.flatnonzero(owned < 0))
+        unrefined = firedrake.assign.parse_subset(numpy.flatnonzero(owned >= 0))
+        coarse_node = op3.ScalarMap({
+            idict({"nodes": None}): [
+                op3.TabulatedMapComponent("nodes", None, op3.Dat(Vf.nodes, data=coarse_nodes), label=None)
+            ]
+        })
+        return cache.setdefault(key, (refined, unrefined, coarse_node))
 
 
 # NOTE: doesn't need spaces, just meshes
