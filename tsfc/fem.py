@@ -33,7 +33,7 @@ from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
                          SpatialCoordinate)
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.domain import extract_unique_domain
+from ufl.domain import extract_unique_domain, join_domains
 from ufl.algorithms import extract_arguments
 
 from tsfc import ufl2gem
@@ -482,7 +482,7 @@ class PointSetContext(ContextBase):
     @staticmethod
     def _make_basis_evaluation_key(finat_element, mt, entity_id):
         ufl_element = mt.terminal.ufl_element()
-        domain = extract_unique_domain(mt.terminal) or mt.terminal.ufl_function_space().ufl_domain()
+        domain, = join_domains([mt.terminal.ufl_function_space().ufl_domain()])
         coordinate_element = domain.ufl_coordinate_element()
         # This way of caching is fragile.
         # Should implement _hash_key_() in ModifiedTerminal and include the entire mt in the key,
@@ -859,16 +859,17 @@ def translate_constant_value(terminal, mt, ctx):
 @translate.register(ufl.Interpolate)
 def translate_interpolate(terminal: ufl.Interpolate, mt: ModifiedTerminal, ctx: ContextBase) -> gem.Node:
     dual_arg, operand = terminal.argument_slots()
-    domain = extract_unique_domain(operand) or dual_arg.ufl_function_space().ufl_domain()
-    ufl_element = dual_arg.ufl_function_space().ufl_element()
+    target_domain, = join_domains([dual_arg.ufl_domain()])
+    source_domain = extract_unique_domain(operand) or target_domain
+    ufl_element = dual_arg.ufl_element()
     element = ctx.create_element(ufl_element, restriction=mt.restriction)
-    kernel_cfg = ctx.dual_evaluation_config(domain, mt.restriction)
+    kernel_cfg = ctx.dual_evaluation_config(source_domain, mt.restriction)
     vec = gem.Sum(*(
         gem.ComponentTensor(evaluation, basis_indices)
         for evaluation, _, basis_indices
         in dual_evaluate(operand, dual_arg, element, kernel_cfg)
     ))
-    return translate_ufl_element(ufl_element, domain, mt, ctx, vec)
+    return translate_ufl_element(ufl_element, target_domain, mt, ctx, vec)
 
 
 @translate.register(Coefficient)

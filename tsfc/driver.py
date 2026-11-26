@@ -75,7 +75,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
     if isinstance(form, ufl.Interpolate):
         dual_arg, _ = form.argument_slots()
         kernel = compile_expression_dual_evaluation(
-            form, dual_arg.ufl_function_space().ufl_element(), parameters=parameters,
+            form, dual_arg.ufl_element(), parameters=parameters,
             name=f"{prefix}_cell_integral", return_increments=return_increments,
         )
         return [] if kernel is None else [kernel]
