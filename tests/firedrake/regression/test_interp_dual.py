@@ -638,8 +638,8 @@ def test_form_interp_mixed_split(case):
     # a functional that has no argument to split.
     c = assemble(inner(g, w) * dx)
     if case == "integrand":
-        a = (interp(u)[0] * w[1] + interp(u)[1] * w[0]) * dx
-        expected = assemble((interp(f)[0] * g[1] + interp(f)[1] * g[0]) * dx)
+        a = (inner(interp(u)[0], w[1]) + inner(interp(u)[1], w[0])) * dx
+        expected = assemble((inner(interp(f)[0], g[1]) + inner(interp(f)[1], g[0])) * dx)
     elif case == "nested":
         a = interpolate(interp(u), W)
         expected = assemble(interpolate(interp(f), c))
@@ -647,8 +647,8 @@ def test_form_interp_mixed_split(case):
         a = ufl.FormSum((interp(u), 1), (interpolate(x * interp(u), W), 2))
         expected = assemble(interpolate(interp(f), c)) + 2 * assemble(interpolate(x * interp(f), c))
     elif case == "dual_form":
-        a = action(inner(interpolate(w, W), g) * dx, interp(u))
-        expected = assemble(inner(interpolate(assemble(interp(f)), W), g) * dx)
+        a = action(inner(g, interpolate(w, W)) * dx, interp(u))
+        expected = assemble(inner(g, interpolate(assemble(interp(f)), W)) * dx)
 
     A = assemble(a)
     if case == "dual_form":
@@ -682,9 +682,9 @@ def test_form_interp_interior_facet():
     v = TestFunction(W)
     interpolation = interpolate(u, W)
 
-    actual = assemble(avg(interpolation) * jump(v) * dS)
+    actual = assemble(inner(avg(interpolation), jump(v)) * dS)
     interpolated = assemble(interpolation)
-    expected = assemble(avg(interpolated) * jump(v) * dS)
+    expected = assemble(inner(avg(interpolated), jump(v)) * dS)
     assert not np.allclose(expected.dat.data_ro, 0)
     assert np.allclose(actual.dat.data, expected.dat.data)
 
