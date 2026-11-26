@@ -16,6 +16,7 @@ Manual
    r-space
    extruded-meshes
    mesh-coordinates
+   submeshes
    duals
    interpolation
    point-evaluation
