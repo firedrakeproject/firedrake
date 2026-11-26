@@ -337,7 +337,7 @@ def section_offsets(
     return offsets
 
 
-def _section_offsets_with_array(section, const PetscInt[::1] selected_points) -> np.ndarray:
+def _section_offsets_with_array(section: PETSc.Section, const PetscInt[::1] selected_points) -> np.ndarray:
     offsets = np.empty(selected_points.size, dtype=IntType)
     for i, pt in enumerate(selected_points):
         offsets[i] = section.getOffset(pt)
@@ -2104,9 +2104,9 @@ def compute_dm_renumbering(
         The point permutation describing an optimal ordering for DM points.
 
     """
-    # TODO: clean this up
     cdef:
-        PetscInt pStart_c, pEnd_c, nPoints_c
+        PetscInt[::1] ordering_view
+        PetscInt pStart_c, pEnd_c, nPoints_c, ptr
         PetscInt cStart, cEnd, nclosure
         PetscInt *closure = NULL
         PetscBT seen_points = NULL
@@ -2116,13 +2116,12 @@ def compute_dm_renumbering(
 
     pStart_c, pEnd_c = dm.getChart()
     nPoints_c = pEnd_c - pStart_c
-
     get_height_stratum(dm.dm, 0, &cStart, &cEnd)
 
     ordering = np.empty(nPoints_c, dtype=IntType)
+    ordering_view = ordering
     CHKERR(PetscBTCreate(nPoints_c, &seen_points))
     ptr = 0
-
     for cell in range(cStart, cEnd):
         if reorder:
             cell = new_to_old_cell_numbering[cell]
@@ -2135,7 +2134,7 @@ def compute_dm_renumbering(
                 continue
             else:
                 PetscBTSet(seen_points, point)
-                ordering[ptr] = point
+                ordering_view[ptr] = point
                 ptr += 1
 
     assert ptr == nPoints_c
@@ -2151,12 +2150,14 @@ def compute_dm_renumbering(
 def partition_renumbering(PETSc.DM dm, PetscInt[::1] serial_new_to_old_numbering) -> np.ndarray:
     """Partition a serial point renumbering into owned and ghost points."""
     cdef:
-        DMLabel        ghost_label_c
-        PetscInt       n_owned_c, n_ghost_c, is_ghost_c
-        PetscInt       owned_ptr_c, ghost_ptr_c, i_c, pt_c
+        PetscInt[::1] parallel_view
+        DMLabel ghost_label_c
+        PetscInt n_owned_c, n_ghost_c, is_ghost_c
+        PetscInt owned_ptr_c, ghost_ptr_c, i_c, pt_c
         PetscInt *parallel_new_to_old_renumbering_c = NULL
 
     parallel_new_to_old_numbering = np.empty_like(serial_new_to_old_numbering)
+    parallel_view = parallel_new_to_old_numbering
 
     CHKERR(DMGetLabel(dm.dm, b"firedrake_is_ghost", &ghost_label_c))
     CHKERR(DMLabelGetStratumSize(ghost_label_c, 1, &n_ghost_c))
@@ -2168,10 +2169,10 @@ def partition_renumbering(PETSc.DM dm, PetscInt[::1] serial_new_to_old_numbering
         pt_c = serial_new_to_old_numbering[i_c]
         CHKERR(DMLabelGetValue(ghost_label_c, pt_c, &is_ghost_c))
         if is_ghost_c == 1:
-            parallel_new_to_old_numbering[ghost_ptr_c] = pt_c
+            parallel_view[ghost_ptr_c] = pt_c
             ghost_ptr_c += 1
         else:
-            parallel_new_to_old_numbering[owned_ptr_c] = pt_c
+            parallel_view[owned_ptr_c] = pt_c
             owned_ptr_c += 1
 
     assert owned_ptr_c == n_owned_c

@@ -741,14 +741,6 @@ class AbstractMeshTopology(abc.ABC):
     def _dm_renumbering(self):
         return self._new_to_old_point_numbering_is
 
-    @cached_property_until_topology_changes
-    def _old_to_new_point_numbering_section(self) -> PETSc.Section:
-        return dmcommon.entity_numbering(
-            PETSc.IS().createStride(self.num_points, comm=MPI.COMM_SELF),
-            self._new_to_old_point_numbering_is,
-            self.comm
-        )
-
     @property
     def _is_renumbered(self) -> bool:
         return utils.strictly_all(
@@ -830,7 +822,7 @@ class AbstractMeshTopology(abc.ABC):
             idxs = np.arange(idxs.start, idxs.stop, dtype=IntType)
         return idxs
 
-    def _entity_indices_plex_by_name(self, name: str) -> np.ndarray:
+    def _entity_indices_plex_by_name(self, name: str) -> np.ndarray | slice:
         match name:
             case "cell":
                 return self._entity_dm_indices(stratum=self.dimension)
@@ -1358,7 +1350,7 @@ class AbstractMeshTopology(abc.ABC):
             dm_idxs = np.empty(0, dtype=IntType)
             for subdomain_id in subdomain_ids:
                 if subdomain_id == UNMARKED:
-                    dm_idxs_to_exclude = _make_is_general(np.empty(0, dtype=IntType))
+                    dm_idxs_to_exclude = np.empty(0, dtype=IntType)
                     # Note that this is different to all_integer_subdomain_ids
                     # because that comes from the integral
                     all_dm_subdomain_ids = self.topology_dm.getLabelIdIS(dmlabel_name).indices
@@ -1417,7 +1409,13 @@ class AbstractMeshTopology(abc.ABC):
         # is tied to the mesh, things will never be cleaned up.
         mesh_ref = weakref.proxy(self.topology)
 
-        return MeshLoopIndex(iterset, mesh_ref, integral_type, dm_idxs, include_ghosts=include_ghosts)
+        return MeshLoopIndex(
+            iterset,
+            mesh_ref,
+            integral_type,
+            utils.readonly(dm_idxs),
+            include_ghosts=include_ghosts,
+        )
 
     def closure(self, index, **kwargs):
         # Adding the 'closure' label here is a bit of a hack to make sure we
@@ -3066,7 +3064,7 @@ class ExtrudedMeshTopology(MeshTopology):
         return np.repeat(orientationss, self.layers-1, axis=0)
 
     # TODO: implement for regular meshes too
-    def _plex_indices_for_dim(self, dim: tuple) -> PETSc.IS:
+    def _plex_indices_for_dim(self, dim: tuple[int, ...]) -> np.ndarray:
         if len(dim) != 2:
             raise NotImplementedError
 
