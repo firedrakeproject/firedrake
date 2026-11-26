@@ -99,9 +99,6 @@ jobs:
     runs-on: [self-hosted, Linux]
     container:
       image: ubuntu:latest
-    env:
-      # Disable some compiler optimisations as they cause runner-specific bugs
-      PYOP3_EXTRA_CFLAGS: -O1 -fno-fast-math
     steps:
       - name: Fix HOME
         # GitHub actions overwrite HOME to /github/home which causes permissions
@@ -318,8 +315,6 @@ jobs:
       image: ubuntu:latest
       options: --gpus all
     env:
-      # Disable some compiler optimisations as they cause runner-specific bugs
-      PYOP3_EXTRA_CFLAGS: -O1 -fno-fast-math
       # Prevent PETSc from exiting with an error due to using non-GPU aware system MPI
       PETSC_OPTIONS: -use_gpu_aware_mpi 0
     steps:
