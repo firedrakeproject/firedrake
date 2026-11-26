@@ -1531,6 +1531,8 @@ class AbstractMeshTopology(abc.ABC):
             oriented_dm_closures_per_dim = np.take_along_axis(
                 dm_closures_per_dim, self._cell_closure_perms[to_dim]
             )
+            if to_dim == (0,1):
+                breakpoint()
 
             # Now renumber the source and (optionally) destination points.
             # Source points are renumbered by permuting map rows, and
@@ -1743,7 +1745,21 @@ class AbstractMeshTopology(abc.ABC):
 
 
         elif self._base_mesh.ufl_cell() == ufl.quadrilateral:
-            dm_fiat_pt_map = np.asarray([26, 0, 2, 1, 3, 4, 6, 5, 7, 22, 23, 20, 21, 24, 25, 8, 9, 10, 11, 16, 18, 17, 19, 12, 13, 14, 15], dtype=int)
+            # dm_fiat_pt_map = np.asarray([26, 0, 1, 2, 3, 4, 5, 6, 7, 22, 23, 20, 21, 24, 25, 8, 9, 10, 11, 16, 18, 17, 19, 12, 13, 14, 15], dtype=int)
+            # dm_fiat_pt_map = np.asarray([26, 0, 1, 2, 3, 6, 7, 4, 5, 22, 23, 20, 21, 24, 25, 8, 9, 10, 11, 16, 18, 17, 19, 12, 13, 14, 15], dtype=int)
+            dm_fiat_pt_map = np.asarray(
+                [
+                    26,  # cell
+                    # 2, 0, 3, 1, 7, 5, 6, 4,  # vertices
+                    # 2, 3, 0, 1, 6, 7, 4, 5,  # vertices
+                    0, 1, 2, 3, 6, 7, 4, 5,  # vertices
+                    24, 25, 20, 21, 23, 22,
+                    # 12, 13, 14, 15, 18, 19, 16, 17,
+                    # 12, 13, 14, 15, 16, 17, 18, 19,
+                    # 12, 16, 15, 19, 13, 17, 14, 18,
+                    12, 16, 14, 18, 15, 19, 13, 17,
+                    8, 9, 11, 10], dtype=int)
+
             dm_cell_closure = np.asarray([0, 9, 15, 21, 17, 19,  1,  3,  7,  5, 10, 16, 22, 18, 20,  2,  4,  8,  6, 11, 14, 12, 13, 23, 24, 26, 25])
             closure_perm = utils.invert(dm_fiat_pt_map[dm_cell_closure])
 
