@@ -2,6 +2,7 @@
 import collections.abc
 import warnings
 
+import numpy as np
 from petsc4py import PETSc
 
 from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict, as_tuple  # noqa: F401
@@ -213,14 +214,9 @@ def deprecated(prefer=None, internal=False):
     return decorator
 
 
-def safe_is(is_: PETSc.IS, *, comm=MPI.COMM_SELF) -> PETSc.IS:
-    """Return a non-null index set.
-
-    This function is useful because sometimes petsc4py returns index sets that
-    are not correctly initialised.
-
-    """
-    return is_ if is_ else PETSc.IS().createStride(0, comm=comm).toGeneral()
+def safe_is_indices(is_: PETSc.IS) -> np.ndarray:
+    """Return the indices from an index set without erroring at an empty set."""
+    return is_.indices if is_ else np.empty(0, dtype=IntType)
 
 
 def check_netgen_installed() -> None:

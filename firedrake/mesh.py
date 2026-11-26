@@ -850,9 +850,9 @@ class AbstractMeshTopology(abc.ABC):
                 # The vertical exterior facets are simply given by all the points coming
                 # from exterior facets in the base mesh.
                 assert isinstance(self, ExtrudedMeshTopology)
-                dm_idxs = utils.safe_is(
+                dm_idxs = utils.safe_is_indices(
                     self.topology_dm.getLabel("base_exterior_facets").getStratumIS(1)
-                ).indices
+                )
 
                 # Drop non-facet indices (i.e. the extruded vertices)
                 f_start, f_end = self.topology_dm.getDepthStratum(self.dimension-1)
@@ -877,9 +877,9 @@ class AbstractMeshTopology(abc.ABC):
                 #
                 # The vertical interior facets are simply given by all the points coming
                 # from interior facets in the base mesh.
-                dm_idxs = utils.safe_is(
+                dm_idxs = utils.safe_is_indices(
                     self.topology_dm.getLabel("base_interior_facets").getStratumIS(1)
-                ).indices
+                )
 
                 # Drop non-facet indices (i.e. the extruded vertices)
                 f_start, f_end = self.topology_dm.getDepthStratum(self.dimension-1)
@@ -999,9 +999,9 @@ class AbstractMeshTopology(abc.ABC):
         # vertical) are not natively distinguished.
 
         # Get all points that were originally a vertex, say
-        dm_idxs = utils.safe_is(
+        dm_idxs = utils.safe_is_indices(
             self.topology_dm.getLabel("base_dim").getStratumIS(base_dim)
-        ).indices
+        )
 
         # Filter out the extruded dimension that we don't want
         return dm_idxs[np.logical_and(p_start <= dm_idxs, dm_idxs < p_end)]
@@ -1380,13 +1380,13 @@ class AbstractMeshTopology(abc.ABC):
                     for subdomain_id_ in all_dm_subdomain_ids:
                         dm_idxs_to_exclude = np.union1d(
                             dm_idxs_to_exclude,
-                            utils.safe_is(self.topology_dm.getStratumIS(dmlabel_name, subdomain_id_)).indices,
+                            utils.safe_is_indices(self.topology_dm.getStratumIS(dmlabel_name, subdomain_id_)),
                         )
                     matching_indices = np.setdiff1d(iterset_dm_idxs, dm_idxs_to_exclude, assume_unique=True)
                 else:
-                    matching_indices = utils.safe_is(
+                    matching_indices = utils.safe_is_indices(
                         self.topology_dm.getStratumIS(dmlabel_name, subdomain_id)
-                    ).indices
+                    )
                 dm_idxs = np.union1d(dm_idxs, matching_indices)
 
             # Restrict to indices that exist within the iterset (e.g. drop exterior facets
@@ -1422,9 +1422,9 @@ class AbstractMeshTopology(abc.ABC):
             iterset = iterset[subset]
 
         # drop ghost points
-        ghost_idxs = utils.safe_is(
+        ghost_idxs = utils.safe_is_indices(
             self.topology_dm.getLabel("firedrake_is_ghost").getStratumIS(1)
-        ).indices
+        )
         dm_idxs = np.setdiff1d(dm_idxs, ghost_idxs)
 
         # Use a weakref for the mesh here because otherwise we would store a
@@ -3023,7 +3023,7 @@ class ExtrudedMeshTopology(MeshTopology):
         base_dim, extr_dim = dim
 
         # Get all points that were originally a vertex, say
-        dm_idxs = utils.safe_is(base_dim_label.getStratumIS(base_dim)).indices
+        dm_idxs = utils.safe_is_indices(base_dim_label.getStratumIS(base_dim))
 
         # Filter out the extruded dimension that we don't want
         p_start, p_end = self.topology_dm.getDepthStratum(base_dim+extr_dim)
