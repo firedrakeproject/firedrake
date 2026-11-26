@@ -28,6 +28,7 @@ from firedrake.utils import ScalarType, IntType, as_ctypes, _new_uid, complex_mo
 from firedrake import functionspaceimpl, utils
 from firedrake.cofunction import Cofunction, RieszMap
 from firedrake.adjoint_utils import FunctionMixin
+from firedrake.realspace import RealSpace
 from firedrake.petsc import PETSc
 from firedrake.functionspaceimpl import parse_component_indices, is_mixed
 from firedrake.mesh import MeshGeometry, VertexOnlyMesh, VertexOnlyMeshTopology, extract_mesh_topologies
@@ -78,7 +79,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         """
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
-                                           functionspaceimpl.MixedFunctionSpace)), \
+                                           functionspaceimpl.MixedFunctionSpace, RealSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
         if isinstance(val, np.ndarray):
             assert val.flags.writeable, "CoordinatelessFunction val expects a modifiable array"
@@ -123,11 +124,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         self._val_used = val is not None
 
-        self._mesh_topology_version = self._mesh_topology._topology_version
-        r"""The topology version on which the values of this function are stored."""
-
-        # Register the function at the mesh level
-        self._mesh_topology._register_function(self)
+        topology = self._mesh_topology
+        self._mesh_topology_version = None if topology is None else topology._topology_version
+        if topology is not None:
+            topology._register_function(self)
 
         if isinstance(function_space, functionspaceimpl.MixedFunctionSpace):
             assert function_space._labels == self._dat.axes.trees[0].root.component_labels
@@ -147,7 +147,8 @@ class CoordinatelessFunction(ufl.Coefficient):
     @property
     def dat(self) -> op3.Dat:
         """The data of this function, defined on the current topology of its mesh."""
-        self._migrate_to_current_topology()
+        if self._mesh_topology_version is not None:
+            self._migrate_to_current_topology()
         return self._dat
 
     def _migrate_to_current_topology(self) -> None:
@@ -317,7 +318,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         V = function_space
         if isinstance(V, Function):
             V = V.function_space()
-        elif not isinstance(V, functionspaceimpl.WithGeometry):
+        elif not isinstance(V, (functionspaceimpl.WithGeometry, RealSpace)):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
