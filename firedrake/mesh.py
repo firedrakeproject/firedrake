@@ -1714,10 +1714,9 @@ class AbstractMeshTopology(abc.ABC):
         if overlap_type in {DistributedMeshOverlapType.VERTEX, DistributedMeshOverlapType.RIDGE} and overlap > 0:
             return
         raise ValueError(
-            "Interior facet integrals on a codim-1 Submesh in parallel need an original mesh "
+            "Interior facet integrals on a codim-1 Submesh in parallel need a parent mesh "
             f"with a VERTEX or RIDGE overlap, but the overlap is ({overlap_type.name}, {overlap}). "
-            "Make the original mesh, that is the mesh that the first Submesh was made from, "
-            "with distribution_parameters="
+            "Construct the parent mesh with distribution_parameters="
             "{\"overlap_type\": (DistributedMeshOverlapType.RIDGE, 1)} or VERTEX."
         )
 
