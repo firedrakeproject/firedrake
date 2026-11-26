@@ -3,7 +3,7 @@ Overview
 ========
 
 This module wraps `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__,
-and enables users to generate a randomised :class:`.Function` from a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace`.
+and enables users to generate a randomised :class:`firedrake.function.Function` from a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace`.
 This module inherits almost all attributes from `numpy.random <https://numpy.org/doc/stable/reference/random/index.html>`__ with the following changes:
 
 Generator
@@ -11,11 +11,11 @@ Generator
 
 A :class:`.Generator` wraps `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__.
 :class:`.Generator` inherits almost all distribution methods from `numpy.random.Generator <https://numpy.org/doc/stable/reference/random/generator.html>`__,
-and they can be used to generate a randomised :class:`.Function` by passing a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace` as the first argument.
+and they can be used to generate a randomised :class:`firedrake.function.Function` by passing a :class:`.WithGeometry` or :class:`.FiredrakeDualSpace` as the first argument.
 
 Example:
 
-.. code-block:: python3
+.. code-block:: python
 
     from firedrake import *
 
@@ -43,7 +43,7 @@ If ``seed`` keyword is not provided by the user, it is set using `numpy.random.S
 To make ``.PCG64`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64.html>`__:
 
-.. code-block:: python3
+.. code-block:: python
 
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -54,7 +54,7 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
     ``inc`` is no longer a valid keyword for ``.PCG64`` constructor. However, one can reset the ``state`` after construction as:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         pcg = PCG64()
         state = pcg.state
@@ -69,7 +69,7 @@ If ``seed`` keyword is not provided by the user, it is set using `numpy.random.S
 To make ``.PCG64DXSM`` automatically generate multiple streams in parallel, Firedrake preprocesses the ``seed`` as the following before
 passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/random/bit_generators/pcg64dxsm.html>`__:
 
-.. code-block:: python3
+.. code-block:: python
 
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -80,7 +80,7 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 
     ``inc`` is no longer a valid keyword for ``.PCG64DXSM`` constructor. However, one can reset the ``state`` after construction as:
 
-    .. code-block:: python3
+    .. code-block:: python
 
         pcg = PCG64DXSM()
         state = pcg.state
@@ -93,7 +93,7 @@ Philox
 ``.Philox`` wraps `numpy.random.Philox <https://numpy.org/doc/stable/reference/random/bit_generators/philox.html>`__.
 If the ``key`` keyword is not provided by the user, ``.Philox`` computes a default key as:
 
-.. code-block:: python3
+.. code-block:: python
 
     key = np.zeros(2, dtype=np.uint64)
     key[0] = comm.Get_rank()
@@ -105,7 +105,7 @@ import numpy as np
 import numpy.random as randomgen
 
 from firedrake.function import Function
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from ufl.functionspace import BaseFunctionSpace
 
 _deprecated_attributes = ['RandomGenerator', ]
@@ -205,16 +205,16 @@ def __getattr__(module_attr):
                 st += sp + s.replace('(', '(*').replace('d0, d1, ..., dn', 'V').replace(')', '*)') + '\n\n'
                 st += sp + 'Generate a function :math:`f` = Function(V), internally call the original method *' + name + '* with given arguments, and return :math:`f`.\n\n'
                 st += sp + ':arg V: :class:`.FunctionSpace`\n\n'
-                st += sp + ':returns: :class:`.Function`\n\n'
+                st += sp + ':returns: :class:`firedrake.function.Function`\n\n'
                 st += sp + s.replace('(', '(*').replace(')', '*)') + '\n\n'
             elif 'size=None' in s:
                 name = s[:s.find('(')]
                 st += sp + name + '(*args, **kwargs)\n\n'
                 s = '*' + name + '* ' + s[len(name):]
                 st += sp + s.replace('(', '(*V, ').replace(', size=None', '').replace(')', '*)') + '\n\n'
-                st += sp + 'Generate a :class:`.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
+                st += sp + 'Generate a :class:`firedrake.function.Function` f = Function(V), randomise it by calling the original method *' + name + '* (...) with given arguments, and return f.\n\n'
                 st += sp + ':arg V: :class:`.FunctionSpace`\n\n'
-                st += sp + ':returns: :class:`.Function`\n\n'
+                st += sp + ':returns: :class:`firedrake.function.Function`\n\n'
                 st += sp + "The original documentation is found at `<https://numpy.org/doc/stable/reference/random/generated/numpy.random." + name + ".html>`__, which is reproduced below with appropriate changes.\n\n"
                 st += sp + s.replace('(', '(*').replace(')', '*)') + '\n\n'
             elif '.. math::' in s:
@@ -232,7 +232,7 @@ def __getattr__(module_attr):
                             "    The original documentation is found at `<https://numpy.org/doc/stable/reference/random/generator.html#numpy.random.Generator>`__, which is reproduced below with appropriate changes.\n"
                             "\n"
                             "    Users can pass to many of the available distribution methods\n"
-                            "    a :class:`.FunctionSpace` as the first argument to obtain a randomised :class:`.Function`.\n"
+                            "    a :class:`.FunctionSpace` as the first argument to obtain a randomised :class:`firedrake.function.Function`.\n"
                             "\n"
                             "    .. note ::\n"
                             "        FunctionSpace, V, has to be passed as\n"
@@ -408,3 +408,5 @@ def __getattr__(module_attr):
         def _wrapper(*args, **kwargs):
             raise NotImplementedError("Firedrake has not yet wrapped numpy.random.%s." % module_attr)
         return _wrapper
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {module_attr!r}")

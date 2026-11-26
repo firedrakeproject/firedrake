@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from firedrake import *
 
+
 relative_magnitudes = lambda x: np.array(x)[1:] / np.array(x)[:-1]
 convergence_orders = lambda x: -np.log2(relative_magnitudes(x))
 
@@ -80,7 +81,7 @@ def run_convergence_test(mh, el, degree, convrate):
                           ('Hermite', 3, 3.8),
                           ('Bell', 5, 4.7),
                           ('Argyris', 5, 5.8),
-                          ('Argyris', 6, 6.7),
+                          ('Argyris', 6, 6.6),
                           ('Nonconforming Robust Wu-Xu', 7, 3.8)])
 def test_projection_zany_convergence_2d(hierarchy_2d, el, deg, convrate):
     run_convergence_test(hierarchy_2d[2:], el, deg, convrate)

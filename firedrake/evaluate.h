@@ -1,22 +1,19 @@
 #ifndef _EVALUATE_H
 #define _EVALUATE_H
 
-#include <petsc.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+#include <petscsys.h>
+#include <petscerror.h>
+#include <rtree-capi.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 struct Function {
-	/* Number of cells in the base mesh */
-	int n_cols;
-
-	/* 1 if extruded, 0 if not */
-	int extruded;
-
-	/* number of layers for extruded, otherwise 1 */
-	int n_layers;
-
 	/* Coordinate values and node mapping */
 	PetscScalar *coords;
 	PetscInt *coords_map;
@@ -36,25 +33,21 @@ struct Function {
 
 typedef PetscReal (*ref_cell_l1_dist)(void *data_,
 				struct Function *f,
-				int cell,
+				PetscInt cell,
 				double *x);
 
-typedef PetscReal (*ref_cell_l1_dist_xtr)(void *data_,
-				struct Function *f,
-				int cell,
-				int layer,
-				double *x);
 
-extern int locate_cell(struct Function *f,
-		       double *x,
-		       int dim,
-		       ref_cell_l1_dist try_candidate,
-		       ref_cell_l1_dist_xtr try_candidate_xtr,
-		       void *temp_ref_coords,
-		       void *found_ref_coords,
-		       double *found_ref_cell_dist_l1,
-			   size_t ncells_ignore,
-			   int* cells_ignore);
+extern PetscErrorCode locate_cell_from_candidates(struct Function *f,
+                                                  double *x,
+                                                  ref_cell_l1_dist try_candidate,
+                                                  void *temp_ref_coords,
+                                                  void *found_ref_coords,
+                                                  PetscReal *found_ref_cell_dist_l1,
+                                                  size_t nids,
+                                                  const int64_t *ids,
+                                                  size_t ncells_ignore,
+                                                  const PetscInt *cells_ignore,
+                                                  PetscInt *cell_out);
 
 extern int evaluate(struct Function *f,
 		    double *x,

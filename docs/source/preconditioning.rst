@@ -45,8 +45,6 @@ multigrid.
 :class:`.ASMLinesmoothPC`
    Constructs patches gathering degrees of freedom in vertical columns
    on :func:`extruded meshes <.ExtrudedMesh>`.
-:class:`.ASMExtrudedStarPC`
-   Like :class:`.ASMStarPC` but on extruded meshes.
 
 In addition to these algebraic approaches to constructing patches,
 Firedrake also interfaces with `PCPATCH
@@ -73,12 +71,16 @@ multiplicatively within an MPI rank and additively between ranks.
    The additive Schwarz preconditioners listed here construct patches around
    mesh entities.  Crucially, the mesh must have an overlapping parallel domain
    decomposition that supports the patches. This is set via the
-   `distribution_parameters` kwarg of the :func:`.Mesh` constructor.  For
-   instance, vertex-star patches require ::
+   ``distribution_parameters`` kwarg of the :func:`.Mesh` constructor.  For
+   instance, vertex-star patches require:
+
+   .. code-block:: python
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 1)
 
-   while Vanka patches require ::
+   while Vanka patches require:
+
+   .. code-block:: python
 
       distribution_parameters["overlap_type"] = (DistributedMeshOverlapType.VERTEX, 2)
 
@@ -150,8 +152,8 @@ operator instead.
    separable problems in the interior of each cell. Currently
    implemented for quadrilateral and hexahedral cells. The assembled
    matrix becomes as sparse as a low-order refined preconditioner, to
-   which one may apply other preconditioners such as :class:`.ASMStarPC` or
-   :class:`.ASMExtrudedStarPC`. See details in :cite:`Brubeck2022` and :cite:`Brubeck2024`.
+   which one may apply other preconditioners such as :class:`.ASMStarPC`.
+   See details in :cite:`Brubeck2022` and :cite:`Brubeck2024`.
 :class:`.MassInvPC`
    Preconditioner for applying an inverse mass matrix.
 :class:`~.PCDPC`
@@ -268,7 +270,7 @@ returned by :meth:`.AuxiliaryOperatorSNES.form`.
 In this example, the inner solve uses a Newton method with a
 relative tolerance of 1e-4.
 
-.. code-block:: python3
+.. code-block:: python
 
     solver_parameters = {
         "snes_rtol": 1e-8,
@@ -285,7 +287,7 @@ The following parameters describe the same Richardson iteration
 as the parameters above, but explicitly specifying the auxiliary
 form as a nonlinear preconditioner using the ``npc_`` prefix.
 
-.. code-block:: python3
+.. code-block:: python
 
     solver_parameters = {
         "snes_rtol": 1e-8,

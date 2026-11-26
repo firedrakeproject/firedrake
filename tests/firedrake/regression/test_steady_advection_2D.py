@@ -38,7 +38,8 @@ def W(mesh):
         return FunctionSpace(mesh, "RTCF", 1)
 
 
-def run_left_to_right(mesh, DGDPC0, W):
+@pytest.mark.parallel([1, 3])
+def test_left_to_right(mesh, DGDPC0, W):
     velocity = as_vector((1.0, 0.0))
     u0 = project(velocity, W)
 
@@ -69,16 +70,8 @@ def run_left_to_right(mesh, DGDPC0, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.2e-7
 
 
-def test_left_to_right(mesh, DGDPC0, W):
-    run_left_to_right(mesh, DGDPC0, W)
-
-
-@pytest.mark.parallel
-def test_left_to_right_parallel(mesh, DGDPC0, W):
-    run_left_to_right(mesh, DGDPC0, W)
-
-
-def run_up_to_down(mesh, DGDPC1, W):
+@pytest.mark.parallel([1, 3])
+def test_up_to_down(mesh, DGDPC1, W):
     velocity = as_vector((0.0, -1.0))
     u0 = project(velocity, W)
 
@@ -104,12 +97,3 @@ def run_up_to_down(mesh, DGDPC1, W):
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.1e-6
-
-
-def test_up_to_down(mesh, DGDPC1, W):
-    run_up_to_down(mesh, DGDPC1, W)
-
-
-@pytest.mark.parallel
-def test_up_to_down_parallel(mesh, DGDPC1, W):
-    run_up_to_down(mesh, DGDPC1, W)

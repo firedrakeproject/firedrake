@@ -50,7 +50,7 @@ for `u \in V`. For sake of simplicity, in what follows, we use `N` to denote bot
 and the operator `N`. Expressing external operators as linear forms facilitates their 
 composition with variational forms of PDEs. Note that while `N` is linear with respect to `v^{*}`, 
 its *argument*, it can be nonlinear with respect to `u`, its *operand*. In Firedrake, `u` would 
-be a :class:`~.Function` object, and `v^{*}` a :class:`~.Coargument` object.
+be a :class:`Function <firedrake.function.Function>` object, and `v^{*}` a :class:`~.Coargument` object.
 
 Arbitrary UFL expressions defined on arbitrary finite element spaces, i.e. other than `V`, can also 
 be passed as operands to the external operator using the symbolic :class:`~.Interpolate` operator. 
@@ -105,7 +105,7 @@ linear form on which they are applied. For example, let's consider the Jacobian 
   \operatorname{action}\left(\frac{dN(u; \hat{u}, v^{*})}{du}, w\right) = \frac{dN(u; w, v^{*})}{du} \quad \forall w \in V
 
 where the external operator `\frac{dN(u; w, v^{*})}{du}` is the Jacobian action of `N` on `w`. 
-Hence, for a given :class:`~.Function` `w` in `V`, the external operator `\frac{dN(u; w, v^{*})}{du}` 
+Hence, for a given :class:`Function <firedrake.function.Function>` `w` in `V`, the external operator `\frac{dN(u; w, v^{*})}{du}` 
 is linear with respect to `w`, which is a known function in `V`, and `v^{*}`, which is an unknown 
 function in `V^{*}`, i.e. a :class:`~.Coargument` in `V^{*}`. Therefore, `\frac{dN(u; w, v^{*})}{du}` 
 is a 1-form, i.e. it is a linear form with respect to one unknown argument.
@@ -174,7 +174,7 @@ see :ref:`previous section <action_adjoint>`.
 
 Finally, the number of arguments of an external operator also determines the type of its output after 
 being assembled. For instance, given that an external operator with one argument is a 1-form, its assembly 
-would result in a :class:`~.Function` or a :class:`~.Cofunction`. Similarly, an external operator 
+would result in a :class:`Function <firedrake.function.Function>` or a :class:`~.Cofunction`. Similarly, an external operator 
 with two arguments, i.e. a 2-form, would produce a :class:`~.MatrixBase` object. The following table 
 illustrates an external operator `N` with two operands, 
 `N \colon V \times V \times V^{*} \rightarrow \mathbb{R}`, along with the external operators 
@@ -224,14 +224,14 @@ arguments are added to the linear form as a result of differentiation. Hence, th
 is *(1, 0)* as we differentiated with respect to the first operand, i.e. `u`. Therefore, the 
 decorator for the evaluation of the Jacobian would be:
 
-.. code-block:: python3
+.. code-block:: python
 
   @assemble_method((1, 0), (0, 1))
 
 If we now take the adjoint of that Jacobian, i.e. its Hermitian transpose, we would still have the same 
 derivative multi-index, but the arguments would be swapped. Hence, the specified decorator should be:
 
-.. code-block:: python3
+.. code-block:: python
 
   @assemble_method((1, 0), (1, 0))
 
@@ -240,7 +240,7 @@ Likewise, if we take the action of the Hermitian transpose of the Jacobian matri
 the highest number in the second tuple of the decorator will be replaced by *None* as cofunctions are 
 not :class:`~.Argument` or :class:`~.Coargument`, which results in:
 
-.. code-block:: python3
+.. code-block:: python
 
   @assemble_method((1, 0), (None, 0))
 
@@ -248,7 +248,7 @@ not :class:`~.Argument` or :class:`~.Coargument`, which results in:
 The following example illustrates how to define a new external operator, named *MyExternalOperator*, 
 and sketch out a few evaluation methods:
 
-.. code-block:: python3
+.. code-block:: python
 
   class MyExternalOperator(AbstractExternalOperator):
     def __init__(self, *args, **kwargs):
@@ -303,16 +303,16 @@ Note that building an external operator for the above operation is, in practice,
 can already be readily implemented using Firedrake's built-in functionalities. Also, because this 
 translation operation is fully defined in Firedrake, the evaluation methods of the external operator we will 
 build rely on Firedrake code. However, the external operator evaluation methods can contain any Python 
-code as long as they return compatible objects, e.g. :class:`~.Function` or :class:`~.MatrixBase` objects.
+code as long as they return compatible objects, e.g. :class:`Function <firedrake.function.Function>` or :class:`~.MatrixBase` objects.
 
 `N` takes in two operands `f, u \in V` and one argument `v^{*} \in V^{*}`. When assembled, 
-this external operator returns a :class:`~.Function` in `V` since the linear form `N` can also 
+this external operator returns a :class:`Function <firedrake.function.Function>` in `V` since the linear form `N` can also 
 be seen as an operator mapping to `V`, as :ref:`previously discussed <math_background>`. To construct `N`, 
 we need to subclass the :class:`~.AbstractExternalOperator` class and specify how `N` can be assembled. 
 Given that `N` has `(0,)` as derivative multi-index and that it only has one argument, 
 the translation operator subclass can be defined as:
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -338,7 +338,7 @@ operator `N`, which is an external operator, will also have access to the conten
 
 Now that we have specified the implementation for evaluating `N`, we can assemble it:
 
-.. code-block:: python3
+.. code-block:: python
 
   assembled_N = assemble(N)
   assert np.allclose(assembled_N.dat.data_ro, u.dat.data_ro[:] - f.dat.data_ro[:])
@@ -368,7 +368,7 @@ case is the identity matrix. Hence, we now need to add an implementation specify
 of `N` can be assembled:
 
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -391,7 +391,7 @@ of `N` can be assembled:
         integral_types = set(['cell'])
         assembly_opts = kwargs.get('assembly_opts')
         J = self._matrix_builder((), assembly_opts, integral_types)
-        with dNdu.dat.vec as vec:
+        with dNdu.vec_ro as vec:
             J.petscmat.setDiagonal(vec)
         return J
 
@@ -399,7 +399,7 @@ Note that the above implementation first constructs the Jacobian matrix `J` befo
 This can be achieved using the *_matrix_builder* external operator's helper function. The variational 
 problem can now be solved
 
-.. code-block:: python3
+.. code-block:: python
 
   u = Function(V)
   v = TestFunction(V)
@@ -417,11 +417,11 @@ In many cases, computing the Jacobian of the residual form is not appropriate, o
 Instead, one may want to use matrix-free methods to solve the PDE problem of interest. In that case, 
 the Jacobian of `F` won't be assembled. Instead, only the action of the Jacobian will be used. As a 
 consequence, our external operator subclass will need to be equipped with an implementation stating how 
-the action of the Jacobian of `N` on a given :class:`~.Function` `w` can be assembled, i.e. how to 
+the action of the Jacobian of `N` on a given :class:`Function <firedrake.function.Function>` `w` can be assembled, i.e. how to 
 compute `\frac{\partial N(u, f; w, v^{*})}{\partial u}`. In this case, this implementation should simply 
 return `w` as the Jacobian is the identity matrix.
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -443,11 +443,11 @@ return `w` as the Jacobian is the identity matrix.
 
 The arguments of an external operator can be obtained via *.argument_slots()*. This will return 
 all the arguments of the external operator, independently of whether they are 
-:class:`~.Argument`/ :class:`~.Coargument` or :class:`~.Function`/ :class:`~.Cofunction`. If you only want 
+:class:`~.Argument`/ :class:`~.Coargument` or :class:`Function <firedrake.function.Function>`/ :class:`~.Cofunction`. If you only want 
 the unknown arguments, for example to determine the arity of the external operator, 
 you can instead use *.arguments()*. We can now solve the variational problem using any matrix-free method:
 
-.. code-block:: python3
+.. code-block:: python
 
   u = Function(V)
   N = TranslationOperator(u, f, function_space=V)
@@ -501,7 +501,7 @@ We now need to add the method for `\frac{\partial \mathcal{R}(f, f_{0}; y, \hat{
 this case is trivial as the Jacobian is the identity matrix
 
 
-.. code-block:: python3
+.. code-block:: python
 
   class TranslationOperator(AbstractExternalOperator):
 
@@ -535,7 +535,7 @@ We can now solve the PDE-constrained optimisation problem using the *firedrake.a
 For this, we employ the *BFGS* algorithm:
 
 
-.. code-block:: python3
+.. code-block:: python
 
   R = partial(TranslationOperator, function_space=V)
 

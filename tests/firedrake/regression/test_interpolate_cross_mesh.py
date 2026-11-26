@@ -300,9 +300,9 @@ def test_interpolate_unitsquare_mixed():
     result_mixed = assemble(interpolate(f_src_2, V_dest))
 
     expected_zero_form = 0
-    for i in range(len(V_dest)):
+    for i, label in enumerate(V_dest._labels):
         expected = assemble(interpolate(f_src_2[i], V_dest[i]))
-        assert np.allclose(result_mixed.dat.data_ro[i], expected.dat.data_ro)
+        assert np.allclose(result_mixed.dat[label].data_ro, expected.dat.data_ro)
 
         expected_zero_form += assemble(action(cofunc_dest.subfunctions[i], expected))
 
@@ -756,3 +756,37 @@ def test_mixed_interpolator_cross_mesh():
             assert isinstance(interp_ij, Interpolate)
             res_block = assemble(interpolate(TrialFunction(W.sub(j)), U.sub(i), allow_missing_dofs=True))
             assert np.allclose(res.petscmat.getNestSubMatrix(i, j)[:, :], res_block.petscmat[:, :])
+
+
+@pytest.mark.parallel([1, 3])
+@pytest.mark.parametrize("rank", [0, 1])
+def test_interpolate_mixed_expr(rank):
+    mesh1 = UnitSquareMesh(3, 3)
+    mesh2 = UnitSquareMesh(4, 4)
+    x1, y1 = SpatialCoordinate(mesh1)
+    x2, y2 = SpatialCoordinate(mesh2)
+    expr1 = x1 + y1
+    expr2 = x2 - y2
+    expr = as_vector([expr2, expr1])
+
+    V = FunctionSpace(mesh1, "CG", 1)
+    U = FunctionSpace(mesh2, "CG", 2)
+    W = V * U
+
+    if rank == 1:
+        result = assemble(interpolate(expr, W))
+        expected1 = assemble(interpolate(expr2, V))
+        expected2 = assemble(interpolate(expr1, U))
+
+        assert np.allclose(result.subfunctions[0].dat.data_ro, expected1.dat.data_ro)
+        assert np.allclose(result.subfunctions[1].dat.data_ro, expected2.dat.data_ro)
+    else:
+        v1, v2 = TestFunctions(W)
+        form = conj(v1) * dx(domain=mesh1) + conj(v2) * dx(domain=mesh2)
+        result1 = assemble(interpolate(expr, form))
+        expected = assemble(expr1 * dx(domain=mesh1) + expr2 * dx(domain=mesh2))
+        assert np.isclose(result1, expected)
+
+        cofunc = assemble(form)
+        result2 = assemble(interpolate(expr, cofunc))
+        assert np.isclose(result2, expected)

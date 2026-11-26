@@ -2,9 +2,9 @@ from typing import Any
 from collections.abc import Iterable
 import itertools
 
+import pyop3 as op3
+from pyop3.pyop2_utils import as_tuple
 import ufl
-from pyop2.utils import as_tuple
-from pyop2 import op2
 from firedrake.petsc import PETSc
 from firedrake.bcs import DirichletBC
 from firedrake.matrix_free import ImplicitMatrixContext
@@ -21,10 +21,29 @@ class DummyOP2Mat:
 
 def _get_mat_type(petscmat: PETSc.Mat) -> str:
     """Maps PETSc matrix types to Firedrake notation"""
+    from firedrake.interpolation import VomOntoVomMatContext
+
     mat_type = petscmat.getType()
-    if mat_type.startswith("seq") or mat_type.startswith("mpi"):
+    if mat_type == "python":
+        ctx = petscmat.getPythonContext()
+        if isinstance(ctx, ImplicitMatrixContext):
+            return "matfree"
+        elif isinstance(ctx, op3.DenseRowPythonMatContext):
+            return "denserow"
+        elif isinstance(ctx, op3.DenseColumnPythonMatContext):
+            return "densecol"
+        elif isinstance(ctx, op3.DenseBlockPythonMatContext):
+            return "denseblock"
+        elif isinstance(ctx, VomOntoVomMatContext):
+            return "vomtovom"
+        else:
+            raise NotImplementedError(
+                f"Python matrix context type '{type(ctx).__name__}' not recognised"
+            )
+    elif mat_type.startswith("seq") or mat_type.startswith("mpi"):
         return mat_type[3:]
-    return mat_type
+    else:
+        return mat_type
 
 
 class MatrixBase(ufl.Matrix):
@@ -84,9 +103,6 @@ class MatrixBase(ufl.Matrix):
             return self.a.arguments()
         else:
             return self._arguments
-
-    def ufl_domains(self):
-        return self._domains
 
     @property
     def has_bcs(self):
@@ -155,14 +171,14 @@ class Matrix(MatrixBase):
     def __init__(
         self,
         a: ufl.BaseForm,
-        mat: op2.Mat | PETSc.Mat,
+        mat: op3.Mat | PETSc.Mat,
         bcs: Iterable[DirichletBC] = (),
         fc_params: dict[str, Any] | None = None,
         options_prefix: str | None = None,
     ):
         """Initialise a :class:`Matrix`."""
         super().__init__(a, bcs=bcs, fc_params=fc_params)
-        if isinstance(mat, op2.Mat):
+        if isinstance(mat, op3.Mat):
             self.M = mat
         elif isinstance(mat, PETSc.Mat):
             self.M = DummyOP2Mat(mat)

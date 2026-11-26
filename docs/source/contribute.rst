@@ -22,6 +22,11 @@ number of steps, which we explain below.
    assisted by AI tools but they are subject to some additional
    requirements. These are detailed in our
    `AI policy <https://github.com/firedrakeproject/firedrake/wiki/AI-contribution-policy>`_.
+   The repository also has an `AGENTS.md
+   <https://github.com/firedrakeproject/firedrake/blob/release/AGENTS.md>`_
+   file at its root, giving AI coding agents (and human contributors)
+   a self-contained summary of Firedrake's architecture, coding
+   conventions, and testing/PR expectations.
 
 Deciding what to contribute
 ---------------------------
@@ -96,6 +101,22 @@ of Firedrake's `contributors <https://github.com/firedrakeproject/firedrake/grap
 and mentioned in the `release notes <https://github.com/firedrakeproject/firedrake/releases>`__
 of the next release. Congratulations!
 
+Tagging PRs
+~~~~~~~~~~~
+
+In order for Firedrake's CI to run correctly, it may be necessary to add
+additional tags to your PR. Specifically:
+
+* If you are submitting a PR that does not target the ``release`` or ``main``
+  branches then either the ``base:release`` or ``base:main`` tag must be applied
+  so the correct 'base' build is used (e.g. which version of PETSc is built). This can
+  occur for example when submitting a stack of PRs that target each other's branches.
+  In that case the tag needs to match the final target branch.
+* Add ``ci:macos``, ``ci:complex``, ``ci:int64``, ``ci:gpu`` if your PR touches
+  code that affects macOS installations, complex mode, int64 builds of PETSc, or
+  GPU code respectively.
+
+
 .. _presubmission_checks:
 
 Pre-submission checklist
@@ -110,13 +131,17 @@ to have done the following:
 #. Code should conform to Firedrake's `coding guide <https://github.com/firedrakeproject/firedrake/wiki/Firedrake-Coding-Guide>`__.
 
 #. Code should pass linting checks. To check this locally, you should
-   run the command::
+   run the command:
+
+   .. code-block:: console
 
       $ make srclint
 
 #. Documentation changes should be checked to make sure that they are
    correctly rendered. To build the documentation locally you should
-   run::
+   run:
+
+   .. code-block:: console
 
       $ cd docs
       $ make html

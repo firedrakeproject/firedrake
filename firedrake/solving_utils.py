@@ -1,10 +1,12 @@
+import typing
+import weakref
+from contextlib import ExitStack, contextmanager
 from itertools import chain
 
 import numpy
-import ufl
 
-from pyop2 import op2
-from firedrake import dmhooks
+from firedrake import dmhooks, parameters, utils
+from firedrake.bcs import DirichletBC
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
 from firedrake.matrix import MatrixBase
@@ -14,15 +16,20 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
+from ufl import BaseForm, as_vector, replace, split, zero
+from ufl.algorithms import extract_coefficients
+from ufl.classes import Expr
+
+if typing.TYPE_CHECKING:
+    from firedrake.variational_solver import NonlinearVariationalProblem
 
 
 def _make_reasons(reasons):
-    return {getattr(reasons, r): r
-            for r in dir(reasons) if not r.startswith('_')}
+    return {entry.value: entry.name for entry in reasons}
 
 
-KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
-SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
+KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason)
+SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason)
 
 
 def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaults=None):
@@ -48,7 +55,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         if "pc_type" in keys:
             # Might reasonably expect to get petsc defaults
             skip.update({"pc_factor_mat_solver_type", "ksp_type"})
-        if parameters.get("mat_type") in {"matfree", "nest"}:
+        if parameters.get("mat_type") in {"matfree", "nest", "denserow", "densecol", "denseblock"}:
             # Non-LU defaults.
             ksp_defaults["ksp_type"] = "gmres"
             ksp_defaults["pc_type"] = "jacobi"
@@ -63,6 +70,7 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
 
     if any(V.ufl_element().family() == "Real"
            for a in arguments for V in a.function_space()):
+
         test, trial = arguments
         if test.function_space() != trial.function_space():
             # Don't know what to do here. How did it happen?
@@ -77,7 +85,8 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
                 fields.append(i)
         if len(fields) == 0:
             # Just reals, GMRES
-            opts = {"ksp_type": "gmres",
+            opts = {"mat_type": "denseblock",
+                    "ksp_type": "gmres",
                     "pc_type": "none"}
             parameters.update(opts)
         else:
@@ -108,30 +117,37 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         return parameters
 
 
-def check_snes_convergence(snes):
-    r = snes.getConvergedReason()
-    try:
-        reason = SNESReasons[r]
-        inner = False
-    except KeyError:
-        r = snes.getKSP().getConvergedReason()
-        try:
-            inner = True
-            reason = KSPReasons[r]
-        except KeyError:
-            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_converged_reason and -ksp_converged_reason"
+def check_convergence(solver: PETSc.SNES | PETSc.KSP) -> None:
+    """Raise an error if a nonlinear or a linear solve does not converge.
+
+    Parameters
+    ----------
+    solver
+        The `PETSc.SNES` or `PETSc.KSP` that has just solved.
+
+    Raises
+    ------
+    ConvergenceError
+        If the solver reports a negative converged reason. If the KSP of a
+        failed SNES also failed, its error is the cause of the SNES error.
+    """
+    r = solver.getConvergedReason()
     if r < 0:
-        if inner:
-            msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
-                  (snes.getKSP().getIterationNumber(), reason)
-        else:
-            msg = reason
-        raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
-Reason:
-   %s""" % (snes.getIterationNumber(), msg))
+        is_snes = isinstance(solver, PETSc.SNES)
+        kind, reasons = ("Nonlinear", SNESReasons) if is_snes else ("Linear", KSPReasons)
+        reason = reasons.get(r, "unknown reason (petsc4py enum incomplete?), "
+                                "try with -snes_converged_reason and -ksp_converged_reason")
+        error = ConvergenceError(f"{kind} solve failed to converge after "
+                                 f"{solver.getIterationNumber()} iterations.\nReason:\n   {reason}")
+        if is_snes:
+            try:
+                check_convergence(solver.getKSP())
+            except ConvergenceError as cause:
+                raise error from cause
+        raise error
 
 
-class _SNESContext(object):
+class _SNESContext:
     """Context holding information for SNES callbacks.
 
     Parameters
@@ -163,6 +179,11 @@ class _SNESContext(object):
         User-defined function called immediately before residual assembly.
     post_function_callback
         User-defined function called immediately after residual assembly.
+    marking_callback
+        User-defined function of the form ``callback(ctx, u)``, called after
+        the nonlinear solve with this :class:`_SNESContext` and the current
+        solution, returning a DG0 Function with cells marked for adaptive
+        refinement.
     options_prefix
         The options prefix of the SNES.
     transfer_manager
@@ -187,6 +208,7 @@ class _SNESContext(object):
                  appctx: dict | None = None,
                  pre_jacobian_callback=None, pre_function_callback=None,
                  post_jacobian_callback=None, post_function_callback=None,
+                 marking_callback=None,
                  options_prefix: str | None = None,
                  transfer_manager=None,
                  pre_apply_bcs: bool = True):
@@ -211,6 +233,9 @@ class _SNESContext(object):
         self._pre_function_callback = pre_function_callback
         self._post_jacobian_callback = post_jacobian_callback
         self._post_function_callback = post_function_callback
+        self._marking_callback = marking_callback
+        # The solver creates the SNES, and sets it with set_snes.
+        self.snes = None
 
         self.fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -231,6 +256,7 @@ class _SNESContext(object):
         self.pmatfree = pmatfree
         self.F = problem.F
         self.J = problem.J
+        self.E = problem.E
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
         Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
@@ -246,9 +272,13 @@ class _SNESContext(object):
             # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
 
-        self.bcs_F = tuple(bc.extract_form('F') for bc in problem.bcs)
-        self.bcs_J = tuple(bc.extract_form('J') for bc in problem.bcs)
-        self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in problem.bcs)
+        # In assembly we exclude DirichletBCs with nonempty boundary sets
+        # A nonempty boundary set means we have a restricted space with these DOFs already excluded
+        assembly_bcs = tuple(bc for bc in problem.bcs if
+                             not (isinstance(bc, DirichletBC) and bc.function_space().boundary_set))
+        self.bcs_F = tuple(bc.extract_form('F') for bc in assembly_bcs)
+        self.bcs_J = tuple(bc.extract_form('J') for bc in assembly_bcs)
+        self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in assembly_bcs)
 
         self._bc_residual = None
         if not pre_apply_bcs and next(problem.dirichlet_bcs(), None) is not None:
@@ -256,10 +286,15 @@ class _SNESContext(object):
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
                 # Drop existing lifting term from the residual
-                assert isinstance(self.F, ufl.BaseForm)
-                self.F = ufl.replace(self.F, {self._x: ufl.zero(self._x.ufl_shape)})
+                self.F = replace(self.F, {self._x: zero(self._x.ufl_shape)})
 
             self.F -= problem.compute_bc_lifting(self.J, self._bc_residual)
+
+        self._assemble_objective = lambda *args, **kwargs: args
+        if self.E:
+            self._assemble_objective = get_assembler(self.E,
+                                                     form_compiler_parameters=self.fcp,
+                                                     ).assemble
 
         self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
                                                 form_compiler_parameters=self.fcp,
@@ -277,24 +312,141 @@ class _SNESContext(object):
         self._coefficient_mapping = None
         self._transfer_manager = transfer_manager
 
-    def reconstruct(self, problem=None, mat_type=None, pmat_type=None, **kwargs):
-        """Reconstruct this _SNESContext instance with new arguments."""
+    def set_snes(self, snes: "PETSc.SNES | weakref.ProxyType") -> None:
+        """Stash a weakref to the SNES wrapping this _SNESContext.
+
+        Parameters
+        ----------
+        snes
+            The SNES associated with this context, or a ``weakref.proxy`` to it.
+
+        Raises
+        ------
+        RuntimeError
+            If an SNES is already associated with this context.
+        """
+        if self.snes is not None:
+            raise RuntimeError("This _SNESContext already has an SNES.")
+        if not isinstance(snes, weakref.ProxyTypes):
+            snes = weakref.proxy(snes)
+        self.snes = snes
+
+    def reconstruct(self,
+                    problem: "NonlinearVariationalProblem | None" = None,
+                    mat_type: str | None = None,
+                    pmat_type: str | None = None,
+                    **kwargs) -> "_SNESContext":
+        """Reconstruct this _SNESContext instance with new arguments.
+
+        Parameters
+        ----------
+        problem
+            The new NonlinearVariationalProblem, defaults to the original problem.
+        mat_type
+            The new Jacobian matrix type, defaults to `self.mat_type`.
+        pmat_type
+            The new preconditioner matrix type, defaults to `self.pmat_type`.
+        **kwargs
+            Any other constructor argument accepted by `_SNESContext`, defaulting
+            to the corresponding attribute (or callback) of this instance.
+
+        Returns
+        -------
+        _SNESContext
+            The reconstructed context.
+        """
         problem = problem or self._problem
         mat_type = mat_type or self.mat_type
         pmat_type = pmat_type or self.pmat_type
 
-        default_options = {
-            "sub_mat_type": self.sub_mat_type,
-            "sub_pmat_type": self.sub_pmat_type,
-            "appctx": self.appctx,
-            "options_prefix": self.options_prefix,
-            "transfer_manager": self.transfer_manager,
-            "pre_apply_bcs": self.pre_apply_bcs,
-        }
+        default_options = dict(
+            sub_mat_type=self.sub_mat_type,
+            sub_pmat_type=self.sub_pmat_type,
+            appctx=self.appctx,
+            options_prefix=self.options_prefix,
+            transfer_manager=self.transfer_manager,
+            pre_jacobian_callback=self._pre_jacobian_callback,
+            pre_function_callback=self._pre_function_callback,
+            post_jacobian_callback=self._post_jacobian_callback,
+            post_function_callback=self._post_function_callback,
+            pre_apply_bcs=self.pre_apply_bcs,
+            marking_callback=self._marking_callback,
+        )
         for k, v in default_options.items():
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    @cached_property
+    def coefficient_dms(self) -> tuple[PETSc.DM, ...]:
+        """Return the unique DMs of the coefficients of F, J, Jp, E, bcs and the appctx."""
+        problem = self._problem
+        objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
+        problem_coefficients = chain.from_iterable(f.coefficients() for f in objs if f is not None)
+        appctx_objs = (v for v in self.appctx.values() if isinstance(v, (Expr, BaseForm)))
+        appctx_coefficients = chain.from_iterable(map(extract_coefficients, appctx_objs))
+        coefficients = utils.unique(chain(problem_coefficients, appctx_coefficients))
+        dms = []
+        for coefficient in coefficients:
+            dm = coefficient.function_space().dm
+            if dm not in dms:
+                dms.append(dm)
+        return tuple(dms)
+
+    @contextmanager
+    def problem_hooks(self, solution_dm: PETSc.DM, *, include_coefficient_dms: bool):
+        """Attach this context to the solution DM and, optionally, to the coefficient DMs."""
+        with ExitStack() as stack:
+            stack.enter_context(dmhooks.add_hooks(solution_dm, self, appctx=self))
+            if include_coefficient_dms:
+                # The coefficient DMs only need the appctx to find the transfer manager.
+                for dm in self.coefficient_dms:
+                    if dm != solution_dm:
+                        dmhooks.push_appctx(dm, self)
+                        stack.callback(dmhooks.pop_appctx, dm, self)
+            yield
+
+    def solve_jacobian(self, b: Cofunction, x: Function, *,
+                       transpose: bool = False) -> None:
+        """Solve with the current Jacobian and preconditioner.
+
+        If a previous solve has already assembled the Jacobian, its operators
+        and KSP setup are reused. Otherwise, the Jacobian is assembled at the
+        current solution before the KSP is set up.
+
+        Parameters
+        ----------
+        b
+            The dual right-hand side.
+        x
+            The Function in which to store the solution.
+        transpose
+            If `True`, solve with the transposed Jacobian. The preconditioner
+            must then implement ``applyTranspose``.
+
+        Raises
+        ------
+        RuntimeError
+            If this context has no SNES.
+        ConvergenceError
+            If the linear solve fails to converge.
+        """
+        snes = self.snes
+        if snes is None:
+            raise RuntimeError("This context is not attached to a SNES")
+        ksp = snes.getKSP()
+        ksp_solve = ksp.solveTranspose if transpose else ksp.solve
+        needs_assembly = not self._jacobian_assembled
+        with self.problem_hooks(snes.getDM(), include_coefficient_dms=needs_assembly):
+            if needs_assembly:
+                snes.computeJacobian(self._x.dat._work_vec,
+                                     self._jac.petscmat,
+                                     self._pjac.petscmat)
+                snes.setUp()
+
+            with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
+                ksp_solve(bvec, xvec)
+        check_convergence(ksp)
 
     @property
     def transfer_manager(self):
@@ -312,18 +464,33 @@ class _SNESContext(object):
         with the same semantics.
         """
         if self._transfer_manager is None:
-            opts = PETSc.Options()
             prefix = self.options_prefix or ""
-            if opts.hasName(prefix + "mg_transfer_manager"):
-                managername = opts[prefix + "mg_transfer_manager"]
-            elif opts.hasName(prefix + "fas_transfer_manager"):
-                managername = opts[prefix + "fas_transfer_manager"]
-            else:
-                managername = None
+            opts = PETSc.Options(prefix)
+            # We cannot attach a single mg_ or fas_ prefix to a TransferManager,
+            # as it can be shared across distinct _SNESContext instances arising
+            # when composing fas with mg. Therefore, we need to read both options.
+            # However the TransferManager should behave differently if options clash.
+            # TODO, a better way of doing this (issue #5283).
 
+            def get_transfer_option(mg_name, fas_name, default=None):
+                has_mg = opts.hasName(mg_name)
+                has_fas = opts.hasName(fas_name)
+                if has_mg and has_fas:
+                    warning(f"Both '{mg_name}' and '{fas_name}' options were supplied; "
+                            f"ignoring '{fas_name}'.")
+                if has_mg:
+                    return opts[mg_name]
+                elif has_fas:
+                    return opts[fas_name]
+                else:
+                    return default
+
+            managername = get_transfer_option("mg_transfer_manager", "fas_transfer_manager")
             if managername is None:
                 from firedrake import TransferManager
-                transfer = TransferManager(use_averaging=True)
+                mat_type = get_transfer_option("mg_transfer_mat_type", "fas_transfer_mat_type",
+                                               default="matfree")
+                transfer = TransferManager(use_averaging=True, mat_type=mat_type)
             else:
                 (modname, objname) = managername.rsplit('.', 1)
                 mod = __import__(modname)
@@ -342,10 +509,18 @@ class _SNESContext(object):
             raise ValueError("Must set transfer manager before first use.")
         self._transfer_manager = manager
 
+    def set_objective(self, snes):
+        if self._problem.E:
+            snes.setObjective(self.form_objective)
+        else:
+            snes.setObjective(None)
+
     def set_function(self, snes):
         r"""Set the residual evaluation function"""
-        with self._F.dat.vec_wo as v:
-            snes.setFunction(self.form_function, v)
+        # Pass the vec from self._F here. We don't use a context because
+        # setting state flags does not make sense (we call this function
+        # before we do any compute).
+        snes.setFunction(self.form_function, self._F.dat._work_vec)
 
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
@@ -362,11 +537,10 @@ class _SNESContext(object):
 
     @PETSc.Log.EventDecorator()
     def split(self, fields):
-        from firedrake import replace, as_vector, split, zero
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
         fields = tuple(tuple(f) for f in fields)
-        splits = self._splits.get(tuple(fields))
+        splits = self._splits.get(fields)
         if splits is not None:
             return splits
 
@@ -374,10 +548,9 @@ class _SNESContext(object):
         problem = self._problem
         splitter = ExtractSubBlock()
         for field_num, field in enumerate(fields):
-            F = splitter.split(problem.F, argument_indices=(field, ))
+            F = splitter.split(problem.F, argument_indices=(field,))
             J = splitter.split(problem.J, argument_indices=(field, field))
-            us = problem.u_restrict.subfunctions
-            V = F.arguments()[0].function_space()
+            V = J.arguments()[-1].function_space()
             # Exposition:
             # We are going to make a new solution Function on the sub
             # mixed space defined by the relevant fields.
@@ -385,27 +558,28 @@ class _SNESContext(object):
             # anyway.
             # So we pull it apart and will make a new function on the
             # subspace that shares data.
-            pieces = [us[i].dat for i in field]
-            if len(pieces) == 1:
-                val, = pieces
-                subu = Function(V, val=val)
-                subsplit = (subu, )
+            if len(field) == 1:
+                # result unmixed
+                i, = field
+                slice_ = problem.u_restrict.function_space()._labels[i]
             else:
-                val = op2.MixedDat(pieces)
-                subu = Function(V, val=val)
+                # result remains mixed
+                slice_ = [problem.u_restrict.function_space()._labels[i] for i in field]
+            val = problem.u_restrict.dat[slice_]
+            subu = Function(V, val=val)
+            if len(field) == 1:
+                subsplit = (subu,)
+            else:
                 # Split it apart to shove in the form.
                 subsplit = split(subu)
             vec = []
-            for i, u in enumerate(us):
+            for i, ui in enumerate(problem.u.subfunctions):
                 if i in field:
                     # If this is a field we're keeping, get it from
                     # the new function. Otherwise just point to the
                     # old data.
-                    u = subsplit[field.index(i)]
-                if u.ufl_shape == ():
-                    vec.append(u)
-                else:
-                    vec.extend(u[idx] for idx in numpy.ndindex(u.ufl_shape))
+                    ui = subsplit[field.index(i)]
+                vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
 
             # So now we have a new representation for the solution
             # vector in the old problem. For the fields we're going
@@ -432,8 +606,10 @@ class _SNESContext(object):
                 Jp = replace(Jp, {problem.u_restrict: u})
             else:
                 Jp = None
+            # A preassembled Jacobian already encodes the boundary conditions
+            orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
             bcs = []
-            for bc in problem.bcs:
+            for bc in orig_bcs:
                 if isinstance(bc, DirichletBC):
                     bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
                 elif isinstance(bc, EquationBC):
@@ -446,8 +622,51 @@ class _SNESContext(object):
             name = V.name if len(V) == 1 else None
             field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
-            splits.append(self.reconstruct(new_problem, options_prefix=options_prefix))
-        return self._splits.setdefault(tuple(fields), splits)
+
+            default_sub_mat_type = parameters.parameters["default_sub_matrix_type"]
+            if self.mat_type == "nest":
+                mat_type = self.sub_mat_type or default_sub_mat_type
+                sub_mat_type = default_sub_mat_type
+            else:
+                mat_type = self.mat_type
+                sub_mat_type = self.sub_mat_type
+            if self.pmat_type == "nest":
+                pmat_type = self.sub_pmat_type or default_sub_mat_type
+                sub_pmat_type = default_sub_mat_type
+            else:
+                pmat_type = self.pmat_type
+                sub_pmat_type = self.sub_pmat_type
+
+            splits.append(self.reconstruct(
+                new_problem,
+                mat_type=mat_type,
+                sub_mat_type=sub_mat_type,
+                pmat_type=pmat_type,
+                sub_pmat_type=sub_pmat_type,
+                options_prefix=options_prefix,
+            ))
+        return self._splits.setdefault(fields, splits)
+
+    @staticmethod
+    def form_objective(snes, X):
+        r"""Form the objective for this problem
+
+        :arg snes: a PETSc SNES object
+        :arg X: the current guess (a Vec)
+        """
+        dm = snes.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        # X may not be the same vector as the vec behind self._x, so
+        # copy guess in from X.
+        with ctx._x.dat.vec_wo as v:
+            X.copy(v)
+
+        # Apply DirichletBC on the solution
+        if not ctx._problem.restrict:
+            for bc in ctx._problem.dirichlet_bcs():
+                bc.apply(ctx._x)
+
+        return ctx._assemble_objective()
 
     @staticmethod
     def form_function(snes, X, F):
@@ -459,10 +678,14 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dmhooks.get_appctx(dm)
+
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.dat.vec_wo as v:
-            X.copy(v)
+        # NOTE: I think we may have to set 'leaves_valid' to false here, as I
+        # don't think ctx._x.dat knows enough about changes. This could be
+        # done according to the vec state.
+        if ctx._x.dat._work_vec.handle != X.handle:
+            ctx._x.dat.data_wo[...] = X.array_r.reshape((-1, *ctx._x.dat.axes.block_shape))
 
         if ctx._pre_function_callback is not None:
             ctx._pre_function_callback(X)
@@ -475,13 +698,16 @@ class _SNESContext(object):
         ctx._assemble_residual(tensor=ctx._F, current_state=ctx._x)
 
         if ctx._post_function_callback is not None:
-            with ctx._F.dat.vec as F_:
+            with ctx._F.dat.vec_rw as F_:
                 ctx._post_function_callback(X, F_)
+
+        # Make sure all owned values are fully updated before yielding to PETSc
+        ctx._F.dat.buffer.sync_roots()
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
-        with ctx._F.dat.vec_ro as v:
-            v.copy(F)
+        if ctx._F.dat._work_vec.handle != F.handle:
+            F.array_w[...] = ctx._F.dat.data_ro.flatten()
 
     @staticmethod
     def form_jacobian(snes, X, J, P):
@@ -519,10 +745,21 @@ class _SNESContext(object):
             assert P.handle == ctx._pjac.petscmat.handle
             ctx._assemble_pjac(ctx._pjac)
 
-        ises = problem.J.arguments()[0].function_space()._ises
+        ises = problem.J.arguments()[0].function_space().field_ises
         ctx.set_nullspace(ctx._nullspace, ises, transpose=False, near=False)
         ctx.set_nullspace(ctx._nullspace_T, ises, transpose=True, near=False)
         ctx.set_nullspace(ctx._near_nullspace, ises, transpose=False, near=True)
+
+    @staticmethod
+    def create_operators(ksp):
+        dm = ksp.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        A = ctx._jac.petscmat
+        if ctx.Jp is None:
+            return A
+
+        P = ctx._pjac.petscmat
+        return A, P
 
     @staticmethod
     def compute_operators(ksp, J, P):
@@ -535,13 +772,20 @@ class _SNESContext(object):
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
-        assert J.handle == ctx._jac.petscmat.handle
+
         if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
         ctx._jacobian_assembled = True
 
+        if ctx.Jp is not None and (J.handle == ctx._pjac.petscmat.handle):
+            # Assemble the preconditioner only
+            assert P.handle == ctx._pjac.petscmat.handle
+            ctx._assemble_pjac(ctx._pjac)
+            return
+
+        assert J.handle == ctx._jac.petscmat.handle
         ctx._assemble_jac(ctx._jac)
         if ctx.Jp is not None:
             assert P.handle == ctx._pjac.petscmat.handle

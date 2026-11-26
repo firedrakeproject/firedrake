@@ -153,7 +153,7 @@ class FunctionAssignBlock(Block):
 
         Parameters
         ----------
-        inputs : list of Function or Constant
+        inputs : list of firedrake.function.Function or Constant
             The variables in the RHS of the assignment.
         block_variable : pyadjoint.block_variable.BlockVariable
             The output block variable.
@@ -165,11 +165,11 @@ class FunctionAssignBlock(Block):
         Notes
         -----
         Recomputes the block_variable only if the checkpoint was not delegated
-        to another :class:`~firedrake.function.Function`.
+        to another :class:`firedrake.function.Function`.
 
         Returns
         -------
-        Function
+        firedrake.function.Function
             Return either the firedrake function or `BlockVariable` checkpoint
             to which was delegated the checkpointing.
         """
@@ -336,7 +336,7 @@ class CofunctionAssignBlock(Block):
 
         Parameters
         ----------
-        inputs : list of Function or Constant
+        inputs : list of firedrake.function.Function or Constant
             The variable in the RHS of the assignment.
         block_variable : pyadjoint.block_variable.BlockVariable
             The output block variable.

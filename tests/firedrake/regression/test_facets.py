@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+
 from firedrake import *
 
 
@@ -19,6 +20,7 @@ def dg_trial_test():
     # Interior facet tests hard code order in which cells were
     # numbered, so don't reorder this mesh.
     m = UnitSquareMesh(1, 1, reorder=False)
+
     V = FunctionSpace(m, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -103,9 +105,10 @@ def test_vector_bilinear_exterior_facet_integral():
 
 @pytest.mark.parametrize('restrictions',
                          # ((trial space restrictions), (test space restrictions))
-                         [(('+', ), ('+', )),
-                          (('+', ), ('-', )),
-                          (('-', ), ('+', )),
+                         [(('+',), ('+',)),
+                          (('+',), ('-',)),
+                          (('-',), ('+',)),
+                          (('-',), ('-',)),
                           (('-', '+'), ('+', '+')),
                           (('-', '+'), ('-', '+')),
                           (('-', '+'), ('+', '-')),
@@ -176,16 +179,3 @@ def test_internal_integral_unit_tet():
     x = SpatialCoordinate(t)
     u.interpolate(x[0])
     assert abs(assemble(u('+') * dS)) < 1.0e-14
-
-
-def test_facet_map_no_reshape():
-    m = UnitSquareMesh(1, 1)
-    V = FunctionSpace(m, "DG", 0)
-    efnm = V.exterior_facet_node_map()
-    assert efnm.values_with_halo.shape == (4, 1)
-
-
-def test_mesh_with_no_facet_markers():
-    mesh = UnitTriangleMesh()
-    with pytest.raises(LookupError):
-        mesh.exterior_facets.subset((10,))

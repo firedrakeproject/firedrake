@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from firedrake import *
@@ -64,6 +65,63 @@ def test_singular_linear_problem(rg):
         return assemble(u_**2*dx)
 
     _test_adjoint(J, f, rg)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("solver_type", ("solve", "lvs", "nlvs"))
+def test_singular_nonsymmetric_linear_problem(solver_type, rg):
+    """Check that the adjoint solve swaps nullspace and transpose_nullspace.
+
+    The pure Neumann form a(u, v) = (grad u, grad(v/g)) is nonsymmetric. Its
+    kernel is the constants. Its left kernel is g, because
+    sum_i g_i grad(phi_i/g) = grad(g/g) = 0. The adjoint operator is the
+    transpose, so its null space is g and its transpose null space is the
+    constants. With the forward spaces given unswapped to the adjoint solve,
+    the gradient is wrong and the Taylor rate drops to 1.
+    """
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    g = Function(V).interpolate(1 + x + 2*y**2)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v/g))*dx
+
+    nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
+    # orthonormalize changes the basis vectors in place, so give it a copy of g.
+    transpose_nullspace = VectorSpaceBasis([g.copy(deepcopy=True)], comm=mesh.comm)
+    transpose_nullspace.orthonormalize()
+    kwargs = {"nullspace": nullspace, "transpose_nullspace": transpose_nullspace,
+              "solver_parameters": {"ksp_type": "gmres", "pc_type": "none",
+                                    "ksp_gmres_restart": 200, "ksp_rtol": 1e-12}}
+
+    def J(f):
+        uh = Function(V)
+        L = inner(f, v)*dx
+        if solver_type == "solve":
+            solve(a == L, uh, **kwargs)
+        elif solver_type == "lvs":
+            LinearVariationalSolver(LinearVariationalProblem(a, L, uh), **kwargs).solve()
+        else:
+            # The problem is linear, so the default Newton solver stops after one step.
+            F = action(a, uh) - L
+            NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh), **kwargs).solve()
+        return assemble(uh**4*dx)
+
+    f = Function(V).interpolate(sin(3*x) + cos(2*y))
+    J0 = J(f)
+    rf = ReducedFunctional(J0, Control(f))
+
+    # Replay the tape at the recorded control and at a new control.
+    assert np.isclose(rf(f), J0, rtol=1e-10)
+    f1 = Function(V).interpolate(cos(x) - y**2)
+    with stop_annotating():
+        J1 = J(f1)
+    assert np.isclose(rf(f1), J1, rtol=1e-10)
+
+    h = rg.uniform(V)
+    assert taylor_test(rf, f, h) > 1.95
 
 
 @pytest.mark.skipcomplex
@@ -289,6 +347,132 @@ def test_time_dependent():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("reuse_bc", [False, True])
+def test_time_dependent_dirichlet_bc_from_other_space(reuse_bc):
+    mesh = UnitSquareMesh(4, 4)
+    V1 = FunctionSpace(mesh, "CG", 1)
+    V2 = FunctionSpace(mesh, "CG", 2)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    dt = 0.1
+    nsteps = 2
+
+    def J(amp):
+        u = Function(V1)
+        u_old = Function(V1)
+        v = TestFunction(V1)
+
+        F = inner(u - u_old, v)*dx + dt*inner(grad(u), grad(v))*dx
+
+        if reuse_bc:
+            g = Function(V2)
+            bc = DirichletBC(V1, g, "on_boundary")
+            problem = NonlinearVariationalProblem(F, u, bcs=bc)
+            solver = NonlinearVariationalSolver(problem)
+
+        for i in range(nsteps):
+            t = (i + 1)*dt
+            expr = amp*amp*amp*sin(2*pi*t)*(x + y)
+            if reuse_bc:
+                g.interpolate(expr)
+                solver.solve()
+            else:
+                g = Function(V2).interpolate(expr)
+                bc = DirichletBC(V1, g, "on_boundary")
+                solve(F == 0, u, bcs=bc)
+            u_old.assign(u)
+
+        # Final H1 seminorm of u
+        return assemble(inner(grad(u), grad(u))*dx) ** 0.5
+
+    amp = Function(R, val=1.0)
+    J0 = J(amp)
+    rf = ReducedFunctional(J0, Control(amp))
+    h = Function(R, val=0.1)
+    dJdm = rf.derivative()._ad_dot(h)
+    Hm = rf.hessian(h)._ad_dot(h)
+    assert taylor_test(rf, amp, h, dJdm=dJdm, Hm=Hm) > 2.9
+    assert taylor_test(rf, amp, h) > 1.95
+
+
+@pytest.mark.skipcomplex
+def test_dirichlet_bc_projected_value():
+    # HCT does not support interpolation, so the boundary value is
+    # projected into the space and the adjoint composes through the
+    # taped projection.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "HCT", 3)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    amp = Function(R, val=1.0)
+    u = Function(V)
+    v = TestFunction(V)
+    bc = DirichletBC(V, amp*amp*(x + y), "on_boundary")
+    F = inner(grad(u), grad(v))*dx + inner(u, v)*dx
+    solve(F == 0, u, bcs=bc,
+          solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
+
+    J = assemble(inner(u, u)*dx)
+    rf = ReducedFunctional(J, Control(amp))
+    assert taylor_test(rf, amp, Function(R, val=0.1)) > 1.95
+
+
+@pytest.mark.skipcomplex
+def test_dirichlet_bc_value_in_form():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    x, y = SpatialCoordinate(mesh)
+
+    f = Function(V).interpolate(x + y)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - inner(f, v)*dx
+    bc = DirichletBC(V, f, "on_boundary")
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, u, bcs=bc))
+    solver.solve()
+
+    J = assemble(inner(u, u)*dx)
+    rf = ReducedFunctional(J, Control(f))
+    h = Function(V).interpolate(x*y)
+    assert taylor_test(rf, f, h) > 1.95
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("use_solver", (False, True))
+def test_linear_problem_interpolate_rhs(use_solver, rg):
+    # The rhs is an Interpolate, not a Form or a Cofunction,
+    # and it depends on the control only through its operand.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "CG", 2)
+    X, Y = SpatialCoordinate(mesh)
+
+    m = Function(V).interpolate(sin(pi*X)*sin(pi*Y))
+    c = assemble(TestFunction(W)*dx)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = (inner(u, v) + inner(grad(u), grad(v)))*dx
+    L = interpolate(m**2 * v, c)
+    uh = Function(V)
+    if use_solver:
+        LinearVariationalSolver(LinearVariationalProblem(a, L, uh)).solve()
+    else:
+        solve(a == L, uh)
+
+    J = assemble(inner(uh, uh)*dx)
+    rf = ReducedFunctional(J, Control(m))
+
+    h = rg.uniform(V)
+    rates = taylor_to_dict(rf, m, h)
+    assert min(rates["R0"]["Rate"]) > 0.9
+    assert min(rates["R1"]["Rate"]) > 1.9
+    assert min(rates["R2"]["Rate"]) > 2.9
+
+
+@pytest.mark.skipcomplex
 def test_two_nonlinear_solves():
     # regression test for firedrake issue #1841
     mesh = UnitSquareMesh(1, 1)
@@ -312,6 +496,26 @@ def test_two_nonlinear_solves():
     assert taylor_test(rf, ui, Constant(0.1)) > 1.95
     # Taylor test recomputes the functional 5 times.
     assert rf.tape.recompute_count == 5
+
+
+@pytest.mark.skipcomplex
+def test_real_solve(rg):
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+
+    u = TrialFunction(R)
+    v = TestFunction(R)
+    m = Function(V).assign(1.0)
+
+    def J(m):
+        a = u * v * dx
+        L = m * v * dx
+        solution = Function(R)
+        solve(a == L, solution)
+        return assemble(solution**2 * dx)
+
+    _test_adjoint(J, m, rg)
 
 
 @pytest.mark.skipcomplex

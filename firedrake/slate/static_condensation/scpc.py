@@ -87,7 +87,7 @@ class SCPC(SCBase):
         """
         self.weight = Function(Vc)
         par_loop((domain, instructions), dx, {"w": (self.weight, INC)})
-        with self.weight.dat.vec as wc:
+        with self.weight.dat.vec_rw as wc:
             wc.reciprocal()
 
         # Get expressions for the condensed linear system
@@ -240,7 +240,7 @@ class SCPC(SCBase):
             x.copy(v)
 
         # Disassemble the incoming right-hand side
-        with self.residual.subfunctions[self.c_field].dat.vec as vc, self.weight.dat.vec_ro as wc:
+        with self.residual.subfunctions[self.c_field].dat.vec_rw as vc, self.weight.dat.vec_ro as wc:
             vc.pointwiseMult(vc, wc)
 
         # Now assemble residual for the reduced problem
@@ -259,7 +259,7 @@ class SCPC(SCBase):
 
             with self.condensed_rhs.dat.vec_ro as rhs:
                 if self.condensed_ksp.getInitialGuessNonzero():
-                    acc = self.solution.subfunctions[self.c_field].dat.vec
+                    acc = self.solution.subfunctions[self.c_field].dat.vec_rw
                 else:
                     acc = self.solution.subfunctions[self.c_field].dat.vec_wo
                 with acc as sol:

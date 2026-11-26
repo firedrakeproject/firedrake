@@ -61,7 +61,7 @@ def test_write_read(mesh, fs, degree, dumpfile):
         h5.read(f2, "/solution", timestamp=math.pi)
         h5.read(g2, "/solution", timestamp=0.1)
 
-        with g2.dat.vec as x, f2.dat.vec as y:
+        with g2.dat.vec_ro as x, f2.dat.vec_ro as y:
             assert x.max() > y.max()
 
     assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
@@ -70,7 +70,7 @@ def test_write_read(mesh, fs, degree, dumpfile):
 def test_checkpoint_fails_for_non_function(dumpfile):
     dumpfile = MPI.COMM_WORLD.bcast(dumpfile, root=0)
     with HDF5File(dumpfile, "w", comm=MPI.COMM_WORLD) as h5:
-        with pytest.raises(ValueError):
+        with pytest.raises(TypeError):
             h5.write(np.arange(10), "/solution")
 
 
@@ -93,9 +93,9 @@ def test_attributes(f, dumpfile):
 
         h5.write(mesh.coordinates, "/coords")
         attrs = h5.attributes("/coords")
-        attrs["dimension"] = mesh.coordinates.dat.cdim
+        attrs["dimension"] = mesh.coordinates.function_space().block_size
 
-        assert attrs["dimension"] == mesh.coordinates.dat.cdim
+        assert attrs["dimension"] == mesh.coordinates.function_space().block_size
 
 
 def test_write_read_only_ioerror(f, dumpfile):

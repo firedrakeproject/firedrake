@@ -42,6 +42,69 @@ def test_orthonormalize():
     assert basis.is_orthonormal()
 
 
+def _out_of_date_ghosts(f):
+    """Return the number of ghost entries of ``f`` that differ from the owner's value.
+
+    The owned values are copied into a new Function, whose halo is then filled
+    by a normal halo exchange, and the two halos are compared on every rank.
+    """
+    reference = Function(f.function_space())
+    reference.dat.data_wo[:] = f.dat.data_ro
+    stale = np.sum(~np.isclose(f.dat.data_ro_with_halos, reference.dat.data_ro_with_halos))
+    return f.comm.allreduce(int(stale))
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_orthogonalize_updates_halo():
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).interpolate(x + y)
+    # Read the halo once so that it holds the values from before the call.
+    f.dat.data_ro_with_halos
+
+    VectorSpaceBasis(constant=True, comm=mesh.comm).orthogonalize(f)
+
+    # The constant mode is removed from the owned values ...
+    assert np.isclose(mesh.comm.allreduce(f.dat.data_ro.sum()), 0)
+    # ... and the halo holds the new values.
+    assert _out_of_date_ghosts(f) == 0
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_orthonormalize_updates_halo():
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).interpolate(x + y)
+    f.dat.data_ro_with_halos
+
+    basis = VectorSpaceBasis([f], comm=mesh.comm)
+    basis.orthonormalize()
+
+    assert basis.is_orthonormal()
+    assert _out_of_date_ghosts(f) == 0
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_orthonormalize_with_constant():
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    f = Function(V).interpolate(x + y)
+    g = Function(V).interpolate(x * y)
+
+    basis = VectorSpaceBasis([f, g], constant=True, comm=mesh.comm)
+    # Raises ValueError if a vector is not orthonormal or not orthogonal to
+    # the constant vector.
+    basis.orthonormalize()
+    assert basis.is_orthonormal()
+
+    for v in (f, g):
+        # The constant mode is removed: the entries sum to zero.
+        assert np.isclose(mesh.comm.allreduce(v.dat.data_ro.sum()), 0)
+
+
 def test_transpose_nullspace():
     errors = []
     for n in range(4, 10):
@@ -53,7 +116,7 @@ def test_transpose_nullspace():
         a = inner(grad(u), grad(v))*dx
         L = conj(v)*dx
 
-        nullspace = VectorSpaceBasis(constant=True)
+        nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
         u = Function(V)
         u.interpolate(SpatialCoordinate(mesh)[0])
         # Solver diverges with indefinite PC if we don't remove
@@ -179,7 +242,7 @@ def test_near_nullspace(tmpdir):
 
     w1 = Function(V)
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
-        'ksp_monitor_short': "ascii:%s:" % w_nns_log,
+        'ksp_monitor': "ascii:%s:" % w_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
@@ -187,7 +250,7 @@ def test_near_nullspace(tmpdir):
 
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
-        'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
+        'ksp_monitor': "ascii:%s:" % wo_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
         'pc_type': 'gamg',
         'mg_levels_ksp_max_it': 3,
@@ -270,7 +333,7 @@ def test_nullspace_mixed_multiple_components():
     uv_nullspace = VectorSpaceBasis([ux0, uy0])
     uv_nullspace.orthonormalize()
 
-    p_nullspace = VectorSpaceBasis(constant=True)
+    p_nullspace = VectorSpaceBasis(constant=True, comm=mesh.comm)
 
     mix_nullspace = MixedVectorSpaceBasis(Z, [uv_nullspace, p_nullspace])
 
@@ -286,7 +349,7 @@ def test_nullspace_mixed_multiple_components():
     assert schur_ksp.getIterationNumber() < 6
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(2)
 @pytest.mark.parametrize("aux_pc", [False, True], ids=["PC(mu)", "PC(DG0-mu)"])
 @pytest.mark.parametrize("rhs", ["form_rhs", "cofunc_rhs"])
 def test_near_nullspace_mixed(aux_pc, rhs):
@@ -294,7 +357,8 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     # this is tested on the SINKER case of May and Moresi https://doi.org/10.1016/j.pepi.2008.07.036
     # fails in parallel if nullspace is copied to fieldsplit_1_Mp_ksp solve (see PR #3488)
     n = 64
-    mesh = UnitSquareMesh(n, n)
+    # Force a deterministic parallel distribution
+    mesh = UnitSquareMesh(n, n, distribution_parameters={"partitioner_type": "simple"})
     V = VectorFunctionSpace(mesh, "CG", 2)
     P = FunctionSpace(mesh, "CG", 1)
     W = V*P
@@ -342,7 +406,7 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     near_nullmodes.orthonormalize()
     near_nullmodes_W = MixedVectorSpaceBasis(W, [near_nullmodes, W.sub(1)])
 
-    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
+    pressure_nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True, comm=mesh.comm)])
 
     w = Function(W)
     solver_parameters = {
@@ -389,4 +453,4 @@ def test_near_nullspace_mixed(aux_pc, rhs):
     A, P = ksp_inner.getOperators()
     assert A.getNearNullSpace().handle
     # currently ~22 (25 on 2 cores) vs. >45-ish for with/without near nullspace
-    assert ksp_inner.getIterationNumber() < 27
+    assert ksp_inner.getIterationNumber() < 24

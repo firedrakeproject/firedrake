@@ -61,13 +61,17 @@ The underlined terms are the coupling terms. Note that the first equation for :m
 
    Geometry and initial condition in the system. Fluid (blue) with deflected free surface and the structure (red).
 
-Now we present the code used to solve the system of equations above. We start with appropriate imports::
+Now we present the code used to solve the system of equations above. We start with appropriate imports:
+
+.. code-block:: python
 
     from firedrake import *
     import math
     import numpy as np
 
-Then, we set parameters of the simulation::
+Then, we set parameters of the simulation:
+
+.. code-block:: python
 
     # parameters in SI units
     t_end = 5.0  # time of simulation [s]
@@ -94,7 +98,9 @@ Then, we set parameters of the simulation::
     output_data_every_x_time_steps = 20  # to avoid saving data every time step
     coupling = True  # turn on coupling terms
 
-The equations are in nondimensional units, hence we transform::
+The equations are in nondimensional units, hence we transform:
+
+.. code-block:: python
 
     L = Lz
     T = L / math.sqrt(g * L)
@@ -107,13 +113,17 @@ The equations are in nondimensional units, hence we transform::
     mu /= g * rho * L
     rho = 1.0  # or equivalently rho /= rho
 
-Let us define function spaces, including the mixed one::
+Let us define function spaces, including the mixed one:
+
+.. code-block:: python
 
     V_W = FunctionSpace(mesh, "CG", 1)
     V_B = VectorFunctionSpace(mesh, "CG", 1)
     mixed_V = V_W * V_B
 
-Then, we define functions. First, in the fluid domain::
+Then, we define functions. First, in the fluid domain:
+
+.. code-block:: python
 
     phi = Function(V_W, name="phi")
     phi_f = Function(V_W, name="phi_f")  # at the free surface
@@ -121,14 +131,18 @@ Then, we define functions. First, in the fluid domain::
     trial_W = TrialFunction(V_W)
     v_W = TestFunction(V_W)
 
-Second, in the beam domain::
+Second, in the beam domain:
+
+.. code-block:: python
 
     X = Function(V_B, name="X")
     U = Function(V_B, name="U")
     trial_B = TrialFunction(V_B)
     v_B = TestFunction(V_B)
 
-And last, mixed functions in the mixed domain::
+And last, mixed functions in the mixed domain:
+
+.. code-block:: python
 
     trial_f, trial_s = TrialFunctions(mixed_V)
     v_f, v_s = TestFunctions(mixed_V)
@@ -136,7 +150,9 @@ And last, mixed functions in the mixed domain::
     tmp_s = Function(V_B)
     result_mixed = Function(mixed_V)
 
-We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the other. They are needed both in "CG" and "DG" space. We use the fact that the fluid and structure subdomains are defined in the mesh file with an appropriate ID number that Firedrake is able to recognise. That can be used in constructing indicator functions::
+We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the other. They are needed both in "CG" and "DG" space. We use the fact that the fluid and structure subdomains are defined in the mesh file with an appropriate ID number that Firedrake is able to recognise. That can be used in constructing indicator functions:
+
+.. code-block:: python
 
     V_DG0_W = FunctionSpace(mesh, "DG", 0)
     V_DG0_B = FunctionSpace(mesh, "DG", 0)
@@ -161,13 +177,16 @@ We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the 
              dx,
              {"A": (I_cg_B, RW), "B": (I_B, READ)})
 
-We use indicator functions to construct normal unit vector outward to the fluid domain at the fluid-structure interface::
+We use indicator functions to construct normal unit vector outward to the fluid domain at the fluid-structure interface:
+
+.. code-block:: python
 
     n_vec = FacetNormal(mesh)
     n_int = I_B("+") * n_vec("+") + I_B("-") * n_vec("-")
 
-Now we can construct special boundary conditions that limit the solvers only to the appropriate subdomains of our interest::
+Now we can construct special boundary conditions that limit the solvers only to the appropriate subdomains of our interest:
 
+.. code-block:: python
 
     class MyBC(DirichletBC):
         def __init__(self, V, value, markers):
@@ -206,14 +225,18 @@ Now we can construct special boundary conditions that limit the solvers only to 
     BC_exclude_beyond_water_mixed = MyBC(mixed_V.sub(0), 0, I_cg_W)
     BC_exclude_beyond_solid_mixed = MyBC(mixed_V.sub(1), 0, I_cg_B)
 
-Finally, we are ready to define the solvers of our equations. First, equation for :math:`\phi` at the free surface::
+Finally, we are ready to define the solvers of our equations. First, equation for :math:`\phi` at the free surface:
+
+.. code-block:: python
 
     a_phi_f = trial_W * v_W * ds(top_id)
     L_phi_f = (phi_f - dt * eta) * v_W * ds(top_id)
     LVP_phi_f = LinearVariationalProblem(a_phi_f, L_phi_f, phi_f, bcs=BC_exclude_beyond_surface)
     LVS_phi_f = LinearVariationalSolver(LVP_phi_f)
 
-Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it to the bottom by applying zero Dirichlet boundary condition::
+Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it to the bottom by applying zero Dirichlet boundary condition:
+
+.. code-block:: python
 
     a_X = dot(trial_B, v_B) * dx(structure_id)
     L_X = dot((X + dt * U), v_B) * dx(structure_id)
@@ -222,7 +245,9 @@ Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it
     LVP_X = LinearVariationalProblem(a_X, L_X, X, bcs=[BC_bottom, BC_exclude_beyond_solid])
     LVS_X = LinearVariationalSolver(LVP_X)
 
-Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in the mixed domain. In particular, value of :math:`\phi` at the free surface is used as a boundary condition. Note that avg(...) is necessary for terms in expressions containing n_int, which is built in "DG" space::
+Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in the mixed domain. In particular, value of :math:`\phi` at the free surface is used as a boundary condition. Note that avg(...) is necessary for terms in expressions containing n_int, which is built in "DG" space:
+
+.. code-block:: python
 
     # phi-U
     # no-motion beam bottom boundary condition in the mixed space
@@ -254,7 +279,9 @@ Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in
     LVP_eta = LinearVariationalProblem(a_eta, L_eta, eta, bcs=BC_exclude_beyond_surface)
     LVS_eta = LinearVariationalSolver(LVP_eta)
 
-Let us set the initial condition. We choose no motion at the beginning in both fluid and structure, zero displacement in the structure and deflected free surface in the fluid. The shape of the deflection is computed from the analytical solution::
+Let us set the initial condition. We choose no motion at the beginning in both fluid and structure, zero displacement in the structure and deflected free surface in the fluid. The shape of the deflection is computed from the analytical solution:
+
+.. code-block:: python
 
     # initial condition in fluid based on analytical solution
     # compute analytical initial phi and eta
@@ -276,12 +303,15 @@ Let us set the initial condition. We choose no motion at the beginning in both f
     phi.interpolate(phi_exact_expr)
     phi_f.assign(phi, bc_top.node_set)
 
-A file to store data for visualization::
+A file to store data for visualization:
+
+.. code-block:: python
 
     outfile_phi = VTKFile("results_pvd/phi.pvd")
 
-To save data for visualization, we change the position of the nodes in the mesh, so that they represent the computed dynamic position of the free surface and the structure::
+To save data for visualization, we change the position of the nodes in the mesh, so that they represent the computed dynamic position of the free surface and the structure:
 
+.. code-block:: python
 
     def output_data():
         output_data.counter += 1
@@ -296,7 +326,9 @@ To save data for visualization, we change the position of the nodes in the mesh,
 
     output_data.counter = -1  # -1 to exclude counting print of initial state
 
-In the end, we proceed with the actual computation loop::
+In the end, we proceed with the actual computation loop:
+
+.. code-block:: python
 
     t = 0.0
     output_data()

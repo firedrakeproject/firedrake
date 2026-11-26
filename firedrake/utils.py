@@ -1,13 +1,34 @@
 # Some generic python utilities not really specific to our work.
 import collections.abc
+import functools
 import warnings
-from decorator import decorator
-from pyop2.datatypes import ScalarType, as_cstr
-from pyop2.datatypes import RealType     # noqa: F401
-from pyop2.datatypes import IntType      # noqa: F401
-from pyop2.datatypes import as_ctypes    # noqa: F401
-from pyop2.mpi import MPI
+from typing import Callable
+
 from petsc4py import PETSc
+
+from pyop3.collections import OrderedSet, StrictlyUniqueDict, StrictlyUniqueDefaultDict, as_tuple  # noqa: F401
+from pyop3.dtypes import ScalarType, as_cstr
+from pyop3.dtypes import RealType, IntType, as_ctypes     # noqa: F401
+from pyop3.mpi import MPI
+from pyop3.utils import (  # noqa: F401
+    readonly,
+    pairwise,
+    steps,
+    just_one,
+    pretty_type,
+    single_valued,
+    is_single_valued,
+    has_unique_entries,
+    strictly_all,
+    debug_assert,
+    freeze,
+    strict_int,
+    invert,
+    split_by,
+    is_sorted,
+    unique_name as op3_unique_name,
+)
+
 from functools import cache
 from firedrake.exceptions import UnrecognisedDeviceError
 import petsctools
@@ -22,9 +43,6 @@ IntType_c = as_cstr(IntType)
 
 complex_mode = (petsctools.get_petscvariables()["PETSC_SCALAR"].lower() == "complex")
 
-# Remove this (and update test suite) when Slate supports complex mode.
-SLATE_SUPPORTS_COMPLEX = False
-
 
 @cache
 def get_device_type() -> str | None:
@@ -36,7 +54,7 @@ def get_device_type() -> str | None:
     Returns
     -------
     str | None
-        The PETSc device type, or `None` if no device is found.
+        The PETSc device type name, or `None` if no device is found.
 
     """
     try:
@@ -47,7 +65,7 @@ def get_device_type() -> str | None:
         return None
     dev_type = dev.getDeviceType()
     dev.destroy()
-    return dev_type
+    return dev_type.name
 
 
 @cache
@@ -78,7 +96,7 @@ def device_matrix_type(*, warn: bool = True) -> str | None:
         this system or None
 
     """
-    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse"}
+    _device_mat_type_map = {"HOST": None, "CUDA": "aijcusparse", "HIP": "aijhipsparse"}
     dev_type = get_device_type()
     if dev_type is None:
         if warn:
@@ -111,17 +129,6 @@ def _new_uid(comm):
     return uid
 
 
-def _init():
-    """Cause :func:`pyop2.init` to be called in case the user has not done it
-    for themselves. The result of this is that the user need only call
-    :func:`pyop2.init` if she wants to set a non-default option, for example
-    to switch the debug or log level."""
-    from pyop2 import op2
-    from firedrake.parameters import parameters
-    if not op2.initialised():
-        op2.init(**parameters["pyop2_options"])
-
-
 def unique(iterable):
     """ Return tuple of unique items in iterable, items must be hashable
     """
@@ -151,28 +158,6 @@ def unique_name(name, nameset):
             return newname
 
 
-def known_pyop2_safe(f):
-    """Decorator to mark a function as being PyOP2 type-safe.
-
-    This switches the current PyOP2 type checking mode to the value
-    given by the parameter "type_check_safe_par_loops", and restores
-    it after the function completes."""
-    from firedrake.parameters import parameters
-
-    def wrapper(f, *args, **kwargs):
-        opts = parameters["pyop2_options"]
-        check = opts["type_check"]
-        safe = parameters["type_check_safe_par_loops"]
-        if check == safe:
-            return f(*args, **kwargs)
-        opts["type_check"] = safe
-        try:
-            return f(*args, **kwargs)
-        finally:
-            opts["type_check"] = check
-    return decorator(wrapper, f)
-
-
 def tuplify(item):
     """Convert an object into a hashable equivalent.
 
@@ -191,25 +176,6 @@ def tuplify(item):
     if not isinstance(item, dict):
         raise ValueError(f"tuplify does not know how to handle objects of type {type(item)}")
     return tuple((k, tuplify(item[k])) for k in sorted(item))
-
-
-def split_by(condition, items):
-    """Split an iterable in two according to some condition.
-
-    :arg condition: Callable applied to each item in ``items``, returning ``True``
-        or ``False``.
-    :arg items: Iterable to split apart.
-    :returns: A 2-tuple of the form ``(yess, nos)``, where ``yess`` is a tuple containing
-        the entries of ``items`` where ``condition`` is ``True`` and ``nos`` is a tuple
-        of those where ``condition`` is ``False``.
-    """
-    result = [], []
-    for item in items:
-        if condition(item):
-            result[0].append(item)
-        else:
-            result[1].append(item)
-    return tuple(result[0]), tuple(result[1])
 
 
 def assert_empty(iterator):
@@ -235,18 +201,62 @@ def assert_empty(iterator):
 
 
 # NOTE: Python 3.13 has warnings.deprecated which does exactly this
-def deprecated(prefer=None, internal=False):
-    """Decorator that emits a warning saying that the function is deprecated."""
+def deprecated(message: str = "", internal: bool = False) -> Callable:
+    """Emit a warning when the decorated function is called.
+
+    Parameters
+    ----------
+    message : str
+        The migration advice to append to the deprecation message.
+    internal : bool
+        Emit a ``DeprecationWarning`` if true, or a ``FutureWarning`` otherwise.
+
+    Returns
+    -------
+    Callable
+        A decorator that prefixes the message with the function's qualified
+        name and states that it is deprecated and will be removed.
+    """
     def decorator(fn):
+        @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            msg = f"{fn.__qualname__} is deprecated and will be removed"
-            if prefer:
-                msg += f", please use {prefer} instead"
+            msg = f"{fn.__qualname__} is deprecated and will be removed."
+            if message:
+                msg += f" {message}"
             warning_type = DeprecationWarning if internal else FutureWarning
             warnings.warn(msg, warning_type)
             return fn(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def deprecated_rename(prefer: str, internal: bool = False) -> Callable:
+    """Emit a warning that directs callers to a replacement API.
+
+    Parameters
+    ----------
+    prefer : str
+        The name of the replacement API.
+    internal : bool
+        Emit a ``DeprecationWarning`` if true, or a ``FutureWarning`` otherwise.
+
+    Returns
+    -------
+    Callable
+        A decorator that warns callers to use the replacement API.
+    """
+    message = f"Please use {prefer} instead."
+    return deprecated(message, internal=internal)
+
+
+def safe_is(is_: PETSc.IS, *, comm=MPI.COMM_SELF) -> PETSc.IS:
+    """Return a non-null index set.
+
+    This function is useful because sometimes petsc4py returns index sets that
+    are not correctly initialised.
+
+    """
+    return is_ if is_ else PETSc.IS().createStride(0, comm=comm).toGeneral()
 
 
 def check_netgen_installed() -> None:

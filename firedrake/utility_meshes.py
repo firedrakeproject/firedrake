@@ -7,7 +7,7 @@ import petsctools
 import ufl
 from mpi4py import MPI
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.utils import IntType, ScalarType
 
 from firedrake import (
@@ -77,16 +77,16 @@ reorder_noop = False
 
 def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
     dm = coords.function_space().mesh().topology.topology_dm
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
+    dm.removeLabel("firedrake_is_ghost")
     dm.removeLabel("exterior_facets")
     dm.removeLabel("interior_facets")
     V = coords.function_space()
-    dmcommon._set_dg_coordinates(dm,
-                                 V.finat_element,
-                                 V.dm.getLocalSection(),
-                                 coords.dat._vec)
+
+    with coords.dat.vec_rw as coords_vec:
+        dmcommon._set_dg_coordinates(dm,
+                                     V.finat_element,
+                                     V.dm.getLocalSection(),
+                                     coords_vec)
     return Mesh(
         dm,
         comm=comm,
@@ -2137,9 +2137,8 @@ def IcosahedralSphereMesh(
         new_coords = Function(VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
+        new_coords_data *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = Mesh(
             new_coords,
             name=name,
@@ -2500,13 +2499,13 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     Npoints = panel_numbering.max() + 1
     coords = np.zeros((Npoints, 3), dtype=np.double)
     lX, lY = np.meshgrid(x, x)
-    lX.shape = (Nx**2,)
-    lY.shape = (Nx**2,)
+    lX = lX.reshape((Nx**2,))
+    lY = lY.reshape((Nx**2,))
     r = (a**2 + lX**2 + lY**2) ** 0.5
 
     # Now we need to compute the gnonomic transformation
     # for each of the panels
-    panel_numbering.shape = (6, Nx**2)
+    panel_numbering = panel_numbering.reshape((6, Nx**2))
 
     def coordinates_on_panel(panel_num, X, Y, Z):
         I = panel_numbering[panel_num, :]
@@ -2590,10 +2589,9 @@ def CubedSphereMesh(
     if degree > 1:
         new_coords = Function(VectorFunctionSpace(m, "Q", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data[...] *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = Mesh(
             new_coords,
             distribution_name=distribution_name,

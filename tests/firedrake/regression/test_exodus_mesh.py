@@ -27,4 +27,4 @@ def test_sidesets(exodus_mesh):
     if exodus_mesh is None:
         pytest.skip("PETSc not configured with exodusII")
     else:
-        assert (exodus_mesh.exterior_facets.unique_markers == [200, 201]).all()
+        assert (exodus_mesh.facet_markers == [200, 201]).all()

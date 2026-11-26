@@ -1,13 +1,21 @@
 Coupled volume-surface reaction-diffusion on a torus with submesh
 =================================================================
 
+.. rst-class:: emphasis
+
+    Many problems couple PDEs posed in the volume with other PDEs on the
+    surface. This demo illustrates how such problems may be solved with
+    the :func:`~.Submesh` functionality in Firedrake.
+
+    The demo was contributed by `Patrick Farrell
+    <mailto:patrick.farrell@maths.ox.ac.uk>`__.
+
 In many biological and physical processes, chemical species diffuse through
 a volume and exchange with a surface species, coupled by an interfacial
 transfer mechanism.  A prototypical model of this class is the coupled
 volume-surface reaction-diffusion system analysed by :cite:`Egger:2018`, which
 we consider here on a solid torus :math:`\Omega \subset \mathbb{R}^3` with
-surface :math:`\Gamma = \partial\Omega`. This demo illustrates how such
-problems may be solved with the :func:`~.Submesh` functionality in Firedrake.
+surface :math:`\Gamma = \partial\Omega`. 
 
 The model
 ---------
@@ -72,7 +80,8 @@ Implementation
 --------------
 
 We begin by importing Firedrake and ngsPETSc to create the torus mesh.
-::
+
+.. code-block:: python
 
   from firedrake import *
   try:
@@ -87,7 +96,9 @@ Building the torus mesh with ngsPETSc
 
 We construct a solid torus using Open CASCADE Technology via Netgen.  The
 generating circle has major radius :math:`R = 3` and minor radius :math:`r = 1`
-and is swept around the :math:`z`-axis. ::
+and is swept around the :math:`z`-axis.
+
+.. code-block:: python
 
   from netgen.occ import *
 
@@ -115,7 +126,9 @@ build the volume and surface hierarchies together.
 Like :class:`~.DirichletBC`, :func:`~.Submesh`
 takes in a subdomain id to indicate which part of the mesh should be
 extracted. In this case we want the entire exterior facet mesh, which we
-can specify directly. ::
+can specify directly.
+
+.. code-block:: python
 
   nref = 1
   mh_v = MeshHierarchy(base_v, nref)
@@ -127,7 +140,9 @@ Function spaces
 ~~~~~~~~~~~~~~~
 
 We use continuous piecewise-linear elements on both the volume and the surface,
-collected into a :func:`~.MixedFunctionSpace`. ::
+collected into a :func:`~.MixedFunctionSpace`.
+
+.. code-block:: python
 
   V_v = FunctionSpace(mesh_v, "CG", 1)
   V_s = FunctionSpace(mesh_s, "CG", 1)
@@ -136,7 +151,9 @@ collected into a :func:`~.MixedFunctionSpace`. ::
 Initial data and time-stepping setup
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-We initialise with smooth functions on the torus. ::
+We initialise with smooth functions on the torus.
+
+.. code-block:: python
 
   dt    = Constant(0.1)
   T     = 1
@@ -156,7 +173,9 @@ We initialise with smooth functions on the torus. ::
   z_old.subfunctions[1].interpolate(2 + cos(X_s[2]))
   z.assign(z_old)
 
-The model parameters are kept simple. ::
+The model parameters are kept simple.
+
+.. code-block:: python
 
   d_L   = Constant(1)    # volume diffusion
   d_ell = Constant(1)    # surface diffusion
@@ -169,7 +188,9 @@ Integration measures
 Three measures are needed.  ``dV`` integrates over :math:`\Omega`, ``dA`` over
 :math:`\Gamma`, and ``dC`` is the *cross-mesh measure* that integrates over the
 submesh but also queries degrees of freedom from the parent volume mesh.
-Firedrake computes the intersection automatically with ``intersect_measures``. ::
+Firedrake computes the intersection automatically with ``intersect_measures``.
+
+.. code-block:: python
 
   dV = dx(mesh_v)
   dA = dx(mesh_s)
@@ -181,7 +202,9 @@ The variational form
 We discretise in time with the L-stable backward Euler scheme. The cross-mesh
 coupling terms use ``dC``: the first argument to ``inner`` may come from the
 volume space ``V_v`` or the surface space ``V_s``, and the test functions
-``v`` and ``w`` live on their respective spaces. ::
+``v`` and ``w`` live on their respective spaces.
+
+.. code-block:: python
 
   transfer = lam * L - gam * l
 
@@ -204,7 +227,9 @@ problem and a surface elliptic problem—are each preconditioned independently
 by a full-cycle geometric multigrid solver. (Although monolithic multigrid approaches on
 the coupled system are also available.) Firedrake automatically
 rediscretises the operators on each level using the mesh hierarchies we built
-above. ::
+above.
+
+.. code-block:: python
 
   gmg_block = {
       "ksp_type": "preonly",
@@ -226,7 +251,9 @@ above. ::
       "fieldsplit_1": gmg_block,
   }
 
-We create the problem and solver once, then step in time. ::
+We create the problem and solver once, then step in time.
+
+.. code-block:: python
 
   problem = NonlinearVariationalProblem(F, z)
   solver  = NonlinearVariationalSolver(problem, solver_parameters=sp)
@@ -234,7 +261,9 @@ We create the problem and solver once, then step in time. ::
 Time loop
 ~~~~~~~~~
 
-We advance the solution and write VTK output at each step. ::
+We advance the solution and write VTK output at each step.
+
+.. code-block:: python
 
   L_out, l_out = z_old.subfunctions
   L_out.rename("Volume")
