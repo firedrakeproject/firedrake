@@ -58,7 +58,7 @@ import matplotlib.pyplot as plt
 # $$ u(x, y) = \cos(2\pi x)\cos(2\pi y). $$
 
 # %% [markdown]
-# However, we wish to employ this as an example for the finite element method, so lets go ahead and produce a numerical solution. First, we need our domain $\Omega$. Firedrake can read meshes from a number of popular mesh generators.  In addition, it provides utility functions to create many "standard" meshes in one, two, and three dimensions.  For a complete list of provided meshes, we can peruse the [online Firedrake documentation](https://www.firedrakeproject.org/firedrake/apidoc/firedrake.html#module-firedrake.utility_meshes).  Unsurprisingly, amongst them is a `UnitSquareMesh`.
+# However, we wish to employ this as an example for the finite element method, so lets go ahead and produce a numerical solution. First, we need our domain $\Omega$. Firedrake can read meshes from a number of popular mesh generators.  In addition, it provides utility functions to create many "standard" meshes in one, two, and three dimensions.  For a complete list of provided meshes, we can peruse the [online Firedrake documentation](https://www.firedrakeproject.org/apidoc/firedrake.html#module-firedrake.utility_meshes).  Unsurprisingly, amongst them is a `UnitSquareMesh`.
 
 # %% [markdown]
 # To start, we must make Firedrake available in the notebook.  It is available as a normal Python package, named `firedrake`.  To save on typing, we will import all of the public API into the current namespace
@@ -183,7 +183,7 @@ fig.colorbar(collection);
 # ### Exercise 2: convergence of the method
 # For solutions with sufficient smoothness (like the choice we have here), this method with a piecewise linear approximation space should converge in the $L_2$ error with rate $\mathcal{O}(h^2)$, where $h$ is the typical mesh spacing.  Confirm this for the example in question by computing the $L_2$ error in the solution for a sequence of finer and finer meshes.
 #
-# - Hint 1: You can compute errors using [errornorm](https://www.firedrakeproject.org/firedrake/apidoc/firedrake.html#firedrake.norms.errornorm)
+# - Hint 1: You can compute errors using [errornorm](https://www.firedrakeproject.org/apidoc/firedrake.html#firedrake.norms.errornorm)
 # - Hint 2: If the error is $\mathcal{O}(h^2)$ then $\log_2 (e_H/e_h) \approx 2$.
 #   The Python module `math` contains an implementation of `log`.
 #   

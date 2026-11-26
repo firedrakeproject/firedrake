@@ -39,7 +39,7 @@
 #
 # $$\int_\Omega \nabla u \cdot \nabla v\, \mathrm{d}x - \int_{\Gamma_N} hv\, \mathrm{d}s = \int_\Omega fv\mathrm{d}x \quad\forall v\in V_0.$$
 #
-# In Firedrake, the weak form is always formulated in the unmodified space $V$. The modification to the function spaces implied by the Dirichlet conditions is then imposed by supplying a [DirichletBC object](https://www.firedrakeproject.org/firedrake/apidoc/firedrake.html#firedrake.bcs.DirichletBC) to the solve.
+# In Firedrake, the weak form is always formulated in the unmodified space $V$. The modification to the function spaces implied by the Dirichlet conditions is then imposed by supplying a [DirichletBC object](https://www.firedrakeproject.org/apidoc/firedrake.html#firedrake.bcs.DirichletBC) to the solve.
 
 # %% [markdown]
 # As usual, we start by setting up the notebook matplotlib interaction, and importing Firedrake.  We then choose a triangulation of our domain and select an appropriate $H^1$-conforming function space.
@@ -77,7 +77,7 @@ a = dot(grad(u), grad(v))*dx
 L = f*v*dx
 
 # %% [markdown]
-# Now we need to tell Firedrake how to modify the function space to take into account the Dirichlet condition.  This is done by constructing a [DirichletBC object](https://www.firedrakeproject.org/firedrake/apidoc/firedrake.html#firedrake.bcs.DirichletBC).  As usual, we can ask for help using Python's builtin documentation facilities.
+# Now we need to tell Firedrake how to modify the function space to take into account the Dirichlet condition.  This is done by constructing a [DirichletBC object](https://www.firedrakeproject.org/apidoc/firedrake.html#firedrake.bcs.DirichletBC).  As usual, we can ask for help using Python's builtin documentation facilities.
 
 # %%
 # ?DirichletBC
