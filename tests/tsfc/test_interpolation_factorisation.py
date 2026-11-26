@@ -43,14 +43,6 @@ def interpolate_flop_count(domain, source, target, dual):
     return spectral_flop_count(interpolate_expression(domain, source, target, dual))
 
 
-def interpolation_in_mass_form(mesh, source, target):
-    source_space = FunctionSpace(mesh, source)
-    target_space = FunctionSpace(mesh, target)
-    trial = ufl.TrialFunction(source_space)
-    test = ufl.TestFunction(target_space)
-    return ufl.inner(ufl.Interpolate(trial, target_space), test) * ufl.dx
-
-
 def test_domainless_interpolate_in_form():
     mesh = Mesh(VectorElement("P", quadrilateral, 1))
     element = FiniteElement("Q", quadrilateral, 1)
@@ -111,14 +103,35 @@ def test_vector_flops(mesh, vector, dual):
     assert flops == len(vector_target.sub_elements) * scalar_flops
 
 
-def test_vector_zany_flops():
-    # The components of a vector Bernardi-Raugel element share the
-    # geometric work, so the cost stays below a fixed budget.
+@pytest.mark.parametrize("form", ("interp-primal", "interp-dual", "L2", "H1"))
+def test_vector_zany_flops(form):
+    # The components of a vector of zany elements share the geometric work,
+    # so they cost less than one scalar interpolation each.
     cell = ufl.triangle
     mesh = Mesh(VectorElement("P", cell, 1))
-    element = VectorElement(FiniteElement("Bernardi-Raugel", cell, 1), dim=2)
-    form = interpolation_in_mass_form(mesh, element, element)
-    assert spectral_flop_count(form) <= 8392
+    scalar_source = FiniteElement("Reduced-Hermite", cell, 3)
+    scalar_target = FiniteElement("Rotated-Bernardi-Raugel", cell, 1)
+    vector_source = VectorElement(scalar_source, dim=2)
+    vector_target = VectorElement(scalar_target, dim=2)
+
+    flops = []
+    for source, target in [(scalar_source, scalar_target), (vector_source, vector_target)]:
+        Vsource = FunctionSpace(mesh, source)
+        Vtarget = FunctionSpace(mesh, target)
+        if form == "interp-primal":
+            expr = ufl.Interpolate(ufl.grad(ufl.Coefficient(Vsource)), ufl.Coargument(Vtarget.dual(), 0))
+        elif form == "interp-dual":
+            expr = ufl.Interpolate(ufl.grad(ufl.Argument(Vsource, 0)), ufl.Cofunction(Vtarget.dual()))
+        else:
+            u = ufl.Interpolate(ufl.grad(ufl.TrialFunction(Vsource)), Vtarget)
+            v = ufl.TestFunction(Vtarget)
+            expr = ufl.inner(u, v) * ufl.dx
+            if form == "H1":
+                expr += ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx
+        flops.append(spectral_flop_count(expr))
+
+    scalar_flops, vector_flops = flops
+    assert vector_flops < len(vector_target.sub_elements) * scalar_flops
 
 
 def q_rtce_elements(degree):
