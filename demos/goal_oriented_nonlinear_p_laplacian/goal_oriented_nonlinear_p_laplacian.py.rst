@@ -1,5 +1,5 @@
-Goal-based adaptivity for stationary boundary value problems
-============================================================
+Goal-oriented adaptivity for stationary boundary value problems
+===============================================================
 
 .. rst-class:: emphasis
 
@@ -46,44 +46,76 @@ refined in place, so we start from a uniform mesh:
   f = -div(inner(grad(u_exact), grad(u_exact))**((p-2)/2) * grad(u_exact))
 
 The manufactured solution vanishes on all four edges, so the boundary condition
-is homogeneous. The problem is strongly nonlinear, so for the purposes of this
-demo we cheat and start from an initial guess close to the exact solution. The
-integrand is not polynomial, so we ask for a richer quadrature rule than the
-degree of the space alone would suggest:
+is homogeneous. The :math:`p`-Laplacian is the Euler--Lagrange equation of the
+energy
+
+.. math::
+    E(u) = \frac{1}{p} \int_\Omega |\nabla u|^p \,\mathrm{d}x - \int_\Omega f u \,\mathrm{d}x,
+
+so we write down :math:`E` and ask UFL for the residual :math:`F` as its
+derivative. The integrand is not polynomial, so we ask for a richer quadrature
+rule than the degree of the space alone would suggest:
 
 .. code-block:: python
 
   u = Function(V, name="Solution")
-  u.interpolate(0.99*u_exact)
 
-  v = TestFunction(V)
   quadrature = {"degree": 2*degree + 2}
-  F = (inner(inner(grad(u), grad(u))**((p-2)/2) * grad(u), grad(v))*dx(**quadrature)
-       - inner(f, v)*dx(**quadrature))
+  E = (1/p)*inner(grad(u), grad(u))**(p/2)*dx(**quadrature) - inner(f, u)*dx(**quadrature)
+  F = derivative(E, u)
   bcs = DirichletBC(V, 0, "on_boundary")
 
-To apply goal-based adaptivity we need a goal functional. Here we use the
-integral of the normal derivative of the solution over the top boundary, which
-`UnitSquareMesh` numbers ``4``:
+The problem is strongly nonlinear, so we need a good initial guess. A constant
+initial guess, such as :math:`u = 0`, is a poor choice: the diffusivity
+:math:`|\nabla u|^{p-2}` is zero there, and so is the Jacobian. We solve the
+Poisson problem :math:`-\Delta w = f` with the same boundary condition instead:
 
 .. code-block:: python
 
-  n = FacetNormal(mesh)
-  J = inner(grad(u), n)*ds(4)
+  v = TestFunction(V)
+  w = TrialFunction(V)
+  solve(inner(grad(w), grad(v))*dx == inner(f, v)*dx(**quadrature), u, bcs)
 
-The estimate splits in two: the error committed by discretising, and the error
-committed by not solving the algebraic system exactly. Because DWR measures
-that algebraic error too, a very coarse tolerance on the nonlinear solver
-costs us nothing:
+The forcing :math:`f` was computed for :math:`p = 5`, so the Poisson solution
+has the wrong magnitude. We scale :math:`w` by the value of :math:`c` that
+minimises :math:`E(c w)`, which is
+:math:`c = \left(\int_\Omega f w \,\mathrm{d}x \big/ \int_\Omega |\nabla w|^p \,\mathrm{d}x\right)^{1/(p-1)}`:
+
+.. code-block:: python
+
+  c = (assemble(inner(f, u)*dx(**quadrature))
+       / assemble(inner(grad(u), grad(u))**(p/2)*dx(**quadrature)))**(1/(float(p) - 1))
+  u.assign(c*u)
+
+We use the net outward flux through the top boundary as the goal functional.
+The flux vector is :math:`\mathbf{q}(u) = -|\nabla u|^{p-2}\nabla u`, so the
+goal is :math:`J(u) = \int_{\Gamma_{\mathrm{top}}} \mathbf{q}(u) \cdot n\,\mathrm{d}s`.
+The manufactured solution gives a negative value, which indicates net inflow.
+``UnitSquareMesh`` numbers the top boundary ``4``. We use higher quadrature on
+this boundary to evaluate the reference flux accurately.
+
+.. code-block:: python
+
+  flux = -inner(grad(u), grad(u))**((p-2)/2) * grad(u)
+  n = FacetNormal(mesh)
+  J = inner(flux, n)*ds(4, degree=16)
+
+We solve the nonlinear problem with a trust-region Newton method. This method
+uses the energy :math:`E` as an objective to accept or reject each step. We
+solve each linear system with a sparse LU factorisation from MUMPS. The DWR
+estimate includes contributions from discretisation and from solving the
+nonlinear system to a finite tolerance. We use a tight relative tolerance so
+that the discretisation error dominates in this example.
 
 .. code-block:: python
 
   solver_parameters = {
+      "snes_type": "newtontr",
       "snes_atol": 1.0e-6,
-      "snes_rtol": 1.0e-1,
-      "snes_linesearch_type": "l2",
+      "snes_rtol": 1.0e-8,
       "ksp_type": "preonly",
       "pc_type": "lu",
+      "pc_factor_mat_solver_type": "mumps",
   }
 
 The DWR machinery localises the residual by projecting it onto cell-bubble and
@@ -108,47 +140,62 @@ indicator, and ``goal_monitor`` reports the estimate at each cycle:
       "goal_monitor": None,
   })
 
-The adaptive loop is handled inside the solver.  It runs the configured
+The adaptive loop is handled inside ``solve``.  It runs the configured
 SOLVE--ESTIMATE--MARK--REFINE cycle, and the marking callback supplies the
-cells to refine.  We also pass the exact solution, which lets the monitor
+cells to refine.  The ``objective`` argument gives the energy to the
+trust-region method.  We also pass the exact solution, which lets the monitor
 report the true error and an effectivity index.  Of course, this is not needed
 in general:
 
 .. code-block:: python
 
   initial_dofs = V.dim()
-  problem = NonlinearVariationalProblem(F, u, bcs)
   marker = GoalOrientedMarker(J, exact_solution=u_exact)
-  solver = NonlinearVariationalSolver(
-      problem,
-      solver_parameters=solver_parameters,
-      marking_callback=marker,
-  )
-  uh = solver.solve()
+  uh = solve(F == 0, u, bcs, objective=E, solver_parameters=solver_parameters,
+             marking_callback=marker)
 
-``solver.solve()`` returns the solution on the final adapted mesh, in the
-original degree-2 space. ``marker.estimates`` records the estimates in mesh
-order. The last entry gives the most recent estimate :math:`\eta` of the error
-in the goal. If the grid sequence reaches its refinement limit, this estimate
-comes from the mesh before the final refinement:
+``solve`` returns the solution on the final adapted mesh, in the original
+degree-2 space. We plot the solution, and we draw the adapted mesh on top of it
+with transparent lines. The finest cells lie near the top boundary, where the
+goal functional is evaluated, and along the right side of the domain:
+
+.. code-block:: python
+
+  import matplotlib.pyplot as plt
+  from firedrake.pyplot import tripcolor, triplot
+
+  fig, axes = plt.subplots()
+  colours = tripcolor(uh, axes=axes)
+  fig.colorbar(colours, ax=axes, location="left", label="$u_h$")
+  triplot(uh.function_space().mesh().unique(), axes=axes, interior_kw={"alpha": 0.4})
+  axes.set_aspect("equal")
+  axes.legend(loc="center left", bbox_to_anchor=(1.05, 0.5))
+  fig.savefig("goal_oriented_nonlinear_p_laplacian_mesh.png", bbox_inches="tight")
+
+.. image:: goal_oriented_nonlinear_p_laplacian_mesh.png
+   :width: 60%
+   :alt: The adapted mesh over the solution, with the finest cells near the top and right boundaries.
+   :align: center
+
+``marker.estimates`` records the estimates in mesh order. The last entry gives
+the most recent estimate :math:`\eta` of the error in the goal. If the grid
+sequence reaches its refinement limit, this estimate comes from the mesh before
+the final refinement:
 
 .. code-block:: python
 
   print(f"degrees of freedom: {initial_dofs} -> {uh.function_space().dim()}")
   print(f"error estimate: {marker.estimates[-1].error_estimate:.6e}")
 
-In this run, the solver uses all ten refinements. The magnitude of the last
-estimate is about :math:`2.5 \times 10^{-2}`, above ``goal_atol``. The
-effectivity indices
+The solver uses all ten refinements because the magnitude of the estimate
+stays above ``goal_atol``. At each cycle, the monitor reports the goal value,
+the errors, and the effectivity index given by
 
 .. math::
 
-    I = \frac{\eta}{J(u) - J(u_h)}
+    I = \frac{\eta}{J(u) - J(u_h)}.
 
-printed by ``goal_monitor`` range from about :math:`0.82` to :math:`1.26`.
-
-The monitor reports the discretisation and algebraic errors separately. If the
-algebraic error exceeds the discretisation error, the marker prints
+If the algebraic error exceeds the discretisation error, the marker prints
 
 .. code-block:: text
 
@@ -157,23 +204,26 @@ algebraic error exceeds the discretisation error, the marker prints
 Tighten ``snes_rtol`` and ``snes_atol`` if the algebraic error limits the
 accuracy of the goal.
 
-Finally we plot the adapted mesh. The finest cells lie near the top boundary,
-where the goal functional is evaluated, and along the right side of the domain:
+The following plot compares the magnitude of the DWR estimate with the
+magnitude of the true goal error on each mesh that the monitor reports.
 
 .. code-block:: python
 
-  import matplotlib.pyplot as plt
-  from firedrake.pyplot import triplot
+  dofs = [estimate.num_dofs for estimate in marker.estimates]
+  estimated_errors = [abs(estimate.error_estimate) for estimate in marker.estimates]
+  true_errors = [abs(estimate.true_error) for estimate in marker.estimates]
 
   fig, axes = plt.subplots()
-  triplot(uh.function_space().mesh().unique(), axes=axes)
-  axes.set_aspect("equal")
-  axes.legend(loc="center left", bbox_to_anchor=(1.05, 0.5))
-  fig.savefig("goal_oriented_nonlinear_p_laplacian_mesh.png", bbox_inches="tight")
+  axes.loglog(dofs, estimated_errors, "o--", label="DWR estimate")
+  axes.loglog(dofs, true_errors, "s-", label="True error")
+  axes.set_xlabel("Degrees of freedom")
+  axes.set_ylabel("Absolute error in net outward flux")
+  axes.legend()
+  fig.savefig("goal_oriented_nonlinear_p_laplacian_errors.png", bbox_inches="tight")
 
-.. image:: goal_oriented_nonlinear_p_laplacian_mesh.png
-   :width: 60%
-   :alt: The adapted mesh, with the finest cells near the top and right boundaries.
+.. image:: goal_oriented_nonlinear_p_laplacian_errors.png
+   :width: 75%
+   :alt: The magnitudes of the DWR estimate and true goal error follow a similar downward trend.
    :align: center
 
 The estimator used here weights the primal residual by the dual error. Richer
