@@ -6,6 +6,7 @@ import ufl
 from ufl import (Mesh, MeshSequence, FunctionSpace,
                  interval, quadrilateral, hexahedron)
 from finat.ufl import FiniteElement, VectorElement, TensorElement, MixedElement
+from finat.element_factory import create_element
 
 from tsfc import compile_form
 
@@ -106,7 +107,8 @@ def test_vector_flops(mesh, vector, dual):
 @pytest.mark.parametrize("form", ("interp-primal", "interp-dual", "L2", "H1"))
 def test_vector_zany_flops(form):
     # The components of a vector of zany elements share the geometric work,
-    # so they cost less than one scalar interpolation each.
+    # so they cost less than one scalar interpolation each, and a form that
+    # pairs a component only with itself shares all the work.
     cell = ufl.triangle
     mesh = Mesh(VectorElement("P", cell, 1))
     scalar_source = FiniteElement("Reduced-Hermite", cell, 3)
@@ -131,7 +133,15 @@ def test_vector_zany_flops(form):
         flops.append(spectral_flop_count(expr))
 
     scalar_flops, vector_flops = flops
-    assert vector_flops < len(vector_target.sub_elements) * scalar_flops
+    dim = len(vector_target.sub_elements)
+    if form in ("L2", "H1"):
+        # The element tensor is block diagonal with the scalar element
+        # tensor in each block, so beyond the scalar work the components
+        # only accumulate the entries of their own blocks.
+        ndofs = create_element(scalar_source).space_dimension()
+        assert vector_flops <= scalar_flops + dim * ndofs**2
+    else:
+        assert vector_flops < dim * scalar_flops
 
 
 def q_rtce_elements(degree):
