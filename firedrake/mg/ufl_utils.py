@@ -563,6 +563,11 @@ def create_interpolation(dmc, dmf):
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
     mat.setUp()
+    if row_size[1] == col_size[1] and PETSc.Sys.getVersion() < (3, 26, 1):
+        # Supply the restriction scaling for square transfers on PETSc 3.26.0.
+        rscale = mat.createVecRight()
+        rscale.set(1.0)
+        return mat, rscale
     return mat, None
 
 

@@ -466,13 +466,8 @@ def _refine_adaptive(dm):
     mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
     """
     from firedrake.mg.mesh import MeshHierarchy
-    from firedrake.mg.ufl_utils import refine
+    from firedrake.mg.ufl_utils import get_relative, refine
     from firedrake.mg.utils import get_level
-
-    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    # Increase the reference count so the coarse DM survives.
-    dm.incRef()
 
     ctx = get_appctx(dm)
     if ctx is None:
@@ -524,6 +519,13 @@ def _refine_adaptive(dm):
         add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
                  teardown=partial(pop_appctx, refined_dm, refined_ctx),
                  call_setup=True)
+    root_ctx = ctx
+    while (coarse_ctx := get_relative(refine, root_ctx, reverse=True)) is not None:
+        root_ctx = coarse_ctx
+    opts = PETSc.Options(root_ctx.options_prefix)
+    if opts.hasName("snes_adapt_initial") or opts.getInt("snes_adapt_sequence", 0):
+        # DMAdaptorAdapt() destroys its input DM. Keep the hierarchy's reference.
+        dm.incRef()
     return refined_ctx._problem.dm
 
 

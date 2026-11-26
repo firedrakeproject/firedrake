@@ -463,6 +463,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
+        # Used for custom grid transfer.
+        self._transfer_operators = ()
+        self._setup = False
+
     @property
     def _problem(self):
         """The :class:`NonlinearVariationalProblem` to solve"""
@@ -528,11 +532,12 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
         forms = (problem.F, problem.J, problem.Jp, problem.E)
-        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
+        objs = (*forms, *problem.bcs)
+        coefficients = utils.unique(chain.from_iterable(f.coefficients() for f in objs if f is not None))
         solution_dm = self.snes.getDM()
         # Grab the unique DMs for this problem
         problem_dms = []
-        for c in chain(coefficients, problem.dirichlet_bcs()):
+        for c in coefficients:
             dm = c.function_space().dm
             if dm == solution_dm:
                 # Make sure the solution dm is visited last
@@ -555,25 +560,23 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                 self.snes.setVariableBounds(lb, ub)
 
         work = self.snes.getSolution()
-        with problem.u_restrict.dat.vec as u:
+        with problem.u_restrict.dat.vec_ro as u:
             u.copy(work)
-            with ExitStack() as stack:
-                # Ensure options database has full set of options (so monitors
-                # work right)
-                for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms]):
-                    stack.enter_context(ctx)
-                self.snes.solve(None, work)
-                # Adaptivity changes the DM, keep the _SNESContext up to date
-                self._ctx = dmhooks.get_appctx(self.snes.getDM())
+        with ExitStack() as stack:
+            # Ensure options database has full set of options (so monitors
+            # work right)
+            for ctx in chain([self.inserted_options()],
+                             [dmhooks.add_hooks(dm, self._ctx, appctx=self._ctx) for dm in problem_dms],
+                             self._transfer_operators):
+                stack.enter_context(ctx)
+            self.snes.solve(None, work)
+            # The appctx might have been refined
+            self._ctx = dmhooks.get_appctx(self.snes.getDM())
         problem = self._ctx._problem
         solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec as u:
             solution.copy(u)
-        if self.snes.getDM() != solution_dm:
-            # The saved hooks belong to the DM before adaptation.
-            # The next solve needs to add new hooks on the new DM.
-            del self.setup_hooks
+        self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
         solving_utils.check_snes_convergence(self.snes)
