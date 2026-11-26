@@ -124,7 +124,7 @@ def test_vector_zany_flops(form):
             expr = ufl.Interpolate(ufl.grad(ufl.Argument(Vsource, 0)), ufl.Cofunction(Vtarget.dual()))
         else:
             u = ufl.Interpolate(ufl.grad(ufl.TrialFunction(Vsource)), Vtarget)
-            v = ufl.TestFunction(Vtarget)
+            v = ufl.Interpolate(ufl.grad(ufl.TestFunction(Vsource)), Vtarget)
             expr = ufl.inner(u, v) * ufl.dx
             if form == "H1":
                 expr += ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx
