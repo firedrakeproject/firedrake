@@ -109,9 +109,9 @@ def prolong(coarse, fine):
 
         op3.loop(n, kernel(*kernel_args), eager=True)
         if unrefined is not None:
-            # Copy the coarse values to the fine nodes on unrefined points.
-            p = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
-            op3.loop(p, fine.dat[p].assign(coarse.dat[coarse_node(p)]), eager=True)
+            # Copy the unrefined coarse nodes to the fine nodes
+            n = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
+            op3.loop(n, fine.dat[n].assign(coarse.dat[coarse_node(n)]), eager=True)
 
         if needs_quadrature:
             # Transfer to the actual target space
@@ -195,9 +195,9 @@ def restrict(fine_dual, coarse_dual):
 
         op3.loop(n, kernel(*kernel_args), eager=True)
         if unrefined is not None:
-            # Add the values at the fine nodes on unrefined points to their coarse nodes.
-            p = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
-            op3.loop(p, coarse_dual.dat[coarse_node(p)].iassign(fine_dual.dat[p]), eager=True)
+            # Add the values at the fine nodes to the unrefined coarse nodes.
+            n = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
+            op3.loop(n, coarse_dual.dat[coarse_node(n)].iassign(fine_dual.dat[n]), eager=True)
         fine_dual = coarse_dual
 
     return coarse_dual
