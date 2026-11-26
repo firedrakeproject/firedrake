@@ -285,19 +285,21 @@ def _compute_layouts_cached(axis_tree: AxisTree) -> idict[ConcretePathT, Express
 
     # Construct the star forest for the axis tree
     if to_tabulate:
-        # sf stuff
-        offset_sfs = []
-        for _, offset_dat, sizes, offset_pt_sf in to_tabulate:
-            # offset_dat maps pts in the offset_dat to offsets (obviously)
-            # and offset_sf maps local pts in the offset dat to remote ones
-            # we can use this to build a new sf mapping between offsets
-            section = create_section_with_arrays(
-                offset_pt_sf.comm, sizes, offset_dat.data_ro.ravel(),
-            )
-
-            new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
-            offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
-        sf = pyop3.sf.StarForest.merge(offset_sfs)
+        if all(isinstance(entry[3], pyop3.sf.NullStarForest) for entry in to_tabulate):
+            sf = pyop3.sf.NullStarForest(axis_tree.local_size)
+        else:
+            # sf stuff
+            offset_sfs = []
+            for _, offset_dat, sizes, offset_pt_sf in to_tabulate:
+                # offset_dat maps pts in the offset_dat to offsets (obviously)
+                # and offset_sf maps local pts in the offset dat to remote ones
+                # we can use this to build a new sf mapping between offsets
+                section = create_section_with_arrays(
+                    offset_pt_sf.comm, sizes, offset_dat.data_ro.ravel(),
+                )
+                new_sf = pyop3.sf.create_petsc_section_sf(offset_pt_sf.sf, section)
+                offset_sfs.append(pyop3.sf.StarForest(new_sf, axis_tree.comm))
+            sf = pyop3.sf.StarForest.merge(offset_sfs)
     else:
         sf = pyop3.sf.NullStarForest(axis_tree.local_size)
 
@@ -382,8 +384,12 @@ def _prepare_layouts(axis_tree: AxisTree, path_acc, layout_expr_acc, to_tabulate
                 # Now get the section and build the new star forest. By default the
                 # section will drop values for all but the first region but here we
                 # don't want this to happen
-                component_sf_sec = offset_axes.regionless().section(component_sf_path)
-                offset_sf = component_sf.with_section(component_sf_sec)
+                if isinstance(component_sf, pyop3.sf.NullStarForest):
+                    # e.g., a VoM with no ghost points
+                    offset_sf = pyop3.sf.NullStarForest(offset_axes.local_size)
+                else:
+                    component_sf_sec = offset_axes.regionless().section(component_sf_path)
+                    offset_sf = component_sf.with_section(component_sf_sec)
             else:
                 offset_sf = pyop3.sf.local_sf(offset_axes.local_size, offset_axes.comm)
 
