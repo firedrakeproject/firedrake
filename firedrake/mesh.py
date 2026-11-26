@@ -1556,36 +1556,58 @@ class AbstractMeshTopology(abc.ABC):
             dats[to_dim] = op3.Dat(closure_axes, data=to_dim_closures.ravel())
         return idict(dats)
 
-    # TODO: cythonize
     @cached_method_until_topology_changes()
-    def _dm_closures(self, dim: int | tuple[int, ...]) -> np.ndarray:
+    def _flat_dm_closures(self, dim: int | tuple[int, ...]) -> np.ndarray:
         if dim != self.cell_label:
             raise NotImplementedError("Only cell closures currently supported")
         if self.extruded:
-            return self._cell_closures_extruded
+            return self._flat_cell_closures_extruded
         else:
-            return self._cell_closures_and_perms[0]
+            return self._flat_cell_closures_and_perms[0]
+
+    @cached_property_until_topology_changes
+    def _flat_cell_closure_perms(self) -> np.ndarray:
+        if self.extruded:
+            return self._flat_cell_closure_perms_extruded
+        else:
+            return self._flat_cell_closures_and_perms[1]
+
+    # TODO: docs
+    @cached_method_until_topology_changes()
+    def _dm_closures(self, dim: int | tuple[int, ...]) -> idict:
+        return self._split_closure_array_by_dim(dim, self._flat_dm_closures(dim))
+
+    @cached_property_until_topology_changes
+    def _cell_closure_perms(self) -> idict:
+        return self._split_closure_array_by_dim(
+            self.cell_label, self._flat_cell_closure_perms
+        )
+
+    def _split_closure_array_by_dim(self, dim: DimT, flat_array: np.ndarray) -> idict:
+        split = {}
+        off = 0
+        for to_dim, size in self._closure_sizes[dim].items():
+            split[to_dim] = flat_array[:, off:off+size]
+            off += size
+        return idict(split)
 
     @cached_property
     def _cell_closures(self) -> np.ndarray:
+        print("remove me")
         if self.extruded:
             raise NotImplementedError
-        # do the reordering too
-        rcl = []
-        for d in self._closure_sizes[self.cell_label].keys():
-            cldm, clperm = self._cell_closures_and_perms
-            rcl.append(np.take_along_axis(cldm[d], clperm[d], axis=1))
-        return np.concatenate(rcl, axis=1, dtype=IntType)
+
+        closures, perms = self._flat_cell_closures_and_perms
+        closures_perm = np.empty_like(closures)
+        off = 0
+        for size in self._closure_sizes[self.cell_label].values():
+            ii = slice(off, off+size)
+            closures_perm[:, ii] = np.take_along_axis(closures[:, ii], perms[:, ii], axis=1)
+            off += size
+        return utils.readonly(closures_perm)
 
     @cached_property_until_topology_changes
-    def _cell_closure_perms(self) -> dict:
-        if self.extruded:
-            return self._cell_closure_perms_extruded
-        else:
-            return self._cell_closures_and_perms[1]
-
-    @cached_property_until_topology_changes
-    def _cell_closures_and_perms(self) -> tuple[dict, dict]:
+    def _flat_cell_closures_and_perms(self) -> tuple[dict, dict]:
         assert not self.extruded, "Closures and permutations require separate treatment"
 
         if (
@@ -1606,16 +1628,13 @@ class AbstractMeshTopology(abc.ABC):
             entity_per_cell = np.zeros(len(topology), dtype=IntType)
             for d, ents in topology.items():
                 entity_per_cell[d] = len(ents)
-            # TODO: Can revert this to latest change, this wasn't the fix
-            # TODO: huh?
-            return dmcommon.submesh_create_cell_closure(
+            return dmcommon.cell_closures_and_perms_submesh(
                 self.topology_dm,
                 self.submesh_parent.topology_dm,
-                self._plex_to_entity_numbering_sec("cell"),
-                self.submesh_parent._plex_to_entity_numbering_sec("cell"),
-                self.submesh_parent.cell_closure,
+                self.submesh_parent._flat_dm_closures(self.cell_label),
+                self.submesh_parent._flat_cell_closure_perms,
                 entity_per_cell,
-            )[self._old_to_new_cell_numbering_is.indices]
+            )
 
         elif self.ufl_cell().is_simplex:
             return dmcommon.cell_closures_and_perms_simplex(self)
@@ -1642,9 +1661,9 @@ class AbstractMeshTopology(abc.ABC):
             return dmcommon.reorder_closure_fiat_hex(plex_closures)
 
     @cached_property_until_topology_changes
-    def _cell_closures_extruded(self):
+    def _flat_cell_closures_extruded(self):
         assert self.extruded
-        if self.dimension == 2:
+        if self._base_mesh.ufl_cell() == ufl.interval:
             # 5----4----6
             # |         |
             # 7    0    8
@@ -1722,6 +1741,12 @@ class AbstractMeshTopology(abc.ABC):
             # closure_perm = utils.invert(np.asarray([20, 18, 11,  9, 10,  0,  2,  4, 19, 14, 12, 13,  1,  3, 5, 15, 16, 17, 6,7, 8], dtype=IntType))
             closure_perm = utils.invert(np.asarray([20, 18, 9, 10, 11,  0,  2,  4, 19, 12, 13, 14,  1,  3, 5, 15, 16, 17, 6,7, 8], dtype=IntType))
 
+
+        elif self._base_mesh.ufl_cell() == ufl.quadrilateral:
+            dm_fiat_pt_map = np.asarray([26, 0, 2, 1, 3, 4, 6, 5, 7, 22, 23, 20, 21, 24, 25, 8, 9, 10, 11, 16, 18, 17, 19, 12, 13, 14, 15], dtype=int)
+            dm_cell_closure = np.asarray([0, 9, 15, 21, 17, 19,  1,  3,  7,  5, 10, 16, 22, 18, 20,  2,  4,  8,  6, 11, 14, 12, 13, 23, 24, 26, 25])
+            closure_perm = utils.invert(dm_fiat_pt_map[dm_cell_closure])
+
         else:
             raise NotImplementedError("TODO extrusion of this type not yet supported")
 
@@ -1730,22 +1755,16 @@ class AbstractMeshTopology(abc.ABC):
             closure, _ = self.topology_dm.getTransitiveClosure(cell)
             # take along axis...
             flat_fiat_closures[cell] = closure[closure_perm]
-
-        fiat_closures = {}
-        off = 0
-        for dim, size in self._closure_sizes[self.cell_label].items():
-            fiat_closures[dim] = flat_fiat_closures[:, off:off+size]
-            off += size
-
-        return fiat_closures
+        return flat_fiat_closures
 
     @property
-    def _cell_closure_perms_extruded(self) -> np.ndarray:
+    def _flat_cell_closure_perms_extruded(self) -> np.ndarray:
         if self.dimension == 2:
 
             # I think that this very nearly works. Still need to think about DM vs FIAT numbering.
             # The permutation I have sort of merges them together which doesn't help me out very much.
 
+            raise NotImplementedError("flat now")
             perms = {
                 (0, 0): {
                     (0, 1): [0, 1, 2, 3],
@@ -1800,6 +1819,7 @@ class AbstractMeshTopology(abc.ABC):
             return closures
 
         elif self._base_mesh.ufl_cell() == ufl.triangle:
+            raise NotImplementedError("flat now")
             perms = {
                 (0, 0): [[0, 1], [2, 3], [4, 5]],
                 (0, 1): [[0], [1], [2]],
@@ -1820,6 +1840,31 @@ class AbstractMeshTopology(abc.ABC):
                     for c in range(self.num_cells()):
                         cb = c // (self.layers-1)
                         closures[dim][c] = perms[dim][base_perm[base_dim][cb]].ravel()
+
+        elif self._base_mesh.ufl_cell() == ufl.quadrilateral:
+            perms = {
+                (0, 0): [[0, 1], [2, 3], [4, 5], [6, 7]],
+                (0, 1): [[0], [1], [2], [3]],
+                (1, 0): [[0, 4], [1, 5], [2, 6], [3, 7]],
+                (1, 1): [[0], [1], [2], [3]],
+                (2, 0): [[0, 1]],
+                (2, 1): [[0]],
+            }
+            perms = {k: np.asarray(v, dtype=int) for k, v in perms.items()}
+
+            base_perm = self._base_mesh._cell_closure_perms
+            closures = np.empty((self.num_cells(), sum(self._closure_sizes[self.cell_label].values())), dtype=IntType)
+
+            off = 0
+            for base_dim in range(3):
+                for extr_dim in range(2):
+                    dim = (base_dim, extr_dim)
+                    size = self._closure_sizes[self.cell_label][dim]
+                    ii = slice(off, off+size)
+                    for c in range(self.num_cells()):
+                        cb = c // (self.layers-1)
+                        closures[c, ii] = perms[dim][base_perm[base_dim][cb]].ravel()
+                    off += size
 
         else:
             raise NotImplementedError
@@ -2500,7 +2545,7 @@ class MeshTopology(AbstractMeshTopology):
 
     @cached_property
     def entity_orientations(self):
-        return dmcommon.entity_orientations(self, self._cell_closures[self._new_to_old_cell_numbering])
+        return dmcommon.entity_orientations(self, self._cell_closures)[self._new_to_old_cell_numbering]
 
     @cached_property
     def entity_orientations_dat(self):
@@ -3250,44 +3295,6 @@ class ExtrudedMeshTopology(MeshTopology):
         return self._entity_axes("interior_facet_vert")
 
     # }}}
-
-    # TODO: I think I should be able to avoid a lot of this if the base closure ordering can be expressed as a permutation
-    # @cached_property
-    # def _fiat_cell_closures_localized(self) -> tuple[np.ndarray, ...]:
-    #     nlayers = int(self.layers) - 1
-    #
-    #     closures = {}
-    #     for base_dest_dim in range(self._base_mesh.dimension+1):
-    #         base_closures = self._base_mesh._fiat_cell_closures_localized[base_dest_dim]
-    #         for extr_dest_dim in range(2):
-    #             dest_dim = (base_dest_dim, extr_dest_dim)
-    #             closure_size = self._closure_sizes[self.cell_label][dest_dim]
-    #
-    #             n_base_cells = base_closures.shape[0]  # always the same
-    #             idxs = np.empty((n_base_cells, nlayers, closure_size), dtype=base_closures.dtype)
-    #
-    #             num_extr_pts = nlayers+1 if extr_dest_dim == 0 else nlayers
-    #             if self.periodic and extr_dest_dim == 0:
-    #                 real_column_height = num_extr_pts - 1
-    #             else:
-    #                 real_column_height = num_extr_pts
-    #
-    #             if extr_dest_dim == 0:
-    #                 # 'vertex' extrusion, twice as many points in the closure
-    #                 for ci in range(n_base_cells):
-    #                     for j in range(nlayers):
-    #                         for k in range(base_closures.shape[1]):
-    #                             idxs[ci, j, 2*k] = base_closures[ci, k] * real_column_height + j
-    #                             idxs[ci, j, 2*k+1] = base_closures[ci, k] * real_column_height + ((j + 1) % real_column_height)
-    #             else:
-    #                 # 'edge' extrusion, only one point in the closure
-    #                 for ci in range(n_base_cells):
-    #                     for j in range(nlayers):
-    #                         # for k in range(closure_size):
-    #                         for k in range(base_closures.shape[1]):
-    #                             idxs[ci, j, k] = base_closures[ci, k] * num_extr_pts + j
-    #             closures[dest_dim] = idxs.reshape((-1, closure_size))
-    #     return closures
 
     @cached_property
     def extr_cell_to_base_cell_map(self) -> op3.Map:

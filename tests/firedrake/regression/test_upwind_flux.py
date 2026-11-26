@@ -34,6 +34,8 @@ def run_test(quadrilateral):
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
         RT_elt = FiniteElement("RT", "triangle", 1)
 
+    mesh.entity_orientations
+
     x = SpatialCoordinate(mesh)
 
     global_normal = as_vector((x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2]),
