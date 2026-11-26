@@ -779,7 +779,7 @@ class AbstractMeshTopology(abc.ABC):
         name : str | None
             The name of the entity type (e.g. ``"interior_facet"``).
         dim : int | tuple[int, ...] | None
-            The "dim" of the DM points. Not that this is different to ``stratum`` for
+            The "dim" of the DM points. Note that this is different to ``stratum`` for
             extruded meshes because the dim can be a tuple to distinguish between
             vertical and horizontal entities - something that a DM cannot do using strata.
         stratum : int | None
@@ -1692,6 +1692,7 @@ class AbstractMeshTopology(abc.ABC):
             name=from_name,
             dim=from_dim,
             stratum=from_stratum,
+            force_return_array=True,
         )
         map_data = np.empty((from_plex_indices.size, arity), dtype=IntType)
         for i, from_pt in enumerate(from_plex_indices):
