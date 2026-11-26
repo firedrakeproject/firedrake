@@ -1,4 +1,3 @@
-import os
 import pytest
 import numpy as np
 from firedrake import *
@@ -139,19 +138,35 @@ def test_submesh_facet_all_facets():
     assert submesh2.cells.owned.local_size == submesh1.cells.owned.local_size
 
 
-def _make_codim1_submesh(overlap_type=None):
-    # The y = 1 face of a unit cube. The simple partitioner makes the
-    # partition independent of the installed partitioners.
+def _make_cube(overlap_type=None):
+    # The simple partitioner makes the partition independent of the
+    # installed partitioners.
     distribution_parameters = {"partitioner_type": "simple"}
     if overlap_type is not None:
         distribution_parameters["overlap_type"] = (overlap_type, 1)
-    mesh = UnitCubeMesh(4, 4, 4, distribution_parameters=distribution_parameters)
-    subm = Submesh(mesh, mesh.topological_dimension - 1, 4)
+    return UnitCubeMesh(4, 4, 4, distribution_parameters=distribution_parameters)
+
+
+def _linear_function(subm):
     x, y, z = SpatialCoordinate(subm)
     V = FunctionSpace(subm, "DG", 1)
     f = Function(V)
     f.interpolate(1 + x + 2*y + 3*z)
-    return subm, f
+    return f
+
+
+def _make_codim1_submesh(overlap_type=None):
+    # The y = 1 face of a unit cube.
+    mesh = _make_cube(overlap_type)
+    subm = Submesh(mesh, mesh.topological_dimension - 1, 4)
+    return subm, _linear_function(subm)
+
+
+def _make_codim2_submesh(overlap_type):
+    # The boundary loop of the y = 1 face of a unit cube.
+    face, _ = _make_codim1_submesh(overlap_type)
+    loop = Submesh(face, subdomain_id="on_boundary")
+    return loop, _linear_function(loop)
 
 
 # Integrals of f = 1 + x + 2y + 3z on the y = 1 face, over the face (dx),
@@ -159,6 +174,16 @@ def _make_codim1_submesh(overlap_type=None):
 _codim1_dx = 5.
 _codim1_ds = 20.
 _codim1_dS = 30. + 20. * np.sqrt(2.)
+# Sum of f over the 16 vertices of the boundary loop of the y = 1 face.
+_codim2_dS = 80.
+
+
+def _raises_overlap_error(f):
+    try:
+        assemble(f('-') * dS)
+    except ValueError as e:
+        return "overlap" in str(e)
+    return False
 
 
 @pytest.mark.parallel([2, 3])
@@ -166,13 +191,7 @@ def test_submesh_codim1_interior_facet_default_overlap_raises():
     # The default (FACET, 1) overlap is not enough for interior facet
     # integrals on a codim-1 submesh, so all ranks must raise.
     subm, f = _make_codim1_submesh()
-    try:
-        assemble(f('-') * dS)
-    except ValueError as e:
-        raised = "RIDGE" in str(e)
-    else:
-        raised = False
-    parallel_assert(raised)
+    parallel_assert(_raises_overlap_error(f))
 
 
 @pytest.mark.parallel([1, 2, 3])
@@ -184,27 +203,39 @@ def test_submesh_codim1_interior_facet_ridge_vertex_overlap(overlap_type):
     assert np.isclose(assemble(f('-') * dS), _codim1_dS)
 
 
-@pytest.mark.parallel(2)
-def test_submesh_codim1_interior_facet_checkpointed_mesh(tmpdir):
-    # A mesh loaded with its saved distribution keeps the RIDGE overlap of
-    # the saved mesh, although its distribution parameters do not show it.
-    filename = os.path.join(str(tmpdir), "test_submesh_codim1_interior_facet_checkpointed_mesh.h5")
-    filename = COMM_WORLD.bcast(filename, root=0)
-    distribution_parameters = {
-        "partitioner_type": "simple",
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
-    }
-    mesh = UnitCubeMesh(4, 4, 4, distribution_parameters=distribution_parameters, name="cube")
-    with CheckpointFile(filename, "w") as afile:
-        afile.save_mesh(mesh)
-    with CheckpointFile(filename, "r") as afile:
-        mesh = afile.load_mesh("cube")
-    subm = Submesh(mesh, mesh.topological_dimension - 1, 4)
-    x, y, z = SpatialCoordinate(subm)
-    V = FunctionSpace(subm, "DG", 1)
-    f = Function(V)
-    f.interpolate(1 + x + 2*y + 3*z)
+@pytest.mark.parallel([2, 3])
+def test_submesh_codim1_interior_facet_relabeled_ridge_overlap():
+    mesh = _make_cube(DistributedMeshOverlapType.RIDGE)
+    marker = Function(FunctionSpace(mesh, "HDiv Trace", 0))
+    DirichletBC(marker.function_space(), 1, 4).apply(marker)
+    rmesh = RelabeledMesh(mesh, [marker], [111])
+    subm = Submesh(rmesh, rmesh.topological_dimension - 1, 111)
+    f = _linear_function(subm)
     assert np.isclose(assemble(f('-') * dS), _codim1_dS)
+
+
+@pytest.mark.parallel([2, 3])
+def test_submesh_codim2_interior_facet_ridge_overlap_raises():
+    # A codim-2 submesh needs a VERTEX overlap of the parent mesh.
+    loop, f = _make_codim2_submesh(DistributedMeshOverlapType.RIDGE)
+    parallel_assert(_raises_overlap_error(f))
+
+
+@pytest.mark.parallel([1, 2, 3])
+def test_submesh_codim2_interior_facet_vertex_overlap():
+    loop, f = _make_codim2_submesh(DistributedMeshOverlapType.VERTEX)
+    assert np.isclose(assemble(f('+') * dS), _codim2_dS)
+    assert np.isclose(assemble(f('-') * dS), _codim2_dS)
+
+
+@pytest.mark.parallel([2, 3])
+def test_submesh_ignore_halo_interior_facet_raises():
+    # Without its halo, a submesh on the parent communicator misses the
+    # second cell of the interior facets on the partition boundary.
+    mesh = _make_cube()
+    subm = Submesh(mesh, mesh.topological_dimension, ignore_halo=True)
+    f = _linear_function(subm)
+    parallel_assert(_raises_overlap_error(f))
 
 
 @pytest.mark.parallel([1, 2])

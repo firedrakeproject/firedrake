@@ -939,6 +939,9 @@ class CheckpointFile:
                 topology_dm.distributionSetName(None)
                 topology_dm.labelsView(viewer=self.viewer)
             self.viewer.popFormat()
+            path = self._path_to_distribution(tmesh_name, distribution_name)
+            self.set_attr(path, PREFIX + "_overlap_type", tmesh.partition_overlap.overlap_type.name)
+            self.set_attr(path, PREFIX + "_overlap_size", tmesh.partition_overlap.size)
             path = self._path_to_permutation(tmesh_name, distribution_name, permutation_name)
             self.require_group(path)
             self.viewer.pushGroup(path)
@@ -1248,6 +1251,16 @@ class CheckpointFile:
         firedrake.mesh.MeshGeometry
             the loaded mesh.
 
+        Notes
+        -----
+        If ``reorder`` and ``distribution_parameters`` are not given and the
+        mesh was saved on the same number of processes, the mesh is loaded
+        with its saved distribution and its saved partition overlap. A file
+        that does not store the overlap gives the default ``(FACET, 1)``. To
+        use interior facet integrals on a codim-1 `~firedrake.mesh.Submesh` of
+        such a mesh, pass ``distribution_parameters`` with a ``RIDGE`` or
+        ``VERTEX`` overlap, which makes a new partition.
+
         """
         tmesh_name = self._get_mesh_name_topology_name_map()[name]
         path = self._path_to_topology_extruded(tmesh_name)
@@ -1407,6 +1420,18 @@ class CheckpointFile:
                              distribution_parameters=distribution_parameters, sfXB=sfXB, perm_is=perm_is,
                              distribution_name=distribution_name, permutation_name=permutation_name,
                              comm=self.comm)
+        if load_distribution_permutation:
+            # The loaded plex already has the halo of the saved mesh. Passing its
+            # overlap to MeshTopology would grow that halo again, so the overlap
+            # is set after construction. Files that do not store the overlap get
+            # the default (FACET, 1).
+            path = self._path_to_distribution(tmesh_name, distribution_name)
+            if self.has_attr(path, PREFIX + "_overlap_type"):
+                overlap_type = DistributedMeshOverlapType[self.get_attr(path, PREFIX + "_overlap_type")]
+                overlap_size = int(self.get_attr(path, PREFIX + "_overlap_size"))
+            else:
+                overlap_type, overlap_size = DistributedMeshOverlapType.FACET, 1
+            tmesh._distribution_parameters["overlap_type"] = (overlap_type, overlap_size)
         return tmesh
 
     @PETSc.Log.EventDecorator("LoadFunctionSpace")
