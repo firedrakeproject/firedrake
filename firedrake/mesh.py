@@ -1528,9 +1528,12 @@ class AbstractMeshTopology(abc.ABC):
             # Gather cell closures using PETSc numbering and ordering
             dm_closures_per_dim = self._dm_closures(from_dim)[to_dim]
             # Now permute the entries to get an oriented closure
-            oriented_dm_closures_per_dim = np.take_along_axis(
-                dm_closures_per_dim, self._cell_closure_perms[to_dim]
-            )
+            if self._cell_closure_perms is not None:
+                oriented_dm_closures_per_dim = np.take_along_axis(
+                    dm_closures_per_dim, self._cell_closure_perms[to_dim]
+                )
+            else:
+                oriented_dm_closures_per_dim = dm_closures_per_dim
 
             # Now renumber the source and (optionally) destination points.
             # Source points are renumbered by permuting map rows, and
@@ -1562,13 +1565,17 @@ class AbstractMeshTopology(abc.ABC):
             raise NotImplementedError("Only cell closures currently supported")
         if self.extruded:
             return self._flat_cell_closures_extruded
+        elif self.ufl_cell() == ufl.hexahedron:
+            return dmcommon.flat_cell_closures_hex(self)
         else:
             return self._flat_cell_closures_and_perms[0]
 
     @cached_property_until_topology_changes
-    def _flat_cell_closure_perms(self) -> np.ndarray:
+    def _flat_cell_closure_perms(self) -> np.ndarray | None:
         if self.extruded:
             return self._flat_cell_closure_perms_extruded
+        elif self.ufl_cell() == ufl.hexahedron:
+            return None
         else:
             return self._flat_cell_closures_and_perms[1]
 
@@ -1578,10 +1585,13 @@ class AbstractMeshTopology(abc.ABC):
         return self._split_closure_array_by_dim(dim, self._flat_dm_closures(dim))
 
     @cached_property_until_topology_changes
-    def _cell_closure_perms(self) -> idict:
-        return self._split_closure_array_by_dim(
-            self.cell_label, self._flat_cell_closure_perms
-        )
+    def _cell_closure_perms(self) -> idict | None:
+        if self._flat_cell_closure_perms is None:
+            return None
+        else:
+            return self._split_closure_array_by_dim(
+                self.cell_label, self._flat_cell_closure_perms
+            )
 
     def _split_closure_array_by_dim(self, dim: DimT, flat_array: np.ndarray) -> idict:
         split = {}
@@ -1594,20 +1604,23 @@ class AbstractMeshTopology(abc.ABC):
     @cached_property
     def _cell_closures(self) -> np.ndarray:
         print("remove me")
-        if self.extruded:
-            raise NotImplementedError
 
-        closures, perms = self._flat_cell_closures_and_perms
-        closures_perm = np.empty_like(closures)
-        off = 0
-        for size in self._closure_sizes[self.cell_label].values():
-            ii = slice(off, off+size)
-            closures_perm[:, ii] = np.take_along_axis(closures[:, ii], perms[:, ii], axis=1)
-            off += size
-        return utils.readonly(closures_perm)
+        closures = self._flat_dm_closures(self.cell_label)
+        perms = self._flat_cell_closure_perms
+        if perms is None:
+            return closures
+        else: 
+            closures_perm = np.empty_like(closures)
+            off = 0
+            for size in self._closure_sizes[self.cell_label].values():
+                ii = slice(off, off+size)
+                closures_perm[:, ii] = np.take_along_axis(closures[:, ii], perms[:, ii], axis=1)
+                off += size
+            return utils.readonly(closures_perm)
 
     @cached_property_until_topology_changes
     def _flat_cell_closures_and_perms(self) -> tuple[dict, dict]:
+        assert not self.ufl_cell() == ufl.hexahedron
         assert not self.extruded, "Closures and permutations require separate treatment"
 
         if (
@@ -1639,7 +1652,8 @@ class AbstractMeshTopology(abc.ABC):
         elif self.ufl_cell().is_simplex:
             return dmcommon.cell_closures_and_perms_simplex(self)
 
-        elif self.ufl_cell() == ufl.quadrilateral:
+        else:
+            assert self.ufl_cell() == ufl.quadrilateral
             petsctools.cite("Homolya2016")
             petsctools.cite("McRae2016")
 
@@ -1654,11 +1668,6 @@ class AbstractMeshTopology(abc.ABC):
                 self, self._plex_to_entity_numbering_sec("cell"), cell_orientations
             )
             return dmcommon.cell_closures_and_perms_quad(self, cell_orientations)
-
-        else:
-            assert self.ufl_cell() == ufl.hexahedron
-            raise NotImplementedError("new approach needed for hexes, might be easy")
-            return dmcommon.reorder_closure_fiat_hex(plex_closures)
 
     @cached_property_until_topology_changes
     def _flat_cell_closures_extruded(self):
@@ -1775,67 +1784,15 @@ class AbstractMeshTopology(abc.ABC):
 
     @property
     def _flat_cell_closure_perms_extruded(self) -> np.ndarray:
-        if self.dimension == 2:
-
-            # I think that this very nearly works. Still need to think about DM vs FIAT numbering.
-            # The permutation I have sort of merges them together which doesn't help me out very much.
-
-            raise NotImplementedError("flat now")
+        if self._base_mesh.ufl_cell() == ufl.interval:
             perms = {
-                (0, 0): {
-                    (0, 1): [0, 1, 2, 3],
-                    (1, 0): [2, 3, 0, 1],
-                },
-                (0, 1): {
-                    (0, 1): [0, 1],
-                    (1, 0): [1, 0],
-                },
-                (1, 0): {(0,): [0, 1]},
-                (1, 1): {(0,): [0]},
+                (0, 0): [[0, 1], [2, 3]],
+                (0, 1): [[0], [1]],
+                (1, 0): [[0, 1]],
+                (1, 1): [[0]],
             }
 
-            # in principle we don't need to have a base mesh always
-            base_perm = self._base_mesh._cell_closure_perms
-            closures = {}
-
-            # verts
-            vbrange = slice(2)  # first 2
-            closures[0, 0] = []
-            for c in range(self.num_cells()):
-                cb = c // (self.layers-1)
-                closures[0, 0].append(perms[0, 0][tuple(map(int, base_perm[0][cb][vbrange]))])
-
-            # ve
-            vbrange = slice(2)  # first 2
-            closures[0, 1] = []
-            for c in range(self.num_cells()):
-                cb = c // (self.layers-1)
-                closures[0, 1].append(perms[0, 1][tuple(map(int, base_perm[0][cb][vbrange]))])
-
-            # he
-            brange = slice(1)
-
-            # he
-            brange = slice(1)
-            closures[1, 0] = []
-            for c in range(self.num_cells()):
-                cb = c // (self.layers-1)
-                closures[1, 0].append(perms[1, 0][tuple(map(int, base_perm[1][cb][brange]))])
-
-            # c
-            brange = slice(1)
-            closures[1, 1] = []
-            for c in range(self.num_cells()):
-                cb = c // (self.layers-1)
-                closures[1, 1].append(perms[1, 1][tuple(map(int, base_perm[1][cb][brange]))])
-
-            closures = {
-                k: np.asarray(v, dtype=IntType) for k, v in closures.items()
-                    }
-            return closures
-
         elif self._base_mesh.ufl_cell() == ufl.triangle:
-            raise NotImplementedError("flat now")
             perms = {
                 (0, 0): [[0, 1], [2, 3], [4, 5]],
                 (0, 1): [[0], [1], [2]],
@@ -1844,18 +1801,6 @@ class AbstractMeshTopology(abc.ABC):
                 (2, 0): [[0, 1]],
                 (2, 1): [[0]],
             }
-            perms = {k: np.asarray(v, dtype=int) for k, v in perms.items()}
-
-            base_perm = self._base_mesh._cell_closure_perms
-            closures = {}
-
-            for base_dim in range(3):
-                for extr_dim in range(2):
-                    dim = (base_dim, extr_dim)
-                    closures[dim] = np.empty((self.num_cells(), self._closure_sizes[self.cell_label][dim]), dtype=IntType)
-                    for c in range(self.num_cells()):
-                        cb = c // (self.layers-1)
-                        closures[dim][c] = perms[dim][base_perm[base_dim][cb]].ravel()
 
         elif self._base_mesh.ufl_cell() == ufl.quadrilateral:
             perms = {
@@ -1866,25 +1811,25 @@ class AbstractMeshTopology(abc.ABC):
                 (2, 0): [[0, 1]],
                 (2, 1): [[0]],
             }
-            perms = {k: np.asarray(v, dtype=int) for k, v in perms.items()}
-
-            base_perm = self._base_mesh._cell_closure_perms
-            closures = np.empty((self.num_cells(), sum(self._closure_sizes[self.cell_label].values())), dtype=IntType)
-
-            off = 0
-            for base_dim in range(3):
-                for extr_dim in range(2):
-                    dim = (base_dim, extr_dim)
-                    size = self._closure_sizes[self.cell_label][dim]
-                    ii = slice(off, off+size)
-                    for c in range(self.num_cells()):
-                        cb = c // (self.layers-1)
-                        closures[c, ii] = perms[dim][base_perm[base_dim][cb]].ravel()
-                    off += size
 
         else:
             raise NotImplementedError
 
+        perms = {k: np.asarray(v, dtype=int) for k, v in perms.items()}
+
+        base_perm = self._base_mesh._cell_closure_perms
+        closures = np.empty((self.num_cells(), sum(self._closure_sizes[self.cell_label].values())), dtype=IntType)
+
+        off = 0
+        for base_dim in range(self.dimension):
+            for extr_dim in range(2):
+                dim = (base_dim, extr_dim)
+                size = self._closure_sizes[self.cell_label][dim]
+                ii = slice(off, off+size)
+                for c in range(self.num_cells()):
+                    cb = c // (self.layers-1)
+                    closures[c, ii] = perms[dim][base_perm[base_dim][cb]].ravel()
+                off += size
         return closures
 
     def star(self, index, *, k=None):

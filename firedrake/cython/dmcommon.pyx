@@ -527,7 +527,7 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def reorder_closure_fiat_hex(plex_closures: np.ndarray) -> np.ndarray:
+def flat_cell_closures_hex(mesh) -> np.ndarray:
     """Reorder DMPlex closures to match FIAT entity numbering for hexes.
 
     Parameters
@@ -543,6 +543,12 @@ def reorder_closure_fiat_hex(plex_closures: np.ndarray) -> np.ndarray:
         numbering here. Only the *order* is changing.
 
     """
+    cdef:
+        PETSc.DM dm
+        PetscInt c, ncells, nclosure
+        PetscInt *dm_closure=NULL
+        PetscInt[:,:] fiat_closure_view
+
     # UFCHexahedron:            3--19---7     3--19---7
     #                         13.       |   13  25  15|
     # cell = 26               1 9  23  11   1--17---5 11
@@ -568,37 +574,45 @@ def reorder_closure_fiat_hex(plex_closures: np.ndarray) -> np.ndarray:
     # >>> mesh.topology_dm.viewFromOptions("-dm_view")
     # >>> closure, _ = mesh.topology_dm.getTransitiveClosure(0)
     # >>> print(closure)
+    dm = mesh.topology_dm
+    ncells = mesh.num_cells()
+    nclosure = sum(mesh._closure_sizes[mesh.cell_label].values())
+    fiat_closure = np.empty((ncells, nclosure), dtype=IntType)
+    fiat_closure_view = fiat_closure
 
-    cell_closure = np.empty_like(plex_closures)
-    for c in range(len(plex_closures)):
-        cell_closure[c, 0] = plex_closures[c, 19]
-        cell_closure[c, 1] = plex_closures[c, 23]
-        cell_closure[c, 2] = plex_closures[c, 20]
-        cell_closure[c, 3] = plex_closures[c, 26]
-        cell_closure[c, 4] = plex_closures[c, 22]
-        cell_closure[c, 5] = plex_closures[c, 24]
-        cell_closure[c, 6] = plex_closures[c, 21]
-        cell_closure[c, 7] = plex_closures[c, 25]
-        cell_closure[c, 8] = plex_closures[c, 16]
-        cell_closure[c, 9] = plex_closures[c, 17]
-        cell_closure[c, 10] = plex_closures[c, 15]
-        cell_closure[c, 11] = plex_closures[c, 18]
-        cell_closure[c, 12] = plex_closures[c, 7]
-        cell_closure[c, 13] = plex_closures[c, 14]
-        cell_closure[c, 14] = plex_closures[c, 9]
-        cell_closure[c, 15] = plex_closures[c, 12]
-        cell_closure[c, 16] = plex_closures[c, 10]
-        cell_closure[c, 17] = plex_closures[c, 11]
-        cell_closure[c, 18] = plex_closures[c, 8]
-        cell_closure[c, 19] = plex_closures[c, 13]
-        cell_closure[c, 20] = plex_closures[c, 6]
-        cell_closure[c, 21] = plex_closures[c, 5]
-        cell_closure[c, 22] = plex_closures[c, 3]
-        cell_closure[c, 23] = plex_closures[c, 4]
-        cell_closure[c, 24] = plex_closures[c, 1]
-        cell_closure[c, 25] = plex_closures[c, 2]
-        cell_closure[c, 26] = plex_closures[c, 0]
-    return cell_closure
+    for c in range(ncells):
+        get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &dm_closure)
+        fiat_closure_view[c, 0] = dm_closure[2*19]
+        fiat_closure_view[c, 1] = dm_closure[2*23]
+        fiat_closure_view[c, 2] = dm_closure[2*20]
+        fiat_closure_view[c, 3] = dm_closure[2*26]
+        fiat_closure_view[c, 4] = dm_closure[2*22]
+        fiat_closure_view[c, 5] = dm_closure[2*24]
+        fiat_closure_view[c, 6] = dm_closure[2*21]
+        fiat_closure_view[c, 7] = dm_closure[2*25]
+        fiat_closure_view[c, 8] = dm_closure[2*16]
+        fiat_closure_view[c, 9] = dm_closure[2*17]
+        fiat_closure_view[c, 10] = dm_closure[2*15]
+        fiat_closure_view[c, 11] = dm_closure[2*18]
+        fiat_closure_view[c, 12] = dm_closure[2*7]
+        fiat_closure_view[c, 13] = dm_closure[2*14]
+        fiat_closure_view[c, 14] = dm_closure[2*9]
+        fiat_closure_view[c, 15] = dm_closure[2*12]
+        fiat_closure_view[c, 16] = dm_closure[2*10]
+        fiat_closure_view[c, 17] = dm_closure[2*11]
+        fiat_closure_view[c, 18] = dm_closure[2*8]
+        fiat_closure_view[c, 19] = dm_closure[2*13]
+        fiat_closure_view[c, 20] = dm_closure[2*6]
+        fiat_closure_view[c, 21] = dm_closure[2*5]
+        fiat_closure_view[c, 22] = dm_closure[2*3]
+        fiat_closure_view[c, 23] = dm_closure[2*4]
+        fiat_closure_view[c, 24] = dm_closure[2*1]
+        fiat_closure_view[c, 25] = dm_closure[2*2]
+        fiat_closure_view[c, 26] = dm_closure[2*0]
+
+    if dm_closure != NULL:
+        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &dm_closure)
+    return fiat_closure
 
 
 @cython.boundscheck(False)
