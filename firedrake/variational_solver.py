@@ -410,8 +410,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
                The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
-               :class:`firedrake.function.Function` or :class:`.Cofunction` with positive
-               values on cells to refine.
+               :class:`firedrake.function.Function` or :class:`.Cofunction`
+               with positive values on cells to refine. If the callback returns
+               ``None``, grid sequencing stops and keeps the current mesh and solution.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -457,15 +458,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             if solver_parameters["pmat_type"] != problem.Jp.mat_type:
                 raise ValueError("Cannot change the mat_type of an already assembled matrix.")
 
-        snes_defaults = self.DEFAULT_SNES_PARAMETERS
-        if marking_callback is not None:
-            snes_defaults = dict(snes_defaults)
-            snes_defaults.setdefault("adaptor_criterion", "refine")
-
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
-                                                       snes_defaults=snes_defaults)
+                                                       snes_defaults=self.DEFAULT_SNES_PARAMETERS)
         super().__init__(solver_parameters, options_prefix,
                          default_prefix="firedrake")
         # Now the correct parameters live in self.parameters (via the
@@ -523,8 +519,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
-        self._setup = False
-
     @property
     def _problem(self):
         """The :class:`NonlinearVariationalProblem` to solve"""
@@ -536,8 +530,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         The callback is called as ``callback(ctx, u)`` when PETSc asks the
         solution DM to refine, where ``ctx`` is the current
         `_SNESContext`. It must return a DG0
-        :class:`firedrake.function.Function` or :class:`.Cofunction` on the current solution
-        mesh, with positive values on cells to refine.
+        :class:`firedrake.function.Function` or :class:`.Cofunction` on the
+        current solution mesh, with positive values on cells to refine. If the
+        callback returns ``None``, grid sequencing stops and keeps the current
+        mesh and solution.
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
@@ -612,21 +608,17 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             stack.enter_context(self._ctx.problem_hooks(solution_dm, include_coefficient_dms=True))
 
             self.snes.solve(None, work)
-            if self.snes.getSolution().handle != work.handle:
-                # DMAdaptorAdapt() destroys the reference to work that petsc4py still holds.
-                work.incRef()
 
-            # The appctx might have been refined
+            # Adaptivity changes the DM, keep the _SNESContext up to date
             self._ctx = dmhooks.get_appctx(self.snes.getDM())
 
         problem = self._ctx._problem
         solution = self.snes.getSolution()
         with problem.u_restrict.dat.vec_wo as u:
             solution.copy(u)
-        self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
-        solving_utils.check_snes_convergence(self.snes)
+        solving_utils.check_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
         comm = problem.u_restrict.function_space().mesh().comm

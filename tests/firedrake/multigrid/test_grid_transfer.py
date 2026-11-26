@@ -239,7 +239,8 @@ def test_grid_transfer_variants(variants, transfer_type):
     These variants have different bases and different entity permutations.
     Separate transfer kernels and node maps must be built for each variant.
     """
-    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 1)
     run = {"prolongation": run_prolongation, "injection": run_injection}[transfer_type]
     for variant in variants:
         run(hierarchy, "scalar", "DG", (2,), variant=variant)
@@ -253,16 +254,19 @@ def test_grid_transfer_reuses_loops():
     in the same spaces. Separate loops are built for these subfunctions. No new
     loops should be built by the second pass over the degrees.
     """
-    hierarchy = MeshHierarchy(UnitSquareMesh(2, 2), 1)
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 1)
     Vc = FunctionSpace(hierarchy[0], "CG", 2)
     Vf = FunctionSpace(hierarchy[1], "CG", 2)
-    Wf = Vf * FunctionSpace(hierarchy[1], "DG", 0)
+    Qf = FunctionSpace(hierarchy[1], "DG", 0)
+    Wf = Vf * Qf
     loops = hierarchy._shared_data_cache["transfer_loops"]
 
-    for degree in (1, 2):
-        expr = exact_primal(hierarchy[0], "scalar", degree)
-        coarse = Function(Vc).interpolate(expr)
-        expect = Function(Vf).interpolate(exact_primal(hierarchy[1], "scalar", degree))
+    for expression_degree in (1, 2):
+        expr_coarse = exact_primal(hierarchy[0], "scalar", expression_degree)
+        expr_fine = exact_primal(hierarchy[1], "scalar", expression_degree)
+        coarse = Function(Vc).interpolate(expr_coarse)
+        expect = Function(Vf).interpolate(expr_fine)
         fine = Function(Vf)
         prolong(coarse, fine)
         assert numpy.allclose(fine.dat.data_ro, expect.dat.data_ro)

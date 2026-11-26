@@ -334,9 +334,9 @@ def _prolong_loops(coarse, fine):
         kernel_args.append(cs.dat[compose_map(cs)])
     loops = (op3.loop(n, kernel(*kernel_args)),)
     if unrefined is not None:
-        # Copy the coarse values to the fine nodes on unrefined points.
-        p = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
-        loops += (op3.loop(p, fine.dat[p].assign(coarse.dat[coarse_node(p)])),)
+        # Copy the unrefined coarse nodes to the fine nodes
+        n = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
+        loops += (op3.loop(n, fine.dat[n].assign(coarse.dat[coarse_node(n)])),)
     return loops
 
 
@@ -371,9 +371,9 @@ def _restrict_loops(fine_dual, coarse_dual):
         kernel_args.append(cs.dat[compose_map(cs)])
     loops = (op3.loop(n, kernel(*kernel_args)),)
     if unrefined is not None:
-        # Add the values at the fine nodes on unrefined points to their coarse nodes.
-        p = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
-        loops += (op3.loop(p, coarse_dual.dat[coarse_node(p)].iassign(fine_dual.dat[p])),)
+        # Add the values at the fine nodes to the unrefined coarse nodes.
+        n = Vf.nodal_axes[unrefined].blocked(Vf.shape).free.iter()
+        loops += (op3.loop(n, coarse_dual.dat[coarse_node(n)].iassign(fine_dual.dat[n])),)
     return loops
 
 
