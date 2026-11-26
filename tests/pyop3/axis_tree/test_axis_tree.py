@@ -1,5 +1,7 @@
 import collections
+import gc
 import re
+import weakref
 from unittest import mock
 
 import numpy as np
@@ -62,3 +64,22 @@ def test_axis_forest_getitem_is_cached():
         side_effect=AssertionError("forest indexes its trees again"),
     ):
         assert forest[index] is indexed
+
+
+def test_axis_forest_getitem_cache_is_bounded():
+    tree_a = op3.AxisTree(op3.Axis(5, "a"))
+    tree_b = op3.AxisTree(op3.Axis(5, "b"))
+    forest = op3.AxisForest([tree_a, tree_b])
+
+    # Index with a new subset each time, as DirichletBC node sets do, and
+    # check that the cache does not keep every index alive.
+    nindices = 200
+    refs = []
+    for _ in range(nindices):
+        subset = op3.Dat(op3.Axis(2), data=np.asarray([1, 3], dtype=op3.IntType))
+        index = op3.Slice("a", [op3.SubsetSliceComponent(None, subset)])
+        forest[index]
+        refs.append(weakref.ref(index))
+    gc.collect()
+
+    assert sum(ref() is not None for ref in refs) < nindices

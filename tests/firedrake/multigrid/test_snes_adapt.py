@@ -69,6 +69,34 @@ def test_marking_callback_refine_hook_reconstructs_problem():
     assert adapted.function_space().dim() > old_dim
 
 
+@pytest.mark.parallel([1, 2])
+def test_snes_adapt_sequence_solver_reuse():
+    def mark_cells(ctx, current_solution):
+        M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
+        return Function(M).assign(1)
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - inner(1, v)*dx
+    problem = NonlinearVariationalProblem(F, u, bcs=DirichletBC(V, 0, "on_boundary"))
+    params = {
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "snes_adapt_sequence": 1,
+    }
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_cells)
+    u1 = solver.solve()
+    # The second solve starts from the mesh of the first solve.
+    u2 = solver.solve()
+
+    hierarchy, level = get_level(u2.function_space().mesh())
+    assert level == 2
+    assert hierarchy[1] is u1.function_space().mesh()
+
+
 @pytest.mark.skipnetgen
 @pytest.mark.parallel([1, 2])
 def test_snes_adapt_sequence_with_adaptive_multigrid():

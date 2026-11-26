@@ -71,6 +71,30 @@ def test_interpolate_operator():
     assert np.allclose(res1.dat.data_ro, res3.dat.data_ro)
 
 
+@pytest.mark.parallel([1, 2])
+def test_interpolate_subdomain_id():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "DG", 0)
+    x, = SpatialCoordinate(mesh)
+    left = Function(V).interpolate(conditional(x < 0.5, 1, 0))
+    right = Function(V).interpolate(1 - left)
+    mesh = RelabeledMesh(mesh, [left, right], [100, 200])
+    V = FunctionSpace(mesh, "DG", 0)
+    expression = Constant(1)
+    f = Function(V)
+
+    # [test_interpolate_subdomain_id 1]
+    f.interpolate(expression, subdomain_id=100)
+    g = assemble(interpolate(expression, V, subdomain_id=(100, 200)))
+    # [test_interpolate_subdomain_id 2]
+
+    x, = SpatialCoordinate(mesh)
+    expected = Function(V).interpolate(conditional(x < 0.5, 1, 0))
+    assert np.allclose(f.dat.data_ro, expected.dat.data_ro)
+    assert np.allclose(g.dat.data_ro, 1)
+    assert np.allclose(g.dat.data_ro, assemble(interpolate(expression, V)).dat.data_ro)
+
+
 def test_interpolate_external():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, "CG", 2)
