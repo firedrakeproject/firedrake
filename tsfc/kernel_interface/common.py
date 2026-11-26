@@ -5,7 +5,7 @@ from functools import cached_property, reduce
 from itertools import chain, product
 import copy
 
-from ufl.algorithms.analysis import has_type
+from ufl.algorithms.analysis import extract_base_form_operators, has_type
 from ufl.classes import Cofunction, GeometricQuantity, Interpolate
 from ufl.finiteelement import AbstractFiniteElement
 from ufl.utils.sequences import max_degree
@@ -244,6 +244,7 @@ class KernelBuilderMixin:
         # Compile: ufl -> gem
         info = self.integral_data_info
         functions = [*info.arguments, self.coordinate(info.domain), *info.coefficients]
+        functions.extend(extract_base_form_operators(integrand))
         set_quad_rule(params, info.domain.ufl_cell(), info.integral_type, functions)
         quad_rule = params["quadrature_rule"]
         config = self.fem_config()

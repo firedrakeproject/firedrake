@@ -11,7 +11,7 @@ def test_count_flops(expression):
     assert flops == expected
 
 
-@pytest.fixture(params=("expr1", "expr2", "expr3", "expr4"))
+@pytest.fixture(params=("expr1", "expr2", "expr3", "expr4", "expr5"))
 def expression(request):
     if request.param == "expr1":
         expr = gem.Sum(gem.Product(gem.Variable("a", ()), gem.Literal(2)),
@@ -58,6 +58,20 @@ def expression(request):
         expr = compile_gem(assignments, (j, k))
         # Cjk += \sum_i Aij * Bki
         expected = 2 * 10 * 8 * 15
+    elif request.param == "expr5":
+        A = gem.Variable("A", (4,))
+        B = gem.Variable("B", (4,))
+        n = gem.Variable("n", (), dtype=gem.uint_type)
+        two = gem.Literal(2, dtype=gem.uint_type)
+        k = gem.VariableIndex(gem.Remainder(gem.FloorDiv(n, two), two))
+        expr = gem.Product(gem.Indexed(A, (k,)), gem.Indexed(B, (k,)))
+        C = gem.Variable("C", (1,))
+        i, = gem.indices(1)
+        expr, = preprocess_gem([expr])
+        assignments = [(C[i], expr)]
+        expr = compile_gem(assignments, (i,))
+        # C += A[k] * B[k], where k = n // 2 % 2 is integer arithmetic
+        expected = 1 + 1
 
     else:
         raise ValueError("Unexpected expression")
