@@ -137,9 +137,9 @@ class ExtractSubBlock(DAGTraverser):
     @DAGTraverser.postorder
     def _(self, o, expr, coefficients, arguments, cds, blocks):
         if all(isinstance(argument, Zero) for argument in arguments):
-            # UFL simplifies a direction outside the selected block to Zero.
-            # The derivative is zero only if the direction of every
-            # coefficient is zero.
+            # If we're only taking a derivative wrt part of an argument in
+            # a mixed space other bits might come back as zero. We want to
+            # propagate a zero in that case.
             return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
         else:
             return self.reuse_if_untouched(o, blocks=blocks)
