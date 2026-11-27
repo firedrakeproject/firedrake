@@ -345,7 +345,7 @@ def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None)
     make_space = type(function_space)
     mesh = function_space.mesh()
 
-    # Resolve region names before the union, because a frozenset would split
+    # Resolve subdomain names before the union, because a frozenset would split
     # a string name into characters and would hide names from the resolver
     boundary_set = (boundary_set,) if isinstance(boundary_set, str) else tuple(boundary_set)
     boundary_set = mesh.parse_subdomain_id(mesh.topological_dimension - 1, boundary_set)

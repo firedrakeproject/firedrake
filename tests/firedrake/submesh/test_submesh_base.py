@@ -202,7 +202,7 @@ def test_submesh_base_facet_integral_hex_4_processes(family_degree, nelem):
     _test_submesh_base_facet_integral_hex(family_degree, nelem)
 
 
-def test_submesh_accepts_region_name():
+def test_submesh_accepts_subdomain_name():
     mesh = UnitSquareMesh(2, 2)
     mesh.rename_subdomain(1, [1, 2], "vertical")
 

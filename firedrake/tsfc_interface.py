@@ -180,7 +180,7 @@ def _entity_dimension(domain, integral_type):
     return tdim
 
 
-def _resolve_region_names(form):
+def _resolve_subdomain_names(form):
     if not isinstance(form, Form):
         return form
 
@@ -254,9 +254,9 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     # Check that we get a Form
     if not isinstance(form, (Form, ZeroBaseForm, ufl.Interpolate)):
         raise RuntimeError(f"Unable to convert object to a UFL form: {form!r}")
-    # Resolve region names before the cache lookup, so that the cache key
+    # Resolve subdomain names before the cache lookup, so that the cache key
     # reflects the integer subdomain ids the names currently map to
-    form = _resolve_region_names(form)
+    form = _resolve_subdomain_names(form)
     return _compile_form(form, name, parameters=parameters, split=split,
                          dont_split=dont_split, diagonal=diagonal, access=access)
 

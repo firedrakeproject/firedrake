@@ -366,7 +366,7 @@ def test_netgen_occ_adaptivity():
 
 
 @pytest.mark.skipnetgen
-def test_netgen_region_names_are_loaded():
+def test_netgen_subdomain_names_are_loaded():
     from netgen.geom2d import SplineGeometry
 
     geo = SplineGeometry()
@@ -376,7 +376,7 @@ def test_netgen_region_names_are_loaded():
     mesh = Mesh(ngmesh)
     labels = [1, 2, 3, 4]
 
-    assert mesh.topology.region_names[1]["rect"] == labels
+    assert mesh.topology.subdomain_names[1]["rect"] == labels
 
     V = FunctionSpace(mesh, "CG", 1)
     named = DirichletBC(V, 0, "rect")

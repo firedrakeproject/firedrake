@@ -83,16 +83,16 @@ def test_rename_subdomain_appends_and_parse():
     mesh.rename_subdomain(1, 1, "walls")
     mesh.rename_subdomain(1, [2, 3], "walls")
 
-    assert mesh.topology.region_names[1]["walls"] == [1, 2, 3]
+    assert mesh.topology.subdomain_names[1]["walls"] == [1, 2, 3]
     assert mesh.parse_subdomain_id(1, "walls") == (1, 2, 3)
     assert mesh.parse_subdomain_id(1, ["walls", 4]) == (1, 2, 3, 4)
     assert mesh.parse_subdomain_id(1, "on_boundary") == "on_boundary"
 
-    with pytest.raises(ValueError, match="Subdomain region 'missing'"):
+    with pytest.raises(ValueError, match="Subdomain 'missing'"):
         mesh.parse_subdomain_id(1, "missing")
 
 
-def test_measure_accepts_region_name_with_domain():
+def test_measure_accepts_subdomain_name_with_domain():
     mesh = UnitSquareMesh(2, 2)
     mesh.rename_subdomain(1, [1, 2], "vertical")
 
@@ -104,7 +104,7 @@ def test_measure_accepts_region_name_with_domain():
     assert ufl_named == pytest.approx(target)
 
 
-def test_measure_accepts_region_name_with_inferred_domain():
+def test_measure_accepts_subdomain_name_with_inferred_domain():
     mesh = UnitSquareMesh(2, 2)
     mesh.rename_subdomain(1, [1, 2], "vertical")
     V = FunctionSpace(mesh, "CG", 1)

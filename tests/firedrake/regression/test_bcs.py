@@ -500,7 +500,7 @@ def test_solve_mixed_bcs_restrict():
     assert np.allclose(w.subfunctions[1].dat.data_ro, 2)
 
 
-def test_dirichletbc_accepts_region_name():
+def test_dirichletbc_accepts_subdomain_name():
     mesh = UnitSquareMesh(2, 2)
     mesh.rename_subdomain(1, [1, 2], "vertical")
     V = FunctionSpace(mesh, "CG", 1)

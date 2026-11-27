@@ -129,7 +129,7 @@ def test_periodic_3d_solve():
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("use_path_object", [False, True])
-def test_gmsh_region_names_are_loaded(use_path_object: bool) -> None:
+def test_gmsh_subdomain_names_are_loaded(use_path_object: bool) -> None:
     with TemporaryDirectory() as directory:
         filename = None
         if COMM_WORLD.rank == 0:
@@ -146,19 +146,19 @@ def test_gmsh_region_names_are_loaded(use_path_object: bool) -> None:
         filename = COMM_WORLD.bcast(filename, root=0)
         mesh = Mesh(filename if use_path_object else str(filename))
 
-    assert mesh.topology.region_names == {
+    assert mesh.topology.subdomain_names == {
         1: {"left wall": [1], "firedrake_is_ghost": [2]},
         2: {"left wall": [1]},
     }
-    for marker in ("left wall", "firedrake_is_ghost", 1, 2):
-        assert assemble(Constant(1) * ds(marker, domain=mesh)) == pytest.approx(1.0)
-    for marker in ("left wall", 1):
-        assert assemble(Constant(1) * dx(marker, domain=mesh)) == pytest.approx(1.0)
+    for subdomain_id in ("left wall", "firedrake_is_ghost", 1, 2):
+        assert assemble(Constant(1) * ds(subdomain_id, domain=mesh)) == pytest.approx(1.0)
+    for subdomain_id in ("left wall", 1):
+        assert assemble(Constant(1) * dx(subdomain_id, domain=mesh)) == pytest.approx(1.0)
 
 
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("parallel_reader", [False, True])
-def test_cgns_region_names(parallel_reader: bool) -> None:
+def test_cgns_subdomain_names(parallel_reader: bool) -> None:
     if "cgns" not in get_external_packages():
         pytest.skip("PETSc was built without CGNS support")
 
@@ -168,12 +168,12 @@ def test_cgns_region_names(parallel_reader: bool) -> None:
         mesh = Mesh(Path(path) / filename)
 
     if parallel_reader:
-        assert mesh.topology.region_names == {1: {"inlet": [2], "wall": [3]}}
+        assert mesh.topology.subdomain_names == {1: {"inlet": [2], "wall": [3]}}
         boundary = ds(domain=mesh)
-        for marker, length in (("inlet", 1.0), ("wall", 2.0), (1, 1.0), (2, 1.0), (3, 2.0)):
-            assert assemble(1 * boundary(marker)) == pytest.approx(length)
+        for subdomain_id, length in (("inlet", 1.0), ("wall", 2.0), (1, 1.0), (2, 1.0), (3, 2.0)):
+            assert assemble(1 * boundary(subdomain_id)) == pytest.approx(length)
     else:
-        assert not mesh.topology.region_names
+        assert not mesh.topology.subdomain_names
         assert mesh.topology_dm.hasLabel("zone")
 
     assert assemble(1 * dx(domain=mesh)) == pytest.approx(2.0)

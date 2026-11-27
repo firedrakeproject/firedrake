@@ -21,11 +21,11 @@ def test_create_from_file(exodus_mesh):
 @pytest.mark.parallel([1, 2])
 def test_sidesets(exodus_mesh: MeshGeometry) -> None:
     assert (exodus_mesh.facet_markers == [200, 201]).all()
-    facet_names = exodus_mesh.topology.region_names[exodus_mesh.topological_dimension - 1]
+    facet_names = exodus_mesh.topology.subdomain_names[exodus_mesh.topological_dimension - 1]
     boundary = ds(domain=exodus_mesh)
-    for name, marker in (("Sideset_A", 200), ("Sideset_B", 201)):
-        assert facet_names[name] == [marker]
+    for name, subdomain_id in (("Sideset_A", 200), ("Sideset_B", 201)):
+        assert facet_names[name] == [subdomain_id]
         assert exodus_mesh.topology_dm.hasLabel(name)
-        numeric_area = assemble(1 * boundary(marker))
+        numeric_area = assemble(1 * boundary(subdomain_id))
         assert abs(numeric_area) > 0
         assert assemble(1 * boundary(name)) == pytest.approx(numeric_area)
