@@ -12,96 +12,158 @@ from mpi4py import MPI
 from pyadjoint.tape import annotate_tape
 import pyop3 as op3
 import ufl.classes
+from pyop3.dtypes import get_mpi_dtype
+from pyop3.mpi import temp_internal_comm
+from ufl.algorithms import extract_coefficients
 from ufl.constantvalue import as_ufl
 from ufl.corealg.dag_traverser import DAGTraverser
 
 import firedrake.ufl_expr
 from firedrake.cofunction import Cofunction
 from firedrake.constant import Constant
+from firedrake.cython import dmcommon
 from firedrake.function import Function
+from firedrake.functionspace import FunctionSpace
 from firedrake.petsc import PETSc
 from firedrake.utils import IntType
+
+
+def _ancestor_node_sf(
+    space: firedrake.functionspaceimpl.WithGeometryBase,
+    ancestor_space: firedrake.functionspaceimpl.AbstractFunctionSpace,
+    comm: MPI.Comm,
+) -> PETSc.SF:
+    """Map each owned node to the process that owns its node on the ancestor."""
+    ancestors = space.mesh().submesh_ancestors
+    point_map = np.arange(space.mesh().num_points, dtype=IntType)
+    for child in ancestors[:ancestors.index(ancestor_space.mesh())]:
+        point_map = child._submesh_to_parent_plex_index_map[point_map]
+
+    # Convert points to nodes after composition, so both spaces use the same
+    # ancestor numbering even when they have different constrained nodes.
+    node_map = dmcommon.make_node_to_node_map(
+        point_map, space.local_section, ancestor_space.local_section, space.block_size
+    )
+    # The owned nodes come before the ghost nodes.
+    ancestor_indices = node_map[:space.nodes.sf.num_owned]
+
+    ancestor_nodes = ancestor_space.nodes
+    locations = np.empty((ancestor_nodes.local_size, 2), dtype=IntType)
+    locations[:, 0] = comm.rank
+    locations[:, 1] = np.arange(ancestor_nodes.local_size, dtype=IntType)
+    halo = ancestor_nodes.sf
+    locations[halo.ileaf] = halo.iremote
+    sf = PETSc.SF().create(comm)
+    sf.setGraph(ancestor_nodes.local_size, None, locations[ancestor_indices])
+    return sf
+
+
+def _submesh_node_sf(
+    source: firedrake.functionspaceimpl.WithGeometryBase,
+    target: firedrake.functionspaceimpl.WithGeometryBase,
+) -> PETSc.SF:
+    """Return the star forest from owned source nodes to the matching owned target nodes."""
+    ancestor = target.mesh().submesh_youngest_common_ancestor(source.mesh())
+    if ancestor is None:
+        raise ValueError("The source and target must belong to the same submesh family")
+
+    ancestor_space = FunctionSpace(ancestor, target.ufl_element())
+    with temp_internal_comm(target.comm) as comm:
+        source_to_ancestor = _ancestor_node_sf(source, ancestor_space, comm)
+        target_to_ancestor = _ancestor_node_sf(target, ancestor_space, comm)
+        # Each ancestor node has at most one owned source node, so the inverse
+        # exists. The composition drops the target nodes without a source node.
+        return source_to_ancestor.createInverse().compose(target_to_ancestor)
 
 
 class AssignExprBuilder(DAGTraverser):
     """Traverser used for converting an expression into a pyop3 expression."""
 
-    def __init__(
-        self,
-        function_space: firedrake.functionspaceimpl.WithGeometry,
-        loop_index: op3.LoopIndex | None,
-    ) -> None:
+    def __init__(self, function_space: firedrake.functionspaceimpl.WithGeometryBase):
         self.function_space = function_space
-        self.loop_index = loop_index
+        self.loop_index = None
         self.array_assign_safe = True
+        self.operands = {}
+        self.transfers = []
         super().__init__()
+
+    def prepare_cross_mesh(
+        self, expression: ufl.core.expr.Expr | ufl.form.BaseForm, subset: op3.Slice | types.EllipsisType
+    ) -> op3.LoopIndex:
+        """Build transfers and return the loop over target nodes with all source matches."""
+        nodes = self.function_space.nodes
+        selected = np.zeros(nodes.local_size, dtype=bool)
+        selected[nodes[subset].buffer_slice(include_ghosts=True)] = True
+        # A subset can select a ghost node before it selects its owner.
+        halo = nodes.sf
+        halo.reduce_begin(selected, MPI.LOR)
+        halo.reduce_end(selected, MPI.LOR)
+        selected[halo.num_owned:] = False
+
+        for func in extract_coefficients(expression):
+            dat, nodal = self._coefficient(func, broadcast=True)
+            if nodal and func.function_space().mesh() != self.function_space.mesh():
+                sf = _submesh_node_sf(func.function_space(), self.function_space)
+                _, matched, _ = sf.getGraph()
+                selected &= np.isin(np.arange(nodes.local_size), matched)
+                dat = self.function_space.make_dat(valuetype=dat.dtype)
+                self.transfers.append((sf, func.dat, dat))
+            self.operands[func] = dat, nodal
+
+        indices = np.flatnonzero(selected).astype(IntType, copy=False)
+        self.loop_index = nodes[parse_subset(indices)].iter()
+        return self.loop_index
+
+    def transfer_inputs(self) -> None:
+        """Read the source values at the owners of the matched target nodes."""
+        block_size = self.function_space.block_size
+        for sf, source, target in self.transfers:
+            # The loop reads only the target nodes that are leaves of the star forest.
+            source_values = source.buffer.data_ro
+            target_values = target.buffer.data_wo
+            unit, _ = get_mpi_dtype(source.dtype, cdim=block_size)
+            sf.bcastBegin(unit, source_values, target_values, MPI.REPLACE)
+            sf.bcastEnd(unit, source_values, target_values, MPI.REPLACE)
+
+    def _coefficient(
+        self, func: Function | Cofunction, *, broadcast: bool = False
+    ) -> tuple[op3.Dat | op3.Scalar, bool]:
+        """Return the data of the coefficient and whether it is indexed by node."""
+        if func.ufl_element().family() == "Real":
+            data = func.dat.global_data
+            shape = func.function_space().shape
+            if not shape:
+                return op3.Scalar(data[0]), False
+            if broadcast:
+                data = np.broadcast_to(data.reshape(shape), self.function_space.shape).copy()
+                shape = data.shape
+            axes = op3.AxisTree.from_iterable(op3.Axis(size, f"dim{i}") for i, size in enumerate(shape))
+            return op3.Dat(axes, data=data), False
+
+        if func.ufl_element() != self.function_space.ufl_element():
+            raise ValueError(
+                "All functions in the expression must have the same element as the assignee"
+            )
+        return func.dat, True
 
     @functools.singledispatchmethod
     def process(self, *args, **kwargs):
         super().process(*args, **kwargs)
 
     @process.register
-    def _(self, func: Function | Cofunction, /) -> op3.Dat:
-        if func.ufl_element().family() == "Real":
-            data = func.dat.global_data
-            return (
-                op3.Dat(
-                    op3.AxisTree.from_iterable(func.function_space().shape or (1,)),
-                    data=data,
-                ),
-                False,
-            )
-
-        if func.ufl_element() != self.function_space.ufl_element():
-            raise ValueError(
-                "All functions in the expression must have the same element as the assignee"
-            )
-
+    def _(self, func: Function | Cofunction, /) -> tuple[op3.Dat | op3.Scalar, bool]:
+        """Return the coefficient as a pyop3 expression and whether it is nodal."""
         if self.loop_index is not None:
-            assignee_mesh = self.function_space.mesh()
-            func_mesh = func.function_space().mesh()
-            if func_mesh != assignee_mesh:
-                common_ancestor = assignee_mesh.submesh_youngest_common_ancestor(func_mesh)
-                if not common_ancestor:
-                    raise ValueError(
-                        "All functions in the expression must be defined on a single domain "
-                        "that is in the same submesh family as domain of the assignee"
-                    )
+            dat, nodal = self.operands[func]
+            return (dat[self.loop_index] if nodal else dat), nodal
 
-                loop_index = self.loop_index
-                # We are looping over the points of the target mesh, so we need to go
-                # target points -> common ancestor -> func points
-                aa = assignee_mesh.submesh_ancestors
-                for a in reversed(aa[:aa.index(common_ancestor)]):
-                    # This seems very inefficient
-                    afs = self.function_space.reconstruct(mesh=a)
-                    loop_index = afs.submesh_child_to_parent_map(loop_index)
-
-                bb = func_mesh.submesh_ancestors
-                for b in bb[:bb.index(common_ancestor)]:
-                    bfs = self.function_space.reconstruct(mesh=b)
-                    loop_index = bfs.submesh_parent_to_child_map(loop_index)
-
-                op3_expr = func.dat[loop_index]
-
-            else:
-                op3_expr = func.dat[self.loop_index]
-
-        else:
-            op3_expr = func.dat
-
-            # If we have a restricted function space we have different data
-            # layouts so naive array assignment will fail and we have to fall
-            # back to generating code.
-            if any(
-                func_fs.boundary_set != self_fs.boundary_set
-                for func_fs, self_fs in zip(
-                    func.function_space(), self.function_space, strict=True
-                )
-            ):
-                self.array_assign_safe = False
-
-        return op3_expr, True
+        dat, nodal = self._coefficient(func)
+        if nodal and any(
+            func_fs.boundary_set != self_fs.boundary_set
+            for func_fs, self_fs in zip(func.function_space(), self.function_space, strict=True)
+        ):
+            self.array_assign_safe = False
+        return dat, nodal
 
     @process.register(Constant)
     def _(self, const) -> tuple[op3.Dat, bool, bool]:
@@ -251,19 +313,16 @@ class Assigner:
 
     @cached_property
     def _assign_op(self) -> Callable[[], None]:
+        """Return the operation that updates the assignee."""
+        expr_builder = AssignExprBuilder(self.assignee.function_space())
         if self._cross_mesh:
-            # If we are assigning between submeshes then we have to generate a
-            # full parloop in order to be able to include maps. For example:
-            #
-            #     for i
-            #       dat1[i] <- dat2[g(f(i))]
-            loop_index = self.assignee.function_space().nodes[self.subset].iter()
+            if self.mode != AssignmentMode.STANDARD:
+                raise NotImplementedError("Augmented assignment across meshes is not supported")
+            loop_index = expr_builder.prepare_cross_mesh(self.expression, self.subset)
             op3_assignee = self.assignee.dat[loop_index]
         else:
-            loop_index = None
             op3_assignee = self.assignee.dat[self.subset]
 
-        expr_builder = AssignExprBuilder(self.assignee.function_space(), loop_index)
         op3_expr, _ = expr_builder(self.expression)
 
         match self.mode:
@@ -281,64 +340,12 @@ class Assigner:
                 raise NotImplementedError
 
         if self._cross_mesh:
-            if self.mode != AssignmentMode.STANDARD:
-                raise NotImplementedError(
-                    "Currently a bug where iadd/isub/etc does not actually change the assignee"
-                )
-
-            # We use an intermediate buffer array to make sure that owned DoFs are
-            # updated upon assigning. This is because the point ownership is not
-            # guaranteed to be the same between target and source meshes (see
-            # 'sanitizeSubMesh' kwarg for DMPlex.filter).
-            #
-            # The following example illustrates the issue that a naive assignment would cause.
-            #
-            # Consider the following target/source meshes distributed over 2 processes
-            # with no partition overlap:
-            #
-            #                0----0----0----1----1
-            #                |         |         |
-            # target         0    0    0    1    1
-            # (parent mesh)  |         |         |
-            #                0----0----0----1----1  (owning ranks are shown)
-            #
-            #                          1----1----1
-            #                          |         |
-            # source                   1    1    1
-            # (submesh)                |         |
-            #                          1----1----1  (owning ranks are shown)
-            #
-            # Consider CG1 functions f (on parent) and fsub (on submesh). By a naive
-            # f.assign(fsub, subset=...), the DoFs shared by rank 0 and rank 1 would
-            # only be updated on rank 1, which sees those DoFs as ghost, and those
-            # updated values on rank 1 would be overridden by the old values on rank 0
-            # upon a halo exchange.
-            #
-            # NOTE: I believe that this limitation only exists because if we don't
-            # have enough overlap then we can get orphaned subpoints (i.e. edges or
-            # vertices) on one rank with no available cell. I think a much more
-            # sensible thing to do here is make sure that we have an appropriate
-            # overlap from the outset.
-
-            # create a persistent loop object so we can reuse it
             loop = op3.loop(loop_index, op3_assignee.assign(op3_expr, _weakref=False))
 
             def assign_op() -> None:
-                # swap out another buffer for the computation
-                assignee_buffer = self.assignee.dat.buffer
-                orig_assignee_data = assignee_buffer._current_device_array.copy()
-
-                fmin = np.finfo(assignee_buffer.dtype).min
-                assignee_buffer._current_device_array[...] = fmin
-
-                # FIXME: These parameters shouldn't be needed if we correctly
-                # mask things (by intersecting meshes)
-                loop(compiler_parameters={"propagate_negatives": True, "mask_array_accesses": True})
-
-                # now write back only the values that were touched
-                assignee_buffer.reduce_leaves_to_roots(MPI.MAX)
-                unchanged_idxs = np.flatnonzero(np.isclose(assignee_buffer._current_device_array, fmin))
-                assignee_buffer._current_device_array[unchanged_idxs] = orig_assignee_data[unchanged_idxs]
+                expr_builder.transfer_inputs()
+                self.assignee.dat.buffer.sync_roots()
+                loop()
 
         # If possible try to do the assignment by operating on numpy arrays
         elif self.subset is Ellipsis and expr_builder.array_assign_safe:

@@ -2,6 +2,7 @@ from os.path import abspath, dirname, join
 
 import numpy as np
 import pytest
+from pytest_mpi.parallel_assert import parallel_assert
 
 import finat
 import pyop3 as op3
@@ -10,6 +11,50 @@ from firedrake import *
 
 
 cwd = abspath(dirname(__file__))
+
+
+@pytest.fixture
+def submesh_fields():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "DG", 0)
+    indicator = Function(V)
+    x, = SpatialCoordinate(mesh)
+    indicator.interpolate(conditional(x < 0.5, 1, 0))
+    parent = RelabeledMesh(mesh, [indicator], [100])
+    child = Submesh(parent, parent.topological_dimension, 100)
+    source_space = FunctionSpace(child, "DG", 0)
+    target_space = FunctionSpace(parent, "DG", 0)
+    source = Function(source_space)
+    target = Function(target_space)
+    x, = SpatialCoordinate(parent)
+    coordinates = Function(target_space)
+    coordinates.interpolate(x)
+    return source, target, coordinates.dat.data_ro < 0.5
+
+
+@pytest.mark.parallel([1, 2])
+def test_submesh_assign_copies_smallest_finite_value(submesh_fields):
+    source, target, matched = submesh_fields
+    value = np.finfo(PETSc.ScalarType).min
+    source.assign(value)
+    target.assign(9)
+
+    target.assign(source, allow_missing_dofs=True)
+
+    expected = np.where(matched, value, 9)
+    parallel_assert(np.array_equal(target.dat.data_ro, expected))
+
+
+@pytest.mark.parallel([1, 2])
+def test_submesh_assign_negative_scale_preserves_unmatched_nodes(submesh_fields):
+    source, target, matched = submesh_fields
+    source.assign(4)
+    target.assign(9)
+
+    target.assign(-2 * source, allow_missing_dofs=True)
+
+    expected = np.where(matched, -8, 9)
+    parallel_assert(np.array_equal(target.dat.data_ro, expected))
 
 
 @pytest.mark.parallel(2)

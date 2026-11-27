@@ -440,6 +440,25 @@ def test_real_space_assign(shape):
     assert np.allclose(g.dat.global_data.reshape(shape), np.full(shape, 8.0))
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("make_source_space", [
+    pytest.param(lambda mesh: FunctionSpace(mesh, "R", 0), id="scalar"),
+    pytest.param(lambda mesh: VectorFunctionSpace(mesh, "R", 0, dim=1), id="singleton-vector"),
+])
+def test_cross_mesh_real_assignment_broadcasts(make_source_space):
+    source_mesh = UnitIntervalMesh(3)
+    target_mesh = UnitIntervalMesh(5)
+    source_space = make_source_space(source_mesh)
+    target_space = VectorFunctionSpace(target_mesh, "R", 0, dim=3)
+    source = Function(source_space)
+    target = Function(target_space)
+    source.assign(2)
+
+    target.assign(source)
+
+    assert np.array_equal(target.dat.global_data, [2, 2, 2])
+
+
 @pytest.mark.skipcomplex
 def test_real_interpolate():
     N = 100
