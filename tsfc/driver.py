@@ -9,7 +9,6 @@ from ufl.classes import Form
 from ufl.domain import extract_unique_domain, extract_domains, join_domains
 
 import finat
-from pyop3.log import ANSI_GREEN, ANSI_RESET
 
 from tsfc import ufl_utils
 from tsfc.logging import logger
@@ -82,6 +81,8 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     assert isinstance(form, Form)
 
+    GREEN = "\033[1;37;32m%s\033[0m"
+
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
     form_data = ufl_utils.compute_form_data(
@@ -93,7 +94,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         ),
         complex_mode=complex_mode,
     )
-    logger.info(f"{ANSI_GREEN}compute_form_data finished in %g seconds.{ANSI_RESET}", time.time() - cpu_time)
+    logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     validate_domains(form_data.preprocessed_form)
 
@@ -106,9 +107,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
                                       diagonal=diagonal, return_increments=return_increments)
             if kernel is not None:
                 kernels.append(kernel)
-        logger.info(f"{ANSI_GREEN}compile_integral finished in %g seconds.{ANSI_RESET}", time.time() - start)
+        logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
 
-    logger.info(f"{ANSI_GREEN}TSFC finished in %g seconds.{ANSI_RESET}", time.time() - cpu_time)
+    logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
     return kernels
 
 

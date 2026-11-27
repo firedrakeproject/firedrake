@@ -1,11 +1,11 @@
 
 import logging
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
-# Ensure that the TSFC logger has been created.
+# Ensure that the relevant loggers have been created.
 import tsfc.logging             # noqa: F401
+import pyop3.log             # noqa: F401
 
 import pyop3.config
-from pyop3.log import ANSI_BLUE, ANSI_GREEN, ANSI_RED, ANSI_RESET
 from pyop3.mpi import COMM_WORLD
 
 
@@ -27,55 +27,31 @@ warning = logger.warning
 error = logger.error
 critical = logger.critical
 
-RED = f"{ANSI_RED}%s{ANSI_RESET}"
-BLUE = f"{ANSI_BLUE}%s{ANSI_RESET}"
-GREEN = f"{ANSI_GREEN}%s{ANSI_RESET}"
+RED = "\033[1;37;31m%s\033[0m"
+BLUE = "\033[1;37;34m%s\033[0m"
+GREEN = "\033[1;37;32m%s\033[0m"
 
 
 # Mimic dolfin
 def info_red(message, *args, **kwargs):
-    """Log an INFO message in red.
+    ''' Write info message in red.
 
-    Parameters
-    ----------
-    message : str
-        The log message.
-    *args : object
-        Arguments that the logger substitutes into the message.
-    **kwargs : object
-        Keyword arguments for :meth:`logging.Logger.info`.
-    """
-    info(f"{ANSI_RED}{message}{ANSI_RESET}", *args, **kwargs)
+    :arg message: the message to be printed. '''
+    info(RED % message, *args, **kwargs)
 
 
 def info_green(message, *args, **kwargs):
-    """Log an INFO message in green.
+    ''' Write info message in green.
 
-    Parameters
-    ----------
-    message : str
-        The log message.
-    *args : object
-        Arguments that the logger substitutes into the message.
-    **kwargs : object
-        Keyword arguments for :meth:`logging.Logger.info`.
-    """
-    info(f"{ANSI_GREEN}{message}{ANSI_RESET}", *args, **kwargs)
+    :arg message: the message to be printed. '''
+    info(GREEN % message, *args, **kwargs)
 
 
 def info_blue(message, *args, **kwargs):
-    """Log an INFO message in blue.
+    ''' Write info message in blue.
 
-    Parameters
-    ----------
-    message : str
-        The log message.
-    *args : object
-        Arguments that the logger substitutes into the message.
-    **kwargs : object
-        Keyword arguments for :meth:`logging.Logger.info`.
-    """
-    info(f"{ANSI_BLUE}{message}{ANSI_RESET}", *args, **kwargs)
+    :arg message: the message to be printed. '''
+    info(BLUE % message, *args, **kwargs)
 
 
 def set_log_handlers(handlers=None, comm=COMM_WORLD):

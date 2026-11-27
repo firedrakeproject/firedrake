@@ -21,11 +21,6 @@ WARNING = logging.WARNING
 ERROR = logging.ERROR
 CRITICAL = logging.CRITICAL
 
-ANSI_RED = "\033[1;37;31m"
-ANSI_GREEN = "\033[1;37;32m"
-ANSI_BLUE = "\033[1;37;34m"
-ANSI_RESET = "\033[0m"
-
 
 def log(level, msg, *args, **kwargs):
     ''' Print 'msg % args' with the severity 'level'.
