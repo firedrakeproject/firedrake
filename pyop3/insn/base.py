@@ -794,7 +794,7 @@ class Assignment(AbstractAssignment):
             if assignee_ is None:
                 raise ReferenceError(
                     "Assignment assignee has been destroyed. You may need to "
-                    "pass `_weakref=True`."
+                    "pass `_weakref=False`."
                 )
             return assignee_
         else:
