@@ -21,6 +21,7 @@ from ufl.algorithms import extract_coefficients
 from ufl.classes import Expr
 
 if typing.TYPE_CHECKING:
+    from firedrake.eigensolver import LinearEigenproblem
     from firedrake.variational_solver import NonlinearVariationalProblem
 
 
@@ -153,7 +154,7 @@ class _SNESContext:
     Parameters
     ----------
     problem
-        The NonlinearVariationalProblem.
+        The variational problem or linear eigenproblem.
     mat_type
         Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
@@ -213,6 +214,7 @@ class _SNESContext:
                  transfer_manager=None,
                  pre_apply_bcs: bool = True):
         from firedrake.assemble import get_assembler
+        from firedrake.eigensolver import LinearEigenproblem
 
         if pmat_type is None:
             pmat_type = mat_type
@@ -237,37 +239,42 @@ class _SNESContext:
         # The solver creates the SNES, and sets it with set_snes.
         self.snes = None
 
+        is_eigenproblem = isinstance(problem, LinearEigenproblem)
         self.fcp = problem.form_compiler_parameters
-        # Function to hold current guess
-        self._x = problem.u_restrict
-
         if appctx is None:
             appctx = {}
-        # A split context will already get the full state.
-        # TODO, a better way of doing this.
-        # Now we don't have a temporary state inside the snes
-        # context we could just require the user to pass in the
-        # full state on the outside.
-        appctx.setdefault("state", self._x)
+        if is_eigenproblem:
+            self._x = None
+            self.F = None
+            self.E = None
+            self.J = problem.A
+            Jp = None
+        else:
+            # Function to hold current guess
+            self._x = problem.u_restrict
+            self.F = problem.F
+            self.E = problem.E
+            self.J = problem.J
+            Jp = problem.Jp
+            # A split context will already get the full state.
+            # TODO, a better way of doing this.
+            # Now we don't have a temporary state inside the snes
+            # context we could just require the user to pass in the
+            # full state on the outside.
+            appctx.setdefault("state", self._x)
         appctx.setdefault("form_compiler_parameters", self.fcp)
 
         self.appctx = appctx
         self.matfree = matfree
         self.pmatfree = pmatfree
-        self.F = problem.F
-        self.J = problem.J
-        self.E = problem.E
 
         # For Jp to equal J, bc.Jp must equal bc.J for all EquationBC objects.
-        Jp_eq_J = problem.Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
-
+        Jp_eq_J = Jp is None and all(bc.Jp_eq_J for bc in problem.bcs)
+        self._separate_pmat = mat_type != pmat_type or Jp is not None
         if mat_type != pmat_type or not Jp_eq_J:
             # Need separate pmat if either Jp is different or we want
             # a different pmat type to the mat type.
-            if problem.Jp is None:
-                self.Jp = self.J
-            else:
-                self.Jp = problem.Jp
+            self.Jp = self.J if Jp is None else Jp
         else:
             # pmat_type == mat_type and Jp_eq_J
             self.Jp = None
@@ -281,7 +288,7 @@ class _SNESContext:
         self.bcs_Jp = tuple(bc.extract_form('Jp') for bc in assembly_bcs)
 
         self._bc_residual = None
-        if not pre_apply_bcs and next(problem.dirichlet_bcs(), None) is not None:
+        if not is_eigenproblem and not pre_apply_bcs and next(problem.dirichlet_bcs(), None) is not None:
             # Delayed lifting of DirichletBCs
             self._bc_residual = Function(self._x.function_space())
             if problem.is_linear:
@@ -296,10 +303,12 @@ class _SNESContext:
                                                      form_compiler_parameters=self.fcp,
                                                      ).assemble
 
-        self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
-                                                form_compiler_parameters=self.fcp,
-                                                zero_bc_nodes=pre_apply_bcs,
-                                                ).assemble
+        self._assemble_residual = None
+        if not is_eigenproblem:
+            self._assemble_residual = get_assembler(self.F, bcs=self.bcs_F,
+                                                    form_compiler_parameters=self.fcp,
+                                                    zero_bc_nodes=pre_apply_bcs,
+                                                    ).assemble
 
         self._jacobian_assembled = False
         self._splits = {}
@@ -332,7 +341,7 @@ class _SNESContext:
         self.snes = snes
 
     def reconstruct(self,
-                    problem: "NonlinearVariationalProblem | None" = None,
+                    problem: "NonlinearVariationalProblem | LinearEigenproblem | None" = None,
                     mat_type: str | None = None,
                     pmat_type: str | None = None,
                     **kwargs) -> "_SNESContext":
@@ -341,7 +350,7 @@ class _SNESContext:
         Parameters
         ----------
         problem
-            The new NonlinearVariationalProblem, defaults to the original problem.
+            The new problem. Defaults to the original problem.
         mat_type
             The new Jacobian matrix type, defaults to `self.mat_type`.
         pmat_type
@@ -510,7 +519,7 @@ class _SNESContext:
         self._transfer_manager = manager
 
     def set_objective(self, snes):
-        if self._problem.E:
+        if self.E:
             snes.setObjective(self.form_objective)
         else:
             snes.setObjective(None)
@@ -539,6 +548,7 @@ class _SNESContext:
     def split(self, fields):
         from firedrake import NonlinearVariationalProblem as NLVP
         from firedrake.bcs import DirichletBC, EquationBC
+        from firedrake.eigensolver import LinearEigenproblem
         fields = tuple(tuple(f) for f in fields)
         splits = self._splits.get(fields)
         if splits is not None:
@@ -548,77 +558,89 @@ class _SNESContext:
         problem = self._problem
         splitter = ExtractSubBlock()
         for field_num, field in enumerate(fields):
-            F = splitter.split(problem.F, argument_indices=(field,))
-            J = splitter.split(problem.J, argument_indices=(field, field))
+            J = splitter.split(self.J, argument_indices=(field, field))
             V = J.arguments()[-1].function_space()
-            # Exposition:
-            # We are going to make a new solution Function on the sub
-            # mixed space defined by the relevant fields.
-            # But the form may refer to the rest of the solution
-            # anyway.
-            # So we pull it apart and will make a new function on the
-            # subspace that shares data.
-            if len(field) == 1:
-                # result unmixed
-                i, = field
-                slice_ = problem.u_restrict.function_space()._labels[i]
+            if isinstance(problem, LinearEigenproblem):
+                M = splitter.split(problem.M, argument_indices=(field, field))
+                bcs = []
+                for bc in problem.dirichlet_bcs():
+                    sub_bc = bc.reconstruct(field=field, V=V)
+                    if sub_bc is not None:
+                        bcs.append(sub_bc)
+                new_problem = LinearEigenproblem(
+                    J, M, bcs=bcs, bc_shift=problem.bc_shift, restrict=False,
+                    form_compiler_parameters=problem.form_compiler_parameters,
+                )
             else:
-                # result remains mixed
-                slice_ = [problem.u_restrict.function_space()._labels[i] for i in field]
-            val = problem.u_restrict.dat[slice_]
-            subu = Function(V, val=val)
-            if len(field) == 1:
-                subsplit = (subu,)
-            else:
-                # Split it apart to shove in the form.
-                subsplit = split(subu)
-            vec = []
-            for i, ui in enumerate(problem.u.subfunctions):
-                if i in field:
-                    # If this is a field we're keeping, get it from
-                    # the new function. Otherwise just point to the
-                    # old data.
-                    ui = subsplit[field.index(i)]
-                vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
+                F = splitter.split(problem.F, argument_indices=(field,))
+                # Exposition:
+                # We are going to make a new solution Function on the sub
+                # mixed space defined by the relevant fields.
+                # But the form may refer to the rest of the solution
+                # anyway.
+                # So we pull it apart and will make a new function on the
+                # subspace that shares data.
+                if len(field) == 1:
+                    # result unmixed
+                    i, = field
+                    slice_ = problem.u_restrict.function_space()._labels[i]
+                else:
+                    # result remains mixed
+                    slice_ = [problem.u_restrict.function_space()._labels[i] for i in field]
+                val = problem.u_restrict.dat[slice_]
+                subu = Function(V, val=val)
+                if len(field) == 1:
+                    subsplit = (subu,)
+                else:
+                    # Split it apart to shove in the form.
+                    subsplit = split(subu)
+                vec = []
+                for i, ui in enumerate(problem.u.subfunctions):
+                    if i in field:
+                        # If this is a field we're keeping, get it from
+                        # the new function. Otherwise just point to the
+                        # old data.
+                        ui = subsplit[field.index(i)]
+                    vec.extend(ui[idx] for idx in numpy.ndindex(ui.ufl_shape))
 
-            # So now we have a new representation for the solution
-            # vector in the old problem. For the fields we're going
-            # to solve for, it points to a new Function (which wraps
-            # the original pieces). For the rest, it points to the
-            # pieces from the original Function.
-            # IOW, we've reinterpreted our original mixed solution
-            # function as being made up of some spaces we're still
-            # solving for, and some spaces that have just become
-            # coefficients in the new form.
-            u = as_vector(vec)
-            J = replace(J, {problem.u_restrict: u})
-            if problem.is_linear and isinstance(J, MatrixBase):
-                # The BC lifting term is action(MatrixBase, u).
-                # We cannot replace u with the split solution, as action expects a Function.
-                # We drop the existing lifting term from the residual
-                # and compute a fully decoupled lifting term with the split J.
-                F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
-                F += problem.compute_bc_lifting(J, subu)
-            else:
-                F = replace(F, {problem.u_restrict: u})
-            if problem.Jp is not None:
-                Jp = splitter.split(problem.Jp, argument_indices=(field, field))
-                Jp = replace(Jp, {problem.u_restrict: u})
-            else:
-                Jp = None
-            # A preassembled Jacobian already encodes the boundary conditions
-            orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
-            bcs = []
-            for bc in orig_bcs:
-                if isinstance(bc, DirichletBC):
-                    bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
-                elif isinstance(bc, EquationBC):
-                    bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
-                if bc_temp is not None:
-                    bcs.append(bc_temp)
-            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
-                               form_compiler_parameters=problem.form_compiler_parameters)
-            new_problem._constant_jacobian = problem._constant_jacobian
+                # So now we have a new representation for the solution
+                # vector in the old problem. For the fields we're going
+                # to solve for, it points to a new Function (which wraps
+                # the original pieces). For the rest, it points to the
+                # pieces from the original Function.
+                # IOW, we've reinterpreted our original mixed solution
+                # function as being made up of some spaces we're still
+                # solving for, and some spaces that have just become
+                # coefficients in the new form.
+                u = as_vector(vec)
+                J = replace(J, {problem.u_restrict: u})
+                if problem.is_linear and isinstance(J, MatrixBase):
+                    # The BC lifting term is action(MatrixBase, u).
+                    # We cannot replace u with the split solution, as action expects a Function.
+                    # We drop the existing lifting term from the residual
+                    # and compute a fully decoupled lifting term with the split J.
+                    F = replace(F, {problem.u_restrict: zero(problem.u_restrict.ufl_shape)})
+                    F += problem.compute_bc_lifting(J, subu)
+                else:
+                    F = replace(F, {problem.u_restrict: u})
+                if problem.Jp is not None:
+                    Jp = splitter.split(problem.Jp, argument_indices=(field, field))
+                    Jp = replace(Jp, {problem.u_restrict: u})
+                else:
+                    Jp = None
+                # A preassembled Jacobian already encodes the boundary conditions
+                orig_bcs = [] if isinstance(J, MatrixBase) else problem.bcs
+                bcs = []
+                for bc in orig_bcs:
+                    if isinstance(bc, DirichletBC):
+                        bc_temp = bc.reconstruct(field=field, V=V, g=bc.function_arg, sub_domain=bc.sub_domain)
+                    elif isinstance(bc, EquationBC):
+                        bc_temp = bc.reconstruct(V, subu, u, field, problem.is_linear)
+                    if bc_temp is not None:
+                        bcs.append(bc_temp)
+                new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=Jp, is_linear=problem.is_linear,
+                                   form_compiler_parameters=problem.form_compiler_parameters)
+                new_problem._constant_jacobian = problem._constant_jacobian
             name = V.name if len(V) == 1 else None
             field_prefix = f"fieldsplit_{name or field_num}_"
             options_prefix = f"{self.options_prefix}{field_prefix}"
@@ -769,11 +791,14 @@ class _SNESContext:
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
+        from firedrake.variational_solver import NonlinearVariationalProblem
+
         dm = ksp.getDM()
         ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
 
-        if problem._constant_jacobian and ctx._jacobian_assembled:
+        if (isinstance(problem, NonlinearVariationalProblem)
+                and problem._constant_jacobian and ctx._jacobian_assembled):
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
@@ -813,7 +838,7 @@ class _SNESContext:
     @cached_property
     def _assembler_pjac(self):
         from firedrake.assemble import get_assembler
-        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
+        if self._separate_pmat:
             return get_assembler(self.Jp, bcs=self.bcs_Jp, form_compiler_parameters=self.fcp,
                                  mat_type=self.pmat_type, sub_mat_type=self.sub_pmat_type,
                                  options_prefix=self.options_prefix, appctx=self.appctx)
@@ -822,7 +847,7 @@ class _SNESContext:
 
     @cached_property
     def _pjac(self):
-        if self.mat_type != self.pmat_type or self._problem.Jp is not None:
+        if self._separate_pmat:
             return self._assembler_pjac.allocate()
         else:
             return self._jac

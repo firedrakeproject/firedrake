@@ -6,7 +6,7 @@ from functools import singledispatch, singledispatchmethod, partial
 import firedrake
 from firedrake.petsc import PETSc
 from firedrake.solving_utils import _SNESContext
-from firedrake.dmhooks import (get_transfer_manager, get_appctx, push_appctx, pop_appctx,
+from firedrake.dmhooks import (get_transfer_manager, get_function_space, get_appctx, push_appctx, pop_appctx,
                                get_parent, add_hook)
 
 from . import utils
@@ -335,8 +335,10 @@ def reconstruct_eigenproblem(problem, self, coefficient_mapping=None):
            for bc in problem.bcs]
     A = self(problem.A, self, coefficient_mapping=coefficient_mapping)
     M = self(problem.M, self, coefficient_mapping=coefficient_mapping)
-    new_problem = firedrake.LinearEigenproblem(A, M, bcs=bcs,
-                                               bc_shift=problem.bc_shift, restrict=problem.restrict)
+    new_problem = firedrake.LinearEigenproblem(
+        A, M, bcs=bcs, bc_shift=problem.bc_shift, restrict=problem.restrict,
+        form_compiler_parameters=problem.form_compiler_parameters,
+    )
     attach_relative(self, problem, new_problem)
     return new_problem
 
@@ -400,7 +402,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
         solver_prefix = "fas_"
     else:
         solver_prefix = "mg_"
-    _, level = utils.get_level(problem.u_restrict.function_space().mesh())
+    _, level = utils.get_level(get_function_space(problem.dm).mesh())
     if level == 0:
         levels_prefix = f"{solver_prefix}coarse_"
     else:
@@ -433,8 +435,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
     attach_relative(self, new_context, context, reverse=True)
     attach_relative(self, context, new_context)
 
-    solutiondm = context._problem.u_restrict.function_space().dm
-    parentdm = get_parent(solutiondm)
+    parentdm = get_parent(context._problem.dm)
     # Now that we have the reconstructed snescontext, push it to the reconstructed DMs.
     # Otherwise they will not have the right transfer manager when they are reconstructed in turn.
     for val in coefficient_mapping.values():
@@ -448,7 +449,7 @@ def reconstruct_snescontext(context, self, coefficient_mapping=None):
                 if parentdm.getAttr("__setup_hooks__"):
                     add_hook(parentdm, teardown=partial(pop_appctx, newdm, new_context))
 
-    ises = new_context._x.function_space().field_ises
+    ises = get_function_space(problem.dm).field_ises
     new_context._nullspace = self(context._nullspace, self, coefficient_mapping=coefficient_mapping)
     new_context.set_nullspace(new_context._nullspace, ises, transpose=False, near=False)
     new_context._nullspace_T = self(context._nullspace_T, self, coefficient_mapping=coefficient_mapping)
@@ -555,8 +556,8 @@ def create_interpolation(dmc, dmf):
     cctx = get_appctx(dmc)
     fctx = get_appctx(dmf)
 
-    V_c = cctx._problem.u_restrict.function_space()
-    V_f = fctx._problem.u_restrict.function_space()
+    V_c = get_function_space(dmc)
+    V_f = get_function_space(dmf)
 
     row_size = V_f.template_vec.getSizes()
     col_size = V_c.template_vec.getSizes()
@@ -581,11 +582,8 @@ def create_interpolation(dmc, dmf):
 
 
 def create_injection(dmc, dmf):
-    cctx = get_appctx(dmc)
-    fctx = get_appctx(dmf)
-
-    V_c = cctx._problem.u_restrict.function_space()
-    V_f = fctx._problem.u_restrict.function_space()
+    V_c = get_function_space(dmc)
+    V_f = get_function_space(dmf)
 
     row_size = V_c.template_vec.getSizes()
     col_size = V_f.template_vec.getSizes()
