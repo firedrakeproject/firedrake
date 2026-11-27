@@ -252,7 +252,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     """
 
     # Check that we get a Form
-    if not isinstance(form, (Form, ufl.Interpolate)):
+    if not isinstance(form, (Form, ZeroBaseForm, ufl.Interpolate)):
         raise RuntimeError(f"Unable to convert object to a UFL form: {form!r}")
     # Resolve region names before the cache lookup, so that the cache key
     # reflects the integer subdomain ids the names currently map to
