@@ -195,7 +195,7 @@ class PMGBase(PCSNESBase):
             if (cV.ufl_element() == cele) and (cV.mesh() == fV.mesh()) and all(cV_.boundary_set == fV_.boundary_set for cV_, fV_ in zip(cV, fV)):
                 return cV.dm
 
-        cV = fV.reconstruct(element=cele)
+        cV = fV.collapse().reconstruct(element=cele)
         cdm = cV.dm
 
         fproblem = fctx._problem

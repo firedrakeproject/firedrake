@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from functools import cached_property
+from types import EllipsisType
 import numpy as np
 import ufl
 
@@ -90,6 +91,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         # User comm
         self.comm = V.comm
         self._function_space = V
+        self._subfunctions = {}
         self.uid = utils._new_uid(self.comm)
         self._name = name or 'cofunction_%d' % self.uid
         self._label = "a cofunction"
@@ -180,8 +182,14 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
     @cached_property
     @CofunctionMixin._ad_annotate_subfunctions
     def subfunctions(self):
-        r"""Extract any sub :class:`Cofunction`\s defined on the component spaces
-        of this this :class:`Cofunction`'s :class:`.FunctionSpace`."""
+        """Extract the subfunctions on the indexed subspaces of a mixed space.
+
+        Returns
+        -------
+        tuple of Cofunction
+            Subfunctions sharing data with this cofunction, or this cofunction
+            itself if its space is not mixed.
+        """
         if functionspaceimpl.is_mixed(self.function_space()):
             subfuncs = []
             for subspace in self._function_space:
@@ -204,33 +212,47 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         )
 
     @PETSc.Log.EventDecorator()
-    def sub(self, i: int | Sequence[int]) -> "Cofunction":
-        """Extract a subfunction of a mixed cofunction, or components of a vector or tensor cofunction.
+    @CofunctionMixin._ad_annotate_sub
+    def sub(self, i: int | Sequence[int] | EllipsisType) -> "Cofunction":
+        """Extract a view of selected subfunctions, or components of a vector or tensor cofunction.
 
         For a vector or tensor cofunction, the component view can be used to
         apply boundary conditions.
 
         Parameters
         ----------
-        i : int or collections.abc.Sequence of int
-            For a mixed cofunction, the index of the subfunction to extract.
-            For a vector or tensor cofunction, the flat index of the component
-            to extract, or a tuple, list or range of flat indices, as
-            described in :meth:`~.WithGeometryBase.sub`.
+        i : int, collections.abc.Sequence of int, or types.EllipsisType
+            For a mixed cofunction, use an integer to extract one subfunction,
+            or a nonempty tuple, list or range of distinct indices to extract
+            subfunctions in the given order. For a vector or tensor cofunction,
+            use the flat index of the component to extract, or a tuple, list or
+            range of flat indices, as described in
+            :meth:`~.WithGeometryBase.sub`. Use ``Ellipsis`` to select the
+            whole cofunction.
 
         Returns
         -------
         Cofunction
-            A cofunction that shares data with this cofunction. The cofunction
-            will be defined on ``self.function_space().sub(i)``. If a sequence
-            selects every component in order, the result will be this
-            cofunction.
+            A cofunction sharing data with the selected subfunctions or component.
+            The cofunction will be defined on ``self.function_space().sub(i)``.
+            If the sequence contains only one index, the result will be an
+            unmixed cofunction. Repeated calls with the same sequence of indices
+            will return the same cofunction.
 
         See Also
         --------
         subfunctions
         """
+        if i is Ellipsis:
+            return self
         if type(self.function_space().ufl_element()) is MixedElement:
+            if isinstance(i, (tuple, list, range)):
+                i = tuple(i)
+                V = self.function_space()
+                W = V.sub(i)
+                labels = [V._labels[j] for j in i]
+                slice_ = labels[0] if len(labels) == 1 else labels
+                return type(self)(W, val=self.dat[slice_])
             return self.subfunctions[i]
         elif not self.function_space().shape:
             # TODO: Decide if this is acceptable usage
@@ -332,6 +354,7 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
         elif (isinstance(expr, Cofunction)
               and expr.function_space() == self.function_space()):
             # do not annotate in case of self assignment
+            block = None
             if annotate_tape() and self != expr:
                 if subset is not Ellipsis:
                     raise NotImplementedError("Cofunction subset assignment "
@@ -343,16 +366,16 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 # so that we do not annotate the recursive call to assign
                 # within Cofunction.assign(BaseForm, subset=...).
                 # But we currently do not implement annotation for subset != None.
-                get_working_tape().add_block(
-                    CofunctionAssignBlock(
-                        self, expr, rhs_from_assemble=expr_from_assemble)
-                )
+                block = CofunctionAssignBlock(expr, rhs_from_assemble=expr_from_assemble)
+                get_working_tape().add_block(block)
 
             # TODO: Shouldn't need to cast the axes
             # self.dat[subset].assign(expr.dat[subset], eager=True)
             lhs = self.dat[subset]
             rhs = expr.dat[subset]
             lhs.assign(rhs, eager=True)
+            if block is not None:
+                block.add_output(self.block_variable)
             return self
         elif isinstance(expr, BaseForm) and not isinstance(expr, Cofunction):
             # Enable c.assign(B) where c is a Cofunction and B an appropriate
@@ -628,7 +651,7 @@ class RieszMap:
         from firedrake import Function, Cofunction
 
         if ufl.duals.is_dual(value):
-            if value.function_space().dual() != self._function_space:
+            if value.function_space().topological != self._function_space.topological:
                 raise ValueError("Function space mismatch in RieszMap.")
             output = Function(self._function_space)
 
@@ -643,7 +666,7 @@ class RieszMap:
                 output = Function(self._function_space)
                 output.assign(soln)
         elif ufl.duals.is_primal(value):
-            if value.function_space() != self._function_space:
+            if value.function_space().topological != self._function_space.topological:
                 raise ValueError("Function space mismatch in RieszMap.")
 
             if self._inner_product == "l2":

@@ -26,6 +26,30 @@ def test_tensor_function_sub(shape, symmetry, dual):
         f.sub((0, n - 1))
 
 
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("indices", [(0,), (1,), (1, 0)])
+def test_split_cofunction_view(indices):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    c = Cofunction((V * V * V).dual())
+    for i, sub in enumerate(c.subfunctions):
+        sub.assign(i + 1)
+
+    splitter = ExtractSubBlock()
+    view = splitter.split(c, ((2, 0),))
+    assert view.function_space() is c.function_space().sub((2, 0))
+    result = splitter.split(view, (indices,))
+    fields = tuple((2, 0)[i] for i in indices)
+    expected = np.concatenate([c.sub(i).dat.data_ro for i in fields])
+    with result.dat.vec_ro as vec:
+        assert np.array_equal(vec.array_r, expected)
+    assert result.function_space().topological == c.function_space().sub(fields).topological
+
+    result.assign(7)
+    for i, sub in enumerate(c.subfunctions):
+        assert np.allclose(sub.dat.data_ro, 7 if i in fields else i + 1)
+
+
 def test_assemble_split_derivative():
     """Assemble the derivative of a form with a zero block."""
     mesh = UnitSquareMesh(1, 1)
@@ -212,14 +236,14 @@ def test_split_adjoint_action():
     splitter = ExtractSubBlock()
 
     F0 = splitter.split(F, (0,))
-    assert F0.arguments() == (TestFunction(V),)
+    assert F0.arguments() == (TestFunction(W.sub(0)),)
     actual = assemble(F0)
     expected = assemble(interpolate(TestFunction(V), c))
     assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
 
     F1 = splitter.split(F, (1,))
     assert F1 == 0
-    assert F1.arguments() == (TestFunction(V),)
+    assert F1.arguments() == (TestFunction(W.sub(1)),)
 
 
 @pytest.mark.parallel([1, 3])
@@ -238,7 +262,7 @@ def test_split_action_composition():
 
     for i, j in np.ndindex(2, 2):
         block = splitter.split(A, (i, j))
-        assert block.arguments() == (TestFunction(W[i].collapse()), TrialFunction(W[j].collapse()))
+        assert block.arguments() == (TestFunction(W.sub(i)), TrialFunction(W.sub(j)))
         actual = assemble(block, mat_type="aij").petscmat
         expected = matrix.createSubMatrix(ises[i], ises[j])
         actual.axpy(-1, expected, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)

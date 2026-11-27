@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from firedrake import *
 from firedrake.bcs import extract_subdomain_ids
+from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
 
@@ -332,6 +333,65 @@ def test_mixed_bcs(diagonal):
     else:
         data = A.M[label1, label1].values.diagonal()
     assert np.allclose(data[bc.nodes], 1.0)
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("indices", [(1,), (1, 0), (0, 1)])
+def test_selected_subspace_bcs(V, indices):
+    W = V * V
+    selected = W.sub(indices)
+    Vbc = selected if len(indices) == 1 else selected.sub(0)
+    bc = DirichletBC(Vbc, 0, "on_boundary")
+    reference = DirichletBC(W.sub(indices[0]), 0, "on_boundary")
+
+    f = Function(W).assign(1)
+    expected = f.copy(deepcopy=True)
+    reference.apply(expected)
+    bc.apply(f)
+    assert np.array_equal(f.dat.data_ro, expected.dat.data_ro)
+    assert bc.function_space_index() == indices[0]
+    assert extract_subdomain_ids((bc,)) == extract_subdomain_ids((reference,))
+
+    a = inner(TrialFunction(W), TestFunction(W)) * dx
+    A = assemble(a, bcs=bc, mat_type="aij")
+    B = assemble(a, bcs=reference, mat_type="aij")
+    assert A.petscmat.equal(B.petscmat)
+
+
+def test_reconstruct_selected_subspace_bc():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    W = V * V
+    bc = DirichletBC(W.sub((1, 0)).sub(0).sub(1), 0, "on_boundary")
+    assert bc.reconstruct() is bc
+    assert bc.reconstruct(V=W.sub((0, 1)).sub(0).sub(1)) is not bc
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("indices, mat_type", [((1,), "aij"), ((1, 0), "aij"),
+                                               ((1, 0), "nest"), ((2, 1), "nest")])
+def test_reconstruct_subspace_bcs(V, indices, mat_type):
+    W = V * V * V
+    reference = DirichletBC(W.sub(1), 0, "on_boundary")
+    selected = W.sub(indices)
+    bc = reference.reconstruct(field=indices, V=selected)
+    with pytest.raises(RuntimeError):
+        reference.apply(Function(W.sub(0)))
+
+    f = Function(selected).assign(1)
+    expected = Function(W).assign(1)
+    reference.apply(expected)
+    bc.apply(f)
+    assert np.array_equal(f.dat.data_ro, expected.sub(indices).dat.data_ro)
+
+    a = inner(sum(TrialFunctions(W)), sum(TestFunctions(W))) * dx
+    subform = ExtractSubBlock().split(a, (indices, indices))
+    A = assemble(subform, bcs=bc, mat_type=mat_type).petscmat.convert("aij")
+    B = assemble(a, bcs=reference, mat_type="aij").petscmat
+    iset = PETSc.IS().createGeneral(np.concatenate([W.field_ises[i].indices for i in indices]), comm=W.comm)
+    B = B.createSubMatrix(iset, iset)
+    B.axpy(-1, A)
+    assert B.norm() < 1.e-14
 
 
 def test_bcs_rhs_assemble(a, V):

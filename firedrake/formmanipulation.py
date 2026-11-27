@@ -16,7 +16,6 @@ from ufl.corealg.dag_traverser import DAGTraverser
 
 from firedrake import utils
 from firedrake.petsc import PETSc
-from firedrake.functionspace import MixedFunctionSpace
 from firedrake.functionspaceimpl import WithGeometry
 from firedrake.cofunction import Cofunction
 from firedrake.slate.slate import (
@@ -27,16 +26,6 @@ from firedrake.slate.slate import (
 from firedrake.ufl_expr import Coargument
 
 
-def subspace(V, indices):
-    """Construct a collapsed subspace using components from V."""
-    if len(indices) == 1:
-        W = V[indices[0]]
-    else:
-        labels = [V._labels[i] for i in indices]
-        W = MixedFunctionSpace([V[i] for i in indices], _labels=labels)
-    return W.collapse()
-
-
 class ExtractSubBlock(DAGTraverser):
 
     """Extract a sub-block from a form."""
@@ -45,7 +34,7 @@ class ExtractSubBlock(DAGTraverser):
         indices = self.select_block(blocks, a.number())
         if indices is None or len(a.function_space()) == 1:
             return a
-        return a.reconstruct(function_space=subspace(a.function_space(), indices))
+        return a.reconstruct(function_space=a.function_space().sub(indices))
 
     @staticmethod
     def select_block(blocks: tuple, number: int) -> tuple | None:
@@ -175,7 +164,7 @@ class ExtractSubBlock(DAGTraverser):
             # Not on a mixed space, just return ourselves.
             return o
 
-        W = subspace(V, indices)
+        W = V.sub(indices)
         return Coargument(W, number=o.number(), part=o.part())
 
     @process.register(Cofunction)
@@ -187,18 +176,7 @@ class ExtractSubBlock(DAGTraverser):
             # Not on a mixed space, just return ourselves.
             return o
 
-        # We only need the test space for Cofunction
-        W = subspace(V, indices)
-        # This is needed because the indices and labels do not match when we split things
-        slice_ = [
-            o.dat.axes.trees[0].root.component_labels[i]
-            for i in indices
-        ]
-        if len(indices) == 1:
-            # return a non-mixed thing
-            return Cofunction(W, val=o.dat[utils.just_one(slice_)])
-        else:
-            return Cofunction(W, val=o.dat[slice_])
+        return o.sub(indices)
 
     @process.register(Matrix)
     def _(self, o, blocks):
@@ -228,7 +206,7 @@ class ExtractSubBlock(DAGTraverser):
             argument_indices.append(fields)
 
         if isinstance(o.a, Form):
-            form = self.split(o.a, argument_indices=argument_indices)
+            form = self(o.a, blocks=blocks)
             if isinstance(form, ZeroBaseForm):
                 return form
         else:

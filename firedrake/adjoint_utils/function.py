@@ -1,4 +1,5 @@
 from functools import wraps
+from collections.abc import Callable
 import ufl
 from ufl.domain import extract_unique_domain
 from pyadjoint.overloaded_type import create_overloaded_object, FloatingType
@@ -54,23 +55,65 @@ class FunctionMixin(FloatingType):
 
     @staticmethod
     def _ad_annotate_subfunctions(subfunctions):
+        """Lower ``subfunctions`` access to ``sub`` for adjoint annotation.
+
+        Mixed ``u.subfunctions[i]`` lowers to ``u.sub((i,))`` and shares the
+        blocks used by ``sub``. Non-mixed ``u.subfunctions[0]`` lowers to
+        ``u.sub(Ellipsis)``, which returns ``u`` without creating a block.
+
+        For example::
+
+            V = VectorFunctionSpace(mesh, "CG", 1, dim=2)
+            u = Function(V)
+            u0 = u.subfunctions[0]
+
+        Here ``u0`` is the whole vector ``u``. The call ``u.sub(0)`` selects
+        its first scalar component. The same lowering applies to cofunctions.
+        """
         @wraps(subfunctions)
         def wrapper(self, *args, **kwargs):
             ad_block_tag = kwargs.pop("ad_block_tag", None)
             with stop_annotating():
                 output = subfunctions(self, *args, **kwargs)
 
-            output = tuple(type(self)(output[i].function_space(),
-                                      output[i],
-                                      block_class=SubfunctionBlock,
-                                      _ad_floating_active=True,
-                                      _ad_args=[self, i],
-                                      _ad_output_args=[i],
-                                      output_block_class=FunctionMergeBlock,
-                                      _ad_outputs=[self],
-                                      ad_block_tag=ad_block_tag)
-                           for i in range(len(output)))
-            return output
+            mixed = firedrake.functionspaceimpl.is_mixed(self.function_space())
+            return tuple(self.sub((i,) if mixed else Ellipsis, ad_block_tag=ad_block_tag)
+                         for i in range(len(output)))
+        return wrapper
+
+    @staticmethod
+    def _ad_annotate_sub(sub: Callable) -> Callable:
+        @wraps(sub)
+        def wrapper(self, *args, **kwargs):
+            ad_block_tag = kwargs.pop("ad_block_tag", None)
+            indices = args[0] if args else kwargs.get("indices", kwargs.get("i"))
+            V = self.function_space()
+            mixed = firedrake.functionspaceimpl.is_mixed(V)
+            if indices is Ellipsis or (mixed and not isinstance(indices, (tuple, list, range))) or (not mixed and not V.shape):
+                with stop_annotating():
+                    return sub(self, *args, **kwargs)
+
+            # Cache each annotated view so repeated selections return the same object.
+            if mixed:
+                indices = tuple(indices)
+            else:
+                W = V.sub(indices)
+                if W is V:
+                    return self
+                indices = W.component
+            if indices not in self._subfunctions:
+                with stop_annotating():
+                    output = sub(self, indices)
+                self._subfunctions[indices] = type(self)(
+                    output.function_space(), output,
+                    block_class=SubfunctionBlock,
+                    _ad_floating_active=True,
+                    _ad_args=[self, indices],
+                    _ad_output_args=[indices],
+                    output_block_class=FunctionMergeBlock,
+                    _ad_outputs=[self],
+                    ad_block_tag=ad_block_tag)
+            return self._subfunctions[indices]
         return wrapper
 
     @staticmethod
@@ -222,9 +265,9 @@ class FunctionMixin(FloatingType):
         return value.riesz_representation(riesz_map=riesz_map or "L2")
 
     def _ad_init_zero(self, dual=False):
-        from firedrake import Function, Cofunction
+        from firedrake import Function
         if dual:
-            return Cofunction(self.function_space().dual())
+            return Function(self.function_space().dual())
         else:
             return Function(self.function_space())
 
@@ -340,6 +383,10 @@ class FunctionMixin(FloatingType):
 
 
 class CofunctionMixin(FunctionMixin):
+
+    @classmethod
+    def _ad_init_object(cls, obj: "firedrake.Function | firedrake.Cofunction") -> "firedrake.Function | firedrake.Cofunction":
+        return firedrake.Function(obj)
 
     def _ad_dot(self, other):
         return firedrake.assemble(firedrake.action(self, other))
