@@ -941,6 +941,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
         self._access = access
+        self._parloops = {}
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -987,13 +988,13 @@ class ParloopFormAssembler(FormAssembler):
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
         for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
-            parloop, lgmaps, setup_callables = parloop_info
+            parloop, lgmaps, setup_callables, tensor_name = parloop_info
             for setup in setup_callables:
                 setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
-                arg_replace_map = {self._tensor_id[local_kernel]: subtensor}
+                arg_replace_map = {tensor_name: subtensor}
                 parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
@@ -1028,16 +1029,32 @@ class ParloopFormAssembler(FormAssembler):
         """
 
     def parloops(self, tensor):
-        if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_id")
-        else:
-            tensor_id = {}
+        """Return the loops that assemble the form into ``tensor``.
+
+        Parameters
+        ----------
+        tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase or pyop3.Scalar
+            The output tensor.
+
+        Returns
+        -------
+        list
+            For each local kernel, a tuple of the loop, the local-to-global maps to
+            use during the loop, the callables to execute before the loop, and the
+            name of the output argument of the loop.
+
+        """
+        # A call of a loop replaces only the buffers of its arguments. Therefore,
+        # we store the loops for each data layout of the output tensor. For
+        # example, a subfunction of a mixed function needs different loops from
+        # a standalone function on the same space.
+        key = self._as_pyop3_type(tensor).axis_trees
+        parloops_ = self._parloops.get(key)
+        if parloops_ is None:
             parloops_ = []
             for local_kernel, subdomain_id in self.local_kernels:
                 # TODO: Move this about
                 subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
-                tensor_id[local_kernel] = subtensor.name
 
                 parloop_builder = ParloopBuilder(
                     self._form,
@@ -1052,11 +1069,11 @@ class ParloopFormAssembler(FormAssembler):
                     parloop_builder.build(),
                     parloop_builder.collect_lgmaps(tensor, local_kernel.indices),
                     parloop_builder.setup_callables,
+                    subtensor.name,
                 ))
-            self._parloops = parloops_
-            self._tensor_id = tensor_id
+            self._parloops[key] = parloops_
 
-        return self._parloops
+        return parloops_
 
     @cached_property
     def local_kernels(self):
