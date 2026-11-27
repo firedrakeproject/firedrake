@@ -21,6 +21,9 @@ implementing DWR by hand involves substantial expertise, the high-level
 symbolic UFL representation of the problem permits the *automation* of DWR
 :cite:`Rognes:2013`.
 
+The nonlinear p-Laplacian
+-------------------------
+
 Here we apply DWR to a nonlinear stationary boundary value problem, the
 :math:`p`-Laplacian:
 
@@ -65,6 +68,9 @@ rule than the degree of the space alone would suggest:
   F = derivative(E, u)
   bcs = DirichletBC(V, 0, "on_boundary")
 
+Initial guess
+-------------
+
 The problem is strongly nonlinear, so we need a good initial guess. A constant
 initial guess, such as :math:`u = 0`, is a poor choice: the diffusivity
 :math:`|\nabla u|^{p-2}` is zero there, and so is the Jacobian. We solve the
@@ -93,6 +99,9 @@ from it:
 .. code-block:: python
 
   initial_guess = u.copy(deepcopy=True)
+
+Adaptive solver settings
+------------------------
 
 We solve the nonlinear problem with a trust-region Newton method. This method
 uses the energy :math:`E` as an objective to accept or reject each step. We
@@ -130,6 +139,9 @@ indicator, and ``goal_monitor`` reports the estimate at each cycle:
       "goal_monitor": None,
   })
 
+Dual-weighted residual estimate
+-------------------------------
+
 Let :math:`z` be the solution of the dual problem
 :math:`F'(u)[v, z] = J'(u)[v]` for all :math:`v`. The marker solves the primal
 and dual problems again in a space of one degree higher, and it uses these
@@ -149,6 +161,9 @@ inexactly. The remainder of this estimate is cubic in the errors. The marker
 localises both residuals by projecting them onto cell-bubble and facet-bubble
 spaces. The resulting local problems are diagonal because each has one degree
 of freedom per cell or facet.
+
+Adaptive solve and error plots
+------------------------------
 
 The adaptive loop is handled inside ``solve``.  It runs the configured
 SOLVE--ESTIMATE--MARK--REFINE cycle, and the marking callback supplies the
@@ -222,6 +237,9 @@ true error in the goal on each mesh that the monitor reports:
       error_axes.legend()
       fig.savefig(f"goal_oriented_nonlinear_p_laplacian_{name}.png", bbox_inches="tight")
 
+Boundary flux goal
+------------------
+
 Our first goal is the net outward flux through the top boundary. The flux
 vector is :math:`\mathbf{q}(u) = -|\nabla u|^{p-2}\nabla u`, so the goal is
 :math:`J(u) = \int_{\Gamma_{\mathrm{top}}} \mathbf{q}(u) \cdot n\,\mathrm{d}s`.
@@ -243,6 +261,9 @@ this boundary to evaluate the reference flux accurately:
 
 The finest cells lie near the top boundary, where the goal functional is
 evaluated, and along the right side of the domain.
+
+Energy goal
+-----------
 
 Our second goal is the energy :math:`E` itself. The residual is the derivative
 of the energy, so the dual problem has the right-hand side
