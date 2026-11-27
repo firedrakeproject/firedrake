@@ -345,12 +345,13 @@ def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None)
     make_space = type(function_space)
     mesh = function_space.mesh()
 
-    if isinstance(boundary_set, str):
-        boundary_set = (boundary_set,)
+    # Resolve region names before the union, because a frozenset would split
+    # a string name into characters and would hide names from the resolver
+    boundary_set = (boundary_set,) if isinstance(boundary_set, str) else tuple(boundary_set)
+    boundary_set = mesh.parse_subdomain_id(mesh.topological_dimension - 1, boundary_set)
     if function_space.boundary_set:
         boundary_set = frozenset(boundary_set) | function_space.boundary_set
         function_space = function_space.function_space
-    boundary_set = mesh.parse_subdomain_id(mesh.topological_dimension - 1, boundary_set)
     return make_space(impl.RestrictedFunctionSpace(function_space.topological,
                                                    boundary_set=boundary_set,
                                                    name=name),

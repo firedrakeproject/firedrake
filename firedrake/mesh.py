@@ -182,14 +182,6 @@ def _generate_default_mesh_topology_permutation_name(reorder):
     return "_".join(["firedrake", "default", str(reorder)])
 
 
-def _as_subdomain_id_list(subdomain_id):
-    ids = utils.as_tuple(subdomain_id)
-    for sid in ids:
-        if not isinstance(sid, numbers.Integral):
-            raise TypeError(f"Expected integer subdomain id, got {sid!r}")
-    return [int(sid) for sid in ids]
-
-
 def _named_region_labels(plex: PETSc.DMPlex) -> list[str]:
     """Return the names of the labels that describe individual regions."""
     standard_labels = {
@@ -219,6 +211,13 @@ def _region_label_strata(
                         yield dim, int(tag), name, indices[start:end]
 
 
+def _region_names(
+    plex: PETSc.DMPlex, names: Sequence[str], dimensions: Sequence[int],
+) -> list[tuple[int, int, str]]:
+    """Return the dimension, tag, and name of each region stratum."""
+    return [(dim, tag, name) for dim, tag, name, _ in _region_label_strata(plex, names, dimensions)]
+
+
 def _extract_netgen_region_names(ngmesh, mesh_dim):
     """Extract the named regions of a Netgen mesh for every entity dimension."""
     return [(dim, subdomain_id, name)
@@ -245,8 +244,7 @@ def _from_gmsh(filename: str, comm: MPI.Comm, geometric_dim: int | None) -> tupl
         plex = PETSc.DMPlex().createFromFile(filename, comm=comm)
 
     names = _named_region_labels(plex)
-    dimensions = range(plex.getDimension() + 1)
-    region_names = [(dim, tag, name) for dim, tag, name, _ in _region_label_strata(plex, names, dimensions)]
+    region_names = _region_names(plex, names, range(plex.getDimension() + 1))
     # Remove per-group labels before distribution and before Firedrake creates its labels.
     for name in names:
         plex.removeLabel(name)
@@ -257,9 +255,7 @@ def _from_gmsh(filename: str, comm: MPI.Comm, geometric_dim: int | None) -> tupl
 def _from_exodus(filename: str, comm: MPI.Comm) -> tuple[PETSc.DMPlex, list[tuple[int, int, str]]]:
     """Read the mesh and side set names from an Exodus file."""
     plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
-    names = _named_region_labels(plex)
-    dimensions = (plex.getDimension() - 1,)
-    return plex, [(dim, tag, name) for dim, tag, name, _ in _region_label_strata(plex, names, dimensions)]
+    return plex, _region_names(plex, _named_region_labels(plex), (plex.getDimension() - 1,))
 
 
 @PETSc.Log.EventDecorator()
@@ -285,12 +281,11 @@ def _from_cgns(filename: str, comm: MPI.Comm) -> tuple[PETSc.DMPlex, list[tuple[
     free_markers = (tag for tag in itertools.count(1) if tag not in used_markers)
     plex.createLabel(dmcommon.FACE_SETS_LABEL)
     face_sets = plex.getLabel(dmcommon.FACE_SETS_LABEL)
-    region_names = []
-    for name, tag in zip(sorted(names), free_markers):
+    region_names = [(facet_dim, tag, name) for name, tag in zip(sorted(names), free_markers)]
+    for _, tag, name in region_names:
         if name in local_facets:
             # An overlapping group can share points with an existing marker.
             face_sets.setStratumIS(tag, PETSc.IS().createGeneral(local_facets[name], comm=MPI.COMM_SELF))
-            region_names.append((facet_dim, tag, name))
     return plex, region_names
 
 
@@ -574,7 +569,7 @@ class AbstractMeshTopology(abc.ABC):
         # Cell subsets for integration over subregions
         self._subsets = {}
         # Human-readable region names, keyed by topological entity dimension.
-        self.region_names = defaultdict(dict)
+        self.region_names = {}
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -2952,7 +2947,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._max_work_functions = {}
         # Region names are set on the extruded mesh itself, because the
         # entity dimensions differ from those of the base mesh
-        self.region_names = defaultdict(dict)
+        self.region_names = {}
 
         # needed because we don't call super().__init__
         self._uid = f"mesh_{next(self.counter)}"
@@ -4644,8 +4639,12 @@ values from f.)"""
         """Bind a string name to one or more integer subdomain ids."""
         if not isinstance(subdomain_name, str):
             raise TypeError("subdomain_name must be a string")
-        dim_region_names = self.topology.region_names[self._check_entity_dimension(dim)]
-        dim_region_names.setdefault(subdomain_name, []).extend(_as_subdomain_id_list(subdomain_id))
+        ids = utils.as_tuple(subdomain_id)
+        for sid in ids:
+            if not isinstance(sid, numbers.Integral):
+                raise TypeError(f"Expected integer subdomain id, got {sid!r}")
+        dim_region_names = self.topology.region_names.setdefault(self._check_entity_dimension(dim), {})
+        dim_region_names.setdefault(subdomain_name, []).extend(int(sid) for sid in ids)
 
     def parse_subdomain_id(self, dim, subdomain_id):
         """Resolve string region names to integer subdomain ids for an entity dimension.
@@ -4654,7 +4653,7 @@ values from f.)"""
         nested collection (an intersection of markers) stay grouped.
         """
         dim = self._check_entity_dimension(dim)
-        dim_region_names = self.topology.region_names[dim]
+        dim_region_names = self.topology.region_names.get(dim, {})
 
         def lookup(name):
             if name in self._reserved_subdomain_names:
@@ -4683,8 +4682,7 @@ values from f.)"""
             return tuple(resolved)
 
         if isinstance(subdomain_id, str):
-            ids = lookup(subdomain_id)
-            return subdomain_id if ids == (subdomain_id,) else ids
+            return subdomain_id if subdomain_id in self._reserved_subdomain_names else lookup(subdomain_id)
         if isinstance(subdomain_id, Sequence):
             return resolve(subdomain_id, top=True)
         return subdomain_id
@@ -5222,6 +5220,7 @@ def Mesh(meshfile, **kwargs):
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
         plex.setName(_generate_default_mesh_topology_name(name))
+        region_names = _extract_netgen_region_names(meshfile, plex.getDimension())
 
     else:
         basename, ext = os.path.splitext(meshfile)
@@ -5276,7 +5275,6 @@ def Mesh(meshfile, **kwargs):
             temp._did_reordering = mesh._did_reordering
             mesh = temp
 
-        region_names = _extract_netgen_region_names(meshfile, mesh.topological_dimension)
     if region_names is not None:
         _register_region_names(mesh, region_names)
 
