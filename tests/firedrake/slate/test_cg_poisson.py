@@ -49,7 +49,7 @@ scpc_params = {
     "mat_type": "matfree",
     "pc_python_type": "firedrake.SCPC",
     "pc_sc_eliminate_fields": "0",
-    "condensed_field": mg_params,
+    "condensed_field": {**mg_params, "ksp_initial_guess_nonzero": True},
 }
 
 

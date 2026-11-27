@@ -3,6 +3,7 @@ import numpy as np
 from mpi4py import MPI
 from firedrake import *
 from firedrake.cython import mgimpl
+from firedrake.mg.utils import split_unrefined_nodes
 
 
 def corner_adaptive_hierarchy(base, nlevels):
@@ -408,94 +409,64 @@ def test_dg_injection_conserves_mass_extruded(degree):
         assert np.isclose(assemble(u_coarse * dx), assemble(u_fine * dx), rtol=1e-12, atol=1e-14)
 
 
-@pytest.mark.parallel([1, 2, 4])
-def test_prolong_DG0(mh):
-    """Test prolongation with DG0."""
-    V_coarse = FunctionSpace(mh[0], "DG", 0)
-    V_fine = FunctionSpace(mh[-1], "DG", 0)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-    stepc = conditional(ge(xc, 0), 1, 0)
-    xf, *_ = SpatialCoordinate(V_fine.mesh())
-    stepf = conditional(ge(xf, 0), 1, 0)
-
-    u_coarse.interpolate(stepc)
-    assert errornorm(stepc, u_coarse) <= 1e-12
-
-    prolong(u_coarse, u_fine)
-    assert errornorm(stepf, u_fine) <= 1e-12
+def _representable_expr(mesh, degree):
+    """Return an expression that can be represented exactly by spaces of the given degree."""
+    x = SpatialCoordinate(mesh)
+    if degree == 0:
+        # DG0 spaces on all meshes of the hierarchy can only represent
+        # expressions that are constant on the coarsest cells.
+        return conditional(ge(x[0], 0), 1, 0)
+    return sum(xi ** degree for xi in x)
 
 
-@pytest.mark.parallel([1, 2, 4])
-@pytest.mark.parametrize("operator", ["prolong", "inject"])
-def test_CG1(mh, operator):
-    """Prolongation & Injection test for CG1"""
+@pytest.mark.parallel([1, 2])
+def test_uniform_refinement_has_no_unrefined_nodes():
+    mh = MeshHierarchy(UnitSquareMesh(2, 2), 1)
     V_coarse = FunctionSpace(mh[0], "CG", 1)
-    V_fine = FunctionSpace(mh[-1], "CG", 1)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-    xf, *_ = SpatialCoordinate(V_fine.mesh())
+    V_fine = FunctionSpace(mh[1], "CG", 1)
 
-    if operator == "prolong":
-        u_coarse.interpolate(xc)
-        assert errornorm(xc, u_coarse) <= 1e-12
-
-        prolong(u_coarse, u_fine)
-        assert errornorm(xf, u_fine) <= 1e-12
-    if operator == "inject":
-        u_fine.interpolate(xf)
-        assert errornorm(xf, u_fine) <= 1e-12
-
-        inject(u_fine, u_coarse)
-        assert errornorm(xc, u_coarse) <= 1e-12
+    assert split_unrefined_nodes(V_coarse, V_fine) == (Ellipsis, None, None)
 
 
 @pytest.mark.parallel([1, 2, 4])
-def test_restrict_CG1(mh):
-    """Test restriction with CG1"""
-    V_coarse = FunctionSpace(mh[0], "CG", 1)
-    V_fine = FunctionSpace(mh[-1], "CG", 1)
-    u_coarse = Function(V_coarse)
+@pytest.mark.parametrize("family, degree", [("DG", 0), ("CG", 1), ("CG", 2), ("CG", 3)])
+def test_transfers(mh, family, degree):
+    """Test prolongation, restriction and injection on an adaptive hierarchy.
+
+    Degree 3 places two nodes on each edge. These nodes would be swapped if the
+    values at unrefined nodes were copied in the wrong order.
+    """
+    V_coarse = FunctionSpace(mh[0], family, degree)
+    V_fine = FunctionSpace(mh[-1], family, degree)
+    expr_coarse = _representable_expr(mh[0], degree)
+    expr_fine = _representable_expr(mh[-1], degree)
+
+    # Check that some values will be copied. Hierarchies in which every cell
+    # was refined would not test these copies.
+    assert any(split_unrefined_nodes(V_coarse.reconstruct(mesh=c), V_coarse.reconstruct(mesh=f))[1] is not None
+               for c, f in zip(mh, mh[1:]))
+
+    u_coarse = Function(V_coarse).interpolate(expr_coarse)
     u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-
-    u_coarse.interpolate(xc)
     prolong(u_coarse, u_fine)
+    assert errornorm(expr_fine, u_fine) <= 1e-12
 
-    rf = assemble(conj(TestFunction(V_fine)) * dx)
-    rc = Cofunction(V_coarse.dual())
-    restrict(rf, rc)
-
+    # Check that restriction is the transpose of prolongation. This check would
+    # fail if the values at unrefined nodes were also added by the kernel.
+    r_fine = assemble(conj(TestFunction(V_fine)) * dx)
+    r_coarse = Cofunction(V_coarse.dual())
+    restrict(r_fine, r_coarse)
     assert np.allclose(
-        assemble(action(rc, u_coarse)),
-        assemble(action(rf, u_fine)),
+        assemble(action(r_coarse, u_coarse)),
+        assemble(action(r_fine, u_fine)),
         rtol=1e-12
     )
 
-
-@pytest.mark.parallel([1, 2, 4])
-def test_restrict_DG0(mh):
-    """Test restriction with DG0"""
-    V_coarse = FunctionSpace(mh[0], "DG", 0)
-    V_fine = FunctionSpace(mh[-1], "DG", 0)
-    u_coarse = Function(V_coarse)
-    u_fine = Function(V_fine)
-    xc, *_ = SpatialCoordinate(V_coarse.mesh())
-
-    u_coarse.interpolate(xc)
-    prolong(u_coarse, u_fine)
-
-    rf = assemble(conj(TestFunction(V_fine)) * dx)
-    rc = Cofunction(V_coarse.dual())
-    restrict(rf, rc)
-
-    assert np.allclose(
-        assemble(action(rc, u_coarse)),
-        assemble(action(rf, u_fine)),
-        rtol=1e-12
-    )
+    # Check injection.
+    u_fine = Function(V_fine).interpolate(expr_fine)
+    u_injected = Function(V_coarse)
+    inject(u_fine, u_injected)
+    assert errornorm(expr_coarse, u_injected) <= 1e-12
 
 
 @pytest.mark.parallel([1, 2])

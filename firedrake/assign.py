@@ -383,7 +383,8 @@ def _(subset: op3.SubsetSliceComponent) -> op3.Slice:
 
 @parse_subset.register(list)
 @parse_subset.register(tuple)
-def _(subset: list | tuple) -> op3.Slice:
+@parse_subset.register(np.ndarray)
+def _(subset: list | tuple | np.ndarray) -> op3.Slice:
     subset_dat = op3.Dat.from_sequence(subset, dtype=IntType)
     subset = op3.SubsetSliceComponent(None, subset_dat)
     return parse_subset(subset)
