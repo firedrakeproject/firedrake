@@ -1,86 +1,10 @@
 from finat.ufl.elementlist import aliases, ufl_elements
-from finat.element_factory import supported_elements
+from finat.element_factory import defelement_names, supported_elements
 import csv
 
 shape_names = {0: "scalar", 1: "vector", 2: "tensor"}
 
 firedrake_cells = ("interval", "triangle", "tetrahedron", "quadrilateral", "hexahedron")
-
-# The DefElement page for each element family, as the page name in
-# https://defelement.org/elements/<name>.html.  A value of None means that
-# DefElement has no page for that family.  The build fails if this dictionary
-# does not have exactly one entry for each supported family.
-defelement_names = {
-    "Alfeld C2": None,
-    "Alfeld-Sorokina": "alfeld-sorokina",
-    "Argyris": "argyris",
-    "Arnold-Qin": None,
-    "Bell": "bell",
-    "Bernardi-Raugel": "bernardi-raugel",
-    "Bernardi-Raugel Bubble": None,
-    "Bernstein": "bernstein",
-    "Bramble-Zlamal C2": None,
-    "Brezzi-Douglas-Fortin-Marini": "brezzi-douglas-fortin-marini",
-    "Brezzi-Douglas-Marini": "brezzi-douglas-marini",
-    "Brezzi-Douglas-Marini Cube Edge": "scurl",
-    "Brezzi-Douglas-Marini Cube Face": "sdiv",
-    "Bubble": "bubble",
-    "Christiansen-Hu": None,
-    "Conforming Arnold-Winther": "arnold-winther",
-    "Crouzeix-Raviart": "crouzeix-raviart",
-    "Direct Serendipity": "direct-serendipity",
-    "Discontinuous Lagrange": "discontinuous-lagrange",
-    "Discontinuous Lagrange L2": "discontinuous-lagrange",
-    "Discontinuous Raviart-Thomas": None,
-    "Discontinuous Taylor": "taylor",
-    "DPC": "dpc",
-    "DPC L2": "dpc",
-    "DQ": "discontinuous-lagrange",
-    "DQ L2": "discontinuous-lagrange",
-    "FacetBubble": None,
-    "Gauss-Legendre": "gauss-legendre",
-    "Gauss-Legendre L2": "gauss-legendre",
-    "Gauss-Lobatto-Legendre": "lagrange",
-    "Gopalakrishnan-Lederer-Schoberl 1st kind": "gopalakrishnan-lederer-schoberl",
-    "Gopalakrishnan-Lederer-Schoberl 2nd kind": None,
-    "Guzman-Neilan 1st kind H1": "guzman-neilan",
-    "Guzman-Neilan 2nd kind H1": "guzman-neilan2",
-    "Guzman-Neilan Bubble": None,
-    "Guzman-Neilan H1(div)": None,
-    "HDiv Trace": "lagrange",
-    "Hellan-Herrmann-Johnson": "hellan-herrmann-johnson",
-    "Hermite": "hermite",
-    "Hsieh-Clough-Tocher": "hsieh-clough-tocher",
-    "Hu-Zhang": None,
-    "Johnson-Mercier": "johnson-mercier",
-    "Kong-Mulder-Veldhuizen": "kong-mulder-veldhuizen",
-    "Lagrange": "lagrange",
-    "Mardal-Tai-Winther": "mardal-tai-winther",
-    "Morley": "morley",
-    "NCE": "nedelec1",
-    "NCF": "raviart-thomas",
-    "Nedelec 1st kind H(curl)": "nedelec1",
-    "Nedelec 2nd kind H(curl)": "nedelec2",
-    "Nonconforming Arnold-Winther": "nonconforming-arnold-winther",
-    "Nonconforming Robust Wu-Xu": None,
-    "Nonconforming Wu-Xu": "wu-xu",
-    "Q": "lagrange",
-    "QuadraticPowellSabin12": None,
-    "QuadraticPowellSabin6": None,
-    "Raviart-Thomas": "raviart-thomas",
-    "Real": None,
-    "Reduced-Arnold-Qin": None,
-    "Reduced-Hsieh-Clough-Tocher": "reduced-hsieh-clough-tocher",
-    "Regge": "regge",
-    "RTCE": "nedelec1",
-    "RTCF": "raviart-thomas",
-    "S": "serendipity",
-    "SminusCurl": "trimmed-serendipity-curl",
-    "SminusDiv": "trimmed-serendipity-div",
-    "SminusE": "trimmed-serendipity-curl",
-    "SminusF": "trimmed-serendipity-div",
-    "Walkington": None,
-}
 
 
 def simple_aliases():
@@ -122,12 +46,6 @@ def name_cell(family):
         return family
     return f"`{family} <https://defelement.org/elements/{page}.html>`__"
 
-
-families = {ufl_elements[element][0] for element in supported_elements}
-if missing := families - defelement_names.keys():
-    raise KeyError(f"defelement_names has no entry for {sorted(missing)}")
-if extra := defelement_names.keys() - families:
-    raise ValueError(f"defelement_names has entries for unsupported families {sorted(extra)}")
 
 family_aliases = simple_aliases()
 rows = []
