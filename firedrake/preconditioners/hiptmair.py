@@ -274,7 +274,7 @@ def div_to_curl(ele):
             }
             family = replace_dict.get(family, None)
             if family is None:
-                raise ValueError("Unexpected family %s" % family)
+                raise ValueError(f"Unexpected family {family}")
         return ele.reconstruct(degree=degree, family=family)
 
 

@@ -172,9 +172,9 @@ class LinearEigensolver(OptionsManager):
                       "try with -eps_converged_reason")
         if r < 0:
             raise ConvergenceError(
-                r"""Eigenproblem failed to converge after %d iterations.
+                f"""Eigenproblem failed to converge after {self.es.getIterationNumber()} iterations.
         Reason:
-        %s""" % (self.es.getIterationNumber(), reason)
+        {reason}"""
             )
 
     def solve(self):

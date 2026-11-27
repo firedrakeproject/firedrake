@@ -2,7 +2,7 @@
 import logging
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 # Ensure that the relevant loggers have been created.
-import tsfc.logging             # noqa: F401
+from tsfc.logging import ANSI_BLUE, ANSI_GREEN, ANSI_RED, ANSI_RESET, ColourFormatter
 import pyop3.log             # noqa: F401
 
 import pyop3.config
@@ -27,9 +27,9 @@ warning = logger.warning
 error = logger.error
 critical = logger.critical
 
-RED = "\033[1;37;31m%s\033[0m"
-BLUE = "\033[1;37;34m%s\033[0m"
-GREEN = "\033[1;37;32m%s\033[0m"
+RED = f"{ANSI_RED}%s{ANSI_RESET}"
+BLUE = f"{ANSI_BLUE}%s{ANSI_RESET}"
+GREEN = f"{ANSI_GREEN}%s{ANSI_RESET}"
 
 
 # Mimic dolfin
@@ -37,21 +37,21 @@ def info_red(message, *args, **kwargs):
     ''' Write info message in red.
 
     :arg message: the message to be printed. '''
-    info(RED % message, *args, **kwargs)
+    info(f"{ANSI_RED}{message!s}{ANSI_RESET}", *args, **kwargs)
 
 
 def info_green(message, *args, **kwargs):
     ''' Write info message in green.
 
     :arg message: the message to be printed. '''
-    info(GREEN % message, *args, **kwargs)
+    info(f"{ANSI_GREEN}{message!s}{ANSI_RESET}", *args, **kwargs)
 
 
 def info_blue(message, *args, **kwargs):
     ''' Write info message in blue.
 
     :arg message: the message to be printed. '''
-    info(BLUE % message, *args, **kwargs)
+    info(f"{ANSI_BLUE}{message!s}{ANSI_RESET}", *args, **kwargs)
 
 
 def set_log_handlers(handlers=None, comm=COMM_WORLD):
@@ -81,7 +81,8 @@ def set_log_handlers(handlers=None, comm=COMM_WORLD):
         handler = handlers.get(package, None)
         if handler is None:
             handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter(fmt="%(name)s:%(levelname)s %(message)s"))
+            formatter = ColourFormatter if package == "tsfc" else logging.Formatter
+            handler.setFormatter(formatter(fmt="%(name)s:%(levelname)s %(message)s"))
 
         if comm is not None and comm.rank != 0 and not pyop3.config.spmd_strict:
             handler = logging.NullHandler()

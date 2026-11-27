@@ -2313,7 +2313,7 @@ class MeshTopology(AbstractMeshTopology):
             self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
             self._grown_halos = True
         else:
-            raise ValueError("Unknown overlap type %r" % overlap_type)
+            raise ValueError(f"Unknown overlap type {overlap_type!r}")
 
     @cached_property
     def _ufl_cell(self):
@@ -3430,7 +3430,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         `VertexOnlyMeshTopology` have no facets.
         """
         if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
+            raise ValueError(f"Unknown facet type '{kind}'")
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
     @property
@@ -5081,8 +5081,7 @@ def Mesh(meshfile, **kwargs):
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, user_comm)
         else:
-            raise RuntimeError("Mesh file %s has unknown format '%s'."
-                               % (meshfile, ext[1:]))
+            raise RuntimeError(f"Mesh file {meshfile} has unknown format '{ext[1:]}'.")
         plex.setName(_generate_default_mesh_topology_name(name))
     # Create mesh topology
     submesh_parent = kwargs.get("submesh_parent", None)

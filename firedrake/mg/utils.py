@@ -27,7 +27,7 @@ def fine_node_to_coarse_node_map(Vf, Vc):
     hierarchy = hierarchyf
     increment = Fraction(1, hierarchyf.refinements_per_level)
     if levelc + increment != levelf:
-        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+        raise ValueError(f"Can't map between level {levelc} and level {levelf}")
 
     key = _node_map_key(Vc, Vf)
     cache = mesh._shared_data_cache["hierarchy_fine_node_to_coarse_node_map"]
@@ -75,7 +75,7 @@ def coarse_node_to_fine_node_map(Vc, Vf):
     hierarchy = hierarchyf
     increment = Fraction(1, hierarchyf.refinements_per_level)
     if levelc + increment != levelf:
-        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+        raise ValueError(f"Can't map between level {levelc} and level {levelf}")
 
     key = _node_map_key(Vc, Vf)
     cache = mesh._shared_data_cache["hierarchy_coarse_node_to_fine_node_map"]
@@ -128,7 +128,7 @@ def coarse_cell_to_fine_node_map(Vc, Vf):
     hierarchy = hierarchyf
     increment = Fraction(1, hierarchyf.refinements_per_level)
     if levelc + increment != levelf:
-        raise ValueError("Can't map between level %s and level %s" % (levelc, levelf))
+        raise ValueError(f"Can't map between level {levelc} and level {levelf}")
 
     key = _node_map_key(Vc, Vf, needs_coarse_cell_node_map=False)
     cache = mesh._shared_data_cache["hierarchy_coarse_cell_to_fine_node_map"]

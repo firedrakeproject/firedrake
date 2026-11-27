@@ -122,7 +122,7 @@ class TransferManager(object):
             # global Vector counting the number of cells that see each
             # dof.
             f = firedrake.Function(V)
-            firedrake.par_loop(("{[i, j]: 0 <= i < A.dofs and 0 <= j < %d}" % V.block_size,
+            firedrake.par_loop((f"{{[i, j]: 0 <= i < A.dofs and 0 <= j < {V.block_size}}}",
                                "A[i, j] = A[i, j] + 1"),
                                firedrake.dx,
                                {"A": (f, firedrake.INC)})
@@ -194,7 +194,7 @@ class TransferManager(object):
                                                    firedrake.TestFunction(V))*firedrake.dx)
             ksp = PETSc.KSP().create(comm=V.comm)
             ksp.setOperators(M.petscmat)
-            ksp.setOptionsPrefix("{}_prolongation_mass_".format(V.ufl_element()._short_name))
+            ksp.setOptionsPrefix(f"{V.ufl_element()._short_name}_prolongation_mass_")
             ksp.setType("preonly")
             ksp.pc.setType("cholesky")
             ksp.setFromOptions()

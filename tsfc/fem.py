@@ -70,7 +70,7 @@ class ContextBase(ProxyKernelInterface):
 
         invalid_keywords = set(kwargs.keys()) - set(self.keywords)
         if invalid_keywords:
-            raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
+            raise ValueError(f"unexpected keyword argument '{invalid_keywords.pop()}'")
         self.__dict__.update(kwargs)
 
     @cached_property
@@ -595,7 +595,7 @@ def translate(terminal, mt, ctx):
     :arg ctx: translator context
     :returns: GEM translation of the modified terminal
     """
-    raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
+    raise AssertionError(f"Cannot handle terminal type: {type(terminal)}")
 
 
 @translate.register(QuadratureWeight)
@@ -605,7 +605,7 @@ def translate_quadratureweight(terminal, mt, ctx):
 
 @translate.register(GeometricQuantity)
 def translate_geometricquantity(terminal, mt, ctx):
-    raise NotImplementedError("Cannot handle geometric quantity type: %s" % type(terminal))
+    raise NotImplementedError(f"Cannot handle geometric quantity type: {type(terminal)}")
 
 
 @translate.register(CellOrientation)

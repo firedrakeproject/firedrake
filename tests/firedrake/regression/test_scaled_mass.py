@@ -20,10 +20,10 @@ def mesh():
                           '1.0/tanh(f) + 1.0/f',
                           'sqrt(f*f)',
                           '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'],
-                         ids=lambda x: 'expr=(%s)' % x)
+                         ids=lambda x: f'expr=({x})')
 @pytest.mark.parametrize('value',
                          [1, 10, 20, -1, -10, -20],
-                         ids=lambda x: 'f=(%d)' % x)
+                         ids=lambda x: f'f=({x})')
 @pytest.mark.parametrize('typ',
                          ['Function', 'Constant'])
 @pytest.mark.parametrize('fs_type',
@@ -77,13 +77,13 @@ def m(request):
 
 @pytest.mark.parametrize("value",
                          [-1, 1, 2],
-                         ids=lambda x: "Scaling[%d]" % x)
+                         ids=lambda x: f"Scaling[{x}]")
 @pytest.mark.parametrize("typ",
                          ["number", "Constant", "Function"],
-                         ids=lambda x: "Type=%s" % x)
+                         ids=lambda x: f"Type={x}")
 @pytest.mark.parametrize("degree",
                          [0, 1, 2],
-                         ids=lambda x: "DG(%d)" % x)
+                         ids=lambda x: f"DG({x})")
 def test_scalar_scaled_mass(m, value, typ, degree):
     if typ == "number":
         c = value
@@ -112,13 +112,13 @@ def test_scalar_scaled_mass(m, value, typ, degree):
 
 @pytest.mark.parametrize("value",
                          [-1, 1, 2],
-                         ids=lambda x: "Scaling[%d]" % x)
+                         ids=lambda x: f"Scaling[{x}]")
 @pytest.mark.parametrize("typ",
                          ["number", "Constant", "Function"],
-                         ids=lambda x: "Type=%s" % x)
+                         ids=lambda x: f"Type={x}")
 @pytest.mark.parametrize("degree",
                          [1, 2],
-                         ids=lambda x: "(%d)" % x)
+                         ids=lambda x: f"({x})")
 @pytest.mark.parametrize("space",
                          ["DG", "RT", "BDM", "N1curl", "N2curl"])
 def test_vector_scaled_mass(m, value, typ, degree, space):
@@ -152,13 +152,13 @@ def test_vector_scaled_mass(m, value, typ, degree, space):
 
 @pytest.mark.parametrize("value",
                          [-1, 1, 2],
-                         ids=lambda x: "Scaling[%d]" % x)
+                         ids=lambda x: f"Scaling[{x}]")
 @pytest.mark.parametrize("typ",
                          ["number", "Constant", "Function"],
-                         ids=lambda x: "Type=%s" % x)
+                         ids=lambda x: f"Type={x}")
 @pytest.mark.parametrize("degree",
                          [0, 1, 2],
-                         ids=lambda x: "(%d)" % x)
+                         ids=lambda x: f"({x})")
 def test_tensor_scaled_mass(m, value, typ, degree):
     if typ == "number":
         c = value

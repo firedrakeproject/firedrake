@@ -120,12 +120,9 @@ solver_parameters = {
 def convergence(solver):
     from firedrake.solving_utils import KSPReasons, SNESReasons
     snes = solver.snes
-    print("""
-SNES iterations: {snes}; SNES converged reason: {snesreason}
-   KSP iterations: {ksp}; KSP converged reason: {kspreason}""".format(snes=snes.getIterationNumber(),
-                                                                      snesreason=SNESReasons[snes.getConvergedReason()],
-                                                                      ksp=snes.ksp.getIterationNumber(),
-                                                                      kspreason=KSPReasons[snes.ksp.getConvergedReason()]))
+    print(f"""
+SNES iterations: {snes.getIterationNumber()}; SNES converged reason: {SNESReasons[snes.getConvergedReason()]}
+   KSP iterations: {snes.ksp.getIterationNumber()}; KSP converged reason: {KSPReasons[snes.ksp.getConvergedReason()]}""")
 
 
 # %% [markdown]

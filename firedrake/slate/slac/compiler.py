@@ -17,7 +17,7 @@ from firedrake.slate.slac.utils import slate_to_gem, merge_loopy
 from firedrake.slate.slac.optimise import optimise
 
 from firedrake import tsfc_interface
-from firedrake.logging import logger
+from firedrake.logging import info_green
 from firedrake.parameters import parameters
 from gem import impero_utils
 from itertools import chain
@@ -40,8 +40,6 @@ import copy
 from petsc4py import PETSc
 
 __all__ = ['compile_expression']
-
-GREEN = "\033[1;37;32m%s\033[0m"
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -92,7 +90,7 @@ def compile_expression(slate_expr, compiler_parameters=None):
         A `tuple` containing a ``SplitKernel(idx, kinfo)``
     """
     if not isinstance(slate_expr, slate.TensorBase):
-        raise ValueError("Expecting a `TensorBase` object, not %s" % type(slate_expr))
+        raise ValueError(f"Expecting a `TensorBase` object, not {type(slate_expr)}")
 
     # Update default parameters with passed parameters
     # The deepcopy is needed because parameters is a nested dict
@@ -199,7 +197,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     # Cache the resulting kernel
     # Slate kernels are never split, so indicate that with None in the index slot.
     idx = tuple([None]*slate_expr.rank)
-    logger.info(GREEN % "compile_slate_expression finished in %g seconds.", time.time() - cpu_time)
+    info_green(f"compile_slate_expression finished in {time.time() - cpu_time:g} seconds.", stacklevel=2)
     return (SplitKernel(idx, kinfo),)
 
 

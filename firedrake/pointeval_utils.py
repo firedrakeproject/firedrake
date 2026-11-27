@@ -113,56 +113,50 @@ def compile_element(expression, coordinates, parameters=None):
         kernel_name="evaluate_kernel", index_names={})
     kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
-    # Fill the code template
-    code = {
-        "geometric_dimension": domain.geometric_dimension,
-        "IntType": as_cstr(IntType),
-        "scalar_type": utils.ScalarType_c,
-        "real_type": utils.RealType_c,
-    }
-    code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
-    code["map_args"] = "f->coords_map, f->f_map"
-
-    evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end,
-    %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
+    int_type = as_cstr(IntType)
+    scalar_type = utils.ScalarType_c
+    real_type = utils.RealType_c
+    evaluate_code = f"""
+static inline void wrap_evaluate({scalar_type}* const result, {scalar_type}* const X, {int_type} const start, {int_type} const end,
+    {scalar_type} const *__restrict__ coords, {scalar_type} const *__restrict__ f,
+    {int_type} const *__restrict__ coords_map, {int_type} const *__restrict__ f_map);
 
 
-int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
-{
+int evaluate(struct Function *f, double *x, {scalar_type} *result)
+{{
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
-    %(real_type)s found_ref_cell_dist_l1 = PETSC_MAX_REAL;
+    {real_type} found_ref_cell_dist_l1 = PETSC_MAX_REAL;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
-    %(IntType)s cells_ignore[1] = {-1};
+    {int_type} cells_ignore[1] = {{-1}};
     RTreeError err;
     int64_t *ids = NULL;
     size_t nids = 0;
     err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
-    if (err != Success) {
+    if (err != Success) {{
         fputs("ERROR: rtree_locate_all_at_point failed.\\n", stderr);
         rtree_free_ids(ids, nids);
         return -2;
-    }
-    %(IntType)s cell;
+    }}
+    {int_type} cell;
     PetscErrorCode locate_err = locate_cell_from_candidates(
             f, x, &to_reference_coords,
             &temp_reference_coords, &found_reference_coords,
             &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore, &cell);
     rtree_free_ids(ids, nids);
-    if (locate_err != PETSC_SUCCESS) {
+    if (locate_err != PETSC_SUCCESS) {{
         return locate_err;
-    }
-    if (cell == -1) {
+    }}
+    if (cell == -1) {{
         return -1;
-    }
+    }}
 
-    if (!result) {
+    if (!result) {{
         return 0;
-    }
+    }}
 
-    wrap_evaluate(result, found_reference_coords.X, cell, cell+1, f->coords, f->f, %(map_args)s);
+    wrap_evaluate(result, found_reference_coords.X, cell, cell+1, f->coords, f->f, f->coords_map, f->f_map);
     return 0;
-}
+}}
 """
 
-    return (evaluate_template_c % code) + kernel_code
+    return evaluate_code + kernel_code

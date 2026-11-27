@@ -31,7 +31,7 @@ def degree(request):
                         ("N2curl"),
                         ("N1div"),
                         ("N2div")],
-                ids=lambda x: "%s" % x)
+                ids=lambda x: f"{x}")
 def V(request, mesh, degree):
     family = request.param
     over_integration = max(0, 9 - degree)
@@ -93,7 +93,7 @@ def compute_interpolation_error(baseMesh, nref, space, degree):
                         ("N2curl"),
                         ("N1div"),
                         ("N2div")],
-                ids=lambda x: "%s" % x)
+                ids=lambda x: f"{x}")
 def space(request):
     return request.param
 

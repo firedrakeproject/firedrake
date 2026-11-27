@@ -78,6 +78,7 @@ import os
 if not os.path.isfile("stokes-control.msh"):
     # If the mesh is not available locally, we download it.
     # !curl -O https://raw.githubusercontent.com/firedrakeproject/notebooks/refs/heads/main/stokes-control.msh
+    pass
 mesh = Mesh("stokes-control.msh")
 
 # %% [markdown]
@@ -200,7 +201,7 @@ axes.set_title("Optimised boundary value");
 # Let's compare the difference in the initial and final values of the functional.  This is done by calling the `ReducedFunctional` object with the control at the requested value.
 
 # %%
-print("Jhat(g) = %.8g\nJhat(g_opt) = %.8g" % (Jhat(g), Jhat(g_opt)))
+print(f"Jhat(g) = {Jhat(g):.8g}\nJhat(g_opt) = {Jhat(g_opt):.8g}")
 
 # %% [markdown]
 # To see the optimised flow field, we solve the same problem again, only with the new (optimised) value for the boundary data on $\Gamma_\text{circ}$.  This time we're not interested in annotating the solve, so we tell `firedrake-adjoint` to ignore it by passing `annotate=False`.

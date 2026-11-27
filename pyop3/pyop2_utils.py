@@ -66,7 +66,7 @@ def as_type(obj, typ):
         elif isinstance(obj, float):
             return np.float64(obj).astype(typ)
         else:
-            raise TypeError("Invalid type %s" % type(obj))
+            raise TypeError(f"Invalid type {type(obj)}")
 
 
 def tuplify(xs):

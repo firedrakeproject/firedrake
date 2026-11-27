@@ -65,7 +65,7 @@ def push_diag(expression):
 
 @singledispatch
 def _push_diag(expr, self, diag):
-    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+    raise AssertionError(f"Cannot handle terminal type: {type(expr)}")
 
 
 @_push_diag.register(Transpose)
@@ -147,7 +147,7 @@ def drop_double_transpose(expr):
 
 @singledispatch
 def _drop_double_transpose(expr, self):
-    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+    raise AssertionError(f"Cannot handle terminal type: {type(expr)}")
 
 
 @_drop_double_transpose.register(Tensor)
@@ -199,7 +199,7 @@ def _drop_double_transpose_scalar_mul(expr, self):
 
 @singledispatch
 def _push_mul(expr, self, state):
-    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+    raise AssertionError(f"Cannot handle terminal type: {type(expr)}")
 
 
 @_push_mul.register(Tensor)

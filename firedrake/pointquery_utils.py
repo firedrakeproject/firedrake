@@ -54,12 +54,12 @@ def src_locate_cell(mesh, tolerance=None):
 
 
 def dX_norm_square(topological_dimension):
-    return " + ".join("PetscRealPart(dX[{0}])*PetscRealPart(dX[{0}])".format(i)
+    return " + ".join(f"PetscRealPart(dX[{i}])*PetscRealPart(dX[{i}])"
                       for i in range(topological_dimension))
 
 
 def X_isub_dX(topological_dimension):
-    return "\n".join("\tX[{0}] -= dX[{0}];".format(i)
+    return "\n".join(f"\tX[{i}] -= dX[{i}];"
                      for i in range(topological_dimension))
 
 
@@ -95,7 +95,7 @@ def inside_check(fiat_cell, eps, X="X"):
         otherwise.
     """
     dim = fiat_cell.get_spatial_dimension()
-    point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
+    point = tuple(sympy.Symbol(f"PetscRealPart({X}[{i}])") for i in range(dim))
     return ccode(fiat_cell.contains_point(point, epsilon=eps))
 
 
@@ -121,7 +121,7 @@ def celldist_l1_c_expr(fiat_cell, X="X"):
         A string of C code.
     """
     dim = fiat_cell.get_spatial_dimension()
-    point = tuple(sympy.Symbol("PetscRealPart(%s[%d])" % (X, i)) for i in range(dim))
+    point = tuple(sympy.Symbol(f"PetscRealPart({X}[{i}])") for i in range(dim))
     return ccode(fiat_cell.distance_to_point_l1(point))
 
 
@@ -229,67 +229,65 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
     # Create FInAT element
     element = finat.element_factory.create_element(ufl_coordinate_element)
 
-    code = {
-        "geometric_dimension": mesh.geometric_dimension,
-        "topological_dimension": mesh.topological_dimension,
-        "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, "X"),
-        "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
-        "init_X": init_X(element.cell, parameters),
-        "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
-        "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(mesh.topological_dimension),
-        "X_isub_dX": X_isub_dX(mesh.topological_dimension),
-        "IntType": as_cstr(IntType),
-        "ScalarType": ScalarType_c,
-        "RealType": RealType_c,
-        "tolerance": contains_eps,
-    }
+    geometric_dimension = mesh.geometric_dimension
+    topological_dimension = mesh.topological_dimension
+    cell_distance = celldist_l1_c_expr(element.cell, "X")
+    newton_step = to_reference_coords_newton_step(ufl_coordinate_element, parameters)
+    initial_coordinates = init_X(element.cell, parameters)
+    max_iteration_count = 1 if is_affine(ufl_coordinate_element) else 16
+    convergence_epsilon = 1e-12
+    step_norm_square = dX_norm_square(mesh.topological_dimension)
+    update_coordinates = X_isub_dX(mesh.topological_dimension)
+    int_type = as_cstr(IntType)
+    scalar_type = ScalarType_c
+    real_type = RealType_c
+    tolerance = contains_eps
 
-    evaluate_template_c = """#include <math.h>
-struct ReferenceCoords {
-    %(ScalarType)s X[%(geometric_dimension)d];
-};
+    evaluate_code = f"""#include <math.h>
+struct ReferenceCoords {{
+    {scalar_type} X[{geometric_dimension}];
+}};
 
-static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
+static {real_type} tolerance = {tolerance}; /* used in locate_cell */
 
-%(to_reference_coords_newton_step)s
+{newton_step}
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
-{
+static inline void to_reference_coords_kernel(void *result_, double *x0, {real_type} *cell_dist_l1, {scalar_type} *C)
+{{
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
     /*
      * Mapping coordinates from physical to reference space
      */
 
-    %(ScalarType)s *X = result->X;
-    %(init_X)s
+    {scalar_type} *X = result->X;
+    {initial_coordinates}
 
     int converged = 0;
-    for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
+    for (int it = 0; !converged && it < {max_iteration_count}; it++) {{
+        {scalar_type} dX[{topological_dimension}] = {{ 0.0 }};
         to_reference_coords_newton_step(C, x0, X, dX);
 
-        if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
+        if ({step_norm_square} < {convergence_epsilon:g} * {convergence_epsilon:g}) {{
             converged = 1;
-        }
+        }}
 
-%(X_isub_dX)s
-    }
+{update_coordinates}
+    }}
 
-    *cell_dist_l1 = %(celldist_l1_c_expr)s;
-}
+    *cell_dist_l1 = {cell_distance};
+}}
 
 static inline void wrap_to_reference_coords(
-    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end,
-    %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
+    void* const result_, double* const x, {real_type}* const cell_dist_l1, {int_type} const start, {int_type} const end,
+    {scalar_type} const *__restrict__ coords, {int_type} const *__restrict__ coords_map);
 
-%(RealType)s to_reference_coords(void *result_, struct Function *f, %(IntType)s cell, double *x)
-{
-    %(RealType)s cell_dist_l1 = 0.0;
+{real_type} to_reference_coords(void *result_, struct Function *f, {int_type} cell, double *x)
+{{
+    {real_type} cell_dist_l1 = 0.0;
     wrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
     return cell_dist_l1;
-}
+}}
 """
 
-    return evaluate_template_c % code
+    return evaluate_code

@@ -279,7 +279,7 @@ wh.assign(0.0)
 uD_solver_gmres.solve()
 r = assemble(action(a, wh) - L)
 b = assemble(L)
-print("reduction in residual: %s" % (r.dat.norm / b.dat.norm))
+print(f"reduction in residual: {r.dat.norm / b.dat.norm}")
 
 
 # %% [markdown]
@@ -291,9 +291,7 @@ print("reduction in residual: %s" % (r.dat.norm / b.dat.norm))
 def gmres_solver_conv(solver):
     from firedrake.solving_utils import KSPReasons
 
-    print("gmres iterations = {}, converged reason = {}".format(
-           solver.snes.ksp.getIterationNumber(), 
-           KSPReasons[solver.snes.ksp.getConvergedReason()]))
+    print(f"gmres iterations = {solver.snes.ksp.getIterationNumber()}, converged reason = {KSPReasons[solver.snes.ksp.getConvergedReason()]}")
 
 gmres_solver_conv(uD_solver_gmres)
 
@@ -545,7 +543,7 @@ uD_solver_hybrid = LinearVariationalSolver(uD_problem,
 uD_solver_hybrid.solve()
 r = assemble(action(a, wh) - L)
 b = assemble(L)
-print("reduction in residual: %s" % (r.dat.norm / b.dat.norm))
+print(f"reduction in residual: {r.dat.norm / b.dat.norm}")
 
 
 # %% [markdown]
@@ -563,9 +561,7 @@ def hybrid_solver_conv(solver):
     # get the ksp associated with the trace system
     trace_ksp = solver.snes.ksp.getPC().getPythonContext().trace_ksp
 
-    print("gmres iterations (trace sys) = {}, converged reason = {}".format(
-          trace_ksp.getIterationNumber(), 
-          KSPReasons[trace_ksp.getConvergedReason()]))
+    print(f"gmres iterations (trace sys) = {trace_ksp.getIterationNumber()}, converged reason = {KSPReasons[trace_ksp.getConvergedReason()]}")
 
 
 # %% [markdown]

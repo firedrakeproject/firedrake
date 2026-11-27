@@ -150,7 +150,7 @@ def unique_name(name, nameset):
 
     idx = 0
     while True:
-        newname = "%s_%d" % (name, idx)
+        newname = f"{name}_{idx}"
         if newname in nameset:
             idx += 1
         else:

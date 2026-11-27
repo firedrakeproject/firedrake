@@ -42,7 +42,7 @@ def slate_to_gem(expression, options):
 
 @singledispatch
 def _slate2gem(expr, self):
-    raise AssertionError("Cannot handle terminal type: %s" % type(expr))
+    raise AssertionError(f"Cannot handle terminal type: {type(expr)}")
 
 
 @_slate2gem.register(sl.Tensor)
@@ -386,8 +386,7 @@ def _match_caller_callee_argument_dimension_for_single_kernel(
                 # without arguments that required to be matched, so this is ok.
                 new_callee_insns.append(callee_insn)
             else:
-                raise NotImplementedError("Unknown instruction %s." %
-                        type(insn))
+                raise NotImplementedError(f"Unknown instruction {type(insn)}.")
 
         new_args = [arg if not isinstance(arg, ArrayBase)
                     else arg.copy(shape=arg_id_to_shape[arg.name],
