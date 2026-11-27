@@ -6,6 +6,7 @@ from petsc4py import PETSc
 
 from firedrake import *
 from pyop3.mpi import COMM_WORLD
+from pytest_mpi.parallel_assert import parallel_assert
 import numpy as np
 
 
@@ -158,3 +159,44 @@ def test_io_mesh_default_mesh_name(tmpdir):
         gc.collect()
         PETSc.garbage_cleanup(comm)
         comm.Free()
+
+
+def _save_and_load_cube_face(tmpdir, distribution_parameters):
+    fname = os.path.join(str(tmpdir), "test_io_mesh_cube_face_dump.h5")
+    fname = COMM_WORLD.bcast(fname, root=0)
+    mesh = UnitCubeMesh(4, 4, 4, distribution_parameters=distribution_parameters, name=mesh_name)
+    with CheckpointFile(fname, "w", comm=COMM_WORLD) as afile:
+        afile.save_mesh(mesh)
+    with CheckpointFile(fname, "r", comm=COMM_WORLD) as afile:
+        mesh = afile.load_mesh(name=mesh_name)
+    # The y = 1 face as a codim-1 submesh.
+    subm = Submesh(mesh, mesh.topological_dimension - 1, 4)
+    x, y, z = SpatialCoordinate(subm)
+    V = FunctionSpace(subm, "DG", 1)
+    f = Function(V)
+    f.interpolate(1 + x + 2*y + 3*z)
+    return f
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_io_mesh_ridge_overlap_submesh_interior_facet(tmpdir):
+    # The mesh is loaded with its saved distribution, so it keeps the saved RIDGE overlap.
+    distribution_parameters = {
+        "partitioner_type": "simple",
+        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
+    }
+    f = _save_and_load_cube_face(tmpdir, distribution_parameters)
+    # Interior edges of the face: grid lines and diagonals.
+    assert np.isclose(assemble(f('-') * dS), 30. + 20. * np.sqrt(2.))
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_io_mesh_default_overlap_submesh_interior_facet_raises(tmpdir):
+    f = _save_and_load_cube_face(tmpdir, {"partitioner_type": "simple"})
+    try:
+        assemble(f('-') * dS)
+    except ValueError as e:
+        raised = "overlap" in str(e)
+    else:
+        raised = False
+    parallel_assert(raised)

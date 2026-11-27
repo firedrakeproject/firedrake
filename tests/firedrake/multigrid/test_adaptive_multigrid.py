@@ -194,6 +194,18 @@ def test_mesh_hierarchy_without_overlap_uses_local_point_maps():
     )
 
 
+@pytest.mark.parallel([1, 2])
+def test_refine_marked_elements_interior_facet():
+    # Refining every cell of UnitSquareMesh(2, 2) gives the interior edges of
+    # UnitSquareMesh(4, 4): 3 + 3 grid lines and 16 diagonals.
+    mesh = UnitSquareMesh(2, 2)
+    M = FunctionSpace(mesh, "DG", 0)
+    marker = Function(M)
+    marker.assign(1)
+    fine = mesh.refine_marked_elements(marker)
+    assert np.isclose(assemble(Constant(1) * dS(domain=fine)), 6 + 4 * np.sqrt(2))
+
+
 @pytest.mark.parallel([1, 2, 4])
 def test_adapt_basic():
     nx = 1

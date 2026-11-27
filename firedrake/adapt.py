@@ -76,7 +76,10 @@ def _adapt_marked_cells(mesh, cell_marker):
 
 def _copy_adaptive_refinement_metadata(source_mesh, target_mesh):
     """Copy mesh-construction metadata from a mesh onto its adaptively-derived successor."""
-    target_mesh._distribution_parameters = dict(source_mesh._distribution_parameters)
+    # The refined plex keeps the halo of the source mesh, so its topology records
+    # the same overlap. The dict is updated in place because a netgen-curved
+    # target holds a reference to it.
+    target_mesh.topology._distribution_parameters.update(source_mesh._distribution_parameters)
     target_mesh._did_reordering = source_mesh._did_reordering
     target_mesh._tolerance = source_mesh.tolerance
 

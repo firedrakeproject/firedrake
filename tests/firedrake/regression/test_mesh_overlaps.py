@@ -1,4 +1,7 @@
 from firedrake import *
+from firedrake.mesh import PartitionOverlap
+from pytest_mpi.parallel_assert import parallel_assert
+import numpy as np
 import pytest
 
 
@@ -126,3 +129,64 @@ def test_submesh_distribution_parameters(overlap, reorder):
     submesh = Submesh(rmesh, dim, label)
     assert submesh._distribution_parameters == orig_params
     assert submesh._did_reordering == did_reordering
+
+
+NONE = DistributedMeshOverlapType.NONE
+FACET = DistributedMeshOverlapType.FACET
+RIDGE = DistributedMeshOverlapType.RIDGE
+VERTEX = DistributedMeshOverlapType.VERTEX
+
+
+@pytest.mark.parametrize("overlap,codim,expected", [
+    ((NONE, 0), 0, (NONE, 0)),
+    ((NONE, 0), 1, (NONE, 0)),
+    ((NONE, 0), 2, (NONE, 0)),
+    ((FACET, 1), 0, (FACET, 1)),
+    ((FACET, 1), 1, (NONE, 0)),
+    ((FACET, 1), 2, (NONE, 0)),
+    ((RIDGE, 1), 0, (RIDGE, 1)),
+    ((RIDGE, 1), 1, (FACET, 1)),
+    ((RIDGE, 1), 2, (NONE, 0)),
+    ((VERTEX, 1), 0, (VERTEX, 1)),
+    ((VERTEX, 1), 1, (VERTEX, 1)),
+    ((VERTEX, 1), 2, (VERTEX, 1)),
+])
+def test_partition_overlap_for_codim(overlap, codim, expected):
+    assert PartitionOverlap(*overlap).for_codim(codim) == PartitionOverlap(*expected)
+
+
+@pytest.mark.parametrize("overlap,expected", [
+    ((NONE, 0), False),
+    ((FACET, 0), False),
+    ((RIDGE, 0), False),
+    ((FACET, 1), True),
+    ((RIDGE, 1), True),
+    ((VERTEX, 1), True),
+    ((FACET, 2), True),
+])
+def test_partition_overlap_at_least_facet(overlap, expected):
+    assert (PartitionOverlap(FACET, 1) <= PartitionOverlap(*overlap)) == expected
+
+
+@pytest.mark.parallel([2, 3])
+def test_interior_facet_none_overlap_raises():
+    mesh = UnitSquareMesh(4, 4, distribution_parameters={"overlap_type": (NONE, 0)})
+    try:
+        assemble(Constant(1) * dS(domain=mesh))
+    except ValueError as e:
+        raised = "overlap" in str(e)
+    else:
+        raised = False
+    parallel_assert(raised)
+
+
+@pytest.mark.parallel([1, 2])
+def test_relabeled_extruded_interior_facet_vert():
+    mesh = UnitSquareMesh(4, 4)
+    M = FunctionSpace(mesh, "DG", 0)
+    marker = Function(M)
+    marker.assign(1)
+    mesh = RelabeledMesh(mesh, [marker], [111])
+    mesh = ExtrudedMesh(mesh, 2, layer_height=0.5)
+    # Interior edges of UnitSquareMesh(4, 4), 3 + 3 grid lines and 16 diagonals, times the height 1.
+    assert np.isclose(assemble(Constant(1) * dS_v(domain=mesh)), 6 + 4 * np.sqrt(2))

@@ -20,6 +20,7 @@ Manufactured solution:
     λ     = cos(π x)  on Γ,
 """
 
+import numpy as np
 import pytest
 from firedrake import *
 from firedrake.mg.utils import has_level, get_level
@@ -235,3 +236,18 @@ def test_skeleton_submesh_hierarchy_orphaned_nodes(skeleton_hierarchy, family, d
             prolong(Function(Vc), Function(Vf))
         else:
             restrict(Cofunction(Vf.dual()), Cofunction(Vc.dual()))
+
+
+@pytest.mark.parallel([1, 2])
+def test_submesh_hierarchy_interior_facet():
+    # The refined levels of a codim-1 submesh get the overlap of the original mesh.
+    mesh = UnitCubeMesh(2, 2, 2, distribution_parameters={"partitioner_type": "simple"})
+    subm = Submesh(mesh, mesh.topological_dimension - 1, 4)
+    mh = MeshHierarchy(subm, 1)
+    fine = mh[-1]
+    x, y, z = SpatialCoordinate(fine)
+    V = FunctionSpace(fine, "DG", 1)
+    f = Function(V)
+    f.interpolate(1 + x + 2*y + 3*z)
+    # Interior edges of the refined y = 1 face, a 4 x 4 grid with diagonals.
+    assert np.isclose(assemble(f('-') * dS), 30 + 20 * np.sqrt(2))

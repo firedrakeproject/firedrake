@@ -74,7 +74,7 @@ __all__ = [
     'DEFAULT_MESH_NAME', 'MeshGeometry', 'MeshTopology',
     'AbstractMeshTopology', 'ExtrudedMeshTopology', 'VertexOnlyMeshTopology',
     'MeshSequenceGeometry', 'MeshSequenceTopology',
-    'Submesh'
+    'Submesh', 'PartitionOverlap'
 ]
 
 
@@ -104,6 +104,69 @@ DISTRIBUTION_PARAMETERS_NOOP = {
     "overlap_type": (DistributedMeshOverlapType.NONE, 0),
 }
 """Distribution parameters for derived meshes (RelabeledMesh/Submesh)."""
+
+_OVERLAP_ORDER = (
+    DistributedMeshOverlapType.NONE,
+    DistributedMeshOverlapType.FACET,
+    DistributedMeshOverlapType.RIDGE,
+    DistributedMeshOverlapType.VERTEX,
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class PartitionOverlap:
+    """The partition overlap that a mesh is guaranteed to have.
+
+    The overlap types are ordered as NONE < FACET < RIDGE < VERTEX, since each
+    type adds the closure of the star of a larger set of entities. Two
+    overlaps are compared with the product order on (type, size): ``a <= b``
+    holds if both the type and the size of ``a`` are at most those of ``b``.
+    So ``(RIDGE, 1)`` and ``(FACET, 2)`` are not comparable, and an overlap
+    of size 0 adds no halo.
+
+    Parameters
+    ----------
+    overlap_type
+        The entities whose star is shared with the neighbouring ranks.
+    size
+        The number of overlap layers.
+    """
+
+    overlap_type: DistributedMeshOverlapType
+    size: int
+
+    def __le__(self, other: PartitionOverlap) -> bool:
+        if not isinstance(other, PartitionOverlap):
+            return NotImplemented
+        return (
+            _OVERLAP_ORDER.index(self.overlap_type) <= _OVERLAP_ORDER.index(other.overlap_type)
+            and self.size <= other.size
+        )
+
+    def for_codim(self, codim: int) -> PartitionOverlap:
+        """Return the overlap that a submesh of a given codimension is guaranteed to have.
+
+        Parameters
+        ----------
+        codim
+            The codimension of the submesh relative to the mesh with this overlap.
+
+        Returns
+        -------
+        PartitionOverlap
+            The overlap of the submesh.
+        """
+        if self.overlap_type == DistributedMeshOverlapType.VERTEX:
+            return self
+        # An entity of codim c in the submesh is an entity of codim c + codim in
+        # the parent, so sharing the star of the parent entities of codim c only
+        # shares the star of the submesh entities of codim c - codim. For NONE,
+        # FACET and RIDGE the index in _OVERLAP_ORDER is that codim c.
+        i = _OVERLAP_ORDER.index(self.overlap_type) - codim
+        if i <= 0:
+            return PartitionOverlap(DistributedMeshOverlapType.NONE, 0)
+        return PartitionOverlap(_OVERLAP_ORDER[i], self.size)
+
 
 cached_property_until_topology_changes = cached_property_until(
     lambda self: self._topology_version
@@ -525,6 +588,16 @@ class AbstractMeshTopology(abc.ABC):
     def _add_overlap(self):
         """Add overlap."""
         pass
+
+    @property
+    def partition_overlap(self) -> PartitionOverlap:
+        """The partition overlap that this mesh is guaranteed to have.
+
+        A derived mesh, such as a `Submesh` or a mesh loaded with its saved
+        distribution, records the overlap that its plex has, which is not
+        always the overlap that was used to distribute it.
+        """
+        return PartitionOverlap(*self._distribution_parameters["overlap_type"])
 
     @cached_method_until_topology_changes()
     def get_work_function_cache(self, ufl_element):
@@ -1279,6 +1352,19 @@ class AbstractMeshTopology(abc.ABC):
             all_integer_subdomain_ids = {}
         if not all_integer_subdomain_ids.get(integral_type) and subdomain_id == "otherwise":
             subdomain_id = "everywhere"
+
+        # An owned interior facet needs both of its cells on the owning rank.
+        # With one rank there is no halo, and Firedrake adds no overlap.
+        if integral_type in {"interior_facet", "interior_facet_vert"} and self.comm.size > 1:
+            overlap = self.partition_overlap
+            if not PartitionOverlap(DistributedMeshOverlapType.FACET, 1) <= overlap:
+                raise ValueError(
+                    "Interior facet integrals in parallel need a partition overlap of at least "
+                    f"(FACET, 1), but this mesh only has ({overlap.overlap_type.name}, {overlap.size}). "
+                    "For a codim-1 Submesh, construct the parent mesh with distribution_parameters="
+                    "{\"overlap_type\": (DistributedMeshOverlapType.RIDGE, 1)} or VERTEX. "
+                    "For a codim-2 Submesh, use VERTEX."
+                )
 
         match integral_type:
             case "cell":
@@ -6027,8 +6113,9 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
     rmesh.name = name1
     rmesh._tolerance = mesh.tolerance
 
-    # Tag the relabeled mesh with the original distribution parameters
-    rmesh._distribution_parameters = mesh._distribution_parameters
+    # The relabeled topology has the halo of the original mesh. The two
+    # topologies must not share one dict.
+    rmesh.topology._distribution_parameters = dict(mesh._distribution_parameters)
     rmesh._did_reordering = mesh._did_reordering
     return rmesh
 
@@ -6114,7 +6201,10 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     ``DistributedMeshOverlapType`` of {`VERTEX``, ``RIDGE``}, and the
     facets of the parent mesh must have been labeled such that the
     ridges (entities of co-dim 2) to be contained in the submesh are
-    shared by at most two facets.
+    shared by at most two facets. A submesh of co-dimension 2, made as a
+    submesh of a submesh, needs ``VERTEX`` for interior facet integration.
+    In parallel, interior facet integration raises a ``ValueError`` if
+    the ``partition_overlap`` of the submesh is not at least ``(FACET, 1)``.
 
     Currently, to make a quadrilateral submesh from a hexahedral mesh,
     the facets of the hex mesh must have been labeled such that the
@@ -6187,8 +6277,16 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
         reorder=reorder,
         distribution_parameters=DISTRIBUTION_PARAMETERS_NOOP,
     )
-    # Tag the relabeled mesh with the original distribution parameters
-    submesh._distribution_parameters = mesh._distribution_parameters
+    # Record the overlap that the submesh plex is guaranteed to have, which can
+    # be smaller than the overlap of the parent mesh. ignore_halo leaves out the halo.
+    if ignore_halo:
+        overlap = PartitionOverlap(DistributedMeshOverlapType.NONE, 0)
+    else:
+        overlap = mesh.partition_overlap.for_codim(mesh.topological_dimension - submesh.topological_dimension)
+    submesh.topology._distribution_parameters = {
+        **mesh._distribution_parameters,
+        "overlap_type": (overlap.overlap_type, overlap.size),
+    }
     return submesh
 
 

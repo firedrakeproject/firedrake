@@ -9,6 +9,7 @@ import os
 from os.path import abspath, dirname, join, exists
 import shutil
 
+import numpy as np
 import pytest
 
 from firedrake import *
@@ -269,6 +270,18 @@ def test_io_backward_compat_timestepping_append(version, tmpdir):
             f_ = Function(V_)
             _initialise_function(f_, _get_expr_timestepping(V_, i))
             assert assemble(inner(f - f_, f - f_) * dx) < 1.e-16
+
+
+@pytest.mark.parallel(3)
+def test_io_backward_compat_interior_facet_load():
+    # This file stores a distribution on 3 processes but not its overlap.
+    filename = join(filedir, "_".join([basename, "2024_01_27", "tetrahedron.h5"]))
+    with CheckpointFile(filename, "r") as afile:
+        mesh = afile.load_mesh(mesh_name)
+    # Interior faces of UnitCubeMesh(n, n, n): 3(n-1) from the grid planes and
+    # 3*sqrt(2)*n from the six tetrahedra around the diagonal of each cube.
+    n = 16
+    assert np.isclose(assemble(Constant(1) * dS(domain=mesh)), 3 * (n - 1) + 3 * np.sqrt(2) * n)
 
 
 if __name__ == "__main__":
