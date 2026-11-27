@@ -45,8 +45,7 @@ Workshop dinner
 The workshop dinner will be a terrace barbeque at ``Doggett's Coat and
 Badge``
 featuring views across the Thames to St Paul's Cathedral and a fine
-selection of English real ales and other delights. For information on
-getting to Doggett's, see :ref:`the directions <to-doggetts>`.
+selection of English real ales and other delights.
 
 
 Location and travel
