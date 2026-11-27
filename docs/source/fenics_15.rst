@@ -45,8 +45,7 @@ Workshop dinner
 The workshop dinner will be a terrace barbeque at ``Doggett's Coat and
 Badge``
 featuring views across the Thames to St Paul's Cathedral and a fine
-selection of English real ales and other delights. For information on
-getting to Doggett's, see :ref:`the directions <to-doggetts>`.
+selection of English real ales and other delights.
 
 
 Location and travel
@@ -54,10 +53,7 @@ Location and travel
 
 The workshop will be held in the Huxley Building on Imperial College's
 main South Kensington campus. The street address is 180 Queen's Gate,
-London SW7 2RH. For information on getting to the venue, including
-Transport for London tickets, see :doc:`the directions page
-<fenics_15_directions>`.
-
+London SW7 2RH.
 
 Registration
 ------------
