@@ -180,3 +180,31 @@ def test_stokes(mh, variant, mixed_element):
         assert (conv_rates(p_err, h)[-1] >= 1.9
                 or np.allclose(p_err, 0, atol=1E-10))
         assert conv_rates(div_err, h)[-1] >= 1.9
+
+
+@pytest.mark.parametrize("mesh_factory", (UnitTetrahedronMesh, lambda: UnitCubeMesh(1, 1, 1)), ids=("tetrahedron", "cube"))
+@pytest.mark.parametrize("family", ("Bernardi-Raugel", "GN"))
+def test_stokes_degree_two(mesh_factory, family) -> None:
+    mesh = mesh_factory()
+    V = FunctionSpace(mesh, family, 2)
+    Q = FunctionSpace(mesh, "DG", 1, variant="integral")
+    Z = V * Q
+    x = SpatialCoordinate(mesh)
+    pressure = sum(x)
+    pressure -= assemble(pressure * dx) / assemble(1 * dx(domain=mesh))
+    a, L = stokes_mms(Z, as_vector((0, 0, 0, pressure)))
+    solution = Function(Z)
+    pressure_nullspace = VectorSpaceBasis([Function(Q).interpolate(1)])
+    pressure_nullspace.orthonormalize()
+    nullspace = MixedVectorSpaceBasis(Z, [Z.sub(0), pressure_nullspace])
+    # Disable MUMPS scaling to avoid amplifying roundoff in the constant-pressure mode.
+    solve(a == L, solution, bcs=DirichletBC(Z.sub(0), 0, "on_boundary"),
+          nullspace=nullspace,
+          solver_parameters={"ksp_type": "preonly", "pc_type": "lu",
+                             "pc_factor_mat_solver_type": "mumps",
+                             "mat_mumps_icntl_24": 1,
+                             "mat_mumps_icntl_8": 0})
+    uh, ph = solution.subfunctions
+    assert norm(interpolate(div(uh), Q)) < 1e-9
+    assert norm(uh) < 1e-9
+    assert errornormL2_0(pressure, ph) < 1e-9
