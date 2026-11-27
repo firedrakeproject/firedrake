@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from functools import cached_property
 import numpy as np
 import ufl
@@ -107,9 +108,10 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
             if self._function_space.index is not None:
                 self._parent_index = parent.function_space().field_axis.component_labels[self._function_space.index]
             elif self._function_space.component is not None:
+                component = np.unravel_index(self._function_space.component, parent.function_space().shape)
                 self._parent_index = op3.IndexTree.from_iterable((
                     op3.ScalarIndex(f"dim{i}", None, j)
-                    for i, j in enumerate(self._function_space.component)
+                    for i, j in enumerate(component)
                 ))
             val = parent.dat[self._parent_index]
 
@@ -194,30 +196,40 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
 
     @cached_property
     def _components(self):
-        shape = self.function_space().shape
-        assert len(shape) > 0
-        components = np.empty(shape, dtype=object)
-        for ix in np.ndindex(shape):
-            component = type(self)(
-                self.function_space().sub(ix),
-                parent=self,
-                name=f"view[{','.join(map(str, ix))}]({self.name()})"
-            )
-            components[ix] = component
-        return utils.readonly(components)
+        V = self.function_space()
+        assert len(V.shape) > 0
+        return tuple(
+            type(self)(V.sub(k), parent=self, name=f"view[{k}]({self.name()})")
+            for k in range(V.block_size)
+        )
 
     @PETSc.Log.EventDecorator()
-    def sub(self, i):
-        r"""Extract the ith sub :class:`Cofunction` of this :class:`Cofunction`.
+    def sub(self, i: int | Sequence[int]) -> "Cofunction":
+        """Extract a subfunction of a mixed cofunction, or components of a vector or tensor cofunction.
 
-        :arg i: the index to extract
+        For a vector or tensor cofunction, the component view can be used to
+        apply boundary conditions.
 
-        See also :attr:`subfunctions`.
+        Parameters
+        ----------
+        i : int or collections.abc.Sequence of int
+            For a mixed cofunction, the index of the subfunction to extract.
+            For a vector or tensor cofunction, the flat index of the component
+            to extract, or a tuple, list or range of flat indices, as
+            described in :meth:`~.WithGeometryBase.sub`.
 
-        If the :class:`Cofunction` is defined on a
-        :func:`~.VectorFunctionSpace` or :func:`~.TensorFunctionSpace`
-        this returns a proxy object indexing the ith component of the space,
-        suitable for use in boundary condition application."""
+        Returns
+        -------
+        Cofunction
+            A cofunction that shares data with this cofunction. The cofunction
+            will be defined on ``self.function_space().sub(i)``. If a sequence
+            selects every component in order, the result will be this
+            cofunction.
+
+        See Also
+        --------
+        subfunctions
+        """
         if type(self.function_space().ufl_element()) is MixedElement:
             return self.subfunctions[i]
         elif not self.function_space().shape:
@@ -226,7 +238,9 @@ class Cofunction(ufl.Cofunction, CofunctionMixin):
                 raise ValueError("Only allowed to index a scalar, non-mixed function using '0'.")
             return self
         else:
-            return self._components[i]
+            V = self.function_space()
+            W = V.sub(i)
+            return self if W is V else self._components[W.component]
 
     def function_space(self):
         r"""Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
