@@ -307,7 +307,7 @@ def test_restricted_function_spaces_on_one_mesh(order):
         u, v = TrialFunction(R), TestFunction(R)
         x = SpatialCoordinate(V.mesh())[0]
         uh = Function(R)
-        solve(inner(grad(u), grad(v))*dx == x*v*dx, uh, bcs=DirichletBC(R, 0, b))
+        solve(inner(grad(u), grad(v))*dx == inner(x, v)*dx, uh, bcs=DirichletBC(R, 0, b))
         return assemble(uh*dx)
 
     V = FunctionSpace(UnitSquareMesh(4, 4), "CG", 1)

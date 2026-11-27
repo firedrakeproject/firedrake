@@ -11,6 +11,7 @@ Manual
    :maxdepth: 2
 
    variational-problems
+   supported-elements
    solving-interface
    boundary_conditions
    r-space

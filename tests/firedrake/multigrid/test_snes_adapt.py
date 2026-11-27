@@ -1,13 +1,18 @@
+import gc
 import pytest
 from firedrake import *
 from firedrake import dmhooks
 from firedrake.mg.utils import get_level
+from firedrake.petsc import PETSc
+from ufl.domain import extract_unique_domain
 
 
-def test_marking_callback_configures_refine_adaptor():
+def test_marking_callback_configures_context():
     def mark_cells(ctx, current_solution):
-        M = FunctionSpace(current_solution.mesh(), "DG", 0)
-        return Function(M).assign(1)
+        mesh = current_solution.function_space().mesh()
+        M = FunctionSpace(mesh, "DG", 0)
+        markers = Function(M)
+        return markers.assign(1)
 
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -17,7 +22,6 @@ def test_marking_callback_configures_refine_adaptor():
     problem = NonlinearVariationalProblem(F, u)
     solver = NonlinearVariationalSolver(problem, marking_callback=mark_cells)
 
-    assert solver.parameters["adaptor_criterion"] == "refine"
     assert solver._ctx._marking_callback is mark_cells
     assert solver._ctx.snes == solver.snes
     with pytest.raises(RuntimeError):
@@ -26,6 +30,216 @@ def test_marking_callback_configures_refine_adaptor():
     ctx = solver._ctx.reconstruct()
     ctx.set_snes(solver._ctx.snes)
     assert ctx.snes == solver.snes
+
+
+def poisson_problem(n):
+    mesh = UnitSquareMesh(n, n)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - inner(1, v)*dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+    return NonlinearVariationalProblem(F, u, bcs=bcs)
+
+
+def goal_parameters(refinements):
+    return {
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "goal_cell_ksp_type": "preonly",
+        "goal_cell_pc_type": "jacobi",
+        "goal_facet_ksp_type": "preonly",
+        "goal_facet_pc_type": "jacobi",
+        "snes_grid_sequence": refinements,
+    }
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("use_solver", [False, True], ids=["solve", "nlvs"])
+def test_goal_oriented_marker_refines_mesh(use_solver):
+    problem = poisson_problem(2)
+    u = problem.u
+    mesh = u.function_space().mesh()
+    marker = GoalOrientedMarker(conj(u)*dx)
+    parameters = goal_parameters(3)
+    if use_solver:
+        solver = NonlinearVariationalSolver(
+            problem, solver_parameters=parameters, marking_callback=marker,
+        )
+        result = solver.solve()
+        assert solver._ctx.snes == solver.snes
+    else:
+        result = solve(problem.F == 0, u, bcs=problem.bcs,
+                       solver_parameters=parameters, marking_callback=marker)
+
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == 3
+    assert hierarchy[0] is mesh
+    # The marker runs on every mesh except the finest.
+    num_dofs = [FunctionSpace(m, "CG", 1).dim() for m in hierarchy[:-1]]
+    assert [e.num_dofs for e in marker.estimates] == num_dofs
+    assert marker.goal_functional.ufl_domain() is hierarchy[2]
+
+
+@pytest.mark.parallel([1, 2])
+def test_goal_oriented_marker_solver_reuse():
+    problem = poisson_problem(2)
+    u = problem.u
+    marker = GoalOrientedMarker(conj(u)*dx)
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=goal_parameters(1), marking_callback=marker,
+    )
+    dim0 = u.function_space().dim()
+
+    u1 = solver.solve()
+    _, level = get_level(u1.function_space().mesh())
+    assert level == 1
+    dim1 = u1.function_space().dim()
+    assert dim1 > dim0
+
+    u2 = solver.solve()
+    hierarchy, level = get_level(u2.function_space().mesh())
+    assert level == 2
+    assert hierarchy[1] is u1.function_space().mesh()
+    assert u2.function_space().dim() > dim1
+    # The second solve starts from the mesh of the first solve.
+    assert [e.num_dofs for e in marker.estimates] == [dim0, dim1]
+
+
+@pytest.mark.parallel([1, 2])
+def test_goal_oriented_marker_stops_at_tolerance():
+    problem = poisson_problem(4)
+    marker = GoalOrientedMarker(conj(problem.u)*dx)
+    markers = []
+
+    def mark_cells(ctx, current_solution):
+        markers.append(marker(ctx, current_solution))
+        return markers[-1]
+
+    atol = 2.0e-3
+    refinements = 8
+    parameters = goal_parameters(refinements)
+    parameters["goal_atol"] = atol
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=mark_cells,
+    )
+    result = solver.solve()
+
+    _, level = get_level(result.function_space().mesh())
+    assert 0 < level < refinements
+    assert len(markers) == level + 1
+    assert markers[-1] is None
+    assert len(marker.estimates) == level + 1
+    assert abs(marker.estimates[-1].error_estimate) < atol
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("subsolve", ["enriched", "cell", "facet"])
+def test_goal_oriented_marker_solver_options(subsolve):
+    problem = poisson_problem(4)
+    parameters = goal_parameters(1)
+    parameters.update({
+        f"goal_{subsolve}_ksp_type": "gmres",
+        f"goal_{subsolve}_pc_type": "none",
+        f"goal_{subsolve}_ksp_max_it": 0,
+    })
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+    u = solver.solve()
+
+    solver.set_marking_callback(GoalOrientedMarker(conj(u)*dx))
+    with pytest.raises(PETSc.Error) as error:
+        solver.solve()
+    assert isinstance(error.value.__cause__, ConvergenceError)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("snes_type", ["newtonls", "ksponly"])
+def test_goal_oriented_marker_effectivity_index(snes_type):
+    problem = poisson_problem(4)
+    mesh = problem.u.function_space().mesh()
+    x, y = SpatialCoordinate(mesh)
+    marker = GoalOrientedMarker(conj(problem.u)*dx, exact_solution=x*(1 - x)*y*(1 - y))
+    parameters = goal_parameters(2)
+    parameters["snes_type"] = snes_type
+    parameters["goal_monitor"] = None
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=parameters, marking_callback=marker,
+    )
+    result = solver.solve()
+
+    hierarchy, level = get_level(result.function_space().mesh())
+    assert level == 2
+    assert extract_unique_domain(marker.exact_solution) is hierarchy[1]
+    assert len(marker.estimates) == 2
+    for estimate in marker.estimates:
+        assert estimate.effectivity_index == estimate.error_estimate / estimate.true_error
+        # The marker sees the converged solution, so the solver error is small.
+        assert abs(estimate.solver_error) < 1e-10 * abs(estimate.discretisation_error)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("refine", [False, True], ids=["noop", "refine"])
+def test_adaptive_refine_references(refine: bool) -> None:
+    problem = poisson_problem(2)
+    mesh = problem.u.function_space().mesh()
+    markers = Function(FunctionSpace(mesh, "DG", 0)).assign(1) if refine else None
+    solver = NonlinearVariationalSolver(
+        problem, solver_parameters=goal_parameters(1),
+        marking_callback=lambda ctx, u: None,
+    )
+    solver.solve()
+    dm = solver.snes.getDM()
+    work = solver.snes.getSolution()
+    gc.collect()
+    dm_references = dm.getRefCount()
+    vector_references = work.getRefCount()
+    solver.set_marking_callback(lambda ctx, u: markers)
+
+    result = solver.solve()
+    gc.collect()
+
+    # The SNES, KSP and PC release their DM references, and the refined
+    # context retains a reference to the parent DM.
+    assert dm.getRefCount() == dm_references - 2 * int(refine)
+    # Refinement releases the SNES reference to the original vector.
+    assert work.getRefCount() == vector_references - int(refine)
+    assert (result.function_space().mesh() is mesh) == (not refine)
+
+
+@pytest.mark.parallel([1, 2])
+def test_adaptive_refine_without_marking_callback_is_uniform():
+    problem = poisson_problem(2)
+    parameters = {
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "snes_grid_sequence": 2,
+    }
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+    result = solver.solve()
+
+    _, level = get_level(result.function_space().mesh())
+    assert level == 2
+    # Two uniform refinements of a 2x2 mesh give a 8x8 mesh.
+    assert result.function_space().dim() == 81
+
+
+@pytest.mark.parallel([1, 2])
+def test_adaptive_refine_with_prebuilt_hierarchy():
+    problem = poisson_problem(2)
+    mesh = problem.u.function_space().mesh()
+    hierarchy = MeshHierarchy(mesh, 2)
+    parameters = {
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "snes_grid_sequence": 3,
+    }
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
+    result = solver.solve()
+
+    _, level = get_level(result.function_space().mesh())
+    assert level == 3
+    assert hierarchy[0] is mesh
+    assert result.function_space().dim() == 289
 
 
 @pytest.mark.skipnetgen
@@ -69,9 +283,37 @@ def test_marking_callback_refine_hook_reconstructs_problem():
     assert adapted.function_space().dim() > old_dim
 
 
+@pytest.mark.parallel([1, 2])
+def test_snes_grid_sequence_solver_reuse():
+    def mark_cells(ctx, current_solution):
+        M = FunctionSpace(current_solution.function_space().mesh(), "DG", 0)
+        return Function(M).assign(1)
+
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v))*dx - inner(1, v)*dx
+    problem = NonlinearVariationalProblem(F, u, bcs=DirichletBC(V, 0, "on_boundary"))
+    params = {
+        "snes_type": "ksponly",
+        "ksp_type": "preonly",
+        "pc_type": "lu",
+        "snes_grid_sequence": 1,
+    }
+    solver = NonlinearVariationalSolver(problem, solver_parameters=params, marking_callback=mark_cells)
+    u1 = solver.solve()
+    # The second solve starts from the mesh of the first solve.
+    u2 = solver.solve()
+
+    hierarchy, level = get_level(u2.function_space().mesh())
+    assert level == 2
+    assert hierarchy[1] is u1.function_space().mesh()
+
+
 @pytest.mark.skipnetgen
 @pytest.mark.parallel([1, 2])
-def test_snes_adapt_sequence_with_adaptive_multigrid():
+def test_snes_grid_sequence_with_adaptive_multigrid():
     from netgen.occ import WorkPlane, Axes, OCCGeometry, X, Z
 
     rect1 = WorkPlane(Axes((0, 0, 0), n=Z, h=X)).Rectangle(1, 2).Face()
@@ -122,7 +364,7 @@ def test_snes_adapt_sequence_with_adaptive_multigrid():
     refinements = 5
     params = {
         "mat_type": "aij",
-        "snes_adapt_sequence": refinements,
+        "snes_grid_sequence": refinements,
         "ksp_type": "cg",
         "ksp_max_it": 10,
         "ksp_monitor": None,

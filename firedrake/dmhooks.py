@@ -436,7 +436,6 @@ def coarsen(dm, comm):
     mesh = V.mesh()
     hierarchy, level = get_level(mesh)
     if level < 1:
-        breakpoint()
         raise RuntimeError("Cannot coarsen coarsest DM")
     coarsen = get_ctx_coarsener(dm)
     Vc = coarsen(V, coarsen)
@@ -465,36 +464,61 @@ def coarsen(dm, comm):
     return cdm
 
 
+def _attach_refined_context(dm, ctx, refined_ctx):
+    """Attach the refined context to the DMs of the refined problem and return its solution DM."""
+    refined_ctx.set_snes(ctx.snes)
+    parent = get_parent(dm)
+    coarsener = get_ctx_coarsener(dm)
+    solution_dm = refined_ctx._problem.dm
+    dms = [solution_dm, *(cdm for cdm in refined_ctx.coefficient_dms if cdm != solution_dm)]
+    for refined_dm in dms:
+        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
+                 teardown=partial(pop_parent, refined_dm, parent),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
+                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
+                 call_setup=True)
+        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
+                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
+                 call_setup=True)
+    return solution_dm
+
+
 def _refine_adaptive(dm):
     """
     Return the DM of the `_SNESContext` reconstructed on the adaptively-refined
     mesh using `_SNESContext.marking_callback` to mark the cells to be refined.
+    Return a null DM if the callback returns None, so that SNESSolve()
+    keeps the current DM and stops grid sequencing.
     """
     from firedrake.mg.mesh import MeshHierarchy
     from firedrake.mg.ufl_utils import refine
     from firedrake.mg.utils import get_level
 
-    # DMAdaptorAdapt() unconditionally destroys its input DM, and each
-    # adapted input DM remains a level in the mesh hierarchy.
-    # Increase the reference count so the coarse DM survives.
-    dm.incRef()
-
     ctx = get_appctx(dm)
     if ctx is None:
         raise RuntimeError("No _SNESContext found on DM")
     current_solution = ctx._x
-    mesh = current_solution.function_space().mesh()
+    # During a solve, the SNES holds the final iterate. The residual may have
+    # been evaluated at an earlier iterate, so mark the cells of the SNES solution.
+    solution = ctx.snes.getSolution()
+    if solution:
+        with current_solution.dat.vec_wo as x:
+            solution.copy(x)
+    solution_mesh = current_solution.function_space().mesh()
+    mesh = solution_mesh.unique()
     hierarchy, level = get_level(mesh)
-    if hierarchy is None:
-        hierarchy = MeshHierarchy(mesh)
-        level = 0
-
-    if level+1 != len(hierarchy):
+    if hierarchy is not None and level+1 != len(hierarchy):
         raise RuntimeError("Adaptive SNES refinement can only add a mesh on top of the finest level")
     if ctx._marking_callback is None:
-        raise RuntimeError("Adaptive SNES refinement requires setting a marking_callback")
+        # Without a marking callback, refine all cells.
+        M = firedrake.FunctionSpace(mesh, "DG", 0)
+        markers = firedrake.Function(M).assign(1)
+    else:
+        markers = ctx._marking_callback(ctx, current_solution)
+    if markers is None:
+        return PETSc.DM()
 
-    markers = ctx._marking_callback(ctx, current_solution)
     if not isinstance(markers, (firedrake.Function, firedrake.Cofunction)):
         raise TypeError(
             f"marking callback must return a Function or Cofunction, not a {type(markers).__name__}"
@@ -506,40 +530,28 @@ def _refine_adaptive(dm):
     if num_dofs_per_cell != 1:
         raise ValueError("marking callback must return a DG0 Function or Cofunction")
 
+    if hierarchy is None:
+        hierarchy = MeshHierarchy(mesh)
     hierarchy.add_mesh(mesh.refine_marked_elements(markers))
-    coefficient_mapping = {}
-    refined_ctx = refine(ctx, refine, coefficient_mapping=coefficient_mapping)
-    parent = get_parent(dm)
-    coarsener = get_ctx_coarsener(dm)
-    # Get all DMs from the refined problem
-    dms = [refined_ctx._problem.u_restrict.function_space().dm]
-    for value in coefficient_mapping.values():
-        if isinstance(value, (firedrake.Function, firedrake.Cofunction)):
-            value_dm = value.function_space().dm
-            if value_dm not in dms:
-                dms.append(value_dm)
-    # Attach refined context
-    for refined_dm in dms:
-        add_hook(parent, setup=partial(push_parent, refined_dm, parent),
-                 teardown=partial(pop_parent, refined_dm, parent),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_ctx_coarsener, refined_dm, coarsener),
-                 teardown=partial(pop_ctx_coarsener, refined_dm, coarsener),
-                 call_setup=True)
-        add_hook(parent, setup=partial(push_appctx, refined_dm, refined_ctx),
-                 teardown=partial(pop_appctx, refined_dm, refined_ctx),
-                 call_setup=True)
-    return refined_ctx._problem.dm
+    if isinstance(solution_mesh, MeshSequenceGeometry):
+        solution_mesh.set_hierarchy()
+
+    refined_ctx = refine(ctx, refine)
+    return _attach_refined_context(dm, ctx, refined_ctx)
 
 
 def _refine_from_hierarchy(dm):
-    """Return the DM of the refined function space."""
+    """Return the DM of the refined function space, with the refined context if the DM has one."""
     from firedrake.mg.ufl_utils import refine
     Vcoarse = get_function_space(dm)
     if Vcoarse is None:
         raise RuntimeError("No FunctionSpace found on DM")
     Vfine = refine(Vcoarse, refine)
-    return Vfine.dm
+    ctx = get_appctx(dm)
+    if ctx is None:
+        return Vfine.dm
+    refined_ctx = refine(ctx, refine)
+    return _attach_refined_context(dm, ctx, refined_ctx)
 
 
 @PETSc.Log.EventDecorator()

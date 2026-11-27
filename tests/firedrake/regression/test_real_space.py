@@ -537,7 +537,7 @@ def test_real_space_repeated_assembly():
     R = FunctionSpace(mesh, "R", 0)
     q = TestFunction(R)
 
-    form = q*dx + q*ds  # area + perimeter of the unit square = 1 + 4 = 5
-    for i in range(3):
+    form = inner(1, q)*dx + inner(1, q)*ds
+    for _ in range(3):
         x = assemble(form)
-        pytest_mpi.parallel_assert(float(x), 5)
+        pytest_mpi.parallel_assert(np.allclose(x.dat.global_data, [5]))
