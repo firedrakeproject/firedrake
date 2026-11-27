@@ -104,9 +104,6 @@ class ParsedCompilerParameters(CompilerParameters):
     pass
 
 
-CompilerParametersT = CompilerParameters | Mapping[str, Hashable]
-
-
 def parse_compiler_parameters(compiler_parameters: CompilerParametersT) -> ParsedCompilerParameters:
     """
     The process of parsing ``compiler_parameters`` is as follows:

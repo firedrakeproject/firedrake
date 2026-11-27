@@ -145,7 +145,58 @@ class Tensor(TerminalExpression, abc.ABC):
         compiler_parameters: pyop3.insn.exec.CompilerParametersT | None = None,
         **kwargs,
     ) -> pyop3.insn.Assignment | None:
-        return self._assign(other, mode, eager=eager, eager_strategy=eager_strategy, compiler_parameters=compiler_parameters, **kwargs)
+        """Assign a value to this tensor.
+
+        Parameters
+        ----------
+        other : pyop3.types.ExpressionT
+            The expression getting assigned to ``self``.
+        mode : typing.Literal["write", "inc", "max", "min"]
+            The assignment mode. Default is ``"write"``.
+        eager : bool
+            Should the assignment be performed eagerly? If :data:`False` then a
+            symbolic :class:`pyop3.Assignment` object is returned and the
+            values held by ``self`` are unchanged. Default is :data:`False`.
+        eager_strategy : typing.Literal["array", "compile"] | None
+            If performing the assignment eagerly, should the operations be done
+            using numpy-style array operations or via the compiler? The former
+            can be faster since it avoids code generation overhead, but cannot
+            account for complex data access patterns. Default behaviour is
+            ``"array"``.
+        compiler_parameters : pyop3.types.CompilerParametersT | None
+            Compiler parameters to pass to the compiler. Only valid for eager
+            assignments with ``eager_strategy`` ``"compile"``.
+        _weakref : bool
+            Should the assignee (``self``) be passed as a weakref to the
+            :class:`pyop3.Assignment` instead of a strong reference? The
+            default value is :data:`True`. This option avoids a reference cycle
+            and hence is useful for reducing load on the generational garbage
+            collector. However, for code like:
+
+            .. code-block:: python
+
+               op3.loop(p, dat[p].assign(x))
+
+            this will lead to invalid references since ``dat[p]`` is only a
+            temporary object and will die without a strong reference.
+
+            ``_weakref`` is only valid for symbolic (non-eager) assignments.
+
+        Returns
+        -------
+        pyop3.Assignment | None
+            If ``eager`` is :data:`False` this method returns the symbolic assignment
+            instruction. If ``eager`` is :data:`True` then nothing is returned.
+
+        """
+        return self._assign(
+            other,
+            mode,
+            eager=eager,
+            eager_strategy=eager_strategy,
+            compiler_parameters=compiler_parameters,
+            **kwargs,
+        )
 
     def iassign(
         self,

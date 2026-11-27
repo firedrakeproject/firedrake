@@ -21,3 +21,4 @@ from .base import (  # noqa: F401
     exscan,
     loop_,
 )
+from .exec import CompilerParameters  # noqa: F401

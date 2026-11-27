@@ -784,7 +784,7 @@ class SameMeshInterpolator(Interpolator):
         for fk in f.subfunctions:
             op3.loop(
                 c := self._loop_index,
-                fk.dat[target_mesh.closure(c)].assign(value, mode),
+                fk.dat[target_mesh.closure(c)].assign(value, mode, _weakref=False),
                 eager=True,
             )
 
