@@ -314,10 +314,10 @@ def MixedFunctionSpace(spaces, name=None, mesh=None, _labels=None):
             continue
         elif type(space) in (impl.ProxyFunctionSpace, impl.ProxyRestrictedFunctionSpace):
             if space.component is not None:
-                raise ValueError("Can't make mixed space with %s" % space)
+                raise ValueError(f"Can't make mixed space with {space}")
             continue
         else:
-            raise ValueError("Can't make mixed space with %s" % type(space))
+            raise ValueError(f"Can't make mixed space with {type(space)}")
 
     mixed_mesh_geometry = MeshSequenceGeometry(meshes)
     new = impl.MixedFunctionSpace(spaces, mixed_mesh_geometry.topology, name=name, _labels=_labels)

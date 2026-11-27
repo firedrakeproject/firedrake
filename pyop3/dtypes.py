@@ -147,7 +147,7 @@ def dtype_limits(dtype):
         try:
             info = numpy.iinfo(dtype)
         except ValueError as e:
-            raise ValueError("Unable to determine numeric limits from %s" % dtype) from e
+            raise ValueError(f"Unable to determine numeric limits from {dtype}") from e
     return DTypeLimit(info.min, info.max)
 
 

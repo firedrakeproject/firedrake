@@ -22,7 +22,7 @@ from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 import pyop3 as op3
 from pyop3.cache import memory_and_disk_cache, default_parallel_hashkey
 from pyop3.constants import Intent
-from pyop3.mpi import COMM_WORLD
+from pyop3.mpi import COMM_SELF, COMM_WORLD
 
 from firedrake.formmanipulation import split_form
 from firedrake.mesh import MeshGeometry
@@ -66,7 +66,12 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diag
 
 
 def _compile_form_comm(form, *args, **kwargs):
-    return form.ufl_domains()[0].comm
+    domains = form.ufl_domains()
+    if not domains:
+        if form.empty():
+            return COMM_SELF
+        raise ValueError("Cannot determine a communicator for a non-empty form without a domain.")
+    return domains[0].comm
 
 
 # Decorate the original tsfc.compile_form with a cache
@@ -248,7 +253,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
 
     # Check that we get a Form
     if not isinstance(form, (Form, ufl.Interpolate)):
-        raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
+        raise RuntimeError(f"Unable to convert object to a UFL form: {form!r}")
     # Resolve region names before the cache lookup, so that the cache key
     # reflects the integer subdomain ids the names currently map to
     form = _resolve_region_names(form)

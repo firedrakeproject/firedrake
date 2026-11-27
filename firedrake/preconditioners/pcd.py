@@ -136,8 +136,7 @@ class PCDPC(PCBase):
     def view(self, pc, viewer=None):
         super(PCDPC, self).view(pc, viewer)
         viewer.printfASCII("Pressure-Convection-Diffusion inverse K^-1 F_p M^-1:\n")
-        viewer.printfASCII("Reynolds number in F_p (applied matrix-free) is %s\n" %
-                           str(self.Re))
+        viewer.printfASCII(f"Reynolds number in F_p (applied matrix-free) is {str(self.Re)}\n")
         viewer.printfASCII("KSP solver for K^-1:\n")
         self.Kksp.view(viewer)
         viewer.printfASCII("KSP solver for M^-1:\n")

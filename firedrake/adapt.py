@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from numbers import Number
 
 import numpy as np
 import petsctools
@@ -310,21 +311,21 @@ class GoalEstimate:
     #: The number of degrees of freedom in the primal space.
     num_dofs: int
     #: The goal value ``J(u_h)``.
-    goal: float
+    goal: Number
     #: The discretisation error estimate ``rho(u_h; z - z_h)``.
-    discretisation_error: float
+    discretisation_error: Number
     #: The solver error estimate ``rho(u_h; z_h)``.
-    solver_error: float
+    solver_error: Number
     #: The true error ``J(u) - J(u_h)``, or `None` if the exact solution is unknown.
-    true_error: float | None = None
+    true_error: Number | None = None
 
     @property
-    def error_estimate(self) -> float:
+    def error_estimate(self) -> Number:
         """Return the estimate of ``J(u) - J(u_h)``."""
         return self.discretisation_error + self.solver_error
 
     @property
-    def effectivity_index(self) -> float | None:
+    def effectivity_index(self) -> Number | None:
         """Return the ratio of the estimate to the true error.
 
         Return `None` if the true error is zero or unknown.

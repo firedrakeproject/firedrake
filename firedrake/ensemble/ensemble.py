@@ -61,7 +61,7 @@ class Ensemble:
         size = comm.size
 
         if (size // M)*M != size:
-            raise ValueError("Invalid size of subcommunicators %d does not divide %d" % (M, size))
+            raise ValueError(f"Invalid size of subcommunicators {M} does not divide {size}")
 
         rank = comm.rank
 

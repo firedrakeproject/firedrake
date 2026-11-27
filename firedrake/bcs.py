@@ -139,7 +139,7 @@ class BCBase:
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
            (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+            raise NotImplementedError(f"Strong BCs not implemented for element {V.finat_element!r}, use Nitsche-type methods until we figure this out")
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
@@ -479,7 +479,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
         # Check that u matches r if supplied
         if u and u.function_space() != r.function_space():
-            raise RuntimeError("Mismatching spaces for %s and %s" % (r, u))
+            raise RuntimeError(f"Mismatching spaces for {r} and {u}")
 
         # Check that r's function space matches the BC's function
         # space. Run up through parents (IndexedFunctionSpace or
@@ -491,7 +491,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             elif fs.parent is not None:
                 fs = fs.parent
             else:
-                raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+                raise RuntimeError(f"{r!r} defined on incompatible FunctionSpace!")
 
         # Apply the indexing to r (and u if supplied)
         for idx in self._indices:
@@ -562,7 +562,7 @@ class EquationBC:
                     F = ufl_expr.action(J, u)
                 else:
                     if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
-                        raise TypeError("Provided BC RHS is a '%s', not a BaseForm or Slate Tensor" % type(L).__name__)
+                        raise TypeError(f"Provided BC RHS is a '{type(L).__name__}', not a BaseForm or Slate Tensor")
                     if len(L.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
                     F = ufl_expr.action(J, u) - L

@@ -149,7 +149,7 @@ def assemble(expr, *args, **kwargs):
     return get_assembler(expr, *args, **kwargs).assemble(**assemble_kwargs)
 
 
-def get_form_assembler(form: ufl.form.Form | ufl.Interpolate | slate.TensorBase,
+def get_form_assembler(form: ufl.form.Form | ufl.ZeroBaseForm | ufl.Interpolate | slate.TensorBase,
                        *args, **kwargs) -> "FormAssembler":
     """Construct the assembler for the rank of ``form``, forwarding the options it takes."""
     diagonal = kwargs.pop("diagonal", False)
@@ -195,7 +195,7 @@ def get_assembler(form, *args, **kwargs):
                 f"Arguments in {type(form).__name__} must be numbered contiguously from zero; "
                 f"got {sorted(numbers)}."
             )
-    if isinstance(form, (ufl.form.Form, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
+    if isinstance(form, (ufl.form.Form, ufl.ZeroBaseForm, slate.TensorBase)) and not BaseFormAssembler.base_form_operands(form):
         return get_form_assembler(form, *args, **kwargs)
     elif isinstance(form, ufl.core.expr.Expr) and not isinstance(form, ufl.form.BaseForm):
         # Preprocessing can turn a BaseForm into a pointwise expression.
@@ -559,7 +559,7 @@ class BaseFormAssembler(AbstractFormAssembler):
 
         # Deal with 1-form bcs outside the visitor
         rank = len(self._form.arguments())
-        if rank == 1 and not isinstance(result, ufl.ZeroBaseForm):
+        if rank == 1:
             for bc in self._bcs:
                 OneFormAssembler._apply_bc(self, result, bc, u=current_state)
         return result
@@ -581,7 +581,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             can arise in a `~ufl.classes.BaseForm` object. It is called by :func:`assemble_base_form`
             in a post-order fashion.
         """
-        if isinstance(expr, (ufl.form.Form, slate.TensorBase)):
+        if isinstance(expr, (ufl.form.Form, ufl.ZeroBaseForm, slate.TensorBase)):
             # Only the output matrix uses the requested allocation integral types.
             # An inner matrix may live on a mesh without them (e.g. a vertex-only mesh).
             allocation_integral_types = self._allocation_integral_types if expr is self._form else None
@@ -757,9 +757,7 @@ class BaseFormAssembler(AbstractFormAssembler):
             )
         elif tensor and isinstance(expr, (firedrake.Function, firedrake.Cofunction, firedrake.MatrixBase)):
             return tensor.assign(expr)
-        elif tensor and isinstance(expr, ufl.ZeroBaseForm):
-            return tensor.zero()
-        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument, ufl.ZeroBaseForm)):
+        elif isinstance(expr, (ufl.Coefficient, ufl.Cofunction, ufl.Matrix, ufl.Argument, ufl.Coargument)):
             return expr
         else:
             raise TypeError(f"Unrecognised BaseForm instance: {expr}")
@@ -865,8 +863,8 @@ class FormAssembler(AbstractFormAssembler):
 
     def __new__(cls, *args, **kwargs):
         form = args[0]
-        if not isinstance(form, (ufl.Form, ufl.Interpolate, slate.TensorBase)):
-            raise TypeError(f"The first positional argument must be of ufl.Form, ufl.Interpolate, or slate.TensorBase: got {type(form)} ({form})")
+        if not isinstance(form, (ufl.Form, ufl.ZeroBaseForm, ufl.Interpolate, slate.TensorBase)):
+            raise TypeError(f"The first positional argument must be of ufl.Form, ufl.ZeroBaseForm, ufl.Interpolate, or slate.TensorBase: got {type(form)} ({form})")
         # It is expensive to construct new assemblers because extracting the data
         # from the form is slow. Since all of the data structures in the assembler
         # are persistent apart from the output tensor, we stash the assembler on the
@@ -943,6 +941,7 @@ class ParloopFormAssembler(FormAssembler):
         self._needs_zeroing = needs_zeroing
         self._pyop3_compiler_parameters = pyop3_compiler_parameters or {}
         self._access = access
+        self._parloops = {}
 
     @with_heavy_caches(lambda self, *a, **kw: get_mesh_topologies(self._form))
     def assemble(self, tensor=None, current_state=None):
@@ -989,13 +988,13 @@ class ParloopFormAssembler(FormAssembler):
                     op3_tensor.zero(eager=True, eager_strategy="array")
 
         for (local_kernel, _), parloop_info in zip(self.local_kernels, self.parloops(tensor)):
-            parloop, lgmaps, setup_callables = parloop_info
+            parloop, lgmaps, setup_callables, tensor_name = parloop_info
             for setup in setup_callables:
                 setup(tensor)
 
             subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
             with modified_lgmaps(subtensor, lgmaps):
-                arg_replace_map = {self._tensor_id[local_kernel]: subtensor}
+                arg_replace_map = {tensor_name: subtensor}
                 parloop(**arg_replace_map, compiler_parameters=pyop3_compiler_parameters)
 
         for bc in self._bcs:
@@ -1030,16 +1029,32 @@ class ParloopFormAssembler(FormAssembler):
         """
 
     def parloops(self, tensor):
-        if hasattr(self, "_parloops"):
-            assert hasattr(self, "_tensor_id")
-        else:
-            tensor_id = {}
+        """Return the loops that assemble the form into ``tensor``.
+
+        Parameters
+        ----------
+        tensor : firedrake.cofunction.Cofunction or firedrake.function.Function or matrix.MatrixBase or pyop3.Scalar
+            The output tensor.
+
+        Returns
+        -------
+        list
+            For each local kernel, a tuple of the loop, the local-to-global maps to
+            use during the loop, the callables to execute before the loop, and the
+            name of the output argument of the loop.
+
+        """
+        # A call of a loop replaces only the buffers of its arguments. Therefore,
+        # we store the loops for each data layout of the output tensor. For
+        # example, a subfunction of a mixed function needs different loops from
+        # a standalone function on the same space.
+        key = self._as_pyop3_type(tensor).axis_trees
+        parloops_ = self._parloops.get(key)
+        if parloops_ is None:
             parloops_ = []
             for local_kernel, subdomain_id in self.local_kernels:
                 # TODO: Move this about
                 subtensor = self._as_pyop3_type(tensor, local_kernel.indices)
-
-                tensor_id[local_kernel] = subtensor.name
 
                 parloop_builder = ParloopBuilder(
                     self._form,
@@ -1054,11 +1069,11 @@ class ParloopFormAssembler(FormAssembler):
                     parloop_builder.build(),
                     parloop_builder.collect_lgmaps(tensor, local_kernel.indices),
                     parloop_builder.setup_callables,
+                    subtensor.name,
                 ))
-            self._parloops = parloops_
-            self._tensor_id = tensor_id
+            self._parloops[key] = parloops_
 
-        return self._parloops
+        return parloops_
 
     @cached_property
     def local_kernels(self):
@@ -1071,7 +1086,7 @@ class ParloopFormAssembler(FormAssembler):
             each possible combination.
 
         """
-        if isinstance(self._form, (ufl.Form, ufl.Interpolate)):
+        if isinstance(self._form, (ufl.Form, ufl.ZeroBaseForm, ufl.Interpolate)):
             kernels = tsfc_interface.compile_form(
                 self._form, "form", diagonal=self.diagonal,
                 parameters=self._form_compiler_params, access=self._access
@@ -1130,10 +1145,7 @@ class ZeroFormAssembler(ParloopFormAssembler):
         super().__init__(form, bcs=None, form_compiler_parameters=form_compiler_parameters, pyop3_compiler_parameters=None)
 
     def allocate(self):
-        # Getting the comm attribute of a form isn't straightforward
-        # form.ufl_domains()[0].comm seems the most robust method
-        # revisit in a refactor
-        return op3.Scalar(PETSc.ScalarType(0.0), comm=self._form.ufl_domains()[0].comm)
+        return op3.Scalar(PETSc.ScalarType(0.0), comm=tsfc_interface._compile_form_comm(self._form))
 
     def _apply_bc(self, tensor, bc, u=None):
         pass
@@ -1250,7 +1262,7 @@ class OneFormAssembler(ParloopFormAssembler):
 
 
 def TwoFormAssembler(form, *args, **kwargs):
-    assert isinstance(form, (ufl.form.Form, ufl.Interpolate, slate.TensorBase))
+    assert isinstance(form, (ufl.form.Form, ufl.ZeroBaseForm, ufl.Interpolate, slate.TensorBase))
     mat_type = kwargs.pop('mat_type', None)
     sub_mat_type = kwargs.pop('sub_mat_type', None)
     mat_spec = make_mat_spec(mat_type, sub_mat_type, form.arguments())

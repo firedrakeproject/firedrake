@@ -578,6 +578,8 @@ class AbstractMeshTopology(abc.ABC):
 
         self._uid = f"mesh_{next(self.counter)}"
 
+    extruded = False
+
     layers = None
     """No layers on unstructured mesh"""
 
@@ -882,14 +884,9 @@ class AbstractMeshTopology(abc.ABC):
                 dim = _selector
 
         if name is not None:
-            idxs = self._entity_indices_plex_by_name(name)
+            idxs = self._entity_dm_indices_by_name(name)
         elif dim is not None:
-            if not isinstance(self, ExtrudedMeshTopology):
-                # strata and dims are the same
-                idxs = self._entity_dm_indices(stratum=dim)
-            else:
-                # dims are tuples, need to think
-                raise NotImplementedError
+            idxs = self._entity_dm_indices_by_dim(dim)
         else:
             idxs = slice(*self.topology_dm.getDepthStratum(stratum))
 
@@ -897,7 +894,7 @@ class AbstractMeshTopology(abc.ABC):
             idxs = np.arange(idxs.start, idxs.stop, dtype=IntType)
         return idxs
 
-    def _entity_indices_plex_by_name(self, name: str) -> np.ndarray | slice:
+    def _entity_dm_indices_by_name(self, name: str) -> np.ndarray | slice:
         match name:
             case "cell":
                 return self._entity_dm_indices(stratum=self.dimension)
@@ -995,7 +992,7 @@ class AbstractMeshTopology(abc.ABC):
                 #     x--H--x--H--x
                 #
                 # The horizontal facets are those generated from base cells.
-                return self._plex_indices_for_dim((self.dimension-1, 0))
+                return self._entity_dm_indices_by_dim((self.dimension-1, 0))
 
             case "facet_vert":
                 # Consider extruding the following interval mesh:
@@ -1015,7 +1012,7 @@ class AbstractMeshTopology(abc.ABC):
                 #     x-----x-----x
                 #
                 # The vertical facets are those generated from base facets.
-                return self._plex_indices_for_dim((self.dimension-2, 1))
+                return self._entity_dm_indices_by_dim((self.dimension-2, 1))
 
             case "exterior_facet_top" | "exterior_facet_bottom":
                 # Consider extruding the following interval mesh:
@@ -1039,7 +1036,7 @@ class AbstractMeshTopology(abc.ABC):
                 # up the column we can just slice them out.
 
                 if name == "exterior_facet_bottom" and self.periodic:
-                    return self._entity_indices_plex_by_name("exterior_facet_top")
+                    return self._entity_dm_indices_by_name("exterior_facet_top")
 
                 # Periodic extruded meshes have one fewer horizontal facets
                 if self.periodic:
@@ -1057,6 +1054,32 @@ class AbstractMeshTopology(abc.ABC):
 
             case _:
                 raise NotImplementedError
+
+    def _entity_dm_indices_by_dim(self, dim: int | tuple[int, ...]) -> np.ndarray | slice:
+        if not self.extruded:
+            # stratum and dim are the same
+            return self._entity_dm_indices(stratum=dim)
+
+        base_dim, extr_dim = dim
+        p_start, p_end = self.topology_dm.getDepthStratum(base_dim + extr_dim)
+
+        if dim in {self.cell_label, self.vertex_label}:
+            # For extruded meshes we can only use a slice for cells and
+            # vertices because for intermediate dimensions the
+            # horizontal and vertical entities interleave.
+            return slice(p_start, p_end)
+
+        # Get the indices of the right entity type. This is more complicated
+        # for extruded meshes because the different facet types (horizontal vs
+        # vertical) are not natively distinguished.
+
+        # Get all points that were originally a vertex, say
+        dm_idxs = utils.safe_is(
+            self.topology_dm.getLabel("base_dim").getStratumIS(base_dim)
+        ).indices
+
+        # Filter out the extruded dimension that we don't want
+        return dm_idxs[np.logical_and(p_start <= dm_idxs, dm_idxs < p_end)]
 
     @cached_method_until_topology_changes()
     def _plex_to_entity_numbering_sec(
@@ -2365,7 +2388,7 @@ class MeshTopology(AbstractMeshTopology):
             self.sfBC = self.sfBC.compose(sfBC) if self.sfBC else sfBC
             self._grown_halos = True
         else:
-            raise ValueError("Unknown overlap type %r" % overlap_type)
+            raise ValueError(f"Unknown overlap type {overlap_type!r}")
 
     @cached_property
     def _ufl_cell(self):
@@ -2872,6 +2895,8 @@ class MeshTopology(AbstractMeshTopology):
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
 
+    extruded = True
+
     @PETSc.Log.EventDecorator()
     def __init__(self, mesh, layers, periodic=False, name=None):
         """Build an extruded mesh topology from an input mesh topology
@@ -3007,8 +3032,8 @@ class ExtrudedMeshTopology(MeshTopology):
         raise NotImplementedError
 
     @property
-    def vert_label(self) -> tuple:
-        return (self._base_mesh.vert_label, 0)
+    def vertex_label(self) -> tuple:
+        return (self._base_mesh.vertex_label, 0)
 
     def num_cells(self) -> int:
         nlayers = int(self.layers) - 1
@@ -3146,22 +3171,6 @@ class ExtrudedMeshTopology(MeshTopology):
         # We now have the orientation for a single extruded cell, now blow this
         # up for the whole column
         return np.repeat(orientationss, self.layers-1, axis=0)
-
-    # TODO: implement for regular meshes too
-    def _plex_indices_for_dim(self, dim: tuple[int, ...]) -> np.ndarray:
-        if len(dim) != 2:
-            raise NotImplementedError
-
-        base_dim, extr_dim = dim
-
-        # Get all points up each column that match the base dimension
-        dm_idxs = utils.safe_is(
-            self.topology_dm.getLabel("base_dim").getStratumIS(base_dim)
-        ).indices
-
-        # Drop indices up the column that do not match the required dimension
-        p_start, p_end = self.topology_dm.getDepthStratum(base_dim+extr_dim)
-        return dm_idxs[np.logical_and(p_start <= dm_idxs, dm_idxs < p_end)]
 
     # {{{ facet iteration
 
@@ -3499,7 +3508,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         `VertexOnlyMeshTopology` have no facets.
         """
         if kind not in ["interior", "exterior"]:
-            raise ValueError("Unknown facet type '%s'" % kind)
+            raise ValueError(f"Unknown facet type '{kind}'")
         raise AttributeError("Cells in a VertexOnlyMeshTopology have no facets.")
 
     @property
@@ -3559,9 +3568,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
     def edge_label(self):
         raise RuntimeError
 
-    # TODO I prefer "vertex_label"
     @property
-    def vert_label(self):
+    def vertex_label(self) -> int:
         return 0
 
     @cached_property_until_topology_changes
@@ -5233,8 +5241,7 @@ def Mesh(meshfile, **kwargs):
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, user_comm)
         else:
-            raise RuntimeError("Mesh file %s has unknown format '%s'."
-                               % (meshfile, ext[1:]))
+            raise RuntimeError(f"Mesh file {meshfile} has unknown format '{ext[1:]}'.")
         plex.setName(_generate_default_mesh_topology_name(name))
     # Create mesh topology
     submesh_parent = kwargs.get("submesh_parent", None)
@@ -5284,68 +5291,80 @@ def Mesh(meshfile, **kwargs):
 
 
 @PETSc.Log.EventDecorator("CreateExtMesh")
-def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', periodic=False, kernel=None, gdim=None, name=None, tolerance=0.5):
-    """Build an extruded mesh from an input mesh
+def ExtrudedMesh(
+    mesh: MeshGeometry,
+    layers: numbers.Integral,
+    layer_height: numbers.Number | np.ndarray | None = None,
+    extrusion_type: Literal["uniform", "radial", "radial_hedgehog", "custom"] = "uniform",
+    periodic: bool = False,
+    kernel=None,
+    gdim=None,
+    name=None,
+    tolerance=0.5,
+):
+    """Build an extruded mesh from an input mesh.
 
-    :arg mesh:           the unstructured base mesh
-    :arg layers:         number of extruded cell layers in the "vertical"
-                         direction.  One may also pass an array of
-                         shape (cells, 2) to specify a variable number
-                         of layers (deprecated).  In this case, each entry is a pair
-                         ``[a, b]`` where ``a`` indicates the starting
-                         cell layer of the column and ``b`` the number
-                         of cell layers in that column.
-    :arg layer_height:   the layer height.  A scalar value will result in
-                         evenly-spaced layers, whereas an array of values
-                         will vary the layer height through the extrusion.
-                         If this is omitted, the value defaults to
-                         1/layers (i.e. the extruded mesh has total height 1.0)
-                         unless a custom kernel is used.  Must be
-                         provided if using a variable number of layers.
-    :arg extrusion_type: the algorithm to employ to calculate the extruded
-                         coordinates. One of "uniform", "radial",
-                         "radial_hedgehog" or "custom". See below.
-    :arg periodic:       the flag for periodic extrusion; if True, only constant layer extrusion is allowed.
-                         Can be used with any "extrusion_type" to make annulus, torus, etc.
-    :arg kernel:         a ``pyop2.Kernel`` to produce coordinates for
-                         the extruded mesh. See :func:`firedrake.extrusion_utils.make_extruded_coords`
-                         for more details.
-    :arg gdim:           number of spatial dimensions of the
-                         resulting mesh (this is only used if a
-                         custom kernel is provided)
-    :arg name:           optional name for the extruded mesh.
-    :kwarg tolerance:    The relative tolerance (i.e. as defined on the
-                         reference cell) for the distance a point can be from a
-                         cell and still be considered to be in the cell.
-                         Note that this tolerance uses an L1
-                         distance (aka 'manhattan', 'taxicab' or rectilinear
-                         distance) so will scale with the dimension of the
-                         mesh.
+    Parameters
+    ----------
+    mesh : firedrake.mesh.MeshGeometry
+        The unstructured base mesh.
+    layers : numbers.Integral
+        The number of extruded cell layers in the "vertical" direction.
+    layer_height : numbers.Number | numpy.ndarray | None
+        The layer height. A scalar value will result in evenly-spaced layers,
+        whereas an array of values will vary the layer height through the extrusion.
+        If this is omitted, the value defaults to 1/layers (i.e. the extruded mesh
+        has total height 1.0) unless a custom kernel is used.
+    extrusion_type : str
+        The algorithm to employ to calculate the extruded coordinates. One of
+        "uniform", "radial", "radial_hedgehog" or "custom". See below.
 
-    The various values of ``extrusion_type`` have the following meanings:
+        The various values of ``extrusion_type`` have the following meanings:
 
-    ``"uniform"``
-        the extruded mesh has an extra spatial
-        dimension compared to the base mesh. The layers exist
-        in this dimension only.
+        ``"uniform"``
+            the extruded mesh has an extra spatial
+            dimension compared to the base mesh. The layers exist
+            in this dimension only.
 
-    ``"radial"``
-        the extruded mesh has the same number of
-        spatial dimensions as the base mesh; the cells are
-        radially extruded outwards from the origin. This
-        requires the base mesh to have topological dimension
-        strictly smaller than geometric dimension.
-    ``"radial_hedgehog"``
-        similar to `radial`, but the cells
-        are extruded in the direction of the outward-pointing
-        cell normal (this produces a P1dgxP1 coordinate field).
-        In this case, a radially extruded coordinate field
-        (generated with ``extrusion_type="radial"``) is
-        available in the ``radial_coordinates`` attribute.
-    ``"custom"``
-        use a custom kernel to generate the extruded coordinates
+        ``"radial"``
+            the extruded mesh has the same number of
+            spatial dimensions as the base mesh; the cells are
+            radially extruded outwards from the origin. This
+            requires the base mesh to have topological dimension
+            strictly smaller than geometric dimension.
 
+        ``"radial_hedgehog"``
+            similar to `radial`, but the cells
+            are extruded in the direction of the outward-pointing
+            cell normal (this produces a P1dgxP1 coordinate field).
+            In this case, a radially extruded coordinate field
+            (generated with ``extrusion_type="radial"``) is
+            available in the ``radial_coordinates`` attribute.
+
+        ``"custom"``
+            use a custom kernel to generate the extruded coordinates
+    periodic : bool
+        The flag for periodic extrusion. Can be used with any ``extrusion_type``
+        to make annulus, torus, etc.
+    kernel : pyop3.Function | None
+        A :class:`pyop3.Function` to produce coordinates for the extruded mesh.
+        See :func:`firedrake.extrusion_utils.make_extruded_coords` for more details.
+    gdim : int | None
+        The number of spatial dimensions of the resulting mesh (this is only used
+        if a custom kernel is provided).
+    name : str | None
+        Optional name for the extruded mesh.
+    tolerance : float
+        The relative tolerance (i.e. as defined on the reference cell) for the
+        distance a point can be from a cell and still be considered to be in the
+        cell. Note that this tolerance uses an L1 distance (a.k.a. 'manhattan',
+        'taxicab' or rectilinear distance) so will scale with the dimension of the
+        mesh.
+
+    Notes
+    -----
     For more details see the :doc:`manual section on extruded meshes </extruded-meshes>`.
+
     """
     import firedrake.functionspace as functionspace
     import firedrake.function as function
@@ -5652,12 +5671,16 @@ class VertexOnlyMeshSF:
     ) -> None:
         if root_values.shape[0] != self.nroots:
             raise ValueError("Number of root values does not match number of roots in the SF.")
+        if not root_values.flags.c_contiguous:
+            raise ValueError("`root_values` must have row-major ordering, do not pass a transposed view")
         if leaf_values.shape[0] < self.leaf_buffer_size:
             raise ValueError("Leaf array is too small for the SF leaf indices.")
         if leaf_values.shape[1:] != root_values.shape[1:]:
             raise ValueError("`leaf_values` shape does not match `root_values`.")
         if leaf_values.dtype != root_values.dtype:
             raise TypeError("`leaf_values` dtype does not match `root_values`.")
+        if not leaf_values.flags.c_contiguous:
+            raise ValueError("`leaf_values` must have row-major ordering, do not pass a transposed view")
 
     def broadcast(
         self,

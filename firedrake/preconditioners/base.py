@@ -60,8 +60,7 @@ class PCSNESBase(object, metaclass=abc.ABCMeta):
         typ = viewer.getType()
         if typ != PETSc.Viewer.Type.ASCII:
             return
-        viewer.printfASCII("Firedrake custom %s %s\n" %
-                           (self._asciiname, type(self).__name__))
+        viewer.printfASCII(f"Firedrake custom {self._asciiname} {type(self).__name__}\n")
 
     def destroy(self, pc):
         if hasattr(self, "pc"):
@@ -207,9 +206,9 @@ class PCBase(PCSNESBase):
 
         pcname = type(self).__module__ + "." + type(self).__name__
         if self.needs_python_amat and Atype != PETSc.Mat.Type.PYTHON:
-            raise ValueError("PC '%s' needs amat to have type python, but it is %s" % (pcname, Atype))
+            raise ValueError(f"PC '{pcname}' needs amat to have type python, but it is {Atype}")
         if self.needs_python_pmat and Ptype != PETSc.Mat.Type.PYTHON:
-            raise ValueError("PC '%s' needs pmat to have type python, but it is %s" % (pcname, Ptype))
+            raise ValueError(f"PC '{pcname}' needs pmat to have type python, but it is {Ptype}")
 
         super().setUp(pc)
 

@@ -79,7 +79,7 @@ class GTMGPC(PCBase):
         if ctx is None:
             raise ValueError("No context found.")
         if not isinstance(ctx, _SNESContext):
-            raise ValueError("Don't know how to get form from %r" % ctx)
+            raise ValueError(f"Don't know how to get form from {ctx!r}")
 
         prefix = pc.getOptionsPrefix() or ""
         options_prefix = prefix + self._prefix
@@ -91,7 +91,7 @@ class GTMGPC(PCBase):
             if ictx is None:
                 raise ValueError("No context found on matrix")
             if not isinstance(ictx, ImplicitMatrixContext):
-                raise ValueError("Don't know how to get form from %r" % ictx)
+                raise ValueError(f"Don't know how to get form from {ictx!r}")
 
             fine_operator = ictx.a
             fine_bcs = ictx.row_bcs

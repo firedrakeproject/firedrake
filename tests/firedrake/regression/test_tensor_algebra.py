@@ -7,7 +7,7 @@ import numpy as np
                 params=["triangle",
                         "tet",
                         "quad"],
-                ids=lambda x: "RT1(%s)" % x)
+                ids=lambda x: f"RT1({x})")
 def mesh(request):
     if request.param == "triangle":
         return UnitTriangleMesh()

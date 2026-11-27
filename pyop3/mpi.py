@@ -387,7 +387,7 @@ def internal_comm(comm: MPI.Comm, obj: Any) -> MPI.Comm:
     if comm == MPI.COMM_NULL:
         raise PyOP2CommError("MPI_COMM_NULL passed to internal_comm()")
     elif not isinstance(comm, MPI.Comm):
-        raise PyOP2CommError("Don't know how to dup a %r" % type(comm))
+        raise PyOP2CommError(f"Don't know how to dup a {type(comm)!r}")
 
     # Handle a valid input
     if is_pyop2_comm(comm):
@@ -483,12 +483,12 @@ def create_split_comm(comm):
         if tmpname is None:
             raise CompilationException("Cannot determine sharedness of filesystem")
         # Touch file
-        debug("Made tmpdir %s" % tmpname)
+        debug(f"Made tmpdir {tmpname}")
         with open(os.path.join(tmpname, str(comm.rank)), "wb"):
             pass
         comm.barrier()
         ranks = sorted(int(os.path.basename(name))
-                       for name in glob.glob("%s/[0-9]*" % tmpname))
+                       for name in glob.glob(f"{tmpname}/[0-9]*"))
         debug("Creating compilation communicator using filesystem colors")
         split_comm = comm.Split(color=min(ranks), key=comm.rank)
         debug("Finished creating compilation communicator using filesystem colors")
