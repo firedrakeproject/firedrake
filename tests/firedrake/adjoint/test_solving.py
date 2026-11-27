@@ -16,6 +16,26 @@ def rg():
     return RandomGenerator(PCG64(seed=1234))
 
 
+def solve_variational(a, L, uh, bcs=None, **kwargs):
+    solve(a == L, uh, bcs=bcs, **kwargs)
+
+
+def solve_lvs(a, L, uh, bcs=None, **kwargs):
+    LinearVariationalSolver(LinearVariationalProblem(a, L, uh, bcs=bcs), **kwargs).solve()
+
+
+def solve_nlvs(a, L, uh, bcs=None, **kwargs):
+    # The problem is linear, so the default Newton solver stops after one step.
+    F = action(a, uh) - L
+    NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh, bcs=bcs), **kwargs).solve()
+
+
+def solve_assembled(a, L, uh, bcs=None, **kwargs):
+    A = assemble(a, bcs=bcs)
+    b = assemble(L)
+    solve(A, uh, b, **kwargs)
+
+
 @pytest.mark.skipcomplex
 def test_linear_problem(rg):
     assert len(get_working_tape()._blocks) == 0
@@ -69,8 +89,8 @@ def test_singular_linear_problem(rg):
 
 @pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
-@pytest.mark.parametrize("solver_type", ("solve", "lvs", "nlvs"))
-def test_singular_nonsymmetric_linear_problem(solver_type, rg):
+@pytest.mark.parametrize("linear_solve", (solve_variational, solve_lvs, solve_nlvs, solve_assembled))
+def test_singular_nonsymmetric_linear_problem(linear_solve, rg):
     """Check that the adjoint solve swaps nullspace and transpose_nullspace.
 
     The pure Neumann form a(u, v) = (grad u, grad(v/g)) is nonsymmetric. Its
@@ -99,14 +119,7 @@ def test_singular_nonsymmetric_linear_problem(solver_type, rg):
     def J(f):
         uh = Function(V)
         L = inner(f, v)*dx
-        if solver_type == "solve":
-            solve(a == L, uh, **kwargs)
-        elif solver_type == "lvs":
-            LinearVariationalSolver(LinearVariationalProblem(a, L, uh), **kwargs).solve()
-        else:
-            # The problem is linear, so the default Newton solver stops after one step.
-            F = action(a, uh) - L
-            NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh), **kwargs).solve()
+        linear_solve(a, L, uh, **kwargs)
         return assemble(uh**4*dx)
 
     f = Function(V).interpolate(sin(3*x) + cos(2*y))
@@ -440,8 +453,8 @@ def test_dirichlet_bc_value_in_form():
 
 
 @pytest.mark.skipcomplex
-@pytest.mark.parametrize("use_solver", (False, True))
-def test_linear_problem_interpolate_rhs(use_solver, rg):
+@pytest.mark.parametrize("linear_solve", (solve_variational, solve_lvs, solve_assembled))
+def test_linear_problem_interpolate_rhs(linear_solve, rg):
     # The rhs is an Interpolate, not a Form or a Cofunction,
     # and it depends on the control only through its operand.
     mesh = UnitSquareMesh(4, 4)
@@ -457,10 +470,7 @@ def test_linear_problem_interpolate_rhs(use_solver, rg):
     a = (inner(u, v) + inner(grad(u), grad(v)))*dx
     L = interpolate(m**2 * v, c)
     uh = Function(V)
-    if use_solver:
-        LinearVariationalSolver(LinearVariationalProblem(a, L, uh)).solve()
-    else:
-        solve(a == L, uh)
+    linear_solve(a, L, uh)
 
     J = assemble(inner(uh, uh)*dx)
     rf = ReducedFunctional(J, Control(m))
@@ -472,11 +482,11 @@ def test_linear_problem_interpolate_rhs(use_solver, rg):
     assert min(rates["R2"]["Rate"]) > 2.9
 
 
-def _assembled_linear_solve(control, with_bc):
-    """Tape solve(A, x, b) with A = assemble(a) and b = assemble(L).
-
-    Return the functional and the coefficient of a or L named by control.
-    """
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("linear_solve", (solve_variational, solve_lvs, solve_assembled))
+@pytest.mark.parametrize("control", ("L", "a"))
+@pytest.mark.parametrize("with_bc", (False, True))
+def test_linear_problem_hessian(linear_solve, control, with_bc, rg):
     mesh = UnitSquareMesh(4, 4)
     V = FunctionSpace(mesh, "CG", 1)
     R = FunctionSpace(mesh, "R", 0)
@@ -490,40 +500,14 @@ def _assembled_linear_solve(control, with_bc):
     v = TestFunction(V)
     a = k*inner(grad(u), grad(v))*dx + inner(u, v)*dx
     L = inner(f**2, v)*dx
-    A = assemble(a, bcs=bcs)
-    b = assemble(L)
-    x = Function(V)
-    solve(A, x, b)
+    uh = Function(V)
+    linear_solve(a, L, uh, bcs=bcs)
 
-    J = assemble(x**4*dx)
-    return J, {"L": f, "a": k}[control]
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parametrize("control", ("L", "a"))
-@pytest.mark.parametrize("with_bc", (False, True))
-def test_assembled_linear_solve_replay(control, with_bc):
-    J, m = _assembled_linear_solve(control, with_bc)
+    J = assemble(uh**4*dx)
+    m = {"L": f, "a": k}[control]
     rf = ReducedFunctional(J, Control(m))
     assert np.isclose(rf(m), J, rtol=1e-10)
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parametrize("control", ("L", "a"))
-@pytest.mark.parametrize("with_bc", (False, True))
-def test_assembled_linear_solve_gradient(control, with_bc, rg):
-    J, m = _assembled_linear_solve(control, with_bc)
-    rf = ReducedFunctional(J, Control(m))
-    h = rg.uniform(m.function_space(), 1.0, 2.0)
-    assert taylor_test(rf, m, h) > 1.9
-
-
-@pytest.mark.skipcomplex
-@pytest.mark.parametrize("control", ("L", "a"))
-@pytest.mark.parametrize("with_bc", (False, True))
-def test_assembled_linear_solve_hessian(control, with_bc, rg):
-    J, m = _assembled_linear_solve(control, with_bc)
-    rf = ReducedFunctional(J, Control(m))
+    # A perturbation of order one keeps the second-order residual above round-off for m in R.
     h = rg.uniform(m.function_space(), 1.0, 2.0)
     rates = taylor_to_dict(rf, m, h)
     assert min(rates["R2"]["Rate"]) > 2.9
