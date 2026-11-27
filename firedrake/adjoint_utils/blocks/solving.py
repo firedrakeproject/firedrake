@@ -592,12 +592,22 @@ def solve_init_params(self, args, kwargs, varform):
 
 
 class SolveLinearSystemBlock(GenericSolveBlock):
+    """Record ``solve(A, u, b)`` with an assembled matrix on the tape.
+
+    Parameters
+    ----------
+    A : firedrake.matrix.MatrixBase
+        The matrix from ``assemble(a, bcs=bcs)``.
+    u : firedrake.function.Function
+        The solution.
+    b : firedrake.cofunction.Cofunction
+        The right-hand side.
+    """
+
     def __init__(self, A, u, b, *args, **kwargs):
         lhs = A.form
-        func = u.function
-        rhs = b.form
         bcs = A.bcs if hasattr(A, "bcs") else []
-        super().__init__(lhs, rhs, func, bcs, *args, **kwargs)
+        super().__init__(lhs, b, u, bcs, *args, **kwargs)
 
         # Set up parameters initialization
         self.ident_zeros_tol = \

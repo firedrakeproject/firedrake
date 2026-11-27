@@ -57,10 +57,7 @@ def annotate_solve(solve):
             output = solve(*args, **kwargs)
 
         if annotate:
-            if hasattr(args[1], "create_block_variable"):
-                block_variable = args[1].create_block_variable()
-            else:
-                block_variable = args[1].function.create_block_variable()
+            block_variable = args[1].create_block_variable()
             block.add_output(block_variable)
 
         return output

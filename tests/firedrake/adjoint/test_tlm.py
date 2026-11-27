@@ -96,7 +96,7 @@ def test_tlm_func(rg):
 
 
 @pytest.mark.parametrize("solve_type",
-                         ["solve", "LVS"])
+                         ["solve", "LVS", "assembled"])
 @pytest.mark.skipcomplex
 def test_time_dependent(solve_type, rg):
     tape = Tape()
@@ -134,6 +134,10 @@ def test_time_dependent(solve_type, rg):
     while t <= T:
         if solve_type == "LVS":
             solver.solve()
+        elif solve_type == "assembled":
+            A = assemble(a, bcs=bc)
+            b = assemble(L)
+            solve(A, u_, b)
         else:
             solve(a == L, u_, bc)
         u_1.assign(u_)
