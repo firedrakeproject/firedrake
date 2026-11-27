@@ -3487,6 +3487,13 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return 0
 
     @cached_property_until_topology_changes
+    def flat_points(self):
+        return op3.Axis(
+            [op3.AxisComponent(self.num_points, sf=op3.sf.NullStarForest(self.num_points))],
+            label="mesh",
+        )
+
+    @cached_property_until_topology_changes
     def _composed_topology_migration_sfs(self) -> dict[int, PETSc.SF]:
         "Stores a SF to current topology version, keyed by their source version"
         return {}
