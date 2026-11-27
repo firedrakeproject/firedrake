@@ -1557,6 +1557,8 @@ class AbstractMeshTopology(abc.ABC):
                 iterset.as_axis(), op3.Axis({to_dim: size}, "closure")
             ])
             dats[to_dim] = op3.Dat(closure_axes, data=to_dim_closures.ravel())
+            if to_dim == (1,0):
+                print(to_dim_closures[:10])
         return idict(dats)
 
     @cached_method_until_topology_changes()
@@ -1691,70 +1693,119 @@ class AbstractMeshTopology(abc.ABC):
             # this is step 2
             closure_perm = utils.invert(np.asarray([8, 6, 0, 2, 7, 1, 3, 4, 5], dtype=IntType))
 
+            # copied from mydemo.py
+            # interval x interval
+            
+                        # 2----6----4
+                        # |         |
+                        # 7    0    8
+                        # |         |
+                        # 1----5----3
+            
+                        # and we want things split by entity type (0,0), (0,1) etc:
+                        #
+                        # 1----7----3
+                        # |         |
+                        # 4    8    5
+                        # |         |
+                        # 0----6----2
+
         elif self._base_mesh.ufl_cell() == ufl.triangle:
-            # fiat triangle ( Ithink)
-            #        2
-            #       /  \
-            #      /     3
-            #     4   6    \
-            #    /           \
-            #   0------5-------1
+            # I know the PETSc numbering...
 
-            #        x
-            #       /. \
-            #      / .   \
-            #     /  .     \
-            #    /   .       \
-            #   x--------------x
-            #   |    .         |
-            #   |    .         |
-            #   |    x         |
-            #   |   .  .       |
-            #   |  .     .     |
-            #   | .        .   |
-            #   |.           . |
-            #   x--------------x
             #
+            #           6
+            #          /.\
+            #         / . \
+            #        /  .  \
+            #      17   .  15
+            #      /  (20)   \
+            #     /     8     \
+            #    /      .      \
+            #   2------13-------4
+            #   |       .       |
+            #   | (11) (5) (10) |
+            #   |      . .      |
+            #   |     .   .     |
+            #  18    .  9  .   19
+            #   |  (16)    (14) |
+            #   |  .   (7)   .  |
+            #   | .           . |
+            #   |.             .|
+            #   1------12-------3
             #
+            #          (cell=0)
             #
+            # fiat:
+            #           5
+            #          /.\
+            #         / . \
+            #        /  .  \
+            #      14   .  13
+            #      /   (8)   \
+            #     /    19     \
+            #    /      .      \
+            #   1------12-------3
+            #   |       .       |
+            #   | (17) (4) (16) |
+            #   |      . .      |
+            #   |     .   .     |
+            #   6    . 15  .    7
+            #   |  (11)    (10)  |
+            #   |  .  (18)   .  |
+            #   | .           . |
+            #   |.             .|
+            #   0-------9-------2
             #
-            #        5
-            #       /. \
-            #      / .   \
-            #     /  .     \
-            #    /  (8)      \
-            #   1--------------3
-            #   |    .         |
-            #   |    .         |
-            #   |   (4)        |
-            #   6   .  .       7
-            #   | (11)  (9)    |
-            #   | .        .   |
-            #   |.           . |
-            #   0-----10-------2
-            #
-            #
-            #
-            #
-            #
-            #
-            #        5
-            # from_petsc = ???
-
-            # # a guess
-            # dm_fiat_pt_map = np.asarray(
-            #     [
-            #         20, 0, 1, 2, 3, 4, 5, 18, 19, 17, 15, 16, 11, 14, 9, 12, 10, 13, 6, 7, 8
-            #     ],
-            #     dtype=int,
-            # )
-            # closure_perm = utils.invert(np.asarray([20, 18, 11,  9, 10,  0,  2,  4, 19, 14, 12, 13,  1,  3, 5, 15, 16, 17, 6,7, 8], dtype=IntType))
+            #          (cell=20)
             closure_perm = utils.invert(np.asarray([20, 18, 9, 10, 11,  0,  2,  4, 19, 12, 13, 14,  1,  3, 5, 15, 16, 17, 6,7, 8], dtype=IntType))
 
 
         elif self._base_mesh.ufl_cell() == ufl.quadrilateral:
-            # dm_fiat_pt_map = np.asarray([26, 0, 1, 2, 3, 4, 5, 6, 7, 22, 23, 20, 21, 24, 25, 8, 9, 10, 11, 16, 18, 17, 19, 12, 13, 14, 15], dtype=int)
-            # dm_fiat_pt_map = np.asarray([26, 0, 1, 2, 3, 6, 7, 4, 5, 22, 23, 20, 21, 24, 25, 8, 9, 10, 11, 16, 18, 17, 19, 12, 13, 14, 15], dtype=int)
+            # TODO: update FIAT numbering given DM
+            # FIAT
+            #
+            #          1---------19----------7
+            #         /.                    /|
+            #        / .                   / |
+            #      13  .      25         15  |
+            #      /  (8)      (23)      /   11
+            #     /    .                /    |
+            #    3---------17----------5     |
+            #    |     .               |  21 |
+            #    |(20)(0). . . .(18) . | . . 6
+            #    |    .                |    /
+            #    9   .     22         10   /
+            #    | (12)     (24)       |  14
+            #    | .                   | /
+            #    |.                    |/
+            #    2---------16----------4
+            
+            # (cell=26)
+            #
+            # DMPlex
+            #
+            
+            
+            #          2---------20----------6
+            #         /.                    /|
+            #        / .                   / |
+            #      16  .      10         18  |
+            #      / (23)      (13)      /   25
+            #     /    .                /    |
+            #    4---------22----------8     |
+            #    |     .               |  12 |
+            #    |(11)(1). . . .(19) . | . . 5
+            #    |    .                |    /
+            #   24   .      14         26  /
+            #    | (15)     (9)        |  17
+            #    | .                   | /
+            #    |.                    |/
+            #    3---------21----------7
+            
+            # (cell = 0
+            #
+
             dm_fiat_pt_map = np.asarray(
                 [
                     26,  # cell
@@ -1779,6 +1830,145 @@ class AbstractMeshTopology(abc.ABC):
         flat_fiat_closures = np.empty((self.num_cells(), sum(self._closure_sizes[self.cell_label].values())), dtype=IntType)
         for cell in range(self.num_cells()):
             closure, _ = self.topology_dm.getTransitiveClosure(cell)
+
+            # cython + dispatch on cell type on the outside
+            # TODO: we assume here that we don't get single cell periodic things that aren't quads
+            if self._base_mesh.ufl_cell() == ufl.quadrilateral:
+                # default closure order for extruded quads:
+                #
+                #         15---------14---------18
+                #         /.                    /|
+                #        / .                   / |
+                #      11  .      10         13  |
+                #      / (23)      (22)      /   26
+                #     /    .                /    |
+                #   16---------12---------17     |
+                #    |     .               |  21 |
+                #    |(19)(6). . . . (5) . | . . 9
+                #    |    .                |    /
+                #   24   .      20         25  /
+                #    | (2)      (1)        |  4
+                #    | .                   | /
+                #    |.                    |/
+                #    7----------3----------8
+                # (cell = 0
+
+                if closure.size == 27:
+                    ...
+                elif closure.size == 19:  # bug with duplicate
+                    x_periodicity, y_periodicity, z_periodicity = dmcommon._get_periodicity(self.topology_dm)
+                    (_, x_unit_periodic) = x_periodicity
+                    (_, y_unit_periodic) = y_periodicity
+                    (zp, z_unit_periodic) = z_periodicity
+                    if x_unit_periodic:
+                        # new numbering:
+                        #          2---------11----------2
+                        #         /.                    /|
+                        #        / .                   / |
+                        #      15  .       6         15  |
+                        #      / (16)       (7)      /   16
+                        #     /    .                /    |
+                        #    4---------13----------4     |
+                        #    |     .               |  9  |
+                        #    | (9)(1). . . .(10) . | . . 1
+                        #    |    .                |    /
+                        #   17   .      8          17  /
+                        #    |(14)       (5)       |  14
+                        #    | .                   | /
+                        #    |.                    |/
+                        #    3---------12----------3   (cell=0)
+                        # and the closure:
+                        #         11----------8---------11
+                        #         /.                    /|
+                        #        / .                   / |
+                        #       9  .       7          9  |
+                        #      / (15)      (13)      /   15
+                        #     /    .                /    |
+                        #   12---------10---------12     |
+                        #    |     .               |  14 |
+                        #    |(14)(5). . . . (2) . | . . 5
+                        #    |    .                |    /
+                        #   16   .      11         16  /
+                        #    | (3)       (1)       |  3
+                        #    | .                   | /
+                        #    |.                    |/
+                        #    6----------4----------6
+                        new_closure = np.empty(27, dtype=closure.dtype)
+                        new_closure[0] = closure[0]
+                        new_closure[1] = closure[1]
+                        # <bottom edges>
+                        new_closure[2] = closure[3]
+                        new_closure[3] = closure[4]
+                        new_closure[4] = closure[3]
+                        new_closure[5] = closure[2]
+                        # </bottom edges>
+                        # <bottom verts>
+                        new_closure[6] = closure[5]
+                        new_closure[7] = closure[6]
+                        new_closure[8] = closure[6]
+                        new_closure[9] = closure[5]
+                        # </bottom verts>
+                        new_closure[10] = closure[7]
+                        # <top edges>
+                        new_closure[11] = closure[10]
+                        new_closure[12] = closure[9]
+                        new_closure[13] = closure[8]
+                        new_closure[14] = closure[9]
+                        # </top edges>
+                        # <top verts>
+                        new_closure[15] = closure[11]
+                        new_closure[16] = closure[12]
+                        new_closure[17] = closure[12]
+                        new_closure[18] = closure[11]
+                        # </top verts>
+                        new_closure[19] = closure[14]
+                        new_closure[20] = closure[11]
+                        new_closure[21] = closure[14]
+                        new_closure[22] = closure[13]
+                        new_closure[23] = closure[15]
+                        new_closure[24] = closure[16]
+                        new_closure[25] = closure[16]
+                        new_closure[26] = closure[15]
+                        closure = new_closure
+                    elif y_unit_periodic:
+                        new_closure = np.empty(27, dtype=closure.dtype)
+                        new_closure[0] = closure[0]
+                        new_closure[1] = closure[1]
+                        new_closure[2] = closure[2]
+                        new_closure[3] = closure[3]
+                        new_closure[4] = closure[4]
+                        new_closure[5] = closure[5]
+                        # <bottom verts>
+                        new_closure[6] = closure[4]
+                        new_closure[7] = closure[5]
+                        new_closure[8] = closure[5]
+                        new_closure[9] = closure[4]
+                        # </bottom verts>
+                        new_closure[10] = closure[10]
+                        new_closure[11] = closure[11]
+                        new_closure[12] = closure[12]
+                        new_closure[13] = closure[13]
+                        new_closure[14] = closure[14]
+                        # <top verts>
+                        new_closure[15] = closure[15]
+                        new_closure[16] = closure[15]
+                        new_closure[17] = closure[16]
+                        new_closure[18] = closure[17]
+                        # </top verts>
+                        new_closure[19] = closure[18]
+                        new_closure[20] = closure[18]
+                        new_closure[21] = closure[18]
+                        new_closure[22] = closure[18]
+                        new_closure[23] = closure[18]
+                        new_closure[24] = closure[18]
+                        new_closure[25] = closure[18]
+                        new_closure[26] = closure[18]
+                        closure = new_closure
+                    elif zp and z_unit_periodic:
+                        raise NotImplementedError
+                else:
+                    raise NotImplementedError
+
             # take along axis...
             flat_fiat_closures[cell] = closure[closure_perm]
         return flat_fiat_closures
@@ -1862,7 +2052,8 @@ class AbstractMeshTopology(abc.ABC):
                 else:
                     to_pt_renum = to_numbering_sec.getOffset(to_pt)
                 map_data_renum[from_pt_renum, j] = to_pt_renum
-        return readonly(map_data_renum)
+        # return readonly(map_data_renum)
+        return map_data_renum  # FIXME
 
     def _renumber_map_ragged(self, *args, **kwargs):
         raise NotImplementedError

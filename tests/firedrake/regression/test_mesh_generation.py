@@ -76,16 +76,25 @@ def test_tensor_box():
 
 
 @pytest.mark.parallel([1, 2])
-def test_one_element_advection():
-    nx = 20
-    m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
+@pytest.mark.parametrize("direction", ["x", "y"])
+def test_one_element_advection(direction):
+    n = 20
+    # n = 3
+    if direction == "x":
+        m = PeriodicRectangleMesh(n, 1, 1.0, 1.0, quadrilateral=True)
+    else:
+        m = PeriodicRectangleMesh(1, n, 1.0, 1.0, quadrilateral=True)
     nlayers = 20
+    # nlayers = 3
     mesh = ExtrudedMesh(m, nlayers, 1.0/nlayers)
-    x = SpatialCoordinate(mesh)
+    x, y, z = SpatialCoordinate(mesh)
     fe_dg = FiniteElement("DQ", mesh.ufl_cell(), 1, variant="equispaced")
     Vdg = FunctionSpace(mesh, fe_dg)
     Vu = VectorFunctionSpace(mesh, fe_dg)
-    q0 = Function(Vdg).interpolate(cos(2*pi*x[0])*cos(pi*x[2]))
+    if direction == "x":
+        q0 = Function(Vdg).interpolate(cos(2*pi*x)*cos(pi*z))
+    else:
+        q0 = Function(Vdg).interpolate(cos(2*pi*y)*cos(pi*z))
     q_init = Function(Vdg).assign(q0)
     dq1 = Function(Vdg)
     q1 = Function(Vdg)

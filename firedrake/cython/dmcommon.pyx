@@ -893,9 +893,9 @@ def cell_closures_and_perms_quad(mesh, np.ndarray cell_orientations):
                                       "not supported")
         elif nclosure == 6:
             horiz_periodicity, vert_periodicity = _get_periodicity(plex)
-            (_, horiz_unit_periodic) = horiz_periodicity
-            (_, vert_unit_periodic) = vert_periodicity
-            if vert_unit_periodic:
+            (hp, horiz_unit_periodic) = horiz_periodicity
+            (vp, vert_unit_periodic) = vert_periodicity
+            if vp and vert_unit_periodic:
                 assert not horiz_unit_periodic
                 closure_tmp[2*0] = closure[2*0]
                 closure_tmp[2*1] = closure[2*1]
@@ -907,8 +907,8 @@ def cell_closures_and_perms_quad(mesh, np.ndarray cell_orientations):
                 closure_tmp[2*7] = closure[2*5]
                 closure_tmp[2*8] = closure[2*4]
             else:
-                assert horiz_unit_periodic
-                assert not vert_unit_periodic
+                assert hp and horiz_unit_periodic
+                assert not (vp and vert_unit_periodic)
                 closure_tmp[2*0] = closure[2*0]
                 closure_tmp[2*1] = closure[2*1]
                 closure_tmp[2*2] = closure[2*2]
@@ -3845,14 +3845,14 @@ def cell_closures_and_perms_submesh(
             raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
 
         # this gives us something like [2, 4, 1, 5], convert to [1, 2, 0, 3]
-        for i in range(nsubclosure):
-            subperm[i] = i  # reset
         off = 0
         for ss in subcell_closure_sizes:
+            for i in range(ss):
+                subperm[i] = i  # reset
             CHKERR(PetscSortIntWithArray(ss, perm+off, subperm))
             for subcl in range(ss):
                 # subcell_perms[subcell, subcl+off] = subperm[subcl+off] - off
-                subcell_perms[subcell, subperm[subcl+off]] = subcl
+                subcell_perms[subcell, subperm[subcl]+off] = subcl
             off += ss
 
         for subcl in range(nsubclosure):
