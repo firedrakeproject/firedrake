@@ -605,11 +605,6 @@ class CrossMeshInterpolator(Interpolator):
             raise NotImplementedError("bcs not implemented for cross-mesh interpolation.")
         mat_type = mat_type or "aij"
 
-        if self.into_quadrature_space:
-            f = Function(self.target_space.dual() if self.ufl_interpolate.is_adjoint else self.target_space)
-        else:
-            f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
-
         point_eval, point_eval_input_ordering = self._symbolic_expressions
         P0DG_vom_input_ordering = point_eval_input_ordering.argument_slots()[0].function_space().dual()
 
@@ -641,10 +636,8 @@ class CrossMeshInterpolator(Interpolator):
             def callable() -> Cofunction:
                 if self.into_quadrature_space:
                     cofunc = assemble(self._interpolate_from_quadrature)
-                    f_target = Cofunction(point_eval.function_space())
                 else:
                     cofunc = self.dual_arg
-                    f_target = f
 
                 assert isinstance(cofunc, Cofunction)
 
@@ -659,10 +652,14 @@ class CrossMeshInterpolator(Interpolator):
                 # because we're going from the input ordering VOM to the original VOM
                 # and all points from the input ordering VOM are in the original.
                 f_src_at_src_node_coords = assemble(action(point_eval_input_ordering, f_input_ordering))
-                assemble(action(point_eval, f_src_at_src_node_coords), tensor=f_target)
-                return f_target
+                return assemble(action(point_eval, f_src_at_src_node_coords), tensor=tensor)
         else:
             assert self.rank in {0, 1}
+
+            if self.into_quadrature_space:
+                f = Function(self.target_space)
+            else:
+                f = tensor or Function(self.ufl_interpolate.function_space() or self.target_space)
 
             def callable() -> Function | Number:
                 # We create the input-ordering Function before interpolating so we can
