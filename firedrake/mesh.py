@@ -219,12 +219,14 @@ def _subdomain_names(
     return [(dim, subdomain_id, name) for dim, subdomain_id, name, _ in strata]
 
 
-def _extract_netgen_subdomain_names(ngmesh, mesh_dim):
-    """Extract the named subdomains of a Netgen mesh for every entity dimension."""
-    return [(dim, subdomain_id, name)
-            for dim in range(mesh_dim + 1)
-            for subdomain_id, name in enumerate(ngmesh.GetRegionNames(dim=dim), start=1)
-            if name]
+def _pop_subdomain_names(plex: PETSc.DMPlex) -> list[tuple[int, int, str]]:
+    """Return the subdomain names of every entity dimension and remove their labels."""
+    names = _named_subdomain_labels(plex)
+    subdomain_names = _subdomain_names(plex, names, range(plex.getDimension() + 1))
+    # Remove per-group labels before distribution and before Firedrake creates its labels.
+    for name in names:
+        plex.removeLabel(name)
+    return subdomain_names
 
 
 def _register_subdomain_names(mesh, subdomain_names):
@@ -243,13 +245,7 @@ def _from_gmsh(filename: str, comm: MPI.Comm, geometric_dim: int | None) -> tupl
         options["dm_plex_gmsh_spacedim"] = geometric_dim
     with OptionsManager(options, "").inserted_options():
         plex = PETSc.DMPlex().createFromFile(filename, comm=comm)
-
-    names = _named_subdomain_labels(plex)
-    subdomain_names = _subdomain_names(plex, names, range(plex.getDimension() + 1))
-    # Remove per-group labels before distribution and before Firedrake creates its labels.
-    for name in names:
-        plex.removeLabel(name)
-    return plex, subdomain_names
+    return plex, _pop_subdomain_names(plex)
 
 
 @PETSc.Log.EventDecorator()
@@ -5229,7 +5225,7 @@ def Mesh(meshfile, **kwargs):
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
         plex.setName(_generate_default_mesh_topology_name(name))
-        subdomain_names = _extract_netgen_subdomain_names(meshfile, plex.getDimension())
+        subdomain_names = _pop_subdomain_names(plex)
 
     else:
         basename, ext = os.path.splitext(meshfile)
