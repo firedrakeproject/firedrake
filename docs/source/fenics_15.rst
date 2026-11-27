@@ -54,10 +54,7 @@ Location and travel
 
 The workshop will be held in the Huxley Building on Imperial College's
 main South Kensington campus. The street address is 180 Queen's Gate,
-London SW7 2RH. For information on getting to the venue, including
-Transport for London tickets, see :doc:`the directions page
-<fenics_15_directions>`.
-
+London SW7 2RH.
 
 Registration
 ------------
