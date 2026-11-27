@@ -282,7 +282,7 @@ def test_submesh_interpolate_subcell_subcell_2_processes():
     assert np.allclose(f_r.dat.data_with_halos, g_r.dat.data_with_halos)
 
 
-# @pytest.mark.parallel(nprocs=5)
+@pytest.mark.parallel(nprocs=5)
 @pytest.mark.parametrize('hexahedral', [False, True])
 @pytest.mark.parametrize('direction', ['x', 'y', 'z'])
 @pytest.mark.parametrize('facet_type', ['interior', 'exterior'])
@@ -302,8 +302,7 @@ def test_submesh_interpolate_3Dcell_2Dfacet(hexahedral, direction, facet_type):
         )
         V = FunctionSpace(mesh, "CG", 2)
     else:
-        # mesh = UnitCubeMesh(8, 8, 8)
-        mesh = UnitCubeMesh(2, 2, 1)
+        mesh = UnitCubeMesh(8, 8, 8)
         V = FunctionSpace(mesh, "HDiv Trace", 0)
     x, y, z = SpatialCoordinate(mesh)
     facet_function = Function(V).interpolate(
