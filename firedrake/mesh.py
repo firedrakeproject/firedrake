@@ -1557,8 +1557,8 @@ class AbstractMeshTopology(abc.ABC):
                 iterset.as_axis(), op3.Axis({to_dim: size}, "closure")
             ])
             dats[to_dim] = op3.Dat(closure_axes, data=to_dim_closures.ravel())
-            if to_dim == (1,0):
-                print(to_dim_closures[:10])
+            # if to_dim == (1,0):
+            print(to_dim, to_dim_closures[:10])
         return idict(dats)
 
     @cached_method_until_topology_changes()
@@ -1867,7 +1867,7 @@ class AbstractMeshTopology(abc.ABC):
                         #        / .                   / |
                         #      15  .       6         15  |
                         #      / (16)       (7)      /   16
-                        #     /    .                /    |
+                        #     /    .                /    |       (try rotating it)
                         #    4---------13----------4     |
                         #    |     .               |  9  |
                         #    | (9)(1). . . .(10) . | . . 1
@@ -1894,41 +1894,47 @@ class AbstractMeshTopology(abc.ABC):
                         #    |.                    |/
                         #    6----------4----------6
                         new_closure = np.empty(27, dtype=closure.dtype)
+                        # good
                         new_closure[0] = closure[0]
                         new_closure[1] = closure[1]
                         # <bottom edges>
-                        new_closure[2] = closure[3]
-                        new_closure[3] = closure[4]
-                        new_closure[4] = closure[3]
-                        new_closure[5] = closure[2]
+                        new_closure[2] = closure[2]  # think yes
+                        new_closure[3] = closure[3]  # think no
+                        new_closure[4] = closure[4]
+                        new_closure[5] = closure[3]
                         # </bottom edges>
-                        # <bottom verts>
+                        # <bottom verts> good
                         new_closure[6] = closure[5]
                         new_closure[7] = closure[6]
                         new_closure[8] = closure[6]
                         new_closure[9] = closure[5]
                         # </bottom verts>
+                        # good
                         new_closure[10] = closure[7]
                         # <top edges>
-                        new_closure[11] = closure[10]
-                        new_closure[12] = closure[9]
-                        new_closure[13] = closure[8]
-                        new_closure[14] = closure[9]
+                        new_closure[11] = closure[8]
+                        new_closure[12] = closure[9] # think yes
+                        new_closure[13] = closure[10]
+                        new_closure[14] = closure[9] # think yes
                         # </top edges>
-                        # <top verts>
+                        # <top verts> good
                         new_closure[15] = closure[11]
                         new_closure[16] = closure[12]
                         new_closure[17] = closure[12]
                         new_closure[18] = closure[11]
                         # </top verts>
-                        new_closure[19] = closure[14]
-                        new_closure[20] = closure[11]
-                        new_closure[21] = closure[14]
-                        new_closure[22] = closure[13]
-                        new_closure[23] = closure[15]
-                        new_closure[24] = closure[16]
-                        new_closure[25] = closure[16]
-                        new_closure[26] = closure[15]
+                        # <vertical facets> good
+                        new_closure[19] = closure[13]
+                        new_closure[20] = closure[14]
+                        new_closure[21] = closure[15]
+                        new_closure[22] = closure[14]
+                        # </vertical facets>
+                        # <vertical edges> good
+                        new_closure[23] = closure[17]
+                        new_closure[24] = closure[18]
+                        new_closure[25] = closure[18]
+                        new_closure[26] = closure[17]
+                        # </vertical edges>
                         closure = new_closure
                     elif y_unit_periodic:
                         new_closure = np.empty(27, dtype=closure.dtype)
