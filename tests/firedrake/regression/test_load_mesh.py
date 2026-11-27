@@ -1,11 +1,12 @@
 from math import pi
 
 from firedrake import *
-from firedrake.mesh import _parse_gmsh_physical_names
+from petsctools import OptionsManager, get_external_packages
 import numpy as np
 import pytest
 from os.path import abspath, dirname, join
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 path = join(abspath(dirname(__file__)), '..', 'meshes')
@@ -126,32 +127,53 @@ def test_periodic_3d_solve():
     assert errornorm(u_exact_expr, uh, "L2") < 1e-12
 
 
-def test_gmsh_physical_names_parser(tmp_path):
-    filename = tmp_path / "named.msh"
-    filename.write_text(
-        "$MeshFormat\n2.2 0 8\n$EndMeshFormat\n"
-        "$PhysicalNames\n2\n1 5 \"left wall\"\n2 7 \"fluid\"\n$EndPhysicalNames\n"
-    )
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("use_path_object", [False, True])
+def test_gmsh_region_names_are_loaded(use_path_object: bool) -> None:
+    with TemporaryDirectory() as directory:
+        filename = None
+        if COMM_WORLD.rank == 0:
+            source = (Path(path) / "square.msh").read_text()
+            physical_names = (
+                "$PhysicalNames\n3\n"
+                "1 1 \"left wall\"\n"
+                "1 2 \"firedrake_is_ghost\"\n"
+                "2 1 \"left wall\"\n"
+                "$EndPhysicalNames\n"
+            )
+            filename = Path(directory) / "named_square.msh"
+            filename.write_text(source.replace("$EndMeshFormat\n", "$EndMeshFormat\n" + physical_names))
+        filename = COMM_WORLD.bcast(filename, root=0)
+        mesh = Mesh(filename if use_path_object else str(filename))
 
-    assert _parse_gmsh_physical_names(str(filename)) == [(1, 5, "left wall"), (2, 7, "fluid")]
+    assert mesh.topology.region_names == {
+        1: {"left wall": [1], "firedrake_is_ghost": [2]},
+        2: {"left wall": [1]},
+    }
+    for marker in ("left wall", "firedrake_is_ghost", 1, 2):
+        assert assemble(Constant(1) * ds(marker, domain=mesh)) == pytest.approx(1.0)
+    for marker in ("left wall", 1):
+        assert assemble(Constant(1) * dx(marker, domain=mesh)) == pytest.approx(1.0)
 
 
-def test_gmsh_region_names_are_loaded(tmp_path):
-    source = (Path(path) / "square.msh").read_text()
-    physical_names = (
-        "$PhysicalNames\n2\n"
-        "1 1 \"left\"\n"
-        "2 1 \"cells\"\n"
-        "$EndPhysicalNames\n"
-    )
-    filename = tmp_path / "named_square.msh"
-    filename.write_text(source.replace("$EndMeshFormat\n", "$EndMeshFormat\n" + physical_names))
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("parallel_reader", [False, True])
+def test_cgns_region_names(parallel_reader: bool) -> None:
+    if "cgns" not in get_external_packages():
+        pytest.skip("PETSc was built without CGNS support")
 
-    mesh = Mesh(str(filename))
+    filename = "named_rectangle.cgns" if parallel_reader else "rectangle.cgns"
+    options = {"dm_plex_cgns_parallel": parallel_reader}
+    with OptionsManager(options, "").inserted_options():
+        mesh = Mesh(Path(path) / filename)
 
-    assert mesh.topology.region_names[1]["left"] == [1]
-    assert mesh.topology.region_names[2]["cells"] == [1]
-    assert assemble(Constant(1) * ds("left", domain=mesh)) == pytest.approx(
-        assemble(Constant(1) * ds(1, domain=mesh))
-    )
-    assert assemble(Constant(1) * dx("cells", domain=mesh)) == pytest.approx(1.0)
+    if parallel_reader:
+        assert mesh.topology.region_names == {1: {"inlet": [2], "wall": [3]}}
+        boundary = ds(domain=mesh)
+        for marker, length in (("inlet", 1.0), ("wall", 2.0), (1, 1.0), (2, 1.0), (3, 2.0)):
+            assert assemble(1 * boundary(marker)) == pytest.approx(length)
+    else:
+        assert not mesh.topology.region_names
+        assert mesh.topology_dm.hasLabel("zone")
+
+    assert assemble(1 * dx(domain=mesh)) == pytest.approx(2.0)

@@ -25,6 +25,7 @@ from pyop3.constants import Intent
 from pyop3.mpi import COMM_WORLD
 
 from firedrake.formmanipulation import split_form
+from firedrake.mesh import MeshGeometry
 from firedrake.parameters import parameters as default_parameters
 from firedrake.petsc import PETSc
 from firedrake import utils
@@ -182,11 +183,10 @@ def _resolve_region_names(form):
     changed = False
     for integral in form.integrals():
         domain = integral.ufl_domain()
-        parse_subdomain_id = getattr(domain, "parse_subdomain_id", None)
-        if parse_subdomain_id is not None:
+        if isinstance(domain, MeshGeometry):
             dim = _entity_dimension(domain, integral.integral_type())
             subdomain_id = integral.subdomain_id()
-            new_subdomain_id = parse_subdomain_id(dim, subdomain_id)
+            new_subdomain_id = domain.parse_subdomain_id(dim, subdomain_id)
             if new_subdomain_id != subdomain_id:
                 integral = integral.reconstruct(subdomain_id=new_subdomain_id)
                 changed = True

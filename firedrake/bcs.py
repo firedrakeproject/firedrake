@@ -26,6 +26,7 @@ from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
+from firedrake.mesh import MeshGeometry
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -45,7 +46,7 @@ class BCBase:
     def __init__(self, V, sub_domain):
         self._function_space = V
         mesh = V.mesh()
-        if hasattr(mesh, "parse_subdomain_id"):
+        if isinstance(mesh, MeshGeometry):
             sub_domain = mesh.parse_subdomain_id(mesh.topological_dimension - 1, sub_domain)
         self.sub_domain = (sub_domain,) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or

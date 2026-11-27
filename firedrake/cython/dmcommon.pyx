@@ -28,6 +28,8 @@ np.import_array()
 include "petschdr.pxi"
 
 
+VERTEX_SETS_LABEL = "Vertex Sets"
+EDGE_SETS_LABEL = "Edge Sets"
 FACE_SETS_LABEL = "Face Sets"
 CELL_SETS_LABEL = "Cell Sets"
 
