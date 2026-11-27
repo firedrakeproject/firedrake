@@ -556,10 +556,15 @@ def solve_init_params(self, args, kwargs, varform):
     if len(self.adj_kwargs) <= 0:
         self.adj_kwargs = self.forward_kwargs.copy()
 
-        # Swap nullspace with transpose_nullspace if transpose_nullspace was provided
-        if self.adj_kwargs.get("transpose_nullspace") is not None:
-            self.adj_kwargs["nullspace"], self.adj_kwargs["transpose_nullspace"] = \
-                self.adj_kwargs["transpose_nullspace"], self.adj_kwargs.get("nullspace")
+        # The adjoint operator is the transpose, so nullspace and transpose_nullspace
+        # swap. Without a transpose_nullspace, the operator is taken as symmetric.
+        if "nullspace" in self.adj_kwargs or "transpose_nullspace" in self.adj_kwargs:
+            nullspace = self.adj_kwargs.get("nullspace")
+            transpose_nullspace = self.adj_kwargs.get("transpose_nullspace")
+            if transpose_nullspace is None:
+                transpose_nullspace = nullspace
+            self.adj_kwargs["nullspace"] = transpose_nullspace
+            self.adj_kwargs["transpose_nullspace"] = nullspace
 
         if varform:
             if "J" in self.forward_kwargs:

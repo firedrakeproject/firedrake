@@ -124,6 +124,79 @@ def test_singular_nonsymmetric_linear_problem(solver_type, rg):
     assert taylor_test(rf, f, h) > 1.95
 
 
+def _singular_symmetric_problem(solver_type, ksp):
+    """Return a functional of the solution of a pure Neumann Poisson problem.
+
+    Only ``nullspace`` is given. The right-hand side (grad f, grad v) is
+    orthogonal to the constants for every f, so the forward problem is
+    consistent. The functional J = (u - g)^2 dx has g with a nonzero mean, so
+    the adjoint right-hand side has a component along the constants. The
+    adjoint solve must remove this component with its transpose null space.
+    """
+    mesh = UnitSquareMesh(8, 8)
+    x, y = SpatialCoordinate(mesh)
+    V = FunctionSpace(mesh, "CG", 1)
+    k = Function(V).interpolate(1 + x**2)
+    g = Function(V).interpolate(1 + x)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(k*grad(u), grad(v))*dx
+    solver_parameters = {
+        "direct": {"ksp_type": "preonly", "pc_type": "lu",
+                   "pc_factor_mat_solver_type": "mumps"},
+        "cg": {"ksp_type": "cg", "pc_type": "sor", "ksp_rtol": 1e-12},
+    }[ksp]
+    kwargs = {"nullspace": VectorSpaceBasis(constant=True, comm=mesh.comm),
+              "solver_parameters": solver_parameters}
+
+    def J(f):
+        uh = Function(V)
+        L = inner(grad(f), grad(v))*dx
+        if solver_type == "solve":
+            solve(a == L, uh, **kwargs)
+        elif solver_type == "lvs":
+            LinearVariationalSolver(LinearVariationalProblem(a, L, uh), **kwargs).solve()
+        else:
+            F = action(a, uh) - L
+            NonlinearVariationalSolver(NonlinearVariationalProblem(F, uh), **kwargs).solve()
+        return assemble((uh - g)**2*dx)
+
+    f = Function(V).interpolate(sin(3*x) + cos(2*y))
+    f1 = Function(V).interpolate(cos(x) - y**2)
+    return J, f, f1
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("solver_type", ("solve", "lvs", "nlvs"))
+def test_singular_symmetric_linear_problem_replay(solver_type):
+    """Check the replay of a singular solve that is given only a null space."""
+    J, f, f1 = _singular_symmetric_problem(solver_type, "direct")
+    J0 = J(f)
+    rf = ReducedFunctional(J0, Control(f))
+    assert np.isclose(rf(f), J0, rtol=1e-10)
+    with stop_annotating():
+        J1 = J(f1)
+    assert np.isclose(rf(f1), J1, rtol=1e-10)
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("ksp", ("direct", "cg"))
+@pytest.mark.parametrize("solver_type", ("solve", "lvs", "nlvs"))
+def test_singular_symmetric_linear_problem_gradient(solver_type, ksp, rg):
+    """Check that the adjoint solve uses the null space as its transpose null space.
+
+    Without a transpose null space, the adjoint right-hand side keeps its
+    component along the constants. The gradient is then wrong with a direct
+    solver, and the conjugate gradient solver does not converge.
+    """
+    J, f, _ = _singular_symmetric_problem(solver_type, ksp)
+    rf = ReducedFunctional(J(f), Control(f))
+    h = rg.uniform(f.function_space())
+    assert taylor_test(rf, f, h) > 1.95
+
+
 @pytest.mark.skipcomplex
 @pytest.mark.parametrize("pre_apply_bcs", (True, False))
 def test_nonlinear_problem(pre_apply_bcs, rg):
