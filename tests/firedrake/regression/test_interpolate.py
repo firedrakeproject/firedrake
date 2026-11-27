@@ -59,8 +59,11 @@ def test_function():
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize(
     ("access", "initial", "expected"),
-    [(op3.INC, 2.0, 2.0), (op3.MIN_WRITE, 3.0, 3.0), (op3.MAX_WRITE, -3.0, -3.0)],
-    ids=["inc", "min", "max"],
+    [
+        pytest.param(op3.INC, 2.0, 2.0, id="inc"),
+        pytest.param(op3.MIN_WRITE, 3.0, 3.0, id="min", marks=pytest.mark.skipcomplex),
+        pytest.param(op3.MAX_WRITE, -3.0, -3.0, id="max", marks=pytest.mark.skipcomplex),
+    ],
 )
 def test_in_place_interpolation_preserves_reduction(access, initial, expected):
     mesh = UnitSquareMesh(1, 1)
@@ -71,6 +74,7 @@ def test_in_place_interpolation_preserves_reduction(access, initial, expected):
     assert np.allclose(f.dat.data_ro, expected)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parallel([1, 2])
 @pytest.mark.parametrize("access", [op3.MIN_WRITE, op3.MAX_WRITE], ids=["min", "max"])
 def test_subset_interpolation_reduction(access):
@@ -114,6 +118,7 @@ def test_subset_adjoint_interpolation():
         assert np.allclose(result.dat.data_ro, expected.dat.data_ro)
 
 
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize(
     ("access", "value"),
     [(op3.MIN_WRITE, 2.0), (op3.MAX_WRITE, -2.0)],

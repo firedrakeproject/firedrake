@@ -60,7 +60,7 @@ def test_goal_oriented_marker_refines_mesh(use_solver):
     problem = poisson_problem(2)
     u = problem.u
     mesh = u.function_space().mesh()
-    marker = GoalOrientedMarker(u*dx)
+    marker = GoalOrientedMarker(conj(u)*dx)
     parameters = goal_parameters(3)
     if use_solver:
         solver = NonlinearVariationalSolver(
@@ -85,7 +85,7 @@ def test_goal_oriented_marker_refines_mesh(use_solver):
 def test_goal_oriented_marker_solver_reuse():
     problem = poisson_problem(2)
     u = problem.u
-    marker = GoalOrientedMarker(u*dx)
+    marker = GoalOrientedMarker(conj(u)*dx)
     solver = NonlinearVariationalSolver(
         problem, solver_parameters=goal_parameters(1), marking_callback=marker,
     )
@@ -109,7 +109,7 @@ def test_goal_oriented_marker_solver_reuse():
 @pytest.mark.parallel([1, 2])
 def test_goal_oriented_marker_stops_at_tolerance():
     problem = poisson_problem(4)
-    marker = GoalOrientedMarker(problem.u*dx)
+    marker = GoalOrientedMarker(conj(problem.u)*dx)
     markers = []
 
     def mark_cells(ctx, current_solution):
@@ -146,7 +146,7 @@ def test_goal_oriented_marker_solver_options(subsolve):
     solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
     u = solver.solve()
 
-    solver.set_marking_callback(GoalOrientedMarker(u*dx))
+    solver.set_marking_callback(GoalOrientedMarker(conj(u)*dx))
     with pytest.raises(PETSc.Error) as error:
         solver.solve()
     assert isinstance(error.value.__cause__, ConvergenceError)
@@ -158,7 +158,7 @@ def test_goal_oriented_marker_effectivity_index(snes_type):
     problem = poisson_problem(4)
     mesh = problem.u.function_space().mesh()
     x, y = SpatialCoordinate(mesh)
-    marker = GoalOrientedMarker(problem.u*dx, exact_solution=x*(1 - x)*y*(1 - y))
+    marker = GoalOrientedMarker(conj(problem.u)*dx, exact_solution=x*(1 - x)*y*(1 - y))
     parameters = goal_parameters(2)
     parameters["snes_type"] = snes_type
     parameters["goal_monitor"] = None
