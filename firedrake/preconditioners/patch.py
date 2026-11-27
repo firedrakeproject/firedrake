@@ -251,7 +251,6 @@ class PatchCallable:
         elif self.kinfo.integral_type == "exterior_facet":
             add_dat(self._mesh.exterior_facet_local_facet_indices, 1)
 
-        # breakpoint()
         return args, names, state_index
 
     @cached_property

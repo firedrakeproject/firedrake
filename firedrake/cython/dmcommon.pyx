@@ -413,26 +413,26 @@ def local_facet_number(mesh, facet_type):
     cell_numbering = mesh._plex_to_entity_numbering_sec(stratum=mesh.dimension)
 
     if facet_type == "exterior":
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro_with_halos
         ncells_per_facet = 1
         facets = mesh._entity_dm_indices("exterior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet")
     elif facet_type == "interior":
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_label].data_ro_with_halos
         ncells_per_facet = 2
         facets = mesh._entity_dm_indices("interior_facet")
         facet_numbering = mesh._plex_to_entity_numbering_sec(dim=mesh.dimension-1)
         specific_numbering = mesh._plex_to_entity_numbering_sec("interior_facet")
     elif facet_type == "exterior_vert":
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro_with_halos
         ncells_per_facet = 1
         facets = mesh._entity_dm_indices("exterior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
         specific_numbering = mesh._plex_to_entity_numbering_sec("exterior_facet_vert")
     else:
         assert facet_type == "interior_vert"
-        closure_facets = mesh._fiat_cell_closures_localized[mesh.facet_vert_label]
+        closure_facets = mesh._closure_dats(mesh.cell_label)[mesh.facet_vert_label].data_ro_with_halos
         ncells_per_facet = 2
         facets = mesh._entity_dm_indices("interior_facet_vert")
         facet_numbering = mesh._plex_to_entity_numbering_sec("facet_vert")
@@ -527,7 +527,7 @@ cdef inline PetscInt _reorder_plex_cone(PETSc.DM dm,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def reorder_closure_fiat_hex(plex_closures: np.ndarray) -> np.ndarray:
+def flat_cell_closures_hex(mesh) -> np.ndarray:
     """Reorder DMPlex closures to match FIAT entity numbering for hexes.
 
     Parameters
@@ -543,6 +543,12 @@ def reorder_closure_fiat_hex(plex_closures: np.ndarray) -> np.ndarray:
         numbering here. Only the *order* is changing.
 
     """
+    cdef:
+        PETSc.DM dm
+        PetscInt c, ncells, nclosure
+        PetscInt *dm_closure=NULL
+        PetscInt[:,:] fiat_closure_view
+
     # UFCHexahedron:            3--19---7     3--19---7
     #                         13.       |   13  25  15|
     # cell = 26               1 9  23  11   1--17---5 11
@@ -568,42 +574,51 @@ def reorder_closure_fiat_hex(plex_closures: np.ndarray) -> np.ndarray:
     # >>> mesh.topology_dm.viewFromOptions("-dm_view")
     # >>> closure, _ = mesh.topology_dm.getTransitiveClosure(0)
     # >>> print(closure)
+    dm = mesh.topology_dm
+    ncells = mesh.num_cells()
+    nclosure = sum(mesh._closure_sizes[mesh.cell_label].values())
+    fiat_closure = np.empty((ncells, nclosure), dtype=IntType)
+    fiat_closure_view = fiat_closure
 
-    cell_closure = np.empty_like(plex_closures)
-    for c in range(len(plex_closures)):
-        cell_closure[c, 0] = plex_closures[c, 19]
-        cell_closure[c, 1] = plex_closures[c, 23]
-        cell_closure[c, 2] = plex_closures[c, 20]
-        cell_closure[c, 3] = plex_closures[c, 26]
-        cell_closure[c, 4] = plex_closures[c, 22]
-        cell_closure[c, 5] = plex_closures[c, 24]
-        cell_closure[c, 6] = plex_closures[c, 21]
-        cell_closure[c, 7] = plex_closures[c, 25]
-        cell_closure[c, 8] = plex_closures[c, 16]
-        cell_closure[c, 9] = plex_closures[c, 17]
-        cell_closure[c, 10] = plex_closures[c, 15]
-        cell_closure[c, 11] = plex_closures[c, 18]
-        cell_closure[c, 12] = plex_closures[c, 7]
-        cell_closure[c, 13] = plex_closures[c, 14]
-        cell_closure[c, 14] = plex_closures[c, 9]
-        cell_closure[c, 15] = plex_closures[c, 12]
-        cell_closure[c, 16] = plex_closures[c, 10]
-        cell_closure[c, 17] = plex_closures[c, 11]
-        cell_closure[c, 18] = plex_closures[c, 8]
-        cell_closure[c, 19] = plex_closures[c, 13]
-        cell_closure[c, 20] = plex_closures[c, 6]
-        cell_closure[c, 21] = plex_closures[c, 5]
-        cell_closure[c, 22] = plex_closures[c, 3]
-        cell_closure[c, 23] = plex_closures[c, 4]
-        cell_closure[c, 24] = plex_closures[c, 1]
-        cell_closure[c, 25] = plex_closures[c, 2]
-        cell_closure[c, 26] = plex_closures[c, 0]
-    return cell_closure
+    for c in range(ncells):
+        get_transitive_closure(dm.dm, c, PETSC_TRUE, &nclosure, &dm_closure)
+        fiat_closure_view[c, 0] = dm_closure[2*19]
+        fiat_closure_view[c, 1] = dm_closure[2*23]
+        fiat_closure_view[c, 2] = dm_closure[2*20]
+        fiat_closure_view[c, 3] = dm_closure[2*26]
+        fiat_closure_view[c, 4] = dm_closure[2*22]
+        fiat_closure_view[c, 5] = dm_closure[2*24]
+        fiat_closure_view[c, 6] = dm_closure[2*21]
+        fiat_closure_view[c, 7] = dm_closure[2*25]
+        fiat_closure_view[c, 8] = dm_closure[2*16]
+        fiat_closure_view[c, 9] = dm_closure[2*17]
+        fiat_closure_view[c, 10] = dm_closure[2*15]
+        fiat_closure_view[c, 11] = dm_closure[2*18]
+        fiat_closure_view[c, 12] = dm_closure[2*7]
+        fiat_closure_view[c, 13] = dm_closure[2*14]
+        fiat_closure_view[c, 14] = dm_closure[2*9]
+        fiat_closure_view[c, 15] = dm_closure[2*12]
+        fiat_closure_view[c, 16] = dm_closure[2*10]
+        fiat_closure_view[c, 17] = dm_closure[2*11]
+        fiat_closure_view[c, 18] = dm_closure[2*8]
+        fiat_closure_view[c, 19] = dm_closure[2*13]
+        fiat_closure_view[c, 20] = dm_closure[2*6]
+        fiat_closure_view[c, 21] = dm_closure[2*5]
+        fiat_closure_view[c, 22] = dm_closure[2*3]
+        fiat_closure_view[c, 23] = dm_closure[2*4]
+        fiat_closure_view[c, 24] = dm_closure[2*1]
+        fiat_closure_view[c, 25] = dm_closure[2*2]
+        fiat_closure_view[c, 26] = dm_closure[2*0]
+
+    if dm_closure != NULL:
+        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &dm_closure)
+    return fiat_closure
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def closure_ordering(mesh, closure_data_plex):
+def cell_closures_and_perms_simplex(mesh) -> tuple[np.ndarray, np.ndarray]:
+    # TODO docs
     """Apply FEniCS local numbering to a cell closure.
 
     The reordering is achieved by ordering vertices according to their global
@@ -614,8 +629,6 @@ def closure_ordering(mesh, closure_data_plex):
     ----------
     mesh : MeshTopology
         The mesh providing the closures.
-    closure_data_plex : numpy.ndarray
-        Array storing cell closure information.
 
     Returns
     -------
@@ -638,6 +651,8 @@ def closure_ordering(mesh, closure_data_plex):
         PetscInt *edge_incident_verts=NULL
         PetscInt *edges=NULL
         PetscInt *global_verts=NULL
+        PetscInt *closure=NULL
+        PetscInt nclosure
         PetscInt *facet_closure=NULL
         PetscInt nfacet_closure
         PetscInt *facet_verts=NULL
@@ -647,9 +662,14 @@ def closure_ordering(mesh, closure_data_plex):
     tdim = mesh.dimension
     assert tdim <= 3
 
+    c_start, c_end = dm.getHeightStratum(0)
+    assert c_start == 0
+    ncells = c_end
+
     nverts_per_cell = mesh._closure_sizes[tdim][0] if tdim > 0 else 0
     nedges_per_cell = mesh._closure_sizes[tdim][1] if tdim > 2 else 0
     nfacets_per_cell = mesh._closure_sizes[tdim][tdim-1] if tdim > 1 else 0
+    nclosure = nverts_per_cell + nedges_per_cell + nfacets_per_cell + 1
 
     v_start, v_end = dm.getDepthStratum(0)
 
@@ -675,10 +695,16 @@ def closure_ordering(mesh, closure_data_plex):
     # Must call this before loop collectively.
     mesh._global_old_to_new_vertex_numbering
 
-    closure_data_reord = np.empty_like(closure_data_plex)
-    for cell in range(*dm.getHeightStratum(0)):
+    closures = np.empty((ncells, nclosure), dtype=IntType)
+    closure_perms = np.empty_like(closures)
+    for cell in range(ncells):
+        get_transitive_closure(dm.dm, cell, PETSC_TRUE, &nclosure, &closure)
+
         # 1. Order vertices
-        for vi, vert in enumerate(closure_data_plex[cell, vert_offset_plex:]):
+        for vi in range(nverts_per_cell):
+            vert = closure[2*(vert_offset_plex+vi)]
+            closures[cell, vert_offset_fiat+vi] = vert
+
             verts[vi] = vert
             v = mesh._global_old_to_new_vertex_numbering.getOffset(vert)
 
@@ -691,17 +717,22 @@ def closure_ordering(mesh, closure_data_plex):
         # Sort vertices by their global number
         CHKERR(PetscSortIntWithArray(nverts_per_cell, global_verts, verts))
 
-        # Insert into the closure
+        # Record the permutation
         for vi in range(nverts_per_cell):
             # Correct 1D edge numbering
             vert = verts[vi] if tdim != 1 else verts[nverts_per_cell-vi-1]
-            closure_data_reord[cell, vert_offset_fiat+vi] = vert
+            for vj in range(nverts_per_cell):
+                if closure[2*(vert_offset_plex+vj)] == vert:
+                    closure_perms[cell, vert_offset_fiat+vi] = vj
+                    break
 
         # 2. Order edges (3D only, in 2D facets and edges are equivalent)
         if tdim > 2:
             # Edges are tricky because we need a lexicographical sort with two
             # keys (the local numbers of the two non-incident vertices)
-            for ei, edge in enumerate(closure_data_plex[cell, edge_offset_plex:vert_offset_plex]):
+            for ei in range(nedges_per_cell):
+                edge = closure[2*(edge_offset_plex+ei)]
+                closures[cell, edge_offset_fiat+ei] = edge
                 edges[ei] = edge
 
                 # Collect incident vertices
@@ -713,7 +744,7 @@ def closure_ordering(mesh, closure_data_plex):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(2):
-                        if edge_verts[vj] == closure_data_reord[cell, vert_offset_fiat+vi]:
+                        if edge_verts[vj] == verts[vi]:
                             incident = True
                             break
                     if not incident:
@@ -725,11 +756,15 @@ def closure_ordering(mesh, closure_data_plex):
 
             # Insert into the closure
             for ei in range(nedges_per_cell):
-                closure_data_reord[cell, edge_offset_fiat+ei] = edges[ei]
+                for ej in range(nedges_per_cell):
+                    if closure[2*(edge_offset_plex+ej)] == edges[ei]:
+                        closure_perms[cell, edge_offset_fiat+ei] = ej
+                        break
 
         # 3. Order facets
         if tdim > 1:
-            for facet in closure_data_plex[cell, facet_offset_plex:edge_offset_plex]:
+            for fi in range(nfacets_per_cell):
+                facet = closure[2*(facet_offset_plex+fi)]
                 # Collect vertices that are in the closure of the facet
                 get_transitive_closure(
                     dm.dm, facet, PETSC_TRUE, &nfacet_closure, &facet_closure
@@ -745,17 +780,19 @@ def closure_ordering(mesh, closure_data_plex):
                 for vi in range(nverts_per_cell):
                     incident = False
                     for vj in range(nverts_per_cell-1):
-                        if facet_verts[vj] == closure_data_reord[cell, vert_offset_fiat+vi]:
+                        if facet_verts[vj] == verts[vi]:
                             incident = True
                             break
                     # Only one non-incident vertex per facet, so the local facet
                     # number is the same as the non-incident vertex number
                     if not incident:
-                        closure_data_reord[cell, facet_offset_fiat+vi] = facet
+                        closures[cell, facet_offset_fiat+fi] = facet
+                        closure_perms[cell, facet_offset_fiat+vi] = fi
                         break
 
         # 4. And finally the cell
-        closure_data_reord[cell, cell_offset_fiat] = closure_data_plex[cell, cell_offset_plex]
+        closures[cell, cell_offset_fiat] = cell
+        closure_perms[cell, cell_offset_fiat] = 0
 
     # Cleanup
     CHKERR(PetscFree(verts))
@@ -764,16 +801,18 @@ def closure_ordering(mesh, closure_data_plex):
     CHKERR(PetscFree(global_verts))
     CHKERR(PetscFree(edge_incident_verts))
     CHKERR(PetscFree(facet_verts))
+    if closure != NULL:
+        restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nclosure, &closure)
     if facet_closure != NULL:
         restore_transitive_closure(dm.dm, 0, PETSC_TRUE, &nfacet_closure, &facet_closure)
 
-    return closure_data_reord
+    return (closures, closure_perms)
 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
+def cell_closures_and_perms_quad(mesh, np.ndarray cell_orientations):
     """Cellwise orders mesh entities according to the given cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -787,6 +826,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         PetscInt fStart, fEnd, vStart, vEnd
         PetscInt ncells
         PetscInt nclosure, p, vi, fi, i
+        PetscInt coff_fiat, foff_fiat, voff_fiat
         PetscInt start_v, off
         PetscInt *closure = NULL
         PetscInt closure_tmp[2*9]
@@ -799,6 +839,10 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
 
     plex = mesh.topology_dm
 
+    voff_fiat = 0
+    foff_fiat = 4
+    coff_fiat = 8
+
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
     get_height_stratum(plex.dm, 1, &fStart, &fEnd)
     get_depth_stratum(plex.dm, 0, &vStart, &vEnd)
@@ -808,7 +852,8 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
 
     CHKERR(PetscMalloc1(2*9, &closure))
 
-    cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
+    cell_closure = np.empty((ncells, 9), dtype=IntType)
+    closure_perms = np.empty_like(cell_closure)
     for c in range(cStart, cEnd):
         cell = mesh._plex_to_entity_numbering_sec("cell").getOffset(c)
         get_transitive_closure(plex.dm, c, PETSC_TRUE, &nclosure, &closure)
@@ -848,9 +893,9 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
                                       "not supported")
         elif nclosure == 6:
             horiz_periodicity, vert_periodicity = _get_periodicity(plex)
-            (_, horiz_unit_periodic) = horiz_periodicity
-            (_, vert_unit_periodic) = vert_periodicity
-            if vert_unit_periodic:
+            (hp, horiz_unit_periodic) = horiz_periodicity
+            (vp, vert_unit_periodic) = vert_periodicity
+            if vp and vert_unit_periodic:
                 assert not horiz_unit_periodic
                 closure_tmp[2*0] = closure[2*0]
                 closure_tmp[2*1] = closure[2*1]
@@ -862,8 +907,8 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
                 closure_tmp[2*7] = closure[2*5]
                 closure_tmp[2*8] = closure[2*4]
             else:
-                assert horiz_unit_periodic
-                assert not vert_unit_periodic
+                assert hp and horiz_unit_periodic
+                assert not (vp and vert_unit_periodic)
                 closure_tmp[2*0] = closure[2*0]
                 closure_tmp[2*1] = closure[2*1]
                 closure_tmp[2*2] = closure[2*2]
@@ -874,7 +919,6 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
                 closure_tmp[2*7] = closure[2*5]
                 closure_tmp[2*8] = closure[2*5]
 
-            nclosure = 9
             for i in range(9):
                 closure[2*i] = closure_tmp[2*i]
         else:
@@ -885,7 +929,7 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         # For the vertices, we also retrieve the global numbers into g_vertices.
         vi = 0
         fi = 0
-        for p in range(nclosure):
+        for p in range(9):
             pt = closure[2*p]
             if vStart <= pt < vEnd:
                 c_vertices[vi] = pt
@@ -975,19 +1019,59 @@ def quadrilateral_closure_ordering(mesh, np.ndarray cell_orientations):
         #   o--2--o
         #
         # So let us permute.
-        cell_closure[c, 0] = vertices[0]
-        cell_closure[c, 1] = vertices[1]
-        cell_closure[c, 2] = vertices[3]
-        cell_closure[c, 3] = vertices[2]
-        cell_closure[c, 4 + 0] = facets[0]
-        cell_closure[c, 4 + 1] = facets[2]
-        cell_closure[c, 4 + 2] = facets[3]
-        cell_closure[c, 4 + 3] = facets[1]
-        cell_closure[c, 8] = c
+
+        # Note: in cell_closure we store the closure in "FIAT" order but without
+        # the orientation permutation
+
+        cell_closure[c, voff_fiat+0] = c_vertices[0]
+        for vi in range(4):
+            if c_vertices[vi] == vertices[0]:
+                # closure_perms[c, voff_fiat+vi] = 0
+                closure_perms[c, voff_fiat+0] = vi
+                break
+        cell_closure[c, voff_fiat+1] = c_vertices[1]
+        for vi in range(4):
+            if c_vertices[vi] == vertices[1]:
+                closure_perms[c, voff_fiat+1] = vi
+                break
+        cell_closure[c, voff_fiat+2] = c_vertices[2]
+        for vi in range(4):
+            if c_vertices[vi] == vertices[2]:
+                closure_perms[c, voff_fiat+3] = vi
+                break
+        cell_closure[c, voff_fiat+3] = c_vertices[3]
+        for vi in range(4):
+            if c_vertices[vi] == vertices[3]:
+                closure_perms[c, voff_fiat+2] = vi
+                break
+
+        cell_closure[c, foff_fiat+0] = c_facets[0]
+        for fi in range(4):
+            if c_facets[fi] == facets[0]:
+                closure_perms[c, foff_fiat+0] = fi
+                break
+        cell_closure[c, foff_fiat+1] = c_facets[1]
+        for fi in range(4):
+            if c_facets[fi] == facets[1]:
+                closure_perms[c, foff_fiat+3] = fi
+                break
+        cell_closure[c, foff_fiat+2] = c_facets[2]
+        for fi in range(4):
+            if c_facets[fi] == facets[2]:
+                closure_perms[c, foff_fiat+1] = fi
+                break
+        cell_closure[c, foff_fiat+3] = c_facets[3]
+        for fi in range(4):
+            if c_facets[fi] == facets[3]:
+                closure_perms[c, foff_fiat+2] = fi
+                break
+
+        cell_closure[c, coff_fiat] = c
+        closure_perms[c, coff_fiat] = 0
 
     CHKERR(PetscFree(closure))
 
-    return cell_closure
+    return cell_closure, closure_perms
 
 
 cdef inline PetscInt _fact(PetscInt m):
@@ -1131,7 +1215,7 @@ cdef inline PetscInt _compute_orientation_interval_tensor_product(PetscInt *fiat
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline PetscInt _compute_orientation(PETSc.DM dm,
-                                          PetscInt[:, ::1] cell_closure,
+                                          const PetscInt[:, ::1] cell_closure,
                                           PetscInt cell,
                                           PetscInt e,
                                           PetscInt *fiat_cone,
@@ -1232,7 +1316,7 @@ def entity_orientations(mesh, np.ndarray cell_closure):
         PetscInt *plex_cone_copy = NULL
         PetscInt *entity_cone_map = NULL
         PetscInt *entity_cone_map_offset = NULL
-        PetscInt[:, ::1] cell_closure_view
+        const PetscInt[:, ::1] cell_closure_view
         PetscInt[:, ::1] entity_orientations
 
     if not isinstance(mesh, firedrake.mesh.MeshTopology):
@@ -3663,11 +3747,9 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def submesh_create_cell_closure(
+def cell_closures_oriented_submesh(
     PETSc.DM subdm,
     PETSc.DM dm,
-    PETSc.Section subcell_numbering,
-    PETSc.Section cell_numbering,
     np.ndarray cell_closure,
     np.ndarray entity_per_subcell,
 ):
@@ -3685,6 +3767,8 @@ def submesh_create_cell_closure(
         The cell_numbering of the parent mesh.
     cell_closure : numpy.ndarray
         The cell_closure of the parent mesh.
+    closure_perms : numpy.ndarray
+        The orientation closure permutations of the parent mesh.
     entity_per_subcell : numpy.ndarray
         List of the number of entity points in each dimension on subcell.
 
@@ -3695,11 +3779,13 @@ def submesh_create_cell_closure(
         PetscInt *subpoint_indices_inv = NULL
         PetscInt dim, subdim
         PetscInt subpStart, subpEnd, subp, subcStart, subcEnd, subc, subcell
-        PetscInt pStart, pEnd, p, cStart, cEnd, c, cell
+        PetscInt pStart, pEnd, p, cStart, cEnd, c, cell, off
         PetscInt nclosure, cl, nsubclosure, subcl, nsupport
         PetscInt *subclosure = NULL
+        PetscInt *perm = NULL
+        PetscInt *subperm = NULL
         const PetscInt *support
-        np.ndarray subcell_closure
+        np.ndarray subcell_closures
 
     dim = get_topological_dimension(dm)
     subdim = get_topological_dimension(subdm)
@@ -3714,9 +3800,13 @@ def submesh_create_cell_closure(
     CHKERR(PetscMalloc1(pEnd - pStart, &subpoint_indices_inv))
     for p in range(pStart, pEnd):
         subpoint_indices_inv[p - pStart] = -1
-    subcell_closure = np.empty((subcEnd - subcStart, sum(entity_per_subcell)), dtype=IntType)
+
+    subcell_closures = np.empty((subcEnd - subcStart, sum(entity_per_subcell)), dtype=IntType)
     nclosure = cell_closure.shape[1]
-    nsubclosure = subcell_closure.shape[1]
+    nsubclosure = subcell_closures.shape[1]
+    CHKERR(PetscMalloc1(nclosure, &perm))
+    CHKERR(PetscMalloc1(nsubclosure, &subperm))
+
     for subc in range(subcStart, subcEnd):
         c = subpoint_indices[subc]
         if subdim == dim:
@@ -3728,30 +3818,36 @@ def submesh_create_cell_closure(
                 raise RuntimeError(f"Num. support = {nsupport} (<= 0) for parent facet {c}")
             # Assume single cell type mesh and pick arbitrary side.
             c = support[0]
-        CHKERR(PetscSectionGetOffset(subcell_numbering.sec, subc, &subcell))
-        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        # CHKERR(PetscSectionGetOffset(subcell_numbering.sec, subc, &subcell))
+        subcell = subc
+        # CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        cell = c
         get_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
         for subcl in range(nsubclosure):
             subp = subclosure[2*subcl]
             p = subpoint_indices[subp]
             subpoint_indices_inv[p - pStart] = subp  # set to non-negative subp.
+
         subcl = 0
         for cl in range(nclosure):
             p = cell_closure[cell, cl]
             subp = subpoint_indices_inv[p]
             if subp >= 0:
-                subcell_closure[subcell, subcl] = subp
+                subcell_closures[subcell, subcl] = subp
                 subcl += 1
         if subcl != nsubclosure:
             raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
+
         for subcl in range(nsubclosure):
             subp = subclosure[2*subcl]
             p = subpoint_indices[subp]
             subpoint_indices_inv[p - pStart] = -1  # set back to -1.
         restore_transitive_closure(subdm.dm, subc, PETSC_TRUE, &nsubclosure, &subclosure)
     CHKERR(PetscFree(subpoint_indices_inv))
+    CHKERR(PetscFree(perm))
+    CHKERR(PetscFree(subperm))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
-    return subcell_closure
+    return subcell_closures
 
 
 @cython.boundscheck(False)
@@ -3890,34 +3986,19 @@ def get_extruded_base_point_map(base_dm, dm, nlayers, periodic):
 
             stratum_off, _ = dm.getDepthStratum(stratum_self)
 
-            # print(f"{dim_self = } {dim_other = }")
-
             strata_order = extruded_plex_strata_order(dm.getDimension())
             if dim_other not in strata_order:
                 # No other base points produce this stratum (e.g. vertices are only ever
                 # produced by base vertices)
-                # print("A")
                 per_stratum_off = 0
             elif strata_order.index(dim_self) < strata_order.index(dim_other):
-                # print("B")
                 per_stratum_off = 0
             else:
                 # How many base points from another base dimension also produce points matching
                 # this dimension?
                 start_other, end_other = base_dm.getDepthStratum(base_dim_other)
-                # print(f"{start_other = }")
-                # print(f"{end_other = }")
                 num_base_pts_other = end_other - start_other
                 per_stratum_off = num_base_pts_other * num_cols_other
-
-            # x, y = base_dm.getDepthStratum(base_dim)
-            # nbase = y-x
-            # print(f"({base_dim}, {extr_dim}) has {nbase*num_cols_self} and is preceded by {stratum_off} + {per_stratum_off}")
-
-            # print(f"{stratum_off = }")
-            # print(f"{per_stratum_off = }")
-            # print(f"{num_cols_self = }")
-            # print(f"{num_cols_other = }")
 
             for ib, base_pt in enumerate(range(*base_dm.getDepthStratum(base_dim))):
                 for ie in range(num_cols_self):

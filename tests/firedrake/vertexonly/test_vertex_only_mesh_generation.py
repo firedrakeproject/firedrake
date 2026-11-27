@@ -164,9 +164,9 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert vm.topology._parent_mesh is m.topology
     # Correct generic cell properties
     if not skip_in_bounds_checks:
-        assert vm._fiat_cell_closures.shape == (vm.num_cells(), 1)
+        assert vm._cell_closures.shape == (vm.num_cells(), 1)
     else:
-        vm._fiat_cell_closures.shape
+        vm._cell_closures.shape
     with pytest.raises(AttributeError):
         vm.exterior_facets
     with pytest.raises(AttributeError):
@@ -174,7 +174,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     with pytest.raises(AttributeError):
         vm.cell_to_facets
     if not skip_in_bounds_checks:
-        assert vm.num_cells() == vm._fiat_cell_closures.shape[0] == vm.cells.local_size
+        assert vm.num_cells() == vm._cell_closures.shape[0] == vm.cells.local_size
         assert vm.cells.owned.local_size == len(inputvertexcoords[in_bounds])
     assert vm.num_facets() == 0
     assert vm.num_faces() == vm.num_entities(2) == 0

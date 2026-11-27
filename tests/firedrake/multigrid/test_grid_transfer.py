@@ -12,7 +12,7 @@ from firedrake import *
         "quadrilateral",
         "tetrahedron",
         "prism",
-        "hexahedron",
+        "extrudedquad",
     ],
     scope="module",
 )
@@ -22,7 +22,7 @@ def cell(request):
 
 @pytest.fixture(params=["CG", "DG"])
 def space(request, cell):
-    if cell in {"quadrilateral", "prism", "hexahedron"} and request.param == "DG":
+    if cell in {"quadrilateral", "prism", "extrudedquad"} and request.param == "DG":
         return "DQ"
     else:
         return request.param
@@ -40,7 +40,7 @@ def hierarchy(cell, refinements_per_level):
         return MeshHierarchy(mesh, 2)
     elif cell in {"triangle", "triangle-nonnested", "triangle-submesh", "prism"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=False)
-    elif cell in {"quadrilateral", "hexahedron"}:
+    elif cell in {"quadrilateral", "extrudedquad"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=True)
     elif cell == "tetrahedron":
         mesh = UnitCubeMesh(2, 2, 2)
@@ -55,7 +55,7 @@ def hierarchy(cell, refinements_per_level):
     nref = {2: 1, 1: 2}[refinements_per_level]
     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
 
-    if cell in {"prism", "hexahedron"}:
+    if cell in {"prism", "extrudedquad"}:
         hierarchy = ExtrudedMeshHierarchy(hierarchy, base_layer=3, refinement_ratio=1, height=1)
     if cell == "triangle-nonnested":
         c2f = {}
