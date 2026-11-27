@@ -2,13 +2,13 @@ from functools import cached_property
 from contextlib import contextmanager
 
 import ufl
+import pyop3 as op3
 from firedrake.petsc import PETSc
 from firedrake.ensemble.ensemble_functionspace import (
     EnsembleFunctionSpaceBase, EnsembleFunctionSpace, EnsembleDualSpace)
 from firedrake.adjoint_utils import EnsembleFunctionMixin
 from firedrake.function import Function
-from firedrake.functionspaceimpl import WithGeometry, FiredrakeDualSpace, MixedFunctionSpace
-from firedrake.mesh import MeshSequenceGeometry
+from firedrake.functionspaceimpl import is_mixed
 from firedrake.norms import norm
 
 
@@ -71,35 +71,27 @@ class EnsembleFunctionBase(EnsembleFunctionMixin):
 
     @cached_property
     def subfunctions(self):
-        """
-        The (co)functions on the local ensemble member.
-        """
-        def local_function(i):
-            subspaces = []
-            labels = []
-            for j in range(*self._fs._component_indices(i)):
-                subspaces.append(self._fs._full_local_space._orig_spaces[j])
-                labels.append(self._fs._full_local_space._labels[j])
+        """Return the (co)functions on the local ensemble member.
 
-            # Here we have to do a bit of a dance to create a new non-topological
-            # function space
-            if len(subspaces) == 1:
-                mesh = self._fs.mesh().unique()
-                tV = subspaces[0]
-                subdat = self._full_local_function.dat[labels[0]]
+        Each (co)function is defined on its corresponding local space and
+        shares data with the ensemble (co)function.
+        """
+        field_axis = self._fs._full_local_space.field_axis
+        dat = self._full_local_function.dat
+        subfunctions = []
+        for i, space in enumerate(self._fs.local_spaces):
+            start, end = self._fs._component_indices(i)
+            storage_labels = field_axis.component_labels[start:end]
+            if is_mixed(space):
+                index = op3.Slice(field_axis.label, [
+                    op3.AffineSliceComponent(storage_label, label=local_label)
+                    for storage_label, local_label in zip(storage_labels, space.field_axis.component_labels, strict=True)
+                ])
             else:
-                mesh = MeshSequenceGeometry([self._fs.mesh().unique()] * len(subspaces))
-                tV = MixedFunctionSpace(subspaces, mesh.topological, _labels=labels)
-                subdat = self._full_local_function.dat[labels]
-            if isinstance(self, EnsembleFunction):
-                V = WithGeometry(tV, mesh)
-            else:
-                assert isinstance(self, EnsembleCofunction)
-                V = FiredrakeDualSpace(tV, mesh)
-            return Function(V, val=subdat)
+                index, = storage_labels
+            subfunctions.append(Function(space, val=dat[index]))
 
-        return tuple(local_function(i)
-                     for i in range(self._fs.nlocal_spaces))
+        return tuple(subfunctions)
 
     @PETSc.Log.EventDecorator()
     def riesz_representation(self, riesz_map='L2', **kwargs):
