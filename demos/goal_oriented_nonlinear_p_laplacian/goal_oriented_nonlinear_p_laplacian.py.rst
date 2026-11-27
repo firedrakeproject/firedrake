@@ -87,18 +87,12 @@ minimises :math:`E(c w)`, which is
        / assemble(inner(grad(u), grad(u))**(p/2)*dx(**quadrature)))**(1/(float(p) - 1))
   u.assign(c*u)
 
-We use the net outward flux through the top boundary as the goal functional.
-The flux vector is :math:`\mathbf{q}(u) = -|\nabla u|^{p-2}\nabla u`, so the
-goal is :math:`J(u) = \int_{\Gamma_{\mathrm{top}}} \mathbf{q}(u) \cdot n\,\mathrm{d}s`.
-The manufactured solution gives a negative value, which indicates net inflow.
-``UnitSquareMesh`` numbers the top boundary ``4``. We use higher quadrature on
-this boundary to evaluate the reference flux accurately.
+We keep a copy of the initial guess, so that we can start each adaptive solve
+from it:
 
 .. code-block:: python
 
-  flux = -inner(grad(u), grad(u))**((p-2)/2) * grad(u)
-  n = FacetNormal(mesh)
-  J = inner(flux, n)*ds(4, degree=16)
+  initial_guess = u.copy(deepcopy=True)
 
 We solve the nonlinear problem with a trust-region Newton method. This method
 uses the energy :math:`E` as an objective to accept or reject each step. We
@@ -118,10 +112,6 @@ that the discretisation error dominates in this example.
       "pc_factor_mat_solver_type": "mumps",
   }
 
-The DWR machinery localises the residual by projecting it onto cell-bubble and
-facet-bubble spaces.  The resulting local problems are diagonal because each
-has one degree of freedom per cell or facet.
-
 Now the adaptive loop itself. ``snes_grid_sequence`` is the *maximum* number
 of SOLVE--ESTIMATE--MARK--REFINE cycles. ``goal_atol`` stops it early once the
 estimated error in the goal is small enough, and ``goal_rtol`` gives a tolerance
@@ -140,56 +130,39 @@ indicator, and ``goal_monitor`` reports the estimate at each cycle:
       "goal_monitor": None,
   })
 
+Let :math:`z` be the solution of the dual problem
+:math:`F'(u)[v, z] = J'(u)[v]` for all :math:`v`. The marker solves the primal
+and dual problems again in a space of one degree higher, and it uses these
+solutions in place of :math:`u` and :math:`z`. It estimates the error in the
+goal with the mean of the primal residual weighted by the dual error and the
+adjoint residual weighted by the primal error :cite:`Endtmayer:2024`:
+
+.. math::
+
+    J(u) - J(u_h) \approx \frac{1}{2} \rho(u_h; z - z_h)
+    + \frac{1}{2} \rho^*(u_h, z_h; u - u_h) + \rho(u_h; z_h),
+
+where :math:`\rho(u_h; v) = -F(u_h; v)` is the primal residual and
+:math:`\rho^*(u_h, z_h; v) = J'(u_h)[v] - F'(u_h)[v, z_h]` is the adjoint
+residual. The last term is the error from solving the nonlinear system
+inexactly. The remainder of this estimate is cubic in the errors. The marker
+localises both residuals by projecting them onto cell-bubble and facet-bubble
+spaces. The resulting local problems are diagonal because each has one degree
+of freedom per cell or facet.
+
 The adaptive loop is handled inside ``solve``.  It runs the configured
 SOLVE--ESTIMATE--MARK--REFINE cycle, and the marking callback supplies the
 cells to refine.  The ``objective`` argument gives the energy to the
 trust-region method.  We also pass the exact solution, which lets the monitor
 report the true error and an effectivity index.  Of course, this is not needed
-in general:
-
-.. code-block:: python
-
-  initial_dofs = V.dim()
-  marker = GoalOrientedMarker(J, exact_solution=u_exact)
-  uh = solve(F == 0, u, bcs, objective=E, solver_parameters=solver_parameters,
-             marking_callback=marker)
+in general.
 
 ``solve`` returns the solution on the final adapted mesh, in the original
-degree-2 space. We plot the solution, and we draw the adapted mesh on top of it
-with transparent lines. The finest cells lie near the top boundary, where the
-goal functional is evaluated, and along the right side of the domain:
-
-.. code-block:: python
-
-  import matplotlib.pyplot as plt
-  from firedrake.pyplot import tripcolor, triplot
-
-  fig, axes = plt.subplots()
-  colours = tripcolor(uh, axes=axes)
-  fig.colorbar(colours, ax=axes, location="left", label="$u_h$")
-  triplot(uh.function_space().mesh().unique(), axes=axes, interior_kw={"alpha": 0.4})
-  axes.set_aspect("equal")
-  axes.legend(loc="center left", bbox_to_anchor=(1.05, 0.5))
-  fig.savefig("goal_oriented_nonlinear_p_laplacian_mesh.png", bbox_inches="tight")
-
-.. image:: goal_oriented_nonlinear_p_laplacian_mesh.png
-   :width: 60%
-   :alt: The adapted mesh over the solution, with the finest cells near the top and right boundaries.
-   :align: center
-
-``marker.estimates`` records the estimates in mesh order. The last entry gives
-the most recent estimate :math:`\eta` of the error in the goal. If the grid
-sequence reaches its refinement limit, this estimate comes from the mesh before
-the final refinement:
-
-.. code-block:: python
-
-  print(f"degrees of freedom: {initial_dofs} -> {uh.function_space().dim()}")
-  print(f"error estimate: {marker.estimates[-1].error_estimate:.6e}")
-
-The solver uses all ten refinements because the magnitude of the estimate
-stays above ``goal_atol``. At each cycle, the monitor reports the goal value,
-the errors, and the effectivity index given by
+degree-2 space. ``marker.estimates`` records the estimates in mesh order. The
+last entry gives the most recent estimate :math:`\eta` of the error in the
+goal. If the grid sequence reaches its refinement limit, this estimate comes
+from the mesh before the final refinement. At each cycle, the monitor reports
+the goal value, the errors, and the effectivity index given by
 
 .. math::
 
@@ -204,32 +177,95 @@ If the algebraic error exceeds the discretisation error, the marker prints
 Tighten ``snes_rtol`` and ``snes_atol`` if the algebraic error limits the
 accuracy of the goal.
 
-The following plot compares the magnitude of the DWR estimate with the
-magnitude of the true goal error on each mesh that the monitor reports.
+We put the adaptive solve and the plots in a helper function, so that we can
+compare different goals. Each goal starts from the same initial mesh and the
+same initial guess. The adaptive solve adds each refined mesh on top of the
+mesh hierarchy of the initial mesh. A later solve from the same mesh would
+reuse those refined meshes, so the helper first starts a new
+:func:`~.MeshHierarchy` from the initial mesh. The left plot shows the
+solution, with the adapted mesh drawn on top of it with transparent lines. The
+right plot compares the magnitude of the DWR estimate with the magnitude of the
+true error in the goal on each mesh that the monitor reports:
 
 .. code-block:: python
 
-  dofs = [estimate.num_dofs for estimate in marker.estimates]
-  estimated_errors = [abs(estimate.error_estimate) for estimate in marker.estimates]
-  true_errors = [abs(estimate.true_error) for estimate in marker.estimates]
+  import matplotlib.pyplot as plt
+  from firedrake.pyplot import tripcolor, triplot
 
-  fig, axes = plt.subplots()
-  axes.loglog(dofs, estimated_errors, "o--", label="DWR estimate")
-  axes.loglog(dofs, true_errors, "s-", label="True error")
-  axes.set_xlabel("Degrees of freedom")
-  axes.set_ylabel("Absolute error in net outward flux")
-  axes.legend()
-  fig.savefig("goal_oriented_nonlinear_p_laplacian_errors.png", bbox_inches="tight")
 
-.. image:: goal_oriented_nonlinear_p_laplacian_errors.png
-   :width: 75%
-   :alt: The magnitudes of the DWR estimate and true goal error follow a similar downward trend.
+  def solve_adaptively(goal, name):
+      # Restart from the initial mesh and the initial guess.
+      MeshHierarchy(mesh)
+      u.assign(initial_guess)
+
+      # Solve on a sequence of meshes that are adapted for the goal.
+      marker = GoalOrientedMarker(goal, exact_solution=u_exact)
+      uh = solve(F == 0, u, bcs, objective=E, solver_parameters=solver_parameters,
+                 marking_callback=marker)
+
+      # Plot the solution and the final adapted mesh.
+      fig, (solution_axes, error_axes) = plt.subplots(1, 2, figsize=(11, 4))
+      colours = tripcolor(uh, axes=solution_axes, cmap="coolwarm")
+      fig.colorbar(colours, ax=solution_axes, location="left", label="$u_h$")
+      triplot(uh.function_space().mesh().unique(), axes=solution_axes,
+              interior_kw={"alpha": 0.4})
+      solution_axes.set_aspect("equal")
+
+      # Plot the estimated and the true errors in the goal on each mesh.
+      dofs = [estimate.num_dofs for estimate in marker.estimates]
+      estimated_errors = [abs(estimate.error_estimate) for estimate in marker.estimates]
+      true_errors = [abs(estimate.true_error) for estimate in marker.estimates]
+      error_axes.loglog(dofs, estimated_errors, "o--", label="DWR estimate")
+      error_axes.loglog(dofs, true_errors, "s-", label="True error")
+      error_axes.set_xlabel("Degrees of freedom")
+      error_axes.set_ylabel(f"Absolute error in the {name}")
+      error_axes.legend()
+      fig.savefig(f"goal_oriented_nonlinear_p_laplacian_{name}.png", bbox_inches="tight")
+
+Our first goal is the net outward flux through the top boundary. The flux
+vector is :math:`\mathbf{q}(u) = -|\nabla u|^{p-2}\nabla u`, so the goal is
+:math:`J(u) = \int_{\Gamma_{\mathrm{top}}} \mathbf{q}(u) \cdot n\,\mathrm{d}s`.
+The manufactured solution gives a negative value, which indicates net inflow.
+``UnitSquareMesh`` numbers the top boundary ``4``. We use higher quadrature on
+this boundary to evaluate the reference flux accurately:
+
+.. code-block:: python
+
+  flux = -inner(grad(u), grad(u))**((p-2)/2) * grad(u)
+  n = FacetNormal(mesh)
+  Jflux = inner(flux, n)*ds(4, degree=16)
+  solve_adaptively(Jflux, "flux")
+
+.. image:: goal_oriented_nonlinear_p_laplacian_flux.png
+   :width: 100%
+   :alt: Left, the solution and the adapted mesh, with the finest cells near the top and right boundaries. Right, the DWR estimate and the true error in the flux, which agree on each mesh.
    :align: center
 
-The estimator used here weights the primal residual by the dual error. Richer
-variants exist. Symmetrising the estimate with the adjoint residual leaves a
-remainder cubic in the errors rather than quadratic :cite:`Endtmayer:2024`.
-That costs two further solves per cycle.
+The finest cells lie near the top boundary, where the goal functional is
+evaluated, and along the right side of the domain.
+
+Our second goal is the energy :math:`E` itself. The residual is the derivative
+of the energy, so the dual problem has the right-hand side
+:math:`J'(u) = F(u)`, which is zero at the solution. Thus the dual solutions
+:math:`z` and :math:`z_h` are zero, and so is the primal residual weighted by
+the dual error. The adjoint residual is then :math:`\rho^*(u_h, 0; v) = F(u_h; v)`,
+and the estimate reduces to
+
+.. math::
+
+    E(u) - E(u_h) \approx \frac{1}{2} F(u_h; u - u_h).
+
+.. code-block:: python
+
+  solve_adaptively(E, "energy")
+
+.. image:: goal_oriented_nonlinear_p_laplacian_energy.png
+   :width: 100%
+   :alt: Left, the solution and the adapted mesh, with the finest cells near the right boundary. Right, the DWR estimate and the true error in the energy, which agree on each mesh.
+   :align: center
+
+The energy measures the error over the whole domain, so the marker refines the
+mesh where the gradient of the solution is large, near the right boundary.
 
 A python script version of this demo can be found :demo:`here
 <goal_oriented_nonlinear_p_laplacian.py>`.
