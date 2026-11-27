@@ -52,7 +52,8 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for ``.PCG64`` constructor. However, one can reset the ``state`` after construction as:
+    The ``.PCG64`` constructor does not take the ``inc`` keyword. To set the increment ``inc`` of the
+    random stream, set the ``state`` after construction. In this example, ``seed`` and ``inc`` are integers:
 
     .. code-block:: python
 
@@ -78,7 +79,8 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for ``.PCG64DXSM`` constructor. However, one can reset the ``state`` after construction as:
+    The ``.PCG64DXSM`` constructor does not take the ``inc`` keyword. To set the increment ``inc`` of the
+    random stream, set the ``state`` after construction. In this example, ``seed`` and ``inc`` are integers:
 
     .. code-block:: python
 
@@ -336,8 +338,6 @@ def __getattr__(module_attr):
 
         if module_attr in ('PCG64', 'PCG64DXSM'):
             def _init(self, *args, **kwargs):
-                if 'inc' in kwargs:
-                    raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake.html#module-firedrake.randomfunctiongen>")
                 rank = self.comm.Get_rank()
                 size = self.comm.Get_size()
                 _kwargs = kwargs.copy()
