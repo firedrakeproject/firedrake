@@ -1525,16 +1525,6 @@ class AbstractMeshTopology(abc.ABC):
 
         dats = {}
         for to_dim, size in self._closure_sizes[from_dim].items():
-            # Gather cell closures using PETSc numbering and ordering
-            dm_closures_per_dim = self._dm_closures(from_dim)[to_dim]
-            # Now permute the entries to get an oriented closure
-            if self._cell_closure_perms is not None:
-                oriented_dm_closures_per_dim = np.take_along_axis(
-                    dm_closures_per_dim, self._cell_closure_perms[to_dim]
-                )
-            else:
-                oriented_dm_closures_per_dim = dm_closures_per_dim
-
             # Now renumber the source and (optionally) destination points.
             # Source points are renumbered by permuting map rows, and
             # destination points are renumbered by turning DM points into
@@ -1544,7 +1534,7 @@ class AbstractMeshTopology(abc.ABC):
             # The final axis tree may or may not be renumbered (e.g. if we
             # are addressing the coordinate vec) and so both are tabulated.
             to_dim_closures = self._renumber_map_fixed(
-                oriented_dm_closures_per_dim,
+                self._dm_closures_oriented(from_dim)[to_dim],
                 from_plex_indices,
                 from_numbering_sec,
                 self._plex_to_entity_numbering_sec(dim=to_dim),
@@ -1557,8 +1547,7 @@ class AbstractMeshTopology(abc.ABC):
                 iterset.as_axis(), op3.Axis({to_dim: size}, "closure")
             ])
             dats[to_dim] = op3.Dat(closure_axes, data=to_dim_closures.ravel())
-            # if to_dim == (1,0):
-            print(to_dim, to_dim_closures[:10])
+
         return idict(dats)
 
     @cached_method_until_topology_changes()
@@ -1572,19 +1561,68 @@ class AbstractMeshTopology(abc.ABC):
         else:
             return self._flat_cell_closures_and_perms[0]
 
+    @property
+    def _is_orientable_submesh(self) -> bool:
+        # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
+        # inherit cell_closure from the hex mesh as the cell_closure
+        # must follow the special orientation restriction.
+        return (
+            self.submesh_parent is not None
+            and not (
+                self.submesh_parent.ufl_cell() == ufl.hexahedron
+                and self.ufl_cell() == ufl.quadrilateral
+            )
+            and len(self.submesh_parent.dm_cell_types) == 1
+        )
+
+    @cached_method_until_topology_changes()
+    def _flat_dm_closures_oriented(self, dim: DimT) -> np.ndarray:
+        if self._is_orientable_submesh:
+            assert dim == self.cell_label, \
+                "Only cell closures of submeshes are supported"
+            topology = FIAT.ufc_cell(self.ufl_cell()).get_topology()
+            entity_per_cell = np.zeros(len(topology), dtype=IntType)
+            for d, ents in topology.items():
+                entity_per_cell[d] = len(ents)
+            return dmcommon.cell_closures_oriented_submesh(
+                self.topology_dm,
+                self.submesh_parent.topology_dm,
+                self.submesh_parent._flat_dm_closures_oriented(self.submesh_parent.cell_label),
+                entity_per_cell,
+            )
+        else:
+            # Gather cell closures using PETSc numbering and ordering
+            # bad name now
+            dm_closures_per_dim = self._split_closure_array_by_dim(dim, self._flat_dm_closures(dim))
+            # Now permute the entries to get an oriented closure
+            if self._cell_closure_perms is not None:
+                dm_closures_per_dim = {
+                    d: np.take_along_axis(v, self._cell_closure_perms[d])
+                    for d, v in dm_closures_per_dim.items()
+                    }
+            return np.concatenate(list(dm_closures_per_dim.values()), axis=1)
+
+    @cached_method_until_topology_changes()
+    def _dm_closures_oriented(self, dim: DimT) -> idict:
+        return self._split_closure_array_by_dim(dim, self._flat_dm_closures_oriented(dim))
+
     @cached_property_until_topology_changes
     def _flat_cell_closure_perms(self) -> np.ndarray | None:
+        # Orientable submeshes inherit an already oriented closure from the
+        # parent mesh. It is not possible (at least for me) to extract a
+        # working sub-permutation from the parent closure permutation, and so
+        # we only work with already oriented closures when dealing with
+        # orientable submeshes. The practical implications of this are merely
+        # that one cannot have an oriented mesh that was first submeshed and
+        # then extruded.
+        assert not self._is_orientable_submesh, \
+            "Orientable submeshes do not have standalone closure permutations"
         if self.extruded:
             return self._flat_cell_closure_perms_extruded
-        elif self.ufl_cell() == ufl.hexahedron:
+        elif self.ufl_cell() == ufl.hexahedron or self.submesh_parent:
             return None
         else:
             return self._flat_cell_closures_and_perms[1]
-
-    # TODO: docs
-    @cached_method_until_topology_changes()
-    def _dm_closures(self, dim: int | tuple[int, ...]) -> idict:
-        return self._split_closure_array_by_dim(dim, self._flat_dm_closures(dim))
 
     @cached_property_until_topology_changes
     def _cell_closure_perms(self) -> idict | None:
@@ -1605,58 +1643,18 @@ class AbstractMeshTopology(abc.ABC):
 
     @cached_property
     def _cell_closures(self) -> np.ndarray:
-        print("remove me")
-
-        closures = self._flat_dm_closures(self.cell_label)
-        perms = self._flat_cell_closure_perms
-        if perms is None:
-            return closures
-        else: 
-            closures_perm = np.empty_like(closures)
-            off = 0
-            for size in self._closure_sizes[self.cell_label].values():
-                ii = slice(off, off+size)
-                closures_perm[:, ii] = np.take_along_axis(closures[:, ii], perms[:, ii], axis=1)
-                off += size
-            return utils.readonly(closures_perm)
+        return self._flat_dm_closures_oriented(self.cell_label)
 
     @cached_property_until_topology_changes
-    def _flat_cell_closures_and_perms(self) -> tuple[dict, dict]:
-        assert not self.ufl_cell() == ufl.hexahedron
-        assert not self.extruded, "Closures and permutations require separate treatment"
-
-        if (
-            self.submesh_parent is not None
-            and not (
-                self.submesh_parent.ufl_cell().cellname == "hexahedron"
-                and self.ufl_cell().cellname == "quadrilateral"
-            )
-            and len(self.submesh_parent.dm_cell_types) == 1
-        ):
-            # Codim-1 submesh of a hex mesh (i.e. a quad submesh) can not
-            # inherit cell_closure from the hex mesh as the cell_closure
-            # must follow the special orientation restriction. This means
-            # that, when the quad submesh works with the parent hex mesh,
-            # quadrature points must be permuted (i.e. use the canonical
-            # quadrature point ordering based on the cone ordering).
-            topology = FIAT.ufc_cell(self.ufl_cell()).get_topology()
-            entity_per_cell = np.zeros(len(topology), dtype=IntType)
-            for d, ents in topology.items():
-                entity_per_cell[d] = len(ents)
-            return dmcommon.cell_closures_and_perms_submesh(
-                self.topology_dm,
-                self.submesh_parent.topology_dm,
-                np.asarray(list(self._closure_sizes[self.cell_label].values()), dtype=IntType),
-                self.submesh_parent._flat_dm_closures(self.submesh_parent.cell_label),
-                self.submesh_parent._flat_cell_closure_perms,
-                entity_per_cell,
-            )
-
-        elif self.ufl_cell().is_simplex:
+    def _flat_cell_closures_and_perms(self) -> tuple[np.ndarray, np.ndarray]:
+        if self.ufl_cell().is_simplex:
             return dmcommon.cell_closures_and_perms_simplex(self)
 
         else:
-            assert self.ufl_cell() == ufl.quadrilateral
+            assert self.ufl_cell() == ufl.quadrilateral, (
+                "Closures and permutations can only be computed together for "
+                "simplices and quads"
+            )
             petsctools.cite("Homolya2016")
             petsctools.cite("McRae2016")
 
@@ -1940,35 +1938,44 @@ class AbstractMeshTopology(abc.ABC):
                         new_closure = np.empty(27, dtype=closure.dtype)
                         new_closure[0] = closure[0]
                         new_closure[1] = closure[1]
-                        new_closure[2] = closure[2]
-                        new_closure[3] = closure[3]
-                        new_closure[4] = closure[4]
-                        new_closure[5] = closure[5]
-                        # <bottom verts>
-                        new_closure[6] = closure[4]
-                        new_closure[7] = closure[5]
-                        new_closure[8] = closure[5]
-                        new_closure[9] = closure[4]
+                        # <bottom edges>
+                        new_closure[2] = closure[2]  # correct
+                        new_closure[3] = closure[3]  # correct?
+                        new_closure[4] = closure[3]
+                        new_closure[5] = closure[4]
+                        # </bottom edges>
+                        # <bottom verts> good
+                        new_closure[6] = closure[5]
+                        new_closure[7] = closure[6]
+                        new_closure[8] = closure[6]
+                        new_closure[9] = closure[5]
                         # </bottom verts>
-                        new_closure[10] = closure[10]
-                        new_closure[11] = closure[11]
-                        new_closure[12] = closure[12]
-                        new_closure[13] = closure[13]
-                        new_closure[14] = closure[14]
-                        # <top verts>
-                        new_closure[15] = closure[15]
-                        new_closure[16] = closure[15]
-                        new_closure[17] = closure[16]
-                        new_closure[18] = closure[17]
+                        # good
+                        new_closure[10] = closure[7]
+                        # <top edges>
+                        new_closure[11] = closure[8]  # correct
+                        new_closure[12] = closure[9]
+                        new_closure[13] = closure[9]
+                        new_closure[14] = closure[10]  # correct
+                        # </top edges>
+                        # <top verts> good
+                        new_closure[15] = closure[11]
+                        new_closure[16] = closure[12]
+                        new_closure[17] = closure[12]
+                        new_closure[18] = closure[11]
                         # </top verts>
-                        new_closure[19] = closure[18]
-                        new_closure[20] = closure[18]
-                        new_closure[21] = closure[18]
-                        new_closure[22] = closure[18]
-                        new_closure[23] = closure[18]
+                        # <vertical facets>
+                        new_closure[19] = closure[13]
+                        new_closure[20] = closure[14]
+                        new_closure[21] = closure[14]
+                        new_closure[22] = closure[16]
+                        # </vertical facets>
+                        # <vertical edges> good
+                        new_closure[23] = closure[17]
                         new_closure[24] = closure[18]
                         new_closure[25] = closure[18]
-                        new_closure[26] = closure[18]
+                        new_closure[26] = closure[17]
+                        # </vertical edges>
                         closure = new_closure
                     elif zp and z_unit_periodic:
                         raise NotImplementedError

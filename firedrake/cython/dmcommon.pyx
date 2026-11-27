@@ -3747,14 +3747,10 @@ def submesh_update_facet_labels(PETSc.DM dm, PETSc.DM subdm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def cell_closures_and_perms_submesh(
+def cell_closures_oriented_submesh(
     PETSc.DM subdm,
     PETSc.DM dm,
-    # PETSc.Section subcell_numbering,
-    # PETSc.Section cell_numbering,
-    PetscInt[::1] subcell_closure_sizes,
     np.ndarray cell_closure,
-    np.ndarray closure_perms,
     np.ndarray entity_per_subcell,
 ):
     """Inherit cell_closure from parent.
@@ -3806,7 +3802,6 @@ def cell_closures_and_perms_submesh(
         subpoint_indices_inv[p - pStart] = -1
 
     subcell_closures = np.empty((subcEnd - subcStart, sum(entity_per_subcell)), dtype=IntType)
-    subcell_perms = np.empty_like(subcell_closures)
     nclosure = cell_closure.shape[1]
     nsubclosure = subcell_closures.shape[1]
     CHKERR(PetscMalloc1(nclosure, &perm))
@@ -3839,21 +3834,9 @@ def cell_closures_and_perms_submesh(
             subp = subpoint_indices_inv[p]
             if subp >= 0:
                 subcell_closures[subcell, subcl] = subp
-                perm[subcl] = closure_perms[cell, cl]
                 subcl += 1
         if subcl != nsubclosure:
             raise RuntimeError(f"subcl {(subcl)} != nsubclosure {(nsubclosure)}")
-
-        # this gives us something like [2, 4, 1, 5], convert to [1, 2, 0, 3]
-        off = 0
-        for ss in subcell_closure_sizes:
-            for i in range(ss):
-                subperm[i] = i  # reset
-            CHKERR(PetscSortIntWithArray(ss, perm+off, subperm))
-            for subcl in range(ss):
-                # subcell_perms[subcell, subcl+off] = subperm[subcl+off] - off
-                subcell_perms[subcell, subperm[subcl]+off] = subcl
-            off += ss
 
         for subcl in range(nsubclosure):
             subp = subclosure[2*subcl]
@@ -3864,7 +3847,7 @@ def cell_closures_and_perms_submesh(
     CHKERR(PetscFree(perm))
     CHKERR(PetscFree(subperm))
     CHKERR(ISRestoreIndices(subpoint_is.iset, &subpoint_indices))
-    return (subcell_closures, subcell_perms)
+    return subcell_closures
 
 
 @cython.boundscheck(False)
