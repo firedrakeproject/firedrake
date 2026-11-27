@@ -535,6 +535,30 @@ def test_two_nonlinear_solves():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("use_solver", [False, True])
+def test_vanishing_derivative(use_solver):
+    # regression test for firedrake issue #5571
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    m = Function(V).assign(1.0)
+    u = Function(V)
+    v = TestFunction(V)
+    # Use m only in a predicate, so that dF/dm vanishes.
+    F = (u - conditional(m > 0.5, 1.0, 2.0)) * v * dx
+    if use_solver:
+        NonlinearVariationalSolver(NonlinearVariationalProblem(F, u)).solve()
+    else:
+        solve(F == 0, u)
+    J = assemble(u * dx)
+    rf = ReducedFunctional(J, Control(m))
+
+    dJdm = rf.derivative()
+    assert isinstance(dJdm, Cofunction)
+    assert np.allclose(dJdm.dat.data_ro, 0)
+    assert rf.tlm(Function(V).assign(1.0)) == 0
+
+
+@pytest.mark.skipcomplex
 def test_real_solve(rg):
     mesh = UnitSquareMesh(8, 8)
     V = FunctionSpace(mesh, "CG", 1)
