@@ -5148,6 +5148,31 @@ def ExtrudedMesh(
     extrusion_type : str
         The algorithm to employ to calculate the extruded coordinates. One of
         "uniform", "radial", "radial_hedgehog" or "custom". See below.
+
+        The various values of ``extrusion_type`` have the following meanings:
+
+        ``"uniform"``
+            the extruded mesh has an extra spatial
+            dimension compared to the base mesh. The layers exist
+            in this dimension only.
+
+        ``"radial"``
+            the extruded mesh has the same number of
+            spatial dimensions as the base mesh; the cells are
+            radially extruded outwards from the origin. This
+            requires the base mesh to have topological dimension
+            strictly smaller than geometric dimension.
+
+        ``"radial_hedgehog"``
+            similar to `radial`, but the cells
+            are extruded in the direction of the outward-pointing
+            cell normal (this produces a P1dgxP1 coordinate field).
+            In this case, a radially extruded coordinate field
+            (generated with ``extrusion_type="radial"``) is
+            available in the ``radial_coordinates`` attribute.
+
+        ``"custom"``
+            use a custom kernel to generate the extruded coordinates
     periodic : bool
         The flag for periodic extrusion. Can be used with any ``extrusion_type``
         to make annulus, torus, etc.
@@ -5166,29 +5191,8 @@ def ExtrudedMesh(
         'taxicab' or rectilinear distance) so will scale with the dimension of the
         mesh.
 
-    The various values of ``extrusion_type`` have the following meanings:
-
-    ``"uniform"``
-        the extruded mesh has an extra spatial
-        dimension compared to the base mesh. The layers exist
-        in this dimension only.
-
-    ``"radial"``
-        the extruded mesh has the same number of
-        spatial dimensions as the base mesh; the cells are
-        radially extruded outwards from the origin. This
-        requires the base mesh to have topological dimension
-        strictly smaller than geometric dimension.
-    ``"radial_hedgehog"``
-        similar to `radial`, but the cells
-        are extruded in the direction of the outward-pointing
-        cell normal (this produces a P1dgxP1 coordinate field).
-        In this case, a radially extruded coordinate field
-        (generated with ``extrusion_type="radial"``) is
-        available in the ``radial_coordinates`` attribute.
-    ``"custom"``
-        use a custom kernel to generate the extruded coordinates
-
+    Notes
+    -----
     For more details see the :doc:`manual section on extruded meshes </extruded-meshes>`.
 
     """

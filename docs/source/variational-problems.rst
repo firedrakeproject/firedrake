@@ -267,7 +267,7 @@ Supported finite elements
 
 The element families that Firedrake supports, and how to choose
 between them, are listed on the separate page
-:doc:`supported-elements`.
+:doc:`/supported-elements`.
 
 
 Expressing a variational problem
