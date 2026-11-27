@@ -165,15 +165,14 @@ def _both(expr):
     return expr("+") + expr("-")
 
 
-def _residual_indicators(F, dual_error, residual_degree, options_prefix):
-    """Compute cellwise dual-weighted residual error indicators.
+def _residual_indicators(F, weight, residual_degree, options_prefix):
+    """Compute the cellwise contributions of a weighted residual.
 
-    The residual of the primal solution ``u_h`` is written as a sum of
-    cell and facet integrals
+    The residual ``F`` is written as a sum of cell and facet integrals
 
     .. math::
 
-        F(u_h; v) = \\sum_K (R_K, v)_K + (R_{\\partial K}, v)_{\\partial K},
+        F(v) = \\sum_K (R_K, v)_K + (R_{\\partial K}, v)_{\\partial K},
 
     where ``R_K`` is a polynomial on the cell ``K`` and ``R_dK`` is a
     polynomial on each facet of ``K``. This representation is computed
@@ -182,12 +181,11 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     a cell bubble times a polynomial vanish on all facets, so testing ``F``
     against them gives ``R_K``. Test functions that are a facet bubble
     times a polynomial then give ``R_dK`` from the remainder
-    ``F(u_h; v) - (R_K, v)_K``. The indicator of a cell ``K`` is
+    ``F(v) - (R_K, v)_K``. The contribution of a cell ``K`` with weight ``w`` is
 
     .. math::
 
-        \\eta_K = \\left| (R_K, z - z_h)_K
-        + (R_{\\partial K}, z - z_h)_{\\partial K} \\right|,
+        \\eta_K = (R_K, w)_K + (R_{\\partial K}, w)_{\\partial K},
 
     where the contribution of an interior facet is the average of the
     contributions from its two sides.
@@ -195,9 +193,9 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
     Parameters
     ----------
     F
-        The residual form of the primal problem.
-    dual_error
-        The dual error representative ``z - z_h``.
+        A residual 1-form, such as the residual form of the primal problem.
+    weight
+        The weight ``w``, such as the dual error representative ``z - z_h``.
     residual_degree
         The number of degrees that the localization spaces add to the primal
         space.
@@ -206,7 +204,7 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
 
     Returns
     -------
-    A DG0 `~firedrake.function.Function` with the cellwise error indicators.
+    A DG0 `~firedrake.function.Function` with the signed cellwise contributions.
 
     References
     ----------
@@ -263,14 +261,11 @@ def _residual_indicators(F, dual_error, residual_degree, options_prefix):
 
     indicator_space = FunctionSpace(mesh, "DG", 0)
     indicator_test = TestFunction(indicator_space)
-    indicators = assemble(
-        inner(inner(cell_residual, dual_error), indicator_test) * dx
-        + inner(avg(inner(facet_residual, dual_error)), _both(indicator_test)) * dS
-        + inner(inner(facet_residual, dual_error), indicator_test) * ds
+    return assemble(
+        inner(inner(cell_residual, weight), indicator_test) * dx
+        + inner(avg(inner(facet_residual, weight)), _both(indicator_test)) * dS
+        + inner(inner(facet_residual, weight), indicator_test) * ds
     )
-    with indicators.dat.vec as vec:
-        vec.abs()
-    return indicators
 
 
 def _dorfler_mark(indicators: Function, fraction: float) -> Function:
@@ -304,14 +299,16 @@ class GoalEstimate:
     Let ``z`` and ``z_h`` denote the dual solutions in the enriched and
     primal spaces, respectively. The goal functional is ``J``, and
     ``rho(u_h; v)`` is the negative of the residual form evaluated at
-    ``u_h`` with test function ``v``.
+    ``u_h`` with test function ``v``. The adjoint residual is
+    ``rho*(u_h, z_h; v) = J'(u_h)[v] - F'(u_h)[v, z_h]``.
     """
 
     #: The number of degrees of freedom in the primal space.
     num_dofs: int
     #: The goal value ``J(u_h)``.
     goal: float
-    #: The discretisation error estimate ``rho(u_h; z - z_h)``.
+    #: The discretisation error estimate
+    #: ``(rho(u_h; z - z_h) + rho*(u_h, z_h; u - u_h)) / 2``.
     discretisation_error: float
     #: The solver error estimate ``rho(u_h; z_h)``.
     solver_error: float
@@ -339,8 +336,13 @@ class GoalOrientedMarker:
 
     The marker estimates the error ``J(u) - J(u_h)`` in a scalar goal
     functional ``J`` with the dual-weighted residual method. The estimate
-    is computed from the residual form, so it does not need a derivation
-    for each problem.
+    is the mean of the primal residual weighted by the dual error and the
+    adjoint residual weighted by the primal error, plus the primal residual
+    weighted by the discrete dual solution. The remainder of this estimate
+    is cubic in the errors. The estimate is computed from the residual form,
+    so it does not need a derivation for each problem. It also applies to a
+    goal at which the problem is stationary, such as the energy of a
+    minimisation problem, where the dual solution is zero.
 
     Pass the marker as the ``marking_callback`` of a
     `NonlinearVariationalSolver` and set ``snes_grid_sequence``. On each
@@ -404,6 +406,10 @@ class GoalOrientedMarker:
     ----------
     Rognes, M. E. and Logg, A., 2013: "Automated goal-oriented error control
     I: Stationary variational problems". https://doi.org/10.1137/10081962X
+
+    Endtmayer, B., Langer, U., Richter, T., Schafelner, A. and Wick, T., 2024:
+    "A posteriori single- and multi-goal error control and adaptivity for
+    partial differential equations". https://doi.org/10.1016/bs.aams.2024.08.003
     """
 
     def __init__(self, goal_functional: ufl.Form,
@@ -421,6 +427,7 @@ class GoalOrientedMarker:
 
     def _estimate_error(self, problem, current_solution: Function,
                         dual_low: Function, dual_error: ufl.classes.Expr,
+                        adjoint_residual: ufl.Form, primal_error: ufl.classes.Expr,
                         options_prefix: str) -> GoalEstimate:
         """Estimate ``J(u) - J(u_h)`` and print the estimate if ``goal_monitor`` is set.
 
@@ -434,6 +441,10 @@ class GoalOrientedMarker:
             The dual solution ``z_h`` in the primal space.
         dual_error
             The dual error representative ``z - z_h``.
+        adjoint_residual
+            The adjoint residual form ``rho*(u_h, z_h; v)``.
+        primal_error
+            The primal error representative ``u - u_h``.
         options_prefix
             The PETSc options prefix of the active solver.
 
@@ -448,7 +459,9 @@ class GoalOrientedMarker:
                                           {current_solution: self.exact_solution}))
             true_error = exact_goal - goal
         num_dofs = current_solution.function_space().dim()
-        discretisation_error = assemble(_replace_arguments(problem.F, -dual_error))
+        primal_estimate = assemble(_replace_arguments(problem.F, -dual_error))
+        adjoint_estimate = assemble(_replace_arguments(adjoint_residual, primal_error))
+        discretisation_error = (primal_estimate + adjoint_estimate) / 2
         solver_error = assemble(_replace_arguments(problem.F, -dual_low))
         estimate = GoalEstimate(
             num_dofs=num_dofs,
@@ -465,7 +478,7 @@ class GoalOrientedMarker:
         if PETSc.Options(options_prefix).getBool("goal_monitor", False):
             report = [("degrees of freedom", estimate.num_dofs),
                       ("goal J(u_h)", estimate.goal),
-                      ("discretisation error rho(u_h; z-z_h)", estimate.discretisation_error),
+                      ("discretisation error", estimate.discretisation_error),
                       ("solver error rho(u_h; z_h)", estimate.solver_error),
                       ("error estimate eta", estimate.error_estimate),
                       ("true error J(u) - J(u_h)", estimate.true_error),
@@ -545,8 +558,14 @@ class GoalOrientedMarker:
         high_solver._ctx.solve_jacobian(rhs_high, dual_high, transpose=True)
 
         dual_error = dual_high - dual_low
+        primal_error = primal_high - current_solution
+        # Put z_h in the test slot and v in the trial slot of the Jacobian.
+        v, _ = problem.J.arguments()
+        adjoint_residual = (derivative(self.goal_functional, current_solution, v)
+                            - _replace_arguments(problem.J, dual_low, v))
         estimate = self._estimate_error(
-            problem, current_solution, dual_low, dual_error, prefix
+            problem, current_solution, dual_low, dual_error,
+            adjoint_residual, primal_error, prefix
         )
         self.estimates.append(estimate)
         atol = options.getReal("goal_atol", 1e-50)
@@ -555,7 +574,11 @@ class GoalOrientedMarker:
             # Returning None tells PETSc to stop adapting.
             return None
 
-        indicators = _residual_indicators(
-            problem.F, dual_error, residual_degree, prefix
-        )
+        primal_indicators = _residual_indicators(problem.F, dual_error, residual_degree, prefix)
+        adjoint_indicators = _residual_indicators(adjoint_residual, primal_error, residual_degree, prefix)
+        # The primal residual form is -rho, so its contributions are subtracted.
+        indicators = Function(primal_indicators.function_space())
+        indicators.assign((adjoint_indicators - primal_indicators) / 2)
+        with indicators.dat.vec as vec:
+            vec.abs()
         return _dorfler_mark(indicators, marking_fraction)
