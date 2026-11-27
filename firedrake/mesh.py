@@ -781,7 +781,7 @@ class AbstractMeshTopology(abc.ABC):
         name : str | None
             The name of the entity type (e.g. ``"interior_facet"``).
         dim : int | tuple[int, ...] | None
-            The "dim" of the DM points. Not that this is different to ``stratum`` for
+            The "dim" of the DM points. Note that this is different to ``stratum`` for
             extruded meshes because the dim can be a tuple to distinguish between
             vertical and horizontal entities - something that a DM cannot do using strata.
         stratum : int | None
@@ -1715,6 +1715,7 @@ class AbstractMeshTopology(abc.ABC):
             name=from_name,
             dim=from_dim,
             stratum=from_stratum,
+            force_return_array=True,
         )
         map_data = np.empty((from_plex_indices.size, arity), dtype=IntType)
         for i, from_pt in enumerate(from_plex_indices):
@@ -2483,29 +2484,34 @@ class MeshTopology(AbstractMeshTopology):
         return 0
 
     @property
-    @utils.deprecated("cells.owned")
+    @utils.deprecated_rename("cells.owned")
     def cell_set(self):
         return self.cells.owned
 
     @PETSc.Log.EventDecorator()
-    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None) -> op3.Slice:
-        """Return a subset over cells with the given subdomain_id.
+    @utils.deprecated(
+        "Pass the subdomain ID directly to interpolate(..., subdomain_id=subdomain_id) "
+        "or mesh.iter('cell', subdomain_id) instead."
+    )
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
+        """Return the subdomain ID unchanged.
 
-        :arg subdomain_id: The subdomain of the mesh to iterate over.
-             Either an integer, an iterable of integers or the special
-             subdomains ``"everywhere"`` or ``"otherwise"``.
-        :arg all_integer_subdomain_ids: Information to interpret the
-             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
-             entities not explicitly enumerated by the integer
-             subdomains provided here.  For example, if
-             all_integer_subdomain_ids is empty, then ``"otherwise" ==
-             "everywhere"``.  If it contains ``(1, 2)``, then
-             ``"otherwise"`` is all entities except those marked by
-             subdomains 1 and 2.
+        This method is deprecated and will be removed. Pass the subdomain ID
+        directly to ``interpolate(..., subdomain_id=subdomain_id)`` for
+        interpolation, or use ``mesh.iter('cell', subdomain_id)`` for iteration.
 
-         :returns: The subdomain ID.
+        Parameters
+        ----------
+        subdomain_id : int, tuple of int, or str
+            The subdomain ID to return.
+        all_integer_subdomain_ids : collections.abc.Iterable of int or None
+            This argument is ignored.
+
+        Returns
+        -------
+        int, tuple of int, or str
+            The subdomain ID.
         """
-        # FIXME: This method is now very pointless. interpolate should instead take a subdomain_id argument
         return subdomain_id
 
     @staticmethod
@@ -3460,7 +3466,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             return 0
 
     @cached_property_until_topology_changes
-    @utils.deprecated("cells.owned")
+    @utils.deprecated_rename("cells.owned")
     def cell_set(self):
         return self.cells.owned
 

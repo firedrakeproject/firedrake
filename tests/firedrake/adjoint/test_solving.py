@@ -347,6 +347,42 @@ def test_time_dependent():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("solver_form", ["Jp", "objective"])
+def test_nlvs_replay_with_solver_form(solver_form):
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    R = FunctionSpace(mesh, "R", 0)
+    x, y = SpatialCoordinate(mesh)
+
+    def J(c):
+        u = Function(V)
+        v = TestFunction(V)
+        w = TrialFunction(V)
+        F = inner(grad(u), grad(v))*dx + inner(u, v)*dx - c*x*v*dx
+        if solver_form == "Jp":
+            # A single LU solve with Jp makes the solution depend on Jp.
+            problem = NonlinearVariationalProblem(
+                F, u, Jp=inner(w, v)*dx + c*inner(grad(w), grad(v))*dx)
+            sp = {"snes_type": "ksponly", "ksp_type": "preonly", "pc_type": "lu"}
+        else:
+            # A single line search step that minimizes the objective makes the
+            # solution depend on the objective.
+            problem = NonlinearVariationalProblem(
+                F, u, objective=inner(u, u)*dx - c**2*x*u/2*dx)
+            sp = {"snes_max_it": 1, "snes_convergence_test": "skip",
+                  "snes_linesearch_type": "secant"}
+        NonlinearVariationalSolver(problem, solver_parameters=sp).solve()
+        return assemble(inner(u, u)*dx)
+
+    c = Function(R, val=1.0)
+    rf = ReducedFunctional(J(c), Control(c))
+    c_new = Function(R, val=2.0)
+    with stop_annotating():
+        J_new = J(c_new)
+    assert_approx_equal(rf(c_new), J_new)
+
+
+@pytest.mark.skipcomplex
 @pytest.mark.parametrize("reuse_bc", [False, True])
 def test_time_dependent_dirichlet_bc_from_other_space(reuse_bc):
     mesh = UnitSquareMesh(4, 4)
@@ -496,6 +532,30 @@ def test_two_nonlinear_solves():
     assert taylor_test(rf, ui, Constant(0.1)) > 1.95
     # Taylor test recomputes the functional 5 times.
     assert rf.tape.recompute_count == 5
+
+
+@pytest.mark.skipcomplex
+@pytest.mark.parametrize("use_solver", [False, True])
+def test_vanishing_derivative(use_solver):
+    # regression test for firedrake issue #5571
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    m = Function(V).assign(1.0)
+    u = Function(V)
+    v = TestFunction(V)
+    # Use m only in a predicate, so that dF/dm vanishes.
+    F = (u - conditional(m > 0.5, 1.0, 2.0)) * v * dx
+    if use_solver:
+        NonlinearVariationalSolver(NonlinearVariationalProblem(F, u)).solve()
+    else:
+        solve(F == 0, u)
+    J = assemble(u * dx)
+    rf = ReducedFunctional(J, Control(m))
+
+    dJdm = rf.derivative()
+    assert isinstance(dJdm, Cofunction)
+    assert np.allclose(dJdm.dat.data_ro, 0)
+    assert rf.tlm(Function(V).assign(1.0)) == 0
 
 
 @pytest.mark.skipcomplex

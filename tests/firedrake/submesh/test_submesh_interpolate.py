@@ -94,14 +94,14 @@ def test_submesh_interpolate_with_subset():
     target_space = FunctionSpace(mesh, "CG", 1)
     xs, ys = SpatialCoordinate(submesh)
     source = Function(source_space).interpolate(xs + 2 * ys)
-    subset = mesh.cell_subset(111)
+    subdomain_id = 111
 
-    actual = assemble(interpolate(source, target_space, subset=subset))
-    expected = assemble(interpolate(x + 2 * y, target_space, subset=subset))
+    actual = assemble(interpolate(source, target_space, subdomain_id=subdomain_id))
+    expected = assemble(interpolate(x + 2 * y, target_space, subdomain_id=subdomain_id))
     assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
 
     operator = assemble(
-        interpolate(TrialFunction(source_space), target_space, subset=subset),
+        interpolate(TrialFunction(source_space), target_space, subdomain_id=subdomain_id),
         mat_type="aij",
     )
     dual_source = Cofunction(target_space.dual()).assign(1)
@@ -109,7 +109,7 @@ def test_submesh_interpolate_with_subset():
     with dual_source.dat.vec_ro as source_vec, expected_adjoint.dat.vec_wo as target_vec:
         operator.petscmat.multTranspose(source_vec, target_vec)
 
-    actual_adjoint = assemble(interpolate(TestFunction(source_space), dual_source, subset=subset))
+    actual_adjoint = assemble(interpolate(TestFunction(source_space), dual_source, subdomain_id=subdomain_id))
     assert np.allclose(actual_adjoint.dat.data_ro, expected_adjoint.dat.data_ro)
 
 

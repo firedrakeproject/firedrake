@@ -1321,13 +1321,18 @@ def get_boundary_set_points(dm: PETSc.DM, boundary_set: Iterable, extruded: bool
 
 def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, nowned, boundary_set, extruded: bool) -> PETSc.IS:
     """'Restrict' a renumbering of DM points by moving constrained points to the end."""
-    boundary_pts = get_boundary_set_points(dm, boundary_set, extruded)
+    # IS.indices returns a new copy of the whole array on every access, so the
+    # points are read once and membership is tested with a mask over the chart.
+    boundary_pts = get_boundary_set_points(dm, boundary_set, extruded).indices
+    pStart, pEnd = dm.getChart()
+    is_boundary = np.zeros(pEnd - pStart, dtype=bool)
+    is_boundary[boundary_pts - pStart] = True
 
     ghostlabel = dm.getLabel("firedrake_is_ghost")
 
     num_owned_cons = 0
     num_ghost_cons = 0
-    for bpt in boundary_pts.indices:
+    for bpt in boundary_pts:
         if ghostlabel.getValue(bpt) != 1:
             num_owned_cons += 1
         else:
@@ -1341,14 +1346,14 @@ def restrict_dm_renumbering(orig_renumbering: PETSc.IS, dm: PETSc.DM, nowned, bo
     ptr_ghost_cons = orig_renumbering.size - num_ghost_cons
     for n in orig_renumbering.indices:
         if ghostlabel.getValue(n) != 1:
-            if n in boundary_pts.indices:
+            if is_boundary[n - pStart]:
                 new_renumbering[ptr_owned_cons] = n
                 ptr_owned_cons += 1
             else:
                 new_renumbering[ptr_owned_free] = n
                 ptr_owned_free += 1
         else:
-            if n in boundary_pts.indices:
+            if is_boundary[n - pStart]:
                 new_renumbering[ptr_ghost_cons] = n
                 ptr_ghost_cons += 1
             else:
@@ -3462,6 +3467,10 @@ def submesh_create(PETSc.DM dm,
             subpoints = dm.getStratumIS("exterior_facets", 1)
         else:
             raise ValueError(f"Submesh construction got invalid subdomain_id {sub}.")
+        if not subpoints:
+            # The stratum is empty on this rank, and PETSc then returns a
+            # NULL IS, which IS.union cannot take.
+            continue
         if points:
             points = points.union(subpoints)
         else:
