@@ -25,6 +25,7 @@ from itertools import chain
 import pyop3 as op3
 from pyop3.compile import SolveCallable, INVCallable
 from pyop3.cache import memory_and_disk_cache
+from pyop3.log import ANSI_GREEN, ANSI_RESET
 
 import firedrake.slate.slate as slate
 import numpy as np
@@ -40,8 +41,6 @@ import copy
 from petsc4py import PETSc
 
 __all__ = ['compile_expression']
-
-GREEN = "\033[1;37;32m%s\033[0m"
 
 cell_to_facets_dtype = np.dtype(np.int8)
 
@@ -127,6 +126,20 @@ def get_temp_info(loopy_kernel):
 
 
 def generate_loopy_kernel(slate_expr, compiler_parameters=None):
+    """Compile a Slate expression to a loopy kernel.
+
+    Parameters
+    ----------
+    slate_expr : firedrake.slate.slate.TensorBase
+        The expression to compile.
+    compiler_parameters : dict
+        The parameters for the Slate and form compilers.
+
+    Returns
+    -------
+    tuple
+        A one-element tuple that contains the compiled kernel and its assembly information.
+    """
     cpu_time = time.time()
     if len(slate_expr.ufl_domains()) > 1:
         raise NotImplementedError("Multiple domains not implemented.")
@@ -199,7 +212,7 @@ def generate_loopy_kernel(slate_expr, compiler_parameters=None):
     # Cache the resulting kernel
     # Slate kernels are never split, so indicate that with None in the index slot.
     idx = tuple([None]*slate_expr.rank)
-    logger.info("\033[1;37;32mcompile_slate_expression finished in %g seconds.\033[0m", time.time() - cpu_time)
+    logger.info(f"{ANSI_GREEN}compile_slate_expression finished in %g seconds.{ANSI_RESET}", time.time() - cpu_time)
     return (SplitKernel(idx, kinfo),)
 
 

@@ -9,6 +9,7 @@ from ufl.classes import Form
 from ufl.domain import extract_unique_domain, extract_domains, join_domains
 
 import finat
+from pyop3.log import ANSI_GREEN, ANSI_RESET
 
 from tsfc import ufl_utils
 from tsfc.logging import logger
@@ -92,7 +93,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         ),
         complex_mode=complex_mode,
     )
-    logger.info("\033[1;37;32mcompute_form_data finished in %g seconds.\033[0m", time.time() - cpu_time)
+    logger.info(f"{ANSI_GREEN}compute_form_data finished in %g seconds.{ANSI_RESET}", time.time() - cpu_time)
 
     validate_domains(form_data.preprocessed_form)
 
@@ -105,9 +106,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
                                       diagonal=diagonal, return_increments=return_increments)
             if kernel is not None:
                 kernels.append(kernel)
-        logger.info("\033[1;37;32mcompile_integral finished in %g seconds.\033[0m", time.time() - start)
+        logger.info(f"{ANSI_GREEN}compile_integral finished in %g seconds.{ANSI_RESET}", time.time() - start)
 
-    logger.info("\033[1;37;32mTSFC finished in %g seconds.\033[0m", time.time() - cpu_time)
+    logger.info(f"{ANSI_GREEN}TSFC finished in %g seconds.{ANSI_RESET}", time.time() - cpu_time)
     return kernels
 
 
