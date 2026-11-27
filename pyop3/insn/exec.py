@@ -10,7 +10,7 @@ import re
 import weakref
 from collections.abc import Callable, Hashable, Mapping
 from functools import cached_property
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import cachetools
 import loopy as lp
@@ -31,6 +31,9 @@ import pyop3.insn.base
 from pyop3 import utils
 from pyop3.cache import cached_method, memory_cache
 from pyop3.constants import INC, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE, READ, RW, WRITE
+
+if TYPE_CHECKING:
+    from pyop3.types import *
 
 # Intent groups for CompiledCodeExecutor._buffer_exchanges_by_type, which runs
 # on every kernel call
