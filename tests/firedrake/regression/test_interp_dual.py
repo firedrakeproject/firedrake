@@ -735,6 +735,18 @@ def test_nested_interp():
     assert np.allclose(actual.dat.data, assemble(inner(expected, v) * dx).dat.data)
 
 
+@pytest.mark.parallel([1, 2])
+def test_nested_interp_adjoint(V1, V2) -> None:
+    """CG2 contains CG1, so the adjoint of the round trip applies the conjugate scale."""
+    scale = 1 + 2j if complex_mode else 2
+    interpolation = interpolate(scale * TrialFunction(V1), V2)
+    nested = interpolate(interpolation, V1)
+    dual = assemble(inner(1, TestFunction(V1)) * dx)
+
+    result = assemble(action(adjoint(nested), dual))
+    assert np.allclose(result.dat.data_ro, np.conj(scale) * dual.dat.data_ro)
+
+
 def test_nested_cross_mesh_interp_assembles_operand():
     source_mesh = UnitSquareMesh(3, 3)
     target_mesh = UnitSquareMesh(2, 2)
