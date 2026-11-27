@@ -64,6 +64,7 @@ SliceComponentsT: TypeAlias = (
 # {{{ expr types
 
 ExpressionT: TypeAlias = Any
+"""Type alias for something that can be understood as a pyop3 expression."""
 
 # }}}
 
@@ -75,5 +76,12 @@ ArrayT: TypeAlias = np.ndarray | pyop3.arrayref.ArrayReference
 DeviceArrayT: TypeAlias = np.ndarray
 
 MatInsertMode: TypeAlias = Literal[PETSc.InsertMode.INSERT_VALUES, PETSc.InsertMode.ADD_VALUES]
+
+# }}}
+
+# {{{ codegen
+
+CompilerParametersT: TypeAlias = pyop3.insn.CompilerParameters | Mapping[str, Hashable]
+"""Type alias for something that can be passed as ``compiler_parameters``."""
 
 # }}}

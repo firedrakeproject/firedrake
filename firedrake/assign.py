@@ -29,9 +29,11 @@ class AssignExprBuilder(DAGTraverser):
     def __init__(
         self,
         function_space: firedrake.functionspaceimpl.WithGeometry,
+        assignee_axes: op3.IndexedAxisTree,
         loop_index: op3.LoopIndex | None,
     ) -> None:
         self.function_space = function_space
+        self.assignee_axes = assignee_axes
         self.loop_index = loop_index
         self.array_assign_safe = True
         super().__init__()
@@ -43,14 +45,15 @@ class AssignExprBuilder(DAGTraverser):
     @process.register
     def _(self, func: Function | Cofunction, /) -> op3.Dat:
         if func.ufl_element().family() == "Real":
-            data = func.dat.global_data
-            return (
-                op3.Dat(
-                    op3.AxisTree.from_iterable(func.function_space().shape or (1,)),
-                    data=data,
-                ),
-                False,
-            )
+            if self.loop_index is None:
+                # Doing assignment using arrays, assignee_axes is not packed and
+                # cannot be used.
+                axes = op3.AxisTree.from_iterable(func.function_space().shape or (1,))
+            else:
+                # Doing assignment with code generation, assignee_axes are packed and
+                # we have to make sure that the axes agree.
+                axes = self.assignee_axes.materialize()
+            return (op3.Dat(axes, data=func.dat.global_data), False)
 
         if func.ufl_element() != self.function_space.ufl_element():
             raise ValueError(
@@ -263,7 +266,7 @@ class Assigner:
             loop_index = None
             op3_assignee = self.assignee.dat[self.subset]
 
-        expr_builder = AssignExprBuilder(self.assignee.function_space(), loop_index)
+        expr_builder = AssignExprBuilder(self.assignee.function_space(), op3_assignee.axes, loop_index)
         op3_expr, _ = expr_builder(self.expression)
 
         match self.mode:

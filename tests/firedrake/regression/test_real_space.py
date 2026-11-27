@@ -440,6 +440,19 @@ def test_real_space_assign(shape):
     assert np.allclose(g.dat.global_data.reshape(shape), np.full(shape, 8.0))
 
 
+def test_real_assign_cross_mesh():
+    mesh1 = UnitIntervalMesh(3)
+    R1 = FunctionSpace(mesh1, "R", 0)
+    f1 = Function(R1).assign(666)
+
+    mesh2 = UnitIntervalMesh(5)
+    R2 = FunctionSpace(mesh2, "R", 0)
+    f2 = Function(R2)
+
+    f2.assign(f1)
+    assert float(f2) == 666
+
+
 @pytest.mark.skipcomplex
 def test_real_interpolate():
     N = 100

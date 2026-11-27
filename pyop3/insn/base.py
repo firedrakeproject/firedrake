@@ -791,7 +791,11 @@ class Assignment(AbstractAssignment):
     def assignee(self):
         if isinstance(self._assignee, weakref.ReferenceType):
             assignee_ = self._assignee()
-            assert assignee_ is not None
+            if assignee_ is None:
+                raise ReferenceError(
+                    "Assignment assignee has been destroyed. You may need to "
+                    "pass `_weakref=False`."
+                )
             return assignee_
         else:
             return self._assignee
