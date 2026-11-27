@@ -263,10 +263,10 @@ class ArrayBuffer(AbstractArrayBuffer, ConcreteBuffer):
     _rank_equal: bool
     _ordered: bool
 
-    def collect_buffers(self, visitor):
+    def collect_buffers(self, visitor: Any) -> OrderedFrozenSet:
         return OrderedFrozenSet([self])
 
-    def get_disk_cache_key(self, visitor) -> Hashable:
+    def get_disk_cache_key(self, visitor: Any) -> Hashable:
         return (
             type(self),
             self.dtype,
@@ -1010,6 +1010,99 @@ class PetscMatAxisSpec(pyop3.obj.Object):
 
 
 @pyop3.record.record()
+class OpaqueObject(ConcreteBuffer):
+    """A buffer that passes an opaque object directly to a local kernel.
+
+    Parameters
+    ----------
+    obj : Any
+        The object that the local kernel receives.
+    dtype : pyop3.dtypes.OpaqueType
+        The opaque C type of the object.
+    comm : mpi4py.MPI.Comm
+        The communicator on which the object is used.
+    name, prefix : str, optional
+        The name for this buffer, or a prefix from which a name can be generated.
+
+    Notes
+    -----
+    The buffer keeps the object alive and supplies its C pointer to generated
+    code. Its state counts modifications that are reported through the buffer.
+    Changes made directly to the object are not tracked.
+    """
+
+    _obj: Any
+    _name: str
+    _dtype: pyop3.dtypes.OpaqueType
+    _comm: MPI.Comm
+    _state: int
+
+    def collect_buffers(self, visitor: Any) -> OrderedFrozenSet:
+        return OrderedFrozenSet([self])
+
+    def get_disk_cache_key(self, visitor: Any) -> Hashable:
+        return (type(self), visitor.renamer.add_obj(self), self._dtype)
+
+    get_instruction_executor_cache_key = get_disk_cache_key
+
+    def __init__(
+        self,
+        obj: Any,
+        dtype: pyop3.dtypes.OpaqueType,
+        *,
+        comm: MPI.Comm,
+        name: str | None = None,
+        prefix: str | None = None,
+    ) -> None:
+        name = utils.maybe_generate_name(name, prefix, self.DEFAULT_PREFIX)
+
+        self._obj = obj
+        self._name = name
+        self._dtype = dtype
+        self._comm = comm
+        self._state = 0
+
+    name: ClassVar[property] = pyop3.record.attr("_name")
+    dtype: ClassVar[property] = pyop3.record.attr("_dtype")
+
+    @property
+    def comm(self) -> MPI.Comm:
+        return self._comm
+
+    @property
+    def constant(self) -> bool:
+        return False
+
+    @property
+    def state(self) -> int:
+        return self._state
+
+    def inc_state(self) -> None:
+        """Increment the counter that tracks modifications to the object."""
+        self._state += 1
+
+    def duplicate(
+        self,
+        *,
+        copy: bool = False,
+        constant: bool | None = None,
+    ) -> OpaqueObject:
+        raise NotImplementedError("Opaque objects cannot be duplicated")
+
+    def zero(self) -> None:
+        raise NotImplementedError("Opaque objects cannot be zeroed")
+
+    def nest_shape(
+        self,
+        nest_indices: Iterable[tuple[int, ...], ...] = (),
+    ) -> tuple[int, ...] | None:
+        assert not nest_indices
+        return None
+
+    DEFAULT_PREFIX = "opaque"
+
+
+@pyop3.record.record()
 class PetscMatBuffer(ConcreteBuffer):
     """A buffer whose underlying data structure is a PETSc Mat.
 
@@ -1133,6 +1226,17 @@ class PetscMatBuffer(ConcreteBuffer):
                 submat = cls._make_petsc_mat(submat_spec, comm=comm, preallocator=preallocator)
                 submats[i, j] = submat
             return PETSc.Mat().createNest(submats, comm=comm)
+        elif mat_spec.mat_type == PETSc.Mat.Type.IS:
+            # A MATIS wraps a sequential local matrix, in the same way that a
+            # MATNEST wraps its submatrices. PETSc creates the local matrix when
+            # we set the local-to-global maps. The MATIS inserts all values into
+            # the local matrix. Thus the local matrix must be the preallocator.
+            mat = cls._make_non_nested_petsc_mat(mat_spec, comm=comm, preallocator=False)
+            if preallocator:
+                local_mat = mat.getISLocalMat()
+                local_mat.setType(PETSc.Mat.Type.PREALLOCATOR)
+                local_mat.setUp()
+            return mat
         else:
             assert isinstance(mat_spec, MonolithicPetscMatBufferSpec)
             return cls._make_non_nested_petsc_mat(mat_spec, comm=comm, preallocator=preallocator)
@@ -1333,6 +1437,12 @@ class PetscMatBuffer(ConcreteBuffer):
                 subpreallocator = preallocator.getNestSubMatrix(i, j)
                 submat = template.getNestSubMatrix(i, j)
                 self._preallocate(subpreallocator, submat)
+        elif template.type == PETSc.Mat.Type.IS:
+            # We preallocate the local matrix of the MATIS in the same way as
+            # the submatrices of a MATNEST.
+            local_preallocator = preallocator.getISLocalMat()
+            local_template = template.getISLocalMat()
+            self._preallocate(local_preallocator, local_template)
         elif template.type == PETSc.Mat.Type.PYTHON:
             pass
         else:
@@ -1600,6 +1710,12 @@ def _(mat_buf: PetscMatBuffer, nest_indices):
 
 
 @_denest.register
+def _(obj_buf: OpaqueObject, nest_indices):
+    assert not nest_indices
+    return obj_buf._obj
+
+
+@_denest.register
 def _(array_buf: ArrayBuffer, nest_indices):
     assert not nest_indices
     return array_buf._current_device_array
@@ -1616,6 +1732,11 @@ def _(mat: PETSc.Mat, /):
         return mat.getPythonContext().buffer._current_device_array
     else:
         return mat
+
+
+@_extract_handle.register
+def _(obj: PETSc.Object, /):
+    return obj
 
 
 @_extract_handle.register

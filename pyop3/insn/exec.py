@@ -274,7 +274,8 @@ class InstructionExecutionContext:
         array_pattern = \
             r"\(<class 'pyop3.buffer.ArrayBuffer'>, dtype\('\S+'\), 'ArrayBuffer_\d+', \w+, \w+, \w+\)"
         petscmat_pattern = r"\(<class 'pyop3.buffer.PetscMatBuffer'>, 'PetscMatBuffer_\d+', \w+\)"
-        for pattern in [array_pattern, petscmat_pattern]:
+        opaque_pattern = r"\(<class 'pyop3.buffer.OpaqueObject'>, 'OpaqueObject_\d+', \w+\)"
+        for pattern in [array_pattern, petscmat_pattern, opaque_pattern]:
             num_buffers += len(utils.unique(re.findall(pattern, cache_key_str)))
         assert num_buffers == len(self.preprocessed_buffers)
 
@@ -723,6 +724,10 @@ class CompiledCodeExecutor:
     def _(self, buffer: pyop3.buffer.PetscMatBuffer) -> str:
         return "", "<PetscMat>"
 
+    @_buffer_str.register
+    def _(self, buffer: pyop3.buffer.OpaqueObject) -> str:
+        return "", "<OpaqueObject>"
+
     @cached_property
     def _default_exec_arguments(self) -> tuple[int]:
         """Pointers to the data of the buffers, in kernel argument order.
@@ -776,6 +781,10 @@ class CompiledCodeExecutor:
             "Python-type mats should be unpacked by now"
 
         return mat.handle
+
+    @_handle_to_pointer.register
+    def _(self, obj: PETSc.Object, /) -> int:
+        return obj.handle
 
     # NOTE: This is probably very slow to have to do every time - a lot of this can be cached
     # the rest (initial state) can be checked each time
@@ -890,6 +899,13 @@ class CompiledCodeExecutor:
         # TODO: We need all communication to happen before we begin computing, but if
         # we have multiple matrices we can at least overlap their communication.
         return begin_insns+end_insns, (), (), finalizers
+
+    @_buffer_exchanges_by_type.register
+    def _(self, buffer: pyop3.buffer.OpaqueObject, intent):
+        finalizers = []
+        if intent != READ:
+            finalizers.append(buffer.inc_state)
+        return (), (), (), finalizers
 
 
 @functools.singledispatch

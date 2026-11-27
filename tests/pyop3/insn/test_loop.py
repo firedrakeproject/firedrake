@@ -454,6 +454,54 @@ MatSetValues(mat, 3, idxs, 3, idxs, values, ADD_VALUES);
     )
 
 
+@pytest.mark.parallel([1, 2])
+def test_passthrough_petsc_object():
+    kernel = op3.Function.from_c_string(
+        "ksp_set_tolerances",
+        """
+        PetscCallVoid(KSPSetTolerances(K, PETSC_DEFAULT, PETSC_DEFAULT,
+                                       PETSC_DEFAULT, 8));
+        """,
+        [("K", op3.dtypes.OpaqueType("KSP"), op3.RW)],
+        preambles=[("20_petscksp", "#include <petscksp.h>")],
+        libraries=(op3.cc.LIBPETSC,),
+    )
+
+    ksp = PETSc.KSP().create(comm=PETSc.COMM_WORLD)
+    ksp.setTolerances(max_it=7)
+    buffer = op3.OpaqueObject(ksp, op3.dtypes.OpaqueType("KSP"), comm=MPI.COMM_WORLD)
+    arg = op3.OpaqueTerminal(buffer)
+
+    op3.loop(op3.Axis(10).iter(), kernel(arg), eager=True)
+    assert ksp.getTolerances()[-1] == 8
+    assert buffer.state == 1
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("intent", [op3.READ, op3.WRITE, op3.RW])
+def test_passthrough_opaque_object(intent):
+    dtype = op3.dtypes.OpaqueType("Counter")
+    kernel = op3.Function.from_c_string(
+        "counter_access",
+        "(void)*counter;" if intent == op3.READ else "*counter = 8;",
+        [("counter", dtype, intent)],
+        preambles=[("30_counter", "typedef double *Counter;")],
+    )
+    counter = np.zeros(1, dtype=np.double)
+    buffer = op3.OpaqueObject(counter, dtype, comm=MPI.COMM_WORLD)
+    assert not buffer.constant
+    assert buffer.state == 0
+    arg = op3.OpaqueTerminal(buffer)
+    loop = op3.loop(op3.Axis(10).iter(), kernel(arg))
+
+    loop()
+    assert counter[0] == (0 if intent == op3.READ else 8)
+    assert buffer.state == (0 if intent == op3.READ else 1)
+
+    loop()
+    assert buffer.state == (0 if intent == op3.READ else 2)
+
+
 def test_transpose(factory):
     n = 5
     # axis0 and axis1 must have different labels
@@ -493,3 +541,32 @@ def test_nested_multi_component_loops(factory):
         eager=True,
     )
     assert np.allclose(dat1.data_ro, dat0.data_ro)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("shape", [(1,), (2, 3)])
+@pytest.mark.parametrize("explicit_shape", [True, False])
+def test_c_string_kernel_with_unindexed_global(shape: tuple[int, ...], explicit_shape: bool) -> None:
+    # The size of a global with a star forest is a symbolic expression
+    size = np.prod(shape)
+    sf = op3.sf.single_star_sf(MPI.COMM_WORLD, size)
+    glob = op3.Dat(op3.Axis(op3.AxisComponent(size, sf=sf)), data=np.full(size, 2.0, dtype=op3.ScalarType))
+    axis = op3.Axis(5)
+    dat = op3.Dat.zeros(axis, dtype=op3.ScalarType)
+
+    glob_arg = ("g", op3.ScalarType, op3.READ, shape) if explicit_shape else ("g", op3.ScalarType, op3.READ)
+    kernel = op3.Function.from_c_string(
+        "assign_global",
+        "y[0] = g[0];",
+        [glob_arg, ("y", op3.ScalarType, op3.WRITE)],
+    )
+    p = axis.iter()
+    if not explicit_shape:
+        with pytest.raises(ValueError, match="'g'"):
+            kernel(glob, dat[p])
+        return
+
+    called_kernel = kernel(glob, dat[p])
+    assert called_kernel.argument_shapes[0] == shape
+    op3.loop(p, called_kernel, eager=True)
+    assert np.allclose(dat.data_ro, 2.0)
