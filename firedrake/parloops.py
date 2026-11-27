@@ -1,26 +1,37 @@
 r"""This module implements parallel loops reading and writing
-:class:`.Function`\s. This provides a mechanism for implementing
+:class:`firedrake.function.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
-import collections
+from __future__ import annotations
 
+import collections
+from cachetools import LRUCache
+
+import loopy
+import pyop3 as op3
+from pyop3.cache import heavy_caches
+from pyop3 import READ, WRITE, RW, INC, MIN_RW, MIN_WRITE, MAX_RW, MAX_WRITE
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
 
-from pyop2 import op2, READ, WRITE, RW, INC, MIN, MAX
-import loopy
-from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
-from firedrake.parameters import target
-
-from firedrake import constant
-from firedrake.ufl_expr import extract_domains
+from firedrake.constant import Constant
+from firedrake.pack import pack
 from firedrake.petsc import PETSc
-from cachetools import LRUCache
+from firedrake.parameters import target
+from firedrake.ufl_expr import extract_domains
 
+
+# Set a default loopy language version (should be in __init__.py)
+from loopy.version import LOOPY_USE_LANGUAGE_VERSION_2018_2  # noqa: F401
+
+
+# Ambiguous old API
+MIN = MIN_RW
+MAX = MAX_RW
 
 kernel_cache = LRUCache(maxsize=128)
 
 
-__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX']
+__all__ = ['par_loop', 'direct']
 
 
 class _DirectLoop(object):
@@ -42,54 +53,28 @@ of the measure in order to indicate that the loop is a direct loop
 over degrees of freedom."""
 
 
-def indirect_measure(mesh, measure):
-    return mesh.measure_set(measure.integral_type(),
-                            measure.subdomain_id())
-
-
-_maps = {
-    'cell': {
-        'nodes': lambda x: x.cell_node_map(),
-        'itspace': indirect_measure
-    },
-    'interior_facet': {
-        'nodes': lambda x: x.interior_facet_node_map(),
-        'itspace': indirect_measure
-    },
-    'exterior_facet': {
-        'nodes': lambda x: x.exterior_facet_node_map(),
-        'itspace': indirect_measure
-    },
-    'direct': {
-        'nodes': lambda x: None,
-        'itspace': lambda mesh, measure: mesh
-    }
-}
-r"""Map a measure to the correct maps."""
-
-
-def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
-
+def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs) -> op3.Function:
+    intents = []
     kargs = []
-
     for var, (func, intent) in args.items():
-        is_input = intent in [INC, READ, RW, MAX, MIN]
-        is_output = intent in [INC, RW, WRITE, MAX, MIN]
-        if isinstance(func, constant.Constant):
+        intents.append(intent)
+
+        is_input = intent in [INC, READ, RW, MAX_RW, MIN_RW]
+        is_output = intent in [INC, RW, WRITE, MAX_RW, MAX_WRITE, MIN_RW, MIN_WRITE]
+        if isinstance(func, Constant):
             if intent is not READ:
                 raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
-            ndof = func.dat.cdim
+            ndof = func.dat.axes.block_size
             kargs.append(loopy.GlobalArg(var, dtype=func.dat.dtype, shape=(ndof,), is_input=is_input, is_output=is_output))
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
-                c, i = func.ufl_operands
-                idx = i._indices[0]._value
-                ndof = c.function_space()[idx].finat_element.space_dimension()
-                cdim = c.dat[idx].cdim
-                dtype = c.dat[idx].dtype
+                func = _extract_subfunction(func)
+                ndof = func.function_space().finat_element.space_dimension()
+                cdim = func.function_space().block_size
+                dtype = func.dat.dtype
             else:
                 if func.function_space().ufl_element().family() == "Real":
                     ndof = func.function_space().dim()  # == 1
@@ -99,7 +84,7 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
                     if len(func.function_space()) > 1:
                         raise NotImplementedError("Must index mixed function in par_loop.")
                     ndof = func.function_space().finat_element.space_dimension()
-                    cdim = func.dat.cdim
+                    cdim = func.function_space().block_size
                     dtype = func.dat.dtype
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
@@ -109,28 +94,32 @@ def _form_loopy_kernel(kernel_domains, instructions, measure, args, **kwargs):
 
     if kernel_domains == "":
         kernel_domains = "[] -> {[]}"
+    key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
+    # Add shape, dtype and intent to the cache key
+    for func, intent in args.values():
+        if isinstance(func, Indexed):
+            func = _extract_subfunction(func)
+        key += (func.dat.axes, func.dat.dtype, intent)
     try:
-        key = (kernel_domains, tuple(instructions), tuple(map(tuple, kwargs.items())))
-        # Add shape, dtype and intent to the cache key
-        for func, intent in args.values():
-            if isinstance(func, Indexed):
-                for dat in func.ufl_operands[0].dat.split:
-                    key += (dat.shape, dat.dtype, intent)
-            else:
-                key += (func.dat.shape, func.dat.dtype, intent)
         return kernel_cache[key]
     except KeyError:
-        kargs.append(...)
-        knl = loopy.make_function(kernel_domains, instructions, kargs, name="par_loop_kernel", target=target,
-                                  seq_dependencies=True, silenced_warnings=["summing_if_branches_ops"])
-        knl = op2.Kernel(knl, "par_loop_kernel", **kwargs)
+        knl = loopy.make_kernel(
+            kernel_domains,
+            instructions,
+            kargs,
+            name="par_loop_kernel",
+            target=target,
+            seq_dependencies=True,
+            silenced_warnings=["summing_if_branches_ops"],
+        )
+        knl = op3.Function(knl, intents)
         return kernel_cache.setdefault(key, knl)
 
 
 @PETSc.Log.EventDecorator()
 def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     r"""A :func:`par_loop` is a user-defined operation which reads and
-    writes :class:`.Function`\s by looping over the mesh cells or facets
+    writes :class:`firedrake.function.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
     :arg kernel: A 2-tuple of (domains, instructions) to create
@@ -142,28 +131,17 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         manner in which the iteration over the mesh is to occur.
         Alternatively, you can pass :data:`direct` to designate a direct loop.
     :arg args: is a dictionary mapping variable names in the kernel to
-        :class:`.Function`\s or components of mixed :class:`.Function`\s and
-        indicates how these :class:`.Function`\s are to be accessed.
+        :class:`firedrake.function.Function`\s or components of mixed :class:`firedrake.function.Function`\s and
+        indicates how these :class:`firedrake.function.Function`\s are to be accessed.
     :arg kernel_kwargs: keyword arguments to be passed to the
-        ``pyop2.Kernel`` constructor
+        ``pyop3.Function`` constructor
     :arg kwargs: additional keyword arguments are passed to the underlying
-        ``pyop2.par_loop``
-
-    :kwarg iterate: Optionally specify which region of an
-                    :class:`pyop2.types.set.ExtrudedSet` to iterate over.
-                    Valid values are the following objects from pyop2:
-
-                    - ``ON_BOTTOM``: iterate over the bottom layer of cells.
-                    - ``ON_TOP`` iterate over the top layer of cells.
-                    - ``ALL`` iterate over all cells (the default if unspecified)
-                    - ``ON_INTERIOR_FACETS`` iterate over all the layers
-                      except the top layer, accessing data two adjacent (in
-                      the extruded direction) cells at a time.
+        ``pyop3.loop``
 
     **Example**
 
-    Assume that `A` is a :class:`.Function` in CG1 and `B` is a
-    :class:`.Function` in DG0. Then the following code sets each DoF in
+    Assume that `A` is a :class:`firedrake.function.Function` in CG1 and `B` is a
+    :class:`firedrake.function.Function` in DG0. Then the following code sets each DoF in
     `A` to the maximum value that `B` attains in the cells adjacent to
     that DoF::
 
@@ -180,7 +158,7 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     **Argument definitions**
 
     Each item in the `args` dictionary maps a string to a tuple
-    containing a :class:`.Function` or :class:`.Constant` and an
+    containing a :class:`firedrake.function.Function` or :class:`.Constant` and an
     argument intent. The string is the c language variable name by
     which this function will be accessed in the kernel. The argument
     intent indicates how the kernel will access this variable:
@@ -224,19 +202,19 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     local DoFs order. For facet measures, the DoFs will be in sorted
     first by the cell to which they are adjacent. Within each cell,
     they will be in FInAT order. Note that if a continuous
-    :class:`.Function` is accessed via an internal facet measure, the
+    :class:`firedrake.function.Function` is accessed via an internal facet measure, the
     DoFs on the interface between the two facets will be accessible
     twice: once via each cell. The orientation of the cell(s) relative
     to the current facet is currently arbitrary.
 
     A direct loop over nodes without any indirections can be specified
     by passing :data:`direct` as the measure. In this case, all of the
-    arguments must be :class:`.Function`\s in the same
+    arguments must be :class:`firedrake.function.Function`\s in the same
     :class:`.FunctionSpace`.
 
     **The kernel code**
 
-    Indirect free variables referencing :class:`.Function`\s are all
+    Indirect free variables referencing :class:`firedrake.function.Function`\s are all
     of type `double*`. For spaces with rank greater than zero (Vector
     or TensorElement), the data are laid out XYZ... XYZ... XYZ....
     With the vector/tensor component moving fastest.
@@ -254,23 +232,9 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
     indirect and direct :func:`par_loop` calls.
 
     """
-    # catch deprecated C-string parloops
-    if isinstance(kernel, str):
-        raise TypeError("C-string kernels are no longer supported by Firedrake parloops")
-    if "is_loopy_kernel" in kwargs:
-        if kwargs.pop("is_loopy_kernel"):
-            import warnings
-            warnings.warn(
-                "is_loopy_kernel does not need to be specified", FutureWarning)
-        else:
-            raise ValueError(
-                "Support for C-string kernels has been dropped, firedrake.parloop "
-                "will only work with loopy parloops.")
-
     if kernel_kwargs is None:
         kernel_kwargs = {}
 
-    _map = _maps[measure.integral_type()]
     # Ensure that the dict args passed in are consistently ordered
     # (sorted by the string key).
     sorted_args = collections.OrderedDict()
@@ -278,46 +242,57 @@ def par_loop(kernel, measure, args, kernel_kwargs=None, **kwargs):
         sorted_args[k] = args[k]
     args = sorted_args
 
-    if measure is direct:
-        mesh = None
-        for (func, intent) in args.values():
-            if isinstance(func, Indexed):
-                c, i = func.ufl_operands
-                idx = i._indices[0]._value
-                if mesh and c.node_set[idx] is not mesh:
-                    raise ValueError("Cannot mix sets in direct loop.")
-                mesh = c.node_set[idx]
-            else:
-                try:
-                    if mesh and func.node_set is not mesh:
-                        raise ValueError("Cannot mix sets in direct loop.")
-                    mesh = func.node_set
-                except AttributeError:
-                    # Argument was a Global.
-                    pass
-        if not mesh:
-            raise TypeError("No Functions passed to direct par_loop")
-    else:
-        domains = []
-        for func, _ in args.values():
-            domains.extend(extract_domains(func))
-        domains = join_domains(domains)
-        # Assume only one domain
-        domain, = domains
-        mesh = domain
+    meshes = []
+    for func, _ in args.values():
+        meshes.extend(extract_domains(func))
+    # Assume only one domain
+    mesh, = join_domains(meshes)
 
     kernel_domains, instructions = kernel
-    op2args = [_form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)]
+    function = _form_loopy_kernel(kernel_domains, instructions, measure, args, **kernel_kwargs)
 
-    op2args.append(_map['itspace'](mesh, measure))
+    with heavy_caches([mesh.topology]):
+        if measure is direct:
+            iterset = None
+            for (func, _) in args.values():
+                func = _extract_subfunction(func)
 
-    def mkarg(f, intent):
-        if isinstance(f, Indexed):
-            c, i = f.ufl_operands
-            idx = i._indices[0]._value
-            m = _map['nodes'](c)
-            return c.dat[idx](intent, m.split[idx] if m else None)
-        return f.dat(intent, _map['nodes'](f))
-    op2args += [mkarg(func, intent) for (func, intent) in args.values()]
+                if (
+                    isinstance(func, Constant)
+                    or func.function_space().ufl_element().family() == "Real"
+                ):
+                    continue
 
-    return op2.parloop(*op2args, **kwargs)
+                if iterset is None:
+                    iterset = func.function_space().nodal_axes
+                else:
+                    if func.function_space().nodal_axes != iterset:
+                        raise ValueError("Cannot mix node sets in direct loop")
+            if iterset is None:
+                raise TypeError("No functions passed to direct loop")
+
+            loop_index = iterset.iter()
+            packed_args = []
+            for (func, _) in args.values():
+                func = _extract_subfunction(func)
+                if isinstance(func, Constant):
+                    packed_args.append(func.dat)
+                else:
+                    packed_args.append(func.dat[loop_index])
+
+        else:
+            loop_index = mesh.iter(measure.integral_type(), measure.subdomain_id())
+            packed_args = []
+            for func, _ in args.values():
+                func = _extract_subfunction(func)
+                packed_args.append(pack(func, loop_index))
+
+        op3.loop(loop_index, function(*packed_args), eager=True)
+
+
+def _extract_subfunction(func):
+    if isinstance(func, Indexed):
+        c, i = func.ufl_operands
+        return c.subfunctions[i._indices[0]._value]
+    else:
+        return func

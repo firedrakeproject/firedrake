@@ -1,6 +1,6 @@
 from firedrake import *
 from firedrake.interpolation import (
-    MixedInterpolator, SameMeshInterpolator, CrossMeshInterpolator,
+    SameMeshInterpolator, CrossMeshInterpolator,
     get_interpolator, VomOntoVomInterpolator,
 )
 from firedrake.matrix import ImplicitMatrix, Matrix
@@ -55,12 +55,10 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
 
     I_mat = assemble(interp, mat_type=mat_type)
     assert isinstance(I_mat, ImplicitMatrix if mat_type == "matfree" else Matrix)
+    assert I_mat.ufl_domains() == {mesh}
 
     if mat_type == "matfree":
         assert I_mat.petscmat.type == "python"
-    elif value_shape == "scalar":
-        # Always seqaij for scalar
-        assert I_mat.petscmat.type == prefix + "aij"
     else:
         # Defaults to seqaij
         assert I_mat.petscmat.type == prefix + (mat_type if mat_type else "aij")
@@ -73,9 +71,13 @@ def test_same_mesh_mattype(value_shape, mat_type, mode):
         res2 = assemble(action(adjoint(forward_I_mat), f))
         assert np.allclose(res2.dat.data, exact.dat.data)
 
-    with pytest.raises(NotImplementedError):
-        # MatNest only implemented for interpolation between MixedFunctionSpaces
-        assemble(interp, mat_type="nest")
+    # A nest holds the one block that these unmixed spaces make, just as it
+    # does for a Form.
+    nest_mat = assemble(interp, mat_type="nest")
+    assert nest_mat.petscmat.type == "nest"
+    assert nest_mat.petscmat.getNestSubMatrix(0, 0).type == prefix + "aij"
+    res = assemble(action(nest_mat, f))
+    assert np.allclose(res.dat.data, exact.dat.data)
 
 
 @pytest.mark.parametrize("value_shape", ["scalar", "vector"], ids=lambda v: f"fs_type={v}")
@@ -102,6 +104,7 @@ def test_cross_mesh_mattype(value_shape, mat_type):
     I_mat = assemble(interp, mat_type=mat_type)
     assert isinstance(I_mat, ImplicitMatrix if mat_type == "matfree" else Matrix)
     assert I_mat.petscmat.type == "python" if mat_type == "matfree" else "seqaij"
+    assert I_mat.ufl_domains() == {mesh1, mesh2}
 
     f = Function(V1).interpolate(expr1)
     res = assemble(action(I_mat, f))
@@ -158,8 +161,6 @@ def test_point_eval_mattype(value_shape, mat_type):
 
     if mat_type == "matfree":
         assert res.petscmat.type == "python"
-    elif value_shape == "scalar":
-        assert res.petscmat.type == "seqaij"
     else:
         # Defaults to seqaij
         assert res.petscmat.type == "seq" + (mat_type if mat_type else "aij")
@@ -188,7 +189,7 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
         expr = as_vector([x**2, x**2, y**2, y**2])
 
     interp = interpolate(TrialFunction(U), W)
-    assert isinstance(get_interpolator(interp), MixedInterpolator)
+    assert isinstance(get_interpolator(interp), SameMeshInterpolator)
     I_mat = assemble(interp, mat_type=mat_type, sub_mat_type=sub_mat_type)
     assert isinstance(I_mat, ImplicitMatrix if mat_type == "matfree" else Matrix)
 
@@ -198,17 +199,15 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
         assert I_mat.petscmat.type == "seqaij"
     else:
         assert I_mat.petscmat.type == "nest"
+        # matnest sub_mat_type defaults to aij
+        sub_type = "seq" + (sub_mat_type if sub_mat_type else "aij")
         for (i, j) in [(0, 0), (0, 1), (1, 0), (1, 1)]:
+            # Every block is assembled, as it is for a Form.  The components
+            # do not mix, so the off-diagonal ones assemble to zero.
             sub_mat = I_mat.petscmat.getNestSubMatrix(i, j)
+            assert sub_mat.type == sub_type
             if i != j:
-                assert not sub_mat
-                continue
-            if value_shape == "scalar":
-                # Always seqaij for scalar
-                assert sub_mat.type == "seqaij"
-            else:
-                # matnest sub_mat_type defaults to aij
-                assert sub_mat.type == "seq" + (sub_mat_type if sub_mat_type else "aij")
+                assert sub_mat.norm() == 0.0
 
     f = Function(U).interpolate(expr)
     exact = Function(W).interpolate(expr)
@@ -216,5 +215,6 @@ def test_mixed_same_mesh_mattype(value_shape, mat_type, sub_mat_type):
     for resi, exi in zip(res.subfunctions, exact.subfunctions):
         assert np.allclose(resi.dat.data, exi.dat.data)
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError, match="BAIJ matrix type makes no sense"):
+        # A mixed space has no block structure to give BAIJ, as for a Form.
         assemble(interp, mat_type="baij")

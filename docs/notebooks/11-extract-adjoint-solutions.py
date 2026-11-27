@@ -22,7 +22,7 @@
 # \frac{\partial u}{\partial t} + u \frac{\partial u}{\partial x} - \nu \frac{\partial^2 u}{\partial x^2} = 0.
 # $$
 #
-# Applying finite element in time and implicit Euler in space, the problem becomes at each timestep find $u^{n+1}\in V$ such that:
+# Applying finite element in space and implicit Euler in time, the problem becomes: at each timestep find $u^{n+1}\in V$ such that
 #
 # $$
 # \int_\Omega \frac{u^{n+1} - u^n}{\Delta t} v + u^{n+1} \frac{\partial u^{n+1}}{\partial x} v + \nu \frac{\partial u^{n+1}}{\partial x}\frac{\partial v}{\partial x} \, \mathrm{d}x = 0 \quad \forall v \in V.
@@ -56,8 +56,7 @@ continue_annotation()
 
 # %%
 n = 100
-with stop_annotating():
-    mesh = PeriodicIntervalMesh(n, length=2)
+mesh = PeriodicIntervalMesh(n, length=2)
 x = SpatialCoordinate(mesh)[0]
 nu = Constant(1e-2)
 V = FunctionSpace(mesh, "Lagrange", 2)
@@ -85,7 +84,7 @@ for t in ProgressBar("Time step").iter(range(timesteps)):
     results.append(Function(u_n))
 
 # %% [markdown]
-# The basic form of adjoint computiation computes the derivative of a scalar outcome of a PDE with respect to one or more inputs. Here we'd just like to see how the solution of the PDE at the end of the time interval depends on the initial conditions, so we choose the squared $L^2$ norm of the final solution as our functional:
+# The basic form of adjoint computation computes the derivative of a scalar outcome of a PDE with respect to one or more inputs. Here we'd just like to see how the solution of the PDE at the end of the time interval depends on the initial conditions, so we choose the squared $L^2$ norm of the final solution as our functional:
 
 # %%
 J = assemble(u_n*u_n*dx)
@@ -134,14 +133,14 @@ paths=plot(dJ, axes=axes)
 # \hat{J}(m) = J(u(m), m)
 # $$
 #
-# Where $m$ is the control. As well as differentiating the functional, it's possible to evaluate it for a new intial condition. This is achieved by calling the reduced functional:
+# Where $m$ is the control. As well as differentiating the functional, it's possible to evaluate it for a new initial condition. This is achieved by calling the reduced functional:
 #
 # ```python3
 # Jhat(u_new)
 # ```
 #
 # ### a.
-# Try evaluating `Jhat` for a new initial condition. You'll still need to use a periodic funcition, but you could change the frequency of the wave, or try a more adventurous but still periodic function.
+# Try evaluating `Jhat` for a new initial condition. You'll still need to use a periodic function, but you could change the frequency of the wave, or try a more adventurous but still periodic function.
 #
 # ### b. 
 # You can access the solution of the last solve in the reduced functional with `get_solve_blocks()[-1].get_outputs()[0].saved_output`. See how the solution changes for different values of the initial condition.
@@ -149,8 +148,6 @@ paths=plot(dJ, axes=axes)
 # ### c.
 # The gradient returned by `Jhat.derivative(apply_riesz=True)` is linearised around the solution for the last state at which the reduced functional was evaluated. Plot the gradient for different initial conditions and see if you can intuit why it looks like it does.
 #
-
-# %%
 
 # %%
 
@@ -163,7 +160,7 @@ paths=plot(dJ, axes=axes)
 taylor_test(Jhat, u_init, assemble(interpolate(Constant(1.), V))) 
 
 # %% [markdown]
-# ## Examining the adjoint calculation
+# ## Examining the adjoint calculation
 #
 # When we first studied the Burgers equation we plotted an animation of the solution over time. As a reminder:
 
@@ -203,7 +200,7 @@ adjoints += [Jhat.controls[0].adj_value]
 adjoints
 
 # %% [markdown]
-# The adjoint variables are, as expected, cofunctions. To recover the adjoint solutions in a form we can visualise, we take the Riesz represntation to recover Functions:
+# The adjoint variables are, as expected, cofunctions. To recover the adjoint solutions in a form we can visualise, we take the Riesz representation to recover Functions:
 
 # %%
 adjoints = [a.riesz_representation(riesz_map="L2") for a in adjoints if a] 
@@ -226,7 +223,7 @@ from IPython.display import HTML
 HTML(animation.to_jshtml())
 
 # %% [markdown]
-# ## Exercise 2
+# ## Exercise 2
 #
 # Go back to the Poisson equation example, and solve Poisson's equation with Dirichlet boundary conditions. Find $u$ such that:
 # $$
@@ -251,9 +248,9 @@ continue_annotation()
 # %%
 
 # %% [markdown]
-# ## Visualising the tape
+# ## Visualising the tape
 #
-# An exceptionally useful aid to understanding the computation of the adjoint is to produce a visual representation of the tape. To produce a managable sized figure, we'll rerun the Burgers equation with just 5 timesteps:
+# An exceptionally useful aid to understanding the computation of the adjoint is to produce a visual representation of the tape. To produce a manageable sized figure, we'll rerun the Burgers equation with just 5 timesteps:
 
 # %%
 tape=get_working_tape()
@@ -294,9 +291,5 @@ from pdf2image import convert_from_path
 
 images = convert_from_path("tape.pdf")
 images[0]  # first page
-
-# %%
-
-
 
 # %%

@@ -58,14 +58,14 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
         numpy.ndarray simplices_C
         compiled_call library_call = (<compiled_call *><uintptr_t>lib)[0]
 
-    num_cell_A = V_A.mesh().cell_set.size
+    num_cell_A = V_A.mesh().cells.owned.local_size
 
-    outmat = numpy.empty((V_B.cell_node_map().arity,
-                          V_A.cell_node_map().arity), dtype=ScalarType)
+    outmat = numpy.empty((V_B.cell_node_list.shape[1],
+                          V_A.cell_node_list.shape[1]), dtype=ScalarType)
     mesh_A = V_A.mesh()
     mesh_B = V_B.mesh()
-    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo
-    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo
+    vertex_map_A = mesh_A.coordinates.function_space().cell_node_list
+    vertex_map_B = mesh_B.coordinates.function_space().cell_node_list
 
     num_vertices = vertex_map_A.shape[1]
     gdim = mesh_A.geometric_dimension
@@ -75,10 +75,10 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
 
     vertices_A = mesh_A.coordinates.dat.data_ro_with_halos
     vertices_B = mesh_B.coordinates.dat.data_ro_with_halos
-    V_A_cell_node_map = V_A.cell_node_map().values_with_halo
-    V_B_cell_node_map = V_B.cell_node_map().values_with_halo
-    num_dof_A = V_A.cell_node_map().arity
-    num_dof_B = V_B.cell_node_map().arity
+    V_A_cell_node_map = V_A.cell_node_list
+    V_B_cell_node_map = V_B.cell_node_list
+    num_dof_A = V_A.cell_node_list.shape[1]
+    num_dof_B = V_B.cell_node_list.shape[1]
     for cell_A in range(num_cell_A):
         for cell_B in candidates(cell_A):
             for i in range(num_vertices):
@@ -101,6 +101,9 @@ def assemble_mixed_mass_matrix(V_A, V_B, candidates,
 
     CHKERR(MatAssemblyBegin(mat.mat, MAT_FINAL_ASSEMBLY))
     CHKERR(MatAssemblyEnd(mat.mat, MAT_FINAL_ASSEMBLY))
+
+
+refs = []
 
 
 def intersection_finder(mesh_A, mesh_B):
@@ -139,10 +142,11 @@ def intersection_finder(mesh_A, mesh_B):
 
     vertices_A = numpy.ndarray.astype(mesh_A.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
     vertices_B = numpy.ndarray.astype(mesh_B.coordinates.dat.data_ro_with_halos.real, dtype=RealType)
-    vertex_map_A = mesh_A.coordinates.cell_node_map().values_with_halo.astype(int)
-    vertex_map_B = mesh_B.coordinates.cell_node_map().values_with_halo.astype(int)
-    nnodes_A = mesh_A.coordinates.dof_dset.total_size
-    nnodes_B = mesh_B.coordinates.dof_dset.total_size
+    vertex_map_A = mesh_A.coordinates.function_space().cell_node_list.astype(int)
+    vertex_map_B = mesh_B.coordinates.function_space().cell_node_list.astype(int)
+    gdim = mesh_A.geometric_dimension
+    nnodes_A = mesh_A.coordinates.function_space().axes.local_size // gdim
+    nnodes_B = mesh_B.coordinates.function_space().axes.local_size // gdim
     dim_A = mesh_A.geometric_dimension
     dim_B = mesh_B.geometric_dimension
     ncells_A = mesh_A.num_cells()
@@ -168,5 +172,4 @@ def intersection_finder(mesh_A, mesh_B):
     for cell_A in range(ncells_A):
         (start, end) = indptr[cell_A], indptr[cell_A + 1]
         out[cell_A] = indices[start:end]
-
     return out

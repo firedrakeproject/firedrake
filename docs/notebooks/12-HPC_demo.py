@@ -12,7 +12,7 @@
 # %% [markdown]
 # # HPC Demonstration
 #
-# In this notebook we build up a multigrid solver for an elliptic problem specifically designed for running Firedrake on a High Performance Computer (HPC). We will solve very large instances of the Poisson problem, demonstrating a range of different solver options and assessing their performance for a range of problem sizes. Additional supplimentary material is provided for running scripts on HPC.
+# In this notebook we build up a multigrid solver for an elliptic problem specifically designed for running Firedrake on a High Performance Computer (HPC). We will solve very large instances of the Poisson problem, demonstrating a range of different solver options and assessing their performance for a range of problem sizes. Additional supplementary material is provided for running scripts on HPC.
 #
 # **Note:** The code in this notebook is designed to be run on a large HPC facility, as a result some cells may take a long time to run in an interactive notebook. We suggest _not_ re-running the notebook cells, but instead trying the exercises on a supercomputer.
 #
@@ -131,7 +131,7 @@ problem = LinearVariationalProblem(a, L, u_h, bcs=bcs)
 
 
 # %% [markdown]
-# Creating a problem instance we can see there are just short of 275000 DOFs in this noteook example.
+# Creating a problem instance we can see there are just short of 275000 DOFs in this notebook example.
 
 # %% [markdown]
 # ## The Solver
@@ -191,7 +191,7 @@ parprint("Error   :", errornorm(truth, u_h))
 #
 # Direct solvers are very fast for small problems, which is why LU is the default solver in Firedrake. However, when $n$ gets large, direct solvers are no longer viable and should be avoided where possible.
 #
-# ![](image/hpc_single.png)
+# ![hpc_single](image/hpc_single.png)
 
 # %% [markdown]
 # ## Iterative solvers
@@ -234,7 +234,7 @@ parprint("Error   :", errornorm(truth, u_h))
 #
 # In the weak scaling plot below, CG + GMG V-cycles weak scales for longer than the LU factorisation and CG + AMG does even better, but we also see that in _this_ setup we can do even better with full GMG methods.
 #
-# ![](image/hpc_weak.png)
+# ![hpc_weak](image/hpc_weak.png)
 
 # %% [markdown]
 # ## Geometric Multigrid
@@ -269,7 +269,7 @@ parprint("Error   :", errornorm(truth, u_h))
 #
 # The full multigrid solver strong scales poorly beyond 2 nodes, the reason for this poor scaling is that the solver spends most of its time performing communication solving the problem on the coarse grid in a distributed manner. CG + AMG scales much better, but isn't as fast as using telescoping, which we discuss in the next section.  Designing a solver that is both fast and scalable for a given problem is often very challenging.
 #
-# ![](image/hpc_strong.png)
+# ![hpc_strong](image/hpc_strong.png)
 
 # %% [markdown]
 # ## Matrix free and telescoping

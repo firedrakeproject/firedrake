@@ -1,6 +1,7 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
+import ufl
 import numpy as np
 
 
@@ -18,6 +19,59 @@ def test_assemble_split_derivative():
     F = (inner(u, v) + inner(p, v[1])) * dx
 
     assert assemble(derivative(F, x))
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("mat_type", ["nest", "aij"])
+def test_assemble_split_derivative_coefficient_tuple(mat_type):
+    """Assemble the derivative of a form wrt a tuple of coefficients."""
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    W = V * Q * V
+    x = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(1 + x[0])
+    p = Function(Q).interpolate(2 + x[0]*x[1])
+    v, q, r = TestFunctions(W)
+    du, dp, _ = TrialFunctions(W)
+
+    F = inner(u*p, v)*dx + inner(p, q)*dx + inner(u, r)*dx
+    # The last column has a zero direction for both coefficients
+    J = ufl.derivative(F, (u, p), (du, dp))
+    J_ref = inner(du*p + u*dp, v)*dx + inner(dp, q)*dx + inner(du, r)*dx
+
+    actual = assemble(J, mat_type=mat_type).petscmat
+    expected = assemble(J_ref, mat_type=mat_type).petscmat
+    if mat_type == "nest":
+        blocks = [(actual.getNestSubMatrix(i, j), expected.getNestSubMatrix(i, j))
+                  for i, j in np.ndindex(3, 3)]
+    else:
+        blocks = [(actual, expected)]
+    for A, B in blocks:
+        A.axpy(-1, B, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
+        assert A.norm(PETSc.NormType.NORM_FROBENIUS) < 1e-12
+
+
+@pytest.mark.skipif(utils.complex_mode, reason="The derivative of u*p*dx does not conjugate the test function.")
+@pytest.mark.parallel([1, 2])
+def test_assemble_split_gradient_coefficient_tuple():
+    """Assemble the gradient of a functional wrt a tuple of coefficients."""
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    W = V * Q
+    x = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(1 + x[0])
+    p = Function(Q).interpolate(2 + x[0]*x[1])
+    v, q = TestFunctions(W)
+
+    dG = ufl.derivative(u*p*dx, (u, p), (v, q))
+    dG_ref = (v*p + u*q)*dx
+
+    actual = assemble(dG)
+    expected = assemble(dG_ref)
+    for a, e in zip(actual.subfunctions, expected.subfunctions):
+        assert np.allclose(a.dat.data_ro, e.dat.data_ro)
 
 
 def test_function_split_raises():
@@ -125,3 +179,46 @@ def test_split_coefficient_not_argument():
                                    as_vector([TestFunction(V), 0])),
                         w, wr)
     assert J00.signature() == expect.signature()
+
+
+@pytest.mark.parallel([1, 3])
+def test_split_adjoint_action():
+    V = FunctionSpace(UnitSquareMesh(4, 4), "CG", 1)
+    W = V * V
+    u, _ = TrialFunctions(W)
+    c = Cofunction(V.dual()).assign(1)
+    F = action(adjoint(interpolate(u, V)), c)
+    splitter = ExtractSubBlock()
+
+    F0 = splitter.split(F, (0,))
+    assert F0.arguments() == (TestFunction(V),)
+    actual = assemble(F0)
+    expected = assemble(interpolate(TestFunction(V), c))
+    assert np.allclose(actual.dat.data_ro, expected.dat.data_ro)
+
+    F1 = splitter.split(F, (1,))
+    assert F1 == 0
+    assert F1.arguments() == (TestFunction(V),)
+
+
+@pytest.mark.parallel([1, 3])
+def test_split_action_composition():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "CG", 2)
+    W = V * Q
+    u, p = TrialFunctions(W)
+    I = interpolate(as_vector((u + p, 2*u + 3*p)), W)
+    mass = inner(TrialFunction(W), TestFunction(W))*dx
+    A = action(adjoint(I), action(mass, I))
+    matrix = assemble(A, mat_type="aij").petscmat
+    ises = W.field_ises
+    splitter = ExtractSubBlock()
+
+    for i, j in np.ndindex(2, 2):
+        block = splitter.split(A, (i, j))
+        assert block.arguments() == (TestFunction(W[i].collapse()), TrialFunction(W[j].collapse()))
+        actual = assemble(block, mat_type="aij").petscmat
+        expected = matrix.createSubMatrix(ises[i], ises[j])
+        actual.axpy(-1, expected, structure=PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
+        assert actual.norm(PETSc.NormType.NORM_FROBENIUS) < 1e-12

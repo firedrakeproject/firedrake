@@ -21,8 +21,30 @@ def test_submesh_subdomain_id_union():
 
     mesh.mark_entities(m3, 333)
     submesh2 = Submesh(mesh, mesh.topological_dimension, 333)
-    assert submesh2.cell_set.size == submesh1.cell_set.size
+    assert submesh2.cells.owned.local_size == submesh1.cells.owned.local_size
     assert np.allclose(submesh2.coordinates.dat.data, submesh1.coordinates.dat.data)
+
+
+@pytest.mark.parallel(nprocs=3)
+@pytest.mark.parametrize("subdomain_id", [(111, 222), (222, 111)])
+def test_submesh_subdomain_id_union_empty_on_some_ranks(subdomain_id):
+    mesh = UnitSquareMesh(16, 16)
+    x, y = SpatialCoordinate(mesh)
+    M = FunctionSpace(mesh, "DG", 0)
+    m1 = Function(M).interpolate(conditional(lt(x, 0.5), 1, 0))
+    # A few cells in one corner, so that some ranks have no cell with tag 222.
+    m2 = Function(M).interpolate(conditional(And(gt(x, 0.9), gt(y, 0.9)), 1, 0))
+    mesh.mark_entities(m1, 111)
+    mesh.mark_entities(m2, 222)
+    label = mesh.topology_dm.getLabel("Cell Sets")
+    num_local = mesh.comm.allgather(label.getStratumSize(222))
+    assert min(num_local) == 0 and max(num_local) > 0
+
+    submesh = Submesh(mesh, mesh.topological_dimension, subdomain_id=subdomain_id)
+
+    m3 = Function(M).interpolate(m1 + m2 - m1 * m2)
+    expected = assemble(m3*dx)
+    assert abs(assemble(1*dx(domain=submesh)) - expected) < 1E-12
 
 
 @pytest.mark.parametrize("subdomain_id", ["on_boundary", (1, 3, 6)])
@@ -41,5 +63,5 @@ def test_submesh_facet_subdomain_id_union(subdomain_id):
     facet_value = 999
     rmesh = RelabeledMesh(mesh, [facet_function], [facet_value])
     submesh2 = Submesh(rmesh, mesh.topological_dimension - 1, facet_value)
-    assert submesh2.cell_set.size == submesh1.cell_set.size
+    assert submesh2.cells.owned.local_size == submesh1.cells.owned.local_size
     assert np.allclose(submesh2.coordinates.dat.data, submesh1.coordinates.dat.data)

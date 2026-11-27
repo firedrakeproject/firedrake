@@ -738,7 +738,7 @@ if args.release or not args.input_file:
         log.error("You must provide a title using the --title option")
         sys.exit(1)
 
-    shas = {c: dataclasses.asdict(get_component_version(c)) for c in components}
+    shas = {c.name: dataclasses.asdict(get_component_version(c)) for c in components}
     if args.info_file:
         shas["metarelease_info_file"] = encode_info_file(args.info_file[0])
     else:

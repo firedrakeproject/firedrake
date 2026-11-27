@@ -1,15 +1,13 @@
 from os import path
 import numpy
+import textwrap
 import sympy
 from sympy.printing.c import ccode
 import loopy as lp
 
-from pyop2 import op2
-from pyop2.parloop import generate_single_cell_wrapper
-
 from firedrake.mesh import MeshGeometry
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c
+from firedrake.utils import IntType, as_cstr, ScalarType, ScalarType_c, complex_mode, RealType_c, IntType_c
 
 import ufl
 import finat.ufl
@@ -23,30 +21,36 @@ import tsfc.kernel_interface.firedrake_loopy as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
 
-def make_args(function):
-    arg = function.dat(op2.READ, function.cell_node_map())
-    return (arg,)
-
-
-@PETSc.Log.EventDecorator()
-def make_wrapper(function, **kwargs):
-    args = make_args(function)
-    return generate_single_cell_wrapper(function.cell_set, args, **kwargs)
-
-
-@PETSc.Log.EventDecorator()
 def src_locate_cell(mesh, tolerance=None):
     src = ['#include <evaluate.h>']
     src.append(compile_coordinate_element(mesh, tolerance))
-    src.append(make_wrapper(mesh.coordinates,
-                            forward_args=["void*", "double*", RealType_c+"*"],
-                            kernel_name="to_reference_coords_kernel",
-                            wrapper_name="wrap_to_reference_coords"))
+
+    shape = numpy.prod(mesh.coordinates.function_space().finat_element.index_shape, dtype=int)
+    gdim = mesh.geometric_dimension
+
+    wrapper_src = textwrap.dedent(f"""\
+        #include <complex.h>
+        #include <math.h>
+        #include <petsc.h>
+        #include <stdint.h>
+        #include <stdbool.h>
+
+        void wrap_to_reference_coords(void* const farg0, double* const farg1, {RealType_c}* const farg2, {IntType_c} const start, {IntType_c} const end, {ScalarType_c} const *__restrict__ dat0, {IntType_c} const *__restrict__ map0)
+        {{
+          {ScalarType_c} t0[{shape}*{gdim}];
+
+          for (int32_t i = 0; i < {shape}; ++i)
+            for (int32_t j = 0; j < {gdim}; ++j)
+              t0[{gdim}*i + j] = dat0[map0[{shape}*{gdim}*start + {gdim}*i + j]];
+          to_reference_coords_kernel(farg0, farg1, farg2, &(t0[0]));
+        }}"""
+    )
+    src.append(wrapper_src)
+
     with open(path.join(path.dirname(__file__), "locate.c")) as f:
         src.append(f.read())
 
-    src = "\n".join(src)
-    return src
+    return "\n".join(src)
 
 
 def dX_norm_square(topological_dimension):
@@ -225,79 +229,65 @@ def compile_coordinate_element(mesh: MeshGeometry, contains_eps: float, paramete
     # Create FInAT element
     element = finat.element_factory.create_element(ufl_coordinate_element)
 
-    code = {
-        "geometric_dimension": mesh.geometric_dimension,
-        "topological_dimension": mesh.topological_dimension,
-        "celldist_l1_c_expr": celldist_l1_c_expr(element.cell, "X"),
-        "to_reference_coords_newton_step": to_reference_coords_newton_step(ufl_coordinate_element, parameters),
-        "init_X": init_X(element.cell, parameters),
-        "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
-        "convergence_epsilon": 1e-12,
-        "dX_norm_square": dX_norm_square(mesh.topological_dimension),
-        "X_isub_dX": X_isub_dX(mesh.topological_dimension),
-        "extruded_arg": f", {as_cstr(IntType)} const *__restrict__ layers" if mesh.extruded else "",
-        "extr_comment_out": "//" if mesh.extruded else "",
-        "non_extr_comment_out": "//" if not mesh.extruded else "",
-        "IntType": as_cstr(IntType),
-        "ScalarType": ScalarType_c,
-        "RealType": RealType_c,
-        "tolerance": contains_eps,
-    }
+    geometric_dimension = mesh.geometric_dimension
+    topological_dimension = mesh.topological_dimension
+    cell_distance = celldist_l1_c_expr(element.cell, "X")
+    newton_step = to_reference_coords_newton_step(ufl_coordinate_element, parameters)
+    initial_coordinates = init_X(element.cell, parameters)
+    max_iteration_count = 1 if is_affine(ufl_coordinate_element) else 16
+    convergence_epsilon = 1e-12
+    step_norm_square = dX_norm_square(mesh.topological_dimension)
+    update_coordinates = X_isub_dX(mesh.topological_dimension)
+    int_type = as_cstr(IntType)
+    scalar_type = ScalarType_c
+    real_type = RealType_c
+    tolerance = contains_eps
 
-    evaluate_template_c = """#include <math.h>
-struct ReferenceCoords {
-    %(ScalarType)s X[%(geometric_dimension)d];
-};
+    evaluate_code = f"""#include <math.h>
+struct ReferenceCoords {{
+    {scalar_type} X[{geometric_dimension}];
+}};
 
-static %(RealType)s tolerance = %(tolerance)s; /* used in locate_cell */
+static {real_type} tolerance = {tolerance}; /* used in locate_cell */
 
-%(to_reference_coords_newton_step)s
+{newton_step}
 
-static inline void to_reference_coords_kernel(void *result_, double *x0, %(RealType)s *cell_dist_l1, %(ScalarType)s *C)
-{
+static inline void to_reference_coords_kernel(void *result_, double *x0, {real_type} *cell_dist_l1, {scalar_type} *C)
+{{
     struct ReferenceCoords *result = (struct ReferenceCoords *) result_;
 
     /*
      * Mapping coordinates from physical to reference space
      */
 
-    %(ScalarType)s *X = result->X;
-    %(init_X)s
+    {scalar_type} *X = result->X;
+    {initial_coordinates}
 
     int converged = 0;
-    for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
-        %(ScalarType)s dX[%(topological_dimension)d] = { 0.0 };
+    for (int it = 0; !converged && it < {max_iteration_count}; it++) {{
+        {scalar_type} dX[{topological_dimension}] = {{ 0.0 }};
         to_reference_coords_newton_step(C, x0, X, dX);
 
-        if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
+        if ({step_norm_square} < {convergence_epsilon:g} * {convergence_epsilon:g}) {{
             converged = 1;
-        }
+        }}
 
-%(X_isub_dX)s
-    }
+{update_coordinates}
+    }}
 
-    *cell_dist_l1 = %(celldist_l1_c_expr)s;
-}
+    *cell_dist_l1 = {cell_distance};
+}}
 
 static inline void wrap_to_reference_coords(
-    void* const result_, double* const x, %(RealType)s* const cell_dist_l1, %(IntType)s const start, %(IntType)s const end%(extruded_arg)s,
-    %(ScalarType)s const *__restrict__ coords, %(IntType)s const *__restrict__ coords_map);
+    void* const result_, double* const x, {real_type}* const cell_dist_l1, {int_type} const start, {int_type} const end,
+    {scalar_type} const *__restrict__ coords, {int_type} const *__restrict__ coords_map);
 
-%(RealType)s to_reference_coords(void *result_, struct Function *f, %(IntType)s cell, double *x)
-{
-    %(RealType)s cell_dist_l1 = 0.0;
-    %(extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
+{real_type} to_reference_coords(void *result_, struct Function *f, {int_type} cell, double *x)
+{{
+    {real_type} cell_dist_l1 = 0.0;
+    wrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, f->coords, f->coords_map);
     return cell_dist_l1;
-}
-
-%(RealType)s to_reference_coords_xtr(void *result_, struct Function *f, %(IntType)s cell, %(IntType)s layer, double *x)
-{
-    %(RealType)s cell_dist_l1 = 0.0;
-    %(non_extr_comment_out)s%(IntType)s layers[2] = {0, layer+2};  // +2 because the layer loop goes to layers[1]-1, which is nlayers-1
-    %(non_extr_comment_out)swrap_to_reference_coords(result_, x, &cell_dist_l1, cell, cell+1, layers, f->coords, f->coords_map);
-    return cell_dist_l1;
-}
-
+}}
 """
 
-    return evaluate_template_c % code
+    return evaluate_code

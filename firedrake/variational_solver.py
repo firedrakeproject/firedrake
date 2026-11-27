@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import ufl
-from itertools import chain
 from contextlib import ExitStack
 from types import MappingProxyType
 from petsctools import OptionsManager, flatten_parameters
 
-from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr, utils
+import pyop3 as op3
+from pyop3.cache import with_heavy_caches
+
+from firedrake import dmhooks, slate, solving, solving_utils, ufl_expr
 from firedrake.petsc import PETSc, DEFAULT_KSP_PARAMETERS, DEFAULT_SNES_PARAMETERS
+from firedrake.ufl_expr import extract_domains
 from firedrake.function import Function
 from firedrake.interpolation import interpolate
 from firedrake.matrix import MatrixBase
-from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.bcs import DirichletBC, EquationBC, extract_subdomain_ids, restricted_function_space
 from firedrake.adjoint_utils import NonlinearVariationalProblemMixin, NonlinearVariationalSolverMixin
-from ufl import as_ufl, replace, Form
+from ufl import as_ufl, replace, Form, BaseForm
 from functools import cached_property
 from collections.abc import Callable
 
@@ -51,6 +53,51 @@ def is_form_consistent(is_linear, bcs):
         raise TypeError("Form style mismatch: some forms are given in 'F == 0' style, but others are given in 'A == b' style.")
 
 
+def _restrict_form(form: BaseForm, u: Function, u_restricted: Function) -> BaseForm:
+    """Restrict a form and its solution Function.
+
+    Parameters
+    ----------
+    form
+        A form whose arguments belong to `u.function_space()`.
+    u
+        The solution Function in the original function space.
+    u_restricted
+        The solution Function in a restriction of the original space.
+
+    Returns
+    -------
+    BaseForm
+        A form whose arguments belong to the restricted space and whose
+        solution Function is `u_restricted`.
+
+    Notes
+    -----
+    Let V denote the original space, and let V_res denote a restriction of V.
+    Let P: V_res -> V and P*: V* -> V_res* denote the interpolation operator and
+    its adjoint between these spaces. Let E, F, J denote forms on V with zero, one, and two
+    arguments respectively. Then
+
+        E_res(u_res) = E(P u_res)
+        F_res(u_res) = P* F(P u_res)
+        J_res(u_res) = P* J(P u_res) P
+
+    are the forms on the restricted space V_res.
+    """
+    V = u.function_space()
+    V_restricted = u_restricted.function_space()
+
+    if isinstance(form, Form):
+        return replace(form, {u: u_restricted} | {
+            a: a.reconstruct(function_space=V_restricted) for a in form.arguments()
+        })
+    else:
+        new_form = replace(form, {u: interpolate(u_restricted, V)})
+        for a in form.arguments():
+            new_form = interpolate(a.reconstruct(function_space=V_restricted), new_form)
+        return new_form
+
+
 class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     r"""Nonlinear variational problem F(u; v) = 0."""
 
@@ -63,7 +110,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                  is_linear=False, restrict=False):
         r"""
         :param F: the nonlinear form
-        :param u: the :class:`.Function` to solve for
+        :param u: the :class:`firedrake.function.Function` to solve for
         :param bcs: the boundary conditions (optional)
         :param J: the Jacobian J = dF/du (optional)
         :param Jp: a form used for preconditioning the linear system,
@@ -101,24 +148,16 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
             restrict = False
         self.restrict = restrict and bcs
 
-        if restrict and bcs:
+        if self.restrict:
             V_res = restricted_function_space(V, extract_subdomain_ids(bcs))
             bcs = [bc.reconstruct(V=V_res, indices=bc._indices) for bc in bcs]
             self.u_restrict = Function(V_res)
-            v_res, u_res = TestFunction(V_res), TrialFunction(V_res)
-            if isinstance(F, Form):
-                F_arg, = F.arguments()
-                self.F = replace(F, {F_arg: v_res, self.u: self.u_restrict})
-            else:
-                self.F = interpolate(v_res, replace(F, {self.u: self.u_restrict}))
 
-            v_arg, u_arg = self.J.arguments()
-            self.J = replace(self.J, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
-            if self.Jp:
-                v_arg, u_arg = self.Jp.arguments()
-                self.Jp = replace(self.Jp, {v_arg: v_res, u_arg: u_res, self.u: self.u_restrict})
-            if self.E:
-                self.E = replace(self.E, {self.u: self.u_restrict})
+            self.F = _restrict_form(self.F, self.u, self.u_restrict)
+            self.J = _restrict_form(self.J, self.u, self.u_restrict)
+            self.Jp = _restrict_form(self.Jp, self.u, self.u_restrict) if self.Jp is not None else None
+            self.E = _restrict_form(self.E, self.u, self.u_restrict) if self.E is not None else None
+
             self.restricted_space = V_res
         else:
             self.u_restrict = u
@@ -144,6 +183,20 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
     def dm(self):
         return self.u_restrict.function_space().dm
 
+    @cached_property
+    def _mesh_topologies(self) -> frozenset:
+        """Return all mesh topologies associated with the variational problem.
+
+        These are used as 'heavy' caches.
+
+        """
+        # TODO: This breaks for certain inputs (e.g. FormSum) but this
+        # is a very heavy-handed way to fix that
+        try:
+            return op3.collections.OrderedFrozenSet([d.topology for d in extract_domains(self.F)])
+        except:  # noqa: E722
+            return ()
+
     def rediscretise(self,
                      F: ufl.BaseForm | slate.TensorBase | None = None,
                      u: Function | None = None,
@@ -168,7 +221,7 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
         F
             The new residual form, defaults to the reconstructed original residual.
         u
-            The new solution :class:`.Function`, defaults to the mapped original solution.
+            The new solution :class:`firedrake.function.Function`, defaults to the mapped original solution.
         bcs
             The new boundary conditions, defaults to the reconstructed original bcs.
         J
@@ -281,7 +334,11 @@ class NonlinearVariationalProblem(NonlinearVariationalProblemMixin):
                 raise TypeError(f"Could not remove bcs from {type(J).__name__}.")
             J = J.a
         F = ufl_expr.action(J, u)
-        if isinstance(F, slate.slate.TensorBase) and not isinstance(L, (ufl.Form, slate.slate.TensorBase)):
+        if (
+            isinstance(F, slate.slate.TensorBase)
+            and L != 0
+            and not isinstance(L, (ufl.Form, slate.slate.TensorBase))
+        ):
             # Slate expressions should not combine with assembled Cofunctions
             # because assemble(AssembledVector(L)) repeats element summation on L
             F = ufl.FormSum((F, 1), (L, -1))
@@ -353,8 +410,9 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                ``callback(ctx, u)`` for PETSc-driven adaptive refinement.
                The callback receives the `_SNESContext`
                and the current Firedrake solution, and must return a DG0
-               :class:`.Function` or :class:`.Cofunction` with positive
-               values on cells to refine.
+               :class:`firedrake.function.Function` or :class:`.Cofunction`
+               with positive values on cells to refine. If the callback returns
+               ``None``, grid sequencing stops and keeps the current mesh and solution.
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -400,15 +458,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             if solver_parameters["pmat_type"] != problem.Jp.mat_type:
                 raise ValueError("Cannot change the mat_type of an already assembled matrix.")
 
-        snes_defaults = self.DEFAULT_SNES_PARAMETERS
-        if marking_callback is not None:
-            snes_defaults = dict(snes_defaults)
-            snes_defaults.setdefault("adaptor_criterion", "refine")
-
         solver_parameters = solving_utils.set_defaults(solver_parameters,
                                                        problem.J.arguments(),
                                                        ksp_defaults=self.DEFAULT_KSP_PARAMETERS,
-                                                       snes_defaults=snes_defaults)
+                                                       snes_defaults=self.DEFAULT_SNES_PARAMETERS)
         super().__init__(solver_parameters, options_prefix,
                          default_prefix="firedrake")
         # Now the correct parameters live in self.parameters (via the
@@ -432,21 +485,27 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
                                          pre_apply_bcs=pre_apply_bcs)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+        ctx.set_snes(self.snes)
 
         self._ctx = ctx
-        self._work = problem.u_restrict.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
         if marking_callback is not None:
             self.set_marking_callback(marking_callback)
 
+        if problem.restrict:
+            V = problem.u_restrict.function_space()
+            nullspace = nullspace.rediscretise(V) if nullspace is not None else None
+            transpose_nullspace = transpose_nullspace.rediscretise(V) if transpose_nullspace is not None else None
+            near_nullspace = near_nullspace.rediscretise(V) if near_nullspace is not None else None
+
         ctx.set_objective(self.snes)
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=False)
-        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space()._ises,
+        ctx.set_nullspace(transpose_nullspace, problem.J.arguments()[1].function_space().field_ises,
                           transpose=True, near=False)
-        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
+        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space().field_ises,
                           transpose=False, near=True)
         ctx._nullspace = nullspace
         ctx._nullspace_T = transpose_nullspace
@@ -460,10 +519,6 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         with dmhooks.add_hooks(dm, self, appctx=self._ctx, save=False):
             self.set_from_options(self.snes)
 
-        # Used for custom grid transfer.
-        self._transfer_operators = ()
-        self._setup = False
-
     @property
     def _problem(self):
         """The :class:`NonlinearVariationalProblem` to solve"""
@@ -475,8 +530,10 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         The callback is called as ``callback(ctx, u)`` when PETSc asks the
         solution DM to refine, where ``ctx`` is the current
         `_SNESContext`. It must return a DG0
-        :class:`.Function` or :class:`.Cofunction` on the current solution
-        mesh, with positive values on cells to refine.
+        :class:`firedrake.function.Function` or :class:`.Cofunction` on the
+        current solution mesh, with positive values on cells to refine. If the
+        callback returns ``None``, grid sequencing stops and keeps the current
+        mesh and solution.
         """
         if not callable(callback):
             raise TypeError(f"marking callback must be callable, not a {type(callback).__name__}")
@@ -498,6 +555,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
 
     @PETSc.Log.EventDecorator()
     @NonlinearVariationalSolverMixin._ad_annotate_solve
+    @with_heavy_caches(lambda self, *a, **kw: self._problem._mesh_topologies)
     def solve(self, bounds=None):
         r"""Solve the variational problem.
 
@@ -505,14 +563,14 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         ----------
         bounds : tuple of firedrake.function.Function
             Optional bounds on the solution, given as ``(lower, upper)``.
-            ``lower`` and ``upper`` must both be :class:`~.Function`\s.
+            ``lower`` and ``upper`` must both be :class:`firedrake.function.Function`\s.
 
         Returns
         -------
         firedrake.function.Function
             The (possibly adapted) solution. If the solver performed
             mesh adaptation during the solve, this is the solution
-            :class:`~.Function` on the adapted mesh, which may differ
+            :class:`firedrake.function.Function` on the adapted mesh, which may differ
             from the ``u`` that was passed in to the
             :class:`.NonlinearVariationalProblem`.
 
@@ -526,22 +584,7 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
         self._ctx.set_function(self.snes)
         self._ctx.set_jacobian(self.snes)
 
-        # Make sure appcontext is attached to every DM from every coefficient and DirichletBC before we solve.
         problem = self._problem
-        forms = (problem.F, problem.J, problem.Jp, problem.E)
-        coefficients = utils.unique(chain.from_iterable(form.coefficients() for form in forms if form is not None))
-        solution_dm = self.snes.getDM()
-        # Grab the unique DMs for this problem
-        problem_dms = []
-        for c in chain(coefficients, problem.dirichlet_bcs()):
-            dm = c.function_space().dm
-            if dm == solution_dm:
-                # Make sure the solution dm is visited last
-                continue
-            if dm not in problem_dms:
-                problem_dms.append(dm)
-        problem_dms.append(solution_dm)
-
         if problem.restrict:
             # Transfer the initial guess into the RestrictedFunctionSpace
             problem.u_restrict.assign(problem.u)
@@ -555,27 +598,27 @@ class NonlinearVariationalSolver(OptionsManager, NonlinearVariationalSolverMixin
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
 
-        work = self._work
-        with problem.u_restrict.dat.vec as u:
+        work = self.snes.getSolution()
+        with problem.u_restrict.dat.vec_ro as u:
             u.copy(work)
-            with ExitStack() as stack:
-                # Ensure options database has full set of options (so monitors
-                # work right)
-                for ctx in chain([self.inserted_options()],
-                                 [dmhooks.add_hooks(dm, self, appctx=self._ctx) for dm in problem_dms],
-                                 self._transfer_operators):
-                    stack.enter_context(ctx)
-                self.snes.solve(None, work)
-                # The appctx might have been refined
-                self._ctx = dmhooks.get_appctx(self.snes.getDM())
+
+        solution_dm = self.snes.getDM()
+        with ExitStack() as stack:
+            stack.enter_context(self.inserted_options())
+            stack.enter_context(self._ctx.problem_hooks(solution_dm, include_coefficient_dms=True))
+
+            self.snes.solve(None, work)
+
+            # Adaptivity changes the DM, keep the _SNESContext up to date
+            self._ctx = dmhooks.get_appctx(self.snes.getDM())
+
         problem = self._ctx._problem
         solution = self.snes.getSolution()
-        with problem.u_restrict.dat.vec as u:
+        with problem.u_restrict.dat.vec_wo as u:
             solution.copy(u)
-        self._setup = True
         if problem.restrict:
             problem.u.assign(problem.u_restrict)
-        solving_utils.check_snes_convergence(self.snes)
+        solving_utils.check_convergence(self.snes)
 
         # Grab the comm associated with the `_problem` and call PETSc's garbage cleanup routine
         comm = problem.u_restrict.function_space().mesh().comm
@@ -593,7 +636,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         r"""
         :param a: the bilinear form
         :param L: the linear form
-        :param u: the :class:`.Function` to which the solution will be assigned
+        :param u: the :class:`firedrake.function.Function` to which the solution will be assigned
         :param bcs: the boundary conditions (optional)
         :param aP: an optional operator to assemble to precondition
                  the system (if not provided a preconditioner may be

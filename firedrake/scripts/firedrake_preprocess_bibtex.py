@@ -4,7 +4,7 @@ try:
     import bibtexparser
     from bibtexparser.middlewares import NormalizeFieldKeys, SortFieldsAlphabeticallyMiddleware
 except ImportError:
-    raise ImportError("Failed to import bibtexparser. Run:\n firedrake-update --documentation-dependencies")
+    raise ImportError("Failed to import bibtexparser. Run:\n pip install bibtexparser")
 
 
 def main():

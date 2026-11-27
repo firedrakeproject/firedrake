@@ -300,9 +300,9 @@ def test_interpolate_unitsquare_mixed():
     result_mixed = assemble(interpolate(f_src_2, V_dest))
 
     expected_zero_form = 0
-    for i in range(len(V_dest)):
+    for i, label in enumerate(V_dest._labels):
         expected = assemble(interpolate(f_src_2[i], V_dest[i]))
-        assert np.allclose(result_mixed.dat.data_ro[i], expected.dat.data_ro)
+        assert np.allclose(result_mixed.dat[label].data_ro, expected.dat.data_ro)
 
         expected_zero_form += assemble(action(cofunc_dest.subfunctions[i], expected))
 

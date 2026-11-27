@@ -47,7 +47,7 @@ def run_poisson(solver_type, periodic=False):
                       "npc_snes_max_it": 1,
                       "npc_snes_convergence_test": "skip"}
     else:
-        raise RuntimeError("Unknown parameter set '%s' request", solver_type)
+        raise RuntimeError(f"Unknown parameter set '{solver_type}' request")
 
     N = 10
     base = UnitIntervalMesh(N)

@@ -142,6 +142,19 @@ def test_assemble_vector_into_tensor(mesh):
     assert np.allclose(f.dat.data, 2*assemble(Tensor(conj(v) * dx)).dat.data, rtol=1e-14)
 
 
+def test_assemble_scalar_multiplication(mesh):
+    V = FunctionSpace(mesh, "DG", 1)
+    v = TestFunction(V)
+    tensor = Tensor(conj(v) * dx)
+    reference = assemble(tensor).dat.data
+
+    for scalar in (0, 0.5, 2):
+        assert np.allclose(assemble(scalar * tensor).dat.data,
+                           scalar * reference, rtol=1e-14)
+        assert np.allclose(assemble(tensor * scalar).dat.data,
+                           scalar * reference, rtol=1e-14)
+
+
 def test_assemble_matrix_into_tensor(mesh):
     V = FunctionSpace(mesh, "DG", 0)
     u = TestFunction(V)
@@ -203,8 +216,7 @@ def test_mixed_argument_tensor(mesh):
     T = Tensor(inner(sigma, tau) * dx)
     As = assemble(T)
     A = assemble(inner(sigma, tau) * dx)
-    for ms, m in zip(As.M, A.M):
-        assert np.allclose(ms.values, m.values)
+    assert np.allclose(As.M.values, A.M.values)
 
 
 def test_vector_subblocks(mesh):
@@ -313,14 +325,14 @@ def test_diagonal(mass, matrix_mixed_nofacet):
 
     # test matrix built from diagonal for non mass matrix
     res2 = assemble(DiagonalTensor(Tensor(matrix_mixed_nofacet))).M.values
-    ref2 = np.concatenate(assemble(matrix_mixed_nofacet, diagonal=True).dat.data)
+    ref2 = assemble(matrix_mixed_nofacet, diagonal=True).dat.data_ro
     assert np.allclose(ref2, np.diag(res2), rtol=1e-14)
 
     # test matrix built from diagonal
     # for a Slate expression on a non mass matrix
     A = Tensor(matrix_mixed_nofacet)
     res3 = assemble(DiagonalTensor(A+A)).M.values
-    ref3 = np.concatenate(assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data)
+    ref3 = assemble(matrix_mixed_nofacet+matrix_mixed_nofacet, diagonal=True).dat.data_ro
     assert np.allclose(ref3, np.diag(res3), rtol=1e-14)
 
 
@@ -370,3 +382,33 @@ def test_nested_block(mesh, degree):
     result = assemble(Block(Jp, (0, 0))).petscmat
 
     assert np.allclose(result[:, :], expect[:, :])
+
+
+def test_slate_tensor_interp():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 2)
+    W = FunctionSpace(mesh, "DG", 1)
+    x, y = SpatialCoordinate(mesh)
+    u = Function(V).interpolate(x**2 + y)
+    w = TrialFunction(W)
+    v = TestFunction(W)
+    interpolation = interpolate(u, W)
+
+    mass = Tensor(inner(w, v) * dx)
+    actual = assemble(mass.inv * Tensor(inner(interpolation, v) * dx))
+
+    interpolated = assemble(interpolation)
+    expected = assemble(mass.inv * Tensor(inner(interpolated, v) * dx))
+    assert np.allclose(actual.dat.data, expected.dat.data)
+
+
+def test_slate_tensor_nonfusible_interp():
+    source_mesh = UnitSquareMesh(1, 1)
+    target_mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(source_mesh, "CG", 1)
+    W = FunctionSpace(target_mesh, "CG", 1)
+    v = TestFunction(W)
+    form = inner(interpolate(Function(V), W), v) * dx(domain=target_mesh)
+
+    with pytest.raises(MismatchingDomainError):
+        assemble(Tensor(form))

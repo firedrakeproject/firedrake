@@ -151,12 +151,11 @@ do the following steps:
 
       $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
 
-#. Compile PETSc by running the ``make`` command prompted by ``configure``. This
-   will look something like:
+#. Compile PETSc:
 
    .. code-block:: console
 
-      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
+      $ make
 
 #. Test the installation (optional) and return to the parent directory:
 
@@ -263,7 +262,7 @@ install Firedrake. To do this perform the following steps:
       so that it can be detected by mpi4py. See `here <https://mpi4py.readthedocs.io/en/stable/install.html#linux>`__
       for more information.
 
-#. Install Firedrake::
+#. Install Firedrake:
 
    .. code-block:: console
 
@@ -489,7 +488,7 @@ To install Firedrake with SLEPc support you should:
 
    .. code-block:: console
 
-      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-slepc
+      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure --download-slepc --download-slepc-commit=v3.26.0
 
 #. Set ``SLEPC_DIR``:
 
@@ -727,15 +726,7 @@ that you want to install (``main`` or ``release``, see
 
       $ git clone https://gitlab.com/petsc/petsc.git
 
-#. Configure and build PETSc as usual:
-
-   .. code-block:: console
-
-      $ cd petsc
-      $ python3 ../firedrake-configure --show-petsc-configure-options | xargs -L1 ./configure
-      $ make PETSC_DIR=/path/to/petsc PETSC_ARCH=arch-firedrake-default all
-      $ make check
-      $ cd ..
+#. Configure and build PETSc :ref:`as usual<install_petsc>`.
 
 #. Clone the desired branch of Firedrake:
 
@@ -803,7 +794,7 @@ it in editable mode. However, there are a number of footguns to look out for:
    which tells you that the ``main`` branch of FIAT is expected.
 
 #. These packages **must be installed after Firedrake**. If Firedrake is installed
-   after installing the subpackage then the subpackage will be overwriiten. This is
+   after installing the subpackage then the subpackage will be overwritten. This is
    due to the way that pip manages dependencies. Similarly, it is necessary
    that **dependencies are themselves installed in reverse order**. For example, Firedrake
    depends on both FIAT_ and UFL_, but FIAT also depends on UFL, therefore FIAT must be

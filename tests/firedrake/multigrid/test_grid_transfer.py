@@ -3,10 +3,19 @@ import numpy
 from firedrake import *
 
 
-@pytest.fixture(params=["interval", "triangle",
-                        "triangle-nonnested",  # no parameterized fixtures, UGH!
-                        "quadrilateral", "tetrahedron",
-                        "prism", "hexahedron"], scope="module")
+@pytest.fixture(
+    params=[
+        "interval",
+        "triangle",
+        "triangle-nonnested",  # no parameterized fixtures, UGH!
+        "triangle-submesh",  # no parameterized fixtures, UGH!
+        "quadrilateral",
+        "tetrahedron",
+        "prism",
+        "hexahedron",
+    ],
+    scope="module",
+)
 def cell(request):
     return request.param
 
@@ -29,12 +38,19 @@ def hierarchy(cell, refinements_per_level):
     if cell == "interval":
         mesh = UnitIntervalMesh(3)
         return MeshHierarchy(mesh, 2)
-    elif cell in {"triangle", "triangle-nonnested", "prism"}:
+    elif cell in {"triangle", "triangle-nonnested", "triangle-submesh", "prism"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=False)
     elif cell in {"quadrilateral", "hexahedron"}:
         mesh = UnitSquareMesh(3, 3, quadrilateral=True)
     elif cell == "tetrahedron":
         mesh = UnitCubeMesh(2, 2, 2)
+
+    if cell == "triangle-submesh":
+        x, _ = SpatialCoordinate(mesh)
+        marker = Function(FunctionSpace(mesh, "DG", 0)).interpolate(
+            conditional(x > 0.5, 1, 0)
+        )
+        mesh = RelabeledMesh(mesh, [marker], [666])
 
     nref = {2: 1, 1: 2}[refinements_per_level]
     hierarchy = MeshHierarchy(mesh, nref, refinements_per_level=refinements_per_level)
@@ -55,6 +71,8 @@ def hierarchy(cell, refinements_per_level):
         hierarchy = HierarchyBase(tuple(hierarchy), c2f, f2c,
                                   refinements_per_level=refinements_per_level,
                                   nested=False)
+    if cell == "triangle-submesh":
+        hierarchy = SubmeshHierarchy(hierarchy, subdomain_id=666)
     return hierarchy
 
 
@@ -76,13 +94,13 @@ def degrees(space):
         return (0, 1, 2)
 
 
-def element(family, cell, degree, shape):
+def element(family, cell, degree, shape, variant=None):
     if shape == "symmetric-tensor":
-        return TensorElement(family, cell=cell, degree=degree, symmetry=True)
+        return TensorElement(family, cell=cell, degree=degree, symmetry=True, variant=variant)
     elif shape == "vector":
-        return VectorElement(family, cell=cell, degree=degree)
+        return VectorElement(family, cell=cell, degree=degree, variant=variant)
     elif shape == "scalar":
-        return FiniteElement(family, cell=cell, degree=degree)
+        return FiniteElement(family, cell=cell, degree=degree, variant=variant)
     else:
         raise ValueError(f"Unrecognized shape {shape}")
 
@@ -98,9 +116,9 @@ def exact_primal(mesh, shape, degree):
     return expr
 
 
-def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
+def run_injection(hierarchy, shape, space, degrees, exact=exact_primal, variant=None):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape, variant=variant)
 
         mesh = hierarchy[-1]
         V = FunctionSpace(mesh, Ve)
@@ -116,9 +134,9 @@ def run_injection(hierarchy, shape, space, degrees, exact=exact_primal):
             assert numpy.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
-def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal):
+def run_prolongation(hierarchy, shape, space, degrees, exact=exact_primal, variant=None):
     for degree in degrees:
-        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape)
+        Ve = element(space, hierarchy[0].ufl_cell(), degree, shape, variant=variant)
 
         mesh = hierarchy[0]
         V = FunctionSpace(mesh, Ve)
@@ -211,6 +229,52 @@ def test_grid_transfer_KMV(transfer_type):
     degrees = (2, 5)
     shape = "scalar"
     run_transfer(hierarchy, shape, space, degrees, transfer_type)
+
+
+@pytest.mark.parametrize("variants", [("equispaced", "spectral"), ("spectral", "equispaced")])
+@pytest.mark.parametrize("transfer_type", ["prolongation", "injection"])
+def test_grid_transfer_variants(variants, transfer_type):
+    """Check transfers between element variants with the same entity DoFs.
+
+    These variants have different bases and different entity permutations.
+    Separate transfer kernels and node maps must be built for each variant.
+    """
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 1)
+    run = {"prolongation": run_prolongation, "injection": run_injection}[transfer_type]
+    for variant in variants:
+        run(hierarchy, "scalar", "DG", (2,), variant=variant)
+
+
+@pytest.mark.parallel([1, 2])
+def test_grid_transfer_reuses_loops():
+    """Check that repeated transfers with new arguments will reuse their loops.
+
+    Subfunctions of mixed functions have different data layouts from functions
+    in the same spaces. Separate loops are built for these subfunctions. No new
+    loops should be built by the second pass over the degrees.
+    """
+    base = UnitSquareMesh(2, 2)
+    hierarchy = MeshHierarchy(base, 1)
+    Vc = FunctionSpace(hierarchy[0], "CG", 2)
+    Vf = FunctionSpace(hierarchy[1], "CG", 2)
+    Qf = FunctionSpace(hierarchy[1], "DG", 0)
+    Wf = Vf * Qf
+    loops = hierarchy._shared_data_cache["transfer_loops"]
+
+    for expression_degree in (1, 2):
+        expr_coarse = exact_primal(hierarchy[0], "scalar", expression_degree)
+        expr_fine = exact_primal(hierarchy[1], "scalar", expression_degree)
+        coarse = Function(Vc).interpolate(expr_coarse)
+        expect = Function(Vf).interpolate(expr_fine)
+        fine = Function(Vf)
+        prolong(coarse, fine)
+        assert numpy.allclose(fine.dat.data_ro, expect.dat.data_ro)
+
+        mixed = Function(Wf)
+        prolong(coarse, mixed.subfunctions[0])
+        assert numpy.allclose(mixed.subfunctions[0].dat.data_ro, expect.dat.data_ro)
+        assert len(loops) == 2
 
 
 @pytest.fixture(params=["interval-interval",

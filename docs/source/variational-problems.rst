@@ -12,7 +12,7 @@ differential equation)` on: Firedrake uses a
 :py:func:`~.Mesh` for this.  On top of this mesh,
 we build :py:class:`~.FunctionSpace`\s which
 define the space in which the solutions to our equation live.  Finally
-we define :py:class:`~.Function`\s in those
+we define :py:class:`Function <firedrake.function.Function>`\s in those
 function spaces to actually hold the solutions.
 
 Constructing meshes
@@ -262,77 +262,12 @@ an extruded mesh.  We refer the reader to the :doc:`manual section on
 extrusion <extruded-meshes>` for details.
 
 
-.. _supported_elements:
-
 Supported finite elements
 -------------------------
 
-Firedrake supports the use of the following finite elements.
-
-.. csv-table::
-    :header: "Name", "Short name", "Value shape", "Valid cells"
-    :widths: 20, 10, 10, 40
-    :file: element_list.csv
-
-In addition, the
-:py:class:`~finat.ufl.tensorproductelement.TensorProductElement`
-operator can be used to create product elements on extruded meshes.
-
-.. _element_variants:
-
-Element variants
-~~~~~~~~~~~~~~~~
-
-Some finite element spaces offer more than one choice of nodes.  For Q, DQ, DQ
-L2, RTCE, RTCF, NCE, and NCF spaces on intervals, quadrilaterals and hexahedra,
-Firedrake offers both equispaced points and better conditioned Legendre points.
-For discontinuous elements these are the Gauss-Legendre points, and for
-continuous elements these are the Gauss-Lobatto-Legendre points.
-For CG and DG spaces on simplices, Firedrake offers both equispaced points and
-the better conditioned recursive Legendre points from :cite:`Isaac2020` via the
-`recursivenodes`_ module. These are selected by passing ``variant="equispaced"``
-or ``variant="spectral"`` to the :py:class:`~finat.ufl.finiteelement.FiniteElement` or
-:py:func:`~.FunctionSpace` constructors. For example:
-
-.. code-block:: python
-
-    fe = FiniteElement("RTCE", quadrilateral, 2, variant="equispaced")
-
-For CG and DG spaces, and most tensor-product elements, the default is ``variant="spectral"``.
-
-Integral-type degrees of freedom are also available through ``variant="integral"``. These
-enable orthogonal bases for DG on any cell type:
-
-.. code-block:: python
-
-    V = FunctionSpace(mesh, "DG", 1, variant="integral")
-
-In this case, the degrees of freedom are integral moments against a basis of polynomials,
-which need to be computed with a quadrature rule. The degree of accuracy of the quadrature
-can be increased also through the variant option. For instance, ``variant="integral(4)"``
-will use a quadrature that exactly evaluates the degrees of freedom on polynomials of
-4 degrees higher than that of the space.
-Furthermore, the quadrature rule can be specified via the ``"quad_scheme"`` keyword argument.
-For more details, see the manual section on :ref:`quadrature rules <element_quad_scheme>`.
-
-Integral-type degrees of freedom are useful to nearly preserve curl-free or
-divergence-free functions when interpolating into the finite element space.
-H(curl) and H(div) elements, such as Nédélec, Brezzi-Douglas-Marini, and Raviart-Thomas,
-have ``variant="integral"`` as default. These elements also support ``variant="point"``,
-where the degrees of freedom are vector components evaluated at equispaced points.
-
-Macroelements can be constructed by splitting each cell into subcells and tiling
-the element on each subcell, without refining the mesh. For example,
-the continuous Lagrange space where each simplex is subdivided
-by connecting each of its vertices to the barycenter is constructed as
-
-.. code-block:: python
-
-    V = FunctionSpace(mesh, "CG", 1, variant="alfeld")
-
-The space P1-iso-P2 may be similarly constructed with ``variant="iso(2)"``.
-Macroelements also support integral-type degrees of freedom,
-for example ``variant="alfeld,integral(2)"``.
+The element families that Firedrake supports, and how to choose
+between them, are listed on the separate page
+:doc:`supported-elements`.
 
 
 Expressing a variational problem
@@ -364,7 +299,7 @@ A nonlinear variational problem is defined in terms of a linear form
 :math:`F[u;v]` which is linear in the test function :math:`v` but may
 be nonlinear in the coefficient :math:`u`. The nonlinear variational
 problem seeks :math:`u\in V` such that :math:`F[u;v]=0\, \forall v\in
-V`. In UFL, the solution variable should be of type :py:class:`~.Function`
+V`. In UFL, the solution variable should be of type :py:class:`Function <firedrake.function.Function>`
 instead of :py:class:`~firedrake.ufl_expr.TrialFunction`.
 
 .. code-block:: python
@@ -395,7 +330,7 @@ an appropriate space along with a function to hold the solution and
 perhaps a trial function.  Test functions are obtained via a call to
 :py:class:`~firedrake.ufl_expr.TestFunction`, trial functions via
 :py:class:`~firedrake.ufl_expr.TrialFunction` and functions with
-:py:class:`~.Function`.  The former two are purely
+:py:class:`Function <firedrake.function.Function>`.  The former two are purely
 symbolic objects, the latter contains storage for the coefficients of
 the basis functions in the function space.  We use them as follows:
 
@@ -407,7 +342,7 @@ the basis functions in the function space.  We use them as follows:
 
 .. note::
 
-   A newly allocated :py:class:`~.Function` has
+   A newly allocated :py:class:`Function <firedrake.function.Function>` has
    coefficients which are all zero.
 
 If ``V`` above were a
@@ -479,7 +414,7 @@ we will populate with the x component of the coordinate field.
    x = SpatialCoordinate(mesh)
    f.interpolate(x[0])
 
-For details on how :py:meth:`~.Function.interpolate` works, see the
+For details on how :py:meth:`Function.interpolate <firedrake.function.Function.interpolate>` works, see the
 :doc:`appropriate section in the manual <interpolation>`.  The
 variational problem is to find :math:`u \in V` such that
 
@@ -525,7 +460,7 @@ time-dependent forcing function.  Although you can create a new form
 for each new value of this constant, this will not be efficient, since
 Firedrake must generate new code each time the value changes.  A
 better option is to use a :py:class:`~.Constant` coefficient.  This
-object behaves exactly like a :py:class:`~.Function`, except that it
+object behaves exactly like a :py:class:`Function <firedrake.function.Function>`, except that it
 has a single value over the whole mesh.  One may assign a new value to
 the :py:class:`~.Constant` using the :py:meth:`~.Constant.assign`
 method.  As an example, let us consider a form which contains a time
@@ -581,7 +516,7 @@ for the various :ref:`utility meshes <utility_mesh_functions>` are
 described in their respective constructor documentation.  For
 externally generated meshes, Firedrake just uses whichever ids the
 mesh generator provided.  The ``value`` may be either a scalar, or
-more generally a UFL expression, for example a :class:`~.Function` or
+more generally a UFL expression, for example a :class:`Function <firedrake.function.Function>` or
 :py:class:`~.Constant`, of the appropriate shape.  You may also supply
 an iterable of literal constants:
 
@@ -739,4 +674,3 @@ problems.
 .. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: https://en.wikipedia.org/wiki/Submanifold
-.. _recursivenodes: https://tisaac.gitlab.io/recursivenodes/

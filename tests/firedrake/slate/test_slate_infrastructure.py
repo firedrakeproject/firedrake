@@ -1,6 +1,9 @@
 import pytest
 from firedrake import *
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.slate.slate import ScalarMul, UnaryOp, as_slate
+from firedrake.matrix import ImplicitMatrix
+from ufl.form import FormSum
 import math
 
 
@@ -306,6 +309,13 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
 
 
+def test_inverse_block_extraction(mixed_matrix):
+    splitter = ExtractSubBlock()
+    inverse = mixed_matrix.inv
+
+    assert splitter.split(inverse, (0, 0)) == inverse.blocks[0, 0]
+
+
 def test_implicit_casting_add_sub():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -319,16 +329,45 @@ def test_implicit_casting_add_sub():
     r = Tensor(f)
     assert b + f == b + r
     assert b - f == b - r
-    assert f + b == r + b
-    assert f - b == r - b
+    # A TensorBase is a BaseForm, so UFL claims the reflected operator and
+    # returns a FormSum; as_slate recovers the equivalent Slate expression.
+    assert as_slate(f + b) == r + b
+    assert as_slate(f - b) == r - b
 
     # combine slate Tensor and Cofunction
     c = Cofunction(V.dual())
     s = AssembledVector(c)
     assert b + c == b + s
     assert b - c == b - s
-    assert c + b == s + b
-    assert c - b == s - b
+    assert as_slate(c + b) == s + b
+    assert as_slate(c - b) == s - b
+
+
+def test_scalar_multiplication():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
+    b = Tensor(v * dx)
+
+    zero = ScalarMul(0, b)
+    assert isinstance(zero, Tensor)
+    assert ScalarMul(2, zero) is zero
+    assert ScalarMul(-1, zero) is zero
+    assert ScalarMul(1, b) is b
+    assert ScalarMul(-1, b) == -b
+    assert isinstance(ScalarMul(2, b), UnaryOp)
+    assert isinstance(-b, ScalarMul)
+    assert 2 * b == ScalarMul(2, b)
+    assert b * 0.5 == ScalarMul(0.5, b)
+
+    weighted = FormSum((b, 2), (b, 1))
+    assert as_slate(weighted) == ScalarMul(2, b) + b
+
+    scalar = Constant(2)
+    assert b * scalar == ScalarMul(scalar, b)
+    assert scalar * b == ScalarMul(scalar, b)
+    with pytest.raises(ValueError, match="scalar-valued"):
+        ScalarMul(Constant([1, 2]), b)
 
 
 def test_implicit_casting_action():
@@ -348,6 +387,30 @@ def test_implicit_casting_action():
     assert A * w == expected
     # ufl Form times slate AssembledVector
     assert a * W == expected
+
+
+@pytest.mark.parallel([1, 3])
+def test_matfree_slate_sum_product_uses_implicit_matrix():
+    mesh = UnitSquareMesh(5, 5)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    Q = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    q = TestFunction(Q)
+    p = TrialFunction(Q)
+    A = inner(grad(u), grad(v)) * dx
+    B = Tensor(inner(div(u), q) * dx)
+    M = Tensor(inner(p, q) * dx)
+    # M.inv * B is the L2 projection of div(u) into DG0.
+    form = A + B.T * M.inv * B
+    assert isinstance(form, FormSum)
+    assert len(form.components()) == 2
+
+    assembled = assemble(form, mat_type="matfree")
+
+    assert isinstance(assembled, ImplicitMatrix)
+    assert isinstance(assembled.a, FormSum)
+    assert len(assembled.a.components()) == 2
 
 
 def test_illegal_add_sub():
@@ -394,8 +457,7 @@ def test_ops_TypeError():
     with pytest.raises(TypeError):
         f - A
 
-    with pytest.raises(TypeError):
-        f * A
+    assert f * A == ScalarMul(f, A)
 
 
 def test_illegal_mul():

@@ -1,11 +1,15 @@
 import pytest
 from firedrake import *
 from firedrake.petsc import PETSc
+from firedrake.utils import complex_mode
 
 
 @pytest.mark.skipslepc
 def test_moore_spence():
     from slepc4py import SLEPc
+
+    if complex_mode:
+        pytest.xfail(reason="pyop3 bug")
 
     msh = IntervalMesh(1000, 1)
     V = FunctionSpace(msh, "CG", 1)

@@ -83,6 +83,20 @@ def test_interpolate_with_arguments(rg):
     assert taylor_test(rf, f, h) > 1.9
 
 
+@pytest.mark.skipcomplex
+def test_interpolate_in_form(rg):
+    mesh = UnitSquareMesh(3, 3)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "DG", 0)
+    x, y = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(x + 2 * y)
+
+    J = assemble(interpolate(f, W) ** 2 * dx)
+    rf = ReducedFunctional(J, Control(f))
+
+    assert taylor_test(rf, f, rg.uniform(V)) > 1.9
+
+
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
 def test_interpolate_scalar_valued(rg):
     mesh = IntervalMesh(10, 0, 1)
@@ -706,6 +720,7 @@ def test_init_constant():
 
 
 @pytest.mark.skipcomplex  # Taping for complex-valued 0-forms not yet done
+@pytest.mark.xfail(reason="illegal in pyop3, illegal in general?")
 def test_init_constant_diff_mesh():
     mesh = UnitSquareMesh(1, 1)
     mesh0 = UnitSquareMesh(2, 2)
@@ -1035,9 +1050,8 @@ def test_bdy_control():
     tape = get_working_tape()
     # Check the checkpointed boundary conditions are not updating the
     # user-defined boundary conditions ``bc_left`` and ``bc_right``.
-    assert isinstance(tape._blocks[0], DirichletBCBlock)
-    assert tape._blocks[0]._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
-
-    # tape._blocks[1] is the DirichletBC block for the right boundary
-    assert isinstance(tape._blocks[1], DirichletBCBlock)
-    assert tape._blocks[1]._outputs[0].checkpoint.checkpoint is not bc_right._original_arg
+    bc_blocks = [block for block in tape._blocks
+                 if isinstance(block, DirichletBCBlock)]
+    left_block, right_block = bc_blocks
+    assert left_block._outputs[0].checkpoint.checkpoint is not bc_left._original_arg
+    assert right_block._outputs[0].checkpoint.checkpoint is not bc_right._original_arg

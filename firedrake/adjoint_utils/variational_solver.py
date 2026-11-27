@@ -1,5 +1,6 @@
 import copy
 from functools import wraps
+from itertools import chain
 from pyadjoint.tape import get_working_tape, stop_annotating, annotate_tape, no_annotations
 from firedrake.adjoint_utils.blocks import NonlinearVariationalSolveBlock
 from firedrake.ufl_expr import derivative, adjoint
@@ -17,6 +18,8 @@ class NonlinearVariationalProblemMixin:
             self._ad_u = self.u_restrict
             self._ad_bcs = self.bcs
             self._ad_J = self.J
+            self._ad_Jp = self.Jp
+            self._ad_E = self.E
             try:
                 # Some forms (e.g. SLATE tensors) are not currently
                 # differentiable.
@@ -31,6 +34,7 @@ class NonlinearVariationalProblemMixin:
                 self._ad_adj_F = None
             self._ad_kwargs = {'Jp': self.Jp, 'form_compiler_parameters': self.form_compiler_parameters, 'is_linear': self.is_linear}
             self._ad_count_map = {}
+            self._ad_bc_map = {}
         return wrapper
 
     def _ad_count_map_update(self, updated_ad_count_map):
@@ -79,7 +83,7 @@ class NonlinearVariationalSolverMixin:
                                                        problem._ad_u,
                                                        problem._ad_bcs,
                                                        adj_cache=self._ad_adj_cache,
-                                                       problem_J=problem._ad_J,
+                                                       problem_forms=(problem._ad_J, problem._ad_Jp, problem._ad_E),
                                                        solver_kwargs=self._ad_kwargs,
                                                        ad_block_tag=self.ad_block_tag,
                                                        **sb_kwargs)
@@ -116,23 +120,52 @@ class NonlinearVariationalSolverMixin:
 
     @no_annotations
     def _ad_problem_clone(self, problem, dependencies):
-        """Replaces every coefficient in the residual and jacobian with a deepcopy to return
-        a clone of the original NonlinearVariationalProblem instance. We'll be modifying the
-        numerical values of the coefficients in the residual and jacobian, so in order not to
-        affect the user-defined self._ad_problem.F, self._ad_problem.J and self._ad_problem.u
-        expressions, we'll instead create clones of them.
+        """Replaces every coefficient in the residual, jacobian, preconditioner, objective and
+        Dirichlet boundary values with a copy to return a clone of the original
+        NonlinearVariationalProblem instance.
+        We'll be modifying the numerical values of these coefficients, so in order not to
+        affect the user-defined problem, we'll instead create clones of them.
         """
         from firedrake import NonlinearVariationalProblem
-        _ad_count_map, J_replace_map, F_replace_map = self._build_count_map(
-            problem.J, dependencies, F=problem.F)
-        nlvp = NonlinearVariationalProblem(replace(problem.F, F_replace_map),
-                                           F_replace_map[problem.u_restrict],
-                                           bcs=problem.bcs,
-                                           J=replace(problem.J, J_replace_map))
+        forms = [form for form in (problem.F, problem.Jp, problem.E) if form is not None]
+        _ad_count_map, J_replace_map, replace_map = self._build_count_map(
+            problem.J, dependencies, forms=forms)
+        bc_map = self._ad_dirichlet_bcs_clone(problem.bcs, replace_map)
+        Jp = problem.Jp
+        if Jp is not None:
+            Jp = replace(Jp, replace_map)
+        E = problem.E
+        if E is not None:
+            E = replace(E, replace_map)
+        nlvp = NonlinearVariationalProblem(replace(problem.F, replace_map),
+                                           replace_map[problem.u_restrict],
+                                           bcs=[bc_map.get(bc, bc) for bc in problem.bcs],
+                                           J=replace(problem.J, J_replace_map),
+                                           Jp=Jp,
+                                           objective=E)
         nlvp.is_linear = problem.is_linear
         nlvp._constant_jacobian = problem._constant_jacobian
         nlvp._ad_count_map_update(_ad_count_map)
+        nlvp._ad_bc_map = bc_map
         return nlvp
+
+    @staticmethod
+    def _ad_dirichlet_bcs_clone(bcs, replace_map):
+        """Map each DirichletBC with a Function value to a clone that applies a copy of that value."""
+        from firedrake import DirichletBC, Function
+        bc_map = {}
+        for bc in bcs:
+            if not isinstance(bc, DirichletBC):
+                continue
+            g = bc.function_arg
+            if not isinstance(g, Function):
+                continue
+            if g in replace_map:
+                g_copy = replace_map[g]
+            else:
+                g_copy = g.copy(deepcopy=True)
+            bc_map[bc] = bc.reconstruct(g=g_copy)
+        return bc_map
 
     @no_annotations
     def _ad_adj_lvs_problem(self, block, adj_F):
@@ -159,25 +192,24 @@ class NonlinearVariationalSolverMixin:
         lvp._ad_count_map_update(_ad_count_map)
         return lvp
 
-    def _build_count_map(self, J, dependencies, F=None):
+    def _build_count_map(self, J, dependencies, forms=()):
+        """Map the coefficients of J to copies, and deep copy the coefficients of forms."""
         from firedrake import Function
 
         F_replace_map = {}
         J_replace_map = {}
-        if F:
-            F_coefficients = F.coefficients()
+        F_coefficients = set(chain.from_iterable(form.coefficients() for form in forms))
         J_coefficients = J.coefficients()
 
         _ad_count_map = {}
         for block_variable in dependencies:
             coeff = block_variable.output
-            if F:
-                if coeff in F_coefficients and coeff not in F_replace_map:
-                    if isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
-                        F_replace_map[coeff] = copy.deepcopy(coeff)
-                    else:
-                        F_replace_map[coeff] = coeff.copy(deepcopy=True)
-                    _ad_count_map[F_replace_map[coeff]] = coeff.count()
+            if coeff in F_coefficients and coeff not in F_replace_map:
+                if isinstance(coeff, Function) and coeff.ufl_element().family() == "Real":
+                    F_replace_map[coeff] = copy.deepcopy(coeff)
+                else:
+                    F_replace_map[coeff] = coeff.copy(deepcopy=True)
+                _ad_count_map[F_replace_map[coeff]] = coeff.count()
 
             if coeff in J_coefficients and coeff not in J_replace_map:
                 if coeff in F_replace_map:

@@ -19,6 +19,8 @@
 
 __all__ = ["solve"]
 
+import warnings
+
 import ufl
 
 import firedrake.linear_solver as ls
@@ -46,7 +48,8 @@ def solve(*args, **kwargs):
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
-    where ``A`` is a :class:`.Matrix` and ``x`` and ``b`` are :class:`.Function`\s.
+    where ``A`` is a :class:`.Matrix` and ``x`` and ``b`` are
+    :class:`firedrake.function.Function`\s.
     If present, ``bcs`` should be a list of :class:`.DirichletBC`\s and
     :class:`.EquationBC`\s specifying, respectively, the strong boundary conditions
     to apply and PDEs to solve on the boundaries.
@@ -60,11 +63,18 @@ def solve(*args, **kwargs):
 
         solve(A, x, b, P=P, bcs=bcs, solver_parameters={...})
 
+    User data for Python-type preconditioners is passed with the ``appctx``
+    keyword argument, as it is for the variational cases below.
+
+    .. code-block:: python3
+
+        solve(A, x, b, appctx={"mu": mu}, solver_parameters={...})
+
     *2. Solving linear variational problems*
 
     A linear variational problem a(u, v) = L(v) for all v may be
     solved by calling solve(a == L, u, ...), where a is a bilinear
-    form, L is a linear form, u is a :class:`.Function` (the
+    form, L is a linear form, u is a :class:`firedrake.function.Function` (the
     solution). Optional arguments may be supplied to specify boundary
     conditions or solver parameters. Some examples are given below:
 
@@ -91,7 +101,7 @@ def solve(*args, **kwargs):
     A nonlinear variational problem F(u; v) = 0 for all v may be
     solved by calling solve(F == 0, u, ...), where the residual F is a
     linear form (linear in the test function v but possibly nonlinear
-    in the unknown u) and u is a :class:`.Function` (the
+    in the unknown u) and u is a :class:`firedrake.function.Function` (the
     solution). Optional arguments may be supplied to specify boundary
     conditions, the Jacobian form or solver parameters. If the
     Jacobian is not supplied, it will be computed by automatic
@@ -139,7 +149,7 @@ def solve(*args, **kwargs):
     -------
     firedrake.function.Function or None
         For a variational problem (cases 2 and 3 above), the (possibly
-        adapted) solution :class:`~.Function`. This may differ from the
+        adapted) solution :class:`firedrake.function.Function`. This may differ from the
         ``u`` that was passed in if the solver performed mesh adaptation
         during the solve. `None` is returned when solving a pre-assembled
         linear system (case 1 above).
@@ -161,7 +171,7 @@ def _solve_varproblem(*args, **kwargs):
     eq, u, bcs, J, Jp, objective, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
-        options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
+        options_prefix, restrict, pre_apply_bcs, marking_callback = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
     if not isinstance(u, Function):
@@ -200,32 +210,44 @@ def _solve_varproblem(*args, **kwargs):
                            near_nullspace=near_nullspace,
                            options_prefix=options_prefix,
                            appctx=appctx,
-                           pre_apply_bcs=pre_apply_bcs)
+                           pre_apply_bcs=pre_apply_bcs,
+                           marking_callback=marking_callback)
     return solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):
     r"""Solve a linear algebra problem.
 
-    :arg A: the assembled bilinear form, a :class:`.Matrix`.
-    :arg x: the :class:`.Function` to write the solution into.
-    :arg b: the :class:`.Function` defining the right hand side values.
-    :kwarg P: an optional :class:`~.MatrixBase` to construct any
-         preconditioner from; if none is supplied ``A`` is
-         used to construct the preconditioner.
-    :kwarg solver_parameters: optional solver parameters.
-    :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
-         :class:`.MixedVectorSpaceBasis`) spanning the null space of
-         the operator.
-    :kwarg transpose_nullspace: as for the nullspace, but used to
-         make the right hand side consistent.
-    :kwarg near_nullspace: as for the nullspace, but used to add
-         the near nullspace.
-    :kwarg options_prefix: an optional prefix used to distinguish
-         PETSc options.  If not provided a unique prefix will be
-         created.  Use this option if you want to pass options
-         to the solver from the command line in addition to
-         through the ``solver_parameters`` dict.
+    Parameters
+    ----------
+    A : firedrake.matrix.Matrix
+        The assembled bilinear form.
+    x : firedrake.function.Function
+        The Function to write the solution into.
+    b : firedrake.cofunction.Cofunction
+        The Cofunction defining the right hand side values.
+    P : firedrake.matrix.MatrixBase
+        An optional operator to construct any preconditioner from; if none is
+        supplied ``A`` is used to construct the preconditioner.
+    solver_parameters : dict
+        Optional solver parameters to pass to PETSc.
+    nullspace : firedrake.nullspace.VectorSpaceBasis or firedrake.nullspace.MixedVectorSpaceBasis
+        An optional basis spanning the null space of the operator.
+    transpose_nullspace : firedrake.nullspace.VectorSpaceBasis or firedrake.nullspace.MixedVectorSpaceBasis
+        As for the nullspace, but used to make the right hand side consistent.
+    near_nullspace : firedrake.nullspace.VectorSpaceBasis or firedrake.nullspace.MixedVectorSpaceBasis
+        As for the nullspace, but used to add the near nullspace.
+    options_prefix : str
+        An optional prefix used to distinguish PETSc options. If not provided a
+        unique prefix will be created. Use this option if you want to pass
+        options to the solver from the command line in addition to through the
+        ``solver_parameters`` dict.
+    appctx : dict
+        An optional dictionary of user data made available to Python-type
+        preconditioners and to matrix-free operators.
+    pre_apply_bcs : bool
+        Whether the boundary conditions are applied to the right hand side
+        before the solve.
 
     .. note::
 
@@ -246,13 +268,12 @@ def _la_solve(A, x, b, **kwargs):
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
     (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
-     options_prefix, pre_apply_bcs,
+     options_prefix, appctx, pre_apply_bcs,
      ) = _extract_linear_solver_args(A, x, b, **kwargs)
 
     if bcs is not None:
         raise RuntimeError("It is no longer possible to apply or change boundary conditions after assembling the matrix `A`; pass any necessary boundary conditions to `assemble` when assembling `A`.")
 
-    appctx = solver_parameters.get("appctx", {})
     solver = ls.LinearSolver(A=A, P=P, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
@@ -266,13 +287,13 @@ def _la_solve(A, x, b, **kwargs):
 def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["P", "bcs", "solver_parameters", "nullspace",
                     "transpose_nullspace", "near_nullspace", "options_prefix",
-                    "pre_apply_bcs"]
-    valid_kwargs_string = ", ".join(f"'{kw}'" for kw in valid_kwargs)
+                    "appctx", "pre_apply_bcs"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
+            valid_kwargs_string = ", ".join(repr(kw) for kw in valid_kwargs)
             raise RuntimeError(f"Illegal keyword argument '{kwarg}'; valid keywords are {valid_kwargs_string}")
 
     P = kwargs.get("P", None)
@@ -284,7 +305,28 @@ def _extract_linear_solver_args(*args, **kwargs):
     options_prefix = kwargs.get("options_prefix", None)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
-    return P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix, pre_apply_bcs
+    appctx = kwargs.get("appctx", None)
+    if "appctx" in solver_parameters:
+        if appctx is not None:
+            raise ValueError(
+                "appctx was given both as a keyword argument and as an 'appctx' "
+                "entry of solver_parameters; pass it as the keyword argument only"
+            )
+        # For backwards compatibility. The entry is removed from a copy of the
+        # dict so that the parameters handed to PETSc hold solver options only,
+        # and the caller's own dict is left as it was.
+        warnings.warn(
+            "Passing the appctx inside solver_parameters is deprecated and will "
+            "be removed, please pass it as the 'appctx' keyword argument instead",
+            FutureWarning
+        )
+        solver_parameters = dict(solver_parameters)
+        appctx = solver_parameters.pop("appctx")
+    if appctx is None:
+        appctx = {}
+
+    return (P, bcs, solver_parameters, nullspace, nullspace_T, near_nullspace,
+            options_prefix, appctx, pre_apply_bcs)
 
 
 def _extract_args(*args, **kwargs):
@@ -294,10 +336,11 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "objective",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
-                    "options_prefix", "appctx", "restrict", "pre_apply_bcs"]
-    valid_kwargs_string = ", ".join(f"'{kw}'" for kw in valid_kwargs)
+                    "options_prefix", "appctx", "restrict", "pre_apply_bcs",
+                    "marking_callback"]
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
+            valid_kwargs_string = ", ".join(repr(kw) for kw in valid_kwargs)
             raise RuntimeError(f"Illegal keyword argument '{kwarg}'; valid keywords "
                                f"are {valid_kwargs_string}")
 
@@ -337,10 +380,11 @@ def _extract_args(*args, **kwargs):
     options_prefix = kwargs.get("options_prefix", None)
     restrict = kwargs.get("restrict", False)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
+    marking_callback = kwargs.get("marking_callback", None)
 
     return eq, u, bcs, J, Jp, objective, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix, restrict, pre_apply_bcs
+        options_prefix, restrict, pre_apply_bcs, marking_callback
 
 
 def _extract_bcs(bcs):

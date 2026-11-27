@@ -7,7 +7,7 @@ import petsctools
 import ufl
 from mpi4py import MPI
 
-from pyop2.mpi import COMM_WORLD
+from pyop3.mpi import COMM_WORLD
 from firedrake.utils import IntType, ScalarType
 
 from firedrake import (
@@ -77,16 +77,16 @@ reorder_noop = False
 
 def _postprocess_periodic_mesh(coords, comm, distribution_parameters, reorder, name, distribution_name, permutation_name):
     dm = coords.function_space().mesh().topology.topology_dm
-    dm.removeLabel("pyop2_core")
-    dm.removeLabel("pyop2_owned")
-    dm.removeLabel("pyop2_ghost")
+    dm.removeLabel("firedrake_is_ghost")
     dm.removeLabel("exterior_facets")
     dm.removeLabel("interior_facets")
     V = coords.function_space()
-    dmcommon._set_dg_coordinates(dm,
-                                 V.finat_element,
-                                 V.dm.getLocalSection(),
-                                 coords.dat._vec)
+
+    with coords.dat.vec_rw as coords_vec:
+        dmcommon._set_dg_coordinates(dm,
+                                     V.finat_element,
+                                     V.dm.getLocalSection(),
+                                     coords_vec)
     return Mesh(
         dm,
         comm=comm,
@@ -1516,7 +1516,7 @@ def TensorBoxMesh(
             "The crossed cutting of hexahedra has a broken connectivity issue for Pk (k>1) elements"
         )
     else:
-        raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+        raise ValueError(f"Unrecognised value for diagonal {diagonal!r}")
     plex = plex_from_cell_list(
         3, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
@@ -2137,9 +2137,8 @@ def IcosahedralSphereMesh(
         new_coords = Function(VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
+        new_coords_data *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = Mesh(
             new_coords,
             name=name,
@@ -2590,10 +2589,9 @@ def CubedSphereMesh(
     if degree > 1:
         new_coords = Function(VectorFunctionSpace(m, "Q", degree))
         new_coords.interpolate(ufl.SpatialCoordinate(m))
+        new_coords_data = new_coords.dat.data_rw.reshape((-1, 3))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (
-            radius / np.linalg.norm(new_coords.dat.data, axis=1)
-        ).reshape(-1, 1)
+        new_coords_data[...] *= radius / np.linalg.norm(new_coords_data, axis=1)[:, np.newaxis]
         m = Mesh(
             new_coords,
             distribution_name=distribution_name,
@@ -2961,7 +2959,7 @@ def CylinderMesh(
             elif diagonal == "right":
                 idx = [0, 1, 2, 0, 2, 3]
             else:
-                raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+                raise ValueError(f"Unrecognised value for diagonal {diagonal!r}")
             # two cells per cell above...
             cells = cells[:, idx].reshape(-1, 3)
 
