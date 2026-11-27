@@ -70,7 +70,7 @@ def test_area(order):
         pytest.skip(reason="OpenCascade unavailable, skipping test")
     from math import pi
     a_true = pi/4
-    print(f"True ara for {os.path.basename(stepfile)}: {a_true}")
+    print(f"True area for {os.path.basename(stepfile)}: {a_true}")
     err = compute_err(mh, a_true)
     print(f"Area errors: {err}")
     for pair in zip(err, err[1:]):
