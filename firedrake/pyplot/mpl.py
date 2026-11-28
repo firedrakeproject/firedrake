@@ -24,9 +24,11 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
 from firedrake.cython import dmcommon
+from firedrake.embedding import get_embedding_dg_element
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
+from finat.physically_mapped import NeedsCoordinateMappingElement
 
 
 __all__ = [
@@ -1174,6 +1176,13 @@ class FunctionPlotter:
         # if the function space is the same as the last one
         Q = function.function_space()
         mesh = Q.mesh()
+        element = Q.ufl_element()
+        if isinstance(Q.finat_element, NeedsCoordinateMappingElement) or not element.pullback.is_identity:
+            # Interpolate into broken Lagrange to sample the physical values
+            # with the reference tabulation below.
+            element = get_embedding_dg_element(element, Q.value_shape, broken_cg=True)
+            function = assemble(interpolate(function, FunctionSpace(mesh, element)))
+            Q = function.function_space()
         dimension = mesh.topological_dimension
         keys = {1: (0,), 2: (0, 0)}
 

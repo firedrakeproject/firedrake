@@ -67,6 +67,13 @@ copy_demos:
 	install -d source/demos
 	cp ../demos/*/*.rst ../demos/demo_references.bib ../demos/*/*.geo ../demos/*/*.msh ../demos/*/*.png ../demos/*/*.svg source/demos
 	for file in source/demos/*.py.rst; do pylit --code-block-marker ".. code-block:: python" $$file; done
+	# Compile the TikZ diagrams of the demos and convert them to SVG.
+	install -d $(BUILDDIR)/diagrams
+	for tex_file in ../demos/*/*.tex; do \
+		diagram=$$(basename $$tex_file .tex); \
+		pdflatex -interaction=batchmode -halt-on-error -output-directory $(BUILDDIR)/diagrams $$tex_file || exit 1; \
+		pdftocairo -svg $(BUILDDIR)/diagrams/$$diagram.pdf source/demos/$$diagram.svg || exit 1; \
+	done
 
 NOTEBOOK_SRCS = $(wildcard notebooks/*.py)
 EXECUTED_NOTEBOOKS = $(patsubst notebooks/%.py,source/notebooks/%.ipynb,$(NOTEBOOK_SRCS))

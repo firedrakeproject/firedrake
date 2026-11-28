@@ -86,7 +86,7 @@ docs = [
   "nbsphinx",  # execute and render the tutorial notebooks
   "networkx",  # draw the pyadjoint tape in the adjoint tutorial notebook
   "numpydoc",
-  "pdf2image",  # render the drawn tape (needs poppler)
+  "pdf2image",  # render the drawn tape (needs poppler, whose pdftocairo also draws the demo diagrams)
   "pygraphviz",  # networkx's graphviz layout (needs the graphviz headers)
   "pylit",
   "sphinx",

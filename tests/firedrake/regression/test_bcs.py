@@ -4,6 +4,7 @@ from firedrake import *
 from firedrake.bcs import extract_subdomain_ids
 from firedrake.mesh import plex_from_cell_list
 from firedrake.utils import IntType
+from pytest_mpi.parallel_assert import parallel_assert
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -49,6 +50,29 @@ def test_init_bcs_illegal(mesh, v):
     "Initialise a DirichletBC with illegal values."
     with pytest.raises(ValueError):
         DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
+
+
+@pytest.mark.parallel([1, 2])
+def test_morley_constant_bc():
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "Morley", 2)
+    u = Function(V)
+    bc = DirichletBC(V, 1, "on_boundary")
+    bc.apply(u)
+
+    # The linear Lagrange interpolant keeps the values at the vertices.
+    P = FunctionSpace(mesh, "CG", 1)
+    u_linear = Function(P).interpolate(u)
+    error = u_linear - 1
+    assert sqrt(assemble(inner(error, error) * ds).real) < 1e-7
+
+    # The normal derivative of a constant is zero.
+    T = FunctionSpace(mesh, "HDiv Trace", 0)
+    q = TestFunction(T)
+    n = FacetNormal(mesh)
+    moments = assemble(inner(grad(u), n) * q * ds)
+    parallel_assert(np.allclose(moments.dat.data_ro, 0, atol=1e-7),
+                    msg="The mean normal derivative is not zero on a boundary edge")
 
 
 @pytest.mark.parametrize('measure', [dx, ds])
