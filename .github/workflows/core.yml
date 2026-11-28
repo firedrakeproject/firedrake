@@ -572,8 +572,9 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          # pandoc is required by nbsphinx to render the tutorial notebooks
-          apt-get -y install inkscape texlive-full pandoc
+          # pandoc is required by nbsphinx to render the tutorial notebooks,
+          # and poppler-utils converts the TikZ diagrams of the demos to SVG
+          apt-get -y install inkscape texlive-full pandoc poppler-utils
 
       - uses: actions/checkout@v7
         with:
