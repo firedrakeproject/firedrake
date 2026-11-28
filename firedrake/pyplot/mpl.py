@@ -26,6 +26,7 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
 from firedrake.cython import dmcommon
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
+from firedrake.utils import safe_is
 from ufl.domain import extract_unique_domain
 
 
@@ -291,8 +292,10 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     # each column of cells, so there are none unless the mesh is extruded.
     if mesh.extruded:
         cell_dim, vert_facet_dim, horiz_facet_dim = (tdim - 1, 1), (tdim - 2, 1), (tdim - 1, 0)
+        exterior_facet_type = "exterior_facet_vert"
     else:
         cell_dim = tdim
+        exterior_facet_type = "exterior_facet"
 
     coords = toreal(coordinates.dat.data_ro_with_halos, "real")
     cell_nodes = coordinates.function_space().cell_node_list
@@ -314,11 +317,20 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
     # Add colored lines/polygons for the boundary facets. Each facet is drawn
     # from the nodes of the cell it belongs to that lie on it.
 
-    markers = list(mesh.facet_markers)
+    exterior_facets = mesh._entity_dm_indices(exterior_facet_type, force_return_array=True)
+    marker_facets = {}
+    for marker in mesh.facet_markers:
+        marked_facets = safe_is(mesh.topology_dm.getStratumIS(dmcommon.FACE_SETS_LABEL, marker)).indices
+        facets = np.intersect1d(exterior_facets, marked_facets, assume_unique=True)
+        if facets.size:
+            marker_facets[marker] = facets
+
+    markers = list(marker_facets)
     if mesh.extruded and not mesh.extruded_periodic:
         markers += ["bottom", "top"]
 
     def marker_faces(marker):
+        facet_type = exterior_facet_type
         if mesh.extruded:
             if marker == "top":
                 facet_type = "exterior_facet_top"
@@ -329,11 +341,9 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
                 local_exterior_facet_nums = np.full(mesh.exterior_facets_top.local_size, 0, dtype=int)
                 facet_dim = horiz_facet_dim
             else:
-                facet_type = "exterior_facet_vert"
                 local_exterior_facet_nums = mesh.exterior_facet_vert_local_facet_indices.data_ro.ravel()
                 facet_dim = vert_facet_dim
         else:
-            facet_type = "exterior_facet"
             local_exterior_facet_nums = mesh.exterior_facet_local_facet_indices.data_ro.ravel()
             facet_dim = tdim - 1
 
@@ -349,9 +359,8 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
             # these markers don't have subsets
             subset_idxs = Ellipsis
         else:
-            subset_dm_idxs = mesh.iter(facet_type, int(marker)).dm_indices
             subset_idxs = dmcommon.section_offsets(
-                mesh._plex_to_entity_numbering_sec(facet_type), subset_dm_idxs
+                mesh._plex_to_entity_numbering_sec(facet_type), marker_facets[marker]
             )
 
         return exterior_facet_nodes_per_exterior_facet[subset_idxs]

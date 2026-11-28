@@ -306,6 +306,25 @@ def test_triplot():
 
 
 @pytest.mark.skipplot
+@pytest.mark.parametrize("boundary_kw", [
+    pytest.param({}, id="default-colors"),
+    pytest.param({"colors": ["red", "blue", "green", "orange"]}, id="custom-colors"),
+])
+def test_triplot_exterior_markers(boundary_kw):
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "HDiv Trace", 0)
+    x, y = SpatialCoordinate(mesh)
+    marker = Function(V)
+    marker.interpolate(conditional(And(eq(x, 0.5), eq(y, 0.5)), 1, 0))
+    mesh.mark_entities(marker, 0)
+
+    _, axes = plt.subplots()
+    triplot(mesh, axes=axes, boundary_kw=boundary_kw)
+    _, labels = axes.get_legend_handles_labels()
+    assert labels == ["1", "2", "3", "4"]
+
+
+@pytest.mark.skipplot
 def test_triplot_quad_mesh():
     mesh = UnitSquareMesh(10, 10, quadrilateral=True)
     fig, axes = plt.subplots()
