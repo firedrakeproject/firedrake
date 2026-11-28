@@ -41,7 +41,8 @@ We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3
 
     Omega = wp.Face()
     
-    # Label the inlets and outlet; the other walls are unlabelled
+    # Name the walls, then assign separate names to the inlets and outlet.
+    Omega.edges.name = "walls"
     Omega.edges.Max(ngocc.Y).name = "inlet_1"
     Omega.edges.Min(ngocc.Y).name = "inlet_2"
     Omega.edges.Max(ngocc.X).name = "outlet"
@@ -62,7 +63,7 @@ We use :doc:`netgen <netgen_mesh.py>` to build a curved mesh of order :math:`k=3
     inlet_1_id = tuple(i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "inlet_1")
     inlet_2_id = tuple(i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "inlet_2")
     outlet_id = tuple(i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "outlet")
-    walls_ids = tuple(i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "default")
+    walls_ids = tuple(i+1 for i, name in enumerate(ngmesh.GetRegionNames(dim=1)) if name == "walls")
 
     # Define the surface and volume measures using a fixed quadrature degree
     deg_max = 3*k
