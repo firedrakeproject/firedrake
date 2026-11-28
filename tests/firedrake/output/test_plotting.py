@@ -474,16 +474,19 @@ def _embedded_interval_mesh(expr, dim):
 
 
 @pytest.mark.skipplot
-def test_plotting_embedded_1d_function():
+@pytest.mark.parametrize("degree", [1, 4])
+def test_plot_uses_first_coordinate_on_embedded_interval(degree):
     mesh = _embedded_interval_mesh(lambda x: as_vector([x, x**2]), 2)
-    V = FunctionSpace(mesh, "CG", 1)
-    x, y = SpatialCoordinate(mesh)
-    function = Function(V).interpolate(x + y)
+    V = FunctionSpace(mesh, "CG", degree)
+    x, _ = SpatialCoordinate(mesh)
+    function = Function(V)
+    function.interpolate(1 + 2 * x)
 
     fig, axes = plt.subplots()
-    patches = plot(function, axes=axes)
-    assert patches is not None
-    fig.canvas.draw()
+    patch, = plot(function, axes=axes)
+    path, = patch.get_paths()
+    x_values, y_values = path.vertices.T
+    assert np.allclose(y_values, 1 + 2 * x_values)
 
 
 @pytest.mark.skipplot

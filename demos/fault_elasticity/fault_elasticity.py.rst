@@ -10,8 +10,8 @@ Aperture Radar <https://en.wikipedia.org/wiki/Interferometric_synthetic-aperture
 (InSAR) compares two satellite radar images of the same area, and it maps the
 displacement over the whole area.
 Elastic models relate these surface displacements to the source at depth.
-This demo computes such displacements for two sources in a 2D (plane strain)
-cross-section of the crust:
+This demo uses plane strain to compute the displacement of a cross-section
+of the crust for two sources.
 
 1. A magma sill, which is a horizontal crack that opens under the pressure of
    the magma inside it.  The faces of the sill carry a known traction, so a
@@ -154,8 +154,9 @@ faces.
 
 The operator is symmetric and positive definite.  We solve it with the
 conjugate gradient method and algebraic multigrid.  The rigid body modes give
-GAMG a near null space, which is the null space of the operator without
-boundary conditions.
+PETSc's geometric algebraic multigrid (GAMG) preconditioner a near null
+space. The modes are in the null space of the elasticity operator before
+the solver applies the boundary conditions.
 
 .. code-block:: python
 
@@ -204,9 +205,9 @@ The multiplier space must match the jumps of the functions in :math:`V`.
 Such a jump is continuous and piecewise linear on :math:`\Gamma`, and it is
 zero at the tips of the fault, which are not duplicated.  We take :math:`M`
 to be the vector-valued continuous piecewise-linear functions on the fault
-that are zero at its tips.  With this choice, the block that couples the
-displacement and the multiplier is a square mass matrix, and the saddle point
-problem is nonsingular.  If the multiplier had degrees of freedom at the
+that are zero at its tips.  The coupling between the displacement jump and
+the multiplier is then a mass matrix on the same space, which gives a
+nonsingular saddle point problem.  If the multiplier had degrees of freedom at the
 tips, no displacement would constrain them, and the system would be
 singular.  A ``DirichletBC`` on the boundary of the fault submesh, which
 consists of the two tips, removes these degrees of freedom.  PyLith
@@ -225,9 +226,9 @@ constrains the multiplier at the buried edges of a fault in the same way.
 
    tip_bc = DirichletBC(Z.sub(1), 0, "on_boundary")
 
-UFL chooses the ``'+'`` and ``'-'`` sides of each interior facet
-independently, so the jump :math:`[u] = u^+ - u^-` changes its sign from one
-fault facet to the next.  A continuous quantity on the fault must therefore
+The Unified Form Language (UFL) assigns the ``'+'`` and ``'-'`` sides of
+each interior facet independently. The jump :math:`[u] = u^+ - u^-` can
+therefore change sign from one facet to the next.  A continuous quantity on the fault must
 be paired with the jump in a frame that is attached to the fault.  We use the
 rotation
 
