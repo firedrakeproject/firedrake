@@ -6,7 +6,7 @@ Active-set and Newton-multigrid methods on an obstacle problem
     This demo solves the classical obstacle problem for an elastic membrane on a disc. The solution
     is constrained to lie on or above an obstacle, and the region where the membrane touches the
     obstacle is not known in advance. The problem is a complementarity problem in strong form and a
-    variational inequality (VI) in weak form. The discretization uses first-order Lagrange elements.
+    variational inequality in weak form. The discretization uses first-order Lagrange elements.
     The discrete problem is solved by an active set method, the reduced space Newton method from PETSc.
     We also apply a grid-sequencing loop and solve the linear problems with algebraic multigrid.
 
@@ -36,7 +36,7 @@ The boundary between the two sets is the *free boundary*.  Along the free bounda
 is tangent to the obstacle, so both :math:`u = \psi` and :math:`\nabla u = \nabla \psi` hold there.
 
 The strong form, which states conditions applying almost everywhere on :math:`\Omega`,
-is a nonlinear *complementarity problem* (CP) :cite:`KinderlehrerStampacchia:1980`:
+is a *complementarity problem* (CP) :cite:`KinderlehrerStampacchia:1980`:
 
 .. math::
 
@@ -47,7 +47,9 @@ is a nonlinear *complementarity problem* (CP) :cite:`KinderlehrerStampacchia:198
 The third condition says that at each point in :math:`\Omega` either the Laplace equation
 holds or the membrane touches the obstacle.
 
-The weak form of this problem is a *variational inequality* (VI) :cite:`KinderlehrerStampacchia:1980`. Let
+The weak form of this problem, derived by multiplying by a difference of an admissible test
+function and the CP solution, and carefully integrating by parts, is a
+*variational inequality* (VI) :cite:`KinderlehrerStampacchia:1980`. Let
 
 .. math::
 
@@ -162,13 +164,18 @@ for the vector of nodal values :math:`u_j = u_h(x_j)`.
 Active-set method
 -----------------
 
-To solve this VI problem we apply an *active-set method*, which is also a semi-smooth
-Newton method.  The method in PETSc is SNES type ``vinewtonrsls``, which is the *reduced-space*
-Newton method with a *line search* :cite:`BensonMunson:2006`. At each iterate it finds a
-working set of active nodes, at which :math:`u_i = \psi_i` and the residual is positive.
-It then does a Newton step on the remaining (working-inactive) nodes only: on these nodes it solves
-a linear system in which the rows and columns of the active nodes are removed. The line
-search projects each trial iterate onto the bounds so that all iterates are admissible.
+Inequality constrained problems, even with linear operators as here, are nonlinear problems
+on which we must iterate.  Below we will essentially use the Firedrake `solve(F == 0, ...)`
+style, but via the `NonlinearVariationalProblem()` and `NonlinearVariationalSolver()`
+interface, so that the `.solve()` method can take the lower bound as an additional input.
+
+For this demo we apply an *active-set Newton method*, PETSc SNES type ``vinewtonrsls``.
+It is a *reduced-space* Newton method with a *line search* :cite:`BensonMunson:2006`.
+At each iterate it finds a working set of active nodes, at which :math:`u_i = \psi_i`
+and at which the residual is positive. It then does a Newton step on the remaining (inactive)
+nodes only: on these nodes it solves a linear system in which the rows and columns of the
+active nodes are removed. The line search also projects each trial iterate onto the bounds so
+that all iterates are admissible.
 
 Formally the residual function ``F`` here is the same as for the unconstrained problem.
 The boundary conditions are from the exact solution:
@@ -338,7 +345,9 @@ as :math:`O(h)`:
 Other methods for variational inequalities
 ------------------------------------------
 
-The reduced-space Newton method in this demo is one of several methods for VIs. Two newer methods have Firedrake implementations:
+The reduced-space Newton method in this demo, which is also a semi-smooth Newton method
+:cite:`Papadopoulos:2021{Appendix A}`, is one of several methods for VIs. Two newer methods
+have Firedrake implementations:
 
 * The *latent variable proximal point* (LVPP) algorithm :cite:`Dokken:2025` replaces the
   inequality constraint by a sequence of nonlinear saddle-point problems for the solution and a
@@ -347,7 +356,7 @@ The reduced-space Newton method in this demo is one of several methods for VIs. 
 * The *full approximation scheme constraint decomposition* (FASCD) method :cite:`BuelerFarrell:2024`
   extends the nonlinear full approximation scheme (FAS) multigrid method to VIs, by a decomposition
   of the constraint over the levels of a mesh hierarchy, and gives nearly mesh-independent
-  convergence.
+  convergence.  In this method the smoother and coarse solver can be the reduced-space method.
 
 A Python script version of this demo can be found :demo:`here <obstacle_problem.py>`.
 
