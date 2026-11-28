@@ -198,7 +198,8 @@ where :math:`\xi` is the distance from the centre of the fault,
    half_width = Constant(15.0)
    peak_slip = Constant(2.0)
    fault_centre = Constant([7.5 * 3 ** 0.5, -10.5])
-   xi = sqrt(inner(SpatialCoordinate(mesh) - fault_centre, SpatialCoordinate(mesh) - fault_centre))
+   offset = SpatialCoordinate(mesh) - fault_centre
+   xi = sqrt(inner(offset, offset))
    slip = as_vector([0, peak_slip * sqrt(1 - (xi / half_width) ** 2)])
 
 The saddle point problem is: find :math:`(u, \lambda_\Gamma) \in V\times M`

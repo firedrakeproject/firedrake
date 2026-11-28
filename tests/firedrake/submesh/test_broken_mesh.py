@@ -5,14 +5,13 @@ import pytest
 from pytest_mpi.parallel_assert import parallel_assert
 from firedrake import *
 
+# A ridge overlap shows both cells of every surface facet on each rank.
+RIDGE_OVERLAP = {"overlap_type": (DistributedMeshOverlapType.RIDGE, 1)}
+
 
 def broken_mesh():
     nx, ny = 3, 2
-    distribution_parameters = {
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
-    }
-    mesh = UnitSquareMesh(nx, ny, quadrilateral=True,
-                          distribution_parameters=distribution_parameters)
+    mesh = UnitSquareMesh(nx, ny, quadrilateral=True, distribution_parameters=RIDGE_OVERLAP)
     _, y = SpatialCoordinate(mesh)
     marker_space = FunctionSpace(mesh, "HDiv Trace", 0)
     marker = Function(marker_space)
@@ -78,8 +77,7 @@ GAMMA = 99
 
 def cracked_cube(crack_length, n=2, *, hexahedral, marker_element):
     """Return a unit cube, the crack Γ = {z = 1/2, x < crack_length}, and the cube broken along Γ."""
-    mesh = UnitCubeMesh(n, n, n, hexahedral=hexahedral, distribution_parameters={
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+    mesh = UnitCubeMesh(n, n, n, hexahedral=hexahedral, distribution_parameters=RIDGE_OVERLAP)
     x, _, z = SpatialCoordinate(mesh)
     on_gamma = And(lt(abs(z - 0.5), 1e-12), lt(x, crack_length))
     W = FunctionSpace(mesh, *marker_element)
@@ -96,8 +94,7 @@ hexahedral_crack = partial(cracked_cube, hexahedral=True, marker_element=("Q", 2
 
 @pytest.mark.parallel([1, 3])
 def test_broken_mesh_preserves_parent_facet_integrals():
-    mesh = UnitDiskMesh(3, distribution_parameters={
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+    mesh = UnitDiskMesh(3, distribution_parameters=RIDGE_OVERLAP)
     x, _ = SpatialCoordinate(mesh)
     W = FunctionSpace(mesh, "HDiv Trace", 0)
     marker = Function(W)
@@ -124,11 +121,7 @@ def test_broken_mesh_preserves_parent_facet_integrals():
 def test_broken_mesh_duplicates_facets_from_multiple_subdomains(label_name):
     """Breaking a surface marked by several values includes every marked facet."""
     nx, ny = 3, 2
-    distribution_parameters = {
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1),
-    }
-    mesh = UnitSquareMesh(nx, ny, quadrilateral=True,
-                          distribution_parameters=distribution_parameters)
+    mesh = UnitSquareMesh(nx, ny, quadrilateral=True, distribution_parameters=RIDGE_OVERLAP)
     x, y = SpatialCoordinate(mesh)
     W = FunctionSpace(mesh, "HDiv Trace", 0)
     marker_left = Function(W)
@@ -192,8 +185,7 @@ def test_broken_mesh_crack_tip_dofs_are_shared(degree, make_crack):
 def t_junction_square(n=8):
     """Return a unit square with Γ₁ = {y = 1/2} and Γ₂ = {x = 1/2, y > 1/2}, which ends on Γ₁."""
     mesh = UnitSquareMesh(n, n, distribution_parameters={
-        "partitioner_type": "simple",
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+        **RIDGE_OVERLAP, "partitioner_type": "simple"})
     x, y = SpatialCoordinate(mesh)
     W = FunctionSpace(mesh, "HDiv Trace", 0)
     markers = []
@@ -267,8 +259,7 @@ def test_broken_mesh_rejects_junction():
 @pytest.mark.parallel([1, 3])
 def test_broken_mesh_crossing_faults() -> None:
     """Two crossing faults have independent displacement jumps."""
-    mesh = UnitCubeMesh(2, 2, 2, distribution_parameters={
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+    mesh = UnitCubeMesh(2, 2, 2, distribution_parameters=RIDGE_OVERLAP)
     x, y, _ = SpatialCoordinate(mesh)
     W = FunctionSpace(mesh, "HDiv Trace", 0)
     markers = []
@@ -301,8 +292,7 @@ def test_broken_mesh_crossing_faults() -> None:
 @pytest.mark.parallel(3)
 def test_broken_mesh_jump_on_a_partial_fault():
     mesh = UnitCubeMesh(4, 4, 4, distribution_parameters={
-        "partitioner_type": "simple",
-        "overlap_type": (DistributedMeshOverlapType.RIDGE, 1)})
+        **RIDGE_OVERLAP, "partitioner_type": "simple"})
     x, y, _ = SpatialCoordinate(mesh)
     on_fault = And(lt(abs(y - 0.5), 1e-12), lt(x, 0.75))
     W = FunctionSpace(mesh, "HDiv Trace", 0)

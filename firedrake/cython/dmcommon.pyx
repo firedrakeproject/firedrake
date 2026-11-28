@@ -3472,8 +3472,9 @@ def orient_cohesive_surfaces(PETSc.DM dm, str label_name, surfaces: Sequence[Seq
         PETSc.PetscSection cone_section = NULL
         DMLabel cohesive = NULL
         DMLabel junction = NULL
-        PetscInt nfacets, nselected, i, k, facet, depth, closure_index, closure_point
-        PetscInt closure_size, chart_start, chart_end, dim
+        PetscInt nfacets, nselected, i, k, facet, depth, closure_index, ridge_index
+        PetscInt closure_size, chart_start, chart_end, dim, nridges
+        const PetscInt *ridges = NULL
         const PetscInt *facet_indices = NULL
         const PetscInt *closure_indices = NULL
         PetscInt *closure = NULL
@@ -3498,7 +3499,7 @@ def orient_cohesive_surfaces(PETSc.DM dm, str label_name, surfaces: Sequence[Seq
     ghost = np.zeros(chart_end - chart_start, dtype=IntType)
     np.asarray(ghost)[leaves - chart_start] = 1
     # Each rank counts the surface facets that it owns around each ridge.
-    ridge_counts = np.zeros((len(surfaces), chart_end - chart_start), dtype=IntType)
+    ridge_counts = np.zeros((chart_end - chart_start, len(surfaces)), dtype=IntType)
 
     nselected = 0
     for k, subdomain_ids in enumerate(surfaces):
@@ -3520,13 +3521,11 @@ def orient_cohesive_surfaces(PETSc.DM dm, str label_name, surfaces: Sequence[Seq
                 CHKERR(DMLabelSetValue(cohesive, facet, depth))
                 if ghost[facet - chart_start]:
                     continue
-                CHKERR(DMPlexGetTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
-                for closure_index in range(closure_size):
-                    closure_point = closure[2 * closure_index]
-                    CHKERR(DMPlexGetPointDepth(dm.dm, closure_point, &depth))
-                    if depth == dim - 2:
-                        ridge_counts[k, closure_point - chart_start] += 1
-                CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, facet, PETSC_TRUE, &closure_size, &closure))
+                # The DMPlex is interpolated, so the cone of a facet holds its ridges.
+                CHKERR(DMPlexGetConeSize(dm.dm, facet, &nridges))
+                CHKERR(DMPlexGetCone(dm.dm, facet, &ridges))
+                for ridge_index in range(nridges):
+                    ridge_counts[ridges[ridge_index] - chart_start, k] += 1
             if facets.iset != NULL:
                 CHKERR(ISRestoreIndices(facets.iset, &facet_indices))
         # Add the closure of the surface, also on the ranks that see a point
@@ -3546,14 +3545,19 @@ def orient_cohesive_surfaces(PETSc.DM dm, str label_name, surfaces: Sequence[Seq
         CHKERR(ISRestoreIndices(closure_points.iset, &closure_indices))
 
     # Sum the counts on the owner of each ridge, and send the sums back.
-    unit = MPI._typedict[np.dtype(IntType).char]
-    for local_counts in np.asarray(ridge_counts):
-        owner_counts = local_counts.copy()
+    # One unit holds the counts of all surfaces at a point.
+    unit = MPI._typedict[np.dtype(IntType).char].Create_contiguous(len(surfaces))
+    unit.Commit()
+    local_counts = np.asarray(ridge_counts)
+    owner_counts = local_counts.copy()
+    try:
         point_sf.reduceBegin(unit, local_counts, owner_counts, MPI.SUM)
         point_sf.reduceEnd(unit, local_counts, owner_counts, MPI.SUM)
         local_counts[:] = owner_counts
         point_sf.bcastBegin(unit, owner_counts, local_counts, MPI.REPLACE)
         point_sf.bcastEnd(unit, owner_counts, local_counts, MPI.REPLACE)
+    finally:
+        unit.Free()
 
     with temp_internal_comm(dm.comm.tompi4py()) as comm:
         if comm.allreduce(nselected, op=MPI.SUM) == 0:
@@ -3562,7 +3566,7 @@ def orient_cohesive_surfaces(PETSc.DM dm, str label_name, surfaces: Sequence[Seq
             raise ValueError("A surface has a junction, where more than two of its facets meet. "
                              "Mark each branch with its own subdomain_id, and set junctions.")
 
-    junctions = (np.flatnonzero(np.sum(ridge_counts, axis=0) > 2) + chart_start).astype(IntType)
+    junctions = (np.flatnonzero(np.sum(ridge_counts, axis=1) > 2) + chart_start).astype(IntType)
     # Save the cone entries and orientations because DMPlexOrientLabel changes
     # them in place. Restore them to keep the cached parent data valid.
     CHKERR(DMPlexGetConeSection(dm.dm, &cone_section))

@@ -2640,7 +2640,6 @@ class MeshTopology(AbstractMeshTopology):
         if child_parent_map:
             from_mesh = self
             to_mesh = self.submesh_parent
-            plex_index_map = self._submesh_to_parent_plex_index_map
         else:
             from_mesh = self.submesh_parent
             to_mesh = self
@@ -2656,7 +2655,7 @@ class MeshTopology(AbstractMeshTopology):
         assert to_set.local_size == len(to_dm_idxs)
 
         if child_parent_map:
-            subpoints = plex_index_map[from_dm_idxs][:, np.newaxis]
+            subpoints = self._submesh_to_parent_plex_index_map[from_dm_idxs][:, np.newaxis]
             arity = 1
         else:
             parent_points = self._submesh_to_parent_plex_index_map[to_dm_idxs]
@@ -2670,7 +2669,12 @@ class MeshTopology(AbstractMeshTopology):
             rows, slots = np.nonzero(np.arange(arity)[None, :] < counts[:, None])
             subpoints[rows, slots] = to_dm_idxs[order[starts[rows] + slots]]
         values = self._renumber_map_fixed(subpoints, from_dm_idxs, from_numbering_sec, to_numbering_sec)
-        if arity > 1:
+        to_label = to_set.component.label
+        if arity == 1:
+            map_dat = op3.Dat(from_set, data=values.ravel())
+            component = op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label)
+            return op3.ScalarMap({idict({from_set.label: from_set.component.label}): [component]})
+        else:
             if (from_selector, to_selector, arity) != ("interior_facet", "exterior_facet", 2):
                 raise NotImplementedError("Only an interior facet split into two exterior facets supports several target entities")
             # Order the child facets by the cells on the two sides of the parent facet.
@@ -2692,20 +2696,9 @@ class MeshTopology(AbstractMeshTopology):
                 invalid = not matches.any(axis=1).all() or np.count_nonzero(ordered >= 0) != children.size
                 if icomm.allreduce(invalid, op=MPI.LOR):
                     raise ValueError("Broken facets could not be matched to distinct cells on the parent facet")
-            values = ordered
-        to_label = to_set.component.label
-        map_axes = from_set if arity == 1 else op3.AxisTree.from_iterable([from_set, arity])
-        map_dat = op3.Dat(map_axes, data=values.ravel())
-        component = op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label)
-        if arity > 1:
+            map_dat = op3.Dat(op3.AxisTree.from_iterable([from_set, arity]), data=ordered.ravel())
+            component = op3.TabulatedMapComponent(to_set.label, to_label, map_dat, label=to_label)
             return op3.Map({idict({from_set.label: from_set.component.label}): [[component]]})
-        return op3.ScalarMap(
-            {
-                idict({from_set.label: from_set.component.label}): [
-                    component,
-                ],
-            },
-        )
 
     def submesh_map_child_parent(self, source_integral_type, source_subset_points, reverse=False):
         """Return the map from submesh child entities to submesh parent entities or its reverse.
@@ -2737,19 +2730,19 @@ class MeshTopology(AbstractMeshTopology):
         source_dim = source.topology_dm.getDimension()
         if target_dim == source_dim:
             if source_integral_type == "cell":
-                target_integral_type_temp = "cell"
+                target_integral_type = "cell"
             elif source_integral_type in ["interior_facet", "exterior_facet"]:
-                target_integral_type_temp = "facet"
+                target_integral_type = "facet"
             else:
                 raise NotImplementedError("Unsupported combination")
         elif target_dim - 1 == source_dim:
             if source_integral_type == "cell":
-                target_integral_type_temp = "facet"
+                target_integral_type = "facet"
             else:
                 raise NotImplementedError("Unsupported combination")
         elif target_dim == source_dim - 1:
             if source_integral_type in ["interior_facet", "exterior_facet"]:
-                target_integral_type_temp = "cell"
+                target_integral_type = "cell"
             else:
                 raise NotImplementedError("Unsupported combination")
         else:
@@ -2760,7 +2753,6 @@ class MeshTopology(AbstractMeshTopology):
         else:
             target_subset_points = self._submesh_to_parent_plex_index_map[source_subset_points]
 
-        target_integral_type = target_integral_type_temp
         if target_integral_type == "facet":
             # A cut can make a parent interior facet exterior in the child.
             # Check which facets the map selects on the target mesh.
@@ -2854,7 +2846,7 @@ class MeshTopology(AbstractMeshTopology):
         submesh_to_parent_map = self._submesh_to_parent_plex_index_map
         if self._submesh_parent_point_map is not None:
             with temp_internal_comm(self.comm) as icomm:
-                has_duplicates = np.unique(submesh_to_parent_map).size != submesh_to_parent_map.size
+                has_duplicates = np.bincount(submesh_to_parent_map, minlength=self.submesh_parent.num_points).max(initial=0) > 1
                 if icomm.allreduce(has_duplicates, op=MPI.LOR):
                     raise NotImplementedError("A parent point maps to more than one child point")
         parent_to_submesh_map = np.full(self.submesh_parent.num_points, -1, dtype=IntType)
@@ -6284,8 +6276,6 @@ def _child_mesh_from_plex(mesh: MeshGeometry, plex: PETSc.DMPlex, name: str,
         The child mesh, with ``mesh`` as its ``submesh_parent``.
     """
     plex.setName(_generate_default_mesh_topology_name(name))
-    # Recompute the entity classes because filtering can change which rank owns a point.
-    plex.removeLabel("firedrake_is_ghost")
     if reorder is None:
         # Ideally we should set perm_is = mesh._dm_renumbering[label_indices]
         reorder = mesh._did_reordering
@@ -6362,7 +6352,7 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
         subdomain_ids = ()
     if not subdomain_ids or not all(isinstance(subid, numbers.Integral) for subid in subdomain_ids):
         raise TypeError(f"subdomain_id must be an integer or a non-empty sequence of integers: got {subdomain_id!r}")
-    subdomain_ids = tuple(dict.fromkeys(subdomain_ids))
+    subdomain_ids = utils.unique(subdomain_ids)
     if junctions is None:
         surfaces = (subdomain_ids,)
     elif junctions in ("split", "unsplit"):
@@ -6377,14 +6367,10 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
     local_label_names = {plex.getLabelName(i) for i in range(plex.getNumLabels())}
     with temp_internal_comm(mesh.comm) as icomm:
         label_names = set().union(*icomm.allgather(local_label_names))
-    candidates = (f"firedrake_cohesive_label_{i}" for i in itertools.count())
-    cohesive_label_names = tuple(itertools.islice(
-        (candidate for candidate in candidates if candidate not in label_names), len(surfaces)
-    ))
+    cohesive_label_names = tuple(utils.unique_name("firedrake_cohesive_label", label_names) for _ in surfaces)
     # Each transform carries the labels of the remaining surfaces to its output.
     broken_plex = plex
-    start, end = plex.getChart()
-    parent_point_map = np.arange(start, end, dtype=IntType)
+    parent_point_map = np.arange(*plex.getChart(), dtype=IntType)
     try:
         with dmcommon.orient_cohesive_surfaces(
             plex, label_name, surfaces, cohesive_label_names, junctions == "unsplit"
@@ -6403,10 +6389,10 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
                     transform.destroy()
 
                 # A cohesive cell comes from a facet. Keep the cells that come from cells.
-                cell_start, cell_end = broken_plex.getHeightStratum(0)
-                start, end = transformed_plex.getHeightStratum(0)
-                sources = source_points[start:end]
-                cells = (start + np.flatnonzero((cell_start <= sources) & (sources < cell_end))).astype(IntType)
+                source_start, source_end = broken_plex.getHeightStratum(0)
+                cell_start, cell_end = transformed_plex.getHeightStratum(0)
+                sources = source_points[cell_start:cell_end]
+                cells = (cell_start + np.flatnonzero((source_start <= sources) & (sources < source_end))).astype(IntType)
                 cell_label = PETSc.DMLabel().create("parent_cells", comm=PETSc.COMM_SELF)
                 cell_label.setStratumIS(1, PETSc.IS().createGeneral(cells, comm=PETSc.COMM_SELF))
                 broken_plex, _ = transformed_plex.filter(
@@ -6420,6 +6406,9 @@ def BrokenMesh(mesh: MeshGeometry, subdomain_id: int | Sequence[int],
         for label in cohesive_label_names:
             plex.removeLabel(label)
 
+    # Recompute the entity classes because the transforms copy the parent
+    # ghost label to the new points, and filtering can change which rank owns a point.
+    broken_plex.removeLabel("firedrake_is_ghost")
     name = name or f"{mesh.name}_broken"
     return _child_mesh_from_plex(mesh, broken_plex, name, reorder, parent_point_map=parent_point_map)
 

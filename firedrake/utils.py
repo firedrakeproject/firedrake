@@ -154,7 +154,7 @@ def unique_name(name, nameset):
         if newname in nameset:
             idx += 1
         else:
-            nameset.add(name)
+            nameset.add(newname)
             return newname
 
 
