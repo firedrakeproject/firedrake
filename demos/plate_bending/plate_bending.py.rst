@@ -293,17 +293,16 @@ the interpolant is unique.
   :math:`P_h` of the reduction operator. :math:`\Pi_h^P` keeps the values of a
   Morley function at the vertices and discards its normal derivatives.
 
-The clamped boundary conditions set the Morley degrees of freedom on the
-boundary to zero. A restricted function space removes these degrees of
-freedom, so they keep their initial value of zero. With ``reduced=False``, the
-function below omits :math:`\Pi_h^P` and gives the standard Morley
-discretisation, which we use for comparison.
+The Morley degrees of freedom on the boundary are the values at the boundary
+vertices and the mean normal derivatives on the boundary edges. The boundary
+condition on :math:`V_h` sets these degrees of freedom to zero, and this clamps
+the plate. With ``reduced=False``, the function below omits :math:`\Pi_h^P` and
+gives the standard Morley discretisation, which we use for comparison.
 
 .. code-block:: python
 
   def modified_morley_problem(mesh, T, f, reduced=True):
       V = FunctionSpace(mesh, "Morley", 2)
-      V = RestrictedFunctionSpace(V, {"on_boundary"})
       P = FunctionSpace(mesh, "Lagrange", 1)
 
       w = TrialFunction(V)
@@ -321,7 +320,8 @@ discretisation, which we use for comparison.
       L = inner(f, Pi_v) * dx
 
       w_h = Function(V)
-      return LinearVariationalProblem(a, L, w_h)
+      bcs = DirichletBC(V, 0, "on_boundary")
+      return LinearVariationalProblem(a, L, w_h, bcs=bcs)
 
 We first check the membrane limit with the uniform load :math:`f = 1`. We
 calculate the linear Lagrange solution of :math:`-\Delta u = f` once, and we
