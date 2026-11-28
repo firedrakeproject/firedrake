@@ -400,6 +400,7 @@ The demo prints the following errors and rates:
 
 .. table:: Gradient errors at :math:`t = 10^{-4}`
    :align: center
+   :class: column-pairs
    :widths: 1 3 2 3 2
 
    +----+------------------+------------------+
@@ -559,6 +560,7 @@ The demo prints the following errors and rates:
 
 .. table:: Rotation gradient errors and convergence rates
    :align: center
+   :class: column-pairs
    :widths: 1 3 2 3 2 3 2
 
    +----+------------------+------------------+--------------------+
@@ -587,23 +589,16 @@ rotation gradient.
       assert rate > 0.85, (name, rate)
 
 Finally, we draw a surface plot of the discrete Kirchhoff deflection on the
-finest mesh with :func:`trisurf <firedrake.pyplot.trisurf>`. The plotter
-evaluates a function with its Lagrange basis, so we first interpolate the
-reduced Hermite function into the discontinuous cubic Lagrange space. This
-interpolation keeps the cubic polynomial on each cell.
+finest mesh with :func:`trisurf <firedrake.pyplot.trisurf>`.
 
 .. code-block:: python
 
   import matplotlib.pyplot as plt
   from firedrake.pyplot import trisurf
 
-  w_h = solutions["Discrete Kirchhoff"]
-  Q = FunctionSpace(w_h.function_space().mesh(), "DG", 3)
-  w_plot = assemble(interpolate(w_h, Q))
-
   fig = plt.figure()
   axes = fig.add_subplot(projection="3d")
-  trisurf(w_plot, axes=axes)
+  trisurf(solutions["Discrete Kirchhoff"], axes=axes)
   axes.set_xlabel("$x$")
   axes.set_ylabel("$y$")
   axes.set_zlabel("$w$", labelpad=12)
