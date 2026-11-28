@@ -1,48 +1,56 @@
 Plate Bending with Nonconforming Elements and Reduction Operators
 =================================================================
 
-This demo solves the problem of a thin elastic plate with three finite element
-methods. None of them uses an :math:`H^2`-conforming element such as Argyris.
-Each method instead uses cheaper, nonconforming spaces, and a *reduction
-operator* :math:`\Pi_h` connects them. The operator interpolates one field into
-a second finite element space before it enters a term of the energy.
+This demo computes the deflection of a thin elastic plate with three finite
+element methods. A conforming method for the Kirchhoff plate needs an
+:math:`H^2`-conforming element, such as the quintic Argyris element with 21
+degrees of freedom on each triangle. The three methods in this demo use
+cheaper, nonconforming spaces instead. Each method connects two of its spaces
+with a *reduction operator* :math:`\Pi_h`. Before a field enters one term of
+the energy, the reduction operator interpolates that field into a second finite
+element space.
 
-Firedrake writes a reduction operator as a :doc:`symbolic interpolation
-<../interpolation>` with :py:func:`~.interpolate` inside the
-variational form. The interpolation is onto the same mesh, so the form compiler
-applies it inside each element kernel. It does not assemble a separate global
-interpolation matrix.
+In Firedrake, a reduction operator is a :doc:`symbolic interpolation
+<../interpolation>` that we write with :py:func:`~.interpolate` inside the
+variational form. Both spaces are on the same mesh, so the form compiler applies
+the interpolation inside each element kernel. Firedrake does not assemble a
+global interpolation matrix.
 
-We write :math:`\Pi_h^P`, :math:`\Pi_h^N`, and :math:`\Pi_h^\Theta` for
-interpolation into the linear Lagrange space :math:`P_h`, the Nédélec space
-:math:`\boldsymbol{N}_h`, and the rotated Bernardi--Raugel space
-:math:`\boldsymbol{\Theta}_h`, respectively.
+The demo uses three reduction operators:
 
-The three methods combine ``interpolate`` and ``grad`` in three different
-orders:
+* :math:`\Pi_h^P` interpolates into the linear Lagrange space :math:`P_h`. It
+  keeps the values at the vertices.
+* :math:`\Pi_h^N` interpolates into the lowest-order Nédélec space
+  :math:`\boldsymbol{N}_h`. It keeps the tangential moment on each edge.
+* :math:`\Pi_h^\Theta` interpolates into the rotated Bernardi--Raugel space
+  :math:`\boldsymbol{\Theta}_h`. It keeps the vector values at the vertices and
+  the tangential moment on each edge.
 
-1. **MITC** for the Reissner--Mindlin plate uses ``interpolate(grad(...))``.
-   :math:`\Pi_h^N` maps the shear strain into a Nédélec space.
-2. **The modified Morley element** for a Kirchhoff plate under in-plane
-   tension uses ``grad(interpolate(...))``. :math:`\Pi_h^P` maps the deflection
-   into the linear Lagrange space in the membrane term.
-3. **Discrete Kirchhoff triangles** for a Kirchhoff plate under in-plane
-   tension use ``grad(interpolate(grad(...)))`` for bending and
-   ``grad(interpolate(...))`` for membrane energy. The first reduction maps the
-   gradient of the deflection into a rotated Bernardi--Raugel space with
-   :math:`\Pi_h^\Theta`, and the second maps the deflection into the linear
-   Lagrange space with :math:`\Pi_h^P`.
+The three methods differ in the field that they reduce, and thus in the order
+of ``interpolate`` and ``grad`` in the form:
+
+1. **MITC** for the Reissner--Mindlin plate reduces the shear strain,
+   ``interpolate(grad(w) - beta, N)``.
+2. **The modified Morley method** for a Kirchhoff plate under in-plane tension
+   reduces the deflection in the membrane term, ``grad(interpolate(w, P))``.
+3. **The discrete Kirchhoff triangle** for the same plate reduces the gradient
+   of the deflection in the bending term, ``grad(interpolate(grad(w), Theta))``.
+   It uses the same membrane term as the modified Morley method.
 
 At the end, we compare the convergence rates of the three methods.
 
 The Clamped Plate
 -----------------
 
-All three methods solve for the transverse deflection :math:`w` of the
-mid-surface :math:`\Omega = (0, 1)^2` of a plate that carries a transverse
-load :math:`f`. The two Kirchhoff examples use clamped boundary conditions,
-and the MITC example prescribes the boundary deflection of its manufactured
-solution. The bending energy of a rotation field :math:`\boldsymbol{\beta}` is
+All three methods compute the transverse deflection :math:`w` of a plate with
+mid-surface :math:`\Omega = (0, 1)^2` under a transverse load :math:`f`. The
+two Kirchhoff methods clamp the plate, that is, :math:`w` and its normal
+derivative are zero on the boundary :math:`\partial \Omega`. The MITC method
+uses the boundary deflection of its manufactured solution, which we derive in
+the MITC section.
+
+A rotation field :math:`\boldsymbol{\beta}` describes how the normals to the
+mid-surface turn. Its bending energy is
 
 .. math::
 
@@ -55,10 +63,11 @@ solution. The bending energy of a rotation field :math:`\boldsymbol{\beta}` is
 where :math:`\boldsymbol{\varepsilon}(\boldsymbol{\beta})` is the symmetric
 gradient and :math:`D = E t^3 / (12 (1 - \nu^2))` is the bending stiffness of a
 plate of thickness :math:`t`, with Young's modulus :math:`E` and Poisson's ratio
-:math:`\nu`. The Kirchhoff model sets
-:math:`\boldsymbol{\beta} = \nabla w`, which gives the equilibrium equation
-:math:`D \Delta^2 w = f`. The Reissner--Mindlin model keeps
-:math:`\boldsymbol{\beta}` as an independent unknown.
+:math:`\nu`. The Kirchhoff model assumes that the normals stay normal to the
+deformed mid-surface. Thus :math:`\boldsymbol{\beta} = \nabla w`, and the
+equilibrium equation is :math:`D \Delta^2 w = f`. The Reissner--Mindlin model
+lets the normals turn independently of the mid-surface, so
+:math:`\boldsymbol{\beta}` is a second unknown.
 
 We begin by importing Firedrake and setting the material parameters of a
 thin plate.
@@ -72,13 +81,17 @@ thin plate.
   nu = Constant(0.3)
   D = E * t**3 / (12 * (1 - nu**2))
 
-We write the common bending form with trial rotation :math:`\boldsymbol{\beta}`
-and test rotation :math:`\boldsymbol{\theta}`. In MITC, these rotations are
-independent of the trial and test deflections :math:`w` and :math:`v`.
-The modified Morley method uses :math:`\boldsymbol{\beta} = \nabla w` and
-:math:`\boldsymbol{\theta} = \nabla v`. The discrete Kirchhoff method uses
-:math:`\boldsymbol{\beta} = \Pi_h^\Theta \nabla w` and
-:math:`\boldsymbol{\theta} = \Pi_h^\Theta \nabla v`.
+All three methods use the bending form below, with trial rotation
+:math:`\boldsymbol{\beta}` and test rotation :math:`\boldsymbol{\theta}`. The
+methods differ only in what they substitute for the two rotations:
+
+* MITC uses rotations that are unknowns independent of the trial and test
+  deflections :math:`w` and :math:`v`.
+* The modified Morley method uses :math:`\boldsymbol{\beta} = \nabla w` and
+  :math:`\boldsymbol{\theta} = \nabla v`.
+* The discrete Kirchhoff triangle uses
+  :math:`\boldsymbol{\beta} = \Pi_h^\Theta \nabla w` and
+  :math:`\boldsymbol{\theta} = \Pi_h^\Theta \nabla v`.
 
 .. code-block:: python
 
@@ -89,8 +102,8 @@ The modified Morley method uses :math:`\boldsymbol{\beta} = \nabla w` and
       return inner(sigma(beta), sym(grad(theta))) * dx
 
 To measure the convergence of each method, we use a manufactured Kirchhoff
-solution :math:`w_K` that satisfies the clamped boundary conditions, and we
-calculate the load :math:`f = D \Delta^2 w_K` symbolically.
+solution :math:`w_K` that satisfies the clamped boundary conditions. Each
+method calculates the load from :math:`w_K` symbolically.
 
 .. code-block:: python
 
@@ -98,10 +111,11 @@ calculate the load :math:`f = D \Delta^2 w_K` symbolically.
       x, y = SpatialCoordinate(mesh)
       return x**2 * (1 - x)**2 * y**2 * (1 - y)**2
 
-Each method approximates the rotation gradient :math:`\nabla \boldsymbol{\beta}`,
-so we measure its :math:`L^2` error in all three methods. The error is a
-polynomial of high degree, so we integrate it with a quadrature rule of high
-degree.
+Each method calculates an approximation of the rotation, so we compare the
+methods by the :math:`L^2` error of the rotation gradient
+:math:`\nabla \boldsymbol{\beta}`. The exact rotation gradient is the Hessian
+:math:`\nabla \nabla w_K`. The squared error is a polynomial of high degree, so
+we integrate it with a quadrature rule of degree 14.
 
 .. code-block:: python
 
@@ -122,64 +136,61 @@ The Reissner--Mindlin model has the total potential energy
   + k_s G t \, | \nabla w - \boldsymbol{\beta} |^2 \right) \, \mathrm{d}x
   - \int_\Omega f w \, \mathrm{d}x,
 
-where :math:`G = E / (2 (1 + \nu))` is the shear modulus and :math:`k_s` is
-the shear correction factor. The bending stiffness :math:`D` scales as
-:math:`t^3`, but the shear coefficient :math:`k_s G t` scales as :math:`t`.
-Relative to the bending term, the shear term thus has a coefficient of order
-:math:`t^{-2}`, and as :math:`t \to 0` it becomes a penalty that enforces
-:math:`\boldsymbol{\beta} = \nabla w`. Low-order spaces cannot satisfy this
-constraint exactly, so a standard discretisation *locks*: the deflection tends
-to zero instead of to the Kirchhoff solution.
+where :math:`G = E / (2 (1 + \nu))` is the shear modulus, :math:`k_s` is the
+shear correction factor, and :math:`\nabla w - \boldsymbol{\beta}` is the shear
+strain. The bending stiffness :math:`D` scales as :math:`t^3`, but the shear
+coefficient :math:`k_s G t` scales as :math:`t`. Relative to the bending term,
+the shear term thus has a coefficient of order :math:`t^{-2}`. As
+:math:`t \to 0`, the shear term becomes a penalty that enforces the Kirchhoff
+constraint :math:`\boldsymbol{\beta} = \nabla w`. Low-order spaces cannot
+satisfy this constraint exactly, so a standard discretisation *locks*: the
+deflection tends to zero instead of to the Kirchhoff solution.
 
 The Mixed Interpolation of Tensorial Components (MITC) method
-:cite:`Bathe:1985,Brezzi:1989` replaces the
-shear strain by its interpolant into an :math:`H(\mathrm{curl})`-conforming
-Nédélec space :math:`\boldsymbol{N}_h`:
+:cite:`Bathe:1985,Brezzi:1989` prevents locking with a reduction of the shear
+strain. It replaces the shear strain by its interpolant into the
+:math:`H(\mathrm{curl})`-conforming Nédélec space :math:`\boldsymbol{N}_h`:
 
 .. math::
 
   \bar{\boldsymbol{\gamma}}_h = \Pi_h^N (\nabla w_h - \boldsymbol{\beta}_h)
   = \nabla w_h - \Pi_h^N \boldsymbol{\beta}_h.
 
-The second form holds because the scalar and Nédélec interpolants commute with
-the gradient:
+The second equality holds because the Lagrange and Nédélec interpolants
+commute with the gradient, :math:`\Pi_h^N \nabla q = \nabla \Pi_h^P q`, and
+because :math:`\Pi_h^P w_h = w_h` for a deflection :math:`w_h \in P_h`. The
+reduced constraint :math:`\nabla w_h = \Pi_h^N \boldsymbol{\beta}_h` thus
+restricts only the tangential edge moments of the rotation. This constraint
+does not force the discrete deflection to zero, so the method does not lock.
 
-.. math::
-
-  \Pi_h^N \nabla q = \nabla \Pi_h^P q.
-
-If :math:`w_h \in P_h`, then :math:`\Pi_h^P w_h = w_h`, so
-:math:`\Pi_h^N \nabla w_h = \nabla w_h`. Thus the reduced constraint
-:math:`\nabla w_h = \Pi_h^N \boldsymbol{\beta}_h` does not over-constrain the
-discrete solution.
-
-The following diagram shows the element spaces:
+The diagram shows the three element spaces:
 
 .. image:: mitc_elements.svg
    :align: center
 
-* `P1 <https://defelement.org/elements/lagrange.html>`__: the linear
-  Lagrange element for the deflection :math:`w`.
-* `P1-iso-P2 <https://defelement.org/elements/p1-iso-p2.html>`__: a
-  macroelement that divides each triangle into four smaller triangles, with
-  linear Lagrange elements on each one. We use it for the rotation
-  :math:`\boldsymbol{\beta}`. The double dots denote degrees of freedom that
-  evaluate a vector-valued function at a point.
-* `Nédélec 1 <https://defelement.org/elements/nedelec1.html>`__: the
-  :math:`H(\mathrm{curl})`-conforming space :math:`\boldsymbol{N}_h` for the
-  reduction operator. The arrows show the tangential degrees of freedom on the
-  edges.
+* `P1 <https://defelement.org/elements/lagrange.html>`__: the deflection space
+  :math:`P_h`. Its degrees of freedom are the values at the vertices.
+* `P1-iso-P2 <https://defelement.org/elements/p1-iso-p2.html>`__: the rotation
+  space. This macroelement divides each triangle into four smaller triangles
+  and uses vector linear Lagrange functions on each of them. The double dots
+  show the two components of the vector value at a point.
+* `Nédélec 1 <https://defelement.org/elements/nedelec1.html>`__: the space
+  :math:`\boldsymbol{N}_h` of the reduction operator. The arrows show the
+  tangential moments on the edges.
 
-The P1-iso-P2 macroelement divides each edge in two. Thus the edge moments of
-the Nédélec space must use a composite quadrature rule on the divided edges,
-which we select with ``quad_scheme="iso"``.
+The P1-iso-P2 macroelement divides each edge in two, so a rotation is only
+piecewise linear along an edge. To calculate the Nédélec edge moments of such
+a rotation exactly, we select a composite quadrature rule on the divided edges
+with ``quad_scheme="iso"``.
 
-The Reissner--Mindlin solution for the load :math:`D \Delta^2 w_K` is not
-:math:`w_K`. The rotation :math:`\boldsymbol{\beta} = \nabla w_K` and the shear
-strain :math:`\nabla w - \boldsymbol{\beta} = -D \nabla \Delta w_K / (k_s G t)`
-balance the load, so the deflection is
+For the manufactured solution, we use the load :math:`f = D \Delta^2 w_K`. The
+Reissner--Mindlin solution for this load is not :math:`w_K`. The rotation
+:math:`\boldsymbol{\beta} = \nabla w_K` and the shear strain
+:math:`\nabla w - \boldsymbol{\beta} = -D \nabla \Delta w_K / (k_s G t)`
+balance the load, so the exact deflection is
 :math:`w = w_K - D \Delta w_K / (k_s G t)`. This deflection is not zero on the
-boundary, so we apply it as boundary data.
+boundary, so we apply it as boundary data. The exact rotation is zero on the
+boundary.
 
 .. code-block:: python
 
@@ -213,11 +224,13 @@ boundary, so we apply it as boundary data.
       w_h, beta_h = z.subfunctions
       return w_h, l2_error(grad(beta_h) - grad(grad(w_K)))
 
-Kirchhoff Plate with the Modified Morley Element
-------------------------------------------------
+Kirchhoff Plate with the Modified Morley Method
+-----------------------------------------------
 
-Next, we apply a uniform in-plane tension :math:`T` per unit length to a
-Kirchhoff plate. Its total potential energy is
+The second and third methods discretise the Kirchhoff model. To show how a
+reduction operator can keep a method robust in a singular limit, we also apply
+a uniform in-plane tension :math:`T` per unit length to the plate. The tension
+adds a membrane term to the total potential energy:
 
 .. math::
 
@@ -227,35 +240,32 @@ Kirchhoff plate. Its total potential energy is
   + T |\nabla w|^2 \right) \, \mathrm{d}x
   - \int_\Omega f w \, \mathrm{d}x.
 
-For these examples, define the applied tension by
-
-.. math::
-
-  T = \frac{E t}{12(1 - \nu^2)}.
-
-Define the scaled deflection :math:`u = T w`. Since :math:`D/T = t^2`,
-the equilibrium equation for :math:`u` is
+We choose the tension :math:`T = E t / (12 (1 - \nu^2))`, so that
+:math:`D / T = t^2`. The scaled deflection :math:`u = T w` then satisfies
 
 .. math::
 
   t^2 \Delta^2 u - \Delta u = f.
 
-As :math:`t \to 0`, the leading equation is the membrane equation
-:math:`-\Delta u^0 = f`. A method that is robust as the plate becomes thin
-must reproduce this limit.
+As :math:`t \to 0`, the solution tends to the solution :math:`u^0` of the
+membrane equation :math:`-\Delta u^0 = f`. A method that is robust for thin
+plates must also approximate this membrane limit.
 
 The Morley element :cite:`Morley:1968` is the smallest triangular element for
 the bending term. Let :math:`V_h` be the space of piecewise quadratic Morley
-functions on the triangulation of :math:`\Omega`. The quadratics agree at
-shared vertices and have matching mean normal derivatives with respect to a
-fixed normal on each interior edge. For the clamped plate, set the values
-at boundary vertices and the mean normal derivatives on boundary edges to zero.
+functions on the triangulation of :math:`\Omega`. Two Morley functions on
+neighbouring triangles agree at the shared vertices, and they have the same
+mean normal derivative on the shared edge. For the clamped plate, the values
+at the boundary vertices and the mean normal derivatives on the boundary edges
+are zero.
 
-Morley functions can jump across edges, and the Morley discretisation of the
-membrane term fails to converge in the membrane limit. The modified Morley
-method of Wang, Xu and Hu :cite:`Wang:2006` keeps the Morley element in the
-bending term. In the membrane term and in the load, it replaces :math:`w_h` by
-its interpolant :math:`\Pi_h^P w_h` into the linear Lagrange space :math:`P_h`:
+These conditions are sufficient for the bending term, but not for the
+membrane term. Morley functions are not continuous across edges, and below we
+show that the Morley method does not converge in the membrane limit. The
+modified Morley method of Wang, Xu and Hu :cite:`Wang:2006` keeps the Morley
+element in the bending term. In the membrane term and in the load, it replaces
+:math:`w_h` by its interpolant :math:`\Pi_h^P w_h` into the linear Lagrange
+space :math:`P_h`:
 
 .. math::
 
@@ -264,30 +274,30 @@ its interpolant :math:`\Pi_h^P w_h` into the linear Lagrange space :math:`P_h`:
   + \int_\Omega T \, \nabla \Pi_h^P w_h \cdot \nabla \Pi_h^P v_h \, \mathrm{d}x
   = \int_\Omega f \, \Pi_h^P v_h \, \mathrm{d}x \qquad \forall v_h \in V_h,
 
-where the gradients are evaluated on each cell. In the limit
-:math:`t \to 0`, the form divided by :math:`T` depends only on
-:math:`\Pi_h^P w_h`, so the limiting form is singular on :math:`V_h`.
-The scaled interpolant :math:`T \Pi_h^P w_h` tends to the linear Lagrange
-solution of :math:`-\Delta u = f`.
+where we calculate the gradients of the Morley functions on each cell. As
+:math:`t \to 0`, the bending term becomes small relative to the membrane term,
+and the form divided by :math:`T` depends only on :math:`\Pi_h^P w_h`. In this
+limit, the method is the linear Lagrange discretisation of the membrane
+equation: the scaled interpolant :math:`T \Pi_h^P w_h` tends to the linear
+Lagrange solution of :math:`-\Delta u = f`. Many Morley functions have the same
+interpolant, so the limiting form is singular on :math:`V_h`, but the limit of
+the interpolant is unique.
 
 .. image:: morley_elements.svg
    :align: center
 
-* `Morley <https://defelement.org/elements/morley.html>`__: the quadratic
-  nonconforming element for fourth-order problems. Its degrees of freedom are
-  the values at the vertices and the mean normal derivatives on the edges,
-  which the arrows show.
-* `P1 <https://defelement.org/elements/lagrange.html>`__: the linear
-  Lagrange element. The reduction operator keeps the values at the vertices
-  and ignores the normal derivatives.
+* `Morley <https://defelement.org/elements/morley.html>`__: the deflection
+  space :math:`V_h`. Its degrees of freedom are the values at the vertices and
+  the mean normal derivatives on the edges, which the arrows show.
+* `P1 <https://defelement.org/elements/lagrange.html>`__: the space
+  :math:`P_h` of the reduction operator. :math:`\Pi_h^P` keeps the values of a
+  Morley function at the vertices and discards its normal derivatives.
 
-The clamped boundary conditions fix the deflection and its normal derivative.
-On the boundary, these are the values at the vertices and the mean normal
-derivatives on the edges, which are exactly the Morley degrees of freedom on the
-boundary. We use a restricted function space to leave those degrees of
-freedom at their initial value of zero. With ``reduced=False``, the function
-omits :math:`\Pi_h^P` and gives the standard Morley discretisation, which we
-use below for comparison.
+The clamped boundary conditions set the Morley degrees of freedom on the
+boundary to zero. A restricted function space removes these degrees of
+freedom, so they keep their initial value of zero. With ``reduced=False``, the
+function below omits :math:`\Pi_h^P` and gives the standard Morley
+discretisation, which we use for comparison.
 
 .. code-block:: python
 
@@ -313,10 +323,12 @@ use below for comparison.
       w_h = Function(V)
       return LinearVariationalProblem(a, L, w_h)
 
-We check the membrane limit with a uniform load. Multiplying the membrane
-deflection by :math:`T` gives the solution of :math:`-\Delta u = f`, so we
-solve this reference problem once. We compare it with
-:math:`T \Pi_h^P w_h` while decreasing the thickness in the same plate solver.
+We first check the membrane limit with the uniform load :math:`f = 1`. We
+calculate the linear Lagrange solution of :math:`-\Delta u = f` once, and we
+compare it with :math:`T \Pi_h^P w_h` for decreasing thickness. The tension
+:math:`T` is an expression of the ``Constant`` :math:`t`, so one solver can
+solve the plate problem for all thicknesses. We store the original thickness,
+so that we can restore it for the convergence study.
 
 .. code-block:: python
 
@@ -350,17 +362,16 @@ For small :math:`t`, the difference decreases as :math:`O(t^2)`.
 
   assert difference < 1e-3
 
-The reduction operator is necessary for this limit. A Morley function is
-continuous at the vertices, but its jump across an interior edge is a quadratic
-that vanishes at the two vertices, so the jump does not have zero mean. Thus the
-Morley discretisation of the membrane term has a consistency error that does
-not decrease as the mesh is refined, and the Morley method does not converge
-for the membrane problem :cite:`Nilssen:2001`. When the thickness is much
-smaller than the mesh size, the membrane term dominates the energy. We show
-this with the manufactured Kirchhoff solution at :math:`t = 10^{-4}`
-and the load :math:`f = D \Delta^2 w_K - T \Delta w_K`.
-We measure the error in the gradient of the deflection, which we evaluate on
-each cell.
+Without the reduction operator, the Morley method does not converge in the
+membrane limit. A Morley function is continuous at the vertices, so its jump
+across an interior edge is a quadratic that is zero at the two vertices. Such
+a quadratic does not have zero mean. Thus the Morley discretisation of the
+membrane term has a consistency error that does not decrease as the mesh is
+refined :cite:`Nilssen:2001`. To show this, we set :math:`t = 10^{-4}`. This
+thickness is much smaller than the mesh size, so the membrane term dominates
+the energy. We use the manufactured solution :math:`w_K` with the load
+:math:`f = D \Delta^2 w_K - T \Delta w_K`, and we measure the error in the
+gradient of the deflection on each cell.
 
 .. code-block:: python
 
@@ -406,12 +417,14 @@ The demo prints the following errors and rates:
    +----+-----------+------+-----------+------+
 
 The error of the Morley method does not decrease as the mesh is refined. The
-modified Morley method converges, and the reduction operator is responsible
-for this convergence.
+error of the modified Morley method decreases at a rate that approaches 2. The
+two methods differ only in the reduction operator, so the reduction operator
+makes the method converge.
 
-For the convergence study, we restore the original thickness and use the
-load :math:`f = D \Delta^2 w_K - T \Delta w_K`, so the exact solution is
-:math:`w_K`.
+For the convergence study, we restore the original thickness. We keep the load
+:math:`f = D \Delta^2 w_K - T \Delta w_K`, so the exact solution is still
+:math:`w_K`. The rotation of the Morley method is :math:`\nabla w_h`, so its
+rotation gradient is the Hessian of :math:`w_h` on each cell.
 
 .. code-block:: python
 
@@ -427,18 +440,16 @@ load :math:`f = D \Delta^2 w_K - T \Delta w_K`, so the exact solution is
 Kirchhoff Plate with Discrete Kirchhoff Triangles
 -------------------------------------------------
 
-The Kirchhoff model uses :math:`\boldsymbol{\beta} = \nabla w` in the bending
-energy, and it has no shear term. The bending term then contains second
-derivatives of :math:`w`, and a conforming method needs an
-:math:`H^2`-conforming space. The discrete Kirchhoff triangle of Batoz, Bathe,
-and Ho :cite:`Batoz:1980` takes the deflection :math:`w_h` in the reduced
-Hermite space :math:`W_h`, which we describe below, and replaces
-:math:`\nabla w_h` by a discrete gradient
-:math:`\nabla_h^\Theta w_h = \Pi_h^\Theta \nabla w_h`. This operator interpolates the
-gradient into the rotated Bernardi--Raugel space :math:`\Theta_h`. To include
-the membrane energy, we use a second reduction
-:math:`\Pi_h^P w_h` into the linear Lagrange space :math:`P_h`. The DKT energy,
-including the additional membrane term, is
+The modified Morley method uses the cellwise gradient :math:`\nabla w_h` as
+the rotation in the bending term. The discrete Kirchhoff triangle (DKT) of
+Batoz, Bathe and Ho :cite:`Batoz:1980` uses a continuous rotation instead. It
+replaces :math:`\nabla w_h` by the discrete gradient
+:math:`\nabla_h^\Theta w_h = \Pi_h^\Theta \nabla w_h`, which is in the
+continuous rotated Bernardi--Raugel space :math:`\boldsymbol{\Theta}_h`. The
+deflection :math:`w_h` is in the reduced Hermite space :math:`W_h`, which we
+describe below. For the membrane term and the load, DKT uses the same
+reduction :math:`\Pi_h^P` as the modified Morley method. The DKT energy with
+the membrane term is
 
 .. math::
 
@@ -446,9 +457,9 @@ including the additional membrane term, is
   \frac{1}{2} \int_\Omega \boldsymbol{\sigma}(\nabla_h^\Theta w_h) :
   \boldsymbol{\varepsilon}(\nabla_h^\Theta w_h) \, \mathrm{d}x
   + \frac{1}{2} \int_\Omega T |\nabla \Pi_h^P w_h|^2 \, \mathrm{d}x
-  - \int_\Omega f \Pi_h^P w_h \, \mathrm{d}x.
+  - \int_\Omega f \Pi_h^P w_h \, \mathrm{d}x,
 
-The equilibrium equation for this energy is:
+and its equilibrium equation is
 
 .. math::
 
@@ -458,26 +469,31 @@ The equilibrium equation for this energy is:
   = \int_\Omega f \Pi_h^P v_h \, \mathrm{d}x
   \qquad \forall v_h \in W_h.
 
-The P1 reduction recovers the linear Lagrange membrane discretisation as
-:math:`D` tends to zero. The DKT discrete gradient approximates the
-rotation in the bending term. The DKT method combines the two gradient
-reductions in UFL as
-``grad(interpolate(grad(w), Theta))`` for bending and
-``grad(interpolate(w, P))`` for membrane energy.
+As for the modified Morley method, the membrane limit of this equation is the
+linear Lagrange discretisation of :math:`-\Delta u = f`. In UFL, the bending
+term contains ``grad(interpolate(grad(w), Theta))`` and the membrane term
+contains ``grad(interpolate(w, P))``.
 
 .. image:: discrete_kirchhoff_elements.svg
    :align: center
 
-* **Reduced Hermite**: the deflection space :math:`W_h`. Its degrees of freedom
-  are the values and the gradients at the vertices. It is the cubic
-  `Hermite <https://defelement.org/elements/hermite.html>`__ element with one
-  constraint that removes the interior degree of freedom.
-* **Rotated Bernardi--Raugel**: the vector-valued space :math:`\Theta_h`. It is
-  the vector linear Lagrange space with a tangential bubble on each edge, and
-  it rotates the normal bubbles of the
+* **Reduced Hermite**: the deflection space :math:`W_h`. Its degrees of
+  freedom are the values (dots) and the gradients (circles) at the vertices.
+  The cubic `Hermite <https://defelement.org/elements/hermite.html>`__
+  element also has the value at the barycentre. One constraint on the cubic
+  polynomials removes this degree of freedom.
+* **Rotated Bernardi--Raugel**: the rotation space
+  :math:`\boldsymbol{\Theta}_h`. It contains the vector linear Lagrange
+  functions and, on each edge, one quadratic bubble that points along the edge.
+  Its degrees of freedom are the vector values at the vertices (double dots)
+  and the tangential moments on the edges (arrows). The
   `Bernardi--Raugel <https://defelement.org/elements/bernardi-raugel.html>`__
-  element. The discrete gradient keeps the gradient at the vertices and the
-  tangential component on each edge.
+  element for Stokes flow has bubbles that point normal to the edges.
+
+The gradient of a reduced Hermite function has one value at each vertex, and
+its tangential component on an edge is the same on the two neighbouring cells.
+:math:`\Pi_h^\Theta` uses only these quantities, so the discrete gradient is
+continuous across the edges.
 
 The boundary condition on :math:`W_h` sets the values and the gradients at the
 boundary vertices to zero. The discrete gradient of the solution is then zero
@@ -513,9 +529,9 @@ on the boundary, and this clamps the plate.
 Convergence Rates
 -----------------
 
-We solve the three problems on a sequence of uniformly refined meshes, and we
-print the rotation gradient errors and the rates of convergence between
-successive meshes.
+We solve the three problems on a sequence of uniformly refined meshes. For
+each method, we print the rotation gradient errors and the rates of
+convergence between successive meshes.
 
 .. code-block:: python
 
@@ -559,8 +575,10 @@ The demo prints the following errors and rates:
    | 32 | 8.992e-03 | 0.93 | 9.602e-03 | 0.91 | 3.261e-03 | 1.00   |
    +----+-----------+------+-----------+------+-----------+--------+
 
-The observed rates for all three methods approach first order in the
-rotation gradient as the mesh is refined.
+For all three methods, the rate approaches 1 as the mesh is refined. In each
+method, the rotation is piecewise linear, apart from the edge bubbles of
+:math:`\boldsymbol{\Theta}_h`, so first order is the optimal rate for the
+rotation gradient.
 
 .. code-block:: python
 
@@ -569,9 +587,10 @@ rotation gradient as the mesh is refined.
       assert rate > 0.85, (name, rate)
 
 Finally, we draw a surface plot of the discrete Kirchhoff deflection on the
-finest mesh with :func:`trisurf <firedrake.pyplot.trisurf>`. Interpolation
-into discontinuous cubic Lagrange preserves the polynomial on each cell and
-lets the plotter sample it with the Lagrange basis.
+finest mesh with :func:`trisurf <firedrake.pyplot.trisurf>`. The plotter
+evaluates a function with its Lagrange basis, so we first interpolate the
+reduced Hermite function into the discontinuous cubic Lagrange space. This
+interpolation keeps the cubic polynomial on each cell.
 
 .. code-block:: python
 
