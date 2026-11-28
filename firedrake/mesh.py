@@ -1771,7 +1771,7 @@ class AbstractMeshTopology(abc.ABC):
         if self.comm.size == 1:
             return op3.sf.local_sf(self.num_points, self.comm)
         else:
-            return op3.StarForest(self.topology_dm.getPointSF(), self.num_points)
+            return op3.StarForest(self.topology_dm.getPointSF(), self.comm)
 
     @property
     def topology(self):
