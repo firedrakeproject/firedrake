@@ -150,3 +150,71 @@ def get_instruction_executor_cache_key(obj: pyop3.obj.Object) -> Hashable:
     the buffers at the top-level.
     """
     return MemoryCacheKeyGetter(identity_hash_outer_buffers=False, recurse_vars=False)(obj)
+
+
+class StructuralCacheKeyGetter(MemoryCacheKeyGetter):
+    """Cache key getter that ignores the data held by buffers.
+
+    Consider the expression:
+
+        dat1[i] <- dat2[map1[i]]
+
+    `get_instruction_executor_cache_key` lets us replace ``dat1`` and ``dat2``
+    but not the buffer of ``map1`` because it is hashed by identity. Here we
+    instead name every buffer by the order in which it is visited, so the same
+    expression on a different mesh (with different data for ``map1``) gives
+    the same key.
+
+    The key of an unindexed axis tree also includes its layouts, because the
+    generated code depends on them (for instance on their static strides) and
+    they are only substituted into the instruction during preprocessing.
+    Visiting the layouts also records their buffers, so every buffer of the
+    generated code can be found at the same position in another instruction
+    with the same key.
+
+    """
+
+    def __init__(self) -> None:
+        super().__init__(identity_hash_outer_buffers=False, recurse_vars=False)
+        self.buffers = {}
+
+    @contextlib.contextmanager
+    def identity_hash_buffers(self):
+        yield
+
+    def process(self, obj: Any, /) -> Hashable:
+        import pyop3.axis_tree
+        import pyop3.buffer
+
+        if isinstance(obj, pyop3.buffer.AbstractBuffer):
+            self.buffers.setdefault(obj, len(self.buffers))
+        key = super().process(obj)
+        if isinstance(obj, pyop3.axis_tree.AxisTree):
+            layouts_key = idict({
+                self.relabel_axis_tree_path(path): self(layout)
+                for path, layout in obj.layouts.items()
+            })
+            key = (key, layouts_key)
+        return key
+
+
+def get_structural_cache_key(
+    obj: pyop3.obj.Object,
+) -> tuple[Hashable, tuple[pyop3.buffer.AbstractBuffer, ...]]:
+    """Return the structural cache key of an object.
+
+    Parameters
+    ----------
+    obj
+        The object, usually an instruction.
+
+    Returns
+    -------
+    tuple
+        The key, followed by the buffers visited by `StructuralCacheKeyGetter`
+        in visit order.
+
+    """
+    getter = StructuralCacheKeyGetter()
+    key = getter(obj)
+    return key, tuple(getter.buffers)
