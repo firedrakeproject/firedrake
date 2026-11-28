@@ -634,3 +634,13 @@ def test_restrict_multigrid(degree, relax):
     solver.solve()
 
     assert errornorm(u_exact, u) < 1E-10
+
+
+def test_restricted_function_space_accepts_subdomain_name():
+    mesh = UnitSquareMesh(2, 2)
+    mesh.rename_subdomain(1, [1, 2], "vertical")
+    V = FunctionSpace(mesh, "CG", 1)
+
+    assert RestrictedFunctionSpace(V, "vertical").boundary_set == frozenset({1, 2})
+    nested = RestrictedFunctionSpace(RestrictedFunctionSpace(V, [3]), "vertical")
+    assert nested.boundary_set == frozenset({1, 2, 3})

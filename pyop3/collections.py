@@ -165,6 +165,7 @@ _dict_items_type = type({}.items())
 _ordered_sequence_types = (
     list,
     tuple,
+    range,
     _dict_keys_type,
     _dict_values_type,
     _dict_items_type,

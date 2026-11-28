@@ -4,7 +4,7 @@ import dataclasses
 import functools
 import itertools
 import numpy as np
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 import ctypes
 from contextlib import contextmanager
 import os
@@ -15,7 +15,7 @@ import finat.ufl
 import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
-from collections.abc import Sequence, Generator, Callable
+from collections.abc import Sequence, Generator, Callable, Iterator, Set
 from ufl.classes import ReferenceGrad
 from ufl.cell import CellSequence
 from ufl.domain import extract_unique_domain, extract_domains
@@ -182,38 +182,108 @@ def _generate_default_mesh_topology_permutation_name(reorder):
     return "_".join(["firedrake", "default", str(reorder)])
 
 
+def _named_subdomain_labels(plex: PETSc.DMPlex) -> list[str]:
+    """Return the names of the labels that describe individual subdomains."""
+    standard_labels = {
+        "depth", "celltype", "marker",
+        dmcommon.VERTEX_SETS_LABEL, dmcommon.EDGE_SETS_LABEL,
+        dmcommon.FACE_SETS_LABEL, dmcommon.CELL_SETS_LABEL,
+    }
+    names = (plex.getLabelName(i) for i in range(plex.getNumLabels()))
+    return [name for name in names if name not in standard_labels]
+
+
+def _subdomain_label_strata(
+    plex: PETSc.DMPlex, names: Sequence[str], dimensions: Sequence[int],
+) -> Iterator[tuple[int, int, str, NDArray]]:
+    """Yield the dimension, subdomain id, name, and local points of each subdomain stratum."""
+    depth_strata = [plex.getDepthStratum(dim) for dim in dimensions]
+    for name in names:
+        for subdomain_id in plex.getLabelIdIS(name).indices:
+            points = plex.getStratumIS(name, subdomain_id)
+            if points:
+                # PETSc sorts these points. A label can span several dimensions
+                # if groups of different dimensions share a name.
+                indices = points.array
+                offsets = np.searchsorted(indices, depth_strata)
+                for dim, (start, end) in zip(dimensions, offsets):
+                    if start < end:
+                        yield dim, int(subdomain_id), name, indices[start:end]
+
+
+def _subdomain_names(
+    plex: PETSc.DMPlex, names: Sequence[str], dimensions: Sequence[int],
+) -> list[tuple[int, int, str]]:
+    """Return the dimension, subdomain id, and name of each subdomain stratum."""
+    strata = _subdomain_label_strata(plex, names, dimensions)
+    return [(dim, subdomain_id, name) for dim, subdomain_id, name, _ in strata]
+
+
+def _pop_subdomain_names(plex: PETSc.DMPlex) -> list[tuple[int, int, str]]:
+    """Return the subdomain names of every entity dimension and remove their labels."""
+    names = _named_subdomain_labels(plex)
+    subdomain_names = _subdomain_names(plex, names, range(plex.getDimension() + 1))
+    # Remove per-group labels before distribution and before Firedrake creates its labels.
+    for name in names:
+        plex.removeLabel(name)
+    return subdomain_names
+
+
+def _register_subdomain_names(mesh, subdomain_names):
+    # Union over ranks, sorted so that every rank registers in the same order
+    with temp_internal_comm(mesh.comm) as icomm:
+        all_subdomain_names = set().union(*icomm.allgather(subdomain_names))
+    for dim, subdomain_id, name in sorted(all_subdomain_names):
+        mesh.rename_subdomain(dim, subdomain_id, name)
+
+
 @PETSc.Log.EventDecorator()
-def _from_gmsh(filename, comm=None):
-    """Read a Gmsh .msh file from `filename`.
-
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
-    """
-    comm = comm or COMM_WORLD
-    gmsh_plex = PETSc.DMPlex().createFromFile(filename, comm=comm)
-
-    return gmsh_plex
+def _from_gmsh(filename: str, comm: MPI.Comm, geometric_dim: int | None) -> tuple[PETSc.DMPlex, list[tuple[int, int, str]]]:
+    """Read the mesh and physical names from a Gmsh file."""
+    options = {"dm_plex_gmsh_use_regions": True, "dm_plex_gmsh_use_generic": True}
+    if geometric_dim is not None:
+        options["dm_plex_gmsh_spacedim"] = geometric_dim
+    with OptionsManager(options, "").inserted_options():
+        plex = PETSc.DMPlex().createFromFile(filename, comm=comm)
+    return plex, _pop_subdomain_names(plex)
 
 
 @PETSc.Log.EventDecorator()
-def _from_exodus(filename, comm):
-    """Read an Exodus .e or .exo file from `filename`.
-
-    :arg comm: communicator to build the mesh on.
-    """
+def _from_exodus(filename: str, comm: MPI.Comm) -> tuple[PETSc.DMPlex, list[tuple[int, int, str]]]:
+    """Read the mesh and side set names from an Exodus file."""
     plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
-
-    return plex
+    return plex, _subdomain_names(plex, _named_subdomain_labels(plex), (plex.getDimension() - 1,))
 
 
 @PETSc.Log.EventDecorator()
-def _from_cgns(filename, comm):
-    """Read a CGNS .cgns file from `filename`.
-
-    :arg comm: communicator to build the mesh on.
-    """
+def _from_cgns(filename: str, comm: MPI.Comm) -> tuple[PETSc.DMPlex, list[tuple[int, int, str]]]:
+    """Read the mesh and any facet names that PETSc maps from a CGNS file."""
     plex = PETSc.DMPlex().createCGNSFromFile(filename, comm=comm)
-    return plex
+    # The parallel reader maps boundary element IDs to DMPlex facet points.
+    if not PETSc.Options().getBool("dm_plex_cgns_parallel", False):
+        return plex, []
+
+    facet_dim = plex.getDimension() - 1
+    local_facets = {
+        name: points for _, _, name, points in _subdomain_label_strata(plex, _named_subdomain_labels(plex), (facet_dim,))
+    }
+    local_subdomain_ids = plex.getLabelIdIS(dmcommon.FACE_SETS_LABEL).indices
+    with temp_internal_comm(comm) as icomm:
+        metadata = icomm.allgather((tuple(local_facets), tuple(local_subdomain_ids)))
+    names = {name for rank_names, _ in metadata for name in rank_names}
+    if not names:
+        return plex, []
+
+    used_subdomain_ids = {subdomain_id for _, rank_subdomain_ids in metadata for subdomain_id in rank_subdomain_ids}
+    free_subdomain_ids = (subdomain_id for subdomain_id in itertools.count(1) if subdomain_id not in used_subdomain_ids)
+    plex.createLabel(dmcommon.FACE_SETS_LABEL)
+    face_sets = plex.getLabel(dmcommon.FACE_SETS_LABEL)
+    subdomain_names = [(facet_dim, subdomain_id, name) for name, subdomain_id in zip(sorted(names), free_subdomain_ids)]
+    for _, subdomain_id, name in subdomain_names:
+        if name in local_facets:
+            # An overlapping group can share points with an existing subdomain id.
+            face_sets.setStratumIS(subdomain_id, PETSc.IS().createGeneral(local_facets[name], comm=MPI.COMM_SELF))
+    return plex, subdomain_names
 
 
 @PETSc.Log.EventDecorator()
@@ -495,6 +565,8 @@ class AbstractMeshTopology(abc.ABC):
         self._max_work_functions = {}
         # Cell subsets for integration over subregions
         self._subsets = {}
+        # Human-readable subdomain names, keyed by topological entity dimension.
+        self.subdomain_names = {}
         # A set of weakrefs to meshes that are explicitly labelled as being
         # parallel-compatible for interpolation/projection/supermeshing
         # To set, do e.g.
@@ -2895,6 +2967,9 @@ class ExtrudedMeshTopology(MeshTopology):
         # AbstractMeshTopology.__init__
         self._shared_data_cache = defaultdict(dict)
         self._max_work_functions = {}
+        # Subdomain names are set on the extruded mesh itself, because the
+        # entity dimensions differ from those of the base mesh
+        self.subdomain_names = {}
 
         # needed because we don't call super().__init__
         self._uid = f"mesh_{next(self.counter)}"
@@ -4556,6 +4631,66 @@ values from f.)"""
         current = super(MeshGeometry, self).__dir__()
         return list(OrderedDict.fromkeys(dir(self.topology) + current))
 
+    _reserved_subdomain_names = frozenset({"on_boundary", "everywhere", "otherwise", "top", "bottom"})
+
+    def _check_entity_dimension(self, dim):
+        dim = int(dim)
+        mesh_dim = self.topological_dimension
+        if not 0 <= dim <= mesh_dim:
+            raise ValueError(f"Invalid entity dimension {dim} for mesh of dimension {mesh_dim}")
+        return dim
+
+    def rename_subdomain(self, dim, subdomain_id, subdomain_name):
+        """Bind a string name to one or more integer subdomain ids."""
+        if not isinstance(subdomain_name, str):
+            raise TypeError("subdomain_name must be a string")
+        ids = utils.as_tuple(subdomain_id)
+        for sid in ids:
+            if not isinstance(sid, numbers.Integral):
+                raise TypeError(f"Expected integer subdomain id, got {sid!r}")
+        dim_subdomain_names = self.topology.subdomain_names.setdefault(self._check_entity_dimension(dim), {})
+        dim_subdomain_names.setdefault(subdomain_name, []).extend(int(sid) for sid in ids)
+
+    def parse_subdomain_id(self, dim: int, subdomain_id: Any) -> Any:
+        """Resolve subdomain names for an entity dimension.
+
+        Expand names in the outer collection and keep names that resolve to
+        several ids grouped inside intersections.
+
+        Parameters
+        ----------
+        dim
+            The topological dimension of the entities.
+        subdomain_id
+            An integer id, a name, or a collection of ids and names.
+
+        Returns
+        -------
+        object
+            The resolved id or collection of ids.
+        """
+        dim = self._check_entity_dimension(dim)
+        names = self.topology.subdomain_names.get(dim, {})
+
+        def resolve(value: Any, *, top: bool = False) -> Any:
+            if isinstance(value, str) and value not in self._reserved_subdomain_names:
+                ids = names.get(value)
+                if ids is None:
+                    raise ValueError(f"Subdomain {value!r} not found in dimension {dim}. Available names: {sorted(names)}")
+                return utils.as_tuple(ids)
+            items = tuple(value) if isinstance(value, Set | Iterator) else utils.as_tuple(value)
+            if len(items) == 1 and items[0] is value:
+                return value
+
+            resolved = []
+            for item in items:
+                ids = resolve(item)
+                expand = isinstance(item, str) and isinstance(ids, tuple) and (top or len(ids) == 1)
+                resolved.extend(ids if expand else (ids,))
+            return tuple(resolved)
+
+        return resolve(subdomain_id, top=True)
+
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.
 
@@ -4946,64 +5081,89 @@ def Mesh(meshfile, **kwargs):
     Meshes may either be created by reading from a mesh file, or by
     providing a PETSc DMPlex object defining the mesh topology.
 
-    :param meshfile: the mesh file name, a DMPlex object or a Netgen mesh object defining
-           mesh topology.  See below for details on supported mesh
-           formats.
-    :param name: optional name of the mesh object.
-    :param dim: optional specification of the geometric dimension
-           of the mesh (ignored if not reading from mesh file).
-           If not supplied the geometric dimension is deduced from
-           the topological dimension of entities in the mesh.
-    :param reorder: optional flag indicating whether to reorder
-           meshes for better cache locality.  If not supplied the
-           default value in ``parameters["reorder_meshes"]``
-           is used.
-    :param distribution_parameters:  an optional dictionary of options for
-           parallel mesh distribution.  Supported keys are:
+    Parameters
+    ----------
+    meshfile : str | pathlib.Path | PETSc.DMPlex | ``netgen.meshing.Mesh`` | firedrake.function.Function | firedrake.function.CoordinatelessFunction
+        The mesh file name, a DMPlex object or a Netgen mesh object defining
+        mesh topology.  See below for details on supported mesh
+        formats.
 
-             - ``"partition"``: which may take the value ``None`` (use
-                 the default choice), ``False`` (do not) ``True``
-                 (do), or a 2-tuple that specifies a partitioning of
-                 the cells (only really useful for debugging).
-             - ``"partitioner_type"``: which may take ``"chaco"``,
-                 ``"ptscotch"``, ``"parmetis"``, or ``"shell"``.
-             - ``"overlap_type"``: a 2-tuple indicating how to grow
-                 the mesh overlap.  The first entry should be a
-                 :class:`DistributedMeshOverlapType` instance, the
-                 second the number of levels of overlap.
+    Other Parameters
+    ----------------
+    name : str
+        Optional name of the mesh object.
+    dim : int | None
+        Optional specification of the geometric dimension
+        of the mesh (ignored if not reading from mesh file).
+        If not supplied the geometric dimension is deduced from
+        the topological dimension of entities in the mesh.
+    reorder : bool | None
+        Optional flag indicating whether to reorder
+        meshes for better cache locality.  If not supplied the
+        default value in ``parameters["reorder_meshes"]``
+        is used.
+    distribution_parameters : dict | None
+        An optional dictionary of options for parallel mesh distribution.
+        Supported keys are
 
-    :param distribution_name: the name of parallel distribution used
-           when checkpointing; if not given, the name is automatically
-           generated.
+        - ``"partition"``, which may take the value ``None`` (use
+          the default choice), ``False`` (do not), ``True``
+          (do), or a 2-tuple that specifies a partitioning of
+          the cells (only really useful for debugging).
+        - ``"partitioner_type"``, which may take ``"chaco"``,
+          ``"ptscotch"``, ``"parmetis"``, or ``"shell"``.
+        - ``"overlap_type"``, a 2-tuple indicating how to grow
+          the mesh overlap.  The first entry should be a
+          :class:`DistributedMeshOverlapType` instance, and the
+          second the number of levels of overlap.
+    distribution_name : str | None
+        The name of parallel distribution used when checkpointing.
+        If not given, the name is automatically generated.
+    permutation_name : str | None
+        The name of entity permutation (reordering) used when checkpointing.
+        If not given, the name is automatically generated.
+    comm : mpi4py.MPI.Comm
+        The communicator to use when creating the mesh.  If
+        not supplied, then the mesh will be created on COMM_WORLD.
+        If ``meshfile`` is a DMPlex object, the communicator must be identical
+        to or congruent with the DMPlex communicator.
+    tolerance : float
+        The relative tolerance (i.e. as defined on the reference
+        cell) for the distance a point can be from a cell and still be
+        considered to be in the cell. Defaults to 0.5. Increase
+        this if point at mesh boundaries (either rank local or global) are
+        reported as being outside the mesh, for example when creating a
+        :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
+        distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
+        will scale with the dimension of the mesh.
+    netgen_flags : dict
+        The dictionary of flags to be passed to ngsPETSc.
 
-    :param permutation_name: the name of entity permutation (reordering) used
-           when checkpointing; if not given, the name is automatically
-           generated.
+    Returns
+    -------
+    MeshGeometry
+        The mesh.
 
-    :param comm: the communicator to use when creating the mesh.  If
-           not supplied, then the mesh will be created on COMM_WORLD.
-           If ``meshfile`` is a DMPlex object then must be indentical
-           to or congruent with the DMPlex communicator.
-
-    :param tolerance: The relative tolerance (i.e. as defined on the reference
-           cell) for the distance a point can be from a cell and still be
-           considered to be in the cell. Defaults to 0.5. Increase
-           this if point at mesh boundaries (either rank local or global) are
-           reported as being outside the mesh, for example when creating a
-           :class:`VertexOnlyMesh`. Note that this tolerance uses an L1
-           distance (aka 'manhattan', 'taxicab' or rectilinear distance) so
-           will scale with the dimension of the mesh.
-
-    :param netgen_flags: The dictionary of flags to be passed to ngsPETSc.
-
+    Notes
+    -----
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
     filename extension):
 
-    * GMSH: with extension `.msh`
-    * Exodus: with extension `.e`, `.exo`
-    * CGNS: with extension `.cgns`
-    * Triangle: with extension `.node`
+    * Gmsh: with extension `.msh`. Firedrake imports the physical group names
+      for which PETSc creates labels. It keeps the subdomain id of each name
+      by entity dimension and removes the per-group labels before distributing
+      the mesh. PETSc's standard labels supply the subdomain ids. Use names
+      that are distinct from ``depth``, ``celltype``, ``marker``, ``Cell Sets``,
+      ``Face Sets``, ``Edge Sets``, and ``Vertex Sets``.
+    * Exodus: with extension `.e`, `.exo`. Firedrake imports side set names
+      using their original subdomain ids.
+    * CGNS: with extension `.cgns`. With PETSc's ``-dm_plex_cgns_parallel``
+      option, Firedrake imports named facet groups and assigns each group an
+      unused positive subdomain id in alphabetical order. PETSc reads groups
+      named ``FaceSet<n>`` as subdomain ids.
+    * Triangle: with extension `.node`. Triangle provides integer subdomain ids.
+      Use :meth:`~.MeshGeometry.rename_subdomain` to assign names to them.
     * HDF5: with extension `.h5`, `.hdf5`
       (Can only load HDF5 files created by
       :meth:`~.CheckpointFile.save_mesh` method.)
@@ -5046,6 +5206,7 @@ def Mesh(meshfile, **kwargs):
     tolerance = kwargs.get("tolerance", 0.5)
 
     from_netgen = netgen and isinstance(meshfile, netgen.libngpy._meshing.Mesh)
+    subdomain_names = None
 
     # We don't need to worry about using a user comm in these cases as
     # they all immediately call a petsc4py which in turn uses a PETSc
@@ -5063,21 +5224,16 @@ def Mesh(meshfile, **kwargs):
         netgen_firedrake_mesh = FiredrakeMesh(meshfile, netgen_flags, user_comm)
         plex = netgen_firedrake_mesh.meshMap.petscPlex
         plex.setName(_generate_default_mesh_topology_name(name))
+        subdomain_names = _pop_subdomain_names(plex)
 
     else:
         basename, ext = os.path.splitext(meshfile)
         if ext.lower() in ['.e', '.exo']:
-            plex = _from_exodus(meshfile, user_comm)
+            plex, subdomain_names = _from_exodus(meshfile, user_comm)
         elif ext.lower() == '.cgns':
-            plex = _from_cgns(meshfile, user_comm)
+            plex, subdomain_names = _from_cgns(meshfile, user_comm)
         elif ext.lower() == '.msh':
-            if geometric_dim is not None:
-                opts = {"dm_plex_gmsh_spacedim": geometric_dim}
-            else:
-                opts = {}
-            opts = OptionsManager(opts, "")
-            with opts.inserted_options():
-                plex = _from_gmsh(meshfile, user_comm)
+            plex, subdomain_names = _from_gmsh(meshfile, user_comm, geometric_dim)
         elif ext.lower() == '.node':
             plex = _from_triangle(meshfile, geometric_dim, user_comm)
         else:
@@ -5121,6 +5277,9 @@ def Mesh(meshfile, **kwargs):
             temp._distribution_parameters = mesh._distribution_parameters
             temp._did_reordering = mesh._did_reordering
             mesh = temp
+
+    if subdomain_names is not None:
+        _register_subdomain_names(mesh, subdomain_names)
 
     mesh.submesh_parent = submesh_parent
     mesh._tolerance = tolerance
@@ -6169,6 +6328,9 @@ def Submesh(mesh, subdim=None, subdomain_id=None, label_name=None, name=None, ig
     elif isinstance(mesh.topology, VertexOnlyMeshTopology):
         raise NotImplementedError("Can not create a submesh of a ``VertexOnlyMesh``")
 
+    if subdomain_id is not None:
+        entity_dim = mesh.topological_dimension if subdim is None else subdim
+        subdomain_id = mesh.parse_subdomain_id(entity_dim, subdomain_id)
     subplex = dmcommon.submesh_create(mesh.topology_dm, subdim, label_name, subdomain_id, ignore_halo, comm=comm)
 
     comm = comm or mesh.comm

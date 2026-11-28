@@ -1,10 +1,12 @@
 from math import pi
 
 from firedrake import *
+from petsctools import OptionsManager, get_external_packages
 import numpy as np
 import pytest
 from os.path import abspath, dirname, join
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 path = join(abspath(dirname(__file__)), '..', 'meshes')
@@ -123,3 +125,55 @@ def test_periodic_3d_solve():
     solve(a == L, uh, bcs=bc, solver_parameters={"ksp_type": "cg"})
 
     assert errornorm(u_exact_expr, uh, "L2") < 1e-12
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("use_path_object", [False, True])
+def test_gmsh_subdomain_names_are_loaded(use_path_object: bool) -> None:
+    with TemporaryDirectory() as directory:
+        filename = None
+        if COMM_WORLD.rank == 0:
+            source = (Path(path) / "square.msh").read_text()
+            physical_names = (
+                "$PhysicalNames\n3\n"
+                "1 1 \"left wall\"\n"
+                "1 2 \"firedrake_is_ghost\"\n"
+                "2 1 \"left wall\"\n"
+                "$EndPhysicalNames\n"
+            )
+            filename = Path(directory) / "named_square.msh"
+            filename.write_text(source.replace("$EndMeshFormat\n", "$EndMeshFormat\n" + physical_names))
+        filename = COMM_WORLD.bcast(filename, root=0)
+        mesh = Mesh(filename if use_path_object else str(filename))
+
+    assert mesh.topology.subdomain_names == {
+        1: {"left wall": [1], "firedrake_is_ghost": [2]},
+        2: {"left wall": [1]},
+    }
+    for subdomain_id in ("left wall", "firedrake_is_ghost", 1, 2):
+        assert assemble(Constant(1) * ds(subdomain_id, domain=mesh)) == pytest.approx(1.0)
+    for subdomain_id in ("left wall", 1):
+        assert assemble(Constant(1) * dx(subdomain_id, domain=mesh)) == pytest.approx(1.0)
+
+
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("parallel_reader", [False, True])
+def test_cgns_subdomain_names(parallel_reader: bool) -> None:
+    if "cgns" not in get_external_packages():
+        pytest.skip("PETSc was built without CGNS support")
+
+    filename = "named_rectangle.cgns" if parallel_reader else "rectangle.cgns"
+    options = {"dm_plex_cgns_parallel": parallel_reader}
+    with OptionsManager(options, "").inserted_options():
+        mesh = Mesh(Path(path) / filename)
+
+    if parallel_reader:
+        assert mesh.topology.subdomain_names == {1: {"inlet": [2], "wall": [3]}}
+        boundary = ds(domain=mesh)
+        for subdomain_id, length in (("inlet", 1.0), ("wall", 2.0), (1, 1.0), (2, 1.0), (3, 2.0)):
+            assert assemble(1 * boundary(subdomain_id)) == pytest.approx(length)
+    else:
+        assert not mesh.topology.subdomain_names
+        assert mesh.topology_dm.hasLabel("zone")
+
+    assert assemble(1 * dx(domain=mesh)) == pytest.approx(2.0)

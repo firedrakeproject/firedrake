@@ -2,7 +2,7 @@
 
 # Utility functions common to all DMs used in Firedrake
 import enum
-from collections.abc import Sequence, Iterable
+from collections.abc import Iterable
 from numbers import Integral
 
 import cython
@@ -11,7 +11,7 @@ from mpi4py import MPI
 
 import firedrake
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType, ScalarType
+from firedrake.utils import IntType, ScalarType, as_tuple
 from finat.element_factory import as_fiat_cell
 
 # ---
@@ -28,6 +28,8 @@ np.import_array()
 include "petschdr.pxi"
 
 
+VERTEX_SETS_LABEL = "Vertex Sets"
+EDGE_SETS_LABEL = "Edge Sets"
 FACE_SETS_LABEL = "Face Sets"
 CELL_SETS_LABEL = "Cell Sets"
 
@@ -3409,7 +3411,7 @@ def submesh_create(PETSc.DM dm,
         See :func:`~.mesh.Submesh`.
     label_name : str | None
         Name of the label, or `None` to select every cell
-    subdomain_id : int | Sequence | None
+    subdomain_id : int | tuple | None
         Values in the label, unused if ``label_name`` is `None`
     ignore_label_halo : bool
         If labeled points in the halo are ignored.
@@ -3454,13 +3456,10 @@ def submesh_create(PETSc.DM dm,
         elif subdim == dim - 1:
             label_name = FACE_SETS_LABEL
 
-    # Cast subdomain_id into an iterable
-    if isinstance(subdomain_id, str) or not isinstance(subdomain_id, Sequence):
-        subdomain_id = (subdomain_id,)
-    # Take the union of the all the label values
+    # Take the union of the strata for the requested label values.
     label = dm.getLabel(label_name)
     points = PETSc.IS()
-    for sub in subdomain_id:
+    for sub in as_tuple(subdomain_id):
         if isinstance(sub, Integral):
             subpoints = label.getStratumIS(sub)
         elif sub == "on_boundary":

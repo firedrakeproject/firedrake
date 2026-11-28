@@ -12,6 +12,7 @@ from pyop3.pyop2_utils import flatten
 
 from firedrake import functionspaceimpl as impl
 from firedrake.petsc import PETSc
+from firedrake.utils import as_tuple
 
 import numbers
 
@@ -345,10 +346,11 @@ def RestrictedFunctionSpace(function_space, boundary_set=frozenset(), name=None)
     make_space = type(function_space)
     mesh = function_space.mesh()
 
+    boundary_set = mesh.parse_subdomain_id(mesh.topological_dimension - 1, boundary_set)
+    boundary_set = as_tuple(boundary_set)
     if function_space.boundary_set:
         boundary_set = frozenset(boundary_set) | function_space.boundary_set
         function_space = function_space.function_space
-
     return make_space(impl.RestrictedFunctionSpace(function_space.topological,
                                                    boundary_set=boundary_set,
                                                    name=name),

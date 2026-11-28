@@ -363,3 +363,23 @@ def test_netgen_occ_adaptivity():
             break
         mesh = adapt(mesh, eta)
     assert error_estimators[-1] < 0.06
+
+
+@pytest.mark.skipnetgen
+def test_netgen_subdomain_names_are_loaded():
+    from netgen.geom2d import SplineGeometry
+
+    geo = SplineGeometry()
+    geo.AddRectangle((0, 0), (1, 1), bc="rect")
+    ngmesh = geo.GenerateMesh(maxh=0.5)
+
+    mesh = Mesh(ngmesh)
+    labels = [1, 2, 3, 4]
+
+    assert mesh.topology.subdomain_names[1]["rect"] == labels
+
+    V = FunctionSpace(mesh, "CG", 1)
+    named = DirichletBC(V, 0, "rect")
+    numeric = DirichletBC(V, 0, labels)
+
+    assert np.array_equal(np.sort(named.nodes), np.sort(numeric.nodes))
