@@ -1997,10 +1997,32 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.InteriorFacetKernelArg)
     def _as_parloop_arg_interior_facet(self, _, index):
         mesh = next(self._active_interior_facets)
-        if mesh is not self._mesh:
-            index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
-            assert integral_type == "interior_facet"
+        index, broken = self._interior_facet_index(mesh, index)
+        if broken:
+            return mesh.exterior_facet_local_facet_indices[index]
         return mesh.interior_facet_local_facet_indices[index]
+
+    def _interior_facet_index(self, mesh: MeshGeometry, index: op3.Index) -> tuple[op3.Index, bool]:
+        """Find the index for interior facet data on a mesh used by the kernel.
+
+        Parameters
+        ----------
+        mesh : MeshGeometry
+            Mesh that provides the facet data.
+        index : pyop3.Index
+            Index on the mesh of the integral.
+
+        Returns
+        -------
+        tuple
+            Index on ``mesh`` and whether it selects two exterior facets.
+        """
+        if mesh is self._mesh:
+            return index, False
+        index, integral_type = mesh.trans_mesh_entity_map(self._iterset)
+        if integral_type not in {"interior_facet", "broken_facet"}:
+            raise ValueError(f"Expected an interior or broken facet map, got {integral_type}")
+        return index, integral_type == "broken_facet"
 
     @_as_parloop_arg.register(kernel_args.ExteriorFacetVertKernelArg)
     def _(self, _, index):
@@ -2035,9 +2057,9 @@ class ParloopBuilder:
     @_as_parloop_arg.register(kernel_args.OrientationsInteriorFacetKernelArg)
     def _(self, _, index):
         mesh = next(self._active_orientations_interior_facet)
-        if mesh is not self._mesh:
-            index, integral_type = mesh.topology.trans_mesh_entity_map(self._iterset)
-            assert integral_type == "interior_facet"
+        index, broken = self._interior_facet_index(mesh, index)
+        if broken:
+            return mesh._exterior_facet_local_orientation_dat[index]
         return mesh._interior_facet_local_orientation_dat[index]
 
     @_as_parloop_arg.register(CellFacetKernelArg)

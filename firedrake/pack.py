@@ -96,8 +96,9 @@ def _pack_map(loop_index: MeshLoopIndex, mesh) -> op3.Index:
             loop_index, src_path=_get_src_path(loop_index, mesh, "cell")
         )
     elif "facet" in target_integral_type:
+        support_type = "exterior_facet" if target_integral_type == "broken_facet" else target_integral_type
         return mesh.closure(mesh.support(
-            loop_index, src_path=_get_src_path(loop_index, mesh, target_integral_type)
+            loop_index, src_path=_get_src_path(loop_index, mesh, support_type)
         ))
     else:
         raise ValueError(f"Unknown integral_type: {target_integral_type}")

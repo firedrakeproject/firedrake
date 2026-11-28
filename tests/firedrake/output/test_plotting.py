@@ -474,6 +474,22 @@ def _embedded_interval_mesh(expr, dim):
 
 
 @pytest.mark.skipplot
+@pytest.mark.parametrize("degree", [1, 4])
+def test_plot_uses_first_coordinate_on_embedded_interval(degree):
+    mesh = _embedded_interval_mesh(lambda x: as_vector([x, x**2]), 2)
+    V = FunctionSpace(mesh, "CG", degree)
+    x, _ = SpatialCoordinate(mesh)
+    function = Function(V)
+    function.interpolate(1 + 2 * x)
+
+    fig, axes = plt.subplots()
+    patch, = plot(function, axes=axes)
+    path, = patch.get_paths()
+    x_values, y_values = path.vertices.T
+    assert np.allclose(y_values, 1 + 2 * x_values)
+
+
+@pytest.mark.skipplot
 def test_triplot_manifold_mesh_with_boundary():
     # The facets of a 1D mesh are points, so the two ends of an interval
     # embedded into the plane are drawn as markers rather than as segments.

@@ -970,7 +970,7 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         if extract_unique_domain(line).comm.size > 1:
             raise SerialExecutionOnlyError("Firedrake plotting functions can only be used in serial.")
 
-        if extract_unique_domain(line).geometric_dimension > 1:
+        if extract_unique_domain(line).topological_dimension > 1:
             raise ValueError("Expected 1D Function; for plotting higher-dimensional fields, "
                              "see tricontourf, tripcolor, quiver, trisurf")
 
@@ -987,12 +987,12 @@ def plot(function, *args, num_sample_points=10, complex_component="real", **kwar
         else:
             degree = line.ufl_element().degree()
             sample_points = max(num_sample_points, 2 * degree)
-            function_plotter = FunctionPlotter(line.function_space().mesh(), sample_points)
-            x_vals = function_plotter(line.function_space().mesh().coordinates)
+            mesh = line.function_space().mesh()
+            function_plotter = FunctionPlotter(mesh, sample_points)
+            x_vals = function_plotter(mesh.coordinates).reshape(-1, mesh.geometric_dimension)[:, 0]
             y_vals = function_plotter(line)
             points = np.array([x_vals, y_vals])
-            num_cells = line.function_space().mesh().num_cells()
-            result.append(_interp_bezier(points, num_cells, axes, label=label, **kwargs))
+            result.append(_interp_bezier(points, mesh.num_cells(), axes, label=label, **kwargs))
 
     _autoscale_view(axes, None)
     return result
