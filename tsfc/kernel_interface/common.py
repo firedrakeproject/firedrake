@@ -402,6 +402,7 @@ class KernelBuilderMixin:
         .. code-block:: python
 
             builder = KernelBuilder(...)
+            builder.set_domain_numbers(domains)
             params = {"mode": "spectral"}
             ctx = builder.create_context()
             for integral in integral_data.integrals:
@@ -627,11 +628,7 @@ def prepare_coefficient(coefficient, name, domain_integral_type_map):
     size = numpy.prod(shape, dtype=int)
     domain = extract_unique_domain(coefficient)
     integral_type = domain_integral_type_map[domain]
-    if integral_type is None:
-        # This means that this coefficient does not exist in the DAG,
-        # so corresponding gem expression will never be needed.
-        expression = None
-    elif integral_type.startswith("interior_facet"):
+    if integral_type.startswith("interior_facet"):
         varexp = gem.Variable(name, (2 * size,))
         plus = gem.view(varexp, slice(size))
         minus = gem.view(varexp, slice(size, 2 * size))
