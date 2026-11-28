@@ -177,10 +177,7 @@ for N in [5, 10, 25, 50]:
     cpu_timestamp = time()
     solver.solve()
     cpu_time = time() - cpu_timestamp
-    print("N = {:3d}, iterations = {:3d}, converged reason = {:s}, time = {:.3f}s".format(
-        N, solver.snes.ksp.getIterationNumber(), 
-        KSPReasons[solver.snes.ksp.getConvergedReason()],
-        cpu_time))
+    print(f"N = {N:3d}, iterations = {solver.snes.ksp.getIterationNumber():3d}, converged reason = {KSPReasons[solver.snes.ksp.getConvergedReason()]:s}, time = {cpu_time:.3f}s")
 
 # %% [markdown]
 # ### Schur complement approaches
@@ -249,10 +246,7 @@ for N in [5, 10, 25, 50]:
     cpu_timestamp = time()
     solver.solve()
     cpu_time = time() - cpu_timestamp
-    print("N = {:3d}, iterations = {:1d}, converged reason = {:s}, time = {:.3f}s".format(
-        N, solver.snes.ksp.getIterationNumber(), 
-        KSPReasons[solver.snes.ksp.getConvergedReason()],
-        cpu_time))
+    print(f"N = {N:3d}, iterations = {solver.snes.ksp.getIterationNumber():1d}, converged reason = {KSPReasons[solver.snes.ksp.getConvergedReason()]:s}, time = {cpu_time:.3f}s")
 
 # %% [markdown]
 # Great, we got good algorithmic convergence.  Unfortunately, this is still very slow.  This is because the Schur complement operator $S$ is effectively an elliptic operator and we're inverting it with an unpreconditioned Krylov method.
@@ -310,10 +304,7 @@ for N in [5, 10, 25, 50, 100]:
     cpu_timestamp = time()
     solver.solve()
     cpu_time = time() - cpu_timestamp
-    print("N = {:3d}, iterations = {:1d}, converged reason = {:s}, time = {:.3f}s\n".format(
-        N, solver.snes.ksp.getIterationNumber(), 
-        KSPReasons[solver.snes.ksp.getConvergedReason()],
-        cpu_time))
+    print(f"N = {N:3d}, iterations = {solver.snes.ksp.getIterationNumber():1d}, converged reason = {KSPReasons[solver.snes.ksp.getConvergedReason()]:s}, time = {cpu_time:.3f}s\n")
 
 # %% [markdown]
 # We could now think about reducing the tolerance on the inner solves, reducing the accuracy of the approximation inverses.  For example, approximating $A^{-1}$ and $S^{-1}$ purely by the application of the preconditioner.
@@ -337,10 +328,7 @@ for N in [5, 10, 25, 50, 100]:
     cpu_timestamp = time()
     solver.solve()
     cpu_time = time() - cpu_timestamp
-    print("N = {:3d}, iterations = {:2d}, converged reason = {:s}, time = {:.3f}s".format(
-        N, solver.snes.ksp.getIterationNumber(), 
-        KSPReasons[solver.snes.ksp.getConvergedReason()],
-        cpu_time))
+    print(f"N = {N:3d}, iterations = {solver.snes.ksp.getIterationNumber():2d}, converged reason = {KSPReasons[solver.snes.ksp.getConvergedReason()]:s}, time = {cpu_time:.3f}s")
 
 # %% [markdown]
 # Developing efficient solvers for block systems using this approach is quite an experimental science.  The best approach will vary depending on how good the preconditioners you have available for the individual blocks are, how many degrees of freedom the system has, any coefficient variations, the tolerance to which you wish to solve the problem, and probably many more.

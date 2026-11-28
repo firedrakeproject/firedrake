@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.mesh import VertexOnlyMeshSF
 from firedrake.petsc import DEFAULT_PARTITIONER
 from firedrake.utils import IntType
 import pytest
@@ -501,3 +502,13 @@ def test_vom_in_vom_raises():
     vom = VertexOnlyMesh(m, [[0.1, 0.1]])
     with pytest.raises(NotImplementedError, match="topological dimension 0"):
         VertexOnlyMesh(vom, [[0.1, 0.1]])
+
+
+def test_candidate_sf_rejects_transposed_data():
+    m = UnitSquareMesh(2, 2)
+    coords = np.asarray([[0.1, 0.1], [0.2, 0.2]])
+    sf = VertexOnlyMeshSF.candidate_sf(m, coords)
+
+    root_data = np.asarray([[666, 666], [777, 777]]).T.copy().T
+    with pytest.raises(ValueError):
+        sf.broadcast(root_data)

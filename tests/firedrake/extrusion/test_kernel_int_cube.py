@@ -22,10 +22,10 @@ def integrate_unit_cube(family, degree):
     coords = f.function_space().mesh().coordinates
 
     domain = ""
-    instructions = """
-    <{0}> area = real(x[0,0])*(real(x[2,1])-real(x[4,1])) + real(x[2,0])*(real(x[4,1])-real(x[0,1])) + real(x[4,0])*(real(x[0,1])-real(x[2,1]))
+    instructions = f"""
+    <{RealType}> area = real(x[0,0])*(real(x[2,1])-real(x[4,1])) + real(x[2,0])*(real(x[4,1])-real(x[0,1])) + real(x[4,0])*(real(x[0,1])-real(x[2,1]))
     A[0] = A[0] + 0.5*abs(area)*(real(x[1,2])-real(x[0,2]))
-    """.format(RealType)
+    """
 
     par_loop((domain, instructions), dx, {'A': (g, INC), 'x': (coords, READ)})
 

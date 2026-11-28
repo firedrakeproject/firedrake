@@ -347,14 +347,14 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         # Now filter to only have ones that match the marker
         if marker in {"top", "bottom"}:
             # these markers don't have subsets
-            subset_indices = Ellipsis
+            subset_idxs = Ellipsis
         else:
-            subset_plex_indices_is = mesh.iter(facet_type, int(marker)).plex_indices_is
-            subset_indices = dmcommon.section_offsets(
-                mesh._plex_to_entity_numbering_sec(facet_type), subset_plex_indices_is
-            ).indices
+            subset_dm_idxs = mesh.iter(facet_type, int(marker)).dm_indices
+            subset_idxs = dmcommon.section_offsets(
+                mesh._plex_to_entity_numbering_sec(facet_type), subset_dm_idxs
+            )
 
-        return exterior_facet_nodes_per_exterior_facet[subset_indices]
+        return exterior_facet_nodes_per_exterior_facet[subset_idxs]
 
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_kw = dict(boundary_kw)

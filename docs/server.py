@@ -1,4 +1,4 @@
-"""Launch a livereload server serving up the html documention. Watch the
+"""Launch a livereload server serving up the html documentation. Watch the
 sphinx source directory for changes and rebuild the html documentation. Watch
 the pyop2 package directory for changes and rebuild the API documentation.
 

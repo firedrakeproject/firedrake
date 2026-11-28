@@ -410,19 +410,13 @@ class MacClangCompiler(Compiler):
     _cxxflags = ("-fPIC", "-Wall", "-framework", "Accelerate")
     _ldflags = ("-dynamiclib",)
 
-    _optflags = ("-O3", "-ffast-math", "-march=native")
+    _optflags = ("-O2", "-march=native")
     _debugflags = ("-O0", "-g")
 
 
 class MacClangARMCompiler(MacClangCompiler):
     """A compiler for building a shared library on ARM based Mac systems."""
-    # See https://stackoverflow.com/q/65966969
-    _optflags = ("-O3", "-ffast-math", "-mcpu=apple-a14")
-    # Need to pass -L/opt/homebrew/opt/gcc/lib/gcc/11 to prevent linker error:
-    # ld: file not found: @rpath/libgcc_s.1.1.dylib for architecture arm64 This
-    # seems to be a homebrew configuration issue somewhere. Hopefully this
-    # requirement will go away at some point.
-    _ldflags = ("-dynamiclib", "-L/opt/homebrew/opt/gcc/lib/gcc/11")
+    _optflags = ("-O2", "-march=native")
 
 
 class MacGNUCompiler(MacClangCompiler):
@@ -438,21 +432,8 @@ class LinuxGnuCompiler(Compiler):
     _cxxflags = ("-fPIC", "-Wall")
     _ldflags = ("-shared",)
 
-    _optflags = ("-march=native", "-O3", "-ffast-math")
+    _optflags = ("-O2", "-march=native")
     _debugflags = ("-O0", "-g")
-
-    @property
-    def bugfix_cflags(self) -> tuple[str, ...]:
-        """Flags to work around bugs in compilers."""
-        cflags = []
-        if not self._debug and self._version >= Version("15"):
-            # Disable '-O3' for GCC versions >=15 because it causes issues with
-            # complex interpolation kernels
-            # TODO: revisit this in later GCC releases to see if we can set a
-            # maximum version constraint
-            # (see https://github.com/firedrakeproject/firedrake/issues/5107)
-            cflags.append("-O2")
-        return tuple(cflags)
 
 
 class LinuxClangCompiler(Compiler):
@@ -465,7 +446,7 @@ class LinuxClangCompiler(Compiler):
     _cxxflags = ("-fPIC", "-Wall")
     _ldflags = ("-shared", "-L/usr/lib")
 
-    _optflags = ("-march=native", "-O3", "-ffast-math")
+    _optflags = ("-O2", "-march=native")
     _debugflags = ("-O0", "-g")
 
 
@@ -477,7 +458,7 @@ class LinuxIntelCompiler(Compiler):
     _cxxflags = ("-fPIC", "-no-multibyte-chars")
     _ldflags = ("-shared",)
 
-    _optflags = ("-Ofast", "-xHost")
+    _optflags = ("-O2", "-xHost")
     _debugflags = ("-O0", "-g")
 
 
@@ -489,7 +470,7 @@ class LinuxCrayCompiler(Compiler):
     _cxxflags = ("-fPIC", "-Wall")
     _ldflags = ("-shared",)
 
-    _optflags = ("-march=native", "-O3", "-ffast-math")
+    _optflags = ("-O2", "-march=native")
     _debugflags = ("-O0", "-g")
 
     @property

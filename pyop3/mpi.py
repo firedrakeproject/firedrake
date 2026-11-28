@@ -387,7 +387,7 @@ def internal_comm(comm: MPI.Comm, obj: Any) -> MPI.Comm:
     if comm == MPI.COMM_NULL:
         raise PyOP2CommError("MPI_COMM_NULL passed to internal_comm()")
     elif not isinstance(comm, MPI.Comm):
-        raise PyOP2CommError("Don't know how to dup a %r" % type(comm))
+        raise PyOP2CommError(f"Don't know how to dup a {type(comm)!r}")
 
     # Handle a valid input
     if is_pyop2_comm(comm):
@@ -483,12 +483,12 @@ def create_split_comm(comm):
         if tmpname is None:
             raise CompilationException("Cannot determine sharedness of filesystem")
         # Touch file
-        debug("Made tmpdir %s" % tmpname)
+        debug(f"Made tmpdir {tmpname}")
         with open(os.path.join(tmpname, str(comm.rank)), "wb"):
             pass
         comm.barrier()
         ranks = sorted(int(os.path.basename(name))
-                       for name in glob.glob("%s/[0-9]*" % tmpname))
+                       for name in glob.glob(f"{tmpname}/[0-9]*"))
         debug("Creating compilation communicator using filesystem colors")
         split_comm = comm.Split(color=min(ranks), key=comm.rank)
         debug("Finished creating compilation communicator using filesystem colors")
@@ -586,7 +586,11 @@ def comm_is_subset(comm_small: MPI.Comm, comm_large: MPI.Comm) -> bool:
     # If the intersection group doesn't match the small group then there
     # are elements in the small group that aren't in the large group and
     # therefore the comms aren't compatible.
-    return MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
+    is_subset = MPI.Group.Compare(group_intersect, group_small) != MPI.UNEQUAL
+    # Free the groups since mpi4py does not free them on garbage collection
+    for group in (group_intersect, group_small, group_large):
+        group.Free()
+    return is_subset
 
 
 def common_comm(comms: Iterable[MPI.Comm], *, default: MPI.Comm | None = None) -> MPI.Comm:

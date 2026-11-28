@@ -1,10 +1,11 @@
 import typing
 import weakref
+from contextlib import ExitStack, contextmanager
 from itertools import chain
 
 import numpy
 
-from firedrake import dmhooks, parameters
+from firedrake import dmhooks, parameters, utils
 from firedrake.bcs import DirichletBC
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
@@ -15,19 +16,20 @@ from functools import cached_property
 
 from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
-from ufl import as_vector, replace, split, zero
+from ufl import BaseForm, as_vector, replace, split, zero
+from ufl.algorithms import extract_coefficients
+from ufl.classes import Expr
 
 if typing.TYPE_CHECKING:
     from firedrake.variational_solver import NonlinearVariationalProblem
 
 
 def _make_reasons(reasons):
-    return {getattr(reasons, r): r
-            for r in dir(reasons) if not r.startswith('_')}
+    return {entry.value: entry.name for entry in reasons}
 
 
-KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason())
-SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason())
+KSPReasons = _make_reasons(PETSc.KSP.ConvergedReason)
+SNESReasons = _make_reasons(PETSc.SNES.ConvergedReason)
 
 
 def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaults=None):
@@ -115,27 +117,34 @@ def set_defaults(solver_parameters, arguments, *, ksp_defaults=None, snes_defaul
         return parameters
 
 
-def check_snes_convergence(snes):
-    r = snes.getConvergedReason()
-    try:
-        reason = SNESReasons[r]
-        inner = False
-    except KeyError:
-        r = snes.getKSP().getConvergedReason()
-        try:
-            inner = True
-            reason = KSPReasons[r]
-        except KeyError:
-            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_converged_reason and -ksp_converged_reason"
+def check_convergence(solver: PETSc.SNES | PETSc.KSP) -> None:
+    """Raise an error if a nonlinear or a linear solve does not converge.
+
+    Parameters
+    ----------
+    solver
+        The `PETSc.SNES` or `PETSc.KSP` that has just solved.
+
+    Raises
+    ------
+    ConvergenceError
+        If the solver reports a negative converged reason. If the KSP of a
+        failed SNES also failed, its error is the cause of the SNES error.
+    """
+    r = solver.getConvergedReason()
     if r < 0:
-        if inner:
-            msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
-                  (snes.getKSP().getIterationNumber(), reason)
-        else:
-            msg = reason
-        raise ConvergenceError(r"""Nonlinear solve failed to converge after %d nonlinear iterations.
-Reason:
-   %s""" % (snes.getIterationNumber(), msg))
+        is_snes = isinstance(solver, PETSc.SNES)
+        kind, reasons = ("Nonlinear", SNESReasons) if is_snes else ("Linear", KSPReasons)
+        reason = reasons.get(r, "unknown reason (petsc4py enum incomplete?), "
+                                "try with -snes_converged_reason and -ksp_converged_reason")
+        error = ConvergenceError(f"{kind} solve failed to converge after "
+                                 f"{solver.getIterationNumber()} iterations.\nReason:\n   {reason}")
+        if is_snes:
+            try:
+                check_convergence(solver.getKSP())
+            except ConvergenceError as cause:
+                raise error from cause
+        raise error
 
 
 class _SNESContext:
@@ -367,6 +376,77 @@ class _SNESContext:
             if kwargs.get(k) is None:
                 kwargs[k] = v
         return _SNESContext(problem, mat_type, pmat_type, **kwargs)
+
+    @cached_property
+    def coefficient_dms(self) -> tuple[PETSc.DM, ...]:
+        """Return the unique DMs of the coefficients of F, J, Jp, E, bcs and the appctx."""
+        problem = self._problem
+        objs = (problem.F, problem.J, problem.Jp, problem.E, *problem.bcs)
+        problem_coefficients = chain.from_iterable(f.coefficients() for f in objs if f is not None)
+        appctx_objs = (v for v in self.appctx.values() if isinstance(v, (Expr, BaseForm)))
+        appctx_coefficients = chain.from_iterable(map(extract_coefficients, appctx_objs))
+        coefficients = utils.unique(chain(problem_coefficients, appctx_coefficients))
+        dms = []
+        for coefficient in coefficients:
+            dm = coefficient.function_space().dm
+            if dm not in dms:
+                dms.append(dm)
+        return tuple(dms)
+
+    @contextmanager
+    def problem_hooks(self, solution_dm: PETSc.DM, *, include_coefficient_dms: bool):
+        """Attach this context to the solution DM and, optionally, to the coefficient DMs."""
+        with ExitStack() as stack:
+            stack.enter_context(dmhooks.add_hooks(solution_dm, self, appctx=self))
+            if include_coefficient_dms:
+                # The coefficient DMs only need the appctx to find the transfer manager.
+                for dm in self.coefficient_dms:
+                    if dm != solution_dm:
+                        dmhooks.push_appctx(dm, self)
+                        stack.callback(dmhooks.pop_appctx, dm, self)
+            yield
+
+    def solve_jacobian(self, b: Cofunction, x: Function, *,
+                       transpose: bool = False) -> None:
+        """Solve with the current Jacobian and preconditioner.
+
+        If a previous solve has already assembled the Jacobian, its operators
+        and KSP setup are reused. Otherwise, the Jacobian is assembled at the
+        current solution before the KSP is set up.
+
+        Parameters
+        ----------
+        b
+            The dual right-hand side.
+        x
+            The Function in which to store the solution.
+        transpose
+            If `True`, solve with the transposed Jacobian. The preconditioner
+            must then implement ``applyTranspose``.
+
+        Raises
+        ------
+        RuntimeError
+            If this context has no SNES.
+        ConvergenceError
+            If the linear solve fails to converge.
+        """
+        snes = self.snes
+        if snes is None:
+            raise RuntimeError("This context is not attached to a SNES")
+        ksp = snes.getKSP()
+        ksp_solve = ksp.solveTranspose if transpose else ksp.solve
+        needs_assembly = not self._jacobian_assembled
+        with self.problem_hooks(snes.getDM(), include_coefficient_dms=needs_assembly):
+            if needs_assembly:
+                snes.computeJacobian(self._x.dat._work_vec,
+                                     self._jac.petscmat,
+                                     self._pjac.petscmat)
+                snes.setUp()
+
+            with b.dat.vec_ro as bvec, x.dat.vec_wo as xvec:
+                ksp_solve(bvec, xvec)
+        check_convergence(ksp)
 
     @property
     def transfer_manager(self):

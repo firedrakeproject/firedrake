@@ -248,27 +248,41 @@ def cached_property_until(key: Callable[[Self], Hashable]):
     return decorator
 
 
-def cached_method_until(key: Callable[[Self], Hashable]):
+def cached_method_until(
+    get_version: Callable[[Self], Hashable],
+    get_key: Callable[[...], Hashable] = default_hashkey,
+):
     """Decorator for a method whose results are cached until some value changes.
 
     This is the counterpart of `cached_property_until` but for methods.
     When a decorated method is called, its results are cached against the set of arguments
     it was called with. All cached results are discarded when the value of the key changes.
+
+    Parameters
+    ----------
+    get_version : Callable[[Self], Hashable]
+        Callable returning the current cache "version". If this changes then
+        the existing cache is discarded.
+    get_key : Callable[[...], Hashable]
+        Callable returning the key used in cache lookups. Follows the same
+        convention as :func:`cached_method` in that ``self`` is ignored.
+        Defaults to :func:`default_hashkey`.
+
     """
     def decorator(func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
             cache_attribute = f"_{func.__qualname__}_cache"
-            current_key_value = key(self)
+            current_version = get_version(self)
             cached_state = getattr(self, cache_attribute, None)
-            if cached_state is None or cached_state[0] != current_key_value:
-                cached_state = (current_key_value, {})
+            if cached_state is None or cached_state[0] != current_version:
+                cached_state = (current_version, {})
                 setattr(self, cache_attribute, cached_state)
             results = cached_state[1]
-            args_key = default_hashkey(*args, **kwargs)
-            if args_key not in results:
-                results[args_key] = func(self, *args, **kwargs)
-            return results[args_key]
+            key = get_key(*args, **kwargs)
+            if key not in results:
+                results[key] = func(self, *args, **kwargs)
+            return results[key]
         return wrapper
     return decorator
 

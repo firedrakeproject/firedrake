@@ -295,6 +295,56 @@ def test_real_mixed_solve_split_comms():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parametrize("spaces", ["RxR", "RxCG", "CGxR", "mixed"])
+def test_real_matfree_assembly(spaces):
+    # mat_type="matfree" gives an implicit matrix with the same action as the assembled matrix
+    mesh = UnitIntervalMesh(4)
+    R = FunctionSpace(mesh, "Real", 0)
+    CG = FunctionSpace(mesh, "CG", 1)
+    if spaces == "mixed":
+        W = CG * R
+        u, c = TrialFunctions(W)
+        v, d = TestFunctions(W)
+        a = (inner(grad(u), grad(v)) + inner(c, v) + inner(u, d)) * dx
+    else:
+        test_space, trial_space = {"RxR": (R, R), "RxCG": (R, CG), "CGxR": (CG, R)}[spaces]
+        a = inner(TrialFunction(trial_space), TestFunction(test_space)) * dx
+
+    Amf = assemble(a, mat_type="matfree")
+    assert isinstance(Amf, ImplicitMatrix)
+    assert Amf.petscmat.getType() == "python"
+
+    A = assemble(a)
+    x_mf, y_mf = Amf.petscmat.createVecs()
+    x, y = A.petscmat.createVecs()
+    x_mf.setRandom()
+    x.array[:] = x_mf.array_r
+    Amf.petscmat.mult(x_mf, y_mf)
+    A.petscmat.mult(x, y)
+    assert np.allclose(y_mf.array_r, y.array_r)
+
+
+@pytest.mark.skipcomplex
+def test_real_mixed_matfree_solver_jacobian():
+    # A solver with mat_type="matfree" gets an implicit Jacobian for a mixed space with a Real block
+    mesh = UnitIntervalMesh(8)
+    W = FunctionSpace(mesh, "CG", 1) * FunctionSpace(mesh, "Real", 0)
+    v, d = TestFunctions(W)
+    z = Function(W)
+    u, c = split(z)
+    x, = SpatialCoordinate(mesh)
+    F = (inner(grad(u), grad(v)) + inner(c, v) + inner(u, d) - inner(cos(pi * x), v)) * dx
+    solver = NonlinearVariationalSolver(NonlinearVariationalProblem(F, z), solver_parameters={
+        "snes_type": "ksponly",
+        "mat_type": "matfree",
+        "ksp_type": "gmres",
+        "pc_type": "none",
+    })
+    solver.solve()
+    assert solver.snes.getJacobian()[0].getType() == "python"
+
+
+@pytest.mark.skipcomplex
 def test_real_space_eq():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
@@ -400,6 +450,20 @@ def test_real_interpolate():
 
 
 @pytest.mark.skipcomplex
+@pytest.mark.parallel([1, 2])
+@pytest.mark.parametrize("n", [1, 2, 4])
+def test_real_interpolate_cofunction(n):
+    mesh = UnitSquareMesh(n, n)
+    R = FunctionSpace(mesh, "R", 0)
+    m = Function(R).assign(0.3)
+    c = Cofunction(R.dual()).assign(1)
+
+    paired = assemble(interpolate(exp(m), c))
+
+    assert np.allclose(paired, np.exp(0.3))
+
+
+@pytest.mark.skipcomplex
 def test_real_interior_facet():
     mesh = UnitSquareMesh(2, 2)
     K = FunctionSpace(mesh, "DG", 1)
@@ -473,7 +537,7 @@ def test_real_space_repeated_assembly():
     R = FunctionSpace(mesh, "R", 0)
     q = TestFunction(R)
 
-    form = q*dx + q*ds  # area + perimeter of the unit square = 1 + 4 = 5
-    for i in range(3):
+    form = inner(1, q)*dx + inner(1, q)*ds
+    for _ in range(3):
         x = assemble(form)
-        pytest_mpi.parallel_assert(float(x), 5)
+        pytest_mpi.parallel_assert(np.allclose(x.dat.global_data, [5]))

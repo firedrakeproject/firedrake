@@ -203,7 +203,7 @@ def backward_solve(A, b, x, schur_builder, reconstruct_fields):
         systems.append(LAContext(lhs=A_e0e0inv, rhs=r_e0, field_idx=(id_e0,)))
 
     else:
-        msg = "Not implemented for systems with %s fields" % nfields
+        msg = f"Not implemented for systems with {nfields} fields"
         raise NotImplementedError(msg)
 
     return systems

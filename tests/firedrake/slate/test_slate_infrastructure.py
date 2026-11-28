@@ -18,7 +18,7 @@ def mesh(request):
     elif cell == quadrilateral:
         return UnitSquareMesh(1, 1, quadrilateral=True)
     else:
-        raise ValueError("%s cell not recognized" % cell)
+        raise ValueError(f"{cell} cell not recognized")
 
 
 @pytest.fixture(scope='module', params=['cg1', 'cg2', 'dg0', 'dg1'])
@@ -307,6 +307,13 @@ def test_blocks(zero_rank_tensor, mixed_matrix, mixed_vector):
     assert M201.arguments() == splitter.split(a, ((2,), (0, 1))).arguments()
     assert F01.arguments() == splitter.split(L, ((0, 1),)).arguments()
     assert F12.arguments() == splitter.split(L, ((1, 2),)).arguments()
+
+
+def test_inverse_block_extraction(mixed_matrix):
+    splitter = ExtractSubBlock()
+    inverse = mixed_matrix.inv
+
+    assert splitter.split(inverse, (0, 0)) == inverse.blocks[0, 0]
 
 
 def test_implicit_casting_add_sub():

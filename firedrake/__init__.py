@@ -71,6 +71,7 @@ from firedrake.exceptions import (  # noqa: F401
     FiredrakeException, ConvergenceError, MismatchingDomainError,
     VertexOnlyMeshMissingPointsError, DofNotDefinedError, DofTypeError,
     CommMismatchError, SerialExecutionOnlyError, PointNotInDomainError,
+    MismatchingFunctionSpaceError,
 )
 from firedrake.function import (  # noqa: F401
     Function, CoordinatelessFunction, PointEvaluator
@@ -162,6 +163,7 @@ from firedrake.external_operators import (  # noqa: F401
     PointexprOperator, point_expr, MLOperator
 )
 from firedrake.progress_bar import ProgressBar  # noqa: F401
+from firedrake.adapt import GoalOrientedMarker  # noqa: F401
 
 from firedrake.logging import (  # noqa: F401
     set_level, set_log_handlers, set_log_level, DEBUG, INFO,

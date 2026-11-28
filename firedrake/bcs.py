@@ -26,7 +26,6 @@ from firedrake.adjoint_utils.dirichletbc import DirichletBCMixin
 from firedrake.petsc import PETSc
 from firedrake.function import Function
 from firedrake.cofunction import Cofunction
-from firedrake.functionspaceimpl import is_mixed
 
 __all__ = ['DirichletBC', 'homogenize', 'EquationBC']
 
@@ -127,26 +126,15 @@ class BCBase:
         -----
         For mixed spaces in parallel (and potentially other more funky layouts)
         we interleave the DoFs for performance reasons. This means that one
-        cannot compute offsets as ``node*block_size``. If you truly want the
-        node numbers in that case you should use ``bc._nodes`` instead.
+        cannot compute offsets as ``node*block_size``.
 
         """
-        V = self._function_space
-        if V.comm.size > 1 and (is_mixed(V) or V.parent):
-            raise TypeError(
-                "For mixed spaces in parallel we interleave the DoFs so the nodes "
-                "cannot be used to compute offsets. Use 'node_offsets' instead."
-            )
-        return self._nodes
-
-    @cached_property
-    def _nodes(self) -> np.ndarray:
         V = self._function_space
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
         if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
            (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+            raise NotImplementedError(f"Strong BCs not implemented for element {V.finat_element!r}, use Nitsche-type methods until we figure this out")
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
@@ -229,7 +217,7 @@ class BCBase:
     def node_set(self) -> op3.Slice:
         '''The subset corresponding to the nodes at which this
         boundary condition applies.'''
-        subset_dat = op3.Dat.from_sequence(self._nodes, dtype=op3.dtypes.IntType)
+        subset_dat = op3.Dat.from_sequence(self.nodes, dtype=op3.dtypes.IntType)
         subset = op3.SubsetSliceComponent(None, subset_dat)
         return op3.Slice("nodes", [subset])
 
@@ -486,7 +474,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
         # Check that u matches r if supplied
         if u and u.function_space() != r.function_space():
-            raise RuntimeError("Mismatching spaces for %s and %s" % (r, u))
+            raise RuntimeError(f"Mismatching spaces for {r} and {u}")
 
         # Check that r's function space matches the BC's function
         # space. Run up through parents (IndexedFunctionSpace or
@@ -498,7 +486,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             elif fs.parent is not None:
                 fs = fs.parent
             else:
-                raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+                raise RuntimeError(f"{r!r} defined on incompatible FunctionSpace!")
 
         # Apply the indexing to r (and u if supplied)
         for idx in self._indices:
@@ -569,7 +557,7 @@ class EquationBC:
                     F = ufl_expr.action(J, u)
                 else:
                     if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
-                        raise TypeError("Provided BC RHS is a '%s', not a BaseForm or Slate Tensor" % type(L).__name__)
+                        raise TypeError(f"Provided BC RHS is a '{type(L).__name__}', not a BaseForm or Slate Tensor")
                     if len(L.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
                     F = ufl_expr.action(J, u) - L

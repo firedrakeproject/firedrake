@@ -114,12 +114,11 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c',), (base_coord_dim,)))
         domains.extend(_get_lp_domains(('l',), (2,)))
-        instructions = """
-        ext_coords[{dd}, l, c] = base_coords[{dd}, c]
-        ext_coords[{dd}, l, {base_coord_dim}] = ({hv})
-        """.format(dd=', '.join(dd),
-                   base_coord_dim=base_coord_dim,
-                   hv=height_var)
+        dd_inames = ', '.join(dd)
+        instructions = f"""
+        ext_coords[{dd_inames}, l, c] = base_coords[{dd_inames}, c]
+        ext_coords[{dd_inames}, l, {base_coord_dim}] = ({height_var})
+        """
         name = "pyop2_kernel_uniform_extrusion"
     elif extrusion_type == 'radial':
         domains = []
@@ -127,25 +126,24 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         domains.extend(_get_lp_domains(dd, ext_shape[:adim]))
         domains.extend(_get_lp_domains(('c', 'k'), (base_coord_dim, ) * 2))
         domains.extend(_get_lp_domains(('l',), (2,)))
-        instructions = """
-        <{RealType}> tt[{dd}] = 0
-        <{RealType}> bc[{dd}] = 0
+        dd_inames = ', '.join(dd)
+        instructions = f"""
+        <{RealType}> tt[{dd_inames}] = 0
+        <{RealType}> bc[{dd_inames}] = 0
         for k
-            bc[{dd}] = real(base_coords[{dd}, k])
-            tt[{dd}] = tt[{dd}] + bc[{dd}] * bc[{dd}]
+            bc[{dd_inames}] = real(base_coords[{dd_inames}, k])
+            tt[{dd_inames}] = tt[{dd_inames}] + bc[{dd_inames}] * bc[{dd_inames}]
         end
-        tt[{dd}] = sqrt(tt[{dd}])
-        ext_coords[{dd}, l, c] = base_coords[{dd}, c] + base_coords[{dd}, c] * ({hv}) / tt[{dd}]
-        """.format(RealType=RealType,
-                   dd=', '.join(dd),
-                   hv=height_var)
+        tt[{dd_inames}] = sqrt(tt[{dd_inames}])
+        ext_coords[{dd_inames}, l, c] = base_coords[{dd_inames}, c] + base_coords[{dd_inames}, c] * ({height_var}) / tt[{dd_inames}]
+        """
         name = "pyop2_kernel_radial_extrusion"
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
         tdim = extract_unique_domain(base_coords).ufl_cell().topological_dimension
         if tdim not in [1, 2]:
-            raise NotImplementedError("Hedgehog extrusion not implemented for %s" % extract_unique_domain(base_coords).ufl_cell())
+            raise NotImplementedError(f"Hedgehog extrusion not implemented for {extract_unique_domain(base_coords).ufl_cell()}")
         # tdim == 1:
         #
         # normal is:
@@ -192,30 +190,28 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         n_dict = {1: {1: n_1_1},
                   2: {1: n_2_1,
                       2: n_2_2}}
-        instructions = """
+        dd_inames = ', '.join(dd)
+        _dd_inames = ', '.join(_dd)
+        instructions = f"""
         <{RealType}> dot = 0
         <{RealType}> norm = 0
         <{RealType}> v0[c2] = 0
         <{RealType}> v1[c2] = 0
         <{RealType}> n[c2] = 0
         <{RealType}> x[c2] = 0
-        <{RealType}> bc[{_dd}, c1] = real(base_coords[{_dd}, c1])
-        for {_dd}
-            x[c1] = x[c1] + bc[{_dd}, c1]
+        <{RealType}> bc[{_dd_inames}, c1] = real(base_coords[{_dd_inames}, c1])
+        for {_dd_inames}
+            x[c1] = x[c1] + bc[{_dd_inames}, c1]
         end
-        {ninst}
+        {n_dict[tdim][adim]}
         for k
             dot = dot + x[k] * n[k]
             norm = norm + n[k] * n[k]
         end
         norm = sqrt(norm)
         norm = -norm if dot < 0 else norm
-        ext_coords[{dd}, l, c0] = base_coords[{dd}, c0] + n[c0] * ({hv}) / norm
-        """.format(RealType=RealType,
-                   dd=', '.join(dd),
-                   _dd=', '.join(_dd),
-                   ninst=n_dict[tdim][adim],
-                   hv=height_var)
+        ext_coords[{dd_inames}, l, c0] = base_coords[{dd_inames}, c0] + n[c0] * ({height_var}) / norm
+        """
         name = "pyop2_kernel_radial_hedgehog_extrusion"
     else:
         raise NotImplementedError(f"Unsupported extrusion type '{extrusion_type}'")

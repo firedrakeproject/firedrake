@@ -171,7 +171,7 @@ def _solve_varproblem(*args, **kwargs):
     eq, u, bcs, J, Jp, objective, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
-        options_prefix, restrict, pre_apply_bcs = _extract_args(*args, **kwargs)
+        options_prefix, restrict, pre_apply_bcs, marking_callback = _extract_args(*args, **kwargs)
 
     # Check whether solution is valid
     if not isinstance(u, Function):
@@ -210,7 +210,8 @@ def _solve_varproblem(*args, **kwargs):
                            near_nullspace=near_nullspace,
                            options_prefix=options_prefix,
                            appctx=appctx,
-                           pre_apply_bcs=pre_apply_bcs)
+                           pre_apply_bcs=pre_apply_bcs,
+                           marking_callback=marking_callback)
     return solver.solve()
 
 
@@ -292,8 +293,8 @@ def _extract_linear_solver_args(*args, **kwargs):
 
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
-            raise RuntimeError("Illegal keyword argument '%s'; valid keywords are %s" %
-                               (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
+            valid_kwargs_string = ", ".join(repr(kw) for kw in valid_kwargs)
+            raise RuntimeError(f"Illegal keyword argument '{kwarg}'; valid keywords are {valid_kwargs_string}")
 
     P = kwargs.get("P", None)
     bcs = kwargs.get("bcs", None)
@@ -335,12 +336,13 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "objective",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
-                    "options_prefix", "appctx", "restrict", "pre_apply_bcs"]
+                    "options_prefix", "appctx", "restrict", "pre_apply_bcs",
+                    "marking_callback"]
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
-            raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
-                               are %s" % (kwarg, ", ".join("'%s'" % kwarg
-                                          for kwarg in valid_kwargs)))
+            valid_kwargs_string = ", ".join(repr(kw) for kw in valid_kwargs)
+            raise RuntimeError(f"Illegal keyword argument '{kwarg}'; valid keywords "
+                               f"are {valid_kwargs_string}")
 
     # Extract equation
     if not len(args) >= 2:
@@ -378,10 +380,11 @@ def _extract_args(*args, **kwargs):
     options_prefix = kwargs.get("options_prefix", None)
     restrict = kwargs.get("restrict", False)
     pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
+    marking_callback = kwargs.get("marking_callback", None)
 
     return eq, u, bcs, J, Jp, objective, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, \
-        options_prefix, restrict, pre_apply_bcs
+        options_prefix, restrict, pre_apply_bcs, marking_callback
 
 
 def _extract_bcs(bcs):
@@ -393,8 +396,8 @@ def _extract_bcs(bcs):
         return (bcs, )
     else:
         if not isinstance(bcs, (tuple, list)):
-            raise TypeError("bcs must be BCBase, EquationBC, tuple, or list, not '%s'." % type(bcs).__name__)
+            raise TypeError(f"bcs must be BCBase, EquationBC, tuple, or list, not '{type(bcs).__name__}'.")
     for bc in bcs:
         if not isinstance(bc, (BCBase, EquationBC)):
-            raise TypeError("Provided boundary condition is a '%s', not a BCBase" % type(bc).__name__)
+            raise TypeError(f"Provided boundary condition is a '{type(bc).__name__}', not a BCBase")
     return bcs

@@ -332,7 +332,7 @@ the translation operator subclass can be defined as:
   N = TranslationOperator(u, f, function_space=V)
 
 Note that the above subclass takes in an *operator_data* argument. This keyword argument allows 
-users to attach data specfic to their operator. The data stashed in *operator_data* are accessible to all 
+users to attach data specific to their operator. The data stashed in *operator_data* are accessible to all
 the external operators induced by the original operator. For instance, the Jacobian of an external 
 operator `N`, which is an external operator, will also have access to the content of *operator_data*.
 

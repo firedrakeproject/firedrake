@@ -90,8 +90,7 @@ class BlockIndexer(object):
         # Make indexing with too few indices legal.
         key = key + tuple(slice(None) for i in range(self.tensor.rank - len(key)))
         if len(key) > self.tensor.rank:
-            raise ValueError("Attempting to index a rank-%s tensor with %s indices."
-                             % (self.tensor.rank, len(key)))
+            raise ValueError(f"Attempting to index a rank-{self.tensor.rank} tensor with {len(key)} indices.")
 
         block_shape = tuple(len(V) for V in self.tensor.arg_function_spaces)
         # Convert slice indices to tuple of indices.
@@ -177,7 +176,7 @@ class TensorBase(BaseForm):
             elif isinstance(op, (UnaryOp, BinaryOp)):
                 data = (type(op).__name__, )
             else:
-                raise ValueError("Unhandled type %r" % type(op))
+                raise ValueError(f"Unhandled type {type(op)!r}")
             hashdata.append(data + (op.prec, ))
         hashdata = "".join(f"{s}" for s in hashdata)
         return hashlib.sha512(hashdata.encode("utf-8")).hexdigest()
@@ -462,8 +461,7 @@ class AssembledVector(TensorBase):
             self._function = function
             return self
         else:
-            raise TypeError("Expecting a BaseCoefficient or AssembledVector (not a %r)" %
-                            type(function))
+            raise TypeError(f"Expecting a BaseCoefficient or AssembledVector (not a {type(function)!r})")
 
     def reconstruct(self, form):
         """Reconstructs this assembled vector with new operands."""
@@ -526,11 +524,11 @@ class AssembledVector(TensorBase):
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
-        return "AV_%d" % self.id
+        return f"AV_{self.id}"
 
     def __repr__(self):
         """Slate representation of the tensor object."""
-        return "AssembledVector(%r)" % self._function
+        return f"AssembledVector({self._function!r})"
 
     @cached_property
     def _key(self):
@@ -562,8 +560,7 @@ class BlockAssembledVector(AssembledVector):
             self._block = block
             return self
         else:
-            raise TypeError("Expecting a tuple of BaseCoefficients (not a %r)" %
-                            type(split_functions))
+            raise TypeError(f"Expecting a tuple of BaseCoefficients (not a {type(split_functions)!r})")
 
     @cached_property
     def form(self):
@@ -605,11 +602,11 @@ class BlockAssembledVector(AssembledVector):
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
-        return "BAV_%d" % self.id
+        return f"BAV_{self.id}"
 
     def __repr__(self):
         """Slate representation of the tensor object."""
-        return "BlockAssembledVector(%r)" % self._function
+        return f"BlockAssembledVector({self._function!r})"
 
     @cached_property
     def _key(self):
@@ -818,12 +815,12 @@ class Block(TensorBase):
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
         tensor, = self.operands
-        return "%s[%s]_%d" % (tensor, self._indices, self.id)
+        return f"{tensor}[{self._indices}]_{self.id}"
 
     def __repr__(self):
         """Slate representation of the tensor object."""
         tensor, = self.operands
-        return "%s(%r, idx=%s)" % (type(self).__name__, tensor, self._indices)
+        return f"{type(self).__name__}({tensor!r}, idx={self._indices})"
 
     @cached_property
     def _key(self):
@@ -859,7 +856,7 @@ class Factorization(TensorBase):
                                  "FullPivHouseholderQR", "LLT", "LDLT",
                                  "CompleteOrthogonalDecomposition",
                                  "BDCSVD", "JacobiSVD"]:
-            raise ValueError("Decomposition '%s' not supported" % decomposition)
+            raise ValueError(f"Decomposition '{decomposition}' not supported")
 
         if tensor.rank != 2:
             raise ValueError("Can only decompose matrices.")
@@ -918,12 +915,12 @@ class Factorization(TensorBase):
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
         tensor, = self.operands
-        return "%s(%s)_%d" % (self.decomposition, tensor, self.id)
+        return f"{self.decomposition}({tensor})_{self.id}"
 
     def __repr__(self):
         """Slate representation of the tensor object."""
         tensor, = self.operands
-        return "%s(%r, %s)" % (type(self).__name__, tensor, self.decomposition)
+        return f"{type(self).__name__}({tensor!r}, {self.decomposition})"
 
     @cached_property
     def _key(self):
@@ -970,7 +967,7 @@ class Tensor(TensorBase):
 
         r = len(form.arguments()) - diagonal
         if r not in (0, 1, 2):
-            raise NotImplementedError("No support for tensors of rank %d." % r)
+            raise NotImplementedError(f"No support for tensors of rank {r}.")
 
         # Remove any negative restrictions and replace with zero
         form = map_integrand_dags(RemoveNegativeRestrictions(), form)
@@ -1046,11 +1043,11 @@ class Tensor(TensorBase):
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
-        return ["S", "V", "M"][self.rank] + "_%d" % self.id
+        return f"{['S', 'V', 'M'][self.rank]}_{self.id}"
 
     def __repr__(self):
         """Slate representation of the tensor object."""
-        return ["Scalar", "Vector", "Matrix"][self.rank] + "(%r)" % self.form
+        return ["Scalar", "Vector", "Matrix"][self.rank] + f"({self.form!r})"
 
     @cached_property
     def _key(self):
@@ -1150,7 +1147,7 @@ class UnaryOp(TensorOp):
     def __repr__(self):
         """Slate representation of the resulting tensor."""
         tensor, = self.operands
-        return "%s(%r)" % (type(self).__name__, tensor)
+        return f"{type(self).__name__}({tensor!r})"
 
 
 class Reciprocal(UnaryOp):
@@ -1181,7 +1178,7 @@ class Reciprocal(UnaryOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
         tensor, = self.operands
-        return "(%s).reciprocal" % tensor
+        return f"({tensor}).reciprocal"
 
 
 class Inverse(UnaryOp):
@@ -1223,7 +1220,7 @@ class Inverse(UnaryOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
         tensor, = self.operands
-        return "(%s).inv" % tensor
+        return f"({tensor}).inv"
 
 
 class Transpose(UnaryOp):
@@ -1254,7 +1251,7 @@ class Transpose(UnaryOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the transpose of a tensor."""
         tensor, = self.operands
-        return "(%s).T" % tensor
+        return f"({tensor}).T"
 
 
 class ScalarMul(UnaryOp):
@@ -1363,18 +1360,18 @@ class BinaryOp(TensorOp):
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
-            par = lambda x: "(%s)" % x
+            par = lambda x: f"({x})"
         A, B = self.operands
         operand1 = A._output_string(prec=self.prec)
         operand2 = B._output_string(prec=self.prec)
 
-        result = "%s %s %s" % (operand1, ops[type(self)], operand2)
+        result = f"{operand1} {ops[type(self)]} {operand2}"
 
         return par(result)
 
     def __repr__(self):
         A, B = self.operands
-        return "%s(%r, %r)" % (type(self).__name__, A, B)
+        return f"{type(self).__name__}({A!r}, {B!r})"
 
 
 class Add(BinaryOp):
@@ -1580,7 +1577,7 @@ class DiagonalTensor(UnaryOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the diagonal of a tensor."""
         tensor, = self.operands
-        return "(%s).diag" % tensor
+        return f"({tensor}).diag"
 
 
 def space_equivalence(A, B):

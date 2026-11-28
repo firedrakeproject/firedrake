@@ -47,7 +47,7 @@ class HypreAMS(PCBase):
         formdegree = V.finat_element.formdegree
         degree = max(as_tuple(V.ufl_element().degree()))
         if formdegree != 1 or degree != 1:
-            raise ValueError("Hypre AMS requires lowest order Nedelec elements! (not %s of degree %d)" % (family, degree))
+            raise ValueError(f"Hypre AMS requires lowest order Nedelec elements! (not {family} of degree {degree})")
 
         # Get the auxiliary Lagrange space and the coordinate space
         P1_element = FiniteElement("Lagrange", degree=1)

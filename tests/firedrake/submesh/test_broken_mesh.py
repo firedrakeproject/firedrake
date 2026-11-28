@@ -34,8 +34,9 @@ def test_broken_mesh_dof_section():
     assert broken_section.getStorageSize() == broken.num_vertices()
 
     parent_map = broken.topology._submesh_to_parent_plex_index_map[
-        broken.topology._entity_indices("plex", "exterior_facet")]
-    parent_map = parent_map[np.isin(parent_map, parent.topology._entity_indices("plex", "interior_facet"))]
+        broken.topology._entity_dm_indices("exterior_facet")]
+    interior_facets = parent.topology._entity_dm_indices("interior_facet", force_return_array=True)
+    parent_map = parent_map[np.isin(parent_map, interior_facets)]
     assert len(parent_map) > len(np.unique(parent_map))
     sides, integral_type = broken.topology.trans_mesh_entity_map(parent.iter("interior_facet", 1))
     assert integral_type == "broken_facet"

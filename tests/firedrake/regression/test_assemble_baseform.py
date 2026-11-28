@@ -3,7 +3,8 @@ import numpy as np
 from firedrake import *
 from firedrake.assemble import get_assembler
 from firedrake.matrix import ImplicitMatrix
-from firedrake.utils import ScalarType
+from firedrake.petsc import PETSc
+from firedrake.utils import ScalarType, complex_mode
 import ufl
 
 
@@ -86,6 +87,51 @@ def test_assemble_adjoint(M):
     assert isinstance(res, ufl.Matrix)
     assert res.M.handle == res.petscmat
     assert np.allclose(res.M.handle[:, :], res2.M.handle[:, :], rtol=1e-14)
+
+
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("mat_type", [
+    "aij",
+    pytest.param("nest", marks=pytest.mark.xfail(
+        complex_mode, raises=PETSc.Error,
+        reason="PETSc MatNest does not implement conjugation.",
+    )),
+])
+@pytest.mark.parametrize("degree", [1, 2])
+@pytest.mark.parametrize("measure", [dx, ds], ids=["cell", "boundary"])
+def test_assemble_adjoint_tensor(mat_type: str, degree: int, measure: ufl.Measure) -> None:
+    """Update an independent output matrix while preserving the input matrix."""
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = FunctionSpace(mesh, "CG", degree)
+    u = TrialFunction(V)
+    v = TestFunction(W)
+    value = 1 + 2j if complex_mode else 1
+    coefficient = Constant(value)
+    form = inner(coefficient * (u + u.dx(0)), v) * measure
+    source = assemble(form, mat_type=mat_type)
+    target = assemble(inner(TrialFunction(W), TestFunction(V)) * dx, mat_type=mat_type)
+    handle = target.petscmat.handle
+    x, = SpatialCoordinate(mesh)
+    f = Function(V).interpolate(1 + x)
+    g = Function(W).interpolate(2 - x)
+
+    for scale in (1, 2, -1, 0):
+        coefficient.assign(scale * value)
+        assemble(form, tensor=source)
+        result = assemble(ufl.Adjoint(source), tensor=target)
+        assert result is target
+        assert result.petscmat.handle == handle
+
+        expected = assemble(action(adjoint(form), g))
+        error = assemble(assemble(action(result, g)) - expected)
+        with error.dat.vec_ro as vector:
+            assert vector.norm() < 1e-12
+
+        expected = assemble(action(form, f))
+        error = assemble(assemble(action(source, f)) - expected)
+        with error.dat.vec_ro as vector:
+            assert vector.norm() < 1e-12
 
 
 def test_assemble_action(M, f):
@@ -193,6 +239,22 @@ def test_vector_formsum(a):
         assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("foreign_operand", [False, True])
+def test_vector_formsum_rejects_different_spaces(foreign_operand):
+    spaces = [FunctionSpace(UnitIntervalMesh(4), "CG", 1).dual() for _ in range(2)]
+    V, W = spaces
+    a = Cofunction(V)
+    b = Cofunction(W if foreign_operand else V)
+    out = Cofunction(V if foreign_operand else W)
+    a.dat.data_wo[:] = 2
+    b.dat.data_wo[:] = 3
+    out.dat.data_wo[:] = 7
+    with pytest.raises(ValueError, match="function space"):
+        assemble(2 * a + 3 * b, tensor=out)
+    assert np.all(out.dat.data_ro == 7)
+
+
 def test_matrix_formsum(M):
     res = assemble(M)
     sumfirst = assemble(M+M)
@@ -259,6 +321,35 @@ def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
+
+
+def test_assemble_zero_base_form(fs):
+    v = TestFunction(fs)
+
+    zero = assemble(ufl.ZeroBaseForm(()))
+    assert isinstance(zero, ScalarType.type)
+    assert zero == 0
+
+    res = assemble(ufl.ZeroBaseForm((v,)))
+    assert isinstance(res, Cofunction)
+    assert res.function_space() == fs.dual()
+    with res.dat.vec_ro as rv:
+        assert rv.norm() == 0
+
+
+@pytest.mark.parametrize("mat_type", ["aij", "nest", "matfree"])
+def test_assemble_zero_base_form_matrix(fs, mat_type):
+    v = TestFunction(fs)
+    u = TrialFunction(fs)
+
+    res = assemble(ufl.ZeroBaseForm((v, u)), mat_type=mat_type)
+    assert isinstance(res, MatrixBase)
+    assert res.arguments() == (v, u)
+    x = Function(fs).assign(1)
+    y = Cofunction(fs.dual())
+    with x.dat.vec_ro as xv, y.dat.vec_wo as yv:
+        res.petscmat.mult(xv, yv)
+        assert yv.norm() == 0
 
 
 def test_tensor_output(a, M):

@@ -1,10 +1,7 @@
 import loopy as lp
 from firedrake.utils import IntType, as_cstr
 
-from finat.element_factory import as_fiat_cell
-from finat.point_set import UnknownPointSet
-from finat.quadrature import QuadratureRule
-from finat.ufl import MixedElement, FiniteElement, TensorElement
+from finat.ufl import MixedElement
 
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -19,39 +16,6 @@ from tsfc.parameters import default_parameters
 
 from firedrake import utils
 from firedrake.petsc import PETSc
-
-
-def runtime_quadrature_element(domain, ufl_element, rt_var_name="rt_X"):
-    """Construct a Quadrature FiniteElement for interpolation onto a
-    VertexOnlyMesh. The quadrature point is an UnknownPointSet of shape
-    (1, tdim) where tdim is the topological dimension of domain.ufl_cell(). The
-    weight is [1.0], since the single local dof in the VertexOnlyMesh function
-    space corresponds to a point evaluation at the vertex.
-
-    Parameters
-    ----------
-    domain : ufl.AbstractDomain
-        The source domain.
-    ufl_element : finat.ufl.finiteelement.FiniteElement
-        The UFL element of the target FunctionSpace.
-    rt_var_name : str
-        String beginning with ``'rt_'`` which is used as the name of the
-        gem.Variable used to represent the UnknownPointSet. The ``'rt_'`` prefix
-        forces TSFC to do runtime tabulation.
-    """
-    assert rt_var_name.startswith("rt_")
-
-    cell = domain.ufl_cell()
-    point_expr = gem.Variable(rt_var_name, (1, cell.topological_dimension))
-    point_set = UnknownPointSet(point_expr)
-    rule = QuadratureRule(point_set, weights=[1.0], ref_el=as_fiat_cell(cell))
-
-    shape = ufl_element.pullback.physical_value_shape(ufl_element, domain)
-    rt_element = FiniteElement("Quadrature", cell=cell, degree=0, quad_scheme=rule)
-    if shape:
-        symmetry = None if len(shape) < 2 else ufl_element.symmetry()
-        rt_element = TensorElement(rt_element, shape=shape, symmetry=symmetry)
-    return rt_element
 
 
 @PETSc.Log.EventDecorator()
@@ -149,56 +113,50 @@ def compile_element(expression, coordinates, parameters=None):
         kernel_name="evaluate_kernel", index_names={})
     kernel_code = lp.generate_code_v2(loopy_kernel).device_code()
 
-    # Fill the code template
-    code = {
-        "geometric_dimension": domain.geometric_dimension,
-        "IntType": as_cstr(IntType),
-        "scalar_type": utils.ScalarType_c,
-        "real_type": utils.RealType_c,
-    }
-    code["wrapper_map_args"] = "%(IntType)s const *__restrict__ coords_map, %(IntType)s const *__restrict__ f_map" % code
-    code["map_args"] = "f->coords_map, f->f_map"
-
-    evaluate_template_c = """
-static inline void wrap_evaluate(%(scalar_type)s* const result, %(scalar_type)s* const X, %(IntType)s const start, %(IntType)s const end,
-    %(scalar_type)s const *__restrict__ coords, %(scalar_type)s const *__restrict__ f, %(wrapper_map_args)s);
+    int_type = as_cstr(IntType)
+    scalar_type = utils.ScalarType_c
+    real_type = utils.RealType_c
+    evaluate_code = f"""
+static inline void wrap_evaluate({scalar_type}* const result, {scalar_type}* const X, {int_type} const start, {int_type} const end,
+    {scalar_type} const *__restrict__ coords, {scalar_type} const *__restrict__ f,
+    {int_type} const *__restrict__ coords_map, {int_type} const *__restrict__ f_map);
 
 
-int evaluate(struct Function *f, double *x, %(scalar_type)s *result)
-{
+int evaluate(struct Function *f, double *x, {scalar_type} *result)
+{{
     /* The type definitions and arguments used here are defined as statics in pointquery_utils.py */
-    %(real_type)s found_ref_cell_dist_l1 = PETSC_MAX_REAL;
+    {real_type} found_ref_cell_dist_l1 = PETSC_MAX_REAL;
     struct ReferenceCoords temp_reference_coords, found_reference_coords;
-    %(IntType)s cells_ignore[1] = {-1};
+    {int_type} cells_ignore[1] = {{-1}};
     RTreeError err;
     int64_t *ids = NULL;
     size_t nids = 0;
     err = rtree_locate_all_at_point((const struct RTreeH *)f->rtree, x, &ids, &nids);
-    if (err != Success) {
+    if (err != Success) {{
         fputs("ERROR: rtree_locate_all_at_point failed.\\n", stderr);
         rtree_free_ids(ids, nids);
         return -2;
-    }
-    %(IntType)s cell;
+    }}
+    {int_type} cell;
     PetscErrorCode locate_err = locate_cell_from_candidates(
             f, x, &to_reference_coords,
             &temp_reference_coords, &found_reference_coords,
             &found_ref_cell_dist_l1, nids, ids, 1, cells_ignore, &cell);
     rtree_free_ids(ids, nids);
-    if (locate_err != PETSC_SUCCESS) {
+    if (locate_err != PETSC_SUCCESS) {{
         return locate_err;
-    }
-    if (cell == -1) {
+    }}
+    if (cell == -1) {{
         return -1;
-    }
+    }}
 
-    if (!result) {
+    if (!result) {{
         return 0;
-    }
+    }}
 
-    wrap_evaluate(result, found_reference_coords.X, cell, cell+1, f->coords, f->f, %(map_args)s);
+    wrap_evaluate(result, found_reference_coords.X, cell, cell+1, f->coords, f->f, f->coords_map, f->f_map);
     return 0;
-}
+}}
 """
 
-    return (evaluate_template_c % code) + kernel_code
+    return evaluate_code + kernel_code
