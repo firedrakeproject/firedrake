@@ -1,15 +1,4 @@
-"""This demo program solves Helmholtz's equation
-
-  - div grad u(x, y) + u(x,y) = f(x, y)
-
-on the unit square with source f given by
-
-  f(x, y) = (1.0 + 8.0*pi**2)*cos(x[0]*2*pi)*cos(x[1]*2*pi)
-
-and the analytical solution
-
-  u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
-"""
+"""Test the convergence of solutions with zany elements."""
 
 import numpy as np
 import pytest
@@ -17,6 +6,16 @@ from firedrake import *
 
 
 def helmholtz(n, el_type, degree, perturb):
+    """Solve Helmholtz's equation on the unit square
+
+      - div grad u(x, y) + u(x,y) = f(x, y)
+
+    with the analytical solution
+
+      u(x, y) = cos(x[0]*3*pi)*cos(x[1]*3*pi)
+
+    and return the H1 norm of the error.
+    """
     mesh = UnitSquareMesh(2**n, 2**n)
     if perturb:
         V = mesh.coordinates.function_space()
@@ -64,3 +63,43 @@ def test_firedrake_helmholtz_scalar_convergence(el, deg, convrate, perturb):
     diff = np.array([helmholtz(i, el, deg, perturb) for i in range(l, l+2)])
     conv = np.log2(diff[:-1] / diff[1:])
     assert (np.array(conv) > convrate - 0.3).all()
+
+
+def discrete_kirchhoff_error(n):
+    """Return the L2 error of the discrete Hessian of the discrete Kirchhoff triangle.
+
+    The discrete Kirchhoff triangle replaces the gradient of the deflection by
+    its interpolant into the rotated Bernardi-Raugel space. The discrete
+    Hessian is the gradient of this interpolant. The plate is clamped on the
+    boundary of the unit square, which has an ``n`` by ``n`` mesh.
+    """
+    mesh = UnitSquareMesh(n, n)
+    W = FunctionSpace(mesh, "Reduced-Hermite", 3)
+    Theta = FunctionSpace(mesh, "Rotated-Bernardi-Raugel", 1)
+
+    w = TrialFunction(W)
+    v = TestFunction(W)
+    discrete_grad_w = interpolate(grad(w), Theta)
+    discrete_grad_v = interpolate(grad(v), Theta)
+    a = inner(grad(discrete_grad_w), grad(discrete_grad_v)) * dx
+
+    x, y = SpatialCoordinate(mesh)
+    w_exact = x**2 * (1 - x)**2 * y**2 * (1 - y)**2
+    L = inner(div(grad(div(grad(w_exact)))), v) * dx
+
+    w_h = Function(W)
+    bcs = DirichletBC(W, 0, "on_boundary")
+    solve(a == L, w_h, bcs=bcs)
+
+    # The Hessian of w_exact has degree 6, so a quadrature rule of degree 12
+    # integrates the squared error exactly.
+    error = grad(interpolate(grad(w_h), Theta)) - grad(grad(w_exact))
+    return sqrt(assemble(inner(error, error) * dx(degree=12)).real)
+
+
+def test_discrete_kirchhoff_hessian_convergence():
+    # The discrete gradient is piecewise linear, apart from the edge bubbles,
+    # so the error of its gradient converges at first order.
+    errors = np.array([discrete_kirchhoff_error(n) for n in (4, 8, 16)])
+    rates = np.log2(errors[:-1] / errors[1:])
+    assert (rates > 0.8).all()
