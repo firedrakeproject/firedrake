@@ -92,6 +92,13 @@ def test_rename_subdomain_appends_and_parse():
         mesh.parse_subdomain_id(1, "missing")
 
 
+def test_parse_subdomain_id_preserves_bytes():
+    mesh = UnitSquareMesh(1, 1)
+    subdomain_id = b"wall"
+
+    assert mesh.parse_subdomain_id(1, (subdomain_id,)) == (subdomain_id,)
+
+
 def test_measure_accepts_subdomain_name_with_domain():
     mesh = UnitSquareMesh(2, 2)
     mesh.rename_subdomain(1, [1, 2], "vertical")

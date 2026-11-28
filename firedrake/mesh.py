@@ -15,7 +15,7 @@ import finat.ufl
 import FIAT
 import weakref
 from collections import OrderedDict, defaultdict
-from collections.abc import Sequence, Generator, Callable, Iterator
+from collections.abc import Sequence, Generator, Callable, Iterator, Set
 from ufl.classes import ReferenceGrad
 from ufl.cell import CellSequence
 from ufl.domain import extract_unique_domain, extract_domains
@@ -4651,46 +4651,45 @@ values from f.)"""
         dim_subdomain_names = self.topology.subdomain_names.setdefault(self._check_entity_dimension(dim), {})
         dim_subdomain_names.setdefault(subdomain_name, []).extend(int(sid) for sid in ids)
 
-    def parse_subdomain_id(self, dim, subdomain_id):
-        """Resolve string subdomain names to integer subdomain ids for an entity dimension.
+    def parse_subdomain_id(self, dim: int, subdomain_id: Any) -> Any:
+        """Resolve subdomain names for an entity dimension.
 
-        Names in a top-level collection are spliced into it, while names in a
-        nested collection (an intersection of subdomain ids) stay grouped.
+        Expand names in the outer collection and keep names that resolve to
+        several ids grouped inside intersections.
+
+        Parameters
+        ----------
+        dim
+            The topological dimension of the entities.
+        subdomain_id
+            An integer id, a name, or a collection of ids and names.
+
+        Returns
+        -------
+        object
+            The resolved id or collection of ids.
         """
         dim = self._check_entity_dimension(dim)
-        dim_subdomain_names = self.topology.subdomain_names.get(dim, {})
+        names = self.topology.subdomain_names.get(dim, {})
 
-        def lookup(name):
-            if name in self._reserved_subdomain_names:
-                return (name,)
-            try:
-                return tuple(dim_subdomain_names[name])
-            except KeyError:
-                raise ValueError(
-                    f"Subdomain {name!r} not found in dimension {dim}. "
-                    f"Available names: {sorted(dim_subdomain_names)}"
-                ) from None
+        def resolve(value: Any, *, top: bool = False) -> Any:
+            if isinstance(value, str) and value not in self._reserved_subdomain_names:
+                ids = names.get(value)
+                if ids is None:
+                    raise ValueError(f"Subdomain {value!r} not found in dimension {dim}. Available names: {sorted(names)}")
+                return utils.as_tuple(ids)
+            items = tuple(value) if isinstance(value, Set | Iterator) else utils.as_tuple(value)
+            if len(items) == 1 and items[0] is value:
+                return value
 
-        def resolve(values, top):
             resolved = []
-            for value in values:
-                if isinstance(value, str):
-                    ids = lookup(value)
-                    if top:
-                        resolved.extend(ids)
-                    else:
-                        resolved.append(ids[0] if len(ids) == 1 else ids)
-                elif isinstance(value, Sequence):
-                    resolved.append(resolve(value, top=False))
-                else:
-                    resolved.append(value)
+            for item in items:
+                ids = resolve(item)
+                expand = isinstance(item, str) and isinstance(ids, tuple) and (top or len(ids) == 1)
+                resolved.extend(ids if expand else (ids,))
             return tuple(resolved)
 
-        if isinstance(subdomain_id, str):
-            return subdomain_id if subdomain_id in self._reserved_subdomain_names else lookup(subdomain_id)
-        if isinstance(subdomain_id, Sequence):
-            return resolve(subdomain_id, top=True)
-        return subdomain_id
+        return resolve(subdomain_id, top=True)
 
     def mark_entities(self, f, label_value, label_name=None):
         """Mark selected entities.

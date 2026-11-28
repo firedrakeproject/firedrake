@@ -32,7 +32,6 @@ from finat.quadrature import QuadratureRule
 
 from ufl.cell import CellSequence
 from ufl.duals import is_dual, is_primal
-from pyop3.pyop2_utils import as_tuple
 
 from firedrake import dmhooks, utils
 from firedrake.cython import dmcommon
@@ -469,11 +468,9 @@ class WithGeometryBase:
         if sub_domain in ["bottom", "top"] and not self.extruded:
             raise ValueError(f"Invalid subdomain '{sub_domain}' for non-extruded mesh")
 
-        if sub_domain in {"on_boundary", "top", "bottom"}:
-            sdkey = sub_domain
-        else:
-            sdkey = as_tuple(sub_domain)
-        key = (entity_dofs_key(self.finat_element.entity_dofs()), sdkey, self.boundary_set)
+        if sub_domain not in {"on_boundary", "top", "bottom"}:
+            sub_domain = utils.as_tuple(sub_domain)
+        key = (entity_dofs_key(self.finat_element.entity_dofs()), sub_domain, self.boundary_set)
         return self.get_facet_closure_nodes(self.mesh(), key)
 
     @cached_on(lambda self, mesh, key: mesh.topology, lambda self, mesh, key: key, get_version=lambda mesh_topology: mesh_topology._topology_version)
@@ -1882,7 +1879,7 @@ class RestrictedFunctionSpace(FunctionSpace):
             else:
                 # Currently, can not handle intersection of boundaries;
                 # e.g., boundary_set = [(1, 2)], which is different from [1, 2].
-                bd, = as_tuple(boundary_domain)
+                bd, = utils.as_tuple(boundary_domain)
                 boundary_set_.append(bd)
         boundary_set = boundary_set_
         for boundary_domain in boundary_set:

@@ -14,7 +14,6 @@ import finat
 from immutabledict import immutabledict as idict
 
 import pyop3 as op3
-from pyop3.pyop2_utils import as_tuple
 from pyop3.mpi import temp_internal_comm
 
 import firedrake
@@ -45,11 +44,10 @@ class BCBase:
     @PETSc.Log.EventDecorator()
     def __init__(self, V, sub_domain):
         self._function_space = V
-        sub_domain = (sub_domain,) if isinstance(sub_domain, str) else as_tuple(sub_domain)
         mesh = V.mesh()
         if isinstance(mesh, MeshGeometry):
             sub_domain = mesh.parse_subdomain_id(mesh.topological_dimension - 1, sub_domain)
-        self.sub_domain = sub_domain
+        self.sub_domain = () if sub_domain is None else utils.as_tuple(sub_domain)
         # If this BC is defined on a subspace (IndexedFunctionSpace or
         # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
@@ -156,41 +154,24 @@ class BCBase:
                     bcnodes = np.setdiff1d(bcnodes, deriv_ids)
             return bcnodes
 
-        # 'subdomain_id' has the form
+        # 'self.sub_domain' has the form
         #
         #     (A, B, C)
         #
-        # where each entry is either itself a tuple or a string. For instance
+        # where each entry is an integer id, a tuple, or a string. For instance
         # 'A' may be
         #
         #     (1, 2, 3)
         #
         # or a special string like "on_boundary".
         #
-        # The points constrained by the boundary condition is the *intersection
+        # The points constrained by the boundary condition are the *intersection
         # of the inner entries* (e.g. 1 ∩ 2 ∩ 3), but the *union of the outer
         # entries* (e.g. A ∪ B ∪ C).
-        sub_d = (self.sub_domain,) if isinstance(self.sub_domain, str) else as_tuple(self.sub_domain)
-        sub_d = [s if isinstance(s, str) else as_tuple(s) for s in sub_d]
         bcnodes = []
-        for s in sub_d:
-            if isinstance(s, str):
-                bcnodes.append(hermite_stride(self._function_space.boundary_nodes(s)))
-            else:
-                # s is of one of the following formats:
-                # facet: (i, )
-                # edge: (i, j)
-                # vertex: (i, j, k)
-                # take intersection of facet nodes, and add it to bcnodes
-                # i, j, k can also be strings.
-                bcnodes1 = []
-                for ss in s:
-                    # intersection of facets
-                    # Edge conditions have only been tested with Lagrange elements.
-                    # Need to expand the list.
-                    bcnodes1.append(hermite_stride(self._function_space.boundary_nodes(ss)))
-                bcnodes1 = reduce(np.intersect1d, bcnodes1)
-                bcnodes.append(bcnodes1)
+        for s in self.sub_domain:
+            facet_nodes = [hermite_stride(V.boundary_nodes(marker)) for marker in utils.as_tuple(s)]
+            bcnodes.append(reduce(np.intersect1d, facet_nodes))
         bcnodes = np.unique(np.concatenate(bcnodes))
 
         with temp_internal_comm(self._function_space.mesh().comm) as icomm:
