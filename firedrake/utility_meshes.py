@@ -1516,7 +1516,7 @@ def TensorBoxMesh(
             "The crossed cutting of hexahedra has a broken connectivity issue for Pk (k>1) elements"
         )
     else:
-        raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+        raise ValueError(f"Unrecognised value for diagonal {diagonal!r}")
     plex = plex_from_cell_list(
         3, cells, coords, comm, _generate_default_mesh_topology_name(name)
     )
@@ -2239,7 +2239,7 @@ def OctahedralSphereMesh(
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
     if hemisphere not in {"both", "north", "south"}:
-        raise ValueError("Unhandled hemisphere '%s'" % hemisphere)
+        raise ValueError(f"Unhandled hemisphere '{hemisphere}'")
     # vertices of an octahedron of radius 1
     vertices = np.array(
         [
@@ -2959,7 +2959,7 @@ def CylinderMesh(
             elif diagonal == "right":
                 idx = [0, 1, 2, 0, 2, 3]
             else:
-                raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+                raise ValueError(f"Unrecognised value for diagonal {diagonal!r}")
             # two cells per cell above...
             cells = cells[:, idx].reshape(-1, 3)
 
@@ -2970,7 +2970,7 @@ def CylinderMesh(
         rotation = np.asarray([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=np.double)
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
-        raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
+        raise ValueError(f"Unknown longitudinal direction '{longitudinal_direction}'")
 
     plex = plex_from_cell_list(
         2, cells, vertices, comm, _generate_default_mesh_topology_name(name)

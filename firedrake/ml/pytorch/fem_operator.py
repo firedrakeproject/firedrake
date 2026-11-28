@@ -147,7 +147,7 @@ def _extract_function_space(x):
     elif isinstance(x, float):
         return None
     else:
-        raise ValueError("Cannot infer the function space of %s" % x)
+        raise ValueError(f"Cannot infer the function space of {x}")
 
 
 def to_torch(x, gather=False, batched=True, **kwargs):
@@ -192,7 +192,7 @@ def to_torch(x, gather=False, batched=True, **kwargs):
             kwargs['dtype'] = torch.double
         return torch.tensor(x, **kwargs)
     else:
-        raise ValueError("Cannot convert %s to a torch tensor" % str(type(x)))
+        raise ValueError(f"Cannot convert {str(type(x))} to a torch tensor")
 
 
 def from_torch(x, V=None):

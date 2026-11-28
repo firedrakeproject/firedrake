@@ -89,7 +89,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         self.comm = function_space.comm
         self._function_space = function_space
         self.uid = _new_uid(self.comm)
-        self._name = name or 'function_%d' % self.uid
+        self._name = name or f"function_{self.uid}"
         self._label = "a function"
 
         self._parent = parent
@@ -719,7 +719,7 @@ class Function(ufl.Coefficient, FunctionMixin):
         elif len(arg.shape) == 1 and gdim == 1:
             arg = arg.reshape(-1, 1)
         else:
-            raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
+            raise ValueError(f"Point dimension ({arg.shape[-1]}) does not match geometric dimension ({gdim}).")
 
         # Check if we have got the same points on each process
         with op3.mpi.temp_internal_comm(self.comm) as icomm:

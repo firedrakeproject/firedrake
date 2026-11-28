@@ -52,7 +52,8 @@ passing it to `numpy.random.PCG64 <https://numpy.org/doc/stable/reference/random
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for ``.PCG64`` constructor. However, one can reset the ``state`` after construction as:
+    The ``.PCG64`` constructor does not take the ``inc`` keyword. To set the increment ``inc`` of the
+    random stream, set the ``state`` after construction. In this example, ``seed`` and ``inc`` are integers:
 
     .. code-block:: python
 
@@ -78,7 +79,8 @@ passing it to `numpy.random.PCG64DXSM <https://numpy.org/doc/stable/reference/ra
 
 .. note::
 
-    ``inc`` is no longer a valid keyword for ``.PCG64DXSM`` constructor. However, one can reset the ``state`` after construction as:
+    The ``.PCG64DXSM`` constructor does not take the ``inc`` keyword. To set the increment ``inc`` of the
+    random stream, set the ``state`` after construction. In this example, ``seed`` and ``inc`` are integers:
 
     .. code-block:: python
 
@@ -281,7 +283,7 @@ def __getattr__(module_attr):
                     @add_doc_string(getattr(_Base, c_a).__doc__)
                     def func(self, *args, **kwargs):
                         if len(args) > 0 and isinstance(args[0], BaseFunctionSpace):
-                            raise NotImplementedError("%s.%s does not take FunctionSpace as argument" % (module_attr, c_a))
+                            raise NotImplementedError(f"{module_attr}.{c_a} does not take FunctionSpace as argument")
                         else:
                             return getattr(super(_Wrapper, self), c_a)(*args, **kwargs)
 
@@ -336,8 +338,6 @@ def __getattr__(module_attr):
 
         if module_attr in ('PCG64', 'PCG64DXSM'):
             def _init(self, *args, **kwargs):
-                if 'inc' in kwargs:
-                    raise RuntimeError("'inc' is no longer a valid keyword; see <https://www.firedrakeproject.org/firedrake.html#module-firedrake.randomfunctiongen>")
                 rank = self.comm.Get_rank()
                 size = self.comm.Get_size()
                 _kwargs = kwargs.copy()
@@ -394,11 +394,11 @@ def __getattr__(module_attr):
                isinstance(seed, SeedSequence):
                 return Generator(PCG64(seed=seed))
             else:
-                raise ValueError("Firedrake wrapper of numpy.random.%s only takes seed of type {None, int, SeedSequence}." % module_attr)
+                raise ValueError(f"Firedrake wrapper of numpy.random.{module_attr} only takes seed of type {{None, int, SeedSequence}}.")
         return _wrapper
     elif module_attr in ['BitGenerator', 'RandomState', 'bit_generator', 'get_state', 'mtrand', 'seed', 'set_state', 'test']:
         def _wrapper(*args, **kwargs):
-            raise NotImplementedError("numpy.random.%s is not wrapped in Firedrake. Consider using numpy.random.%s directly." % (module_attr, module_attr))
+            raise NotImplementedError(f"numpy.random.{module_attr} is not wrapped in Firedrake. Consider using numpy.random.{module_attr} directly.")
         return _wrapper
     elif module_attr == 'SeedSequence':
         return getattr(randomgen, module_attr)
@@ -406,7 +406,7 @@ def __getattr__(module_attr):
         # module_attr not in _known_attributes + _deprecated_attributes
 
         def _wrapper(*args, **kwargs):
-            raise NotImplementedError("Firedrake has not yet wrapped numpy.random.%s." % module_attr)
+            raise NotImplementedError(f"Firedrake has not yet wrapped numpy.random.{module_attr}.")
         return _wrapper
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {module_attr!r}")

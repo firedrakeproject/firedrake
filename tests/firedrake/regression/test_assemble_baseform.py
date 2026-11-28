@@ -239,6 +239,22 @@ def test_vector_formsum(a):
         assert np.allclose(f.dat.data, f2.dat.data, atol=1e-12)
 
 
+@pytest.mark.parallel(nprocs=[1, 2])
+@pytest.mark.parametrize("foreign_operand", [False, True])
+def test_vector_formsum_rejects_different_spaces(foreign_operand):
+    spaces = [FunctionSpace(UnitIntervalMesh(4), "CG", 1).dual() for _ in range(2)]
+    V, W = spaces
+    a = Cofunction(V)
+    b = Cofunction(W if foreign_operand else V)
+    out = Cofunction(V if foreign_operand else W)
+    a.dat.data_wo[:] = 2
+    b.dat.data_wo[:] = 3
+    out.dat.data_wo[:] = 7
+    with pytest.raises(ValueError, match="function space"):
+        assemble(2 * a + 3 * b, tensor=out)
+    assert np.all(out.dat.data_ro == 7)
+
+
 def test_matrix_formsum(M):
     res = assemble(M)
     sumfirst = assemble(M+M)
@@ -305,6 +321,35 @@ def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, ScalarType.type)
     assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
+
+
+def test_assemble_zero_base_form(fs):
+    v = TestFunction(fs)
+
+    zero = assemble(ufl.ZeroBaseForm(()))
+    assert isinstance(zero, ScalarType.type)
+    assert zero == 0
+
+    res = assemble(ufl.ZeroBaseForm((v,)))
+    assert isinstance(res, Cofunction)
+    assert res.function_space() == fs.dual()
+    with res.dat.vec_ro as rv:
+        assert rv.norm() == 0
+
+
+@pytest.mark.parametrize("mat_type", ["aij", "nest", "matfree"])
+def test_assemble_zero_base_form_matrix(fs, mat_type):
+    v = TestFunction(fs)
+    u = TrialFunction(fs)
+
+    res = assemble(ufl.ZeroBaseForm((v, u)), mat_type=mat_type)
+    assert isinstance(res, MatrixBase)
+    assert res.arguments() == (v, u)
+    x = Function(fs).assign(1)
+    y = Cofunction(fs.dual())
+    with x.dat.vec_ro as xv, y.dat.vec_wo as yv:
+        res.petscmat.mult(xv, yv)
+        assert yv.norm() == 0
 
 
 def test_tensor_output(a, M):

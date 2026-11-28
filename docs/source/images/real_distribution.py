@@ -19,9 +19,9 @@ for i_ in range(3):
     for i in range(i_*L/3, (i_+1)*L/3):
         for j in range(L):
             if A[i, j]:
-                pylab.plot(j, L-i, '%ss' % "cmy"[i_], markersize=6)
-            pylab.plot(L, L - i, '%ss' % "cmy"[i_], markersize=6)
-            pylab.plot(i, 0, '%ss' % "cmy"[i_], markersize=6)
+                pylab.plot(j, L-i, f'{"cmy"[i_]}s', markersize=6)
+            pylab.plot(L, L - i, f'{"cmy"[i_]}s', markersize=6)
+            pylab.plot(i, 0, f'{"cmy"[i_]}s', markersize=6)
 pylab.axis([-1, L+1, -1, L+1])
 pylab.axis("off")
 pylab.savefig("real_distribution.png")

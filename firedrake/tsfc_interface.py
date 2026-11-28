@@ -21,7 +21,7 @@ from tsfc.kernel_interface.firedrake_loopy import ActiveDomainNumbers
 import pyop3 as op3
 from pyop3.cache import memory_and_disk_cache, default_parallel_hashkey
 from pyop3.constants import Intent
-from pyop3.mpi import COMM_WORLD
+from pyop3.mpi import COMM_SELF, COMM_WORLD
 
 from firedrake.formmanipulation import split_form
 from firedrake.parameters import parameters as default_parameters
@@ -64,7 +64,12 @@ def tsfc_compile_form_hashkey(form, prefix, parameters, dont_split_numbers, diag
 
 
 def _compile_form_comm(form, *args, **kwargs):
-    return form.ufl_domains()[0].comm
+    domains = form.ufl_domains()
+    if not domains:
+        if form.empty():
+            return COMM_SELF
+        raise ValueError("Cannot determine a communicator for a non-empty form without a domain.")
+    return domains[0].comm
 
 
 # Decorate the original tsfc.compile_form with a cache
@@ -106,7 +111,7 @@ class TSFCKernel:
             Map from local constant numbers in the provided (split) form to constant numbers in the original form.
         dont_split_numbers : tuple
             Block-local coefficient numbers of coefficients that are not to be split into components by form compiler.
-        access : Intent
+        access : pyop3.Intent
             The access descriptor of the output tensor.
         diagonal : bool
             If assembling a matrix is it diagonal?
@@ -200,7 +205,7 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
         Coefficients that are not to be split into components by form compiler.
     diagonal : bool
         If assembling a matrix is it diagonal?
-    access : Intent
+    access : pyop3.Intent
         The access descriptor of the output tensor.
 
     Returns
@@ -221,8 +226,8 @@ def compile_form(form, name, parameters=None, split=True, dont_split=(), diagona
     """
 
     # Check that we get a Form
-    if not isinstance(form, (Form, ufl.Interpolate)):
-        raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
+    if not isinstance(form, (Form, ZeroBaseForm, ufl.Interpolate)):
+        raise RuntimeError(f"Unable to convert object to a UFL form: {form!r}")
 
     if parameters is None:
         parameters = default_parameters["form_compiler"].copy()
@@ -329,7 +334,7 @@ def as_pyop3_local_kernel(
         The kernel code, for example a loopy kernel.
     nargs
         The number of arguments that the kernel expects.
-    access : Intent
+    access : pyop3.Intent
         The access descriptor of the first kernel argument. The other
         arguments are read-only.
     libraries

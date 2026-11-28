@@ -74,7 +74,7 @@ def test_line_smoother_periodic():
                  "patch_pc_patch_local_type": "additive",
                  "patch_pc_patch_construct_type": "python",
                  "patch_pc_patch_construct_python_type": "firedrake.PlaneSmoother",
-                 "patch_pc_patch_construct_ps_sweeps": "0-%d" % (N+1),
+                 "patch_pc_patch_construct_ps_sweeps": f"0-{N+1}",
                  "patch_sub_ksp_type": "preonly",
                  "patch_sub_pc_type": "lu"}
 

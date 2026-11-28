@@ -39,9 +39,9 @@ class LinearSolver(LinearVariationalSolver):
         """
         from firedrake.matrix import MatrixBase
         if not isinstance(A, MatrixBase):
-            raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
+            raise TypeError(f"Provided operator is a '{type(A).__name__}', not a MatrixBase")
         if P is not None and not isinstance(P, MatrixBase):
-            raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
+            raise TypeError(f"Provided preconditioner is a '{type(P).__name__}', not a MatrixBase")
 
         test, trial = A.arguments()
         self.x = Function(trial.function_space())

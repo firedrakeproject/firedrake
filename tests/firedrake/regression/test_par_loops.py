@@ -134,12 +134,12 @@ def test_dict_order_parallel():
         arg['d'] = (d, WRITE)
 
         for i, c in enumerate(consts):
-            arg["c%d" % i] = (c, READ)
+            arg[f"c{i}"] = (c, READ)
     else:
         arg['d'] = (d, WRITE)
 
         for i, c in enumerate(reversed(consts)):
-            arg["c%d" % (len(consts) - i - 1)] = (c, READ)
+            arg[f"c{len(consts) - i - 1}"] = (c, READ)
 
     domain = "{[i]: 0 <= i < d.dofs}"
     instructions = """
@@ -224,7 +224,7 @@ def test_cell_subdomain(subdomain):
                      "meshes", "cell-sets.msh"))
 
     V = FunctionSpace(mesh, "DG", 0)
-    expect = assemble(interpolate(as_ufl(1), V, subset=mesh.cell_subset(subdomain)))
+    expect = assemble(interpolate(as_ufl(1), V, subdomain_id=subdomain))
 
     f = Function(V)
 

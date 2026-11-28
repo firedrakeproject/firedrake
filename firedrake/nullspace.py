@@ -86,17 +86,14 @@ class VectorSpaceBasis:
         """
         constant = self._constant
         basis = self._petsc_vecs
-        for i, vec in enumerate(basis):
-            alphas = []
-            for vec_ in basis[:i]:
-                alphas.append(vec.dot(vec_))
-            for alpha, vec_ in zip(alphas, basis[:i]):
-                vec.axpy(-alpha, vec_)
-            if constant:
-                # Subtract constant mode
-                alpha = vec.sum()
-                vec.array -= alpha
-            vec.normalize()
+        for i, (function_, vec) in enumerate(zip(self._vecs, basis)):
+            with function_.dat.vec_rw as vec:
+                previous = basis[:i]
+                if previous:
+                    vec.maxpy(-vec.mDot(previous), previous)
+                if constant:
+                    vec.shift(-vec.sum() / vec.getSize())
+                vec.normalize()
         self.check_orthogonality()
         self._ad_orthogonalized = True
 
@@ -128,7 +125,7 @@ class VectorSpaceBasis:
 
             Modifies ``b`` in place."""
         nullsp = self.nullspace()
-        with b.dat.vec_ro as v:
+        with b.dat.vec_rw as v:
             nullsp.remove(v)
         self._ad_orthogonalized = True
 
@@ -254,9 +251,9 @@ class MixedVectorSpaceBasis:
                 continue
             # Must be indexed function space
             if i != basis.index:
-                raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
+                raise RuntimeError(f"FunctionSpace with index {basis.index} cannot appear at position {i}")
             if basis.parent != function_space:
-                raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
+                raise RuntimeError(f"FunctionSpace with index {basis.index} does not have {function_space} as a parent")
         self._bases = bases
         self._nullspace = None
 
@@ -303,15 +300,13 @@ class MixedVectorSpaceBasis:
             with v.dat.vec_ro as v_:
                 self._petsc_vecs.append(v_)
 
-        # orthonormalize:
         basis = self._petsc_vecs
-        for i, vec in enumerate(basis):
-            alphas = []
-            for vec_ in basis[:i]:
-                alphas.append(vec.dot(vec_))
-            for alpha, vec_ in zip(alphas, basis[:i]):
-                vec.axpy(-alpha, vec_)
-            vec.normalize()
+        for i, mvec in enumerate(self._vecs):
+            with mvec.dat.vec_rw as vec:
+                previous = basis[:i]
+                if previous:
+                    vec.maxpy(-vec.mDot(previous), previous)
+                vec.normalize()
 
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs,
@@ -374,8 +369,7 @@ class MixedVectorSpaceBasis:
             if rows != cols:
                 raise RuntimeError("Can only apply nullspace to square operator")
             if rows != len(self):
-                raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
-                                   (rows, cols, len(self)))
+                raise RuntimeError(f"Shape of matrix ({rows}, {cols}) does not match size of nullspace {len(self)}")
             # Hang the expanded nullspace on the big matrix
             self._apply_monolithic(matrix, transpose=transpose, near=near)
             return

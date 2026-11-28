@@ -120,12 +120,9 @@ solver_parameters = {
 def convergence(solver):
     from firedrake.solving_utils import KSPReasons, SNESReasons
     snes = solver.snes
-    print("""
-SNES iterations: {snes}; SNES converged reason: {snesreason}
-   KSP iterations: {ksp}; KSP converged reason: {kspreason}""".format(snes=snes.getIterationNumber(),
-                                                                      snesreason=SNESReasons[snes.getConvergedReason()],
-                                                                      ksp=snes.ksp.getIterationNumber(),
-                                                                      kspreason=KSPReasons[snes.ksp.getConvergedReason()]))
+    print(f"""
+SNES iterations: {snes.getIterationNumber()}; SNES converged reason: {SNESReasons[snes.getConvergedReason()]}
+   KSP iterations: {snes.ksp.getIterationNumber()}; KSP converged reason: {KSPReasons[snes.ksp.getConvergedReason()]}""")
 
 
 # %% [markdown]
@@ -292,7 +289,7 @@ convergence(solver)
 # Firedrake offers a facilities to build Python preconditioning objects, utilising petsc4py.
 #
 # In this case, we can subclass the 
-# [AuxiliaryOperatorPC](https://www.firedrakeproject.org/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
+# [AuxiliaryOperatorPC](https://www.firedrakeproject.org/apidoc/firedrake.preconditioners.html#firedrake.preconditioners.assembled.AuxiliaryOperatorPC) to provide the mass matrix.
 
 # %%
 class MassMatrix(AuxiliaryOperatorPC):

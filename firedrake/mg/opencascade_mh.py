@@ -23,7 +23,7 @@ def OpenCascadeMeshHierarchy(stepfile, element_size, levels, comm=COMM_WORLD, di
         raise ImportError("To use OpenCascadeMeshHierarchy, you must install firedrake with the OpenCascade python bindings (https://github.com/tpaviot/pythonocc-core).")
 
     if not os.path.isfile(stepfile):
-        raise OSError("%s does not exist" % stepfile)
+        raise OSError(f"{stepfile} does not exist")
 
     step_reader = STEPControl_Reader()
     step_reader.ReadFile(stepfile)
@@ -66,26 +66,26 @@ def make_coarse_mesh(stepfile, cad, element_size, dim, comm=COMM_WORLD, distribu
 
     curdir = os.path.dirname(stepfile) or os.getcwd()
     stepname = os.path.basename(os.path.splitext(stepfile)[0])
-    geopath = os.path.join(curdir, "coarse-%s.geo" % stepname)
-    mshpath = os.path.join(curdir, "coarse-%s.msh" % stepname)
+    geopath = os.path.join(curdir, f"coarse-{stepname}.geo")
+    mshpath = os.path.join(curdir, f"coarse-{stepname}.msh")
 
     if not os.path.isfile(mshpath) or not cache:
 
         if comm.rank == 0:
             geostr = 'SetFactory("OpenCASCADE");\n'
-            geostr += 'a() = ShapeFromFile("%s");\n' % os.path.abspath(stepfile)
+            geostr += f'a() = ShapeFromFile("{os.path.abspath(stepfile)}");\n'
             if isinstance(element_size, tuple):
                 assert len(element_size) == 2
 
-                geostr += """
-Mesh.CharacteristicLengthMin = %s;
-Mesh.CharacteristicLengthMax = %s;
-                """ % (element_size[0], element_size[1])
+                geostr += f"""
+Mesh.CharacteristicLengthMin = {element_size[0]};
+Mesh.CharacteristicLengthMax = {element_size[1]};
+                """
             elif isinstance(element_size, int) or isinstance(element_size, float):
-                geostr += """
-Mesh.CharacteristicLengthMin = %s;
-Mesh.CharacteristicLengthMax = %s;
-                """ % (element_size, element_size)
+                geostr += f"""
+Mesh.CharacteristicLengthMin = {element_size};
+Mesh.CharacteristicLengthMax = {element_size};
+                """
             elif isinstance(element_size, str):
                 geostr += element_size
             else:
@@ -93,17 +93,17 @@ Mesh.CharacteristicLengthMax = %s;
 
             if dim == 2:
                 for i in range(1, cad.number_of_edges()+1):
-                    geostr += "Physical Line(%d) = {%d};\n" % (i, i)
+                    geostr += f"Physical Line({i}) = {{{i}}};\n"
                 for i in range(1, cad.number_of_faces()+1):
-                    geostr += ('Physical Surface(%d) = {%d};\n' % (i+cad.number_of_edges(), i))
+                    geostr += f'Physical Surface({i+cad.number_of_edges()}) = {{{i}}};\n'
                 if cad.number_of_faces() > 1:
-                    surfs = "".join(["Surface{%d}; " % i for i in range(2, cad.number_of_faces()+1)])
+                    surfs = "".join([f"Surface{{{i}}}; " for i in range(2, cad.number_of_faces()+1)])
                     geostr += ('BooleanUnion{ Surface{1}; Delete;}{' + surfs + 'Delete;}')
             elif dim == 3:
                 for i in range(1, cad.number_of_faces()+1):
-                    geostr += "Physical Surface(%d) = {%d};\n" % (i, i)
+                    geostr += f"Physical Surface({i}) = {{{i}}};\n"
 
-                geostr += ('Physical Volume("Combined volume", %d) = {a()};\n' % (cad.number_of_faces()+1))
+                geostr += f'Physical Volume("Combined volume", {cad.number_of_faces()+1}) = {{a()}};\n'
 
             logging.debug(geostr)
 
@@ -120,7 +120,7 @@ Mesh.CharacteristicLengthMax = %s;
             else:
                 stdout = subprocess.DEVNULL
 
-            gmsh = subprocess.Popen(gmsh.split(" ") + ["-%d" % dim, geopath], stdout=stdout)
+            gmsh = subprocess.Popen(gmsh.split(" ") + [f"-{dim}", geopath], stdout=stdout)
             gmsh.wait()
 
         comm.barrier()
@@ -158,7 +158,7 @@ def project_mesh_to_cad_3d(mesh, cad):
                 projpt = proj.NearestPoint()
                 coorddata[node, :] = projpt.Coord()
             else:
-                warnings.warn("Projection of point %s onto face %d failed" % (coorddata[node, :], id))
+                warnings.warn(f"Projection of point {coorddata[node, :]} onto face {id} failed")
 
         edges = set(cad.edges_from_face(face))
 
@@ -181,7 +181,7 @@ def project_mesh_to_cad_3d(mesh, cad):
                         intersecting_edges.append(edge)
 
             if len(intersecting_edges) == 0:
-                warnings.warn("face: %s other_face: %s intersecting_edges: %s" % (face, other_face, intersecting_edges))
+                warnings.warn(f"face: {face} other_face: {other_face} intersecting_edges: {intersecting_edges}")
                 warnings.warn("Warning: no intersecting edges in CAD, even though vertices on both faces?")
                 continue
 
@@ -198,7 +198,7 @@ def project_mesh_to_cad_3d(mesh, cad):
                         sqdist = projpt.SquareDistance(pt)
                         projections.append((projpt, sqdist))
                     else:
-                        warnings.warn("Projection of point %s onto curve failed" % coorddata[node, :])
+                        warnings.warn(f"Projection of point {coorddata[node, :]} onto curve failed")
 
                 (projpt, sqdist) = min(projections, key=lambda x: x[1])
                 coorddata[node, :] = projpt.Coord()
@@ -232,4 +232,4 @@ def project_mesh_to_cad_2d(mesh, cad):
                 projpt = proj.NearestPoint()
                 coorddata[node, :] = projpt.Coord()[0:2]
             else:
-                warnings.warn("Projection of point %s onto curve failed" % coorddata[node, :])
+                warnings.warn(f"Projection of point {coorddata[node, :]} onto curve failed")

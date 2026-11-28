@@ -340,8 +340,7 @@ class WithGeometryBase:
                 if not cache[k]:
                     del cache[k]
             if val < len(cache):
-                raise ValueError("Can't set work function cache smaller (%d) than current checked out functions (%d)" %
-                                 (val, len(cache)))
+                raise ValueError(f"Can't set work function cache smaller ({int(val)}) than current checked out functions ({len(cache)})")
         self.mesh().set_max_work_functions(self, val)
 
     def get_work_function(self, zero=True):
@@ -376,8 +375,7 @@ class WithGeometryBase:
                     function.dat.zero(eager=True)
                 return function
         if len(cache) == self.max_work_functions:
-            raise ValueError("Can't check out more than %d work functions." %
-                             self.max_work_functions)
+            raise ValueError(f"Can't check out more than {self.max_work_functions} work functions.")
         from firedrake import Function
         function = Function(self)
         cache[function] = True
@@ -426,10 +424,10 @@ class WithGeometryBase:
         return len(self.topological)
 
     def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self.topological, self.mesh())
+        return f"{self.__class__.__name__}({self.topological!r}, {self.mesh()!r})"
 
     def __str__(self):
-        return "%s(%s, %s)" % (self.__class__.__name__, self.topological, self.mesh())
+        return f"{self.__class__.__name__}({self.topological}, {self.mesh()})"
 
     def __iter__(self):
         return iter(self.subspaces)
@@ -1619,7 +1617,7 @@ class FunctionSpace(AbstractFunctionSpace):
         return base_section
 
     @cached_property_until_mesh_topology_changes
-    @utils.deprecated("field_ises")
+    @utils.deprecated_rename("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -1754,9 +1752,7 @@ class FunctionSpace(AbstractFunctionSpace):
         yield self
 
     def __repr__(self):
-        return "FunctionSpace(%r, %r, name=%r)" % (self.mesh(),
-                                                   self.ufl_element(),
-                                                   self.name)
+        return f"FunctionSpace({self.mesh()!r}, {self.ufl_element()!r}, name={self.name!r})"
 
     def __str__(self):
         return self.__repr__()
@@ -1910,8 +1906,7 @@ class RestrictedFunctionSpace(FunctionSpace):
             self.boundary_set == other.boundary_set
 
     def __repr__(self):
-        return self.__class__.__name__ + "(%r, name=%r, boundary_set=%r)" % (
-            str(self.function_space), self.name, self.boundary_set)
+        return self.__class__.__name__ + f"({str(self.function_space)!r}, name={self.name!r}, boundary_set={self.boundary_set!r})"
 
     def __hash__(self):
         return hash((self.mesh(), self.layout, self.ufl_element(),
@@ -2122,11 +2117,10 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return iter(self._spaces)
 
     def __repr__(self):
-        return "MixedFunctionSpace(%s, name=%r)" % \
-            (", ".join(repr(s) for s in self), self.name)
+        return f"MixedFunctionSpace({', '.join(repr(s) for s in self)}, name={self.name!r})"
 
     def __str__(self):
-        return "MixedFunctionSpace(%s)" % ", ".join(str(s) for s in self)
+        return f"MixedFunctionSpace({', '.join(str(s) for s in self)})"
 
     @cached_property
     def value_size(self):
@@ -2183,7 +2177,7 @@ class MixedFunctionSpace(AbstractFunctionSpace):
         return tuple(ises)
 
     @property
-    @utils.deprecated("field_ises")
+    @utils.deprecated_rename("field_ises")
     def _ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -2251,13 +2245,7 @@ class ProxyFunctionSpace(FunctionSpace):
         return FunctionSpace.__repr__(self)
 
     def __str__(self):
-        return "%sProxyFunctionSpace(%s, %s, name=%s, index=%s, component=%s)" % \
-            (str(self.identifier).capitalize(),
-             self.mesh(),
-             self.ufl_element(),
-             self.name,
-             self.index,
-             self.component)
+        return f"{str(self.identifier).capitalize()}ProxyFunctionSpace({self.mesh()}, {self.ufl_element()}, name={self.name}, index={self.index}, component={self.component})"
 
     identifier = None
     r"""An optional identifier, for debugging purposes."""
@@ -2282,7 +2270,7 @@ class ProxyFunctionSpace(FunctionSpace):
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
         if self.no_dats:
-            raise ValueError("Can't build Function on %s function space" % self.identifier)
+            raise ValueError(f"Can't build Function on {self.identifier} function space")
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
 
@@ -2341,7 +2329,7 @@ class ProxyRestrictedFunctionSpace(RestrictedFunctionSpace):
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
         if self.no_dats:
-            raise ValueError("Can't build Function on %s function space" % self.identifier)
+            raise ValueError(f"Can't build Function on {self.identifier} function space")
         return super(ProxyRestrictedFunctionSpace, self).make_dat(*args, **kwargs)
 
 

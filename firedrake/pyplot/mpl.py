@@ -24,11 +24,9 @@ from firedrake import (interpolate, sqrt, inner, Function, SpatialCoordinate,
                        FunctionSpace, VectorFunctionSpace, PointNotInDomainError,
                        SerialExecutionOnlyError, Constant, assemble, dx)
 from firedrake.cython import dmcommon
-from firedrake.embedding import get_embedding_dg_element
 from firedrake.mesh import MeshGeometry, VertexOnlyMeshTopology
 from firedrake.petsc import PETSc
 from ufl.domain import extract_unique_domain
-from finat.physically_mapped import NeedsCoordinateMappingElement
 
 
 __all__ = [
@@ -349,14 +347,14 @@ def triplot(mesh, axes=None, interior_kw={}, boundary_kw={}):
         # Now filter to only have ones that match the marker
         if marker in {"top", "bottom"}:
             # these markers don't have subsets
-            subset_indices = Ellipsis
+            subset_idxs = Ellipsis
         else:
-            subset_plex_indices_is = mesh.iter(facet_type, int(marker)).plex_indices_is
-            subset_indices = dmcommon.section_offsets(
-                mesh._plex_to_entity_numbering_sec(facet_type), subset_plex_indices_is
-            ).indices
+            subset_dm_idxs = mesh.iter(facet_type, int(marker)).dm_indices
+            subset_idxs = dmcommon.section_offsets(
+                mesh._plex_to_entity_numbering_sec(facet_type), subset_dm_idxs
+            )
 
-        return exterior_facet_nodes_per_exterior_facet[subset_indices]
+        return exterior_facet_nodes_per_exterior_facet[subset_idxs]
 
     color_key = "colors" if tdim <= 2 else "facecolors"
     boundary_kw = dict(boundary_kw)
@@ -1176,13 +1174,6 @@ class FunctionPlotter:
         # if the function space is the same as the last one
         Q = function.function_space()
         mesh = Q.mesh()
-        element = Q.ufl_element()
-        if isinstance(Q.finat_element, NeedsCoordinateMappingElement) or not element.pullback.is_identity:
-            # Interpolate into broken Lagrange to sample the physical values
-            # with the reference tabulation below.
-            element = get_embedding_dg_element(element, Q.value_shape, broken_cg=True)
-            function = assemble(interpolate(function, FunctionSpace(mesh, element)))
-            Q = function.function_space()
         dimension = mesh.topological_dimension
         keys = {1: (0,), 2: (0, 0)}
 

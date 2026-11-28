@@ -273,14 +273,16 @@ membrane problem. Thus
 The clamped boundary conditions fix the deflection and its normal derivative.
 On the boundary, these are the values at the vertices and the mean normal
 derivatives on the edges, which are exactly the Morley degrees of freedom on the
-boundary. Thus we apply both conditions strongly with a ``DirichletBC``. With
-``reduced=False``, the function omits :math:`\Pi_h^P` and gives the standard
-Morley discretisation, which we use below for comparison.
+boundary. We use a restricted function space to leave those degrees of
+freedom at their initial value of zero. With ``reduced=False``, the function
+omits :math:`\Pi_h^P` and gives the standard Morley discretisation, which we
+use below for comparison.
 
 .. code-block:: python
 
   def modified_morley_problem(mesh, T, f, reduced=True):
       V = FunctionSpace(mesh, "Morley", 2)
+      V = RestrictedFunctionSpace(V, {"on_boundary"})
       P = FunctionSpace(mesh, "Lagrange", 1)
 
       w = TrialFunction(V)
@@ -298,7 +300,7 @@ Morley discretisation, which we use below for comparison.
       L = inner(f, Pi_v) * dx
 
       w_h = Function(V)
-      return LinearVariationalProblem(a, L, w_h, bcs=DirichletBC(V, 0, "on_boundary"))
+      return LinearVariationalProblem(a, L, w_h)
 
 We check the membrane limit with a uniform load. Multiplying the membrane
 deflection by :math:`T` gives the solution of :math:`-\Delta u = f`, so we
@@ -376,7 +378,6 @@ The demo prints the following errors and rates:
 
 .. table:: Gradient errors at :math:`\delta = 10^{-4}`
    :align: center
-   :class: column-pairs
    :widths: 1 3 2 3 2
 
    +----+------------------+------------------+
@@ -532,7 +533,6 @@ The demo prints the following errors and rates:
 
 .. table:: Rotation gradient errors and convergence rates
    :align: center
-   :class: column-pairs
    :widths: 1 3 2 3 2 3 2
 
    +----+------------------+------------------+--------------------+
@@ -559,16 +559,22 @@ rotation gradient as the mesh is refined.
       assert rate > 0.85, (name, rate)
 
 Finally, we draw a surface plot of the discrete Kirchhoff deflection on the
-finest mesh with :func:`trisurf <firedrake.pyplot.trisurf>`.
+finest mesh with :func:`trisurf <firedrake.pyplot.trisurf>`. Interpolation
+into discontinuous cubic Lagrange preserves the polynomial on each cell and
+lets the plotter sample it with the Lagrange basis.
 
 .. code-block:: python
 
   import matplotlib.pyplot as plt
   from firedrake.pyplot import trisurf
 
+  w_h = solutions["Discrete Kirchhoff"]
+  Q = FunctionSpace(w_h.function_space().mesh(), "DG", 3)
+  w_plot = assemble(interpolate(w_h, Q))
+
   fig = plt.figure()
   axes = fig.add_subplot(projection="3d")
-  trisurf(solutions["Discrete Kirchhoff"], axes=axes)
+  trisurf(w_plot, axes=axes)
   axes.set_xlabel("$x$")
   axes.set_ylabel("$y$")
   axes.set_zlabel("$w$", labelpad=12)

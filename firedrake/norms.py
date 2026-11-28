@@ -66,7 +66,7 @@ def norm(v, norm_type="L2", mesh=None):
             if p < 1:
                 raise ValueError
         except ValueError:
-            raise ValueError("Don't know how to interpret %s-norm" % norm_type)
+            raise ValueError(f"Don't know how to interpret {norm_type}-norm")
         expr = inner(v, v)
     elif typ == 'h1':
         expr = inner(v, v) + inner(grad(v), grad(v))
@@ -75,6 +75,6 @@ def norm(v, norm_type="L2", mesh=None):
     elif typ == "hcurl":
         expr = inner(v, v) + inner(curl(v), curl(v))
     else:
-        raise RuntimeError("Unknown norm type '%s'" % norm_type)
+        raise RuntimeError(f"Unknown norm type '{norm_type}'")
 
     return assemble((expr**(p/2))*dx)**(1/p)

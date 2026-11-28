@@ -5,7 +5,7 @@ import numpy as np
 
 @pytest.fixture(scope="module",
                 params=[0, 1, 2, 3],
-                ids=lambda x: "DG%d" % x)
+                ids=lambda x: f"DG{x}")
 def degree(request):
     return request.param
 

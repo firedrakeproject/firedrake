@@ -58,7 +58,7 @@ def test_two_poisson_gmg(typ):
                       "snes_max_it": 1,
                       "snes_convergence_test": "skip"}
     else:
-        raise RuntimeError("Unknown parameter set '%s' request", typ)
+        raise RuntimeError(f"Unknown parameter set '{typ}' request")
 
     mesh = UnitSquareMesh(10, 10)
 

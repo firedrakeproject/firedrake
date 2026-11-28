@@ -81,8 +81,6 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
 
     assert isinstance(form, Form)
 
-    GREEN = "\033[1;37;32m%s\033[0m"
-
     # Determine whether in complex mode:
     complex_mode = parameters and is_complex(parameters.get("scalar_type"))
     form_data = ufl_utils.compute_form_data(
@@ -94,7 +92,7 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
         ),
         complex_mode=complex_mode,
     )
-    logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
+    logger.info(f"compute_form_data finished in {time.time() - cpu_time:g} seconds.")
 
     validate_domains(form_data.preprocessed_form)
 
@@ -107,9 +105,9 @@ def compile_form(form, prefix="form", parameters=None, dont_split_numbers=(), di
                                       diagonal=diagonal, return_increments=return_increments)
             if kernel is not None:
                 kernels.append(kernel)
-        logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
+        logger.info(f"compile_integral finished in {time.time() - start:g} seconds.")
 
-    logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
+    logger.info(f"TSFC finished in {time.time() - cpu_time:g} seconds.")
     return kernels
 
 

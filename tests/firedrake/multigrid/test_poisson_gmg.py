@@ -65,7 +65,7 @@ def solver_parameters(solver_type):
                       "npc_snes_max_it": 1,
                       "npc_snes_convergence_test": "skip"}
     else:
-        raise RuntimeError("Unknown parameter set '%s' request", solver_type)
+        raise RuntimeError(f"Unknown parameter set '{solver_type}' request")
     return parameters
 
 
@@ -321,3 +321,23 @@ def test_mg_after_another_solver_on_the_same_space():
     solver_mg.solve()
     assert solver_mg.snes.ksp.getIterationNumber() == mg_its
     assert errornorm(u_lu, u_mg) < 1.0E-10 * norm(u_lu)
+
+
+@pytest.mark.parallel([1, 2])
+def test_appctx_coefficient_coarsening():
+    # mu is only in the appctx, so its DM is not a DM of the residual.
+    mh = MeshHierarchy(UnitSquareMesh(4, 4), 1)
+    mesh = mh[-1]
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    v = TestFunction(V)
+    F = inner(grad(u), grad(v)) * dx - inner(Constant(1), v) * dx
+    bcs = DirichletBC(V, 0, "on_boundary")
+    M = FunctionSpace(mesh, "DG", 0)
+    mu = Function(M)
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters("mg"),
+                                        appctx={"mu": mu})
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", "Creating new TransferManager", RuntimeWarning)
+        solver.solve()

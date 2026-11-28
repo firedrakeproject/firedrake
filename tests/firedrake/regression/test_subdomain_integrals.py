@@ -44,9 +44,8 @@ def test_solve_cell_subdomains(form, u):
     solve(form == 0, u)
     expect = Function(u.function_space())
 
-    mesh = u.function_space().mesh()
-    expect.interpolate(Constant(1.0), subset=mesh.cell_subset(1))
-    expect.interpolate(Constant(0.5), subset=mesh.cell_subset(2))
+    expect.interpolate(Constant(1.0), subdomain_id=1)
+    expect.interpolate(Constant(0.5), subdomain_id=2)
 
     assert np.allclose(expect.dat.data_ro, u.dat.data_ro)
 

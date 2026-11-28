@@ -132,9 +132,9 @@ class BCBase:
         V = self._function_space
 
         # First, we bail out on zany elements.  We don't know how to do BC's for them.
-        if isinstance(V.finat_element, (finat.Argyris, finat.Bell)) or \
+        if isinstance(V.finat_element, (finat.Argyris, finat.Morley, finat.Bell)) or \
            (isinstance(V.finat_element, finat.Hermite) and V.mesh().topological_dimension > 1):
-            raise NotImplementedError("Strong BCs not implemented for element %r, use Nitsche-type methods until we figure this out" % V.finat_element)
+            raise NotImplementedError(f"Strong BCs not implemented for element {V.finat_element!r}, use Nitsche-type methods until we figure this out")
 
         def hermite_stride(bcnodes):
             fe = self._function_space.finat_element
@@ -311,8 +311,11 @@ class DirichletBC(BCBase, DirichletBCMixin):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`firedrake.function.Function` on
-        ``V`` or a UFL expression that can be interpolated or projected into
-        ``V``. Numeric literals and sequences are converted to UFL expressions.
+        ``V``, or a :class:`firedrake.function.Function` on a different space or UFL expression that can be interpolated into
+        ``V``, for example, a :class:`.Constant` , an iterable of
+        literal constants (converted to a UFL expression), or a
+        literal constant which can be pointwise evaluated at the nodes
+        of ``V``.
     :arg sub_domain: the integer id(s) of the boundary region over which the
         boundary condition should be applied. The string "on_boundary" may be used
         to indicate all of the boundaries of the domain. In the case of extrusion
@@ -373,15 +376,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
     @function_arg.setter
     @DirichletBCMixin._ad_annotate_function_arg
     def function_arg(self, g):
-        """Set the value of this boundary condition."""
-        try:
-            g = as_ufl(g)
-        except ValueError:
-            try:
-                g = as_tensor(g)
-            except ValueError as exc:
-                raise ValueError(f"{g} is not a valid DirichletBC expression") from exc
-
+        '''Set the value of this boundary condition.'''
         try:
             # Clear any previously set update function
             del self._function_arg_update
@@ -397,10 +392,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 raise ValueError(f"Provided boundary value {g} does not match shape of space")
             # Special case. Scalar zero for direct Function.assign.
             self._function_arg = g
-        elif isinstance(g, ufl.classes.ScalarValue) and V.finat_element.has_pointwise_dual_basis:
-            # Each point evaluation of the constant gives the same value.
-            self._function_arg = g
-        else:
+        elif isinstance(g, ufl.classes.Expr):
             if g.ufl_shape != V.value_shape:
                 raise RuntimeError(f"Provided boundary value {g} does not match shape of space")
             try:
@@ -419,6 +411,16 @@ class DirichletBC(BCBase, DirichletBCMixin):
                 self._function_arg_update = firedrake.Projector(g, self._function_arg).project
             self._function_arg_update()
             self._coefficients = tuple(extract_coefficients(g))
+        else:
+            try:
+                g = as_ufl(g)
+                self._function_arg = g
+            except ValueError:
+                try:
+                    # Recurse to handle this through interpolation.
+                    self.function_arg = as_ufl(as_tensor(g))
+                except ValueError:
+                    raise ValueError(f"{g} is not a valid DirichletBC expression")
 
     def homogenize(self):
         '''Convert this boundary condition into a homogeneous one.
@@ -472,7 +474,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
 
         # Check that u matches r if supplied
         if u and u.function_space() != r.function_space():
-            raise RuntimeError("Mismatching spaces for %s and %s" % (r, u))
+            raise RuntimeError(f"Mismatching spaces for {r} and {u}")
 
         # Check that r's function space matches the BC's function
         # space. Run up through parents (IndexedFunctionSpace or
@@ -484,7 +486,7 @@ class DirichletBC(BCBase, DirichletBCMixin):
             elif fs.parent is not None:
                 fs = fs.parent
             else:
-                raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+                raise RuntimeError(f"{r!r} defined on incompatible FunctionSpace!")
 
         # Apply the indexing to r (and u if supplied)
         for idx in self._indices:
@@ -555,7 +557,7 @@ class EquationBC:
                     F = ufl_expr.action(J, u)
                 else:
                     if not isinstance(L, (ufl.BaseForm, slate.slate.TensorBase)):
-                        raise TypeError("Provided BC RHS is a '%s', not a BaseForm or Slate Tensor" % type(L).__name__)
+                        raise TypeError(f"Provided BC RHS is a '{type(L).__name__}', not a BaseForm or Slate Tensor")
                     if len(L.arguments()) != 1:
                         raise ValueError("Provided BC RHS is not a linear form")
                     F = ufl_expr.action(J, u) - L

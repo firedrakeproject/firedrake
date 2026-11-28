@@ -235,7 +235,7 @@ def generate(impero_c, args, scalar_type, kernel_name="loopy_kernel", index_name
     # Create arguments
     data = list(args)
     for i, (temp, dtype) in enumerate(assign_dtypes(impero_c.temporaries, scalar_type)):
-        name = "t%d" % i
+        name = f"t{i}"
         if isinstance(temp, gem.Constant):
             data.append(lp.TemporaryVariable(name, shape=temp.shape, dtype=dtype, initializer=temp.array, address_space=lp.AddressSpace.LOCAL, read_only=True))
         else:
@@ -301,7 +301,7 @@ def statement(tree, ctx):
     :arg ctx: miscellaneous code generation data
     :returns: list of loopy instructions
     """
-    raise AssertionError("cannot generate loopy from %s" % type(tree))
+    raise AssertionError(f"cannot generate loopy from {type(tree)}")
 
 
 @statement.register(imp.Block)
@@ -341,14 +341,15 @@ def statement_return(leaf, ctx):
 
     insns = [lp.Assignment(lhs, rhs, within_inames=ctx.active_inames())]
 
-    # GCC has a race condition bug for non-increment returns which result
-    # in numerical nonsense. We add a '__sync_synchronize()' call to
-    # prevent it.
-    # TODO: set this with an attribute: we don't want it for clang
+    # GCC 15 and 16 can miscompile outer loops with interleaved stores.
+    # TODO: Move this workaround into a compiler attribute.
     if not ctx.return_increments:
-        insns.append(
-            lp.CInstruction((), "__sync_synchronize();", within_inames=ctx.active_inames())
+        barrier = (
+            "#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ == 15 || __GNUC__ == 16)\n"
+            '__asm__ __volatile__("" ::: "memory");\n'
+            "#endif"
         )
+        insns.append(lp.CInstruction((), barrier, within_inames=ctx.active_inames()))
 
     return insns
 
@@ -421,7 +422,7 @@ def expression(expr, ctx, top=False):
 
 @singledispatch
 def _expression(expr, ctx):
-    raise AssertionError("cannot generate expression from %s" % type(expr))
+    raise AssertionError(f"cannot generate expression from {type(expr)}")
 
 
 @_expression.register(gem.Failure)

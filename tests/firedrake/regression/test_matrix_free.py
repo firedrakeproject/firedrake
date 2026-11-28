@@ -198,7 +198,7 @@ def test_matrixfree_repeated_transpose_with_dirichlet_bc(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    a = inner(grad(u), grad(v))*dx + inner(as_vector([1, 0]), grad(u))*v*dx
+    a = (inner(grad(u), grad(v)) + inner(grad(u)[0], v)) * dx
     bc = DirichletBC(V, 0, 1)
     A = assemble(a, bcs=bc, mat_type="matfree").petscmat
     B = assemble(a, bcs=bc).petscmat
