@@ -60,8 +60,8 @@ plate of thickness :math:`t`, with Young's modulus :math:`E` and Poisson's ratio
 :math:`D \Delta^2 w = f`. The Reissner--Mindlin model keeps
 :math:`\boldsymbol{\beta}` as an independent unknown.
 
-We begin by importing the Firedrake namespace and setting the material
-parameters of a thin plate.
+We begin by importing Firedrake and setting the material parameters of a
+thin plate.
 
 .. code-block:: python
 
@@ -72,11 +72,13 @@ parameters of a thin plate.
   nu = Constant(0.3)
   D = E * t**3 / (12 * (1 - nu**2))
 
-The bending term is common to all three methods, so we write it once in
-terms of a trial rotation :math:`\boldsymbol{\beta}` and a test rotation
-:math:`\boldsymbol{\theta}`. The modified Morley method uses the gradients of
-the deflection trial and test functions. The discrete Kirchhoff method
-interpolates those gradients before passing them to the bending form.
+We write the common bending form with trial rotation :math:`\boldsymbol{\beta}`
+and test rotation :math:`\boldsymbol{\theta}`. In MITC, these rotations are
+independent of the trial and test deflections :math:`w` and :math:`v`.
+The modified Morley method uses :math:`\boldsymbol{\beta} = \nabla w` and
+:math:`\boldsymbol{\theta} = \nabla v`. The discrete Kirchhoff method uses
+:math:`\boldsymbol{\beta} = \Pi_h^\Theta \nabla w` and
+:math:`\boldsymbol{\theta} = \Pi_h^\Theta \nabla v`.
 
 .. code-block:: python
 
@@ -214,8 +216,8 @@ boundary, so we apply it as boundary data.
 Kirchhoff Plate with the Modified Morley Element
 ------------------------------------------------
 
-Next, we apply an in-plane tension :math:`T` to a Kirchhoff plate. Its total
-potential energy is
+Next, we apply a uniform in-plane tension :math:`T` per unit length to a
+Kirchhoff plate. Its total potential energy is
 
 .. math::
 
@@ -225,25 +227,35 @@ potential energy is
   + T |\nabla w|^2 \right) \, \mathrm{d}x
   - \int_\Omega f w \, \mathrm{d}x.
 
-The corresponding equilibrium equation is:
+For these examples, define the applied tension by
 
 .. math::
 
-  D \Delta^2 w - T \Delta w = f.
+  T = \frac{E t}{12(1 - \nu^2)}.
 
-We divide by :math:`T` and write :math:`\delta^2 = D / T`. This gives
-:math:`\delta^2 \Delta^2 w - \Delta w = f / T`, which is a singular
-perturbation problem. As :math:`\delta \to 0`, the plate behaves as a
-membrane that obeys :math:`-T \Delta w^0 = f`. A method that is robust in
-:math:`\delta` must reproduce this limit.
+Define the scaled deflection :math:`u = T w`. Since :math:`D/T = t^2`,
+the equilibrium equation for :math:`u` is
+
+.. math::
+
+  t^2 \Delta^2 u - \Delta u = f.
+
+As :math:`t \to 0`, the leading equation is the membrane equation
+:math:`-\Delta u^0 = f`. A method that is robust as the plate becomes thin
+must reproduce this limit.
 
 The Morley element :cite:`Morley:1968` is the smallest triangular element for
-the bending term, and we write :math:`V_h` for the Morley space. It is not a
-:math:`C^0` element, and the Morley discretisation of the membrane term does
-not converge as :math:`\delta \to 0`. The modified Morley method of Wang, Xu and Hu
-:cite:`Wang:2006` keeps the Morley element in the bending term. In the membrane
-term and in the load, it replaces :math:`w_h` by its interpolant
-:math:`\Pi_h^P w_h` into the linear Lagrange space :math:`P_h`:
+the bending term. Let :math:`V_h` be the space of piecewise quadratic Morley
+functions on the triangulation of :math:`\Omega`. The quadratics agree at
+shared vertices and have matching mean normal derivatives with respect to a
+fixed normal on each interior edge. For the clamped plate, set the values
+at boundary vertices and the mean normal derivatives on boundary edges to zero.
+
+Morley functions can jump across edges, and the Morley discretisation of the
+membrane term fails to converge in the membrane limit. The modified Morley
+method of Wang, Xu and Hu :cite:`Wang:2006` keeps the Morley element in the
+bending term. In the membrane term and in the load, it replaces :math:`w_h` by
+its interpolant :math:`\Pi_h^P w_h` into the linear Lagrange space :math:`P_h`:
 
 .. math::
 
@@ -252,12 +264,11 @@ term and in the load, it replaces :math:`w_h` by its interpolant
   + \int_\Omega T \, \nabla \Pi_h^P w_h \cdot \nabla \Pi_h^P v_h \, \mathrm{d}x
   = \int_\Omega f \, \Pi_h^P v_h \, \mathrm{d}x \qquad \forall v_h \in V_h,
 
-where the gradients are evaluated on each cell. At :math:`D = 0`, the form only
-sees :math:`\Pi_h^P w_h`, so it is singular on :math:`V_h`. On
-:math:`\Pi_h^P w_h`, however, it is the linear Lagrange discretisation of the
-membrane problem. Thus
-:math:`\Pi_h^P w_h` tends to the discrete membrane solution as
-:math:`\delta \to 0`.
+where the gradients are evaluated on each cell. In the limit
+:math:`t \to 0`, the form divided by :math:`T` depends only on
+:math:`\Pi_h^P w_h`, so the limiting form is singular on :math:`V_h`.
+The scaled interpolant :math:`T \Pi_h^P w_h` tends to the linear Lagrange
+solution of :math:`-\Delta u = f`.
 
 .. image:: morley_elements.svg
    :align: center
@@ -305,7 +316,7 @@ use below for comparison.
 We check the membrane limit with a uniform load. Multiplying the membrane
 deflection by :math:`T` gives the solution of :math:`-\Delta u = f`, so we
 solve this reference problem once. We compare it with
-:math:`T \Pi_h^P w_h` while updating :math:`\delta` in the same plate solver.
+:math:`T \Pi_h^P w_h` while decreasing the thickness in the same plate solver.
 
 .. code-block:: python
 
@@ -321,20 +332,19 @@ solve this reference problem once. We compare it with
   solve(a == L, w_membrane, bcs=DirichletBC(P, 0, "on_boundary"))
   membrane_norm = norm(w_membrane).real
 
-  delta = Constant(1e-1)
-  T = D / delta**2
+  reference_thickness = float(t)
+  T = E * t / (12 * (1 - nu**2))
   plate_solver = LinearVariationalSolver(modified_morley_problem(mesh, T, f))
-  for value in [1e-1, 1e-2, 1e-3]:
-      delta.assign(value)
+  for thickness in [1e-1, 1e-2, 1e-3]:
+      t.assign(thickness)
       w_h = plate_solver.solve()
 
       scaled_w_h = assemble(interpolate(T * w_h, P))
       difference = errornorm(w_membrane, scaled_w_h).real / membrane_norm
-      print(f"Modified Morley: delta = {value:.0e}, "
+      print(f"Modified Morley: t = {thickness:.0e}, "
             f"relative difference from the membrane = {difference:.2e}")
 
-The difference decreases as :math:`O(\delta^2)`. Thus the method gives the
-correct limit.
+For small :math:`t`, the difference decreases as :math:`O(t^2)`.
 
 .. code-block:: python
 
@@ -345,24 +355,25 @@ continuous at the vertices, but its jump across an interior edge is a quadratic
 that vanishes at the two vertices, so the jump does not have zero mean. Thus the
 Morley discretisation of the membrane term has a consistency error that does
 not decrease as the mesh is refined, and the Morley method does not converge
-for the membrane problem :cite:`Nilssen:2001`. When :math:`\delta` is much
+for the membrane problem :cite:`Nilssen:2001`. When the thickness is much
 smaller than the mesh size, the membrane term dominates the energy. We show
-this with the manufactured Kirchhoff solution at :math:`\delta = 10^{-4}`
-and the load :math:`f = D \Delta^2 w_K - T \Delta w_K`. We measure the error in
-the gradient of the deflection, which we evaluate on each cell.
+this with the manufactured Kirchhoff solution at :math:`t = 10^{-4}`
+and the load :math:`f = D \Delta^2 w_K - T \Delta w_K`.
+We measure the error in the gradient of the deflection, which we evaluate on
+each cell.
 
 .. code-block:: python
 
   import numpy as np
 
   def membrane_error(mesh, reduced):
-      T = D / Constant(1e-4)**2
       w_K = kirchhoff_solution(mesh)
       f = D * div(grad(div(grad(w_K)))) - T * div(grad(w_K))
       problem = modified_morley_problem(mesh, T, f, reduced=reduced)
       w_h = LinearVariationalSolver(problem).solve()
       return l2_error(grad(w_h) - grad(w_K))
 
+  t.assign(1e-4)
   sizes = [4, 8, 16, 32]
   for reduced, name in [(False, "Morley"), (True, "Modified Morley")]:
       errors = np.array([membrane_error(UnitSquareMesh(size, size), reduced)
@@ -376,7 +387,7 @@ the gradient of the deflection, which we evaluate on each cell.
 
 The demo prints the following errors and rates:
 
-.. table:: Gradient errors at :math:`\delta = 10^{-4}`
+.. table:: Gradient errors at :math:`t = 10^{-4}`
    :align: center
    :widths: 1 3 2 3 2
 
@@ -398,15 +409,15 @@ The error of the Morley method does not decrease as the mesh is refined. The
 modified Morley method converges, and the reduction operator is responsible
 for this convergence.
 
-For the convergence study, we use a tension that gives
-:math:`\delta = 10^{-2}` and the load
-:math:`f = D \Delta^2 w_K - T \Delta w_K`, so the exact solution is
+For the convergence study, we restore the original thickness and use the
+load :math:`f = D \Delta^2 w_K - T \Delta w_K`, so the exact solution is
 :math:`w_K`.
 
 .. code-block:: python
 
+  t.assign(reference_thickness)
+
   def plate_under_tension(mesh):
-      T = D / Constant(1e-2)**2
       w_K = kirchhoff_solution(mesh)
       f = D * div(grad(div(grad(w_K)))) - T * div(grad(w_K))
       problem = modified_morley_problem(mesh, T, f)
@@ -486,7 +497,6 @@ on the boundary, and this clamps the plate.
       Pi_w = interpolate(w, P)
       Pi_v = interpolate(v, P)
 
-      T = D / Constant(1e-2)**2
       a_bending = bending(discrete_grad_w, discrete_grad_v)
       a_membrane = T * inner(grad(Pi_w), grad(Pi_v)) * dx
       a = a_bending + a_membrane
